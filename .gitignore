@@ -1,0 +1,27 @@
+# Секреты / локальная конфигурация
+.env
+
+# Данные сервисов (создаются docker-compose автоматически)
+qdrant_storage/
+ollama_models/
+db/postgres/data/
+
+# Документы пользователя и реестр индексации
+docs_sample/*
+!docs_sample/.gitkeep
+api/ingestion_registry.json
+api/ingestion.log
+
+# Python / uv
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Результаты бенчмарка
+api/results/
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/

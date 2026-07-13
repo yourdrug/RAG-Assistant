@@ -1,0 +1,95 @@
+version: "3.9"
+
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: rag_qdrant
+    ports:
+      - "6333:6333"
+    volumes:
+      - ./qdrant_storage:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/6333' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: rag_ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ./ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/11434' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    # Раскомментировать если есть NVIDIA GPU:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: rag_postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ragdb}
+      POSTGRES_USER: ${POSTGRES_USER:-raguser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ragpassword}
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./db/postgres/data:/var/lib/postgresql/data
+      - ./db/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-raguser} -d ${POSTGRES_DB:-ragdb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: rag_api
+    ports:
+      - "8000:8000"
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      QDRANT_URL: http://qdrant:6333
+      OLLAMA_BASE_URL: http://ollama:11434
+      DATABASE_URL: postgresql://${POSTGRES_USER:-raguser}:${POSTGRES_PASSWORD:-ragpassword}@postgres:5432/${POSTGRES_DB:-ragdb}
+      COLLECTION_NAME: ${COLLECTION_NAME:-company_docs}
+
+      # LLM: qwen2.5:14b (Apache-2.0) — по умолчанию.
+      # Альтернатива: mistral-nemo:12b (Apache-2.0)
+      LLM_MODEL: ${LLM_MODEL:-qwen2.5:14b}
+      EMBED_MODEL: ${EMBED_MODEL:-BAAI/bge-m3}               # MIT
+      RERANK_MODEL: ${RERANK_MODEL:-BAAI/bge-reranker-v2-m3} # MIT
+      RERANK_DEVICE: ${RERANK_DEVICE:-cpu}                   # cuda — если есть NVIDIA GPU
+
+      # OCR для сканов в PDF
+      OCR_ENABLED: ${OCR_ENABLED:-true}
+      OCR_ENGINE: ${OCR_ENGINE:-paddleocr}   # paddleocr | surya | auto (surya — отдельная установка, см. README)
+      OCR_LANG_PADDLE: ${OCR_LANG_PADDLE:-ru}
+    volumes:
+      - ./docs_sample:/app/docs
+    restart: unless-stopped
+    # 14B модель + bge-m3 + bge-reranker-v2-m3 + PaddleOCR одновременно требуют
+    # заметно больше RAM. Ориентир: от 16 GB свободной RAM
+    # на CPU-инференс, или GPU с 12+ GB VRAM для комфортной скорости LLM.

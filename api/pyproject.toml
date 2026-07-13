@@ -1,0 +1,78 @@
+[project]
+name = "rag-api"
+version = "0.1.0"
+description = "Корпоративный RAG-ассистент — FastAPI + Qdrant + Ollama, локальный стек"
+readme = "../README.md"
+requires-python = "==3.11.*"
+dependencies = [
+    "fastapi==0.115.0",
+    "uvicorn[standard]==0.30.6",
+    "langchain==0.3.7",
+    "langchain-community==0.3.7",
+    "langchain-huggingface==0.1.2",
+    "langchain-qdrant==0.2.0",
+    "langchain-ollama==0.2.1",
+    "qdrant-client==1.11.3",
+    "sentence-transformers==3.2.1",
+    "psycopg2-binary==2.9.9",
+    "sqlalchemy==2.0.35",
+    "pydantic==2.9.2",
+    "pydantic-settings==2.6.1",
+    "python-multipart==0.0.12",
+    "sse-starlette==2.1.3",
+    "python-dotenv==1.0.1",
+    "httpx==0.27.0",
+    # --- Парсеры документов (нативные, без unstructured) ---
+    "pymupdf==1.24.13",        # PDF (+ рендер страниц в картинку для OCR)
+    "python-docx==1.1.2",      # DOCX
+    "striprtf==0.0.26",        # RTF → plain text
+    "markdown==3.7",           # MD → plain text
+    "python-magic==0.4.27",    # определение типа файла по содержимому
+    # --- OCR для сканов внутри PDF (PaddleOCR — движок по умолчанию, Apache-2.0) ---
+    "paddlepaddle==2.6.2",     # CPU-сборка; для GPU ставь extra "gpu" отдельно
+    "paddleocr==2.9.1",
+    "pillow==10.4.0",          # рендер страниц PDF → изображение
+    # Реранкер BAAI/bge-reranker-v2-m3 (MIT) — работает через CrossEncoder
+    # из sentence-transformers, отдельный пакет не нужен.
+]
+
+[project.optional-dependencies]
+# Surya — опциональный запасной OCR-движок (см. README → "Лицензии").
+# Код Apache-2.0, но веса модели лицензированы отдельно: бесплатно для research/личного
+# использования и организаций до $5M выручки/финансирования, дальше — платная лицензия.
+# Ставится осознанно:  uv sync --extra surya
+surya = [
+    "surya-ocr==0.9.0",
+]
+
+[dependency-groups]
+# Инструменты разработки: тесты, форматирование, линт.
+# Ставятся по умолчанию при `uv sync` (dev-машина), но исключаются в Docker-образе
+# через `uv sync --no-dev`, чтобы не тащить pytest/ruff в прод.
+dev = [
+    "pytest==8.3.3",
+    "pytest-asyncio==0.24.0",
+    "ruff==0.7.4",
+    "httpx==0.27.0",
+]
+
+[tool.uv]
+package = false
+environments = [
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
+
+[tool.uv.extra-build-dependencies]
+grpcio-tools = ["setuptools<81"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = ["E501", "E701", "E702"]
