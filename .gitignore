@@ -1,10 +1,11 @@
 # Секреты / локальная конфигурация
-.env
+server/.env
 
 # Данные сервисов (создаются docker-compose автоматически)
 qdrant_storage/
 ollama_models/
 db/postgres/data/
+.data
 
 # Документы пользователя и реестр индексации
 docs_sample/*

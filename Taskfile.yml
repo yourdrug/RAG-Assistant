@@ -2,7 +2,6 @@ version: "3"
 
 vars:
   COMPOSE: docker compose
-  API_DIR: api
 
 dotenv: [".env"]
 
@@ -18,86 +17,47 @@ tasks:
   # -------------------------------------------------------------------------
 
   init:
-    desc: Первоначальная настройка — .env + venv + сборка образов
+    desc: Первоначальная настройка — .env файлы + сборка образа
     cmds:
       - task: env
-      - task: install
       - task: build
-      - 'echo "Готово. Дальше:  task up  →  task ingest  →  task chat"'
+      - 'echo "Готово. Дальше:  task up  →  task pull-model  →  task ingest  →  task chat"'
+      - 'echo "(Для локальной разработки/тестов вне Docker: task install)"'
 
   env:
-    desc: Создать .env из .env.example, если ещё не создан
+    desc: Создать .env и server/.env из соответствующих .env.example, если ещё не созданы
     status:
       - test -f .env
+      - test -f server/.env
     cmds:
-      - cp .env.example .env
-      - 'echo ".env создан из .env.example — при желании поправь пароли/модели"'
-
-  # -------------------------------------------------------------------------
-  # Python-окружение (uv)
-  # -------------------------------------------------------------------------
-
-  install:
-    desc: Установить Python-зависимости локально через uv (для разработки/тестов вне Docker)
-    dir: "{{.API_DIR}}"
-    cmds:
-      - uv sync --frozen
-
-  install:surya:
-    desc: Доустановить опциональный OCR-движок Surya (см. README → «Лицензии»)
-    dir: "{{.API_DIR}}"
-    cmds:
-      - uv sync --frozen --extra surya
-
-  lock:
-    desc: Пересобрать uv.lock после правки pyproject.toml
-    dir: "{{.API_DIR}}"
-    cmds:
-      - uv lock
-
-  fmt:
-    desc: Отформатировать и подчистить код (ruff)
-    dir: "{{.API_DIR}}"
-    cmds:
-      - uv run ruff format .
-      - uv run ruff check --fix .
-
-  lint:
-    desc: Проверить код линтером без изменений
-    dir: "{{.API_DIR}}"
-    cmds:
-      - uv run ruff check .
-
-  test:
-    desc: Прогнать unit-тесты (pytest)
-    dir: "{{.API_DIR}}"
-    cmds:
-      - uv run pytest -v
+      - test -f .env || cp .env.example .env
+      - test -f server/.env || cp server/.env.example server/.env
+      - 'echo ".env и server/.env готовы"'
 
   # -------------------------------------------------------------------------
   # Docker-стек
   # -------------------------------------------------------------------------
 
   build:
-    desc: Собрать образ api (после изменений в Dockerfile / pyproject.toml)
+    desc: Собрать образ server (после изменений в Dockerfile / pyproject.toml)
     cmds:
-      - "{{.COMPOSE}} build api"
+      - "{{.COMPOSE}} build server"
 
   up:
-    desc: Поднять весь стек (qdrant, ollama, postgres, api) в фоне
+    desc: Поднять весь стек (qdrant, postgres, server) в фоне
     cmds:
       - "{{.COMPOSE}} up -d"
       - task: ps
 
   down:
-    desc: Остановить и удалить контейнеры (данные в volume'ах сохраняются)
+    desc: Остановить и удалить контейнеры (данные в .data/ сохраняются)
     cmds:
       - "{{.COMPOSE}} down"
 
   restart:
-    desc: "Перезапустить сервис (task restart -- api)"
+    desc: "Перезапустить сервис (task restart -- server)"
     cmds:
-      - "{{.COMPOSE}} restart {{.CLI_ARGS | default \"api\"}}"
+      - "{{.COMPOSE}} restart {{.CLI_ARGS | default \"server\"}}"
 
   ps:
     desc: Статус контейнеров
@@ -105,16 +65,16 @@ tasks:
       - "{{.COMPOSE}} ps"
 
   logs:
-    desc: "Логи сервиса, по умолчанию api (task logs -- postgres)"
+    desc: "Логи сервиса, по умолчанию server (task logs -- postgres)"
     cmds:
-      - "{{.COMPOSE}} logs -f {{.CLI_ARGS | default \"api\"}}"
+      - "{{.COMPOSE}} logs -f {{.CLI_ARGS | default \"server\"}}"
 
   clean:
-    desc: Остановить стек и удалить volume'ы с данными (Qdrant/Postgres/Ollama) — ОПАСНО
-    prompt: Удалить все локальные данные (qdrant_storage, db/postgres/data, ollama_models)?
+    desc: Остановить стек и удалить .data/ (все данные Qdrant/Postgres) — ОПАСНО
+    prompt: Удалить все локальные данные (.data/)?
     cmds:
       - "{{.COMPOSE}} down -v"
-      - rm -rf qdrant_storage ollama_models db/postgres/data
+      - rm -rf .data
 
   # -------------------------------------------------------------------------
   # Модели Ollama
@@ -133,24 +93,16 @@ tasks:
     desc: Проиндексировать docs_sample/ (только новые/изменённые файлы)
     cmds:
       - curl -sX POST "http://localhost:8000/ingest?docs_dir=/app/docs&reset=false" | jq .
-      - task: logs
 
   ingest:reset:
     desc: Полная переиндексация docs_sample/ с нуля
     cmds:
       - curl -sX POST "http://localhost:8000/ingest?docs_dir=/app/docs&reset=true" | jq .
-      - task: logs
 
   ingest:file:
     desc: "Проиндексировать один файл (task ingest:file -- /app/docs/report.pdf)"
     cmds:
       - curl -sX POST "http://localhost:8000/ingest/file?file_path={{.CLI_ARGS}}" | jq .
-
-  ingest:list:
-    desc: Показать реестр уже проиндексированных файлов
-    dir: "{{.API_DIR}}"
-    cmds:
-      - "{{.COMPOSE}} exec api uv run python ingestion.py --list"
 
   # -------------------------------------------------------------------------
   # Проверка и использование
@@ -171,9 +123,9 @@ tasks:
 
   bench:
     desc: Запустить оценку качества (retriever + LLM-судья) по test_questions.json
-    dir: "{{.API_DIR}}"
+    dir: server
     cmds:
-      - uv run python benchmark.py --questions test_questions.json
+      - uv run python app/benchmark.py --questions app/test_questions.json
 
   # -------------------------------------------------------------------------
   # База данных
@@ -182,11 +134,52 @@ tasks:
   db:shell:
     desc: Открыть psql внутри контейнера postgres
     cmds:
-      - "{{.COMPOSE}} exec postgres psql -U ${POSTGRES_USER:-raguser} -d ${POSTGRES_DB:-ragdb}"
+      - "{{.COMPOSE}} exec postgres psql -U raguser -d ragdb"
 
   db:backup:
-    desc: Сделать дамп БД в db/postgres/backup_<дата>.sql
+    desc: Сделать дамп БД в db/postgres/backups/
     cmds:
       - mkdir -p db/postgres/backups
-      - "{{.COMPOSE}} exec -T postgres pg_dump -U ${POSTGRES_USER:-raguser} ${POSTGRES_DB:-ragdb} > db/postgres/backups/backup_$(date +%F_%H%M%S).sql"
+      - "{{.COMPOSE}} exec -T postgres pg_dump -U raguser ragdb > db/postgres/backups/backup_$(date +%F_%H%M%S).sql"
       - 'echo "Дамп сохранён в db/postgres/backups/"'
+
+  # -------------------------------------------------------------------------
+  # Локальная разработка без Docker (uv)
+  # -------------------------------------------------------------------------
+
+  install:
+    desc: "Установить зависимости локально через uv (основные + dev: pytest, ruff)"
+    dir: server
+    cmds:
+      - uv sync --frozen
+
+  install:surya:
+    desc: Доустановить опциональный OCR-движок Surya (см. README → «Лицензии»)
+    dir: server
+    cmds:
+      - uv sync --frozen --extra surya
+
+  lock:
+    desc: Пересобрать uv.lock после правки pyproject.toml
+    dir: server
+    cmds:
+      - uv lock
+
+  fmt:
+    desc: Отформатировать и подчистить код (ruff)
+    dir: server
+    cmds:
+      - uv run ruff format app tests
+      - uv run ruff check --fix app tests
+
+  lint:
+    desc: Проверить код линтером без изменений
+    dir: server
+    cmds:
+      - uv run ruff check app tests
+
+  test:
+    desc: Прогнать unit-тесты (pytest)
+    dir: server
+    cmds:
+      - uv run pytest -v

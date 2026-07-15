@@ -8,7 +8,7 @@
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 from ingestion import clean_pdf_text, file_hash, is_already_indexed  # noqa: E402
 

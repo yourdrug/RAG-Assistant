@@ -26,6 +26,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from config import settings
 from langchain.schema import Document
 
 # ---------------------------------------------------------------------------
@@ -34,8 +35,6 @@ from langchain.schema import Document
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_ollama import ChatOllama
 from langchain_qdrant import QdrantVectorStore
-
-from config import settings
 
 
 # ---------------------------------------------------------------------------

@@ -12,12 +12,6 @@ main.py — FastAPI приложение с SSE-стримингом и исто
 
 import json
 
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
-from sqlalchemy.orm import Session
-
 from config import settings
 from database import (
     create_conversation,
@@ -26,7 +20,12 @@ from database import (
     get_or_create_conversation,
     save_message,
 )
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from rag_chain import rag_invoke, rag_stream
+from sqlalchemy.orm import Session
 
 app = FastAPI(
     title="RAG API",

@@ -3,7 +3,8 @@ version: "3.9"
 services:
   qdrant:
     image: qdrant/qdrant:latest
-    container_name: rag_qdrant
+    hostname: qdrant
+    container_name: rag-qdrant
     ports:
       - "6333:6333"
     volumes:
@@ -39,30 +40,56 @@ services:
 
   postgres:
     image: postgres:16-alpine
-    container_name: rag_postgres
+    hostname: postgres
+    container_name: rag-postgres
+    command: [ "postgres", "-c", "config_file=/etc/postgresql/postgresql.conf" ]
+    expose: [ "5432/tcp" ]
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-ragdb}
-      POSTGRES_USER: ${POSTGRES_USER:-raguser}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ragpassword}
-    ports:
-      - "5432:5432"
+      POSTGRES_DB: ragdb
+      POSTGRES_USER: raguser
+      POSTGRES_PASSWORD: ragpassword   # для прод-окружения — смени и здесь, и в server/.env (DATABASE_URL)
     volumes:
-      - ./db/postgres/data:/var/lib/postgresql/data
-      - ./db/postgres/init:/docker-entrypoint-initdb.d:ro
+      - ./db/postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - ./db/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./.data/postgres:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-raguser} -d ${POSTGRES_DB:-ragdb}"]
+      test: ["CMD-SHELL", "pg_isready -U raguser -d ragdb"]
       interval: 10s
       timeout: 5s
       retries: 10
     restart: unless-stopped
 
-  api:
+  server:
     build:
-      context: ./api
+      context: .
       dockerfile: Dockerfile
-    container_name: rag_api
+      target: development
+    hostname: rag-server
+    container_name: rag-server
+    entrypoint: ["./entrypoint.sh"]
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     ports:
       - "8000:8000"
+    env_file:
+      - path: server/.env
+        required: true
+    volumes:
+      - ./server/app:/code/project/app
+      - ./docs_sample:/app/docs
+    healthcheck:
+      test: [ "CMD", "curl", "--silent", "--fail", "http://localhost:8000/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 16G
+        reservations:
+          cpus: "1"
+          memory: 4G
     depends_on:
       qdrant:
         condition: service_healthy
@@ -70,26 +97,14 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
-    environment:
-      QDRANT_URL: http://qdrant:6333
-      OLLAMA_BASE_URL: http://ollama:11434
-      DATABASE_URL: postgresql://${POSTGRES_USER:-raguser}:${POSTGRES_PASSWORD:-ragpassword}@postgres:5432/${POSTGRES_DB:-ragdb}
-      COLLECTION_NAME: ${COLLECTION_NAME:-company_docs}
-
-      # LLM: qwen2.5:14b (Apache-2.0) — по умолчанию.
-      # Альтернатива: mistral-nemo:12b (Apache-2.0)
-      LLM_MODEL: ${LLM_MODEL:-qwen2.5:14b}
-      EMBED_MODEL: ${EMBED_MODEL:-BAAI/bge-m3}               # MIT
-      RERANK_MODEL: ${RERANK_MODEL:-BAAI/bge-reranker-v2-m3} # MIT
-      RERANK_DEVICE: ${RERANK_DEVICE:-cpu}                   # cuda — если есть NVIDIA GPU
-
-      # OCR для сканов в PDF
-      OCR_ENABLED: ${OCR_ENABLED:-true}
-      OCR_ENGINE: ${OCR_ENGINE:-paddleocr}   # paddleocr | surya | auto (surya — отдельная установка, см. README)
-      OCR_LANG_PADDLE: ${OCR_LANG_PADDLE:-ru}
-    volumes:
-      - ./docs_sample:/app/docs
     restart: unless-stopped
-    # 14B модель + bge-m3 + bge-reranker-v2-m3 + PaddleOCR одновременно требуют
-    # заметно больше RAM. Ориентир: от 16 GB свободной RAM
-    # на CPU-инференс, или GPU с 12+ GB VRAM для комфортной скорости LLM.
+
+networks:
+  default:
+    name: rag-network
+    driver: bridge
+    driver_opts:
+      # По умолчанию Docker-мост держит MTU=1500. Если на хосте поднят VPN (обычно
+      # снижает MTU до ~1400 и меньше), крупные TLS-пакеты при долгих скачиваниях рвутся
+      # с "EOF" — см. README → Troubleshooting.
+      com.docker.network.driver.mtu: ${DOCKER_MTU:-1500}

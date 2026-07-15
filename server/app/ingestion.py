@@ -20,14 +20,13 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from config import settings
 from langchain.schema import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams
-
-from config import settings
 
 # ---------------------------------------------------------------------------
 # Логгер

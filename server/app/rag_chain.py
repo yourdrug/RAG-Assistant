@@ -5,14 +5,13 @@ rag_chain.py — LangChain LCEL цепочка с историей диалог�
 import logging
 from collections.abc import AsyncIterator
 
+from config import settings
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_ollama import ChatOllama
 from langchain_qdrant import QdrantVectorStore
 from sentence_transformers import CrossEncoder
-
-from config import settings
 
 log = logging.getLogger("rag_chain")
 
