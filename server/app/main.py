@@ -155,7 +155,7 @@ async def chat_sync(req: ChatRequest, db: Session = Depends(get_db)):
 @app.post("/ingest")
 async def ingest_documents(
     background_tasks: BackgroundTasks,
-    docs_dir: str = "/code/project/docs",
+    docs_dir: str = f"{settings.data_dir}/docs_sample",
     reset: bool = False,
 ):
     """

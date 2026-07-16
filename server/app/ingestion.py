@@ -51,7 +51,7 @@ def setup_logger() -> logging.Logger:
     logger.addHandler(ch)
 
     # Файл (рядом со скриптом)
-    log_path = Path(__file__).parent / "ingestion.log"
+    log_path = Path(settings.data_dir) / "ingestion.log"
     fh = logging.FileHandler(log_path, encoding="utf-8")
     fh.setLevel(logging.DEBUG)
     fh.setFormatter(fmt)
@@ -69,7 +69,7 @@ log = setup_logger()
 # Позволяет пропускать файлы которые уже есть в Qdrant
 # ---------------------------------------------------------------------------
 
-REGISTRY_PATH = Path(__file__).parent / "ingestion_registry.json"
+REGISTRY_PATH = Path(settings.data_dir) / "ingestion_registry.json"
 
 
 def load_registry() -> dict:

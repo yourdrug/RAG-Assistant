@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     ollama_base_url: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     database_url: str = os.getenv("DATABASE_URL", "postgresql://raguser:ragpassword@localhost:5432/ragdb")
     collection_name: str = os.getenv("COLLECTION_NAME", "company_docs")
+    data_dir: str = os.getenv("DATA_DIR", "/code/project/data")
 
     # --- Эмбеддинги и реранкер (лицензионно безопасный набор, MIT/Apache-2.0) ---
     embed_model: str = os.getenv("EMBED_MODEL", "BAAI/bge-m3")

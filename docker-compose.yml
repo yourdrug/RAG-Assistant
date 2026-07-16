@@ -8,7 +8,7 @@ services:
     ports:
       - "6333:6333"
     volumes:
-      - ./qdrant_storage:/qdrant/storage
+      - ./data/qdrant_storage:/qdrant/storage
     healthcheck:
       test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/6333' || exit 1"]
       interval: 10s
@@ -22,7 +22,7 @@ services:
     ports:
       - "11435:11434"
     volumes:
-      - ./ollama_models:/root/.ollama
+      - ./data/ollama_models:/root/.ollama
     environment:
       OLLAMA_MAX_LOADED_MODELS: 1
       OLLAMA_NUM_PARALLEL: 1
@@ -64,9 +64,9 @@ services:
       POSTGRES_USER: raguser
       POSTGRES_PASSWORD: ragpassword   # для прод-окружения — смени и здесь, и в server/.env (DATABASE_URL)
     volumes:
-      - ./db/postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
-      - ./db/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
-      - ./.data/postgres:/var/lib/postgresql/data
+      - ./data/db/postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - ./data/db/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./data/postgres:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U raguser -d ragdb"]
       interval: 10s
@@ -106,19 +106,19 @@ services:
           create_host_path: false
           selinux: Z
       - type: bind
-        source: docs_sample
-        target: /code/project/docs
+        source: data/docs_sample
+        target: /code/project/data/docs_sample
         read_only: true
         bind:
           propagation: rprivate
           create_host_path: false
           selinux: Z
       - type: bind
-        source: ./models/bge-m3
+        source: ./data/models/bge-m3
         target: /models/bge-m3
         read_only: true
       - type: bind
-        source: ./models/bge-reranker-v2-m3
+        source: ./data/models/bge-reranker-v2-m3
         target: /models/bge-reranker-v2-m3
         read_only: true
     healthcheck:

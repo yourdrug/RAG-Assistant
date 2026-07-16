@@ -70,11 +70,11 @@ tasks:
       - "{{.COMPOSE}} logs -f {{.CLI_ARGS | default \"server\"}}"
 
   clean:
-    desc: Остановить стек и удалить .data/ (все данные Qdrant/Postgres) — ОПАСНО
-    prompt: Удалить все локальные данные (.data/)?
+    desc: Остановить стек и удалить data/ (все данные Qdrant/Postgres) — ОПАСНО
+    prompt: Удалить все локальные данные (data/)?
     cmds:
       - "{{.COMPOSE}} down -v"
-      - rm -rf .data
+      - rm -rf data/postgres data/qdrant_storage
 
   # -------------------------------------------------------------------------
   # Модели Ollama
@@ -90,17 +90,17 @@ tasks:
   # -------------------------------------------------------------------------
 
   ingest:
-    desc: Проиндексировать docs_sample/ (только новые/изменённые файлы)
+    desc: Проиндексировать data/docs_sample/ (только новые/изменённые файлы)
     cmds:
-      - curl -sX POST "http://localhost:8000/ingest?docs_dir=/app/docs&reset=false" | jq .
+      - curl -sX POST "http://localhost:8000/ingest?reset=false" | jq .
 
   ingest:reset:
-    desc: Полная переиндексация docs_sample/ с нуля
+    desc: Полная переиндексация data/docs_sample/ с нуля
     cmds:
-      - curl -sX POST "http://localhost:8000/ingest?docs_dir=/app/docs&reset=true" | jq .
+      - curl -sX POST "http://localhost:8000/ingest?reset=true" | jq .
 
   ingest:file:
-    desc: "Проиндексировать один файл (task ingest:file -- /app/docs/report.pdf)"
+    desc: "Проиндексировать один файл (task ingest:file -- /code/project/data/docs_sample/report.pdf)"
     cmds:
       - curl -sX POST "http://localhost:8000/ingest/file?file_path={{.CLI_ARGS}}" | jq .
 
@@ -125,7 +125,7 @@ tasks:
     desc: Запустить оценку качества (retriever + LLM-судья) по test_questions.json
     dir: server
     cmds:
-      - uv run python app/benchmark.py --questions app/test_questions.json
+      - DATA_DIR=../data uv run python app/benchmark.py
 
   # -------------------------------------------------------------------------
   # База данных
@@ -137,11 +137,11 @@ tasks:
       - "{{.COMPOSE}} exec postgres psql -U raguser -d ragdb"
 
   db:backup:
-    desc: Сделать дамп БД в db/postgres/backups/
+    desc: Сделать дамп БД в data/db/postgres/backups/
     cmds:
-      - mkdir -p db/postgres/backups
-      - "{{.COMPOSE}} exec -T postgres pg_dump -U raguser ragdb > db/postgres/backups/backup_$(date +%F_%H%M%S).sql"
-      - 'echo "Дамп сохранён в db/postgres/backups/"'
+      - mkdir -p data/db/postgres/backups
+      - "{{.COMPOSE}} exec -T postgres pg_dump -U raguser ragdb > data/db/postgres/backups/backup_$(date +%F_%H%M%S).sql"
+      - 'echo "Дамп сохранён в data/db/postgres/backups/"'
 
   # -------------------------------------------------------------------------
   # Локальная разработка без Docker (uv)

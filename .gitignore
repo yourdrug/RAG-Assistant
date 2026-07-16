@@ -2,17 +2,21 @@
 server/.env
 
 # Данные сервисов (создаются docker-compose автоматически)
-qdrant_storage/
-ollama_models/
-db/postgres/data/
-.data
-models
+data/qdrant_storage/
+data/ollama_models/
+data/postgres/
 
 # Документы пользователя и реестр индексации
-docs_sample/*
-!docs_sample/.gitkeep
-api/ingestion_registry.json
-api/ingestion.log
+data/docs_sample/*
+!data/docs_sample/.gitkeep
+data/ingestion_registry.json
+data/ingestion.log
+
+# Бенчмарки и тесты
+data/benchmark_results/
+
+# Модели (большие бинарники)
+data/models/
 
 # Python / uv
 __pycache__/
@@ -21,7 +25,7 @@ __pycache__/
 *.egg-info/
 
 # Результаты бенчмарка
-api/results/
+server/app/results/
 
 # IDE / OS
 .DS_Store

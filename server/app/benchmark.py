@@ -550,12 +550,12 @@ if __name__ == "__main__":
         """
     )
     parser.add_argument(
-        "--questions", default="test_questions.json",
-        help="Путь к JSON-файлу с вопросами (default: test_questions.json)"
+        "--questions", default=str(Path(settings.data_dir) / "test_questions.json"),
+        help="Путь к JSON-файлу с вопросами (default: data/test_questions.json)"
     )
     parser.add_argument(
-        "--out", default="benchmark_results",
-        help="Папка для сохранения результатов (default: benchmark_results/)"
+        "--out", default=str(Path(settings.data_dir) / "benchmark_results"),
+        help="Папка для сохранения результатов (default: data/benchmark_results/)"
     )
     parser.add_argument(
         "--top-k", type=int, default=settings.retriever_top_k,

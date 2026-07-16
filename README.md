@@ -30,8 +30,8 @@ task init      # .env из .env.example + сборка образа api
 task up        # поднять qdrant, ollama, postgres, api
 task pull-model  # скачать qwen2.5:14b в контейнер ollama (~9 GB, один раз)
 
-cp /path/to/your/docs/* docs_sample/
-task ingest    # проиндексировать docs_sample/
+cp /path/to/your/docs/* data/docs_sample/
+task ingest    # проиндексировать data/docs_sample/
 
 task chat -- "Любой вопрос по вашему документу?"
 task health    # проверить статус всех сервисов
@@ -56,15 +56,15 @@ task health    # проверить статус всех сервисов
 | `task logs -- postgres` | Логи сервиса (по умолчанию `api`) |
 | `task ps` | Статус контейнеров |
 | `task pull-model -- mistral-nemo:12b` | Скачать LLM в Ollama (по умолчанию — `LLM_MODEL` из `.env`) |
-| `task ingest` | Индексация `docs_sample/` (только новые/изменённые файлы) |
+| `task ingest` | Индексация `data/docs_sample/` (только новые/изменённые файлы) |
 | `task ingest:reset` | Полная переиндексация с нуля |
-| `task ingest:file -- /app/docs/x.pdf` | Проиндексировать один файл |
+| `task ingest:file -- /code/project/data/docs_sample/x.pdf` | Проиндексировать один файл |
 | `task ingest:list` | Реестр уже проиндексированных файлов |
 | `task chat -- "вопрос"` | Синхронный запрос к `/chat/sync` |
 | `task health` | Проверка `/health` |
 | `task bench` | Оценка качества retriever + LLM-судьи (`benchmark.py`) |
 | `task db:shell` | `psql` внутрь контейнера Postgres |
-| `task db:backup` | Дамп БД в `db/postgres/backups/` |
+| `task db:backup` | Дамп БД в `data/db/postgres/backups/` |
 | `task install` | Установить зависимости локально через uv (для разработки/тестов вне Docker) |
 | `task test` / `task lint` / `task fmt` | pytest / ruff check / ruff format + fix |
 | `task clean` | ⚠️ Снести все локальные данные (Qdrant/Postgres/Ollama volumes) |
@@ -198,28 +198,30 @@ task fmt              # ruff format + автофиксы
 ├── Taskfile.yml          ← все команды: task --list
 ├── docker-compose.yml
 ├── .env.example           ← скопировать в .env
-├── docs_sample/            ← сюда кладём документы
-├── qdrant_storage/         ← данные Qdrant (авто, в .gitignore)
-├── ollama_models/          ← модели Ollama (авто, в .gitignore)
-├── db/
-│   └── postgres/
-│       ├── init/           ← 01_schema.sql — выполняется при первом старте Postgres
-│       ├── data/            ← данные Postgres (авто, в .gitignore)
-│       ├── backups/         ← дампы (task db:backup)
-│       └── README.md        ← как накатывать миграции, бэкапить
-├── frontend/
+├── data/                  ← все вспомогательные данные
+│   ├── docs_sample/       ← сюда кладём документы
+│   ├── models/            ← bge-m3, bge-reranker-v2-m3
+│   ├── qdrant_storage/    ← данные Qdrant (авто, в .gitignore)
+│   ├── ollama_models/     ← модели Ollama (авто, в .gitignore)
+│   ├── postgres/          ← данные Postgres (авто, в .gitignore)
+│   ├── db/postgres/       ← init.sql, postgresql.conf, backups/
+│   ├── test_questions.json← вопросы для бенчмарка
+│   ├── ingestion_registry.json ← реестр индексации (авто)
+│   └── ingestion.log      ← лог индексации (авто)
+├── client/
 │   ├── rag-chat.html
 │   └── rag-chat.jsx
-└── api/
-    ├── main.py             ← FastAPI, эндпоинты
-    ├── rag_chain.py        ← LangChain LCEL цепочка + реранкер
-    ├── ingestion.py        ← парсинг, OCR сканов и индексация
-    ├── database.py         ← история диалогов (PostgreSQL)
-    ├── config.py           ← настройки (LLM, эмбеддинги, реранкер, OCR)
-    ├── benchmark.py        ← оценка качества retriever + LLM-судьи
-    ├── pdf_diag.py         ← диагностика проблемных PDF
-    ├── pyproject.toml      ← зависимости (uv)
-    ├── uv.lock             ← зафиксированные версии (коммитится в git)
-    ├── Dockerfile          ← multi-stage сборка через uv
-    └── tests/              ← pytest: чистые функции ingestion.py / rag_chain.py
+└── server/
+    ├── app/
+    │   ├── main.py        ← FastAPI, эндпоинты
+    │   ├── rag_chain.py   ← LangChain LCEL цепочка + реранкер
+    │   ├── ingestion.py   ← парсинг, OCR сканов и индексация
+    │   ├── database.py    ← история диалогов (PostgreSQL)
+    │   ├── config.py      ← настройки (LLM, эмбеддинги, реранкер, OCR)
+    │   ├── benchmark.py   ← оценка качества retriever + LLM-судьи
+    │   └── pdf_diag.py    ← диагностика проблемных PDF
+    ├── pyproject.toml     ← зависимости (uv)
+    ├── uv.lock            ← зафиксированные версии (коммитится в git)
+    ├── Dockerfile         ← multi-stage сборка через uv
+    └── tests/             ← pytest: чистые функции ingestion.py / rag_chain.py
 ```
