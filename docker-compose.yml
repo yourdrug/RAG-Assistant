@@ -18,11 +18,26 @@ services:
 
   ollama:
     image: ollama/ollama:latest
-    container_name: rag_ollama
+    container_name: rag-ollama
     ports:
-      - "11434:11434"
+      - "11435:11434"
     volumes:
       - ./ollama_models:/root/.ollama
+    environment:
+      OLLAMA_MAX_LOADED_MODELS: 1
+      OLLAMA_NUM_PARALLEL: 1
+      # Не держать модель бесконечно в памяти после запроса
+      # 5 минут достаточно для RAG
+      OLLAMA_KEEP_ALIVE: 5m
+
+    deploy:
+      resources:
+        limits:
+          cpus: "8"
+          memory: 20G
+        reservations:
+          cpus: "2"
+          memory: 4G
     healthcheck:
       test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/11434' || exit 1"]
       interval: 10s
@@ -67,15 +82,45 @@ services:
     hostname: rag-server
     container_name: rag-server
     entrypoint: ["./entrypoint.sh"]
-    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001", "--reload"]
     ports:
-      - "8000:8000"
+      - "8001:8001"
     env_file:
       - path: server/.env
         required: true
     volumes:
-      - ./server/app:/code/project/app
-      - ./docs_sample:/app/docs
+      - type: bind
+        source: server/app
+        target: /code/project/app
+        read_only: false
+        bind:
+          propagation: rprivate
+          create_host_path: false
+          selinux: Z
+      - type: bind
+        source: server/entrypoint.sh
+        target: /code/project/entrypoint.sh
+        read_only: true
+        bind:
+          propagation: rprivate
+          create_host_path: false
+          selinux: Z
+      - type: bind
+        source: docs_sample
+        target: /code/project/docs
+        read_only: true
+        bind:
+          propagation: rprivate
+          create_host_path: false
+          selinux: Z
+      - type: bind
+        source: ./models/bge-m3
+        target: /models/bge-m3
+        read_only: true
+      - type: bind
+        source: ./models/bge-reranker-v2-m3
+        target: /models/bge-reranker-v2-m3
+        read_only: true
     healthcheck:
       test: [ "CMD", "curl", "--silent", "--fail", "http://localhost:8000/health" ]
       interval: 30s

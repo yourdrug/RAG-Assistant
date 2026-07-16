@@ -3,7 +3,7 @@ version: "3"
 vars:
   COMPOSE: docker compose
 
-dotenv: [".env"]
+dotenv: ["server/.env"]
 
 tasks:
 

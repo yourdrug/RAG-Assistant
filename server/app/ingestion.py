@@ -681,13 +681,13 @@ if __name__ == "__main__":
         epilog="""
 Примеры:
   # Добавить только новые файлы (уже загруженные пропускаются)
-  python ingestion.py --docs_dir /app/docs
+  python ingestion.py --docs_dir /code/project/docs
 
   # Переиндексировать всё с нуля
-  python ingestion.py --docs_dir /app/docs --reset
+  python ingestion.py --docs_dir /code/project/docs --reset
 
   # Добавить один файл
-  python ingestion.py --file /app/docs/новый_документ.pdf
+  python ingestion.py --file /code/project/docs/новый_документ.pdf
 
   # Показать что уже проиндексировано
   python ingestion.py --list

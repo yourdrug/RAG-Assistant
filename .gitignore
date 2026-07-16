@@ -6,6 +6,7 @@ qdrant_storage/
 ollama_models/
 db/postgres/data/
 .data
+models
 
 # Документы пользователя и реестр индексации
 docs_sample/*

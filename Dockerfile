@@ -86,7 +86,7 @@ COPY server/entrypoint.sh ./
 COPY VERSION ./
 COPY server/app ./app
 
-EXPOSE 8000
+EXPOSE 8001
 
 # -----------------------------------------------------------------------------------
 # Production stage — самодостаточный образ без dev-зависимостей, non-root пользователь
@@ -121,6 +121,6 @@ COPY --chown=raguser:raguser server/app ./app
 
 ENTRYPOINT ["./entrypoint.sh"]
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]
 
-EXPOSE 8000
+EXPOSE 8001

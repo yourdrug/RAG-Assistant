@@ -1,9 +1,9 @@
 {
   "document.pdf": {
-    "hash": "4042406_1776007635",
-    "source": "/app/docs/document.pdf",
+    "hash": "4042406_1776408900",
+    "source": "/code/project/docs/document.pdf",
     "chunks": 971,
     "chars": 353208,
-    "indexed_at": "2026-07-15T19:26:04"
+    "indexed_at": "2026-07-16T09:07:45"
   }
 }
