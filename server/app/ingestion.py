@@ -113,7 +113,7 @@ def is_already_indexed(path: Path, registry: dict) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def parse_pdf(path: Path) -> str:
+def parse_pdf(path: Path) -> list[Document]:
     try:
         import fitz
 
@@ -150,8 +150,13 @@ def parse_pdf(path: Path) -> str:
                 "Проверь качество скана / включи OCR_ENABLED=true."
             )
 
-        ordered = [pages_text[i] for i in sorted(pages_text.keys())]
-        return "\n\n".join(ordered)
+        return [
+            Document(
+                page_content=pages_text[i],
+                metadata={"page": i + 1},
+            )
+            for i in sorted(pages_text.keys())
+        ]
 
     except RuntimeError:
         raise
@@ -382,8 +387,31 @@ PARSERS = {
 }
 
 
-def parse_file(path: Path) -> Document | None:
+def _base_metadata(path: Path) -> dict:
+    return {
+        "source": str(path),
+        "filename": path.name,
+        "extension": path.suffix.lower(),
+        "size_bytes": path.stat().st_size,
+    }
+
+
+def parse_file(path: Path) -> list[Document] | None:
     ext = path.suffix.lower()
+
+    if ext == ".pdf":
+        try:
+            pages = parse_pdf(path)
+            if not pages:
+                return None
+            base = _base_metadata(path)
+            for doc in pages:
+                doc.metadata.update(base)
+            return pages
+        except Exception as e:
+            log.error("  ERROR %s: %s", path.name, e)
+            return None
+
     parser = PARSERS.get(ext)
     if parser is None:
         log.debug("  SKIP  неподдерживаемый формат: %s", path.name)
@@ -393,15 +421,12 @@ def parse_file(path: Path) -> Document | None:
         if not text or len(text.strip()) < 20:
             log.warning("  SKIP  слишком мало текста: %s", path.name)
             return None
-        return Document(
-            page_content=text,
-            metadata={
-                "source": str(path),
-                "filename": path.name,
-                "extension": ext,
-                "size_bytes": path.stat().st_size,
-            },
-        )
+        return [
+            Document(
+                page_content=text,
+                metadata=_base_metadata(path),
+            )
+        ]
     except Exception as e:
         log.error("  ERROR %s: %s", path.name, e)
         return None
@@ -444,17 +469,18 @@ def load_documents(
         log.info("%s PARSE   %s  (%.1f KB)", prefix, file_path.name, size_kb)
         t0 = time.monotonic()
 
-        doc = parse_file(file_path)
+        docs = parse_file(file_path)
         elapsed = time.monotonic() - t0
 
-        if doc:
-            documents.append(doc)
+        if docs:
+            documents.extend(docs)
+            total_chars = sum(len(d.page_content) for d in docs)
             log.info(
-                "%s OK      %s — %s символов, %d страниц approx, %.2fs",
+                "%s OK      %s — %s символов, %d стр., %.2fs",
                 prefix,
                 file_path.name,
-                f"{len(doc.page_content):,}",
-                doc.page_content.count("\n\n") + 1,
+                f"{total_chars:,}",
+                len(docs),
                 elapsed,
             )
             ok += 1
@@ -592,14 +618,18 @@ def run_ingestion(docs_dir: str, reset: bool = False):
     chunks = split_documents(docs)
     upload_to_qdrant(chunks, embeddings)
 
-    # Обновляем реестр
+    # Обновляем реестр (агрегируем по source)
+    source_chars: dict[str, int] = {}
     for doc in docs:
-        path = Path(doc.metadata["source"])
+        src = doc.metadata["source"]
+        source_chars[src] = source_chars.get(src, 0) + len(doc.page_content)
+    for src, chars in source_chars.items():
+        path = Path(src)
         registry[path.name] = {
             "hash": file_hash(path),
-            "source": str(path),
-            "chunks": sum(1 for c in chunks if c.metadata.get("source") == str(path)),
-            "chars": len(doc.page_content),
+            "source": src,
+            "chunks": sum(1 for c in chunks if c.metadata.get("source") == src),
+            "chars": chars,
             "indexed_at": datetime.now().isoformat(timespec="seconds"),
         }
     save_registry(registry)
@@ -639,26 +669,27 @@ def run_ingest_file(file_path: str):
         return
 
     log.info("PARSE   %s  (%.1f KB)", path.name, path.stat().st_size / 1024)
-    doc = parse_file(path)
-    if not doc:
+    docs = parse_file(path)
+    if not docs:
         log.error("Не удалось распарсить файл.")
         return
 
-    log.info("OK  %s  —  %s символов", path.name, f"{len(doc.page_content):,}")
+    total_chars = sum(len(d.page_content) for d in docs)
+    log.info("OK  %s  —  %s символов, %d стр.", path.name, f"{total_chars:,}", len(docs))
 
     embeddings = get_embeddings()
     vector_size = len(embeddings.embed_query("тест"))
     qdrant_client = QdrantClient(url=settings.qdrant_url)
     ensure_collection(qdrant_client, vector_size, reset=False)
 
-    chunks = split_documents([doc])
+    chunks = split_documents(docs)
     upload_to_qdrant(chunks, embeddings)
 
     registry[path.name] = {
         "hash": file_hash(path),
         "source": str(path),
         "chunks": len(chunks),
-        "chars": len(doc.page_content),
+        "chars": total_chars,
         "indexed_at": datetime.now().isoformat(timespec="seconds"),
     }
     save_registry(registry)
