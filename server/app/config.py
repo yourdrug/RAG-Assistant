@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     ollama_base_url: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     database_url: str = os.getenv("DATABASE_URL", "postgresql://raguser:ragpassword@localhost:5432/ragdb")
     collection_name: str = os.getenv("COLLECTION_NAME", "company_docs")
+
     data_dir: str = os.getenv("DATA_DIR", "/code/project/data")
 
     # --- Эмбеддинги и реранкер (лицензионно безопасный набор, MIT/Apache-2.0) ---
@@ -29,16 +30,26 @@ class Settings(BaseSettings):
     # "auto"     — сначала PaddleOCR, и только если он не дал текста — Surya (если включён).
     ocr_engine: str = os.getenv("OCR_ENGINE", "paddleocr")
     ocr_enabled: bool = os.getenv("OCR_ENABLED", "true").lower() == "true"
-    ocr_lang_paddle: str = os.getenv("OCR_LANG_PADDLE", "ru")   # ru | en | ...
+    ocr_lang_paddle: str = os.getenv("OCR_LANG_PADDLE", "ru")  # ru | en | ...
     ocr_lang_surya: list = ["ru", "en"]
     ocr_dpi: int = 300  # разрешение рендера страницы перед OCR
 
     # RAG параметры
-    retriever_fetch_k: int = 25     # сколько кандидатов достаём из Qdrant перед реранком
-    retriever_top_k: int = 6        # сколько чанков остаётся после реранка и уходит в промпт
+    retriever_fetch_k: int = 25  # сколько кандидатов достаём из Qdrant перед реранком
+    retriever_top_k: int = 6  # сколько чанков остаётся после реранка и уходит в промпт
     history_window: int = 8
     chunk_size: int = 512
     chunk_overlap: int = 128
+
+    # --- Авторизация ---
+    # ОБЯЗАТЕЛЬНО смени в проде — например: openssl rand -hex 32
+    jwt_secret_key: str = os.getenv("JWT_SECRET_KEY", "change-me-in-production")
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = int(os.getenv("JWT_EXPIRE_MINUTES", "1440"))  # 24 часа
+
+    # Первый admin-пользователь создаётся автоматически при старте
+    admin_email: str | None = os.getenv("ADMIN_EMAIL")
+    admin_password: str | None = os.getenv("ADMIN_PASSWORD")
 
     # Поддерживаемые расширения файлов
     supported_extensions: tuple = (".pdf", ".docx", ".doc", ".rtf", ".md", ".txt")

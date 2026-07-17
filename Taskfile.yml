@@ -3,7 +3,7 @@ version: "3"
 vars:
   COMPOSE: docker compose
 
-dotenv: ["server/.env"]
+dotenv: [".env"]
 
 tasks:
 
@@ -21,7 +21,7 @@ tasks:
     cmds:
       - task: env
       - task: build
-      - 'echo "Готово. Дальше:  task up  →  task pull-model  →  task ingest  →  task chat"'
+      - 'echo "Готово. Дальше:  task up  →  task pull-model  →  task login email=... password=...  →  task ingest  →  task chat -- \"вопрос\""'
       - 'echo "(Для локальной разработки/тестов вне Docker: task install)"'
 
   env:
@@ -44,13 +44,13 @@ tasks:
       - "{{.COMPOSE}} build server"
 
   up:
-    desc: Поднять весь стек (qdrant, postgres, server) в фоне
+    desc: Поднять весь стек (qdrant, ollama, postgres, server)
     cmds:
-      - "{{.COMPOSE}} up -d"
+      - "{{.COMPOSE}} up"
       - task: ps
 
   down:
-    desc: Остановить и удалить контейнеры (данные в .data/ сохраняются)
+    desc: Остановить и удалить контейнеры (данные в data/ сохраняются)
     cmds:
       - "{{.COMPOSE}} down"
 
@@ -70,59 +70,112 @@ tasks:
       - "{{.COMPOSE}} logs -f {{.CLI_ARGS | default \"server\"}}"
 
   clean:
-    desc: Остановить стек и удалить data/ (все данные Qdrant/Postgres) — ОПАСНО
-    prompt: Удалить все локальные данные (data/)?
+    desc: Остановить стек и удалить data/postgres, data/qdrant_storage, data/ollama_models — ОПАСНО
+    prompt: Удалить все локальные данные (Postgres/Qdrant/Ollama)?
     cmds:
       - "{{.COMPOSE}} down -v"
-      - rm -rf data/postgres data/qdrant_storage
+      - rm -rf data/postgres data/qdrant_storage data/ollama_models
 
   # -------------------------------------------------------------------------
-  # Модели Ollama
+  # Модель LLM (Ollama — сервис в docker-compose.yml)
   # -------------------------------------------------------------------------
 
   pull-model:
-    desc: Скачать LLM в контейнер Ollama (по умолчанию — модель из .env / LLM_MODEL)
+    desc: Скачать LLM в контейнер Ollama (по умолчанию — модель из server/.env / LLM_MODEL)
     cmds:
-      - "{{.COMPOSE}} exec ollama ollama pull {{.CLI_ARGS | default .LLM_MODEL | default \"qwen2.5:14b\"}}"
+      - "{{.COMPOSE}} exec ollama ollama pull {{.CLI_ARGS | default \"qwen2.5:14b\"}}"
 
   # -------------------------------------------------------------------------
-  # Индексация документов
+  # Авторизация
+  # -------------------------------------------------------------------------
+
+  login:
+    desc: "Залогиниться и сохранить токен в .auth_token (task login email=admin@example.com password=...)"
+    cmds:
+      - >
+        curl -sX POST http://localhost:8001/auth/login
+        -H "Content-Type: application/json"
+        -d "{\"email\": \"{{.email}}\", \"password\": \"{{.password}}\"}"
+        -o /tmp/rag_login_response.json
+      - cat /tmp/rag_login_response.json | jq .
+      - jq -er .access_token /tmp/rag_login_response.json > .auth_token
+      - 'echo "Токен сохранён в .auth_token — остальные task-команды подхватят его сами"'
+
+  me:
+    desc: Показать текущего авторизованного пользователя
+    cmds:
+      - >
+        curl -s http://localhost:8001/auth/me
+        -H "Authorization: Bearer $(cat .auth_token)" | jq .
+
+  user:add:
+    desc: "[admin] Завести пользователя (task user:add email=vasya@company.com password=... role=user)"
+    cmds:
+      - >
+        curl -sX POST http://localhost:8001/auth/users
+        -H "Authorization: Bearer $(cat .auth_token)"
+        -H "Content-Type: application/json"
+        -d "{\"email\": \"{{.email}}\", \"password\": \"{{.password}}\", \"role\": \"{{.role | default `user`}}\"}" | jq .
+
+  user:list:
+    desc: "[admin] Список всех пользователей"
+    cmds:
+      - >
+        curl -s http://localhost:8001/auth/users
+        -H "Authorization: Bearer $(cat .auth_token)" | jq .
+
+  # -------------------------------------------------------------------------
+  # Индексация документов (только admin — нужен токен из task login)
   # -------------------------------------------------------------------------
 
   ingest:
-    desc: Проиндексировать data/docs_sample/ (только новые/изменённые файлы)
+    desc: "[admin] Проиндексировать data/docs_sample/ (только новые/изменённые файлы)"
     cmds:
-      - curl -sX POST "http://localhost:8000/ingest?reset=false" | jq .
+      - >
+        curl -sX POST "http://localhost:8001/ingest?reset=false"
+        -H "Authorization: Bearer $(cat .auth_token)" | jq .
 
   ingest:reset:
-    desc: Полная переиндексация data/docs_sample/ с нуля
+    desc: "[admin] Полная переиндексация data/docs_sample/ с нуля"
     cmds:
-      - curl -sX POST "http://localhost:8000/ingest?reset=true" | jq .
+      - >
+        curl -sX POST "http://localhost:8001/ingest?reset=true"
+        -H "Authorization: Bearer $(cat .auth_token)" | jq .
 
   ingest:file:
-    desc: "Проиндексировать один файл (task ingest:file -- /code/project/data/docs_sample/report.pdf)"
+    desc: "[admin] Проиндексировать один файл (task ingest:file -- /code/project/data/docs_sample/report.pdf)"
     cmds:
-      - curl -sX POST "http://localhost:8000/ingest/file?file_path={{.CLI_ARGS}}" | jq .
+      - >
+        curl -sX POST "http://localhost:8001/ingest/file?file_path={{.CLI_ARGS}}"
+        -H "Authorization: Bearer $(cat .auth_token)" | jq .
+
+  ingest:list:
+    desc: "[admin] Реестр уже проиндексированных файлов"
+    cmds:
+      - >
+        curl -s http://localhost:8001/ingest/registry
+        -H "Authorization: Bearer $(cat .auth_token)" | jq .
 
   # -------------------------------------------------------------------------
   # Проверка и использование
   # -------------------------------------------------------------------------
 
   health:
-    desc: Проверить статус всех сервисов через /health
+    desc: Проверить статус всех сервисов через /health (без авторизации)
     cmds:
-      - curl -s http://localhost:8000/health | jq .
+      - curl -s http://localhost:8001/health | jq .
 
   chat:
-    desc: "Задать вопрос синхронно (task chat -- \"Твой вопрос\")"
+    desc: "Задать вопрос синхронно, нужен предварительный task login (task chat -- \"Твой вопрос\")"
     cmds:
       - >
-        curl -sX POST http://localhost:8000/chat/sync
+        curl -sX POST http://localhost:8001/chat/sync
+        -H "Authorization: Bearer $(cat .auth_token)"
         -H "Content-Type: application/json"
         -d "{\"question\": \"{{.CLI_ARGS}}\"}" | jq .
 
   bench:
-    desc: Запустить оценку качества (retriever + LLM-судья) по test_questions.json
+    desc: Запустить оценку качества (retriever + LLM-судья) по data/test_questions.json
     dir: server
     cmds:
       - DATA_DIR=../data uv run python app/benchmark.py

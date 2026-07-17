@@ -41,22 +41,37 @@ from langchain_qdrant import QdrantVectorStore
 # Цвета для терминала
 # ---------------------------------------------------------------------------
 class C:
-    RESET  = "\033[0m"
-    BOLD   = "\033[1m"
-    GREEN  = "\033[92m"
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
+    GREEN = "\033[92m"
     YELLOW = "\033[93m"
-    RED    = "\033[91m"
-    CYAN   = "\033[96m"
-    GRAY   = "\033[90m"
-    BLUE   = "\033[94m"
+    RED = "\033[91m"
+    CYAN = "\033[96m"
+    GRAY = "\033[90m"
+    BLUE = "\033[94m"
 
-def ok(s):    return f"{C.GREEN}✓{C.RESET} {s}"
-def warn(s):  return f"{C.YELLOW}~{C.RESET} {s}"
-def fail(s):  return f"{C.RED}✗{C.RESET} {s}"
-def info(s):  return f"{C.CYAN}i{C.RESET} {s}"
+
+def ok(s):
+    return f"{C.GREEN}✓{C.RESET} {s}"
+
+
+def warn(s):
+    return f"{C.YELLOW}~{C.RESET} {s}"
+
+
+def fail(s):
+    return f"{C.RED}✗{C.RESET} {s}"
+
+
+def info(s):
+    return f"{C.CYAN}i{C.RESET} {s}"
+
+
 def score_color(v: float, low=4.0, high=7.0) -> str:
-    if v >= high:  return f"{C.GREEN}{v:.1f}{C.RESET}"
-    if v >= low:   return f"{C.YELLOW}{v:.1f}{C.RESET}"
+    if v >= high:
+        return f"{C.GREEN}{v:.1f}{C.RESET}"
+    if v >= low:
+        return f"{C.YELLOW}{v:.1f}{C.RESET}"
     return f"{C.RED}{v:.1f}{C.RESET}"
 
 
@@ -68,14 +83,14 @@ EXAMPLE_QUESTIONS = [
     {
         "id": "q1",
         "question": "Какие товары подлежат обязательной маркировке?",
-        "expected_answer": None,        # если нет — correctness не считается
-        "source_hint": None             # часть имени файла где должен быть ответ
+        "expected_answer": None,  # если нет — correctness не считается
+        "source_hint": None,  # часть имени файла где должен быть ответ
     },
     {
         "id": "q2",
         "question": "Каков порядок электронного документооборота?",
         "expected_answer": None,
-        "source_hint": "электронном документе"
+        "source_hint": "электронном документе",
     },
 ]
 
@@ -85,10 +100,7 @@ def load_questions(path: str) -> list[dict]:
     if not p.exists():
         print(f"{C.YELLOW}[WARN]{C.RESET} Файл {path} не найден — создаю пример test_questions.json")
         example_path = Path(path)
-        example_path.write_text(
-            json.dumps(EXAMPLE_QUESTIONS, ensure_ascii=False, indent=2),
-            encoding="utf-8"
-        )
+        example_path.write_text(json.dumps(EXAMPLE_QUESTIONS, ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"       Отредактируй {path} и запусти снова.\n")
         sys.exit(0)
 
@@ -100,6 +112,7 @@ def load_questions(path: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 # Компоненты RAG (переиспользуем из основного проекта)
 # ---------------------------------------------------------------------------
+
 
 def build_retriever(top_k: int):
     print(info(f"Загружаю эмбеддинг-модель {settings.embed_model} ..."))
@@ -129,7 +142,7 @@ def build_llm(model: str, base_url: str) -> ChatOllama:
     return ChatOllama(
         model=model,
         base_url=base_url,
-        temperature=0.0,   # судья должен быть детерминирован
+        temperature=0.0,  # судья должен быть детерминирован
     )
 
 
@@ -148,10 +161,10 @@ ANSWER_PROMPT = """\
 Вопрос: {question}
 """
 
+
 def get_rag_answer(llm: ChatOllama, docs_with_scores: list[tuple[Document, float]], question: str) -> str:
     context = "\n\n---\n\n".join(
-        f"[Источник: {d.metadata.get('filename', 'unknown')}]\n{d.page_content}"
-        for d, _ in docs_with_scores
+        f"[Источник: {d.metadata.get('filename', 'unknown')}]\n{d.page_content}" for d, _ in docs_with_scores
     )
     prompt = ANSWER_PROMPT.format(context=context, question=question)
     response = llm.invoke(prompt)
@@ -213,8 +226,9 @@ CORRECTNESS_PROMPT = """\
 def parse_judge_response(raw: str, metric: str) -> tuple[float, str]:
     """Парсит JSON-ответ судьи. Устойчив к мусору вокруг JSON."""
     import re
+
     # Ищем JSON объект в ответе
-    match = re.search(r'\{[^{}]+\}', raw, re.DOTALL)
+    match = re.search(r"\{[^{}]+\}", raw, re.DOTALL)
     if not match:
         return 0.0, f"[Ошибка парсинга ответа судьи: {raw[:100]}]"
     try:
@@ -243,9 +257,7 @@ def judge_answer(
     scores["faithfulness"], scores["faithfulness_reason"] = parse_judge_response(raw, "faithfulness")
 
     # Relevancy
-    raw = judge_llm.invoke(
-        RELEVANCY_PROMPT.format(question=question, answer=answer)
-    ).content
+    raw = judge_llm.invoke(RELEVANCY_PROMPT.format(question=question, answer=answer)).content
     scores["relevancy"], scores["relevancy_reason"] = parse_judge_response(raw, "relevancy")
 
     # Correctness (только если есть эталон)
@@ -265,6 +277,7 @@ def judge_answer(
 # Retriever метрики
 # ---------------------------------------------------------------------------
 
+
 def compute_retriever_metrics(
     docs_with_scores: list[tuple[Document, float]],
     source_hint: str | None,
@@ -282,9 +295,7 @@ def compute_retriever_metrics(
             "hit_rate": None,
             "mrr": None,
             "avg_similarity": round(avg_sim, 4),
-            "retrieved_sources": [
-                d.metadata.get("filename", "?") for d, _ in docs_with_scores
-            ],
+            "retrieved_sources": [d.metadata.get("filename", "?") for d, _ in docs_with_scores],
         }
 
     hit_rate = 0
@@ -301,15 +312,14 @@ def compute_retriever_metrics(
         "hit_rate": hit_rate,
         "mrr": round(mrr, 4),
         "avg_similarity": round(avg_sim, 4),
-        "retrieved_sources": [
-            d.metadata.get("filename", "?") for d, _ in docs_with_scores
-        ],
+        "retrieved_sources": [d.metadata.get("filename", "?") for d, _ in docs_with_scores],
     }
 
 
 # ---------------------------------------------------------------------------
 # Форматирование прогресса
 # ---------------------------------------------------------------------------
+
 
 def print_question_result(idx: int, total: int, q: dict, result: dict):
     print(f"\n{C.BOLD}[{idx}/{total}] {q['question']}{C.RESET}")
@@ -349,6 +359,7 @@ def print_question_result(idx: int, total: int, q: dict, result: dict):
 # Итоговый отчёт
 # ---------------------------------------------------------------------------
 
+
 def print_summary(results: list[dict], total_time: float):
     n = len(results)
     print(f"\n{'='*60}")
@@ -356,36 +367,45 @@ def print_summary(results: list[dict], total_time: float):
     print(f"{'='*60}")
 
     # Retriever aggregates
-    hit_rates = [r["retriever_metrics"]["hit_rate"] for r in results
-                 if r["retriever_metrics"]["hit_rate"] is not None]
-    mrrs      = [r["retriever_metrics"]["mrr"] for r in results
-                 if r["retriever_metrics"]["mrr"] is not None]
-    sims      = [r["retriever_metrics"]["avg_similarity"] for r in results]
+    hit_rates = [
+        r["retriever_metrics"]["hit_rate"] for r in results if r["retriever_metrics"]["hit_rate"] is not None
+    ]
+    mrrs = [r["retriever_metrics"]["mrr"] for r in results if r["retriever_metrics"]["mrr"] is not None]
+    sims = [r["retriever_metrics"]["avg_similarity"] for r in results]
 
     print(f"\n{C.BOLD}Retriever:{C.RESET}")
     if hit_rates:
         avg_hr = sum(hit_rates) / len(hit_rates)
         avg_mrr = sum(mrrs) / len(mrrs)
-        print(f"  Hit Rate:        {score_color(avg_hr*10)}/10  ({avg_hr:.0%} вопросов нашли нужный источник)")
+        print(
+            f"  Hit Rate:        {score_color(avg_hr*10)}/10  ({avg_hr:.0%} вопросов нашли нужный источник)"
+        )
         print(f"  MRR:             {C.CYAN}{avg_mrr:.3f}{C.RESET}  (1.0 = нужный чанк всегда первый)")
     print(f"  Avg Similarity:  {C.CYAN}{sum(sims)/len(sims):.3f}{C.RESET}")
 
     # Generator aggregates
     faiths = [r["generator_metrics"]["faithfulness"] for r in results]
-    rels   = [r["generator_metrics"]["relevancy"] for r in results]
-    corrs  = [r["generator_metrics"]["correctness"] for r in results
-              if r["generator_metrics"]["correctness"] is not None]
+    rels = [r["generator_metrics"]["relevancy"] for r in results]
+    corrs = [
+        r["generator_metrics"]["correctness"]
+        for r in results
+        if r["generator_metrics"]["correctness"] is not None
+    ]
 
     print(f"\n{C.BOLD}Generator:{C.RESET}")
-    print(f"  Faithfulness:    {score_color(sum(faiths)/len(faiths))}/10  (достоверность — нет ли выдуманных фактов)")
+    print(
+        f"  Faithfulness:    {score_color(sum(faiths)/len(faiths))}/10  (достоверность — нет ли выдуманных фактов)"
+    )
     print(f"  Relevancy:       {score_color(sum(rels)/len(rels))}/10  (ответ по существу вопроса)")
     if corrs:
         print(f"  Correctness:     {score_color(sum(corrs)/len(corrs))}/10  (совпадение с эталоном)")
 
     # Провальные кейсы
-    bad = [r for r in results
-           if r["generator_metrics"]["faithfulness"] < 5
-           or r["generator_metrics"]["relevancy"] < 5]
+    bad = [
+        r
+        for r in results
+        if r["generator_metrics"]["faithfulness"] < 5 or r["generator_metrics"]["relevancy"] < 5
+    ]
     if bad:
         print(f"\n{C.BOLD}{C.RED}Проблемные вопросы ({len(bad)}):{C.RESET}")
         for r in bad:
@@ -395,12 +415,13 @@ def print_summary(results: list[dict], total_time: float):
             print(f"        {C.GRAY}{gm['faithfulness_reason']}{C.RESET}")
 
     print(f"\n{C.BOLD}Время:{C.RESET} {total_time:.1f}s  ({total_time/n:.1f}s на вопрос)")
-    print("="*60)
+    print("=" * 60)
 
 
 # ---------------------------------------------------------------------------
 # Сохранение результатов
 # ---------------------------------------------------------------------------
+
 
 def save_results(results: list[dict], out_dir: str):
     out = Path(out_dir)
@@ -410,10 +431,7 @@ def save_results(results: list[dict], out_dir: str):
 
     # Полный JSON
     json_path = out / f"benchmark_{ts}.json"
-    json_path.write_text(
-        json.dumps(results, ensure_ascii=False, indent=2),
-        encoding="utf-8"
-    )
+    json_path.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
 
     # Краткий CSV для Excel/Sheets
     csv_path = out / f"benchmark_{ts}.csv"
@@ -421,17 +439,21 @@ def save_results(results: list[dict], out_dir: str):
     for r in results:
         gm = r["generator_metrics"]
         rm = r["retriever_metrics"]
-        rows.append(",".join([
-            str(r["id"]),
-            f'"{r["question"]}"',
-            str(gm["faithfulness"]),
-            str(gm["relevancy"]),
-            str(gm["correctness"] if gm["correctness"] is not None else ""),
-            str(rm["hit_rate"] if rm["hit_rate"] is not None else ""),
-            str(rm["mrr"] if rm["mrr"] is not None else ""),
-            str(rm["avg_similarity"]),
-            str(round(r["latency_sec"], 2)),
-        ]))
+        rows.append(
+            ",".join(
+                [
+                    str(r["id"]),
+                    f'"{r["question"]}"',
+                    str(gm["faithfulness"]),
+                    str(gm["relevancy"]),
+                    str(gm["correctness"] if gm["correctness"] is not None else ""),
+                    str(rm["hit_rate"] if rm["hit_rate"] is not None else ""),
+                    str(rm["mrr"] if rm["mrr"] is not None else ""),
+                    str(rm["avg_similarity"]),
+                    str(round(r["latency_sec"], 2)),
+                ]
+            )
+        )
     csv_path.write_text("\n".join(rows), encoding="utf-8")
 
     print(f"\n{ok('Результаты сохранены:')}")
@@ -442,6 +464,7 @@ def save_results(results: list[dict], out_dir: str):
 # ---------------------------------------------------------------------------
 # Главный цикл
 # ---------------------------------------------------------------------------
+
 
 def run_benchmark(
     questions_path: str,
@@ -493,9 +516,7 @@ def run_benchmark(
         )
 
         # 4. LLM judge
-        context_for_judge = "\n\n---\n\n".join(
-            d.page_content for d, _ in docs_with_scores
-        )
+        context_for_judge = "\n\n---\n\n".join(d.page_content for d, _ in docs_with_scores)
         generator_metrics = judge_answer(
             judge_llm,
             question=q["question"],
@@ -547,23 +568,28 @@ if __name__ == "__main__":
       "source_hint": "Указ"        // опционально — часть имени файла с ответом
     }
   ]
-        """
+        """,
     )
     parser.add_argument(
-        "--questions", default=str(Path(settings.data_dir) / "test_questions.json"),
-        help="Путь к JSON-файлу с вопросами (default: data/test_questions.json)"
+        "--questions",
+        default=str(Path(settings.data_dir) / "test_questions.json"),
+        help="Путь к JSON-файлу с вопросами (default: data/test_questions.json)",
     )
     parser.add_argument(
-        "--out", default=str(Path(settings.data_dir) / "benchmark_results"),
-        help="Папка для сохранения результатов (default: data/benchmark_results/)"
+        "--out",
+        default=str(Path(settings.data_dir) / "benchmark_results"),
+        help="Папка для сохранения результатов (default: data/benchmark_results/)",
     )
     parser.add_argument(
-        "--top-k", type=int, default=settings.retriever_top_k,
-        help=f"Количество чанков для retriever (default: {settings.retriever_top_k})"
+        "--top-k",
+        type=int,
+        default=settings.retriever_top_k,
+        help=f"Количество чанков для retriever (default: {settings.retriever_top_k})",
     )
     parser.add_argument(
-        "--judge-model", default=settings.llm_model,
-        help=f"Модель Ollama для роли судьи (default: {settings.llm_model})"
+        "--judge-model",
+        default=settings.llm_model,
+        help=f"Модель Ollama для роли судьи (default: {settings.llm_model})",
     )
     args = parser.parse_args()
 

@@ -20,12 +20,12 @@ import sys
 from pathlib import Path
 
 # ── Цвета
-G  = "\033[92m"
-Y  = "\033[93m"
-R  = "\033[91m"
-C  = "\033[96m"
+G = "\033[92m"
+Y = "\033[93m"
+R = "\033[91m"
+C = "\033[96m"
 DIM = "\033[90m"
-B  = "\033[1m"
+B = "\033[1m"
 RST = "\033[0m"
 
 
@@ -35,7 +35,7 @@ def is_garbled(text: str) -> bool:
         return False
     total = len(text)
     # Считаем нормальные символы: буквы (включая кириллицу), цифры, пунктуация
-    normal = sum(1 for c in text if c.isalnum() or c in ' .,;:!?-—\n\t()[]«»"\'')
+    normal = sum(1 for c in text if c.isalnum() or c in " .,;:!?-—\n\t()[]«»\"'")
     return (normal / total) < 0.6
 
 
@@ -48,12 +48,12 @@ def classify_page(text: str, chars: int) -> tuple:
       empty    — пустая страница
     """
     if chars == 0:
-        return "empty",   f"{DIM}○{RST}", "пустая"
+        return "empty", f"{DIM}○{RST}", "пустая"
     if chars < 50:
-        return "scan",    f"{R}⊘{RST}", f"скан/изображение ({chars} симв)"
+        return "scan", f"{R}⊘{RST}", f"скан/изображение ({chars} симв)"
     if is_garbled(text):
         return "garbled", f"{Y}⚠{RST}", f"мусорный текст ({chars} симв)"
-    return "text",       f"{G}✓{RST}", f"текст ({chars} симв)"
+    return "text", f"{G}✓{RST}", f"текст ({chars} симв)"
 
 
 def check_pdf(pdf_path: Path, dump: bool = False, chunk_size: int = 512, chunk_overlap: int = 128):
@@ -77,37 +77,44 @@ def check_pdf(pdf_path: Path, dump: bool = False, chunk_size: int = 512, chunk_o
         text = page.get_text("text")
         chars = len(text.strip())
         ptype, icon, desc = classify_page(text, chars)
-        page_stats.append({
-            "num": i + 1,
-            "type": ptype,
-            "chars": chars,
-            "text": text,
-        })
+        page_stats.append(
+            {
+                "num": i + 1,
+                "type": ptype,
+                "chars": chars,
+                "text": text,
+            }
+        )
         # Показываем только проблемные или первые 5
         if ptype != "text" or i < 3:
             print(f"  {icon} стр.{i+1:>3}: {desc}")
         elif i == 3 and all(p["type"] == "text" for p in page_stats):
             remaining_text = sum(1 for p in page_stats[3:] if p["type"] == "text")
-            print(f"  {G}✓{RST} стр.4-{total_pages}: текст ({remaining_text + len(page_stats) - 3} страниц OK)")
+            print(
+                f"  {G}✓{RST} стр.4-{total_pages}: текст ({remaining_text + len(page_stats) - 3} страниц OK)"
+            )
             break
 
     doc.close()
 
     # ── Итоговая статистика
     types = [p["type"] for p in page_stats]
-    n_text    = types.count("text")
-    n_scan    = types.count("scan")
+    n_text = types.count("text")
+    n_scan = types.count("scan")
     n_garbled = types.count("garbled")
-    n_empty   = types.count("empty")
+    n_empty = types.count("empty")
 
     total_chars = sum(p["chars"] for p in page_stats)
-    avg_chars   = total_chars // max(n_text, 1)
+    avg_chars = total_chars // max(n_text, 1)
 
     print(f"\n{B}Итог:{RST}")
     print(f"  Текстовых:    {G}{n_text}{RST}/{total_pages}")
-    if n_scan:    print(f"  Сканов:       {R}{n_scan}{RST}  ← нужен OCR")
-    if n_garbled: print(f"  Мусорных:     {Y}{n_garbled}{RST}  ← проблема кодировки/шрифта")
-    if n_empty:   print(f"  Пустых:       {DIM}{n_empty}{RST}")
+    if n_scan:
+        print(f"  Сканов:       {R}{n_scan}{RST}  ← нужен OCR")
+    if n_garbled:
+        print(f"  Мусорных:     {Y}{n_garbled}{RST}  ← проблема кодировки/шрифта")
+    if n_empty:
+        print(f"  Пустых:       {DIM}{n_empty}{RST}")
     print(f"  Всего символов: {total_chars:,}")
     print(f"  Символов/стр (текст): ~{avg_chars:,}")
 
@@ -143,7 +150,7 @@ def check_pdf(pdf_path: Path, dump: bool = False, chunk_size: int = 512, chunk_o
             print(f"  Средний размер: {avg_chunk:.0f} символов")
             # Покажем первые 2 чанка
             for i, ch in enumerate(chunks[:2], 1):
-                preview = ch[:120].replace('\n', '↵')
+                preview = ch[:120].replace("\n", "↵")
                 print(f"  [{i}] {DIM}{preview}...{RST}")
 
     # ── Dump полного текста
@@ -232,13 +239,15 @@ def main():
         print(f"\n{B}{'═'*60}")
         print(f"СВОДКА ПО ПАПКЕ{RST}")
         print(f"{'═'*60}")
-        total_ok    = sum(1 for r in results if r["n_scan"] == 0 and r["n_garbled"] == 0)
-        total_scan  = sum(1 for r in results if r["n_scan"] > 0)
-        total_garb  = sum(1 for r in results if r["n_garbled"] > 0)
+        total_ok = sum(1 for r in results if r["n_scan"] == 0 and r["n_garbled"] == 0)
+        total_scan = sum(1 for r in results if r["n_scan"] > 0)
+        total_garb = sum(1 for r in results if r["n_garbled"] > 0)
         total_chars = sum(r["total_chars"] for r in results)
         print(f"  Читаются нормально: {G}{total_ok}{RST}/{len(results)}")
-        if total_scan:  print(f"  Содержат сканы:     {R}{total_scan}{RST}  ← нужен OCR")
-        if total_garb:  print(f"  Мусорный текст:     {Y}{total_garb}{RST}  ← нужна конвертация")
+        if total_scan:
+            print(f"  Содержат сканы:     {R}{total_scan}{RST}  ← нужен OCR")
+        if total_garb:
+            print(f"  Мусорный текст:     {Y}{total_garb}{RST}  ← нужна конвертация")
         print(f"  Итого символов:     {total_chars:,}")
         print()
     else:

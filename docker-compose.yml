@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   qdrant:
     image: qdrant/qdrant:latest
@@ -18,6 +16,7 @@ services:
 
   ollama:
     image: ollama/ollama:latest
+    hostname: ollama
     container_name: rag-ollama
     ports:
       - "11435:11434"
@@ -26,10 +25,7 @@ services:
     environment:
       OLLAMA_MAX_LOADED_MODELS: 1
       OLLAMA_NUM_PARALLEL: 1
-      # Не держать модель бесконечно в памяти после запроса
-      # 5 минут достаточно для RAG
-      OLLAMA_KEEP_ALIVE: 5m
-
+      OLLAMA_KEEP_ALIVE: 5m   # не держать модель в памяти бесконечно после запроса
     deploy:
       resources:
         limits:
@@ -57,8 +53,8 @@ services:
     image: postgres:16-alpine
     hostname: postgres
     container_name: rag-postgres
-    command: [ "postgres", "-c", "config_file=/etc/postgresql/postgresql.conf" ]
-    expose: [ "5432/tcp" ]
+    command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
+    expose: ["5432/tcp"]
     environment:
       POSTGRES_DB: ragdb
       POSTGRES_USER: raguser
@@ -92,37 +88,15 @@ services:
       - type: bind
         source: server/app
         target: /code/project/app
-        read_only: false
-        bind:
-          propagation: rprivate
-          create_host_path: false
-          selinux: Z
       - type: bind
         source: server/entrypoint.sh
         target: /code/project/entrypoint.sh
         read_only: true
-        bind:
-          propagation: rprivate
-          create_host_path: false
-          selinux: Z
       - type: bind
-        source: data/docs_sample
-        target: /code/project/data/docs_sample
-        read_only: true
-        bind:
-          propagation: rprivate
-          create_host_path: false
-          selinux: Z
-      - type: bind
-        source: ./data/models/bge-m3
-        target: /models/bge-m3
-        read_only: true
-      - type: bind
-        source: ./data/models/bge-reranker-v2-m3
-        target: /models/bge-reranker-v2-m3
-        read_only: true
+        source: data
+        target: /code/project/data
     healthcheck:
-      test: [ "CMD", "curl", "--silent", "--fail", "http://localhost:8000/health" ]
+      test: ["CMD", "curl", "--silent", "--fail", "http://localhost:8001/health"]
       interval: 30s
       timeout: 10s
       retries: 10

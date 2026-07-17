@@ -2,9 +2,9 @@
 ingestion.py — индексирует документы в Qdrant.
 
 Режимы запуска:
-  python ingestion.py --docs_dir /app/docs           # добавить новые (не трогая уже загруженные)
-  python ingestion.py --docs_dir /app/docs --reset   # сбросить и переиндексировать всё
-  python ingestion.py --file /app/docs/report.pdf    # добавить один файл
+  python ingestion.py --docs_dir /code/project/data/docs_sample           # добавить новые (не трогая уже загруженные)
+  python ingestion.py --docs_dir /code/project/data/docs_sample --reset   # сбросить и переиндексировать всё
+  python ingestion.py --file /code/project/data/docs_sample/report.pdf    # добавить один файл
 
 Парсеры (нативные, без unstructured):
   .pdf  → PyMuPDF        .docx/.doc → python-docx + XML fallback
@@ -28,9 +28,16 @@ from langchain_qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams
 
+# data_dir может ещё не существовать (свежий checkout без docker-compose, локальный
+# запуск benchmark.py с кастомным DATA_DIR и т.п.) — создаём заранее, иначе
+# logging.FileHandler ниже упадёт с FileNotFoundError и потянет за собой весь импорт
+# модуля (а вместе с ним и main.py).
+Path(settings.data_dir).mkdir(parents=True, exist_ok=True)
+
 # ---------------------------------------------------------------------------
 # Логгер
 # ---------------------------------------------------------------------------
+
 
 def setup_logger() -> logging.Logger:
     logger = logging.getLogger("ingestion")
@@ -105,20 +112,18 @@ def is_already_indexed(path: Path, registry: dict) -> bool:
 # PDF парсер
 # ---------------------------------------------------------------------------
 
+
 def parse_pdf(path: Path) -> str:
     try:
         import fitz
+
         doc = fitz.open(str(path))
         pages_text: dict[int, str] = {}
         scan_page_nums = []
 
         for i, page in enumerate(doc):
             blocks = page.get_text("blocks", sort=True)
-            page_parts = [
-                block[4].strip()
-                for block in blocks
-                if block[6] == 0 and block[4].strip()
-            ]
+            page_parts = [block[4].strip() for block in blocks if block[6] == 0 and block[4].strip()]
             page_text = clean_pdf_text("\n".join(page_parts))
 
             if len(page_text.strip()) < 50:
@@ -135,9 +140,7 @@ def parse_pdf(path: Path) -> str:
                 ocr_results = ocr_pdf_pages(doc, scan_page_nums, path.name)
                 pages_text.update(ocr_results)
             else:
-                log.warning(
-                    "  OCR выключен (OCR_ENABLED=false) — страницы-сканы пропущены: %s", path.name
-                )
+                log.warning("  OCR выключен (OCR_ENABLED=false) — страницы-сканы пропущены: %s", path.name)
 
         doc.close()
 
@@ -168,6 +171,7 @@ def _get_paddle_ocr():
     global _paddle_ocr_instance
     if _paddle_ocr_instance is None:
         from paddleocr import PaddleOCR
+
         log.info("Загружаю PaddleOCR (lang=%s) ...", settings.ocr_lang_paddle)
         _paddle_ocr_instance = PaddleOCR(
             use_angle_cls=True,
@@ -184,6 +188,7 @@ def _get_surya_predictors():
     if _surya_predictors is None:
         from surya.detection import DetectionPredictor
         from surya.recognition import RecognitionPredictor
+
         log.info("Загружаю Surya OCR ...")
         _surya_predictors = (RecognitionPredictor(), DetectionPredictor())
     return _surya_predictors
@@ -191,6 +196,7 @@ def _get_surya_predictors():
 
 def _ocr_image_paddle(image) -> str:
     import numpy as np
+
     ocr = _get_paddle_ocr()
     result = ocr.ocr(np.array(image), cls=True)
     lines = []
@@ -226,9 +232,7 @@ def ocr_pdf_pages(doc, page_nums: list[int], filename: str) -> dict:
         pix = page.get_pixmap(matrix=matrix)
         image = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
 
-        log.info(
-            "  OCR [%d/%d]  %s  стр. %d ...", idx, len(page_nums), filename, page_num + 1
-        )
+        log.info("  OCR [%d/%d]  %s  стр. %d ...", idx, len(page_nums), filename, page_num + 1)
 
         text = ""
         engine_used = None
@@ -241,18 +245,16 @@ def ocr_pdf_pages(doc, page_nums: list[int], filename: str) -> dict:
                 engine_used = "surya"
         except ImportError as e:
             log.error(
-                "  OCR-движок '%s' не установлен (%s). "
-                "См. requirements.txt / README для установки.",
-                settings.ocr_engine, e,
+                "  OCR-движок '%s' не установлен (%s). " "См. requirements.txt / README для установки.",
+                settings.ocr_engine,
+                e,
             )
         except Exception as e:
             log.error("  Ошибка OCR на стр. %d: %s", page_num + 1, e)
 
         if text.strip():
             results[page_num] = clean_pdf_text(text)
-            log.info(
-                "  OCR [%d/%d]  OK (%s) — %d символов", idx, len(page_nums), engine_used, len(text)
-            )
+            log.info("  OCR [%d/%d]  OK (%s) — %d символов", idx, len(page_nums), engine_used, len(text))
         else:
             log.warning("  OCR [%d/%d]  пусто — страница %d пропущена", idx, len(page_nums), page_num + 1)
 
@@ -261,24 +263,27 @@ def ocr_pdf_pages(doc, page_nums: list[int], filename: str) -> dict:
 
 def clean_pdf_text(text: str) -> str:
     import unicodedata
+
     text = unicodedata.normalize("NFKC", text)
-    text = re.sub(r'(\w)-\n(\w)', r'\1\2', text)
-    lines = text.split('\n')
+    text = re.sub(r"(\w)-\n(\w)", r"\1\2", text)
+    lines = text.split("\n")
     cleaned = []
     for line in lines:
-        line = re.sub(r'[ \t]{2,}', ' ', line).strip()
-        if line and not re.match(r'^[\s\-=_.|•·▪]+$', line):
+        line = re.sub(r"[ \t]{2,}", " ", line).strip()
+        if line and not re.match(r"^[\s\-=_.|•·▪]+$", line):
             cleaned.append(line)
-    return re.sub(r'\n{3,}', '\n\n', '\n'.join(cleaned)).strip()
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(cleaned)).strip()
 
 
 # ---------------------------------------------------------------------------
 # DOCX / DOC парсер
 # ---------------------------------------------------------------------------
 
+
 def parse_docx(path: Path) -> str:
     try:
         from docx import Document as DocxDocument
+
         doc = DocxDocument(str(path))
         parts = []
         for para in doc.paragraphs:
@@ -297,6 +302,7 @@ def parse_docx(path: Path) -> str:
 def _parse_docx_raw(path: Path, original_error: str = "") -> str:
     import xml.etree.ElementTree as ET
     import zipfile
+
     try:
         with zipfile.ZipFile(str(path), "r") as z:
             if "word/document.xml" not in z.namelist():
@@ -304,10 +310,7 @@ def _parse_docx_raw(path: Path, original_error: str = "") -> str:
             with z.open("word/document.xml") as f:
                 tree = ET.parse(f)
         ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
-        texts = [
-            e.text for e in tree.getroot().iter(f"{{{ns}}}t")
-            if e.text and e.text.strip()
-        ]
+        texts = [e.text for e in tree.getroot().iter(f"{{{ns}}}t") if e.text and e.text.strip()]
         result = " ".join(texts)
         if not result.strip():
             raise RuntimeError("Пустой текст после XML-парсинга")
@@ -320,13 +323,16 @@ def _parse_docx_raw(path: Path, original_error: str = "") -> str:
 # RTF / MD / TXT
 # ---------------------------------------------------------------------------
 
+
 def parse_rtf(path: Path) -> str:
     try:
         from striprtf.striprtf import rtf_to_text
+
         raw = path.read_bytes()
         for enc in ("utf-8", "cp1251", "cp1252", "latin-1"):
             try:
-                text = raw.decode(enc); break
+                text = raw.decode(enc)
+                break
             except UnicodeDecodeError:
                 continue
         else:
@@ -344,6 +350,7 @@ def parse_rtf(path: Path) -> str:
 def parse_md(path: Path) -> str:
     try:
         import markdown as md_lib
+
         raw = path.read_text(encoding="utf-8", errors="replace")
         html_content = md_lib.markdown(raw)
         text = re.sub(r"<[^>]+>", " ", html_content)
@@ -366,12 +373,12 @@ def parse_txt(path: Path) -> str:
 # ---------------------------------------------------------------------------
 
 PARSERS = {
-    ".pdf":  parse_pdf,
+    ".pdf": parse_pdf,
     ".docx": parse_docx,
-    ".doc":  parse_docx,
-    ".rtf":  parse_rtf,
-    ".md":   parse_md,
-    ".txt":  parse_txt,
+    ".doc": parse_docx,
+    ".rtf": parse_rtf,
+    ".md": parse_md,
+    ".txt": parse_txt,
 }
 
 
@@ -389,9 +396,9 @@ def parse_file(path: Path) -> Document | None:
         return Document(
             page_content=text,
             metadata={
-                "source":     str(path),
-                "filename":   path.name,
-                "extension":  ext,
+                "source": str(path),
+                "filename": path.name,
+                "extension": ext,
                 "size_bytes": path.stat().st_size,
             },
         )
@@ -403,6 +410,7 @@ def parse_file(path: Path) -> Document | None:
 # ---------------------------------------------------------------------------
 # Загрузка документов из папки
 # ---------------------------------------------------------------------------
+
 
 def load_documents(
     docs_dir: str,
@@ -418,10 +426,7 @@ def load_documents(
         log.error("Папка не найдена: %s", docs_dir)
         return [], 0
 
-    all_files = sorted(
-        f for f in docs_path.rglob("*")
-        if f.is_file() and f.suffix.lower() in PARSERS
-    )
+    all_files = sorted(f for f in docs_path.rglob("*") if f.is_file() and f.suffix.lower() in PARSERS)
 
     log.info("Найдено файлов: %d в %s", len(all_files), docs_dir)
 
@@ -446,7 +451,8 @@ def load_documents(
             documents.append(doc)
             log.info(
                 "%s OK      %s — %s символов, %d страниц approx, %.2fs",
-                prefix, file_path.name,
+                prefix,
+                file_path.name,
                 f"{len(doc.page_content):,}",
                 doc.page_content.count("\n\n") + 1,
                 elapsed,
@@ -457,7 +463,9 @@ def load_documents(
 
     log.info(
         "Парсинг завершён: ✓ %d загружено, ✗ %d ошибок, ○ %d уже в реестре",
-        ok, errors, skipped_cached,
+        ok,
+        errors,
+        skipped_cached,
     )
     return documents, skipped_cached
 
@@ -465,6 +473,7 @@ def load_documents(
 # ---------------------------------------------------------------------------
 # Сплиттер
 # ---------------------------------------------------------------------------
+
 
 def split_documents(docs: list[Document]) -> list[Document]:
     splitter = RecursiveCharacterTextSplitter(
@@ -481,6 +490,7 @@ def split_documents(docs: list[Document]) -> list[Document]:
 # ---------------------------------------------------------------------------
 # Qdrant helpers
 # ---------------------------------------------------------------------------
+
 
 def get_embeddings() -> HuggingFaceEmbeddings:
     log.info("Загружаю эмбеддинг-модель %s ...", settings.embed_model)
@@ -504,7 +514,8 @@ def ensure_collection(client: QdrantClient, vector_size: int, reset: bool = Fals
             count = info.points_count or 0
             log.info(
                 "Коллекция '%s' существует — %d точек. Добавляю новые документы.",
-                settings.collection_name, count,
+                settings.collection_name,
+                count,
             )
             return
     log.info("Создаю коллекцию '%s' (dim=%d) ...", settings.collection_name, vector_size)
@@ -521,7 +532,7 @@ def upload_to_qdrant(chunks: list[Document], embeddings: HuggingFaceEmbeddings):
     t0 = time.monotonic()
 
     for i in range(0, total, batch_size):
-        batch = chunks[i:i + batch_size]
+        batch = chunks[i : i + batch_size]
         QdrantVectorStore.from_documents(
             documents=batch,
             embedding=embeddings,
@@ -535,7 +546,10 @@ def upload_to_qdrant(chunks: list[Document], embeddings: HuggingFaceEmbeddings):
         eta = (total - done) / speed if speed > 0 else 0
         log.info(
             "  Загружено %d/%d чанков  (%.1f ч/с, ETA ~%.0fs)",
-            done, total, speed, eta,
+            done,
+            total,
+            speed,
+            eta,
         )
 
     log.info("Загрузка в Qdrant завершена за %.1fs", time.monotonic() - t0)
@@ -544,6 +558,7 @@ def upload_to_qdrant(chunks: list[Document], embeddings: HuggingFaceEmbeddings):
 # ---------------------------------------------------------------------------
 # Публичные функции — вызываются из FastAPI и CLI
 # ---------------------------------------------------------------------------
+
 
 def run_ingestion(docs_dir: str, reset: bool = False):
     """Полная индексация папки. reset=True — пересоздаёт коллекцию."""
@@ -567,7 +582,9 @@ def run_ingestion(docs_dir: str, reset: bool = False):
     docs, cached = load_documents(docs_dir, registry, force=reset)
     if not docs:
         if cached > 0:
-            log.info("Все файлы уже в реестре — нечего индексировать. Передай --reset чтобы переиндексировать.")
+            log.info(
+                "Все файлы уже в реестре — нечего индексировать. Передай --reset чтобы переиндексировать."
+            )
         else:
             log.error("Ни одного документа не загружено. Проверь папку и форматы.")
         return
@@ -579,10 +596,10 @@ def run_ingestion(docs_dir: str, reset: bool = False):
     for doc in docs:
         path = Path(doc.metadata["source"])
         registry[path.name] = {
-            "hash":       file_hash(path),
-            "source":     str(path),
-            "chunks":     sum(1 for c in chunks if c.metadata.get("source") == str(path)),
-            "chars":      len(doc.page_content),
+            "hash": file_hash(path),
+            "source": str(path),
+            "chunks": sum(1 for c in chunks if c.metadata.get("source") == str(path)),
+            "chars": len(doc.page_content),
             "indexed_at": datetime.now().isoformat(timespec="seconds"),
         }
     save_registry(registry)
@@ -616,8 +633,8 @@ def run_ingest_file(file_path: str):
     # Проверяем не загружен ли уже этот файл (по хэшу)
     if is_already_indexed(path, registry):
         log.warning(
-            "Файл '%s' уже в реестре с тем же хэшем. "
-            "Передай --reset-file чтобы переиндексировать.", path.name
+            "Файл '%s' уже в реестре с тем же хэшем. " "Передай --reset-file чтобы переиндексировать.",
+            path.name,
         )
         return
 
@@ -638,10 +655,10 @@ def run_ingest_file(file_path: str):
     upload_to_qdrant(chunks, embeddings)
 
     registry[path.name] = {
-        "hash":       file_hash(path),
-        "source":     str(path),
-        "chunks":     len(chunks),
-        "chars":      len(doc.page_content),
+        "hash": file_hash(path),
+        "source": str(path),
+        "chunks": len(chunks),
+        "chars": len(doc.page_content),
         "indexed_at": datetime.now().isoformat(timespec="seconds"),
     }
     save_registry(registry)
@@ -681,23 +698,27 @@ if __name__ == "__main__":
         epilog="""
 Примеры:
   # Добавить только новые файлы (уже загруженные пропускаются)
-  python ingestion.py --docs_dir /code/project/docs
+  python ingestion.py --docs_dir /code/project/data/docs_sample
 
   # Переиндексировать всё с нуля
-  python ingestion.py --docs_dir /code/project/docs --reset
+  python ingestion.py --docs_dir /code/project/data/docs_sample --reset
 
   # Добавить один файл
-  python ingestion.py --file /code/project/docs/новый_документ.pdf
+  python ingestion.py --file /code/project/data/docs_sample/новый_документ.pdf
 
   # Показать что уже проиндексировано
   python ingestion.py --list
         """,
     )
     parser.add_argument("--docs_dir", help="Папка с документами")
-    parser.add_argument("--file",     help="Добавить один конкретный файл")
-    parser.add_argument("--reset",    action="store_true", help="Сбросить коллекцию и реестр, переиндексировать всё")
-    parser.add_argument("--reset-file", action="store_true", help="Переиндексировать файл даже если он уже в реестре")
-    parser.add_argument("--list",     action="store_true", help="Показать список проиндексированных файлов")
+    parser.add_argument("--file", help="Добавить один конкретный файл")
+    parser.add_argument(
+        "--reset", action="store_true", help="Сбросить коллекцию и реестр, переиндексировать всё"
+    )
+    parser.add_argument(
+        "--reset-file", action="store_true", help="Переиндексировать файл даже если он уже в реестре"
+    )
+    parser.add_argument("--list", action="store_true", help="Показать список проиндексированных файлов")
     args = parser.parse_args()
 
     if args.list:
