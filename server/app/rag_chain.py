@@ -95,6 +95,7 @@ def rerank_documents(question: str, docs: list, top_n: int) -> list:
 SYSTEM_PROMPT = """Ты — корпоративный ассистент. Отвечай только на основе предоставленного контекста из документов компании.
 Если ответа в контексте нет — честно скажи об этом. Не придумывай факты.
 Отвечай на том же языке, на котором задан вопрос.
+При ответе указывай номера страниц (например: "см. стр. 3, 7"), если они указаны в контексте.
 
 Контекст из документов:
 {context}
@@ -121,7 +122,11 @@ def format_docs(docs) -> str:
     parts = []
     for i, doc in enumerate(docs, 1):
         source = doc.metadata.get("source", "unknown")
-        parts.append(f"[{i}] {source}\n{doc.page_content}")
+        page = doc.metadata.get("page")
+        header = f"[{i}] {source}"
+        if page is not None:
+            header += f" (стр. {page})"
+        parts.append(f"{header}\n{doc.page_content}")
     return "\n\n---\n\n".join(parts)
 
 
@@ -137,19 +142,28 @@ def history_to_messages(history: list[dict]):
 
 
 def extract_sources(docs) -> list[dict]:
-    """Извлекает метаданные источников для сохранения в БД."""
-    sources = []
-    seen = set()
+    """Извлекает метаданные источников для сохранения в БД.
+
+    Группирует страницы по файлу: один источник со всеми релевантными страницами.
+    """
+    pages_by_source: dict[str, set[int]] = {}
     for doc in docs:
         src = doc.metadata.get("source", "unknown")
-        if src not in seen:
-            seen.add(src)
-            sources.append(
-                {
-                    "source": src,
-                    "page": doc.metadata.get("page", None),
-                }
-            )
+        page = doc.metadata.get("page")
+        if src not in pages_by_source:
+            pages_by_source[src] = set()
+        if page is not None:
+            pages_by_source[src].add(page)
+
+    sources = []
+    for src, pages in pages_by_source.items():
+        sorted_pages = sorted(pages) if pages else []
+        sources.append(
+            {
+                "source": src,
+                "pages": sorted_pages,
+            }
+        )
     return sources
 
 

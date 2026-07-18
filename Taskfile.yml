@@ -3,7 +3,7 @@ version: "3"
 vars:
   COMPOSE: docker compose
 
-dotenv: [".env"]
+dotenv: ["server/.env"]
 
 tasks:
 
@@ -83,7 +83,7 @@ tasks:
   pull-model:
     desc: Скачать LLM в контейнер Ollama (по умолчанию — модель из server/.env / LLM_MODEL)
     cmds:
-      - "{{.COMPOSE}} exec ollama ollama pull {{.CLI_ARGS | default \"qwen2.5:14b\"}}"
+      - "{{.COMPOSE}} exec ollama ollama pull {{.CLI_ARGS | default \"qwen2.5:7b\"}}"
 
   # -------------------------------------------------------------------------
   # Авторизация
