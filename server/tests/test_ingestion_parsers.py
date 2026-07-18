@@ -1,5 +1,6 @@
 """
-Тесты чистых функций парсинга/очистки текста из ingestion.py.
+Тесты чистых функций парсинга/очистки текста из domain/ingestion.py и
+infrastructure/vector_store.py.
 
 Не трогают Qdrant/эмбеддинги/OCR — только текстовые трансформации,
 поэтому выполняются быстро и без внешних сервисов.
@@ -10,7 +11,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-from ingestion import clean_pdf_text, file_hash, is_already_indexed  # noqa: E402
+from domain.ingestion import clean_pdf_text  # noqa: E402
+from infrastructure.vector_store import file_hash, is_already_indexed  # noqa: E402
 
 
 def test_clean_pdf_text_dehyphenates_line_breaks():

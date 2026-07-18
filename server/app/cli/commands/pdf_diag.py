@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 import typer
-from pdf_diag import check_pdf
+from domain.pdf_diag import check_pdf
 
 logger = logging.getLogger("cli")
 
@@ -44,7 +44,6 @@ def pdf_diag_run(
             r = check_pdf(pdf, dump=dump, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
             results.append(r)
 
-        # Общий итог по папке
         typer.echo(f"\n{'═' * 60}")
         typer.echo("СВОДКА ПО ПАПКЕ")
         typer.echo(f"{'═' * 60}")

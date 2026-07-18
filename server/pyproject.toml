@@ -37,6 +37,8 @@ dependencies = [
     "paddlepaddle==2.6.2",     # CPU-сборка; для GPU ставь extra "gpu" отдельно
     "paddleocr==2.9.1",
     "pillow==10.4.0",          # рендер страниц PDF → изображение
+    # --- S3-хранилище (MinIO / AWS S3 / совместимые) ---
+    "boto3>=1.34.0",
     # Реранкер BAAI/bge-reranker-v2-m3 (MIT) — работает через CrossEncoder
     # из sentence-transformers, отдельный пакет не нужен.
 ]

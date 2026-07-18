@@ -1,5 +1,5 @@
 """
-auth.py — пароли, JWT-токены и FastAPI-зависимости для проверки прав доступа.
+infrastructure/auth.py — пароли, JWT-токены и FastAPI-зависимости для проверки прав доступа.
 
 Роли:
   admin — может заводить пользователей, индексировать документы, видеть все диалоги
@@ -16,10 +16,11 @@ from datetime import UTC, datetime, timedelta
 import bcrypt
 import jwt
 from config import settings
-from database import get_db, get_user_by_id
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
+
+from infrastructure.database import get_db, get_user_by_id
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -37,7 +38,6 @@ def verify_password(password: str, hashed: str) -> bool:
     try:
         return bcrypt.checkpw(password.encode("utf-8"), hashed.encode("utf-8"))
     except ValueError:
-        # битый/несовместимый хэш в БД — считаем пароль неверным, а не 500-й ошибкой
         return False
 
 
@@ -70,7 +70,6 @@ def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     db: Session = Depends(get_db),
 ) -> dict:
-    """Достаёт пользователя из Bearer-токена. 401, если токена нет/невалиден/пользователь удалён."""
     if credentials is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -90,7 +89,6 @@ def get_current_user(
 
 
 def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
-    """Как get_current_user, но дополнительно требует роль admin. 403, если это обычный user."""
     if current_user["role"] != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

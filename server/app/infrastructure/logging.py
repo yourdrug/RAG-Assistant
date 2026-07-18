@@ -1,16 +1,48 @@
 """
-logging_configuration.py — конфигурация логирования для всего приложения.
-
-Использование:
-    import logging
-    import logging_configuration
-    logging.config.dictConfig(logging_config)
+infrastructure/logging.py — Custom logging filters + logging config dict.
+Merged from logging_filters.py and logging_configuration.py.
 """
 
 import logging
 from typing import Any
 
-from logging_filters import ExceptionFilter, LevelMinFilter, LevelThresholdFilter
+# ---------------------------------------------------------------------------
+# Filters
+# ---------------------------------------------------------------------------
+
+
+class ExceptionFilter(logging.Filter):
+    """Исключает записи с exception info (traceback от uvicorn)."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return record.exc_info is None
+
+
+class LevelThresholdFilter(logging.Filter):
+    """Пропускает записи УРОВНЯ <= max_level."""
+
+    def __init__(self, max_level: int = logging.ERROR) -> None:
+        super().__init__()
+        self.max_level = max_level
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return record.levelno <= self.max_level
+
+
+class LevelMinFilter(logging.Filter):
+    """Пропускает записи УРОВНЯ >= min_level."""
+
+    def __init__(self, min_level: int = logging.ERROR) -> None:
+        super().__init__()
+        self.min_level = min_level
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return record.levelno >= self.min_level
+
+
+# ---------------------------------------------------------------------------
+# Config dict
+# ---------------------------------------------------------------------------
 
 logging_config: dict[str, Any] = {
     "version": 1,

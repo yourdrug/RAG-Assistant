@@ -40,6 +40,16 @@ class Settings(BaseSettings):
     ocr_lang_surya: list = ["ru", "en"]
     ocr_dpi: int = 300  # разрешение рендера страницы перед OCR
 
+    # --- Файловое хранилище ---
+    file_backend: str = os.getenv("FILE_BACKEND", "local")  # "local" | "s3"
+
+    # S3 / MinIO
+    s3_endpoint: str = os.getenv("S3_ENDPOINT", "http://minio:9000")
+    s3_bucket: str = os.getenv("S3_BUCKET", "rag-documents")
+    s3_access_key: str = os.getenv("S3_ACCESS_KEY", "minioadmin")
+    s3_secret_key: str = os.getenv("S3_SECRET_KEY", "minioadmin")
+    s3_region: str = os.getenv("S3_REGION", "us-east-1")
+
     # RAG параметры
     retriever_fetch_k: int = 25  # сколько кандидатов достаём из Qdrant перед реранком
     retriever_top_k: int = 6  # сколько чанков остаётся после реранка и уходит в промпт
