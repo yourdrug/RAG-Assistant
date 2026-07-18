@@ -1,0 +1,23 @@
+{
+    email {$ACME_EMAIL}
+}
+
+"{$DOMAIN}" {
+    tls /etc/caddy/certs/myapp.rag.crt /etc/caddy/certs/myapp.rag.key
+
+    reverse_proxy server:8001
+
+    encode gzip
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        -Server
+    }
+
+    log {
+        output stdout
+        format console
+    }
+}

@@ -17,11 +17,13 @@ tasks:
   # -------------------------------------------------------------------------
 
   init:
-    desc: Первоначальная настройка — .env файлы + сборка образа
+    desc: Первоначальная настройка — .env файлы + права на data/ + сборка образа
     cmds:
       - task: env
+      - task: data:perms
       - task: build
       - 'echo "Готово. Дальше:  task up  →  task pull-model  →  task login email=... password=...  →  task ingest  →  task chat -- \"вопрос\""'
+      - 'echo "Свой домен вместо localhost:8001?  task up:public  (нужен DOMAIN в .env — см. README)"'
       - 'echo "(Для локальной разработки/тестов вне Docker: task install)"'
 
   env:
@@ -34,6 +36,13 @@ tasks:
       - test -f server/.env || cp server/.env.example server/.env
       - 'echo ".env и server/.env готовы"'
 
+  data:perms:
+    desc: "Права на data/ для записи любым UID контейнера (нужно для task prod:up / production-стадии)"
+    cmds:
+      - mkdir -p data
+      - chmod -R a+rwX data
+      - 'echo "data/ доступна на запись"'
+
   # -------------------------------------------------------------------------
   # Docker-стек
   # -------------------------------------------------------------------------
@@ -44,20 +53,53 @@ tasks:
       - "{{.COMPOSE}} build server"
 
   up:
-    desc: Поднять весь стек (qdrant, ollama, postgres, server)
+    desc: Поднять весь стек (qdrant, ollama, postgres, server) в фоне — без Caddy/домена
     cmds:
-      - "{{.COMPOSE}} up"
+      - "{{.COMPOSE}} up -d"
+      - task: ps
+
+  up:public:
+    desc: "То же + Caddy с авто-HTTPS на своём домене (нужен DOMAIN в .env — см. README)"
+    cmds:
+      - "{{.COMPOSE}} --profile domain up -d"
       - task: ps
 
   down:
-    desc: Остановить и удалить контейнеры (данные в data/ сохраняются)
+    desc: Остановить и удалить контейнеры, включая Caddy если был поднят (данные в data/ сохраняются)
     cmds:
-      - "{{.COMPOSE}} down"
+      - "{{.COMPOSE}} --profile domain down"
 
   restart:
     desc: "Перезапустить сервис (task restart -- server)"
     cmds:
       - "{{.COMPOSE}} restart {{.CLI_ARGS | default \"server\"}}"
+
+  # -------------------------------------------------------------------------
+  # Продакшн — прекомпилированный образ из GHCR, без сборки из исходников.
+  # Публикуется .github/workflows/release.yml. См. README → «Прекомпилированные образы».
+  # -------------------------------------------------------------------------
+
+  prod:pull:
+    desc: Скачать готовый образ server из GHCR (вместо сборки из исходников)
+    cmds:
+      - docker compose -f docker-compose.prod.yml pull server
+
+  prod:up:
+    desc: Поднять стек из готового образа (после prod:pull) — без Caddy/домена
+    cmds:
+      - docker compose -f docker-compose.prod.yml up -d
+      - docker compose -f docker-compose.prod.yml ps
+
+  prod:up:public:
+    desc: То же + Caddy с авто-HTTPS (нужен DOMAIN в .env)
+    cmds:
+      - docker compose -f docker-compose.prod.yml --profile domain up -d
+      - docker compose -f docker-compose.prod.yml ps
+
+  prod:down:
+    desc: Остановить prod-стек (данные в data/ сохраняются)
+    cmds:
+      - docker compose -f docker-compose.prod.yml --profile domain down
 
   ps:
     desc: Статус контейнеров
@@ -70,11 +112,11 @@ tasks:
       - "{{.COMPOSE}} logs -f {{.CLI_ARGS | default \"server\"}}"
 
   clean:
-    desc: Остановить стек и удалить data/postgres, data/qdrant_storage, data/ollama_models — ОПАСНО
-    prompt: Удалить все локальные данные (Postgres/Qdrant/Ollama)?
+    desc: Остановить стек и удалить data/postgres, data/qdrant_storage, data/ollama_models, data/caddy_* — ОПАСНО
+    prompt: Удалить все локальные данные (Postgres/Qdrant/Ollama/Caddy)?
     cmds:
-      - "{{.COMPOSE}} down -v"
-      - rm -rf data/postgres data/qdrant_storage data/ollama_models
+      - "{{.COMPOSE}} --profile domain down -v"
+      - rm -rf data/postgres data/qdrant_storage data/ollama_models data/caddy_data data/caddy_config
 
   # -------------------------------------------------------------------------
   # Модель LLM (Ollama — сервис в docker-compose.yml)
@@ -83,7 +125,7 @@ tasks:
   pull-model:
     desc: Скачать LLM в контейнер Ollama (по умолчанию — модель из server/.env / LLM_MODEL)
     cmds:
-      - "{{.COMPOSE}} exec ollama ollama pull {{.CLI_ARGS | default \"qwen2.5:7b\"}}"
+      - "{{.COMPOSE}} exec ollama ollama pull {{.CLI_ARGS | default \"qwen2.5:14b\"}}"
 
   # -------------------------------------------------------------------------
   # Авторизация

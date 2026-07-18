@@ -11,6 +11,12 @@ class Settings(BaseSettings):
 
     data_dir: str = os.getenv("DATA_DIR", "/code/project/data")
 
+    allowed_origins: str = os.getenv("ALLOWED_ORIGINS", "*")
+
+    @property
+    def allowed_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.allowed_origins.split(",") if o.strip()]
+
     # --- Эмбеддинги и реранкер (лицензионно безопасный набор, MIT/Apache-2.0) ---
     embed_model: str = os.getenv("EMBED_MODEL", "BAAI/bge-m3")
     rerank_model: str = os.getenv("RERANK_MODEL", "BAAI/bge-reranker-v2-m3")
@@ -47,7 +53,6 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = int(os.getenv("JWT_EXPIRE_MINUTES", "1440"))  # 24 часа
 
-    # Первый admin-пользователь создаётся автоматически при старте
     admin_email: str | None = os.getenv("ADMIN_EMAIL")
     admin_password: str | None = os.getenv("ADMIN_PASSWORD")
 
@@ -56,6 +61,7 @@ class Settings(BaseSettings):
 
     class Config:
         env_file = ".env"
+        extra = "ignore"
 
 
 settings = Settings()

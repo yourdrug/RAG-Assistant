@@ -25,7 +25,7 @@ services:
     environment:
       OLLAMA_MAX_LOADED_MODELS: 1
       OLLAMA_NUM_PARALLEL: 1
-      OLLAMA_KEEP_ALIVE: 5m   # не держать модель в памяти бесконечно после запроса
+      OLLAMA_KEEP_ALIVE: 5m
     deploy:
       resources:
         limits:
@@ -68,27 +68,15 @@ services:
     restart: unless-stopped
 
   server:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: development
+    image: ghcr.io/yourdrug/rag-assistant:${IMAGE_TAG:-latest}
     hostname: rag-server
     container_name: rag-server
-    entrypoint: ["./entrypoint.sh"]
-    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001", "--reload"]
     ports:
       - "8001:8001"
     env_file:
       - path: server/.env
         required: true
     volumes:
-      - type: bind
-        source: server/app
-        target: /code/project/app
-      - type: bind
-        source: server/entrypoint.sh
-        target: /code/project/entrypoint.sh
-        read_only: true
       - type: bind
         source: data
         target: /code/project/data
@@ -128,7 +116,6 @@ services:
       ACME_EMAIL: ${ACME_EMAIL:-postmaster@myapp.rag}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./data/caddy_certs:/etc/caddy/certs:ro
       - ./data/caddy_data:/data
       - ./data/caddy_config:/config
     depends_on:
@@ -141,7 +128,4 @@ networks:
     name: rag-network
     driver: bridge
     driver_opts:
-      # По умолчанию Docker-мост держит MTU=1500. Если на хосте поднят VPN (обычно
-      # снижает MTU до ~1400 и меньше), крупные TLS-пакеты при долгих скачиваниях рвутся
-      # с "EOF" — см. README → Troubleshooting.
       com.docker.network.driver.mtu: ${DOCKER_MTU:-1500}
