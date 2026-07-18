@@ -22,6 +22,8 @@ main.py — FastAPI приложение с SSE-стримингом, истор
 from __future__ import annotations
 
 import json
+import logging
+import logging.config
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -48,6 +50,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from rag_chain import rag_invoke, rag_stream
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger("default")
 
 # ---------------------------------------------------------------------------
 # Pydantic схемы
@@ -108,8 +112,8 @@ def bootstrap_admin():
         if any_admin_exists(db):
             return
         if not settings.admin_email or not settings.admin_password:
-            print(
-                "[bootstrap_admin] Нет ни одного admin, а ADMIN_EMAIL/ADMIN_PASSWORD не заданы — "
+            logger.warning(
+                "Нет ни одного admin, а ADMIN_EMAIL/ADMIN_PASSWORD не заданы — "
                 "залогиниться будет некому. Задай их в server/.env и перезапусти."
             )
             return
@@ -119,7 +123,7 @@ def bootstrap_admin():
             hashed_password=hash_password(settings.admin_password),
             role="admin",
         )
-        print(f"[bootstrap_admin] Создан admin: {settings.admin_email}")
+        logger.info("Создан admin: %s", settings.admin_email)
     finally:
         db.close()
 
@@ -132,6 +136,9 @@ def bootstrap_admin():
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator:
     """Lifespan: выполняется при старте и завершении приложения."""
+    from logging_configuration import logging_config
+
+    logging.config.dictConfig(logging_config)
     bootstrap_admin()
     yield
 

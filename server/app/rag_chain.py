@@ -13,7 +13,7 @@ from langchain_ollama import ChatOllama
 from langchain_qdrant import QdrantVectorStore
 from sentence_transformers import CrossEncoder
 
-log = logging.getLogger("rag_chain")
+log = logging.getLogger("default")
 
 # ---------------------------------------------------------------------------
 # Синглтоны (инициализируются один раз при старте сервера)

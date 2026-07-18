@@ -39,7 +39,7 @@ Path(settings.data_dir).mkdir(parents=True, exist_ok=True)
 
 
 def setup_logger() -> logging.Logger:
-    logger = logging.getLogger("ingestion")
+    logger = logging.getLogger("detailed")
     if logger.handlers:
         return logger  # уже настроен (повторный вызов из FastAPI)
 
