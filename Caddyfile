@@ -7,8 +7,10 @@
 
     reverse_proxy server:8001 {
         transport http {
-            read_timeout 300s
-            write_timeout 300s
+            dial_timeout 10s
+            response_header_timeout 600s
+            read_timeout 600s
+            write_timeout 600s
         }
     }
 

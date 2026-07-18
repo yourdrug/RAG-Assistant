@@ -133,13 +133,43 @@ def bootstrap_admin():
 # ---------------------------------------------------------------------------
 
 
+def _preload_models() -> None:
+    """Предзагрузка моделей — если они уже в кэше HuggingFace, загрузка быстрая."""
+    from pathlib import Path
+
+    from config import settings
+
+    cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
+    embed_cached = any(cache_dir.glob(f"models--{settings.embed_model.replace('/', '--')}*"))
+    rerank_cached = any(cache_dir.glob(f"models--{settings.rerank_model.replace('/', '--')}*"))
+
+    if embed_cached and rerank_cached:
+        logger.info("Модели уже в кэше — пропускаю предзагрузку")
+        return
+
+    if not embed_cached:
+        logger.info("Предзагрузка эмбеддинг-модели %s ...", settings.embed_model)
+        from rag_chain import get_embeddings
+
+        get_embeddings()
+    if not rerank_cached:
+        logger.info("Предзагрузка реранкера %s ...", settings.rerank_model)
+        from rag_chain import get_reranker
+
+        get_reranker()
+    logger.info("Модели загружены")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator:
     """Lifespan: выполняется при старте и завершении приложения."""
+    import logging.config
+
     from logging_configuration import logging_config
 
     logging.config.dictConfig(logging_config)
     bootstrap_admin()
+    _preload_models()
     yield
 
 
