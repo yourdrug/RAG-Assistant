@@ -15,7 +15,6 @@ pdf_diag.py — диагностика PDF файлов перед индекс�
     python pdf_diag.py /path/to/file.pdf --dump # показать полный текст
 """
 
-import argparse
 import sys
 from pathlib import Path
 
@@ -205,55 +204,3 @@ def convert_hint(pdf_path: Path):
   {B}Или через LibreOffice:{RST}
     libreoffice --headless --convert-to pdf "{pdf_path}" --outdir .
 """)
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Диагностика PDF для RAG-индексации")
-    parser.add_argument("path", help="Путь к PDF файлу или папке с PDF")
-    parser.add_argument("--dump", action="store_true", help="Показать полный извлечённый текст")
-    parser.add_argument("--chunk-size", type=int, default=512)
-    parser.add_argument("--chunk-overlap", type=int, default=128)
-    args = parser.parse_args()
-
-    p = Path(args.path)
-
-    if p.is_file():
-        if p.suffix.lower() != ".pdf":
-            print(f"{R}Файл не является PDF: {p}{RST}")
-            sys.exit(1)
-        check_pdf(p, dump=args.dump, chunk_size=args.chunk_size, chunk_overlap=args.chunk_overlap)
-
-    elif p.is_dir():
-        pdfs = list(p.glob("**/*.pdf")) + list(p.glob("**/*.PDF"))
-        if not pdfs:
-            print(f"{R}PDF файлов не найдено в {p}{RST}")
-            sys.exit(1)
-
-        print(f"{B}Найдено PDF: {len(pdfs)}{RST}")
-        results = []
-        for pdf in sorted(pdfs):
-            r = check_pdf(pdf, dump=args.dump, chunk_size=args.chunk_size, chunk_overlap=args.chunk_overlap)
-            results.append(r)
-
-        # Общий итог по папке
-        print(f"\n{B}{'═'*60}")
-        print(f"СВОДКА ПО ПАПКЕ{RST}")
-        print(f"{'═'*60}")
-        total_ok = sum(1 for r in results if r["n_scan"] == 0 and r["n_garbled"] == 0)
-        total_scan = sum(1 for r in results if r["n_scan"] > 0)
-        total_garb = sum(1 for r in results if r["n_garbled"] > 0)
-        total_chars = sum(r["total_chars"] for r in results)
-        print(f"  Читаются нормально: {G}{total_ok}{RST}/{len(results)}")
-        if total_scan:
-            print(f"  Содержат сканы:     {R}{total_scan}{RST}  ← нужен OCR")
-        if total_garb:
-            print(f"  Мусорный текст:     {Y}{total_garb}{RST}  ← нужна конвертация")
-        print(f"  Итого символов:     {total_chars:,}")
-        print()
-    else:
-        print(f"{R}Путь не найден: {p}{RST}")
-        sys.exit(1)
-
-
-if __name__ == "__main__":
-    main()

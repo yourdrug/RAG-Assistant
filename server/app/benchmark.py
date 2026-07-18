@@ -19,7 +19,6 @@ benchmark.py — оценка качества RAG-системы.
     python benchmark.py --questions test_questions.json --judge-model qwen2.5:14b --top-k 8
 """
 
-import argparse
 import json
 import sys
 import time
@@ -543,59 +542,3 @@ def run_benchmark(
     total_time = time.time() - total_start
     print_summary(results, total_time)
     save_results(results, out_dir)
-
-
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Бенчмарк RAG-системы — оценивает retriever и generator",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Примеры:
-  python benchmark.py --questions test_questions.json
-  python benchmark.py --questions test_questions.json --top-k 8 --out results/
-  python benchmark.py --questions test_questions.json --judge-model qwen2.5:14b
-
-Формат test_questions.json:
-  [
-    {
-      "id": "q1",
-      "question": "Какие товары подлежат маркировке?",
-      "expected_answer": "...",    // опционально — считается Correctness
-      "source_hint": "Указ"        // опционально — часть имени файла с ответом
-    }
-  ]
-        """,
-    )
-    parser.add_argument(
-        "--questions",
-        default=str(Path(settings.data_dir) / "test_questions.json"),
-        help="Путь к JSON-файлу с вопросами (default: data/test_questions.json)",
-    )
-    parser.add_argument(
-        "--out",
-        default=str(Path(settings.data_dir) / "benchmark_results"),
-        help="Папка для сохранения результатов (default: data/benchmark_results/)",
-    )
-    parser.add_argument(
-        "--top-k",
-        type=int,
-        default=settings.retriever_top_k,
-        help=f"Количество чанков для retriever (default: {settings.retriever_top_k})",
-    )
-    parser.add_argument(
-        "--judge-model",
-        default=settings.llm_model,
-        help=f"Модель Ollama для роли судьи (default: {settings.llm_model})",
-    )
-    args = parser.parse_args()
-
-    run_benchmark(
-        questions_path=args.questions,
-        out_dir=args.out,
-        top_k=args.top_k,
-        judge_model=args.judge_model,
-    )

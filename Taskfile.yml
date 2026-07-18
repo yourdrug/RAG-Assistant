@@ -220,7 +220,7 @@ tasks:
     desc: Запустить оценку качества (retriever + LLM-судья) по data/test_questions.json
     dir: server
     cmds:
-      - DATA_DIR=../data uv run python app/benchmark.py
+      - DATA_DIR=../data uv run python -m cli benchmark run
 
   # -------------------------------------------------------------------------
   # База данных

@@ -11,7 +11,6 @@ ingestion.py — индексирует документы в Qdrant.
   .rtf  → striprtf       .md → markdown    .txt → plain read
 """
 
-import argparse
 import html
 import json
 import logging
@@ -716,52 +715,3 @@ def list_registry():
             f"{meta.get('chars', 0):,}",
             meta.get("indexed_at", "?")[:19],
         )
-
-
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="RAG Ingestion Pipeline",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Примеры:
-  # Добавить только новые файлы (уже загруженные пропускаются)
-  python ingestion.py --docs_dir /code/project/data/docs_sample
-
-  # Переиндексировать всё с нуля
-  python ingestion.py --docs_dir /code/project/data/docs_sample --reset
-
-  # Добавить один файл
-  python ingestion.py --file /code/project/data/docs_sample/новый_документ.pdf
-
-  # Показать что уже проиндексировано
-  python ingestion.py --list
-        """,
-    )
-    parser.add_argument("--docs_dir", help="Папка с документами")
-    parser.add_argument("--file", help="Добавить один конкретный файл")
-    parser.add_argument(
-        "--reset", action="store_true", help="Сбросить коллекцию и реестр, переиндексировать всё"
-    )
-    parser.add_argument(
-        "--reset-file", action="store_true", help="Переиндексировать файл даже если он уже в реестре"
-    )
-    parser.add_argument("--list", action="store_true", help="Показать список проиндексированных файлов")
-    args = parser.parse_args()
-
-    if args.list:
-        list_registry()
-    elif args.file:
-        if args.reset_file:
-            # Удалим из реестра чтобы force-переиндексировать
-            registry = load_registry()
-            registry.pop(Path(args.file).name, None)
-            save_registry(registry)
-        run_ingest_file(args.file)
-    elif args.docs_dir:
-        run_ingestion(args.docs_dir, reset=args.reset)
-    else:
-        parser.print_help()

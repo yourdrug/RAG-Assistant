@@ -121,6 +121,6 @@ COPY --chown=raguser:raguser server/app ./app
 
 ENTRYPOINT ["./entrypoint.sh"]
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]
+CMD ["python", "main.py", "runserver", "--host", "0.0.0.0", "--port", "8001"]
 
 EXPOSE 8001

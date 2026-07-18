@@ -20,9 +20,12 @@ main() {
     cd app
     log_info "Current working directory: '$(pwd)'"
 
+    # Показывать текущую директорию в промпте bash
+    export PS1='\[\033[01;32m\]rag\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
+
     if [ $# -eq 0 ]; then
-        log_info "No command given — starting uvicorn with defaults."
-        exec uvicorn main:app --host 0.0.0.0 --port 8001
+        log_info "No command given — use: python main.py runserver"
+        exit 1
     fi
 
     log_info "Command: '$*'"
