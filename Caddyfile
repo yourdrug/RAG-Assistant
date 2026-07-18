@@ -5,7 +5,12 @@
 "{$DOMAIN}" {
     tls /etc/caddy/certs/myapp.rag.crt /etc/caddy/certs/myapp.rag.key
 
-    reverse_proxy server:8001
+    reverse_proxy server:8001 {
+        transport http {
+            read_timeout 300s
+            write_timeout 300s
+        }
+    }
 
     encode gzip
 
