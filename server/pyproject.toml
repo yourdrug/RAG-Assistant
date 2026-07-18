@@ -3,6 +3,7 @@ name = "rag-api"
 version = "0.1.0"
 description = "Корпоративный RAG-ассистент — FastAPI + Qdrant + Ollama, локальный стек"
 readme = "../README.md"
+license = { text = "Elastic-2.0" }
 requires-python = "==3.11.*"
 dependencies = [
     "fastapi==0.115.0",

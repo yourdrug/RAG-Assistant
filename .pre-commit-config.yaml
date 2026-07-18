@@ -1,0 +1,23 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: bash -c 'cd server && uv run ruff check app tests'
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      - id: ruff-format
+        name: ruff format
+        entry: bash -c 'cd server && uv run ruff format app tests'
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      - id: pytest
+        name: pytest
+        entry: bash -c 'cd server && DATA_DIR=/tmp/rag_test uv run pytest -x -q'
+        language: system
+        types: [python]
+        pass_filenames: false
