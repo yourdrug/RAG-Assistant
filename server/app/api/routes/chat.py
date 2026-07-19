@@ -1,16 +1,14 @@
+"""
+api/routes/chat.py — Chat endpoints. Thin wrappers around ChatService.
+"""
+
 import json
 
-from config import settings
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from infrastructure.auth import get_current_user
-from infrastructure.database import (
-    get_db,
-    get_history,
-    get_or_create_conversation,
-    save_message,
-)
-from infrastructure.vector_store import rag_invoke, rag_stream
+from infrastructure.database import get_db
+from services.chat_service import ChatService
 from sqlalchemy.orm import Session
 
 from api.schemas import ChatRequest, ChatResponse
@@ -25,30 +23,19 @@ async def chat_stream(
     db: Session = Depends(get_db),
 ):
     if not req.question.strip():
-        raise HTTPException(status_code=400, detail="Вопрос не может быть пустым")
+        raise HTTPException(status_code=400, detail="Question cannot be empty")
 
-    conv_id = get_or_create_conversation(db, req.conversation_id, current_user["id"])
-    save_message(db, conv_id, "user", req.question)
-
-    history = get_history(db, conv_id, window=settings.history_window)
-    if history and history[-1]["role"] == "user":
-        history = history[:-1]
+    service = ChatService()
 
     async def event_generator():
-        full_answer = ""
-        sources = []
-
         try:
-            async for chunk in rag_stream(req.question, history, current_user, db):
-                if chunk.startswith("\n__sources__:"):
-                    sources = json.loads(chunk.replace("\n__sources__:", ""))
+            async for chunk in service.stream_chat(req.question, req.conversation_id, current_user, db):
+                if chunk.startswith("\n__meta__:"):
+                    meta = json.loads(chunk.replace("\n__meta__:", ""))
+                    sources = meta.get("sources", [])
+                    yield f"event: done\ndata: {json.dumps({'conversation_id': meta['conversation_id'], 'sources': sources}, ensure_ascii=False)}\n\n"
                 else:
-                    full_answer += chunk
                     yield f"data: {json.dumps({'text': chunk}, ensure_ascii=False)}\n\n"
-
-            save_message(db, conv_id, "assistant", full_answer, sources=sources)
-            yield f"event: done\ndata: {json.dumps({'conversation_id': conv_id, 'sources': sources}, ensure_ascii=False)}\n\n"
-
         except Exception as e:
             yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
 
@@ -66,16 +53,8 @@ async def chat_sync(
     db: Session = Depends(get_db),
 ):
     if not req.question.strip():
-        raise HTTPException(status_code=400, detail="Вопрос не может быть пустым")
+        raise HTTPException(status_code=400, detail="Question cannot be empty")
 
-    conv_id = get_or_create_conversation(db, req.conversation_id, current_user["id"])
-    save_message(db, conv_id, "user", req.question)
-
-    history = get_history(db, conv_id, window=settings.history_window)
-    if history and history[-1]["role"] == "user":
-        history = history[:-1]
-
-    answer, sources = await rag_invoke(req.question, history, current_user, db)
-    save_message(db, conv_id, "assistant", answer, sources=sources)
-
+    service = ChatService()
+    answer, sources, conv_id = await service.sync_chat(req.question, req.conversation_id, current_user, db)
     return ChatResponse(answer=answer, conversation_id=conv_id, sources=sources)

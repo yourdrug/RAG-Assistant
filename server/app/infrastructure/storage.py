@@ -1,7 +1,8 @@
 """
-file_storage.py — Абстракция файлового хранилища (local filesystem / S3).
+infrastructure/storage.py — File storage abstraction (local filesystem / S3).
 """
 
+import functools
 import logging
 import tempfile
 from dataclasses import dataclass
@@ -95,7 +96,6 @@ class S3Storage:
     def __init__(self):
         import boto3
 
-        # Для AWS S3 endpoint_url не нужен (стандартный), для MinIO/других — передаём
         kwargs = {
             "aws_access_key_id": settings.s3_access_key,
             "aws_secret_access_key": settings.s3_secret_key,
@@ -155,16 +155,10 @@ class S3Storage:
         self.client.delete_object(Bucket=self.bucket, Key=key)
 
 
-_storage: FileStorage | None = None
-
-
+@functools.lru_cache(maxsize=1)
 def get_storage() -> FileStorage:
-    global _storage
-    if _storage is None:
-        if settings.file_backend == "s3":
-            _storage = S3Storage()
-            log.info("File storage backend: S3 (%s)", settings.s3_endpoint)
-        else:
-            _storage = LocalStorage()
-            log.info("File storage backend: local (%s)", settings.data_dir)
-    return _storage
+    if settings.file_backend == "s3":
+        log.info("File storage backend: S3 (%s)", settings.s3_endpoint)
+        return S3Storage()
+    log.info("File storage backend: local (%s)", settings.data_dir)
+    return LocalStorage()

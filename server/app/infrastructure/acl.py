@@ -1,21 +1,21 @@
 """
-infrastructure/acl.py — единая точка правил доступа к документам.
+infrastructure/acl.py — Unified document access control rules.
 
-Модель:
-  kind пользователя:  internal | client
-  visibility документа:
-    internal_public   — видят все internal-сотрудники
-    internal_group    — видят участники group_id (только internal)
-    internal_private   — видит только owner_id (internal)
-    client_private     — видит owner_id (client) + internal-сотрудники,
-                          которым этот клиент назначен через client_assignments
+Model:
+  user kind:  internal | client
+  document visibility:
+    internal_public   — visible to all internal employees
+    internal_group    — visible to group_id members (internal only)
+    internal_private   — visible only to owner_id (internal)
+    client_private     — visible to owner_id (client) + internal employees
+                          assigned via client_assignments
 
-client никогда не видит internal_*, и наоборот — эти множества значений visibility
-не пересекаются, так что перепутать их в фильтре структурно невозможно.
+client never sees internal_*, and vice versa — these visibility value sets
+don't overlap, so mixing them up in a filter is structurally impossible.
 
-Используется в двух местах:
-  - api/routes.py                        — validate_visibility() перед записью документа
-  - infrastructure/vector_store.py:rag_stream — build_qdrant_filter() перед поиском в Qdrant
+Used in:
+  - services/document_service.py        — validate_visibility() before writing documents
+  - services/chat_service.py:rag_stream — build_qdrant_filter() before Qdrant search
 """
 
 from fastapi import HTTPException
@@ -31,29 +31,23 @@ ALLOWED_VISIBILITY_FOR_KIND = {
 
 
 def validate_visibility(visibility: str, group_id: int | None, current_user: dict, db: Session) -> None:
-    """Бросает HTTPException, если пользователю нельзя публиковать документ с такой
-    видимостью. owner_id/group_id, которые реально попадут в БД и Qdrant, вычисляются
-    отдельно через owner_and_group_for() — эта функция только проверяет допустимость.
-    """
     allowed = ALLOWED_VISIBILITY_FOR_KIND.get(current_user["kind"])
     if allowed is None or visibility not in allowed:
-        raise HTTPException(400, f"visibility='{visibility}' недоступна для kind='{current_user['kind']}'")
+        raise HTTPException(400, f"visibility='{visibility}' not available for kind='{current_user['kind']}'")
 
     if visibility == "internal_public" and current_user["role"] != "admin":
-        raise HTTPException(403, "Публиковать в internal_public может только admin")
+        raise HTTPException(403, "Only admin can publish to internal_public")
 
     if visibility == "internal_group":
         if group_id is None:
-            raise HTTPException(400, "Для visibility='internal_group' нужен group_id")
+            raise HTTPException(400, "group_id required for visibility='internal_group'")
         if group_id not in get_user_group_ids(db, current_user["id"]):
-            raise HTTPException(403, "Вы не состоите в этой группе")
+            raise HTTPException(403, "You are not a member of this group")
 
 
 def owner_and_group_for(
     visibility: str, group_id: int | None, current_user: dict
 ) -> tuple[int | None, int | None]:
-    """Вычисляет owner_id/group_id для БД и payload Qdrant.
-    Вызывать ТОЛЬКО после успешного validate_visibility()."""
     if visibility == "internal_public":
         return None, None
     if visibility == "internal_group":
@@ -62,7 +56,6 @@ def owner_and_group_for(
 
 
 def can_view_document(db: Session, user: dict, doc: dict) -> bool:
-    """Проверка доступа к одному документу (GET /documents/{id})."""
     if doc["visibility"] == "internal_public":
         return user["kind"] == "internal"
     if doc["visibility"] == "internal_group":
@@ -77,9 +70,6 @@ def can_view_document(db: Session, user: dict, doc: dict) -> bool:
 
 
 def build_qdrant_filter(user: dict, db: Session) -> Filter:
-    """Строит Qdrant Filter, ограничивающий поиск документами, которые видны
-    данному пользователю. Применяется ДО реранка.
-    """
     if user["kind"] == "client":
         return Filter(
             must=[
@@ -121,13 +111,8 @@ def build_qdrant_filter(user: dict, db: Session) -> Filter:
     return Filter(should=should)
 
 
-_ACL_INDEXES_ENSURED = False
-
-
 def ensure_acl_payload_indexes(client) -> None:
-    global _ACL_INDEXES_ENSURED
-    if _ACL_INDEXES_ENSURED:
-        return
+    """Kept for backward compatibility. Prefer ClientContainer.ensure_acl_indexes()."""
     from config import settings
     from qdrant_client.models import PayloadSchemaType
 
@@ -141,4 +126,3 @@ def ensure_acl_payload_indexes(client) -> None:
             client.create_payload_index(settings.collection_name, field_name=field, field_schema=schema)
         except Exception:
             pass
-    _ACL_INDEXES_ENSURED = True

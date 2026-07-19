@@ -2,7 +2,13 @@
 api/schemas.py — Pydantic models for request/response schemas.
 """
 
+from datetime import datetime
+
 from pydantic import BaseModel
+
+# ---------------------------------------------------------------------------
+# Auth
+# ---------------------------------------------------------------------------
 
 
 class LoginRequest(BaseModel):
@@ -32,6 +38,11 @@ class CreateUserRequest(BaseModel):
     kind: str = "internal"
 
 
+# ---------------------------------------------------------------------------
+# Chat
+# ---------------------------------------------------------------------------
+
+
 class ChatRequest(BaseModel):
     question: str
     conversation_id: int | None = None
@@ -40,15 +51,31 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
     conversation_id: int
-    sources: list
+    sources: list[dict]
+
+
+# ---------------------------------------------------------------------------
+# Conversations
+# ---------------------------------------------------------------------------
 
 
 class NewConversationResponse(BaseModel):
     conversation_id: int
 
 
-class UploadResponse(BaseModel):
-    files: list[str]
+class MessageResponse(BaseModel):
+    role: str
+    content: str
+
+
+class ConversationHistoryResponse(BaseModel):
+    conversation_id: int
+    messages: list[MessageResponse]
+
+
+# ---------------------------------------------------------------------------
+# Documents
+# ---------------------------------------------------------------------------
 
 
 class DocumentResponse(BaseModel):
@@ -61,13 +88,100 @@ class DocumentResponse(BaseModel):
     chars: int | None = None
 
 
+# ---------------------------------------------------------------------------
+# Ingest
+# ---------------------------------------------------------------------------
+
+
+class UploadResponse(BaseModel):
+    files: list[str]
+
+
+class IngestStatusResponse(BaseModel):
+    status: str
+    mode: str | None = None
+    file: str | None = None
+    force: bool | None = None
+    docs_dir: str | None = None
+
+
+class IngestRegistryItem(BaseModel):
+    filename: str
+    chunks: int
+    chars: int
+    indexed_at: str
+    source: str
+
+
+class IngestRegistryResponse(BaseModel):
+    total_files: int
+    total_chunks: int
+    files: list[IngestRegistryItem]
+
+
+# ---------------------------------------------------------------------------
+# Groups
+# ---------------------------------------------------------------------------
+
+
 class CreateGroupRequest(BaseModel):
     name: str
+
+
+class GroupResponse(BaseModel):
+    id: int
+    name: str
+
+
+class GroupMemberResponse(BaseModel):
+    id: int
+    email: str
 
 
 class GroupMemberRequest(BaseModel):
     user_id: int
 
 
+# ---------------------------------------------------------------------------
+# Clients
+# ---------------------------------------------------------------------------
+
+
 class AssignClientRequest(BaseModel):
     internal_user_id: int
+
+
+class ClientAssignmentResponse(BaseModel):
+    internal_user_id: int
+    email: str
+    assigned_at: datetime
+
+
+class ClientAssignmentListResponse(BaseModel):
+    total_files: int = 0
+    total_chunks: int = 0
+    files: list[IngestRegistryItem] = []
+
+
+# ---------------------------------------------------------------------------
+# Health
+# ---------------------------------------------------------------------------
+
+
+class HealthResponse(BaseModel):
+    api: str
+    qdrant: str
+    ollama: str
+    ollama_models: list[str] | None = None
+
+
+# ---------------------------------------------------------------------------
+# Generic
+# ---------------------------------------------------------------------------
+
+
+class StatusResponse(BaseModel):
+    status: str
+    detail: str | None = None
+    id: int | None = None
+    is_active: bool | None = None

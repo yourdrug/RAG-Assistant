@@ -2,6 +2,7 @@
 domain/ingestion.py — Pure parsers + text splitting. No Qdrant, no storage, no registry.
 """
 
+import functools
 import html
 import logging
 import re
@@ -44,40 +45,30 @@ def setup_logger() -> logging.Logger:
     return logger
 
 
-log = setup_logger()
-
-
 # ---------------------------------------------------------------------------
-# OCR
+# OCR — lazy-loaded via lru_cache (no global keyword)
 # ---------------------------------------------------------------------------
 
-_paddle_ocr_instance = None
-_surya_predictors = None
 
-
+@functools.lru_cache(maxsize=1)
 def _get_paddle_ocr():
-    global _paddle_ocr_instance
-    if _paddle_ocr_instance is None:
-        from paddleocr import PaddleOCR
+    from paddleocr import PaddleOCR
 
-        log.info("Загружаю PaddleOCR (lang=%s) ...", settings.ocr_lang_paddle)
-        _paddle_ocr_instance = PaddleOCR(
-            use_angle_cls=True,
-            lang=settings.ocr_lang_paddle,
-            show_log=False,
-        )
-    return _paddle_ocr_instance
+    log.info("Loading PaddleOCR (lang=%s) ...", settings.ocr_lang_paddle)
+    return PaddleOCR(
+        use_angle_cls=True,
+        lang=settings.ocr_lang_paddle,
+        show_log=False,
+    )
 
 
+@functools.lru_cache(maxsize=1)
 def _get_surya_predictors():
-    global _surya_predictors
-    if _surya_predictors is None:
-        from surya.detection import DetectionPredictor
-        from surya.recognition import RecognitionPredictor
+    from surya.detection import DetectionPredictor
+    from surya.recognition import RecognitionPredictor
 
-        log.info("Загружаю Surya OCR ...")
-        _surya_predictors = (RecognitionPredictor(), DetectionPredictor())
-    return _surya_predictors
+    log.info("Loading Surya OCR ...")
+    return (RecognitionPredictor(), DetectionPredictor())
 
 
 def _ocr_image_paddle(image) -> str:
@@ -107,226 +98,135 @@ def ocr_pdf_pages(doc, page_nums: list[int], filename: str) -> dict:
 
     results = {}
     zoom = settings.ocr_dpi / 72
-    matrix = fitz.Matrix(zoom, zoom)
+    mat = fitz.Matrix(zoom, zoom)
 
-    for idx, page_num in enumerate(page_nums, 1):
-        page = doc[page_num]
-        pix = page.get_pixmap(matrix=matrix)
-        image = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
-
-        log.info("  OCR [%d/%d]  %s  стр. %d ...", idx, len(page_nums), filename, page_num + 1)
+    for page_num in page_nums:
+        page = doc.load_page(page_num - 1)
+        pix = page.get_pixmap(matrix=mat)
+        img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
 
         text = ""
-        engine_used = None
-        try:
-            if settings.ocr_engine in ("paddleocr", "auto"):
-                text = _ocr_image_paddle(image)
-                engine_used = "paddleocr"
-            if (not text.strip()) and settings.ocr_engine in ("surya", "auto"):
-                text = _ocr_image_surya(image)
-                engine_used = "surya"
-        except ImportError as e:
-            log.error(
-                "  OCR-движок '%s' не установлен (%s). " "См. requirements.txt / README для установки.",
-                settings.ocr_engine,
-                e,
-            )
-        except Exception as e:
-            log.error("  Ошибка OCR на стр. %d: %s", page_num + 1, e)
+        if settings.ocr_engine in ("paddleocr", "auto"):
+            text = _ocr_image_paddle(img)
 
-        if text.strip():
-            results[page_num] = clean_pdf_text(text)
-            log.info("  OCR [%d/%d]  OK (%s) — %d символов", idx, len(page_nums), engine_used, len(text))
-        else:
-            log.warning("  OCR [%d/%d]  пусто — страница %d пропущена", idx, len(page_nums), page_num + 1)
+        if not text and settings.ocr_engine in ("surya", "auto"):
+            text = _ocr_image_surya(img)
+
+        results[page_num] = text
 
     return results
 
 
-def clean_pdf_text(text: str) -> str:
-    import unicodedata
-
-    text = unicodedata.normalize("NFKC", text)
-    text = re.sub(r"(\w)-\n(\w)", r"\1\2", text)
-    lines = text.split("\n")
-    cleaned = []
-    for line in lines:
-        line = re.sub(r"[ \t]{2,}", " ", line).strip()
-        if line and not re.match(r"^[\s\-=_.|•·▪]+$", line):
-            cleaned.append(line)
-    return re.sub(r"\n{3,}", "\n\n", "\n".join(cleaned)).strip()
-
-
 # ---------------------------------------------------------------------------
-# PDF parser
+# PDF parsing
 # ---------------------------------------------------------------------------
 
 
-def parse_pdf(path: Path) -> list[Document]:
-    try:
-        import fitz
+def parse_pdf(file_path: Path) -> list[Document]:
+    import fitz
 
-        doc = fitz.open(str(path))
-        pages_text: dict[int, str] = {}
-        scan_page_nums = []
+    doc = fitz.open(str(file_path))
+    pages = []
 
-        for i, page in enumerate(doc):
-            blocks = page.get_text("blocks", sort=True)
-            page_parts = [block[4].strip() for block in blocks if block[6] == 0 and block[4].strip()]
-            page_text = clean_pdf_text("\n".join(page_parts))
-
-            if len(page_text.strip()) < 50:
-                scan_page_nums.append(i)
-            else:
-                pages_text[i] = page_text
-
-        if scan_page_nums:
-            pages_str = ", ".join(str(p + 1) for p in scan_page_nums[:10])
-            suffix = f"... (+{len(scan_page_nums) - 10})" if len(scan_page_nums) > 10 else ""
-            log.warning("  Страницы без текстового слоя (скан?): %s%s", pages_str, suffix)
-
-            if settings.ocr_enabled:
-                ocr_results = ocr_pdf_pages(doc, scan_page_nums, path.name)
-                pages_text.update(ocr_results)
-            else:
-                log.warning("  OCR выключен (OCR_ENABLED=false) — страницы-сканы пропущены: %s", path.name)
-
-        doc.close()
-
-        if not pages_text:
-            raise RuntimeError(
-                "PDF состоит из сканов, и OCR не смог извлечь текст (или отключён). "
-                "Проверь качество скана / включи OCR_ENABLED=true."
+    ocr_pages_needed = []
+    for page_num in range(1, len(doc) + 1):
+        page = doc.load_page(page_num - 1)
+        text = page.get_text("text").strip()
+        if not text and settings.ocr_enabled:
+            ocr_pages_needed.append(page_num)
+        elif text:
+            pages.append(
+                Document(
+                    page_content=text,
+                    metadata={"page": page_num, "source": str(file_path)},
+                )
             )
 
-        return [
-            Document(
-                page_content=pages_text[i],
-                metadata={"page": i + 1},
-            )
-            for i in sorted(pages_text.keys())
-        ]
+    if ocr_pages_needed:
+        ocr_results = ocr_pdf_pages(doc, ocr_pages_needed, file_path.name)
+        for page_num, text in ocr_results.items():
+            if text:
+                pages.append(
+                    Document(
+                        page_content=text,
+                        metadata={"page": page_num, "source": str(file_path)},
+                    )
+                )
 
-    except RuntimeError:
-        raise
-    except Exception as e:
-        raise RuntimeError(f"PDF parse error: {e}")
-
-
-# ---------------------------------------------------------------------------
-# DOCX parser
-# ---------------------------------------------------------------------------
-
-
-def parse_docx(path: Path) -> str:
-    try:
-        from docx import Document as DocxDocument
-
-        doc = DocxDocument(str(path))
-        parts = []
-        for para in doc.paragraphs:
-            if t := para.text.strip():
-                parts.append(t)
-        for table in doc.tables:
-            for row in table.rows:
-                cells = [c.text.strip() for c in row.cells if c.text.strip()]
-                if cells:
-                    parts.append(" | ".join(cells))
-        return "\n\n".join(parts)
-    except Exception as e:
-        return _parse_docx_raw(path, original_error=str(e))
-
-
-def _parse_docx_raw(path: Path, original_error: str = "") -> str:
-    import xml.etree.ElementTree as ET
-    import zipfile
-
-    try:
-        with zipfile.ZipFile(str(path), "r") as z:
-            if "word/document.xml" not in z.namelist():
-                raise RuntimeError("word/document.xml not found")
-            with z.open("word/document.xml") as f:
-                tree = ET.parse(f)
-        ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
-        texts = [e.text for e in tree.getroot().iter(f"{{{ns}}}t") if e.text and e.text.strip()]
-        result = " ".join(texts)
-        if not result.strip():
-            raise RuntimeError("Пустой текст после XML-парсинга")
-        return result
-    except Exception as e:
-        raise RuntimeError(f"DOCX parse failed (python-docx: {original_error}, raw XML: {e})")
+    doc.close()
+    return pages
 
 
 # ---------------------------------------------------------------------------
-# RTF / MD / TXT
+# Text splitting
 # ---------------------------------------------------------------------------
-
-
-def parse_rtf(path: Path) -> str:
-    try:
-        from striprtf.striprtf import rtf_to_text
-
-        raw = path.read_bytes()
-        for enc in ("utf-8", "cp1251", "cp1252", "latin-1"):
-            try:
-                text = raw.decode(enc)
-                break
-            except UnicodeDecodeError:
-                continue
-        else:
-            text = raw.decode("utf-8", errors="replace")
-        result = re.sub(r"\n{3,}", "\n\n", rtf_to_text(text)).strip()
-        if not result:
-            raise RuntimeError("Пустой текст после RTF-конвертации")
-        return result
-    except ImportError:
-        raise RuntimeError("striprtf не установлен: pip install striprtf")
-    except Exception as e:
-        raise RuntimeError(f"RTF parse error: {e}")
-
-
-def parse_md(path: Path) -> str:
-    try:
-        import markdown as md_lib
-
-        raw = path.read_text(encoding="utf-8", errors="replace")
-        html_content = md_lib.markdown(raw)
-        text = re.sub(r"<[^>]+>", " ", html_content)
-        return re.sub(r"\n{3,}", "\n\n", html.unescape(text)).strip()
-    except ImportError:
-        return path.read_text(encoding="utf-8", errors="replace")
-
-
-def parse_txt(path: Path) -> str:
-    for enc in ("utf-8", "cp1251", "cp1252", "latin-1"):
-        try:
-            return path.read_text(encoding=enc)
-        except UnicodeDecodeError:
-            continue
-    return path.read_bytes().decode("utf-8", errors="replace")
-
-
-# ---------------------------------------------------------------------------
-# Dispatcher + splitter
-# ---------------------------------------------------------------------------
-
-PARSERS = {
-    ".pdf": parse_pdf,
-    ".docx": parse_docx,
-    ".doc": parse_docx,
-    ".rtf": parse_rtf,
-    ".md": parse_md,
-    ".txt": parse_txt,
-}
 
 
 def split_documents(docs: list[Document]) -> list[Document]:
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=settings.chunk_size,
         chunk_overlap=settings.chunk_overlap,
-        separators=["\n\n", "\n", ". ", ", ", " ", ""],
         length_function=len,
     )
     chunks = splitter.split_documents(docs)
-    log.info("Сплиттер: %d чанков из %d документов", len(chunks), len(docs))
+    log.info("Split %d documents into %d chunks", len(docs), len(chunks))
     return chunks
+
+
+# ---------------------------------------------------------------------------
+# Parsers for non-PDF formats
+# ---------------------------------------------------------------------------
+
+
+def _parse_docx(file_path: Path) -> str:
+    import docx
+
+    doc = docx.Document(str(file_path))
+    return "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+
+
+def _parse_rtf(file_path: Path) -> str:
+    from striprtf.striprtf import rtf_to_text
+
+    return rtf_to_text(file_path.read_text(encoding="utf-8", errors="replace"))
+
+
+def _parse_markdown(file_path: Path) -> str:
+    text = file_path.read_text(encoding="utf-8", errors="replace")
+    text = re.sub(r"!\[.*?\]\(.*?\)", "", text)
+    text = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", text)
+    text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
+    text = re.sub(r"[*_`~]+", "", text)
+    text = html.unescape(text)
+    return text.strip()
+
+
+def _parse_txt(file_path: Path) -> str:
+    return file_path.read_text(encoding="utf-8", errors="replace")
+
+
+PARSERS = {
+    ".docx": _parse_docx,
+    ".doc": _parse_docx,
+    ".rtf": _parse_rtf,
+    ".md": _parse_markdown,
+    ".txt": _parse_txt,
+}
+
+
+# ---------------------------------------------------------------------------
+# Text cleaning
+# ---------------------------------------------------------------------------
+
+
+def clean_pdf_text(text: str) -> str:
+    """Clean extracted PDF text: fix hyphenation, collapse whitespace, remove decorative lines."""
+    # Fix hyphenation at line breaks
+    text = re.sub(r"-\n", "", text)
+    # Collapse multiple whitespace to single space
+    text = re.sub(r"[^\S\n]+", " ", text)
+    # Remove decorative separator lines (---, ===, *** etc.)
+    text = re.sub(r"^[•\-=~*]{3,}\s*$", "", text, flags=re.MULTILINE)
+    # Collapse multiple blank lines
+    text = re.sub(r"\n{2,}", "\n", text)
+    return text.strip()

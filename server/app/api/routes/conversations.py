@@ -1,3 +1,7 @@
+"""
+api/routes/conversations.py — Conversation endpoints with Pydantic response models.
+"""
+
 from fastapi import APIRouter, Depends, HTTPException
 from infrastructure.auth import get_current_user
 from infrastructure.database import (
@@ -8,7 +12,7 @@ from infrastructure.database import (
 )
 from sqlalchemy.orm import Session
 
-from api.schemas import NewConversationResponse
+from api.schemas import ConversationHistoryResponse, MessageResponse, NewConversationResponse
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 
@@ -19,10 +23,10 @@ async def new_conversation(
     db: Session = Depends(get_db),
 ):
     conv_id = create_conversation(db, current_user["id"])
-    return {"conversation_id": conv_id}
+    return NewConversationResponse(conversation_id=conv_id)
 
 
-@router.get("/{conversation_id}")
+@router.get("/{conversation_id}", response_model=ConversationHistoryResponse)
 async def get_conversation_history(
     conversation_id: int,
     current_user: dict = Depends(get_current_user),
@@ -30,9 +34,10 @@ async def get_conversation_history(
 ):
     owner_id = get_conversation_owner(db, conversation_id)
     if owner_id is None:
-        raise HTTPException(status_code=404, detail="Диалог не найден")
+        raise HTTPException(status_code=404, detail="Conversation not found")
     if owner_id != current_user["id"] and current_user["role"] != "admin":
-        raise HTTPException(status_code=403, detail="Это не твой диалог")
+        raise HTTPException(status_code=403, detail="Not your conversation")
 
     history = get_history(db, conversation_id, window=100)
-    return {"conversation_id": conversation_id, "messages": history}
+    messages = [MessageResponse(role=m["role"], content=m["content"]) for m in history]
+    return ConversationHistoryResponse(conversation_id=conversation_id, messages=messages)

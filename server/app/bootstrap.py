@@ -1,4 +1,4 @@
-"""bootstrap.py — Автоматическое создание admin при старте."""
+"""bootstrap.py — Auto-create admin on startup."""
 
 import logging
 
@@ -21,8 +21,8 @@ def bootstrap_admin():
             return
         if not settings.admin_email or not settings.admin_password:
             logger.warning(
-                "Нет ни одного admin, а ADMIN_EMAIL/ADMIN_PASSWORD не заданы — "
-                "залогиниться будет некому. Задай их в server/.env и перезапусти."
+                "No admin exists and ADMIN_EMAIL/ADMIN_PASSWORD not set — "
+                "you won't be able to log in. Set them in server/.env and restart."
             )
             return
         create_user(
@@ -31,6 +31,6 @@ def bootstrap_admin():
             hashed_password=hash_password(settings.admin_password),
             role="admin",
         )
-        logger.info("Создан admin: %s", settings.admin_email)
+        logger.info("Admin created: %s", settings.admin_email)
     finally:
         db.close()

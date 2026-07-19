@@ -1,9 +1,9 @@
 """
-Тесты чистых функций парсинга/очистки текста из domain/ingestion.py и
-infrastructure/vector_store.py.
+Tests for pure parsing/cleaning functions from domain/ingestion.py and
+infrastructure/registry.py.
 
-Не трогают Qdrant/эмбеддинги/OCR — только текстовые трансформации,
-поэтому выполняются быстро и без внешних сервисов.
+No Qdrant/embeddings/OCR — only text transformations,
+so they run fast without external services.
 """
 
 import sys
@@ -12,7 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 from domain.ingestion import clean_pdf_text  # noqa: E402
-from infrastructure.vector_store import file_hash, is_already_indexed  # noqa: E402
+from infrastructure.registry import file_hash, is_already_indexed  # noqa: E402
 
 
 def test_clean_pdf_text_dehyphenates_line_breaks():

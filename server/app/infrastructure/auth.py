@@ -1,14 +1,13 @@
 """
-infrastructure/auth.py — пароли, JWT-токены и FastAPI-зависимости для проверки прав доступа.
+infrastructure/auth.py — Passwords, JWT tokens and FastAPI dependencies for access control.
 
-Роли:
-  admin — может заводить пользователей, индексировать документы, видеть все диалоги
-  user  — может только общаться с чатом и видеть свои диалоги
+Roles:
+  admin — can create users, index documents, see all dialogs
+  user  — can only chat and see own dialogs
 
-Первый admin создаётся автоматически при старте приложения из ADMIN_EMAIL/ADMIN_PASSWORD
-(см. main.py:bootstrap_admin). Дальше новых пользователей заводит сам admin через
-POST /auth/users — открытой саморегистрации нет намеренно (это закрытый инструмент
-компании, а не публичный сервис).
+First admin is created automatically on startup from ADMIN_EMAIL/ADMIN_PASSWORD
+(see main.py:bootstrap_admin). New users are created by admin via
+POST /auth/users — no open registration by design (this is a closed company tool).
 """
 
 from datetime import UTC, datetime, timedelta
@@ -26,7 +25,7 @@ bearer_scheme = HTTPBearer(auto_error=False)
 
 
 # ---------------------------------------------------------------------------
-# Пароли
+# Passwords
 # ---------------------------------------------------------------------------
 
 
@@ -56,13 +55,13 @@ def decode_access_token(token: str) -> dict:
     try:
         return jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
     except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Токен истёк") from None
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired") from None
     except jwt.InvalidTokenError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Невалидный токен") from None
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token") from None
 
 
 # ---------------------------------------------------------------------------
-# FastAPI-зависимости
+# FastAPI dependencies
 # ---------------------------------------------------------------------------
 
 
@@ -73,7 +72,7 @@ def get_current_user(
     if credentials is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Не авторизован",
+            detail="Not authenticated",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -81,9 +80,7 @@ def get_current_user(
     user = get_user_by_id(db, int(payload["sub"]))
 
     if user is None or not user["is_active"]:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Пользователь не найден или деактивирован"
-        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or deactivated")
 
     return user
 
@@ -92,15 +89,6 @@ def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
     if current_user["role"] != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Требуются права администратора",
-        )
-    return current_user
-
-
-def require_internal(current_user: dict = Depends(get_current_user)) -> dict:
-    if current_user["kind"] != "internal":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Доступно только внутренним сотрудникам",
+            detail="Admin rights required",
         )
     return current_user

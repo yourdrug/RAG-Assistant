@@ -1,3 +1,7 @@
+"""
+api/routes/clients.py — Client assignment endpoints with Pydantic response models.
+"""
+
 from fastapi import APIRouter, Depends, HTTPException
 from infrastructure.auth import require_admin
 from infrastructure.database import (
@@ -24,11 +28,9 @@ async def assign_client_endpoint(
     client_user = get_user_by_id(db, client_user_id)
     internal_user = get_user_by_id(db, req.internal_user_id)
     if client_user is None or client_user["kind"] != "client":
-        raise HTTPException(status_code=400, detail="client_user_id должен быть пользователем kind='client'")
+        raise HTTPException(status_code=400, detail="client_user_id must be a user with kind='client'")
     if internal_user is None or internal_user["kind"] != "internal":
-        raise HTTPException(
-            status_code=400, detail="internal_user_id должен быть пользователем kind='internal'"
-        )
+        raise HTTPException(status_code=400, detail="internal_user_id must be a user with kind='internal'")
 
     assign_client(db, req.internal_user_id, client_user_id, admin["id"])
     return {"client_user_id": client_user_id, "internal_user_id": req.internal_user_id}

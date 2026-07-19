@@ -1,42 +1,23 @@
-import logging
+"""
+api/routes/auth.py — Auth endpoints. Thin wrappers around UserService.
+"""
 
-from fastapi import APIRouter, Depends, HTTPException
-from infrastructure.auth import (
-    create_access_token,
-    get_current_user,
-    hash_password,
-    require_admin,
-    verify_password,
-)
-from infrastructure.database import (
-    create_user,
-    get_db,
-    get_user_by_email,
-    list_users,
-    set_user_active,
-)
+from fastapi import APIRouter, Depends
+from infrastructure.auth import get_current_user, require_admin
+from infrastructure.database import get_db
+from services.user_service import UserService
 from sqlalchemy.orm import Session
 
-from api.schemas import (
-    CreateUserRequest,
-    LoginRequest,
-    TokenResponse,
-    UserResponse,
-)
-
-logger = logging.getLogger("default")
+from api.schemas import CreateUserRequest, LoginRequest, TokenResponse, UserResponse
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/login", response_model=TokenResponse)
 async def login(req: LoginRequest, db: Session = Depends(get_db)):
-    user = get_user_by_email(db, req.email)
-    if user is None or not user["is_active"] or not verify_password(req.password, user["hashed_password"]):
-        raise HTTPException(status_code=401, detail="Неверный email или пароль")
-
-    token = create_access_token(user_id=user["id"], role=user["role"])
-    return TokenResponse(access_token=token, role=user["role"], kind=user["kind"])
+    service = UserService()
+    result = service.authenticate(req.email, req.password, db)
+    return TokenResponse(**result)
 
 
 @router.get("/me", response_model=UserResponse)
@@ -50,19 +31,8 @@ async def add_user(
     admin: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    if req.role not in ("admin", "user"):
-        raise HTTPException(status_code=400, detail="role должен быть 'admin' или 'user'")
-    if req.kind not in ("internal", "client"):
-        raise HTTPException(status_code=400, detail="kind должен быть 'internal' или 'client'")
-    if req.kind == "client" and req.role == "admin":
-        raise HTTPException(status_code=400, detail="Клиент не может быть admin")
-    if get_user_by_email(db, req.email) is not None:
-        raise HTTPException(status_code=409, detail="Пользователь с таким email уже существует")
-
-    user = create_user(
-        db, email=req.email, hashed_password=hash_password(req.password), role=req.role, kind=req.kind
-    )
-    return user
+    service = UserService()
+    return service.create_user(req.email, req.password, req.role, req.kind, db)
 
 
 @router.get("/users", response_model=list[UserResponse])
@@ -70,7 +40,8 @@ async def list_all_users(
     admin: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    return list_users(db)
+    service = UserService()
+    return service.list_users(db)
 
 
 @router.patch("/users/{user_id}")
@@ -80,8 +51,5 @@ async def toggle_user_active(
     admin: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    if user_id == admin["id"] and not is_active:
-        raise HTTPException(status_code=400, detail="Нельзя деактивировать самого себя")
-    if not set_user_active(db, user_id, is_active):
-        raise HTTPException(status_code=404, detail="Пользователь не найден")
-    return {"id": user_id, "is_active": is_active}
+    service = UserService()
+    return service.toggle_active(user_id, is_active, admin["id"], db)

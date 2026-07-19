@@ -1,3 +1,7 @@
+"""
+api/routes/groups.py — Group endpoints with Pydantic response models.
+"""
+
 from fastapi import APIRouter, Depends, HTTPException
 from infrastructure.auth import get_current_user, require_admin
 from infrastructure.database import (
@@ -12,40 +16,43 @@ from infrastructure.database import (
 )
 from sqlalchemy.orm import Session
 
-from api.schemas import CreateGroupRequest, GroupMemberRequest
+from api.schemas import CreateGroupRequest, GroupMemberRequest, GroupMemberResponse, GroupResponse
 
 router = APIRouter(prefix="/groups", tags=["groups"])
 
 
-@router.post("")
+@router.post("", response_model=GroupResponse)
 async def create_group_endpoint(
     req: CreateGroupRequest,
     admin: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     group_id = create_group(db, req.name)
-    return {"id": group_id, "name": req.name}
+    return GroupResponse(id=group_id, name=req.name)
 
 
-@router.get("")
+@router.get("", response_model=list[GroupResponse])
 async def list_groups_endpoint(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     if current_user["role"] == "admin":
-        return list_groups(db)
-    if current_user["kind"] != "internal":
-        return []
-    return list_groups(db, only_ids=get_user_group_ids(db, current_user["id"]))
+        rows = list_groups(db)
+    elif current_user["kind"] != "internal":
+        rows = []
+    else:
+        rows = list_groups(db, only_ids=get_user_group_ids(db, current_user["id"]))
+    return [GroupResponse(id=r["id"], name=r["name"]) for r in rows]
 
 
-@router.get("/{group_id}/members")
+@router.get("/{group_id}/members", response_model=list[GroupMemberResponse])
 async def get_group_members(
     group_id: int,
     admin: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    return list_group_members(db, group_id)
+    rows = list_group_members(db, group_id)
+    return [GroupMemberResponse(id=r["id"], email=r["email"]) for r in rows]
 
 
 @router.post("/{group_id}/members")
@@ -57,9 +64,9 @@ async def add_group_member(
 ):
     target = get_user_by_id(db, req.user_id)
     if target is None:
-        raise HTTPException(status_code=404, detail="Пользователь не найден")
+        raise HTTPException(status_code=404, detail="User not found")
     if target["kind"] != "internal":
-        raise HTTPException(status_code=400, detail="В группы добавляются только internal-сотрудники")
+        raise HTTPException(status_code=400, detail="Only internal employees can be added to groups")
     add_user_to_group(db, req.user_id, group_id)
     return {"group_id": group_id, "user_id": req.user_id}
 
