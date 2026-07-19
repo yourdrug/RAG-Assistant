@@ -1,106 +1,77 @@
-"""
-main.py — Slim composition root for the RAG API.
+"""main.py — Composition root for the RAG API."""
 
-Endpoints:
-  POST /auth/login          — JWT login
-  GET  /auth/me              — current user
-  POST /auth/users            — [admin] create user
-  GET  /auth/users             — [admin] list users
-  PATCH /auth/users/{id}        — [admin] toggle user active
-  POST /chat                — streaming SSE [user]
-  POST /chat/sync           — synchronous response [user]
-  POST /conversations       — new conversation [user]
-  GET  /conversations/{id}  — conversation history [user]
-  POST /ingest               — [admin] index documents
-  GET  /health               — healthcheck (no auth)
-"""
-
-from __future__ import annotations
-
-import logging
 import logging.config
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
+from api.routes.auth import router as auth_router
+from api.routes.chat import router as chat_router
+from api.routes.clients import router as clients_router
+from api.routes.conversations import router as conversations_router
+from api.routes.documents import router as documents_router
+from api.routes.groups import router as groups_router
+from api.routes.health import router as health_router
+from api.routes.ingest import router as ingest_router
+from bootstrap import bootstrap_admin
 from cli.cli import cli
 from config import settings
 from fastapi import FastAPI
-
-logger = logging.getLogger("default")
-
-
-def bootstrap_admin():
-    from infrastructure.auth import hash_password
-    from infrastructure.database import (
-        SessionLocal,
-        any_admin_exists,
-        create_user,
-    )
-
-    db = SessionLocal()
-    try:
-        if any_admin_exists(db):
-            return
-        if not settings.admin_email or not settings.admin_password:
-            logger.warning(
-                "Нет ни одного admin, а ADMIN_EMAIL/ADMIN_PASSWORD не заданы — "
-                "залогиниться будет некому. Задай их в server/.env и перезапусти."
-            )
-            return
-        create_user(
-            db,
-            email=settings.admin_email,
-            hashed_password=hash_password(settings.admin_password),
-            role="admin",
-        )
-        logger.info("Создан admin: %s", settings.admin_email)
-    finally:
-        db.close()
-
-
-def _preload_models() -> None:
-    from pathlib import Path
-
-    cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
-    embed_cached = any(cache_dir.glob(f"models--{settings.embed_model.replace('/', '--')}*"))
-    rerank_cached = any(cache_dir.glob(f"models--{settings.rerank_model.replace('/', '--')}*"))
-
-    if embed_cached and rerank_cached:
-        logger.info("Модели уже в кэше — пропускаю предзагрузку")
-        return
-
-    if not embed_cached:
-        logger.info("Предзагрузка эмбеддинг-модели %s ...", settings.embed_model)
-        from infrastructure.vector_store import get_embeddings
-
-        get_embeddings()
-    if not rerank_cached:
-        logger.info("Предзагрузка реранкера %s ...", settings.rerank_model)
-        from infrastructure.vector_store import get_reranker
-
-        get_reranker()
-    logger.info("Модели загружены")
+from fastapi.middleware.cors import CORSMiddleware
+from infrastructure.logging import logging_config
+from infrastructure.singleton import Singleton
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator:
-    from infrastructure.logging import logging_config
-
     logging.config.dictConfig(logging_config)
     bootstrap_admin()
-    _preload_models()
     yield
 
 
-def create_application() -> FastAPI:
-    from api.routes import Application
+@Singleton
+class Application:
+    def __init__(self) -> None:
+        self.app: FastAPI = FastAPI(
+            title="RAG API",
+            description="Корпоративный ассистент на основе RAG",
+            version="0.1.0",
+            lifespan=lifespan,
+        )
 
+        self.configure_logging()
+        self.add_middlewares()
+        self.add_routers()
+
+    def configure_logging(self) -> None:
+        logging.config.dictConfig(logging_config)
+
+    def add_middlewares(self) -> None:
+        self.app.add_middleware(
+            CORSMiddleware,
+            allow_origins=settings.allowed_origins_list,
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+
+    def add_routers(self) -> None:
+        self.app.include_router(auth_router)
+        self.app.include_router(conversations_router)
+        self.app.include_router(chat_router)
+        self.app.include_router(ingest_router)
+        self.app.include_router(documents_router)
+        self.app.include_router(groups_router)
+        self.app.include_router(clients_router)
+        self.app.include_router(health_router)
+
+
+def create_application() -> FastAPI:
     application = Application()
-    application.app.router.lifespan_context = lifespan
     return application.app
 
 
 app = create_application()
 
 if __name__ == "__main__":
+    logging.config.dictConfig(logging_config)
     cli.execute_command()

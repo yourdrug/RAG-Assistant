@@ -92,6 +92,7 @@ services:
       - type: bind
         source: data
         target: /code/project/data
+      - huggingface_cache:/root/.cache/huggingface
     healthcheck:
       test: ["CMD", "curl", "--silent", "--fail", "http://localhost:8001/health"]
       interval: 30s
@@ -135,18 +136,6 @@ services:
       retries: 10
     restart: unless-stopped
 
-  minio-init:
-    image: minio/mc:latest
-    depends_on:
-      minio:
-        condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      mc alias set myminio http://minio:9000 minioadmin minioadmin &&
-      mc mb --ignore-existing myminio/rag-documents &&
-      echo 'Bucket created'
-      "
-
   caddy:
     image: caddy:2-alpine
     hostname: caddy
@@ -177,3 +166,6 @@ networks:
       # снижает MTU до ~1400 и меньше), крупные TLS-пакеты при долгих скачиваниях рвутся
       # с "EOF" — см. README → Troubleshooting.
       com.docker.network.driver.mtu: ${DOCKER_MTU:-1500}
+
+volumes:
+  huggingface_cache:

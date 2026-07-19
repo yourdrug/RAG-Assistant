@@ -32,10 +32,14 @@ def setup_logger() -> logging.Logger:
     logger.addHandler(ch)
 
     log_path = Path(settings.data_dir) / "ingestion.log"
-    fh = logging.FileHandler(log_path, encoding="utf-8")
-    fh.setLevel(logging.DEBUG)
-    fh.setFormatter(fmt)
-    logger.addHandler(fh)
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        fh = logging.FileHandler(log_path, encoding="utf-8")
+        fh.setLevel(logging.DEBUG)
+        fh.setFormatter(fmt)
+        logger.addHandler(fh)
+    except OSError:
+        pass
 
     return logger
 

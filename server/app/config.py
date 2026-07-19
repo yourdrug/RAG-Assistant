@@ -11,6 +11,8 @@ class Settings(BaseSettings):
 
     data_dir: str = os.getenv("DATA_DIR", "/code/project/data")
 
+    uploads_prefix: str = os.getenv("UPLOADS_PREFIX", "uploads/")
+
     allowed_origins: str = os.getenv("ALLOWED_ORIGINS", "*")
 
     @property

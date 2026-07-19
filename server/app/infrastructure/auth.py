@@ -95,3 +95,12 @@ def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
             detail="Требуются права администратора",
         )
     return current_user
+
+
+def require_internal(current_user: dict = Depends(get_current_user)) -> dict:
+    if current_user["kind"] != "internal":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Доступно только внутренним сотрудникам",
+        )
+    return current_user

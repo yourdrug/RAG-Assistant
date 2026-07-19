@@ -26,11 +26,15 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams
 from sentence_transformers import CrossEncoder
 
+from infrastructure.acl import build_qdrant_filter, ensure_acl_payload_indexes
 from infrastructure.storage import FileItem, get_storage
 
 log = logging.getLogger("default")
 
-Path(settings.data_dir).mkdir(parents=True, exist_ok=True)
+try:
+    Path(settings.data_dir).mkdir(parents=True, exist_ok=True)
+except OSError:
+    pass
 
 # ---------------------------------------------------------------------------
 # Registry
@@ -351,6 +355,12 @@ def load_documents(
 # ---------------------------------------------------------------------------
 
 
+def _tag_internal_public(chunks: list[Document]) -> None:
+    """Admin bulk /ingest всегда индексирует как internal_public."""
+    for c in chunks:
+        c.metadata.update({"visibility": "internal_public", "owner_id": None, "group_id": None})
+
+
 def run_ingestion(docs_dir: str, reset: bool = False, prefix: str | None = None):
     t_start = time.monotonic()
     log.info("=" * 55)
@@ -372,6 +382,7 @@ def run_ingestion(docs_dir: str, reset: bool = False, prefix: str | None = None)
     vector_size = len(embeddings.embed_query("тест"))
     qdrant_client = QdrantClient(url=settings.qdrant_url)
     ensure_collection(qdrant_client, vector_size, reset=reset)
+    ensure_acl_payload_indexes(qdrant_client)
 
     docs, cached = load_documents(docs_dir, registry, force=reset, prefix=prefix)
     if not docs:
@@ -384,6 +395,7 @@ def run_ingestion(docs_dir: str, reset: bool = False, prefix: str | None = None)
         return
 
     chunks = split_documents(docs)
+    _tag_internal_public(chunks)
     upload_to_qdrant(chunks, embeddings)
 
     storage = get_storage()
@@ -461,8 +473,10 @@ def run_ingest_file(file_path: str):
             vector_size = len(embeddings.embed_query("тест"))
             qdrant_client = QdrantClient(url=settings.qdrant_url)
             ensure_collection(qdrant_client, vector_size, reset=False)
+            ensure_acl_payload_indexes(qdrant_client)
 
             chunks = split_documents(docs)
+            _tag_internal_public(chunks)
             upload_to_qdrant(chunks, embeddings)
 
             registry[file_info.filename] = {
@@ -504,8 +518,10 @@ def run_ingest_file(file_path: str):
         vector_size = len(embeddings.embed_query("тест"))
         qdrant_client = QdrantClient(url=settings.qdrant_url)
         ensure_collection(qdrant_client, vector_size, reset=False)
+        ensure_acl_payload_indexes(qdrant_client)
 
         chunks = split_documents(docs)
+        _tag_internal_public(chunks)
         upload_to_qdrant(chunks, embeddings)
 
         registry[path.name] = {
@@ -548,12 +564,20 @@ def list_registry():
 async def rag_stream(
     question: str,
     history: list[dict],
+    current_user: dict,
+    db,
 ) -> AsyncIterator[str]:
+    """
+    current_user/db нужны для ACL: build_qdrant_filter ограничивает
+    векторный поиск документами, видимыми данному пользователю.
+    """
     import json
+
+    access_filter = build_qdrant_filter(current_user, db)
 
     retriever = get_vector_store().as_retriever(
         search_type="similarity",
-        search_kwargs={"k": settings.retriever_fetch_k},
+        search_kwargs={"k": settings.retriever_fetch_k, "filter": access_filter},
     )
     llm = get_llm()
     prompt = build_prompt()
@@ -581,13 +605,13 @@ async def rag_stream(
     yield f"\n__sources__:{json.dumps(sources, ensure_ascii=False)}"
 
 
-async def rag_invoke(question: str, history: list[dict]) -> tuple[str, list[dict]]:
+async def rag_invoke(question: str, history: list[dict], current_user: dict, db) -> tuple[str, list[dict]]:
     import json
 
     answer_parts = []
     sources = []
 
-    async for chunk in rag_stream(question, history):
+    async for chunk in rag_stream(question, history, current_user, db):
         if chunk.startswith("\n__sources__:"):
             sources = json.loads(chunk.replace("\n__sources__:", ""))
         else:
