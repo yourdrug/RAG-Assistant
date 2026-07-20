@@ -42,7 +42,7 @@ def file_hash(source) -> str:
 
 
 def is_already_indexed(source, registry: dict) -> bool:
-    key = source.name if isinstance(source, FileItem) else source.name
+    key = source.filename if isinstance(source, FileItem) else source.name
     if key not in registry:
         return False
     return registry[key].get("hash") == file_hash(source)
