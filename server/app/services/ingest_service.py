@@ -339,7 +339,8 @@ class IngestService:
                 return [], 0
             items = None
             local_files = sorted(
-                f for f in docs_path.rglob("*")
+                f
+                for f in docs_path.rglob("*")
                 if f.is_file() and f.suffix.lower() in settings.supported_extensions
             )
             log.info("Found %d files in %s", len(local_files), docs_dir)

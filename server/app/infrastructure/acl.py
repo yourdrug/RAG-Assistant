@@ -18,8 +18,9 @@ Used in:
   - services/chat_service.py:rag_stream — build_qdrant_filter() before Qdrant search
 """
 
+from config import settings
 from fastapi import HTTPException
-from qdrant_client.models import FieldCondition, Filter, MatchAny, MatchValue
+from qdrant_client.models import FieldCondition, Filter, MatchAny, MatchValue, PayloadSchemaType
 from sqlalchemy.orm import Session
 
 from infrastructure.database import get_assigned_client_ids, get_user_group_ids
@@ -113,9 +114,6 @@ def build_qdrant_filter(user: dict, db: Session) -> Filter:
 
 def ensure_acl_payload_indexes(client) -> None:
     """Kept for backward compatibility. Prefer ClientContainer.ensure_acl_indexes()."""
-    from config import settings
-    from qdrant_client.models import PayloadSchemaType
-
     for field, schema in [
         ("visibility", PayloadSchemaType.KEYWORD),
         ("owner_id", PayloadSchemaType.INTEGER),

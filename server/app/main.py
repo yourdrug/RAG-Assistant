@@ -13,6 +13,7 @@ from api.routes.groups import router as groups_router
 from api.routes.health import router as health_router
 from api.routes.ingest import router as ingest_router
 from bootstrap import bootstrap_admin
+from cli.cli import cli
 from config import settings
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -57,9 +58,5 @@ def create_application() -> FastAPI:
 app = create_application()
 
 if __name__ == "__main__":
-    import logging.config as lc
-
-    from cli.cli import cli
-
-    lc.dictConfig(logging_config)
+    logging.config.dictConfig(logging_config)
     cli.execute_command()

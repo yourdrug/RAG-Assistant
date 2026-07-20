@@ -8,9 +8,17 @@ import logging
 import re
 from pathlib import Path
 
+import docx
+import fitz
+import numpy as np
 from config import settings
 from langchain.schema import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from paddleocr import PaddleOCR
+from PIL import Image
+from striprtf.striprtf import rtf_to_text
+from surya.detection import DetectionPredictor
+from surya.recognition import RecognitionPredictor
 
 log = logging.getLogger("detailed")
 
@@ -52,8 +60,6 @@ def setup_logger() -> logging.Logger:
 
 @functools.lru_cache(maxsize=1)
 def _get_paddle_ocr():
-    from paddleocr import PaddleOCR
-
     log.info("Loading PaddleOCR (lang=%s) ...", settings.ocr_lang_paddle)
     return PaddleOCR(
         use_angle_cls=True,
@@ -64,16 +70,11 @@ def _get_paddle_ocr():
 
 @functools.lru_cache(maxsize=1)
 def _get_surya_predictors():
-    from surya.detection import DetectionPredictor
-    from surya.recognition import RecognitionPredictor
-
     log.info("Loading Surya OCR ...")
     return (RecognitionPredictor(), DetectionPredictor())
 
 
 def _ocr_image_paddle(image) -> str:
-    import numpy as np
-
     ocr = _get_paddle_ocr()
     result = ocr.ocr(np.array(image), cls=True)
     lines = []
@@ -93,9 +94,6 @@ def _ocr_image_surya(image) -> str:
 
 
 def ocr_pdf_pages(doc, page_nums: list[int], filename: str) -> dict:
-    import fitz
-    from PIL import Image
-
     results = {}
     zoom = settings.ocr_dpi / 72
     mat = fitz.Matrix(zoom, zoom)
@@ -123,8 +121,6 @@ def ocr_pdf_pages(doc, page_nums: list[int], filename: str) -> dict:
 
 
 def parse_pdf(file_path: Path) -> list[Document]:
-    import fitz
-
     doc = fitz.open(str(file_path))
     pages = []
 
@@ -179,15 +175,11 @@ def split_documents(docs: list[Document]) -> list[Document]:
 
 
 def _parse_docx(file_path: Path) -> str:
-    import docx
-
     doc = docx.Document(str(file_path))
     return "\n".join(p.text for p in doc.paragraphs if p.text.strip())
 
 
 def _parse_rtf(file_path: Path) -> str:
-    from striprtf.striprtf import rtf_to_text
-
     return rtf_to_text(file_path.read_text(encoding="utf-8", errors="replace"))
 
 

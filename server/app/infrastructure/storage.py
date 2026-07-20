@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
+import boto3
 from config import settings
 
 log = logging.getLogger("default")
@@ -94,8 +95,6 @@ class LocalStorage:
 
 class S3Storage:
     def __init__(self):
-        import boto3
-
         kwargs = {
             "aws_access_key_id": settings.s3_access_key,
             "aws_secret_access_key": settings.s3_secret_key,

@@ -9,6 +9,9 @@ import sys
 from pathlib import Path
 
 import typer
+from config import settings
+from infrastructure.storage import get_storage
+from services.ingest_service import IngestService
 
 logger = logging.getLogger("cli")
 
@@ -29,9 +32,6 @@ def ingest_run(
 ) -> None:
     """Full indexing of document folder."""
     try:
-        from config import settings
-        from services.ingest_service import IngestService
-
         if s3:
             settings.file_backend = "s3"
 
@@ -50,9 +50,6 @@ def ingest_file(
 ) -> None:
     """Add a single file to existing collection."""
     try:
-        from config import settings
-        from services.ingest_service import IngestService
-
         if s3:
             settings.file_backend = "s3"
 
@@ -74,9 +71,6 @@ def ingest_upload(
 ) -> None:
     """Upload a local file to S3 storage."""
     try:
-        from config import settings
-        from infrastructure.storage import get_storage
-
         settings.file_backend = "s3"
         storage = get_storage()
 
@@ -98,8 +92,6 @@ def ingest_upload(
 def ingest_list() -> None:
     """Show list of indexed files."""
     try:
-        from services.ingest_service import IngestService
-
         service = IngestService()
         registry = service.get_registry()
 

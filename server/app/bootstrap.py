@@ -3,18 +3,17 @@
 import logging
 
 from config import settings
+from infrastructure.auth import hash_password
+from infrastructure.database import (
+    SessionLocal,
+    any_admin_exists,
+    create_user,
+)
 
 logger = logging.getLogger("default")
 
 
 def bootstrap_admin():
-    from infrastructure.auth import hash_password
-    from infrastructure.database import (
-        SessionLocal,
-        any_admin_exists,
-        create_user,
-    )
-
     db = SessionLocal()
     try:
         if any_admin_exists(db):

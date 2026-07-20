@@ -11,6 +11,7 @@ from fastapi import HTTPException, UploadFile
 from infrastructure.acl import can_view_document, owner_and_group_for, validate_visibility
 from infrastructure.clients import get_embeddings
 from infrastructure.database import (
+    SessionLocal,
     create_document_row,
     delete_document_row,
     find_active_slot,
@@ -147,8 +148,6 @@ class DocumentService:
         group_id: int | None,
         replace_id: int | None,
     ) -> None:
-        from infrastructure.database import SessionLocal
-
         db = SessionLocal()
         temp_path: Path | None = None
         try:
