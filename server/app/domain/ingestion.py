@@ -17,8 +17,6 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from paddleocr import PaddleOCR
 from PIL import Image
 from striprtf.striprtf import rtf_to_text
-from surya.detection import DetectionPredictor
-from surya.recognition import RecognitionPredictor
 
 log = logging.getLogger("detailed")
 
@@ -70,6 +68,9 @@ def _get_paddle_ocr():
 
 @functools.lru_cache(maxsize=1)
 def _get_surya_predictors():
+    from surya.detection import DetectionPredictor
+    from surya.recognition import RecognitionPredictor
+
     log.info("Loading Surya OCR ...")
     return (RecognitionPredictor(), DetectionPredictor())
 

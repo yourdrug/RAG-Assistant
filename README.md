@@ -46,24 +46,52 @@ BAAI/bge-m3 (эмбеддинги) · BAAI/bge-reranker-v2-m3 (реранкер)
 │   └── rag-chat.jsx
 └── server/
     ├── app/                     ← код приложения (bind-mount цель в dev-режиме)
-    │   ├── main.py                ← FastAPI, эндпоинты
-    │   ├── auth.py                 ← пароли, JWT, зависимости для проверки роли
-    │   ├── rag_chain.py            ← LangChain LCEL цепочка + реранкер
-    │   ├── ingestion.py            ← парсинг, OCR сканов и индексация
-    │   ├── database.py             ← пользователи, история диалогов (PostgreSQL)
-    │   ├── config.py               ← настройки (LLM, эмбеддинги, реранкер, OCR, JWT, data_dir)
-    │   ├── benchmark.py             ← оценка качества retriever + LLM-судьи
-    │   └── pdf_diag.py              ← диагностика проблемных PDF
+    │   ├── main.py                ← FastAPI, lifespan, include_router
+    │   ├── bootstrap.py           ← автосоздание admin при первом старте
+    │   ├── config.py              ← настройки (Settings — pydantic-settings)
+    │   ├── api/                   ← HTTP-слой
+    │   │   ├── routes/            ← эндпоинты (auth, chat, ingest, documents, groups, clients, conversations, health)
+    │   │   └── schemas.py         ← Pydantic-модели запросов/ответов
+    │   ├── cli/                   ← CLI (typer) — запуск сервера, индексация, бенчмарк, диагностика PDF
+    │   │   ├── cli.py             ← CLI entry-point
+    │   │   └── commands/          ← runserver, ingest, benchmark, pdf_diag
+    │   ├── domain/                ← бизнес-логика (чистая, без инфраструктуры)
+    │   │   ├── rag.py             ← промпт, реранк, форматирование, извлечение источников
+    │   │   ├── ingestion.py       ← парсинг документов, OCR, сплиттинг
+    │   │   ├── benchmark.py       ← оценка качества retriever + LLM-судьи
+    │   │   └── pdf_diag.py        ← диагностика проблемных PDF
+    │   ├── infrastructure/        ← инфраструктура и внешние сервисы
+    │   │   ├── auth.py            ← пароли (bcrypt), JWT, FastAPI-зависимости
+    │   │   ├── database.py        ← SQLAlchemy-операции (users, conversations, messages, documents)
+    │   │   ├── clients.py         ← ленивые клиенты (LLM, embeddings, reranker, vector store)
+    │   │   ├── qdrant_ops.py      ← работа с Qdrant (collection, upload, search)
+    │   │   ├── storage.py         ← файловое хранилище (local / S3)
+    │   │   ├── registry.py        ← реестр индексации (JSON)
+    │   │   ├── acl.py             ← контроль доступа к документам (visibility, groups)
+    │   │   └── logging.py         ← конфигурация логирования
+    │   └── services/              ← оркестрация (вызывают domain + infrastructure)
+    │       ├── chat_service.py    ← чат (RAG-цепочка, история, стриминг)
+    │       ├── user_service.py    ← аутентификация, создание/управление пользователями
+    │       ├── document_service.py← загрузка/удаление документов, фоновая обработка
+    │       └── ingest_service.py  ← полная/поштучная индексация, реестр
     ├── entrypoint.sh              ← точка входа контейнера (cd app && exec ...)
     ├── pyproject.toml             ← зависимости (uv)
     ├── uv.lock                     ← зафиксированные версии (коммитится в git)
     ├── .env.example                ← скопировать в server/.env
-    └── tests/                       ← pytest: auth.py / ingestion.py / rag_chain.py
+    └── tests/                      ← pytest (unit-тесты бизнес-логики, моки внешних сервисов)
 ```
 
 Все пути к данным приложения строятся от одной настройки — `DATA_DIR` (`config.py`, по
 умолчанию `/code/project/data` внутри контейнера). `docker-compose.yml` монтирует туда весь
 host-каталог `./data` одним томом — не нужно синхронизировать несколько отдельных путей.
+
+Архитектура приложения следует принципу Чистой Архитектуры:
+
+- **`domain/`** — чистая бизнес-логика, не зависит от фреймворков и БД. Легко тестируется.
+- **`infrastructure/`** — внешние сервисы (БД, Qdrant, S3, авторизация). Реализует интерфейсы из domain.
+- **`services/`** — оркестрация: вызывают domain + infrastructure для выполнения use-case.
+- **`api/`** — HTTP-слой (FastAPI routes + Pydantic schemas). Тонкая обёртка над services.
+- **`cli/`** — CLI (typer): альтернативный вход для индексации, бенчмарка, диагностики.
 
 ---
 
@@ -172,13 +200,16 @@ task health                  # проверить статус сервисов
 | `task me` | Кто я (по текущему токену) |
 | `task user:add email=... password=... role=user` | [admin] Завести пользователя |
 | `task user:list` | [admin] Список пользователей |
+| `task user:toggle -- id=1 active=false` | [admin] Активировать/деактивировать пользователя |
 | `task ingest` | [admin] Индексация `data/docs_sample/` (только новые/изменённые файлы) |
 | `task ingest:reset` | [admin] Полная переиндексация с нуля |
 | `task ingest:file -- /code/project/data/docs_sample/x.pdf` | [admin] Проиндексировать один файл |
 | `task ingest:list` | [admin] Реестр уже проиндексированных файлов |
+| `task ingest:upload -- file.pdf` | [admin] Загрузить файл в хранилище |
 | `task chat -- "вопрос"` | Синхронный запрос к `/chat/sync` |
 | `task health` | Проверка `/health` (без авторизации) |
 | `task bench` | Оценка качества retriever + LLM-судьи (`benchmark.py`) |
+| `task pdf:diag -- /path/file.pdf` | Диагностика PDF-файла (тип, текст, сканы, кодировка) |
 | `task db:shell` | `psql` внутрь контейнера Postgres |
 | `task db:backup` | Дамп БД в `data/db/postgres/backups/` |
 | `task install` | Установить зависимости локально через uv (для разработки/тестов вне Docker) |
@@ -259,8 +290,7 @@ python-base    → общие ENV (PYTHONUNBUFFERED, пути, PATH)
 `/code/.venv`. В dev-режиме `docker-compose.yml` монтирует `./server/app` поверх
 `/code/project/app` для live-reload (плюс `./server/entrypoint.sh` — правишь entrypoint без
 пересборки образа); `pyproject.toml`, `uv.lock` и сам venv лежат вне этих путей, поэтому
-bind-mount их не затрагивает. `entrypoint.sh` делает `cd app` перед запуском uvicorn (модули
-приложения — плоские, без пакета).
+bind-mount их не затрагивает. `entrypoint.sh` делает `cd app` перед запуском команды (по умолчанию `python main.py runserver`).
 
 Продакшн-образ собрать отдельно:
 ```bash
@@ -597,14 +627,24 @@ Venv внутри образа затёрт. Проверь, что в `Dockerfi
 
 ```bash
 task install          # uv sync --frozen — основные + dev-зависимости (pytest, ruff)
-task test             # pytest (DATA_DIR подставляется автоматически, см. tests/conftest.py)
+task test             # pytest (unit-тесты бизнес-логики, моки внешних сервисов)
+task test -- -k auth  # запустить только тесты модуля auth
 task lint             # ruff check
 task fmt              # ruff format + автофиксы
 
-# main.py импортирует соседние модули (config, auth, rag_chain, ...) плоско, без пакета —
-# запускать нужно из server/app/, и нужен доступ к Postgres/Qdrant/Ollama (напр. task up
-# для инфраструктуры, а server гонять локально):
+# Запуск сервера локально (нужен доступ к Postgres/Qdrant/Ollama — см. task up):
 cd server/app && DATA_DIR=../../data ../.venv/bin/uvicorn main:app --reload --port 8001
+```
+
+### Тестирование
+
+Тесты покрывают чистую бизнес-логику (`domain/`, `infrastructure/acl.py`, `services/`) без
+реальных БД/Qdrant/Ollama. Внешние зависимости мокаются через `unittest.mock` и `conftest.py`.
+
+```bash
+task test                                    # все тесты (~194)
+task test -- tests/test_rag_logic.py         # один файл
+task test -- tests/test_acl.py -k "admin"   # конкретный тест
 ```
 
 Зависимости — в `server/pyproject.toml`, зафиксированы в `server/uv.lock` (коммитится в git).

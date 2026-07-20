@@ -166,6 +166,15 @@ tasks:
         curl -s http://localhost:8001/auth/users
         -H "Authorization: Bearer $(cat .auth_token)" | jq .
 
+  user:toggle:
+    desc: "[admin] Активировать/деактивировать пользователя (task user:toggle -- id=1 active=false)"
+    cmds:
+      - >
+        curl -sX PATCH "http://localhost:8001/auth/users/{{.id}}/active"
+        -H "Authorization: Bearer $(cat .auth_token)"
+        -H "Content-Type: application/json"
+        -d "{\"is_active\": {{.active | default `true`}}}" | jq .
+
   # -------------------------------------------------------------------------
   # Индексация документов (только admin — нужен токен из task login)
   # -------------------------------------------------------------------------
@@ -198,6 +207,14 @@ tasks:
         curl -s http://localhost:8001/ingest/registry
         -H "Authorization: Bearer $(cat .auth_token)" | jq .
 
+  ingest:upload:
+    desc: "[admin] Загрузить файлы в хранилище (task ingest:upload -- file1.pdf file2.docx)"
+    cmds:
+      - >
+        curl -sX POST http://localhost:8001/ingest/upload
+        -H "Authorization: Bearer $(cat .auth_token)"
+        -F "files=@{{.CLI_ARGS}}" | jq .
+
   # -------------------------------------------------------------------------
   # Проверка и использование
   # -------------------------------------------------------------------------
@@ -218,9 +235,13 @@ tasks:
 
   bench:
     desc: Запустить оценку качества (retriever + LLM-судья) по data/test_questions.json
-    dir: server
     cmds:
-      - DATA_DIR=../data uv run python -m cli benchmark run
+      - "{{.COMPOSE}} exec server bash -c 'cd app && python -m cli benchmark run'"
+
+  pdf:diag:
+    desc: "Диагностика PDF-файла (task pdf:diag -- /path/to/file.pdf)"
+    cmds:
+      - "{{.COMPOSE}} exec server bash -c 'cd app && python -m cli pdf-diag check {{.CLI_ARGS}}'"
 
   # -------------------------------------------------------------------------
   # База данных

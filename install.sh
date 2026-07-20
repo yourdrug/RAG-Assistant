@@ -212,10 +212,12 @@ if [ "$ALREADY_CONFIGURED" = false ]; then
     # --- Секреты ---
     POSTGRES_PASSWORD="$(openssl rand -hex 24)"
     JWT_SECRET_KEY="$(openssl rand -hex 32)"
+    QDRANT_API_KEY="$(openssl rand -hex 24)"
 
     # --- .env (корень, читает docker-compose.yml) ---
     cp .env.example .env
     set_kv .env POSTGRES_PASSWORD "$POSTGRES_PASSWORD"
+    set_kv .env QDRANT_API_KEY "$QDRANT_API_KEY"
     set_kv .env DOMAIN "$DOMAIN"
     set_kv .env ACME_EMAIL "$ACME_EMAIL"
 
@@ -224,6 +226,7 @@ if [ "$ALREADY_CONFIGURED" = false ]; then
     ALLOWED_ORIGINS="*"
     [ -n "$DOMAIN" ] && ALLOWED_ORIGINS="https://${DOMAIN}"
     set_kv server/.env DATABASE_URL "postgresql://raguser:${POSTGRES_PASSWORD}@postgres:5432/ragdb"
+    set_kv server/.env QDRANT_API_KEY "$QDRANT_API_KEY"
     set_kv server/.env LLM_MODEL "$LLM_MODEL"
     set_kv server/.env JWT_SECRET_KEY "$JWT_SECRET_KEY"
     set_kv server/.env ADMIN_EMAIL "$ADMIN_EMAIL"

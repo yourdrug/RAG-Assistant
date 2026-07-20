@@ -6,7 +6,7 @@ services:
     ports:
       - "127.0.0.1:6333:6333"
     environment:
-      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:?Установи QDRANT_API_KEY в .env — openssl rand -hex 24}
+      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:-qdrant_api_key}
     volumes:
       - ./data/qdrant_storage:/qdrant/storage
     healthcheck:
@@ -130,8 +130,8 @@ services:
       - "127.0.0.1:9000:9000"
       - "127.0.0.1:9001:9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Установи MINIO_ROOT_USER в .env}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Установи MINIO_ROOT_PASSWORD в .env — openssl rand -hex 24}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     volumes:
       - ./data/minio:/data
     healthcheck:
