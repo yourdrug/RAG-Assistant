@@ -81,6 +81,7 @@ def build_retriever(top_k: int):
     vs = QdrantVectorStore.from_existing_collection(
         embedding=embeddings,
         url=settings.qdrant_url,
+        api_key=settings.qdrant_api_key,
         collection_name=settings.collection_name,
     )
     return vs.as_retriever(

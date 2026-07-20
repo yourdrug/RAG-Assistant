@@ -24,9 +24,14 @@ async def ingest_documents(
     admin: dict = Depends(require_admin),
 ):
     service = IngestService()
-    background_tasks.add_task(service.run_full_ingestion, docs_dir, reset)
+    try:
+        resolved_dir = service.resolve_docs_dir(docs_dir)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    background_tasks.add_task(service.run_full_ingestion, resolved_dir, reset)
     mode = "RESET + full reindex" if reset else "APPEND (new files only)"
-    return IngestStatusResponse(status="started", mode=mode, docs_dir=docs_dir)
+    return IngestStatusResponse(status="started", mode=mode, docs_dir=resolved_dir)
 
 
 @router.post("/ingest/file", response_model=IngestStatusResponse)

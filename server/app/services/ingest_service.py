@@ -50,7 +50,7 @@ class IngestService:
 
         embeddings = get_embeddings()
         vector_size = len(embeddings.embed_query("test"))
-        qdrant_client = QdrantClient(url=settings.qdrant_url)
+        qdrant_client = QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key)
         ensure_collection(qdrant_client, vector_size, reset=reset)
 
         docs, cached = self._load_documents(docs_dir, registry, force=reset, prefix=prefix)
@@ -188,7 +188,7 @@ class IngestService:
     def _index_docs(self, docs: list[Document]) -> list[Document]:
         embeddings = get_embeddings()
         vector_size = len(embeddings.embed_query("test"))
-        client = QdrantClient(url=settings.qdrant_url)
+        client = QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key)
         ensure_collection(client, vector_size, reset=False)
 
         chunks = split_documents(docs)
@@ -215,6 +215,22 @@ class IngestService:
         registry.pop(filename, None)
         save_registry(settings.data_dir, registry)
 
+    @staticmethod
+    def _resolve_within_data_dir(path_str: str, base: Path) -> Path:
+        """
+        Разрешает path_str (относительный или абсолютный) и гарантирует, что результат
+        физически лежит внутри base. Проверка идёт по разрешённому (resolve()) пути через
+        Path.relative_to, а не по строковому префиксу — иначе "/code/project/data-evil"
+        прошёл бы наивную startswith-проверку "/code/project/data".
+        """
+        candidate = Path(path_str)
+        resolved = candidate.resolve() if candidate.is_absolute() else (base / candidate).resolve()
+        try:
+            resolved.relative_to(base)
+        except ValueError:
+            raise ValueError(f"path must be inside {base} (DATA_DIR)") from None
+        return resolved
+
     def resolve_ingest_target(self, file_path: str) -> str:
         if settings.file_backend == "s3":
             if file_path.startswith("/") or ".." in Path(file_path).parts:
@@ -222,14 +238,29 @@ class IngestService:
             return file_path
 
         base = Path(settings.data_dir).resolve()
-        candidate = Path(file_path)
-        resolved = candidate.resolve() if candidate.is_absolute() else (base / candidate).resolve()
-        try:
-            resolved.relative_to(base)
-        except ValueError:
-            raise ValueError(f"file_path must be inside {base} (DATA_DIR)") from None
+        resolved = self._resolve_within_data_dir(file_path, base)
         if not resolved.exists():
             raise FileNotFoundError(f"File not found: {file_path}")
+        return str(resolved)
+
+    def resolve_docs_dir(self, docs_dir: str) -> str:
+        """
+        Валидирует docs_dir для POST /ingest (полная папка, не один файл).
+
+        Без этой проверки admin — или утёкший/украденный admin-JWT (единственная
+        авторизация тут) — мог бы передать docs_dir="/etc" или docs_dir="/" и
+        рекурсивно затащить в общую коллекцию Qdrant любые читаемые процессом сервера
+        файлы хоста. Дальше они станут доступны через обычный /chat любому user: у
+        internal_public контента, которым помечается всё из /ingest (см.
+        _tag_internal_public), нет ACL на уровне отдельного документа.
+        """
+        if settings.file_backend == "s3":
+            # В S3-режиме run_full_ingestion не читает docs_dir с диска вообще —
+            # индексация идёт по prefix внутри бакета (см. _load_documents).
+            return docs_dir
+
+        base = Path(settings.data_dir).resolve()
+        resolved = self._resolve_within_data_dir(docs_dir, base)
         return str(resolved)
 
     def _parse_file(self, source, temp_path: Path | None = None) -> list[Document] | None:
@@ -308,7 +339,8 @@ class IngestService:
                 return [], 0
             items = None
             local_files = sorted(
-                f for f in docs_path.rglob("*") if f.is_file() and f.suffix.lower() in PARSERS
+                f for f in docs_path.rglob("*")
+                if f.is_file() and f.suffix.lower() in settings.supported_extensions
             )
             log.info("Found %d files in %s", len(local_files), docs_dir)
 

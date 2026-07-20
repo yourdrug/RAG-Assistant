@@ -30,6 +30,7 @@ def get_vector_store() -> QdrantVectorStore:
     return QdrantVectorStore.from_existing_collection(
         embedding=get_embeddings(),
         url=settings.qdrant_url,
+        api_key=settings.qdrant_api_key,
         collection_name=settings.collection_name,
     )
 

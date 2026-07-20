@@ -50,6 +50,7 @@ def upload_to_qdrant(chunks: list[Document], embeddings: HuggingFaceEmbeddings) 
             documents=batch,
             embedding=embeddings,
             url=settings.qdrant_url,
+            api_key=settings.qdrant_api_key,
             collection_name=settings.collection_name,
             force_recreate=False,
         )

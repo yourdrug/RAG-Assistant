@@ -19,7 +19,7 @@ async def health():
     ollama_models = None
 
     try:
-        client = QdrantClient(url=settings.qdrant_url, timeout=3)
+        client = QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key, timeout=3)
         client.get_collections()
         qdrant_status = "ok"
     except Exception as e:

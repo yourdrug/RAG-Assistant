@@ -112,7 +112,7 @@ class DocumentService:
         if not is_owner and user["role"] != "admin":
             raise HTTPException(status_code=403, detail="Can only delete your own documents")
 
-        client = QdrantClient(url=settings.qdrant_url)
+        client = QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key)
         client.delete(
             collection_name=settings.collection_name,
             points_selector=Filter(
@@ -173,7 +173,7 @@ class DocumentService:
 
             embeddings = get_embeddings()
             vector_size = len(embeddings.embed_query("test"))
-            client = QdrantClient(url=settings.qdrant_url)
+            client = QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key)
             ensure_collection(client, vector_size, reset=False)
 
             upload_to_qdrant(chunks, embeddings)

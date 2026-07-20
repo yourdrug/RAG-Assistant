@@ -5,6 +5,9 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     qdrant_url: str = os.getenv("QDRANT_URL", "http://localhost:6333")
+
+    # Ключ авторизации Qdrant. ОБЯЗАТЕЛЕН вне чисто localhost-разработки
+    qdrant_api_key: str | None = os.getenv("QDRANT_API_KEY") or None
     ollama_base_url: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     database_url: str = os.getenv("DATABASE_URL", "postgresql://raguser:ragpassword@localhost:5432/ragdb")
     collection_name: str = os.getenv("COLLECTION_NAME", "company_docs")
