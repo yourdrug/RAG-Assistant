@@ -10,8 +10,8 @@ from pathlib import Path
 
 import typer
 from config import settings
+from infrastructure.services.ingestion_service import IngestionService
 from infrastructure.storage import get_storage
-from services.ingest_service import IngestService
 
 logger = logging.getLogger("cli")
 
@@ -35,7 +35,7 @@ def ingest_run(
         if s3:
             settings.file_backend = "s3"
 
-        service = IngestService()
+        service = IngestionService()
         service.run_full_ingestion(docs_dir, reset=reset, prefix=prefix)
     except Exception as exc:
         logger.error("Indexing error", exc_info=exc)
@@ -53,7 +53,7 @@ def ingest_file(
         if s3:
             settings.file_backend = "s3"
 
-        service = IngestService()
+        service = IngestionService()
 
         if force:
             service.force_reindex(Path(file_path).name)
@@ -92,7 +92,7 @@ def ingest_upload(
 def ingest_list() -> None:
     """Show list of indexed files."""
     try:
-        service = IngestService()
+        service = IngestionService()
         registry = service.get_registry()
 
         if not registry:

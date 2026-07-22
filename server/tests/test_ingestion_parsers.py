@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-from domain.ingestion import clean_pdf_text  # noqa: E402
+from infrastructure.ml.ingestion import clean_pdf_text  # noqa: E402
 from infrastructure.registry import file_hash, is_already_indexed  # noqa: E402
 
 

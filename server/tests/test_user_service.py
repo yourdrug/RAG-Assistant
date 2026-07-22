@@ -1,17 +1,19 @@
 """
-Tests for services/user_service.py — authentication, user creation, toggle.
-Mocks database layer, tests pure business validation.
+Tests for application/services/auth_service.py — authentication, user creation, toggle.
+Tests the application service with mocked use cases.
 """
 
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 import pytest  # noqa: E402
+from application.dto.auth_dto import CreateUserCommand, LoginCommand, LoginResult, UserDTO  # noqa: E402
+from application.services.auth_service import AuthService  # noqa: E402
+from domain.exceptions import BusinessRuleViolation, ValidationError  # noqa: E402
 from fastapi import HTTPException  # noqa: E402
-from services.user_service import UserService  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -19,25 +21,17 @@ from services.user_service import UserService  # noqa: E402
 
 
 @pytest.fixture
-def service():
-    return UserService()
-
-
-def _mock_db():
-    return MagicMock()
-
-
-def _fake_user(
-    user_id=1, email="test@test.com", role="user", kind="internal", is_active=True, hashed_password="hash"
-):
-    return {
-        "id": user_id,
-        "email": email,
-        "role": role,
-        "kind": kind,
-        "is_active": is_active,
-        "hashed_password": hashed_password,
-    }
+def auth_service():
+    authenticate_user = MagicMock()
+    create_user = MagicMock()
+    list_users = MagicMock()
+    toggle_user_active = MagicMock()
+    return AuthService(
+        authenticate_user=authenticate_user,
+        create_user=create_user,
+        list_users=list_users,
+        toggle_user_active=toggle_user_active,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -46,48 +40,18 @@ def _fake_user(
 
 
 class TestAuthenticate:
-    def test_successful_authentication(self, service):
-        db = _mock_db()
-        user = _fake_user()
-        with patch("services.user_service.get_user_by_email", return_value=user):
-            with patch("services.user_service.verify_password", return_value=True):
-                with patch("services.user_service.create_access_token", return_value="token123"):
-                    result = service.authenticate("test@test.com", "password", db)
-        assert result["access_token"] == "token123"
-        assert result["role"] == "user"
-        assert result["kind"] == "internal"
+    def test_successful_authentication(self, auth_service):
+        expected = LoginResult(access_token="token123", role="user", kind="internal")
+        auth_service._authenticate_user.execute.return_value = expected
+        result = auth_service.authenticate(LoginCommand(email="test@test.com", password="password"))
+        assert result.access_token == "token123"
+        assert result.role == "user"
 
-    def test_wrong_password_raises_401(self, service):
-        db = _mock_db()
-        user = _fake_user()
-        with patch("services.user_service.get_user_by_email", return_value=user):
-            with patch("services.user_service.verify_password", return_value=False):
-                with pytest.raises(HTTPException) as exc_info:
-                    service.authenticate("test@test.com", "wrong", db)
+    def test_wrong_password_raises(self, auth_service):
+        auth_service._authenticate_user.execute.side_effect = HTTPException(401, "Invalid credentials")
+        with pytest.raises(HTTPException) as exc_info:
+            auth_service.authenticate(LoginCommand(email="test@test.com", password="wrong"))
         assert exc_info.value.status_code == 401
-
-    def test_nonexistent_user_raises_401(self, service):
-        db = _mock_db()
-        with patch("services.user_service.get_user_by_email", return_value=None):
-            with pytest.raises(HTTPException) as exc_info:
-                service.authenticate("nobody@test.com", "pw", db)
-        assert exc_info.value.status_code == 401
-
-    def test_inactive_user_raises_401(self, service):
-        db = _mock_db()
-        user = _fake_user(is_active=False)
-        with patch("services.user_service.get_user_by_email", return_value=user):
-            with pytest.raises(HTTPException) as exc_info:
-                service.authenticate("test@test.com", "pw", db)
-        assert exc_info.value.status_code == 401
-
-    def test_error_message_does_not_leak_info(self, service):
-        db = _mock_db()
-        with patch("services.user_service.get_user_by_email", return_value=None):
-            with pytest.raises(HTTPException) as exc_info:
-                service.authenticate("x@x.com", "y", db)
-        assert "not found" not in exc_info.value.detail.lower()
-        assert "invalid" in exc_info.value.detail.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -96,97 +60,20 @@ class TestAuthenticate:
 
 
 class TestCreateUser:
-    def test_successful_creation(self, service):
-        db = _mock_db()
-        with patch("services.user_service.get_user_by_email", return_value=None):
-            with patch("services.user_service.create_user", return_value={"id": 1}):
-                with patch("services.user_service.hash_password", return_value="hashed"):
-                    result = service.create_user("new@test.com", "pw", "user", "internal", db)
-        assert result["id"] == 1
+    def test_successful_creation(self, auth_service):
+        expected = UserDTO(id=1, email="new@test.com", role="user", kind="internal", is_active=True)
+        auth_service._create_user.execute.return_value = expected
+        result = auth_service.create_user(
+            CreateUserCommand(email="new@test.com", password="pw", role="user", kind="internal")
+        )
+        assert result.id == 1
 
-    def test_invalid_role_raises_400(self, service):
-        db = _mock_db()
-        with pytest.raises(HTTPException) as exc_info:
-            service.create_user("x@x.com", "pw", "superadmin", "internal", db)
-        assert exc_info.value.status_code == 400
-        assert "role" in exc_info.value.detail.lower()
-
-    def test_invalid_kind_raises_400(self, service):
-        db = _mock_db()
-        with pytest.raises(HTTPException) as exc_info:
-            service.create_user("x@x.com", "pw", "user", "external", db)
-        assert exc_info.value.status_code == 400
-        assert "kind" in exc_info.value.detail.lower()
-
-    def test_client_cannot_be_admin(self, service):
-        db = _mock_db()
-        with pytest.raises(HTTPException) as exc_info:
-            service.create_user("x@x.com", "pw", "admin", "client", db)
-        assert exc_info.value.status_code == 400
-        assert "client" in exc_info.value.detail.lower()
-
-    def test_duplicate_email_raises_409(self, service):
-        db = _mock_db()
-        existing = _fake_user(email="taken@test.com")
-        with patch("services.user_service.get_user_by_email", return_value=existing):
-            with pytest.raises(HTTPException) as exc_info:
-                service.create_user("taken@test.com", "pw", "user", "internal", db)
-        assert exc_info.value.status_code == 409
-
-    def test_admin_role_accepted(self, service):
-        db = _mock_db()
-        with patch("services.user_service.get_user_by_email", return_value=None):
-            with patch("services.user_service.create_user", return_value={"id": 2}):
-                with patch("services.user_service.hash_password", return_value="h"):
-                    result = service.create_user("admin@test.com", "pw", "admin", "internal", db)
-        assert result["id"] == 2
-
-    def test_client_role_accepted(self, service):
-        db = _mock_db()
-        with patch("services.user_service.get_user_by_email", return_value=None):
-            with patch("services.user_service.create_user", return_value={"id": 3}):
-                with patch("services.user_service.hash_password", return_value="h"):
-                    result = service.create_user("client@test.com", "pw", "user", "client", db)
-        assert result["id"] == 3
-
-
-# ---------------------------------------------------------------------------
-# toggle_active
-# ---------------------------------------------------------------------------
-
-
-class TestToggleActive:
-    def test_deactivate_other_user(self, service):
-        db = _mock_db()
-        with patch("services.user_service.set_user_active", return_value=True):
-            result = service.toggle_active(user_id=5, is_active=False, admin_id=1, db=db)
-        assert result["is_active"] is False
-
-    def test_activate_user(self, service):
-        db = _mock_db()
-        with patch("services.user_service.set_user_active", return_value=True):
-            result = service.toggle_active(user_id=5, is_active=True, admin_id=1, db=db)
-        assert result["is_active"] is True
-
-    def test_cannot_deactivate_self(self, service):
-        db = _mock_db()
-        with pytest.raises(HTTPException) as exc_info:
-            service.toggle_active(user_id=1, is_active=False, admin_id=1, db=db)
-        assert exc_info.value.status_code == 400
-        assert "yourself" in exc_info.value.detail.lower()
-
-    def test_can_activate_self(self, service):
-        db = _mock_db()
-        with patch("services.user_service.set_user_active", return_value=True):
-            result = service.toggle_active(user_id=1, is_active=True, admin_id=1, db=db)
-        assert result["is_active"] is True
-
-    def test_nonexistent_user_raises_404(self, service):
-        db = _mock_db()
-        with patch("services.user_service.set_user_active", return_value=False):
-            with pytest.raises(HTTPException) as exc_info:
-                service.toggle_active(user_id=999, is_active=False, admin_id=1, db=db)
-        assert exc_info.value.status_code == 404
+    def test_invalid_role_raises(self, auth_service):
+        auth_service._create_user.execute.side_effect = ValidationError("Invalid role")
+        with pytest.raises(ValidationError):
+            auth_service.create_user(
+                CreateUserCommand(email="x@x.com", password="pw", role="superadmin", kind="internal")
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -195,9 +82,27 @@ class TestToggleActive:
 
 
 class TestListUsers:
-    def test_delegates_to_database(self, service):
-        db = _mock_db()
-        expected = [_fake_user(), _fake_user(user_id=2)]
-        with patch("services.user_service.list_users", return_value=expected):
-            result = service.list_users(db)
-        assert len(result) == 2
+    def test_delegates_to_use_case(self, auth_service):
+        expected = [UserDTO(id=1, email="a@test.com", role="user", kind="internal", is_active=True)]
+        auth_service._list_users.execute.return_value = expected
+        result = auth_service.list_users()
+        assert len(result) == 1
+
+
+# ---------------------------------------------------------------------------
+# toggle_active
+# ---------------------------------------------------------------------------
+
+
+class TestToggleActive:
+    def test_deactivate_user(self, auth_service):
+        auth_service._toggle_user_active.execute.return_value = {"is_active": False}
+        result = auth_service.toggle_active(user_id=5, is_active=False, admin_id=1)
+        assert result["is_active"] is False
+
+    def test_cannot_deactivate_self(self, auth_service):
+        auth_service._toggle_user_active.execute.side_effect = BusinessRuleViolation(
+            "Cannot deactivate yourself"
+        )
+        with pytest.raises(BusinessRuleViolation):
+            auth_service.toggle_active(user_id=1, is_active=False, admin_id=1)

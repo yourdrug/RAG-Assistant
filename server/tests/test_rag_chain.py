@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-import domain.rag as rag  # noqa: E402
+import infrastructure.ml.rag as rag  # noqa: E402
 
 
 def _doc(content: str, source: str = "docs/a.pdf"):

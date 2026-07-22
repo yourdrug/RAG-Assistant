@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 import typer
-from domain.pdf_diag import check_pdf
+from infrastructure.ml.pdf_diag import check_pdf
 
 logger = logging.getLogger("cli")
 

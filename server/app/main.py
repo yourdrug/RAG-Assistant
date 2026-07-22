@@ -1,23 +1,28 @@
 """main.py — Composition root for the RAG API."""
 
+from __future__ import annotations
+
 import logging.config
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from api.routes.auth import router as auth_router
-from api.routes.chat import router as chat_router
-from api.routes.clients import router as clients_router
-from api.routes.conversations import router as conversations_router
-from api.routes.documents import router as documents_router
-from api.routes.groups import router as groups_router
-from api.routes.health import router as health_router
-from api.routes.ingest import router as ingest_router
 from bootstrap import bootstrap_admin
 from cli.cli import cli
 from config import settings
-from fastapi import FastAPI
+from domain.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from infrastructure.logging import logging_config
+from presentation.api.routes.auth import router as auth_router
+from presentation.api.routes.benchmark import router as benchmark_router
+from presentation.api.routes.chat import router as chat_router
+from presentation.api.routes.clients import router as clients_router
+from presentation.api.routes.conversations import router as conversations_router
+from presentation.api.routes.documents import router as documents_router
+from presentation.api.routes.groups import router as groups_router
+from presentation.api.routes.health import router as health_router
+from presentation.api.routes.ingest import router as ingest_router
 
 
 @asynccontextmanager
@@ -31,7 +36,7 @@ def create_application() -> FastAPI:
     application = FastAPI(
         title="RAG API",
         description="Corporate RAG assistant",
-        version="0.1.0",
+        version="0.2.0",
         lifespan=lifespan,
     )
 
@@ -43,6 +48,18 @@ def create_application() -> FastAPI:
         allow_headers=["*"],
     )
 
+    @application.exception_handler(ValidationError)
+    async def validation_error_handler(_req: Request, exc: ValidationError) -> JSONResponse:
+        return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+    @application.exception_handler(BusinessRuleViolation)
+    async def business_rule_handler(_req: Request, exc: BusinessRuleViolation) -> JSONResponse:
+        return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+    @application.exception_handler(EntityNotFound)
+    async def not_found_handler(_req: Request, exc: EntityNotFound) -> JSONResponse:
+        return JSONResponse(status_code=404, content={"detail": str(exc)})
+
     application.include_router(auth_router)
     application.include_router(conversations_router)
     application.include_router(chat_router)
@@ -51,6 +68,7 @@ def create_application() -> FastAPI:
     application.include_router(groups_router)
     application.include_router(clients_router)
     application.include_router(health_router)
+    application.include_router(benchmark_router)
 
     return application
 

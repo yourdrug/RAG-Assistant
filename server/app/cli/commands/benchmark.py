@@ -10,7 +10,7 @@ from pathlib import Path
 
 import typer
 from config import settings
-from domain.benchmark import run_benchmark
+from infrastructure.ml.benchmark import run_benchmark
 
 logger = logging.getLogger("cli")
 

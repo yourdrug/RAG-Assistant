@@ -1,0 +1,16 @@
+"""Vector Store Repository interface — abstracts Qdrant/vector operations."""
+
+from __future__ import annotations
+
+from typing import Protocol, runtime_checkable
+
+from domain.entities.chunk import Chunk
+
+
+@runtime_checkable
+class VectorStoreRepository(Protocol):
+    def ensure_collection(self, vector_size: int, reset: bool = False) -> None: ...
+    def upload_documents(self, chunks: list[Chunk]) -> None: ...
+    def delete_by_document_id(self, document_id: int) -> None: ...
+    def as_retriever(self, search_kwargs: dict | None = None): ...
+    def similarity_search_with_score(self, query: str, k: int) -> list[tuple[Chunk, float]]: ...

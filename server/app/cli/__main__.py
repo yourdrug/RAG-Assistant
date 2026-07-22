@@ -2,8 +2,9 @@
 
 import logging.config
 
-from cli.cli import cli
 from infrastructure.logging import logging_config
+
+from cli.cli import cli
 
 if __name__ == "__main__":
     logging.config.dictConfig(logging_config)

@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-from domain.ingestion import PARSERS, _parse_markdown, _parse_txt, clean_pdf_text  # noqa: E402
+from infrastructure.ml.ingestion import PARSERS, _parse_markdown, _parse_txt, clean_pdf_text  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # clean_pdf_text

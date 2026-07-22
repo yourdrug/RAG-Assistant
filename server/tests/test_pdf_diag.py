@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 # Mock fitz before importing pdf_diag
 sys.modules["fitz"] = MagicMock()
 
-from domain.pdf_diag import classify_page, is_garbled, simple_chunk  # noqa: E402
+from infrastructure.ml.pdf_diag import classify_page, is_garbled, simple_chunk  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # is_garbled

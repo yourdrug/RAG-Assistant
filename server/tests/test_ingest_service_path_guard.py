@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 import pytest  # noqa: E402
 from config import settings  # noqa: E402
-from services.ingest_service import IngestService  # noqa: E402
+from infrastructure.services.ingestion_service import IngestionService  # noqa: E402
 
 
 @pytest.fixture
@@ -19,7 +19,7 @@ def service(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "data_dir", str(tmp_path))
     monkeypatch.setattr(settings, "file_backend", "local")
     (tmp_path / "docs_sample").mkdir()
-    return IngestService()
+    return IngestionService()
 
 
 def test_relative_docs_dir_inside_data_dir_resolves(service, tmp_path):
