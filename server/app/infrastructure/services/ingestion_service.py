@@ -121,10 +121,8 @@ class IngestionService:
                     file_chunks = info.get("chunks", 0)
                     file_chars = info.get("chars", 0)
                     self._document_repo.update_status(saved.id, "done", chunks=file_chunks, chars=file_chars)
-            self._document_repo._db.commit()
             log.info("Synced %d documents to database", len(registry))
         except Exception as e:
-            self._document_repo._db.rollback()
             log.warning("Failed to sync documents to database: %s", e)
 
     def run_single_file(self, file_path: str) -> None:
@@ -172,7 +170,9 @@ class IngestionService:
                     "indexed_at": datetime.now().isoformat(timespec="seconds"),
                 }
                 save_registry(data_dir, registry)
-                self._sync_documents_to_db(registry, {f"s3://{settings.s3_bucket}/{key}": total_chars}, chunks)
+                self._sync_documents_to_db(
+                    registry, {f"s3://{settings.s3_bucket}/{key}": total_chars}, chunks
+                )
             else:
                 log.warning("File '%s' already in registry.", file_info.filename)
         else:

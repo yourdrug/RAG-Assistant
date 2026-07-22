@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from domain.entities.document import Document
-from domain.exceptions import BusinessRuleViolation, ValidationError
+from domain.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
 from domain.repositories.document_repository import DocumentRepository
 from domain.repositories.group_repository import GroupRepository
 from domain.services.access_control import compute_owner_and_group, validate_document_visibility
@@ -39,15 +39,16 @@ class UploadDocument:
         user_role: str,
     ) -> DocumentDTO:
         vis = DocumentVisibility.validate(visibility)
+        user_kind_enum = UserKind(user_kind)
+        user_role_enum = UserRole(user_role)
         user_group_ids = self._group_repo.get_user_group_ids(user_id)
 
-        validate_document_visibility(
-            vis,
-            group_id,
-            UserKind(user_kind),
-            UserRole(user_role),
-            user_group_ids,
-        )
+        validate_document_visibility(vis, group_id, user_kind_enum, user_role_enum, user_group_ids)
+
+        if vis == DocumentVisibility.INTERNAL_GROUP:
+            groups = self._group_repo.list_by_ids([group_id])
+            if not groups:
+                raise EntityNotFound("Group", group_id)
 
         owner_id, effective_group_id = compute_owner_and_group(vis, group_id, user_id)
 
