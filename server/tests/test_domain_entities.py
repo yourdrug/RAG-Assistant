@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import sys
 from datetime import UTC, datetime
-from unittest.mock import patch
 
 import pytest
 
@@ -25,19 +24,27 @@ from domain.value_objects.message_role import MessageRole
 from domain.value_objects.roles import UserKind, UserRole
 from domain.value_objects.visibility import DocumentVisibility
 
-
 # ---------------------------------------------------------------------------
 # Helpers / Factories
 # ---------------------------------------------------------------------------
 
+
 def _make_user(**overrides) -> User:
-    defaults = dict(id=1, email="test@example.com", role=UserRole.USER, kind=UserKind.INTERNAL, is_active=True)
+    defaults = dict(
+        id=1, email="test@example.com", role=UserRole.USER, kind=UserKind.INTERNAL, is_active=True
+    )
     defaults.update(overrides)
     return User(**defaults)
 
 
 def _make_document(**overrides) -> Document:
-    defaults = dict(id=1, filename="doc.pdf", source_path="/tmp/doc.pdf", visibility=DocumentVisibility.INTERNAL_PUBLIC, owner_id=1)
+    defaults = dict(
+        id=1,
+        filename="doc.pdf",
+        source_path="/tmp/doc.pdf",
+        visibility=DocumentVisibility.INTERNAL_PUBLIC,
+        owner_id=1,
+    )
     defaults.update(overrides)
     return Document(**defaults)
 

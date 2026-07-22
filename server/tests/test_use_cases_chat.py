@@ -18,7 +18,6 @@ from domain.entities.conversation import Conversation
 from domain.entities.message import Message
 from domain.value_objects.message_role import MessageRole
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -139,7 +138,9 @@ class TestSyncChat:
 
         # History passed to RAG should have trimmed the last user message
         call_args = self.rag_service.invoke.call_args
-        history = call_args.kwargs.get("history") or call_args[1].get("history", call_args[0][1] if len(call_args[0]) > 1 else None)
+        history = call_args.kwargs.get("history") or call_args[1].get(
+            "history", call_args[0][1] if len(call_args[0]) > 1 else None
+        )
         # The last message should be the assistant message, not the user message
         if history:
             assert history[-1].role == MessageRole.ASSISTANT
@@ -313,6 +314,7 @@ class TestStreamChat:
         meta_chunk = [c for c in chunks if c.startswith("\n__meta__:")]
         assert len(meta_chunk) == 1
         import json
+
         meta = json.loads(meta_chunk[0].replace("\n__meta__:", ""))
         assert meta["sources"] == sources_data
 
@@ -375,6 +377,7 @@ class TestStreamChat:
         # Verify sources is empty (malformed JSON was caught)
         meta_chunk = [c for c in chunks if c.startswith("\n__meta__:")][0]
         import json
+
         meta = json.loads(meta_chunk.replace("\n__meta__:", ""))
         assert meta["sources"] == []
 

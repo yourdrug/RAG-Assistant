@@ -12,7 +12,7 @@ AAA (Arrange-Act-Assert) pattern throughout.
 from __future__ import annotations
 
 import sys
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -21,13 +21,14 @@ sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.par
 from application.dto.auth_dto import CreateUserCommand, LoginCommand, LoginResult, UserDTO
 from application.dto.chat_dto import ChatCommand, ChatResult
 from application.dto.document_dto import DocumentDTO
-from application.dto.ingest_dto import IngestRegistryResult, IngestStatusResult
+from application.dto.ingest_dto import IngestRegistryResult
 from application.use_cases.auth.authenticate_user import AuthenticateUser
 from application.use_cases.auth.create_user import CreateUser
 from application.use_cases.auth.list_users import ListUsers
 from application.use_cases.auth.toggle_user_active import ToggleUserActive
-from application.use_cases.chat.sync_chat import SyncChat
+from application.use_cases.benchmark.run_benchmark import RunBenchmark
 from application.use_cases.chat.stream_chat import StreamChat
+from application.use_cases.chat.sync_chat import SyncChat
 from application.use_cases.document.delete_document import DeleteDocument
 from application.use_cases.document.get_document import GetDocument
 from application.use_cases.document.list_documents import ListDocuments
@@ -35,17 +36,15 @@ from application.use_cases.document.upload_document import UploadDocument
 from application.use_cases.ingest.get_registry import GetIngestRegistry
 from application.use_cases.ingest.ingest_single_file import IngestSingleFile
 from application.use_cases.ingest.run_ingestion import RunIngestion
-from application.use_cases.benchmark.run_benchmark import RunBenchmark
-from domain.entities.user import User
+from domain.entities.conversation import Conversation
 from domain.entities.document import Document
 from domain.entities.message import Message
-from domain.entities.conversation import Conversation
+from domain.entities.user import User
 from domain.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
 from domain.value_objects.document_status import DocumentStatus
 from domain.value_objects.message_role import MessageRole
 from domain.value_objects.roles import UserKind, UserRole
 from domain.value_objects.visibility import DocumentVisibility
-
 
 # ---------------------------------------------------------------------------
 # Mock factories
@@ -92,13 +91,29 @@ def _mock_token_provider() -> MagicMock:
 
 
 def _make_user_entity(**overrides) -> User:
-    defaults = dict(id=1, email="test@example.com", hashed_password="hashed", role=UserRole.USER, kind=UserKind.INTERNAL, is_active=True)
+    defaults = dict(
+        id=1,
+        email="test@example.com",
+        hashed_password="hashed",
+        role=UserRole.USER,
+        kind=UserKind.INTERNAL,
+        is_active=True,
+    )
     defaults.update(overrides)
     return User(**defaults)
 
 
 def _make_document_entity(**overrides) -> Document:
-    defaults = dict(id=1, filename="doc.pdf", source_path="/uploads/doc.pdf", visibility=DocumentVisibility.INTERNAL_PUBLIC, owner_id=None, status=DocumentStatus.DONE, chunks=10, chars=5000)
+    defaults = dict(
+        id=1,
+        filename="doc.pdf",
+        source_path="/uploads/doc.pdf",
+        visibility=DocumentVisibility.INTERNAL_PUBLIC,
+        owner_id=None,
+        status=DocumentStatus.DONE,
+        chunks=10,
+        chars=5000,
+    )
     defaults.update(overrides)
     return Document(**defaults)
 
@@ -244,13 +259,17 @@ class TestAuthenticateUser:
         repo_not_found = _mock_user_repo(get_by_email=None)
         verifier = _mock_password_verifier()
         provider = _mock_token_provider()
-        uc_not_found = AuthenticateUser(user_repo=repo_not_found, password_verifier=verifier, token_provider=provider)
+        uc_not_found = AuthenticateUser(
+            user_repo=repo_not_found, password_verifier=verifier, token_provider=provider
+        )
 
         user = _make_user_entity()
         repo_wrong_pw = _mock_user_repo(get_by_email=user)
         verifier2 = _mock_password_verifier()
         verifier2.verify.return_value = False
-        uc_wrong_pw = AuthenticateUser(user_repo=repo_wrong_pw, password_verifier=verifier2, token_provider=provider)
+        uc_wrong_pw = AuthenticateUser(
+            user_repo=repo_wrong_pw, password_verifier=verifier2, token_provider=provider
+        )
 
         with pytest.raises(ValidationError, match="Invalid email or password"):
             uc_not_found.execute(LoginCommand(email="x@x.com", password="pw"))
@@ -295,7 +314,9 @@ class TestListUsers:
 
     def test_list_users_dto_mapping(self):
         # Arrange
-        user = _make_user_entity(id=5, email="u@test.com", role=UserRole.ADMIN, kind=UserKind.CLIENT, is_active=False)
+        user = _make_user_entity(
+            id=5, email="u@test.com", role=UserRole.ADMIN, kind=UserKind.CLIENT, is_active=False
+        )
         repo = _mock_user_repo(list_all=[user])
         uc = ListUsers(user_repo=repo)
 
@@ -596,16 +617,22 @@ class TestStreamChat:
         settings = MagicMock()
         settings.history_window = 8
         uc = StreamChat(
-            conversation_repo=conv_repo, message_repo=msg_repo,
-            rag_service=rag_service, settings=settings,
+            conversation_repo=conv_repo,
+            message_repo=msg_repo,
+            rag_service=rag_service,
+            settings=settings,
         )
 
         # Act
         chunks = []
         async for chunk in uc.execute(
-            question="hi", conversation_id=None, user_id=1,
-            user_kind="internal", user_role="user",
-            user_group_ids=[], assigned_client_ids=[],
+            question="hi",
+            conversation_id=None,
+            user_id=1,
+            user_kind="internal",
+            user_role="user",
+            user_group_ids=[],
+            assigned_client_ids=[],
         ):
             chunks.append(chunk)
 
@@ -631,23 +658,28 @@ class TestStreamChat:
         settings = MagicMock()
         settings.history_window = 8
         uc = StreamChat(
-            conversation_repo=conv_repo, message_repo=msg_repo,
-            rag_service=rag_service, settings=settings,
+            conversation_repo=conv_repo,
+            message_repo=msg_repo,
+            rag_service=rag_service,
+            settings=settings,
         )
 
         # Act
         chunks = []
         async for chunk in uc.execute(
-            question="q", conversation_id=1, user_id=1,
-            user_kind="internal", user_role="user",
-            user_group_ids=[], assigned_client_ids=[],
+            question="q",
+            conversation_id=1,
+            user_id=1,
+            user_kind="internal",
+            user_role="user",
+            user_group_ids=[],
+            assigned_client_ids=[],
         ):
             chunks.append(chunk)
 
         # Assert
         assert "answer" in chunks
         assert any("__meta__" in c for c in chunks)
-
 
 
 # ===========================================================================
@@ -668,15 +700,21 @@ class TestSyncChat:
         settings = MagicMock()
         settings.history_window = 8
         uc = SyncChat(
-            conversation_repo=conv_repo, message_repo=msg_repo,
-            rag_service=rag_service, settings=settings,
+            conversation_repo=conv_repo,
+            message_repo=msg_repo,
+            rag_service=rag_service,
+            settings=settings,
         )
         cmd = ChatCommand(question="What is X?", conversation_id=1)
 
         # Act
         result = await uc.execute(
-            command=cmd, user_id=1, user_kind="internal", user_role="user",
-            user_group_ids=[], assigned_client_ids=[],
+            command=cmd,
+            user_id=1,
+            user_kind="internal",
+            user_role="user",
+            user_group_ids=[],
+            assigned_client_ids=[],
         )
 
         # Assert
@@ -703,15 +741,20 @@ class TestSyncChat:
         settings = MagicMock()
         settings.history_window = 8
         uc = SyncChat(
-            conversation_repo=conv_repo, message_repo=msg_repo,
-            rag_service=rag_service, settings=settings,
+            conversation_repo=conv_repo,
+            message_repo=msg_repo,
+            rag_service=rag_service,
+            settings=settings,
         )
 
         # Act
         await uc.execute(
             command=ChatCommand(question="new q", conversation_id=1),
-            user_id=1, user_kind="internal", user_role="user",
-            user_group_ids=[], assigned_client_ids=[],
+            user_id=1,
+            user_kind="internal",
+            user_role="user",
+            user_group_ids=[],
+            assigned_client_ids=[],
         )
 
         # Assert — only the assistant message should be in history passed to RAG
@@ -928,15 +971,21 @@ class TestUploadDocument:
         storage = MagicMock()
         storage.supported_extensions = [".pdf", ".md", ".txt"]
         uc = UploadDocument(
-            document_repo=doc_repo, group_repo=group_repo,
-            document_processor=processor, file_storage=storage,
+            document_repo=doc_repo,
+            group_repo=group_repo,
+            document_processor=processor,
+            file_storage=storage,
         )
 
         # Act
         result = await uc.execute(
-            filename="test.pdf", file_data=b"data",
-            visibility="internal_group", group_id=5,
-            user_id=1, user_kind="internal", user_role="user",
+            filename="test.pdf",
+            file_data=b"data",
+            visibility="internal_group",
+            group_id=5,
+            user_id=1,
+            user_kind="internal",
+            user_role="user",
         )
 
         # Assert
@@ -956,16 +1005,22 @@ class TestUploadDocument:
         storage = MagicMock()
         storage.supported_extensions = [".pdf", ".md"]
         uc = UploadDocument(
-            document_repo=doc_repo, group_repo=group_repo,
-            document_processor=processor, file_storage=storage,
+            document_repo=doc_repo,
+            group_repo=group_repo,
+            document_processor=processor,
+            file_storage=storage,
         )
 
         # Act & Assert
         with pytest.raises(ValidationError, match="Unsupported file format"):
             await uc.execute(
-                filename="test.exe", file_data=b"data",
-                visibility="internal_private", group_id=None,
-                user_id=1, user_kind="internal", user_role="user",
+                filename="test.exe",
+                file_data=b"data",
+                visibility="internal_private",
+                group_id=None,
+                user_id=1,
+                user_kind="internal",
+                user_role="user",
             )
 
     @pytest.mark.asyncio
@@ -980,15 +1035,21 @@ class TestUploadDocument:
         storage = MagicMock()
         storage.supported_extensions = [".pdf"]
         uc = UploadDocument(
-            document_repo=doc_repo, group_repo=group_repo,
-            document_processor=processor, file_storage=storage,
+            document_repo=doc_repo,
+            group_repo=group_repo,
+            document_processor=processor,
+            file_storage=storage,
         )
 
         # Act
         await uc.execute(
-            filename="doc.pdf", file_data=b"data",
-            visibility="internal_private", group_id=None,
-            user_id=1, user_kind="internal", user_role="user",
+            filename="doc.pdf",
+            file_data=b"data",
+            visibility="internal_private",
+            group_id=None,
+            user_id=1,
+            user_kind="internal",
+            user_role="user",
         )
 
         # Assert
@@ -1005,16 +1066,22 @@ class TestUploadDocument:
         processor = MagicMock()
         storage = MagicMock()
         uc = UploadDocument(
-            document_repo=doc_repo, group_repo=group_repo,
-            document_processor=processor, file_storage=storage,
+            document_repo=doc_repo,
+            group_repo=group_repo,
+            document_processor=processor,
+            file_storage=storage,
         )
 
         # Act & Assert
         with pytest.raises(BusinessRuleViolation, match="already being processed"):
             await uc.execute(
-                filename="doc.pdf", file_data=b"data",
-                visibility="internal_private", group_id=None,
-                user_id=1, user_kind="internal", user_role="user",
+                filename="doc.pdf",
+                file_data=b"data",
+                visibility="internal_private",
+                group_id=None,
+                user_id=1,
+                user_kind="internal",
+                user_role="user",
             )
 
     @pytest.mark.asyncio
@@ -1025,16 +1092,22 @@ class TestUploadDocument:
         processor = MagicMock()
         storage = MagicMock()
         uc = UploadDocument(
-            document_repo=doc_repo, group_repo=group_repo,
-            document_processor=processor, file_storage=storage,
+            document_repo=doc_repo,
+            group_repo=group_repo,
+            document_processor=processor,
+            file_storage=storage,
         )
 
         # Act & Assert
         with pytest.raises(ValidationError):
             await uc.execute(
-                filename="doc.pdf", file_data=b"data",
-                visibility="invalid_vis", group_id=None,
-                user_id=1, user_kind="internal", user_role="user",
+                filename="doc.pdf",
+                file_data=b"data",
+                visibility="invalid_vis",
+                group_id=None,
+                user_id=1,
+                user_kind="internal",
+                user_role="user",
             )
 
 
@@ -1052,5 +1125,7 @@ class TestUploadDocumentStorageKey:
         assert key == "uploads/public/5_doc.pdf"
 
     def test_storage_key_strips_path(self):
-        key = UploadDocument._storage_key(owner_id=10, group_id=None, document_id=5, filename="/path/to/doc.pdf")
+        key = UploadDocument._storage_key(
+            owner_id=10, group_id=None, document_id=5, filename="/path/to/doc.pdf"
+        )
         assert key == "uploads/users/10/5_doc.pdf"

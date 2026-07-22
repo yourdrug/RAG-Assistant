@@ -44,7 +44,9 @@ class SQLAlchemyUserRepository:
 
     def list_all(self) -> list[User]:
         rows = self._db.execute(
-            text("SELECT id, email, hashed_password, role, kind, is_active, created_at FROM users ORDER BY created_at")
+            text(
+                "SELECT id, email, hashed_password, role, kind, is_active, created_at FROM users ORDER BY created_at"
+            )
         ).fetchall()
         return [self._to_entity(r) for r in rows]
 

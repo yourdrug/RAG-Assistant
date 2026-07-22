@@ -26,7 +26,6 @@ from domain.services.access_control import (
 from domain.value_objects.roles import UserKind, UserRole
 from domain.value_objects.visibility import DocumentVisibility
 
-
 # ===========================================================================
 # ALLOWED_VISIBILITY_FOR_KIND constant tests
 # ===========================================================================

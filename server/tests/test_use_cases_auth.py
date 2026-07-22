@@ -5,7 +5,7 @@ All dependencies are mocked — no real DB, no real passwords, no real JWT.
 
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
@@ -19,15 +19,12 @@ from domain.entities.user import User
 from domain.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
 from domain.value_objects.roles import UserKind, UserRole
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-def _make_user(
-    id=1, email="test@example.com", role=UserRole.USER, kind=UserKind.INTERNAL, is_active=True
-):
+def _make_user(id=1, email="test@example.com", role=UserRole.USER, kind=UserKind.INTERNAL, is_active=True):
     return User(id=id, email=email, role=role, kind=kind, is_active=is_active)
 
 

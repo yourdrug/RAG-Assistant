@@ -9,13 +9,10 @@ from unittest.mock import MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-import pytest
-from application.dto.ingest_dto import IngestStatusResult
 from application.services.ingest_service import IngestAppService
 from application.use_cases.ingest.get_registry import GetIngestRegistry
 from application.use_cases.ingest.ingest_single_file import IngestSingleFile
 from application.use_cases.ingest.run_ingestion import RunIngestion
-
 
 # ---------------------------------------------------------------------------
 # RunIngestion
@@ -113,9 +110,7 @@ class TestGetIngestRegistry:
         assert result.files[1].filename == "doc2.pdf"
 
     def test_registry_with_missing_metadata(self):
-        self.registry_repo.load.return_value = {
-            "doc.pdf": {}
-        }
+        self.registry_repo.load.return_value = {"doc.pdf": {}}
 
         result = self.use_case.execute()
 

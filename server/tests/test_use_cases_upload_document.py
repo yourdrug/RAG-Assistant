@@ -16,7 +16,6 @@ from domain.exceptions import BusinessRuleViolation, ValidationError
 from domain.value_objects.document_status import DocumentStatus
 from domain.value_objects.visibility import DocumentVisibility
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -341,5 +340,7 @@ class TestStorageKey:
         assert key == "uploads/public/42_doc.pdf"
 
     def test_strips_path_from_filename(self):
-        key = UploadDocument._storage_key(owner_id=1, group_id=None, document_id=1, filename="/deep/path/doc.pdf")
+        key = UploadDocument._storage_key(
+            owner_id=1, group_id=None, document_id=1, filename="/deep/path/doc.pdf"
+        )
         assert key == "uploads/users/1/1_doc.pdf"

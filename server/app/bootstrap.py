@@ -37,6 +37,10 @@ def bootstrap_admin() -> None:
             kind=UserKind.INTERNAL,
         )
         user_repo.save(user)
+        db.commit()
         logger.info("Admin created: %s", settings.admin_email)
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()

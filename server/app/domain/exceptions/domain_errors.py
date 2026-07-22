@@ -22,3 +22,11 @@ class EntityNotFound(DomainError):
 
 class BusinessRuleViolation(DomainError):
     """Raised when a domain operation violates a business rule."""
+
+
+class DatabaseError(DomainError):
+    """Raised when a database operation fails."""
+
+    def __init__(self, detail: str = "") -> None:
+        super().__init__(detail)
+        self.detail = detail

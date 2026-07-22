@@ -19,7 +19,6 @@ from domain.exceptions import BusinessRuleViolation, EntityNotFound
 from domain.value_objects.document_status import DocumentStatus
 from domain.value_objects.visibility import DocumentVisibility
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

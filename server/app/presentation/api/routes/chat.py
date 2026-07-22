@@ -4,40 +4,60 @@ from __future__ import annotations
 
 import json
 
+from application.services.chat_service import ChatService
+from application.uow import UnitOfWork
+from application.use_cases.chat.stream_chat import StreamChat
+from application.use_cases.chat.sync_chat import SyncChat
+from config import settings
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from infrastructure.auth.fastapi_dependencies import get_current_user
-from infrastructure.database.session import get_db
-from sqlalchemy.orm import Session
+from infrastructure.ml.rag_service import RagService
 
-from presentation.api.dependencies import create_chat_service, get_repos
+from presentation.api.dependencies import get_uow
 from presentation.api.schemas import ChatRequest, ChatResponse
 
 router = APIRouter(tags=["chat"])
+
+_rag_service = RagService()
+
+
+def _chat_service(uow: UnitOfWork) -> ChatService:
+    return ChatService(
+        stream_chat=StreamChat(
+            conversation_repo=uow.conversations,
+            message_repo=uow.messages,
+            rag_service=_rag_service,
+            settings=settings,
+        ),
+        sync_chat=SyncChat(
+            conversation_repo=uow.conversations,
+            message_repo=uow.messages,
+            rag_service=_rag_service,
+            settings=settings,
+        ),
+    )
 
 
 @router.post("/chat")
 async def chat_stream(
     req: ChatRequest,
     current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    uow: UnitOfWork = Depends(get_uow),
 ):
     if not req.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty")
 
-    repos = get_repos(db)
     group_ids = (
-        repos["group_repo"].get_user_group_ids(current_user["id"])
-        if current_user["kind"] == "internal"
-        else []
+        uow.groups.get_user_group_ids(current_user["id"]) if current_user["kind"] == "internal" else []
     )
     assigned_ids = (
-        repos["client_assignment_repo"].get_assigned_client_ids(current_user["id"])
+        uow.client_assignments.get_assigned_client_ids(current_user["id"])
         if current_user["kind"] == "internal"
         else []
     )
 
-    service = create_chat_service(db)
+    service = _chat_service(uow)
 
     async def event_generator():
         try:
@@ -70,24 +90,21 @@ async def chat_stream(
 async def chat_sync(
     req: ChatRequest,
     current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    uow: UnitOfWork = Depends(get_uow),
 ):
     if not req.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty")
 
-    repos = get_repos(db)
     group_ids = (
-        repos["group_repo"].get_user_group_ids(current_user["id"])
-        if current_user["kind"] == "internal"
-        else []
+        uow.groups.get_user_group_ids(current_user["id"]) if current_user["kind"] == "internal" else []
     )
     assigned_ids = (
-        repos["client_assignment_repo"].get_assigned_client_ids(current_user["id"])
+        uow.client_assignments.get_assigned_client_ids(current_user["id"])
         if current_user["kind"] == "internal"
         else []
     )
 
-    service = create_chat_service(db)
+    service = _chat_service(uow)
     result = await service.sync_chat(
         req.question,
         req.conversation_id,

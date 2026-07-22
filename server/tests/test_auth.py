@@ -9,9 +9,9 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
+import jwt as _jwt  # noqa: E402
 import pytest  # noqa: E402
 from config import settings  # noqa: E402
-from fastapi import HTTPException  # noqa: E402
 from infrastructure.auth import (  # noqa: E402
     create_access_token,
     decode_access_token,
@@ -96,23 +96,20 @@ class TestJWT:
 
         with patch.object(settings, "jwt_secret_key", "different-secret"):
             with patch.object(settings, "jwt_algorithm", "HS256"):
-                with pytest.raises(HTTPException) as exc_info:
+                with pytest.raises(_jwt.exceptions.InvalidSignatureError):
                     decode_access_token(token)
-                assert exc_info.value.status_code == 401
 
     def test_decode_garbage_token_raises(self):
         with patch.object(settings, "jwt_secret_key", "test-secret"):
             with patch.object(settings, "jwt_algorithm", "HS256"):
-                with pytest.raises(HTTPException) as exc_info:
+                with pytest.raises((_jwt.exceptions.DecodeError, _jwt.exceptions.InvalidTokenError)):
                     decode_access_token("not.a.jwt")
-                assert exc_info.value.status_code == 401
 
     def test_decode_empty_string_raises(self):
         with patch.object(settings, "jwt_secret_key", "test-secret"):
             with patch.object(settings, "jwt_algorithm", "HS256"):
-                with pytest.raises(HTTPException) as exc_info:
+                with pytest.raises((_jwt.exceptions.DecodeError, _jwt.exceptions.InvalidTokenError)):
                     decode_access_token("")
-                assert exc_info.value.status_code == 401
 
     def test_token_with_different_role(self):
         with patch.object(settings, "jwt_secret_key", "test-secret"):
@@ -140,7 +137,5 @@ class TestJWT:
 
         with patch.object(settings, "jwt_secret_key", "test-secret"):
             with patch.object(settings, "jwt_algorithm", "HS256"):
-                with pytest.raises(HTTPException) as exc_info:
+                with pytest.raises(_jwt.exceptions.ExpiredSignatureError):
                     decode_access_token(token)
-                assert exc_info.value.status_code == 401
-                assert "expired" in exc_info.value.detail.lower()

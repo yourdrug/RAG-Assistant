@@ -31,15 +31,11 @@ def create_access_token(user_id: int, role: str) -> str:
 
 
 def decode_access_token(token: str) -> dict:
-    import jwt as _jwt
-    from fastapi import HTTPException, status
+    """Decode JWT token. Raises jwt exceptions on failure.
 
-    try:
-        return _token_provider.decode_token(token)
-    except _jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired") from None
-    except _jwt.InvalidTokenError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token") from None
+    HTTP mapping should be done in the presentation layer.
+    """
+    return _token_provider.decode_token(token)
 
 
 __all__ = [

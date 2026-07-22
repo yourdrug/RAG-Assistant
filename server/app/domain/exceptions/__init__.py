@@ -1,5 +1,6 @@
 from domain.exceptions.domain_errors import (
     BusinessRuleViolation,
+    DatabaseError,
     DomainError,
     EntityNotFound,
     ValidationError,
@@ -10,4 +11,5 @@ __all__ = [
     "ValidationError",
     "EntityNotFound",
     "BusinessRuleViolation",
+    "DatabaseError",
 ]

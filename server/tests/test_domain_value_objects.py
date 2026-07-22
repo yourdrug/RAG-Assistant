@@ -19,7 +19,6 @@ from domain.value_objects.message_role import MessageRole
 from domain.value_objects.roles import UserKind, UserRole
 from domain.value_objects.visibility import DocumentVisibility
 
-
 # ===========================================================================
 # UserRole Tests
 # ===========================================================================

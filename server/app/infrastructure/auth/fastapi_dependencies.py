@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+import jwt as _jwt
+from application.uow import UnitOfWork
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy.orm import Session
+from presentation.api.dependencies import get_uow
 
 from infrastructure.auth.jwt_provider import JWTProvider
-from infrastructure.database import get_db
-from infrastructure.repositories.sqlalchemy_user_repository import SQLAlchemyUserRepository
 
 bearer_scheme = HTTPBearer(auto_error=False)
 jwt_provider = JWTProvider()
@@ -16,7 +16,7 @@ jwt_provider = JWTProvider()
 
 def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
-    db: Session = Depends(get_db),
+    uow: UnitOfWork = Depends(get_uow),
 ) -> dict:
     if credentials is None:
         raise HTTPException(
@@ -27,14 +27,18 @@ def get_current_user(
 
     try:
         payload = jwt_provider.decode_token(credentials.credentials)
-    except Exception:
+    except _jwt.ExpiredSignatureError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token expired",
+        ) from None
+    except _jwt.InvalidTokenError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
         ) from None
 
-    user_repo = SQLAlchemyUserRepository(db)
-    user = user_repo.get_by_id(int(payload["sub"]))
+    user = uow.users.get_by_id(int(payload["sub"]))
 
     if user is None or not user.is_active:
         raise HTTPException(
