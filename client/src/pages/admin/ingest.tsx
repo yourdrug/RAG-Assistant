@@ -8,7 +8,7 @@ import { Label } from "@/shared/ui/label";
 import { Badge } from "@/shared/ui/badge";
 import { DataTable } from "@/shared/ui/data-table";
 import { type ColumnDef } from "@tanstack/react-table";
-import { Upload, RefreshCw } from "lucide-react";
+import { Upload, RefreshCw, RotateCcw } from "lucide-react";
 import toast from "react-hot-toast";
 import type { IngestRegistryItem } from "@/shared/api/types";
 
@@ -19,8 +19,10 @@ export function AdminIngestPage() {
   const [docsDir, setDocsDir] = useState("data/docs_sample");
   const [filePath, setFilePath] = useState("");
 
+  const [resetAll, setResetAll] = useState(false);
+
   const handleAll = async () => {
-    try { await allMut.mutateAsync({ docsDir, reset: false }); toast.success("Ingestion started"); } catch { toast.error("Failed"); }
+    try { await allMut.mutateAsync({ docsDir, reset: resetAll }); toast.success("Ingestion started" + (resetAll ? " (reset mode)" : "")); } catch { toast.error("Failed"); }
   };
 
   const handleFile = async () => {
@@ -50,6 +52,16 @@ export function AdminIngestPage() {
             <div className="flex-1"><Label>Directory Path</Label><Input value={docsDir} onChange={(e) => setDocsDir(e.target.value)} placeholder="data/docs_sample" /></div>
             <Button onClick={handleAll} disabled={allMut.isPending} className="mt-6"><Upload className="h-4 w-4 mr-2" />{allMut.isPending ? "Starting..." : "Ingest All"}</Button>
           </div>
+          <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={resetAll}
+              onChange={(e) => setResetAll(e.target.checked)}
+              className="h-4 w-4 rounded border-input accent-primary"
+            />
+            <RotateCcw className="h-3.5 w-3.5" />
+            Reset mode — re-index all files from scratch
+          </label>
         </CardContent>
       </Card>
 

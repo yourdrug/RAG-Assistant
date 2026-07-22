@@ -88,6 +88,12 @@ class DocumentResponse(BaseModel):
     chars: int | None = None
 
 
+class UploadStatusResponse(BaseModel):
+    status: str
+    document_id: int
+    filename: str
+
+
 # ---------------------------------------------------------------------------
 # Ingest
 # ---------------------------------------------------------------------------

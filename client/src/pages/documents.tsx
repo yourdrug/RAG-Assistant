@@ -1,7 +1,7 @@
 "use client";
 import { useState, useCallback } from "react";
 import { useDropzone } from "react-dropzone";
-import { useDocuments, useUploadDocument, useDeleteDocument } from "@/shared/api/hooks";
+import { useDocuments, useUploadDocument, useDeleteDocument, useGroups } from "@/shared/api/hooks";
 import { DataTable } from "@/shared/ui/data-table";
 import { Button } from "@/shared/ui/button";
 import { Badge } from "@/shared/ui/badge";
@@ -23,7 +23,9 @@ export function DocumentsPage() {
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const [files, setFiles] = useState<File[]>([]);
   const [vis, setVis] = useState<DocumentVisibility>("internal_private");
+  const [groupId, setGroupId] = useState<number | null>(null);
   const [progress, setProgress] = useState(0);
+  const { data: groups } = useGroups();
 
   const onDrop = useCallback((f: File[]) => { setFiles(f); setUploadOpen(true); }, []);
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -36,9 +38,20 @@ export function DocumentsPage() {
     setProgress(0);
     let done = 0;
     for (const f of files) {
-      try { await uploadMut.mutateAsync({ file: f, visibility: vis }); done++; setProgress(Math.round((done / files.length) * 100)); } catch { toast.error(`Failed: ${f.name}`); }
+      try {
+        await uploadMut.mutateAsync({ file: f, visibility: vis, groupId: vis === "internal_group" ? groupId : undefined });
+        done++;
+        setProgress(Math.round((done / files.length) * 100));
+      } catch {
+        toast.error(`Failed: ${f.name}`);
+      }
     }
-    setUploadOpen(false); setFiles([]); setProgress(0); toast.success(`${done} file(s) uploaded`);
+    setUploadOpen(false);
+    setFiles([]);
+    setProgress(0);
+    if (done > 0) {
+      toast.success(`${done} file(s) queued for processing`);
+    }
   };
 
   const handleDelete = async () => {
@@ -76,7 +89,7 @@ export function DocumentsPage() {
           <div className="space-y-4">
             <div className="space-y-2">
               <label className="text-sm font-medium">Visibility</label>
-              <Select value={vis} onValueChange={(v) => setVis(v as DocumentVisibility)}>
+              <Select value={vis} onValueChange={(v) => { setVis(v as DocumentVisibility); if (v !== "internal_group") setGroupId(null); }}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="internal_private">Private</SelectItem>
@@ -86,12 +99,25 @@ export function DocumentsPage() {
                 </SelectContent>
               </Select>
             </div>
+            {vis === "internal_group" && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Group</label>
+                <Select value={groupId != null ? String(groupId) : ""} onValueChange={(v) => setGroupId(Number(v))}>
+                  <SelectTrigger><SelectValue placeholder="Select a group" /></SelectTrigger>
+                  <SelectContent>
+                    {groups?.map((g) => (
+                      <SelectItem key={g.id} value={String(g.id)}>{g.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             {files.length > 0 && <div className="space-y-1">{files.map((f, i) => <div key={i} className="flex items-center justify-between text-sm"><span className="truncate">{f.name}</span><span className="text-muted-foreground">{(f.size / 1024).toFixed(1)} KB</span></div>)}</div>}
             {progress > 0 && <Progress value={progress} />}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setUploadOpen(false)}>Cancel</Button>
-            <Button onClick={handleUpload} disabled={uploadMut.isPending}>{uploadMut.isPending ? "Uploading..." : "Upload"}</Button>
+            <Button onClick={handleUpload} disabled={uploadMut.isPending || (vis === "internal_group" && groupId == null)}>{uploadMut.isPending ? "Uploading..." : "Upload"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

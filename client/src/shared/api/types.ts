@@ -83,6 +83,12 @@ export interface DocumentResponse {
   chars?: number | null;
 }
 
+export interface UploadStatusResponse {
+  status: string;
+  document_id: number;
+  filename: string;
+}
+
 // ─── Ingest ──────────────────────────────────────────────────────────────────
 
 export interface UploadResponse {

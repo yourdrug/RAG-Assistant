@@ -140,6 +140,7 @@ def create_document_service(db: Session) -> DocumentService:
             document_repo=repos["document_repo"],
             vector_store_repo=QdrantVectorStoreRepository(),
             file_storage=get_storage(),
+            group_repo=repos["group_repo"],
         ),
     )
 
@@ -150,10 +151,13 @@ def create_document_service(db: Session) -> DocumentService:
 
 
 def create_ingest_service() -> IngestAppService:
+    from infrastructure.database.engine import SessionLocal
     from infrastructure.registry import load_registry, save_registry
     from infrastructure.services.ingestion_service import IngestionService
 
-    ingestion = IngestionService()
+    db = SessionLocal()
+    doc_repo = SQLAlchemyDocumentRepository(db)
+    ingestion = IngestionService(document_repo=doc_repo)
 
     class PathResolver:
         def resolve_docs_dir(self, docs_dir: str) -> str:
@@ -199,9 +203,12 @@ def create_ingest_service() -> IngestAppService:
 
 
 def create_ingestion_service():
+    from infrastructure.database.engine import SessionLocal
     from infrastructure.services.ingestion_service import IngestionService
 
-    return IngestionService()
+    db = SessionLocal()
+    doc_repo = SQLAlchemyDocumentRepository(db)
+    return IngestionService(document_repo=doc_repo)
 
 
 # ---------------------------------------------------------------------------

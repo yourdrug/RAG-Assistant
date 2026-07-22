@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "../client";
 import { queryKeys } from "../query-keys";
-import type { DocumentResponse } from "../types";
+import type { DocumentResponse, UploadStatusResponse } from "../types";
 
 export function useDocuments() {
   return useQuery({
@@ -26,7 +26,7 @@ export function useUploadDocument() {
       fd.append("file", file);
       fd.append("visibility", visibility);
       if (groupId != null) fd.append("group_id", String(groupId));
-      return (await apiClient.post<DocumentResponse>("/documents", fd, {
+      return (await apiClient.post<UploadStatusResponse>("/documents", fd, {
         headers: { "Content-Type": "multipart/form-data" },
       })).data;
     },

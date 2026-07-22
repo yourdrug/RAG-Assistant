@@ -26,6 +26,9 @@ def _tag_internal_public(chunks: list[Document]) -> None:
 
 
 class IngestionService:
+    def __init__(self, document_repo=None) -> None:
+        self._document_repo = document_repo
+
     def run_full_ingestion(self, docs_dir: str, reset: bool = False, prefix: str | None = None) -> None:
         t_start = time.monotonic()
         data_dir = settings.data_dir
@@ -88,12 +91,41 @@ class IngestionService:
                 "indexed_at": datetime.now().isoformat(timespec="seconds"),
             }
         save_registry(data_dir, registry)
+        self._sync_documents_to_db(registry, source_chars, chunks)
 
         total_elapsed = time.monotonic() - t_start
         log.info("=" * 55)
         log.info("DONE  |  %d chunks  |  %.1fs total", len(chunks), total_elapsed)
         log.info("Registry: %d files", len(registry))
         log.info("=" * 55)
+
+    def _sync_documents_to_db(self, registry: dict, source_chars: dict, chunks: list) -> None:
+        if self._document_repo is None:
+            return
+        try:
+            for fname, info in registry.items():
+                src = info.get("source", "")
+                existing = self._document_repo.find_active_slot(None, fname, None)
+                if existing:
+                    file_chunks = sum(1 for c in chunks if c.metadata.get("source") == src)
+                    file_chars = source_chars.get(src, 0)
+                    self._document_repo.update_status(
+                        existing.id, "done", chunks=file_chunks, chars=file_chars
+                    )
+                else:
+                    from domain.entities.document import Document as DocEntity
+                    from domain.value_objects.visibility import DocumentVisibility
+
+                    doc = DocEntity(filename=fname, visibility=DocumentVisibility.INTERNAL_PUBLIC)
+                    saved = self._document_repo.save(doc)
+                    file_chunks = info.get("chunks", 0)
+                    file_chars = info.get("chars", 0)
+                    self._document_repo.update_status(saved.id, "done", chunks=file_chunks, chars=file_chars)
+            self._document_repo._db.commit()
+            log.info("Synced %d documents to database", len(registry))
+        except Exception as e:
+            self._document_repo._db.rollback()
+            log.warning("Failed to sync documents to database: %s", e)
 
     def run_single_file(self, file_path: str) -> None:
         t_start = time.monotonic()
@@ -114,7 +146,7 @@ class IngestionService:
             if file_info is None:
                 log.error("File not found in S3: %s", key)
                 return
-            if file_info.extension.lower() not in PARSERS:
+            if file_info.extension.lower() not in settings.supported_extensions:
                 log.error("Unsupported format: %s", file_info.extension)
                 return
 
@@ -140,6 +172,7 @@ class IngestionService:
                     "indexed_at": datetime.now().isoformat(timespec="seconds"),
                 }
                 save_registry(data_dir, registry)
+                self._sync_documents_to_db(registry, {f"s3://{settings.s3_bucket}/{key}": total_chars}, chunks)
             else:
                 log.warning("File '%s' already in registry.", file_info.filename)
         else:
@@ -147,7 +180,7 @@ class IngestionService:
             if not path.exists():
                 log.error("File not found: %s", file_path)
                 return
-            if path.suffix.lower() not in PARSERS:
+            if path.suffix.lower() not in settings.supported_extensions:
                 log.error("Unsupported format: %s", path.suffix)
                 return
 
@@ -176,6 +209,7 @@ class IngestionService:
                 "indexed_at": datetime.now().isoformat(timespec="seconds"),
             }
             save_registry(data_dir, registry)
+            self._sync_documents_to_db(registry, {str(path): total_chars}, chunks)
 
         log.info("=" * 55)
         log.info("DONE  |  %d chunks  |  %.1fs", len(chunks), time.monotonic() - t_start)

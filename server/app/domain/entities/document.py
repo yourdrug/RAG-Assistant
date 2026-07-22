@@ -44,6 +44,16 @@ class Document:
         self.status = DocumentStatus.FAILED
         self.error_message = error
 
-    def can_be_deleted_by(self, user_id: int, user_role: UserRole) -> bool:
-        is_owner = self.owner_id == user_id
-        return is_owner or user_role == UserRole.ADMIN
+    def can_be_deleted_by(self, user_id: int, user_role: UserRole, user_group_ids: list[int] | None = None) -> bool:
+        if user_role == UserRole.ADMIN:
+            return True
+        if self.owner_id == user_id:
+            return True
+        if (
+            self.visibility == DocumentVisibility.INTERNAL_GROUP
+            and self.group_id is not None
+            and user_group_ids is not None
+            and self.group_id in user_group_ids
+        ):
+            return True
+        return False
