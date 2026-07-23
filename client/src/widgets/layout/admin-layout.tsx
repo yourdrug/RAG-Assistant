@@ -3,10 +3,11 @@ import { useEffect, useState } from "react";
 import { Outlet, useNavigate, useLocation, Link } from "react-router-dom";
 import { useAuthStore } from "@/stores/auth-store";
 import { useCurrentUser } from "@/shared/api/hooks";
-import { adminNavItems } from "@/shared/config/nav";
+import { userNavItems, adminNavItems } from "@/shared/config/nav";
 import { Button } from "@/shared/ui/button";
 import { ScrollArea } from "@/shared/ui/scroll-area";
-import { ArrowLeft, Shield, Menu, X } from "lucide-react";
+import { Separator } from "@/shared/ui/separator";
+import { ArrowLeft, Shield, Menu, X, LogOut } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 
 export function AdminLayout() {
@@ -37,6 +38,22 @@ export function AdminLayout() {
         </div>
 
         <ScrollArea className="flex-1 px-3 py-4">
+          <nav className="space-y-1">
+            {userNavItems.map((item) => {
+              const Icon = item.icon;
+              const active = location.pathname === item.href || location.pathname.startsWith(item.href + "/");
+              return (
+                <Link key={item.href} to={item.href} onClick={() => setSidebarOpen(false)}
+                  className={cn("flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                    active ? "bg-sidebar-accent text-sidebar-accent-foreground" : "text-sidebar-foreground/70")}>
+                  <Icon className="h-4 w-4" />{item.title}
+                </Link>
+              );
+            })}
+          </nav>
+
+          <Separator className="my-4" />
+          <div className="mb-2 px-3 text-xs font-semibold uppercase text-sidebar-foreground/50">Admin</div>
           <nav className="space-y-1">
             {adminNavItems.map((item) => {
               const Icon = item.icon;

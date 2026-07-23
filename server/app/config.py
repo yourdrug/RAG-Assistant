@@ -62,6 +62,13 @@ class Settings(BaseSettings):
     chunk_size: int = 512
     chunk_overlap: int = 128
 
+    # --- Hybrid search (BM25 + dense RRF) ---
+    hybrid_enabled: bool = os.getenv("HYBRID_ENABLED", "true").lower() == "true"
+    bm25_fetch_k: int = 25  # сколько кандидатов из BM25 перед RRF
+    rrf_k: int = 60  # константа RRF (стандартное значение)
+    dense_weight: float = 1.0
+    sparse_weight: float = 1.0
+
     # --- Авторизация ---
     # ОБЯЗАТЕЛЬНО смени в проде — например: openssl rand -hex 32
     jwt_secret_key: str = os.getenv("JWT_SECRET_KEY", "change-me-in-production")

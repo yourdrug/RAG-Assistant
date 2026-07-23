@@ -5,6 +5,7 @@ No globals, no classes, no DI container.
 
 import functools
 import logging
+from pathlib import Path
 
 from config import settings
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -54,3 +55,15 @@ def get_reranker() -> CrossEncoder:
     )
     log.info("Reranker loaded")
     return reranker
+
+
+@functools.lru_cache(maxsize=1)
+def get_bm25_index():
+    """Lazy-load BM25 index from disk. Returns None if not found."""
+    from infrastructure.ml.hybrid import load_bm25_index
+
+    bm25_path = Path(settings.data_dir) / "bm25_index.json"
+    index = load_bm25_index(bm25_path)
+    if index is None:
+        log.info("No BM25 index found at %s — hybrid search disabled for this run", bm25_path)
+    return index

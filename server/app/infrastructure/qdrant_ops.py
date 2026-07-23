@@ -3,6 +3,7 @@ infrastructure/qdrant_ops.py — Qdrant collection operations.
 Extracted from vector_store.py. Pure functions receiving dependencies.
 """
 
+import hashlib
 import logging
 import time
 
@@ -14,6 +15,10 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams
 
 log = logging.getLogger("default")
+
+
+def _content_hash(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
 def ensure_collection(client: QdrantClient, vector_size: int, reset: bool = False) -> None:
@@ -46,6 +51,9 @@ def upload_to_qdrant(chunks: list[Document], embeddings: HuggingFaceEmbeddings) 
 
     for i in range(0, total, batch_size):
         batch = chunks[i : i + batch_size]
+        # Add content_hash to each document's metadata for hybrid search merge
+        for doc in batch:
+            doc.metadata["content_hash"] = _content_hash(doc.page_content)
         QdrantVectorStore.from_documents(
             documents=batch,
             embedding=embeddings,

@@ -177,7 +177,15 @@ def split_documents(docs: list[Document]) -> list[Document]:
 
 def _parse_docx(file_path: Path) -> str:
     doc = docx.Document(str(file_path))
-    return "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+    parts = [p.text for p in doc.paragraphs if p.text.strip()]
+
+    for table in doc.tables:
+        parts.append("")  # blank line before table
+        for row in table.rows:
+            cells = [cell.text.strip() for cell in row.cells]
+            parts.append(" | ".join(cells))
+
+    return "\n".join(parts)
 
 
 def _parse_rtf(file_path: Path) -> str:

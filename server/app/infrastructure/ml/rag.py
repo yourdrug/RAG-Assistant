@@ -11,6 +11,46 @@ from langchain_core.messages import AIMessage, HumanMessage
 log = logging.getLogger("default")
 
 # ---------------------------------------------------------------------------
+# Query condensation prompt
+# ---------------------------------------------------------------------------
+
+CONDENSE_SYSTEM = (
+    "Учитывая историю диалога, перепиши следующий вопрос так, чтобы он был "
+    "самодостаточным для поиска по документам. Сохрани смысл и язык вопроса. "
+    "Если вопрос уже самодостаточен — верни его без изменений. "
+    "Отвечай ТОЛЬКО переформулированным вопросом, без пояснений."
+)
+
+CONDENSE_PROMPT = ChatPromptTemplate.from_messages(
+    [
+        ("system", CONDENSE_SYSTEM),
+        MessagesPlaceholder(variable_name="history"),
+        ("human", "{question}"),
+    ]
+)
+
+
+async def condense_question(llm, question: str, history_messages: list) -> str:
+    """Rewrite a follow-up question into a self-contained query using history context.
+
+    If there is no history or only one turn, returns the original question unchanged.
+    """
+    if not history_messages:
+        return question
+
+    chain = CONDENSE_PROMPT | llm
+    result = await chain.ainvoke({"history": history_messages, "question": question})
+    condensed = result.content.strip()
+
+    if not condensed or len(condensed) < 3:
+        log.warning("Condensation returned empty/garbled output, using original question")
+        return question
+
+    log.info("Condensed query: %r -> %r", question, condensed)
+    return condensed
+
+
+# ---------------------------------------------------------------------------
 # Prompt
 # ---------------------------------------------------------------------------
 

@@ -15,6 +15,7 @@ from config import settings
 from domain.repositories.vector_store_repository import VectorStoreRepository
 from langchain.schema import Document
 
+from infrastructure.ml.hybrid import BM25Index, save_bm25_index
 from infrastructure.ml.ingestion import PARSERS, parse_pdf, split_documents
 from infrastructure.registry import file_hash, is_already_indexed, load_registry, save_registry
 from infrastructure.storage import FileItem, FileStorage
@@ -130,11 +131,25 @@ class IngestionService:
             log.info("Synced %d documents to database", len(registry))
 
     def _upload_chunks_to_vector_store(self, chunks: list) -> None:
-        """Convert LangChain Documents to domain Chunks and upload via repository."""
+        """Convert LangChain Documents to domain Chunks and upload via repository.
+
+        Also builds and persists the BM25 index for hybrid search.
+        """
         from domain.entities.chunk import Chunk
 
         domain_chunks = [Chunk(content=c.page_content, metadata=c.metadata) for c in chunks]
         self._vector_store.upload_documents(domain_chunks)
+
+        # Build and save BM25 index
+        if settings.hybrid_enabled:
+            texts = [c.page_content for c in chunks]
+            bm25_index = BM25Index(texts)
+            bm25_path = Path(settings.data_dir) / "bm25_index.json"
+            save_bm25_index(bm25_index, bm25_path)
+            # Clear the cached index so next query picks up the new one
+            from infrastructure.clients import get_bm25_index
+
+            get_bm25_index.cache_clear()
 
     def run_single_file(self, file_path: str) -> None:
         t_start = time.monotonic()
