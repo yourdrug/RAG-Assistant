@@ -6,17 +6,15 @@ import logging
 
 from config import settings
 from infrastructure.auth.password_hasher import BCryptPasswordHasher
-from infrastructure.database.engine import SessionLocal
-from infrastructure.repositories.sqlalchemy_user_repository import SQLAlchemyUserRepository
+from infrastructure.uow_factory import UnitOfWorkFactory
 
 logger = logging.getLogger("default")
 
 
 def bootstrap_admin() -> None:
-    db = SessionLocal()
-    try:
-        user_repo = SQLAlchemyUserRepository(db)
-        if user_repo.exists_admin():
+    factory = UnitOfWorkFactory()
+    with factory.create() as uow:
+        if uow.users.exists_admin():
             return
 
         if not settings.admin_email or not settings.admin_password:
@@ -36,11 +34,5 @@ def bootstrap_admin() -> None:
             role=UserRole.ADMIN,
             kind=UserKind.INTERNAL,
         )
-        user_repo.save(user)
-        db.commit()
+        uow.users.save(user)
         logger.info("Admin created: %s", settings.admin_email)
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()

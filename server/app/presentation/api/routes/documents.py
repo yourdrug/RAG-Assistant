@@ -6,109 +6,84 @@ import logging
 
 from application.services.document_processor import DocumentProcessor
 from application.services.document_service import DocumentService
-from application.uow import UnitOfWork
-from application.use_cases.document.delete_document import DeleteDocument
-from application.use_cases.document.get_document import GetDocument
-from application.use_cases.document.list_documents import ListDocuments
-from application.use_cases.document.upload_document import UploadDocument
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, UploadFile
 from infrastructure.auth.fastapi_dependencies import get_current_user
+from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
 from infrastructure.repositories.qdrant_vector_store_repository import QdrantVectorStoreRepository
 from infrastructure.storage import get_storage
+from infrastructure.uow_factory import UnitOfWorkFactory
 
-from presentation.api.dependencies import get_uow
 from presentation.api.schemas import DocumentResponse, UploadStatusResponse
 
 logger = logging.getLogger("default")
 
 router = APIRouter(tags=["documents"])
 
+_uow_factory = UnitOfWorkFactory()
+_vector_store_repo = QdrantVectorStoreRepository()
+_file_storage = get_storage()
+_document_parser = LangchainDocumentParser()
+_document_splitter = LangchainDocumentSplitter()
 
-def _document_service(uow: UnitOfWork) -> DocumentService:
-    return DocumentService(
-        upload_document=UploadDocument(
-            document_repo=uow.documents,
-            group_repo=uow.groups,
-            document_processor=DocumentProcessor(uow._session, uow.documents),
-            file_storage=get_storage(),
-        ),
-        list_documents=ListDocuments(
-            document_repo=uow.documents,
-            group_repo=uow.groups,
-            client_assignment_repo=uow.client_assignments,
-        ),
-        get_document=GetDocument(
-            document_repo=uow.documents,
-            group_repo=uow.groups,
-            client_assignment_repo=uow.client_assignments,
-        ),
-        delete_document=DeleteDocument(
-            document_repo=uow.documents,
-            vector_store_repo=QdrantVectorStoreRepository(),
-            file_storage=get_storage(),
-            group_repo=uow.groups,
-        ),
-    )
+_document_service = DocumentService(
+    uow_factory=_uow_factory,
+    vector_store_repo=_vector_store_repo,
+    file_storage=_file_storage,
+)
 
 
-def _process_upload_background(
+def _process_document_in_background(
     document_id: int,
+    storage_key: str,
     filename: str,
     visibility: str,
     owner_id: int | None,
     group_id: int | None,
     replace_id: int | None,
 ):
-    from infrastructure.database.engine import SessionLocal
-    from infrastructure.repositories.sqlalchemy_document_repository import SQLAlchemyDocumentRepository
+    """Run after the HTTP response is sent and the document record is committed.
 
-    db = SessionLocal()
-    try:
-        doc_repo = SQLAlchemyDocumentRepository(db)
-        processor = DocumentProcessor(db, doc_repo)
+    DocumentProcessor manages its own UoW internally — one transaction for the
+    entire processing pipeline (parse → embed → upload to vector store → update status).
+    """
+    processor = DocumentProcessor(
+        uow_factory=_uow_factory,
+        vector_store_repo=_vector_store_repo,
+        file_storage=_file_storage,
+        document_parser=_document_parser,
+        document_splitter=_document_splitter,
+    )
 
-        storage_key = f"uploads/public/{document_id}_{filename}"
-        logger.info("Background upload started: %s (doc %d)", filename, document_id)
-        processor.process(
-            document_id=document_id,
-            storage_key=storage_key,
-            original_filename=filename,
-            visibility=visibility,
-            owner_id=owner_id,
-            group_id=group_id,
-            replace_id=replace_id,
-        )
-        logger.info("Background upload completed: %s (doc %d)", filename, document_id)
-    except Exception as e:
-        logger.exception("Background upload failed: %s (doc %d)", filename, document_id)
-        try:
-            doc_repo = SQLAlchemyDocumentRepository(db)
-            doc_repo.update_status(document_id, "failed", error=str(e))
-        except Exception:
-            logger.exception("Failed to mark document as failed: %s", filename)
-    finally:
-        try:
-            db.commit()
-        except Exception:
-            db.rollback()
-        finally:
-            db.close()
+    logger.info("Background upload started: %s (doc %d)", filename, document_id)
+    processor.process(
+        document_id=document_id,
+        storage_key=storage_key,
+        original_filename=filename,
+        visibility=visibility,
+        owner_id=owner_id,
+        group_id=group_id,
+        replace_id=replace_id,
+    )
+    logger.info("Background upload completed: %s (doc %d)", filename, document_id)
 
 
 @router.post("/documents", response_model=UploadStatusResponse)
 async def upload_document(
     background_tasks: BackgroundTasks,
     current_user: dict = Depends(get_current_user),
-    uow: UnitOfWork = Depends(get_uow),
     file: UploadFile = File(...),
     visibility: str = Form(...),
     group_id: int | None = Form(None),
 ):
+    """Upload a document.
+
+    The UoW commits the document record to DB BEFORE the background task starts,
+    so the processor always sees a committed document in a fresh session.
+    """
     data = await file.read()
     filename = file.filename or "unnamed"
 
-    service = _document_service(uow)
-    result = await service.upload(
+    result = await _document_service.upload(
         filename=filename,
         file_data=data,
         visibility=visibility,
@@ -117,6 +92,16 @@ async def upload_document(
         user_kind=current_user["kind"],
         user_role=current_user["role"],
     )
+    background_tasks.add_task(
+        _process_document_in_background,
+        document_id=result.id,
+        storage_key=result.storage_key,
+        filename=filename,
+        visibility=visibility,
+        owner_id=result.owner_id,
+        group_id=group_id,
+        replace_id=result.replace_id,
+    )
 
     return UploadStatusResponse(status="processing", document_id=result.id, filename=filename)
 
@@ -124,28 +109,24 @@ async def upload_document(
 @router.get("/documents", response_model=list[DocumentResponse])
 async def list_documents(
     current_user: dict = Depends(get_current_user),
-    uow: UnitOfWork = Depends(get_uow),
 ):
-    service = _document_service(uow)
-    return service.list_documents(current_user["id"], current_user["kind"])
+    return _document_service.list_documents(current_user["id"], current_user["kind"])
 
 
 @router.get("/documents/{document_id}", response_model=DocumentResponse)
 async def get_document_status(
     document_id: int,
     current_user: dict = Depends(get_current_user),
-    uow: UnitOfWork = Depends(get_uow),
 ):
-    service = _document_service(uow)
-    return service.get_document(document_id, current_user["id"], current_user["kind"], current_user["role"])
+    return _document_service.get_document(
+        document_id, current_user["id"], current_user["kind"], current_user["role"]
+    )
 
 
 @router.delete("/documents/{document_id}")
 async def delete_document(
     document_id: int,
     current_user: dict = Depends(get_current_user),
-    uow: UnitOfWork = Depends(get_uow),
 ):
-    service = _document_service(uow)
-    service.delete_document(document_id, current_user["id"], current_user["role"])
+    _document_service.delete_document(document_id, current_user["id"], current_user["role"])
     return {"status": "deleted", "document_id": document_id}

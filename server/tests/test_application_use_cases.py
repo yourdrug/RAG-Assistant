@@ -967,13 +967,11 @@ class TestUploadDocument:
         doc_repo = _mock_document_repo(save=doc, get_by_id=doc, find_active_slot=None)
         group_repo = MagicMock()
         group_repo.get_user_group_ids.return_value = [5]
-        processor = MagicMock()
         storage = MagicMock()
         storage.supported_extensions = [".pdf", ".md", ".txt"]
         uc = UploadDocument(
             document_repo=doc_repo,
             group_repo=group_repo,
-            document_processor=processor,
             file_storage=storage,
         )
 
@@ -992,7 +990,8 @@ class TestUploadDocument:
         assert isinstance(result, DocumentDTO)
         doc_repo.save.assert_called_once()
         storage.upload_file.assert_called_once()
-        processor.process.assert_called_once()
+        assert result.storage_key is not None
+        assert result.replace_id is None
 
     @pytest.mark.asyncio
     async def test_upload_unsupported_extension_raises(self):
@@ -1001,13 +1000,11 @@ class TestUploadDocument:
         doc_repo = _mock_document_repo(save=doc, get_by_id=doc, find_active_slot=None)
         group_repo = MagicMock()
         group_repo.get_user_group_ids.return_value = []
-        processor = MagicMock()
         storage = MagicMock()
         storage.supported_extensions = [".pdf", ".md"]
         uc = UploadDocument(
             document_repo=doc_repo,
             group_repo=group_repo,
-            document_processor=processor,
             file_storage=storage,
         )
 
@@ -1031,18 +1028,16 @@ class TestUploadDocument:
         doc_repo = _mock_document_repo(save=new_doc, get_by_id=new_doc, find_active_slot=existing)
         group_repo = MagicMock()
         group_repo.get_user_group_ids.return_value = []
-        processor = MagicMock()
         storage = MagicMock()
         storage.supported_extensions = [".pdf"]
         uc = UploadDocument(
             document_repo=doc_repo,
             group_repo=group_repo,
-            document_processor=processor,
             file_storage=storage,
         )
 
         # Act
-        await uc.execute(
+        result = await uc.execute(
             filename="doc.pdf",
             file_data=b"data",
             visibility="internal_private",
@@ -1052,9 +1047,8 @@ class TestUploadDocument:
             user_role="user",
         )
 
-        # Assert
-        call_kwargs = processor.process.call_args.kwargs
-        assert call_kwargs["replace_id"] == 5
+        # Assert — replace_id is returned in DTO for the background task
+        assert result.replace_id == 5
 
     @pytest.mark.asyncio
     async def test_upload_processing_document_raises(self):
@@ -1063,12 +1057,10 @@ class TestUploadDocument:
         doc_repo = _mock_document_repo(find_active_slot=existing)
         group_repo = MagicMock()
         group_repo.get_user_group_ids.return_value = []
-        processor = MagicMock()
         storage = MagicMock()
         uc = UploadDocument(
             document_repo=doc_repo,
             group_repo=group_repo,
-            document_processor=processor,
             file_storage=storage,
         )
 
@@ -1089,12 +1081,10 @@ class TestUploadDocument:
         # Arrange
         doc_repo = _mock_document_repo()
         group_repo = MagicMock()
-        processor = MagicMock()
         storage = MagicMock()
         uc = UploadDocument(
             document_repo=doc_repo,
             group_repo=group_repo,
-            document_processor=processor,
             file_storage=storage,
         )
 

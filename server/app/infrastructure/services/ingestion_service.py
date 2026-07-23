@@ -1,4 +1,8 @@
-"""Ingestion Service — infrastructure implementation for document ingestion."""
+"""Ingestion Service — infrastructure implementation for document ingestion.
+
+Uses injected abstractions (VectorStoreRepository, FileStorage, UnitOfWorkFactory)
+instead of concrete infrastructure implementations.
+"""
 
 from __future__ import annotations
 
@@ -8,26 +12,32 @@ from datetime import datetime
 from pathlib import Path
 
 from config import settings
+from domain.repositories.vector_store_repository import VectorStoreRepository
 from langchain.schema import Document
-from qdrant_client import QdrantClient
 
-from infrastructure.clients import get_embeddings
 from infrastructure.ml.ingestion import PARSERS, parse_pdf, split_documents
-from infrastructure.qdrant_ops import ensure_collection, upload_to_qdrant
 from infrastructure.registry import file_hash, is_already_indexed, load_registry, save_registry
-from infrastructure.storage import FileItem, get_storage
+from infrastructure.storage import FileItem, FileStorage
+from infrastructure.uow_factory import UnitOfWorkFactory
 
 log = logging.getLogger("default")
 
 
-def _tag_internal_public(chunks: list[Document]) -> None:
+def _tag_internal_public(chunks: list) -> None:
     for c in chunks:
         c.metadata.update({"visibility": "internal_public", "owner_id": None, "group_id": None})
 
 
 class IngestionService:
-    def __init__(self, document_repo=None) -> None:
-        self._document_repo = document_repo
+    def __init__(
+        self,
+        vector_store_repo: VectorStoreRepository,
+        file_storage: FileStorage,
+        uow_factory: UnitOfWorkFactory | None = None,
+    ) -> None:
+        self._vector_store = vector_store_repo
+        self._file_storage = file_storage
+        self._uow_factory = uow_factory
 
     def run_full_ingestion(self, docs_dir: str, reset: bool = False, prefix: str | None = None) -> None:
         t_start = time.monotonic()
@@ -47,10 +57,8 @@ class IngestionService:
         if reset:
             registry = {}
 
-        embeddings = get_embeddings()
-        vector_size = len(embeddings.embed_query("test"))
-        qdrant_client = QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key)
-        ensure_collection(qdrant_client, vector_size, reset=reset)
+        vector_size = len(self._vector_store.generate_embeddings("test"))
+        self._vector_store.ensure_collection(vector_size, reset=reset)
 
         docs, cached = self._load_documents(docs_dir, registry, force=reset, prefix=prefix)
         if not docs:
@@ -62,7 +70,7 @@ class IngestionService:
 
         chunks = split_documents(docs)
         _tag_internal_public(chunks)
-        upload_to_qdrant(chunks, embeddings)
+        self._upload_chunks_to_vector_store(chunks)
 
         source_chars: dict[str, int] = {}
         for doc in docs:
@@ -74,7 +82,7 @@ class IngestionService:
                 file_info = None
                 if settings.file_backend == "s3":
                     key = "/".join(src.split("/")[3:])
-                    file_info = get_storage().get_file_info(key)
+                    file_info = self._file_storage.get_file_info(key)
                 if file_info:
                     h = f"{file_info.size_bytes}_{file_info.last_modified}"
                 else:
@@ -100,30 +108,33 @@ class IngestionService:
         log.info("=" * 55)
 
     def _sync_documents_to_db(self, registry: dict, source_chars: dict, chunks: list) -> None:
-        if self._document_repo is None:
+        if self._uow_factory is None:
             return
-        try:
+        with self._uow_factory.create() as uow:
             for fname, info in registry.items():
                 src = info.get("source", "")
-                existing = self._document_repo.find_active_slot(None, fname, None)
+                existing = uow.documents.find_active_slot(None, fname, None)
                 if existing:
                     file_chunks = sum(1 for c in chunks if c.metadata.get("source") == src)
                     file_chars = source_chars.get(src, 0)
-                    self._document_repo.update_status(
-                        existing.id, "done", chunks=file_chunks, chars=file_chars
-                    )
+                    uow.documents.update_status(existing.id, "done", chunks=file_chunks, chars=file_chars)
                 else:
                     from domain.entities.document import Document as DocEntity
                     from domain.value_objects.visibility import DocumentVisibility
 
                     doc = DocEntity(filename=fname, visibility=DocumentVisibility.INTERNAL_PUBLIC)
-                    saved = self._document_repo.save(doc)
+                    saved = uow.documents.save(doc)
                     file_chunks = info.get("chunks", 0)
                     file_chars = info.get("chars", 0)
-                    self._document_repo.update_status(saved.id, "done", chunks=file_chunks, chars=file_chars)
+                    uow.documents.update_status(saved.id, "done", chunks=file_chunks, chars=file_chars)
             log.info("Synced %d documents to database", len(registry))
-        except Exception as e:
-            log.warning("Failed to sync documents to database: %s", e)
+
+    def _upload_chunks_to_vector_store(self, chunks: list) -> None:
+        """Convert LangChain Documents to domain Chunks and upload via repository."""
+        from domain.entities.chunk import Chunk
+
+        domain_chunks = [Chunk(content=c.page_content, metadata=c.metadata) for c in chunks]
+        self._vector_store.upload_documents(domain_chunks)
 
     def run_single_file(self, file_path: str) -> None:
         t_start = time.monotonic()
@@ -136,11 +147,10 @@ class IngestionService:
         log.info("=" * 55)
 
         registry = load_registry(data_dir)
-        storage = get_storage()
 
         if settings.file_backend == "s3":
             key = file_path
-            file_info = storage.get_file_info(key)
+            file_info = self._file_storage.get_file_info(key)
             if file_info is None:
                 log.error("File not found in S3: %s", key)
                 return
@@ -149,7 +159,7 @@ class IngestionService:
                 return
 
             if not is_already_indexed(file_info, registry):
-                temp_path = storage.download_to_temp(key)
+                temp_path = self._file_storage.download_to_temp(key)
                 try:
                     docs = self._parse_file(file_info, temp_path)
                 finally:
@@ -215,24 +225,21 @@ class IngestionService:
         log.info("DONE  |  %d chunks  |  %.1fs", len(chunks), time.monotonic() - t_start)
         log.info("=" * 55)
 
-    def _index_docs(self, docs: list[Document]) -> list[Document]:
-        embeddings = get_embeddings()
-        vector_size = len(embeddings.embed_query("test"))
-        client = QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key)
-        ensure_collection(client, vector_size, reset=False)
+    def _index_docs(self, docs: list) -> list:
+        vector_size = len(self._vector_store.generate_embeddings("test"))
+        self._vector_store.ensure_collection(vector_size, reset=False)
 
         chunks = split_documents(docs)
         _tag_internal_public(chunks)
-        upload_to_qdrant(chunks, embeddings)
+        self._upload_chunks_to_vector_store(chunks)
         return chunks
 
     def upload_files(self, files, prefix: str = "docs/") -> list[str]:
-        storage = get_storage()
         uploaded: list[str] = []
         for f in files:
             key = prefix + f.filename
             data = f.data
-            storage.upload_file(key, data)
+            self._file_storage.upload_file(key, data)
             uploaded.append(key)
             log.info("Uploaded: %s (%d bytes)", key, len(data))
         return uploaded
@@ -275,7 +282,7 @@ class IngestionService:
         resolved = self._resolve_within_data_dir(docs_dir, base)
         return str(resolved)
 
-    def _parse_file(self, source, temp_path: Path | None = None) -> list[Document] | None:
+    def _parse_file(self, source, temp_path: Path | None = None):
         if isinstance(source, FileItem):
             path = temp_path or Path(source.filename)
             ext = source.extension
@@ -337,12 +344,10 @@ class IngestionService:
         registry: dict,
         force: bool = False,
         prefix: str | None = None,
-    ) -> tuple[list[Document], int]:
-        storage = get_storage()
-
+    ) -> tuple[list, int]:
         if settings.file_backend == "s3":
             s3_prefix = prefix or "docs/"
-            items = storage.list_files(s3_prefix)
+            items = self._file_storage.list_files(s3_prefix)
             log.info("Found %d files in s3://%s/%s", len(items), settings.s3_bucket, s3_prefix)
         else:
             docs_path = Path(docs_dir)
@@ -371,7 +376,7 @@ class IngestionService:
                 log.info("%s PARSE   %s  (%.1f KB)", tag, file_item.filename, size_kb)
                 t0 = time.monotonic()
 
-                temp_path = storage.download_to_temp(file_item.key)
+                temp_path = self._file_storage.download_to_temp(file_item.key)
                 try:
                     docs = self._parse_file(file_item, temp_path)
                 finally:

@@ -22,6 +22,11 @@ class BaseUnitOfWork(ABC):
     def __init__(self, session: SessionProtocol) -> None:
         self._session = session
 
+    @property
+    def session(self) -> SessionProtocol:
+        """Public access to the underlying DB session."""
+        return self._session
+
     @abstractmethod
     def __enter__(self) -> BaseUnitOfWork:
         return self

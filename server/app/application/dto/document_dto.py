@@ -14,6 +14,10 @@ class DocumentDTO:
     error_message: str | None = None
     chunks: int | None = None
     chars: int | None = None
+    storage_key: str | None = None
+    replace_id: int | None = None
+    owner_id: int | None = None
+    group_id: int | None = None
 
 
 @dataclass(frozen=True)

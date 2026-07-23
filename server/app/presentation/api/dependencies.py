@@ -1,7 +1,6 @@
 """Composition Root — Dependency Injection Container.
 
-Wires all use cases, repositories, and services together.
-Every dependency flows inward: presentation → application → domain.
+Wires all services together. Every dependency flows inward: presentation → application → domain.
 """
 
 from __future__ import annotations
@@ -11,106 +10,63 @@ from collections.abc import Generator
 
 from application.services.ingest_service import IngestAppService
 from application.uow import UnitOfWork
-from application.use_cases.ingest.get_registry import GetIngestRegistry
-from application.use_cases.ingest.ingest_single_file import IngestSingleFile
-from application.use_cases.ingest.run_ingestion import RunIngestion
 from config import settings
-from infrastructure.repositories.sqlalchemy_document_repository import SQLAlchemyDocumentRepository
+from infrastructure.repositories.qdrant_vector_store_repository import QdrantVectorStoreRepository
 from infrastructure.services.benchmark_service import BenchmarkService
+from infrastructure.services.ingestion_service import IngestionService
+from infrastructure.storage import get_storage
 from infrastructure.uow_factory import UnitOfWorkFactory
 
 log = logging.getLogger("default")
 
 
 # ---------------------------------------------------------------------------
+# Shared infrastructure instances (singletons)
+# ---------------------------------------------------------------------------
+
+_vector_store_repo = QdrantVectorStoreRepository()
+_file_storage = get_storage()
+_uow_factory = UnitOfWorkFactory()
+
+_ingestion_service = IngestionService(
+    vector_store_repo=_vector_store_repo,
+    file_storage=_file_storage,
+    uow_factory=_uow_factory,
+)
+
+
+# ---------------------------------------------------------------------------
 # Unit of Work
 # ---------------------------------------------------------------------------
 
-_uow_factory = UnitOfWorkFactory()
-
 
 def get_uow() -> Generator[UnitOfWork, None, None]:
-    """FastAPI dependency — yields a Unit of Work with transaction boundary.
-
-    Usage in routes:
-        def my_route(uow: UnitOfWork = Depends(get_uow)):
-            user = uow.users.get_by_id(1)
-            # Transaction auto-commits on clean exit
-    """
+    """FastAPI dependency — yields a Unit of Work with transaction boundary."""
     with _uow_factory.create() as uow:
         yield uow
 
 
+def get_uow_factory() -> UnitOfWorkFactory:
+    """Return the shared UnitOfWorkFactory for background tasks."""
+    return _uow_factory
+
+
 # ---------------------------------------------------------------------------
-# Ingest Service
+# Application Services
 # ---------------------------------------------------------------------------
-
-
-def _create_ingest_service_with_session(db):
-    from infrastructure.registry import load_registry, save_registry
-    from infrastructure.services.ingestion_service import IngestionService
-
-    doc_repo = SQLAlchemyDocumentRepository(db)
-    ingestion = IngestionService(document_repo=doc_repo)
-
-    class PathResolver:
-        def resolve_docs_dir(self, docs_dir: str) -> str:
-            return ingestion.resolve_docs_dir(docs_dir)
-
-        def resolve_ingest_target(self, file_path: str) -> str:
-            return ingestion.resolve_ingest_target(file_path)
-
-        def force_reindex(self, filename: str) -> None:
-            ingestion.force_reindex(filename)
-
-    class RegistryAdapter:
-        def load(self) -> dict:
-            return load_registry(settings.data_dir)
-
-        def save(self, registry: dict) -> None:
-            save_registry(settings.data_dir, registry)
-
-    class IngestionAdapter:
-        def run_full_ingestion(self, docs_dir: str, reset: bool = False, prefix: str | None = None) -> None:
-            ingestion.run_full_ingestion(docs_dir, reset=reset, prefix=prefix)
-
-        def run_single_file(self, file_path: str) -> None:
-            ingestion.run_single_file(file_path)
-
-    return IngestAppService(
-        run_ingestion=RunIngestion(
-            registry_repo=RegistryAdapter(),
-            ingestion_service=IngestionAdapter(),
-        ),
-        ingest_single_file=IngestSingleFile(
-            registry_repo=RegistryAdapter(),
-            ingestion_service=IngestionAdapter(),
-        ),
-        get_registry=GetIngestRegistry(registry_repo=RegistryAdapter()),
-        path_resolver=PathResolver(),
-    )
 
 
 def create_ingest_service() -> IngestAppService:
-    """Create ingest service with a managed session lifecycle.
-
-    The session is created here and passed to the service.
-    The service should NOT close the session — that's the caller's responsibility.
-    """
-    from infrastructure.database.engine import SessionLocal
-
-    db = SessionLocal()
-    return _create_ingest_service_with_session(db)
+    """Create ingest application service."""
+    return IngestAppService(
+        uow_factory=_uow_factory,
+        ingestion_service=_ingestion_service,
+    )
 
 
-def create_ingestion_service():
-    """Create ingestion service with a managed session lifecycle."""
-    from infrastructure.database.engine import SessionLocal
-    from infrastructure.services.ingestion_service import IngestionService
-
-    db = SessionLocal()
-    doc_repo = SQLAlchemyDocumentRepository(db)
-    return IngestionService(document_repo=doc_repo)
+def create_ingestion_service() -> IngestionService:
+    """Create ingestion infrastructure service."""
+    return _ingestion_service
 
 
 # ---------------------------------------------------------------------------

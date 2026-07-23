@@ -16,10 +16,15 @@ from infrastructure.services.ingestion_service import IngestionService  # noqa: 
 
 @pytest.fixture
 def service(tmp_path, monkeypatch):
+    from unittest.mock import MagicMock
+
     monkeypatch.setattr(settings, "data_dir", str(tmp_path))
     monkeypatch.setattr(settings, "file_backend", "local")
     (tmp_path / "docs_sample").mkdir()
-    return IngestionService()
+    return IngestionService(
+        vector_store_repo=MagicMock(),
+        file_storage=MagicMock(),
+    )
 
 
 def test_relative_docs_dir_inside_data_dir_resolves(service, tmp_path):

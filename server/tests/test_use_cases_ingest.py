@@ -5,7 +5,7 @@ All dependencies are mocked.
 
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
@@ -140,19 +140,15 @@ class TestGetIngestRegistry:
 
 class TestIngestAppService:
     def setup_method(self):
-        self.run_ingestion = MagicMock()
-        self.ingest_single_file = MagicMock()
-        self.get_registry = MagicMock()
-        self.path_resolver = MagicMock()
+        self.uow_factory = MagicMock()
+        self.ingestion = MagicMock()
         self.service = IngestAppService(
-            self.run_ingestion,
-            self.ingest_single_file,
-            self.get_registry,
-            self.path_resolver,
+            uow_factory=self.uow_factory,
+            ingestion_service=self.ingestion,
         )
 
     def test_run_full_default_mode(self):
-        self.path_resolver.resolve_docs_dir.return_value = "/resolved/docs"
+        self.ingestion.resolve_docs_dir.return_value = "/resolved/docs"
 
         result = self.service.run_full(docs_dir="docs_sample")
 
@@ -161,14 +157,14 @@ class TestIngestAppService:
         assert result.docs_dir == "/resolved/docs"
 
     def test_run_full_reset_mode(self):
-        self.path_resolver.resolve_docs_dir.return_value = "/resolved/docs"
+        self.ingestion.resolve_docs_dir.return_value = "/resolved/docs"
 
         result = self.service.run_full(docs_dir="docs_sample", reset=True)
 
         assert result.mode == "RESET + full reindex"
 
     def test_run_single(self):
-        self.path_resolver.resolve_ingest_target.return_value = "/resolved/doc.pdf"
+        self.ingestion.resolve_ingest_target.return_value = "/resolved/doc.pdf"
 
         result = self.service.run_single(file_path="doc.pdf")
 
@@ -177,30 +173,35 @@ class TestIngestAppService:
         assert result.force is False
 
     def test_run_single_with_force(self):
-        self.path_resolver.resolve_ingest_target.return_value = "/resolved/doc.pdf"
+        self.ingestion.resolve_ingest_target.return_value = "/resolved/doc.pdf"
 
         result = self.service.run_single(file_path="doc.pdf", force=True)
 
         assert result.force is True
 
     def test_get_registry(self):
-        expected = MagicMock()
-        self.get_registry.execute.return_value = expected
+        from application.dto.ingest_dto import IngestRegistryResult
 
-        result = self.service.get_registry()
+        expected = IngestRegistryResult(total_files=1, total_chunks=5, files=[])
+        self.ingestion.get_registry.return_value = {
+            "doc.pdf": {"chunks": 5, "chars": 100, "indexed_at": "2024-01-01", "source": "s3://b/doc.pdf"}
+        }
 
-        assert result == expected
+        with patch("application.services.ingest_service.IngestRegistryResult", return_value=expected):
+            result = self.service.get_registry()
+
+        assert result.total_files == 1
 
     def test_resolve_docs_dir(self):
-        self.path_resolver.resolve_docs_dir.return_value = "/resolved"
+        self.ingestion.resolve_docs_dir.return_value = "/resolved"
 
         result = self.service.resolve_docs_dir("docs")
 
         assert result == "/resolved"
-        self.path_resolver.resolve_docs_dir.assert_called_once_with("docs")
+        self.ingestion.resolve_docs_dir.assert_called_once_with("docs")
 
     def test_resolve_ingest_target(self):
-        self.path_resolver.resolve_ingest_target.return_value = "/resolved/file.pdf"
+        self.ingestion.resolve_ingest_target.return_value = "/resolved/file.pdf"
 
         result = self.service.resolve_ingest_target("file.pdf")
 
@@ -209,4 +210,4 @@ class TestIngestAppService:
     def test_force_reindex(self):
         self.service.force_reindex("doc.pdf")
 
-        self.path_resolver.force_reindex.assert_called_once_with("doc.pdf")
+        self.ingestion.force_reindex.assert_called_once_with("doc.pdf")

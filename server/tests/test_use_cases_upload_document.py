@@ -24,7 +24,6 @@ from domain.value_objects.visibility import DocumentVisibility
 def _mock_repos(existing_doc=None):
     doc_repo = MagicMock()
     group_repo = MagicMock()
-    document_processor = MagicMock()
     file_storage = MagicMock()
     file_storage.supported_extensions = [".pdf", ".docx", ".txt"]
 
@@ -43,7 +42,7 @@ def _mock_repos(existing_doc=None):
     doc_repo.save.return_value = saved_doc
     doc_repo.get_by_id.return_value = saved_doc
 
-    return doc_repo, group_repo, document_processor, file_storage
+    return doc_repo, group_repo, file_storage
 
 
 # ---------------------------------------------------------------------------
@@ -54,10 +53,10 @@ def _mock_repos(existing_doc=None):
 class TestUploadDocument:
     @pytest.mark.asyncio
     async def test_successful_upload(self):
-        doc_repo, group_repo, processor, storage = _mock_repos()
+        doc_repo, group_repo, storage = _mock_repos()
         group_repo.get_user_group_ids.return_value = [10]
 
-        use_case = UploadDocument(doc_repo, group_repo, processor, storage)
+        use_case = UploadDocument(doc_repo, group_repo, storage)
 
         result = await use_case.execute(
             filename="report.pdf",
@@ -72,15 +71,16 @@ class TestUploadDocument:
         assert result.id == 42
         doc_repo.save.assert_called_once()
         storage.upload_file.assert_called_once()
-        processor.process.assert_called_once()
+        assert result.storage_key is not None
+        assert result.replace_id is None
 
     @pytest.mark.asyncio
     async def test_unsupported_extension_raises(self):
-        doc_repo, group_repo, processor, storage = _mock_repos()
+        doc_repo, group_repo, storage = _mock_repos()
         group_repo.get_user_group_ids.return_value = []
         storage.supported_extensions = [".pdf"]
 
-        use_case = UploadDocument(doc_repo, group_repo, processor, storage)
+        use_case = UploadDocument(doc_repo, group_repo, storage)
 
         with pytest.raises(ValidationError) as exc_info:
             await use_case.execute(
@@ -103,12 +103,12 @@ class TestUploadDocument:
             visibility=DocumentVisibility.INTERNAL_PRIVATE,
             owner_id=1,
         )
-        doc_repo, group_repo, processor, storage = _mock_repos(existing_doc=existing)
+        doc_repo, group_repo, storage = _mock_repos(existing_doc=existing)
         group_repo.get_user_group_ids.return_value = []
 
-        use_case = UploadDocument(doc_repo, group_repo, processor, storage)
+        use_case = UploadDocument(doc_repo, group_repo, storage)
 
-        await use_case.execute(
+        result = await use_case.execute(
             filename="doc.pdf",
             file_data=b"new content",
             visibility="internal_private",
@@ -118,9 +118,8 @@ class TestUploadDocument:
             user_role="user",
         )
 
-        # Should pass replace_id to processor
-        call_kwargs = processor.process.call_args.kwargs
-        assert call_kwargs["replace_id"] == 10
+        # replace_id is returned in the DTO for the background task
+        assert result.replace_id == 10
 
     @pytest.mark.asyncio
     async def test_rejects_document_being_processed(self):
@@ -131,10 +130,10 @@ class TestUploadDocument:
             visibility=DocumentVisibility.INTERNAL_PRIVATE,
             owner_id=1,
         )
-        doc_repo, group_repo, processor, storage = _mock_repos(existing_doc=existing)
+        doc_repo, group_repo, storage = _mock_repos(existing_doc=existing)
         group_repo.get_user_group_ids.return_value = []
 
-        use_case = UploadDocument(doc_repo, group_repo, processor, storage)
+        use_case = UploadDocument(doc_repo, group_repo, storage)
 
         with pytest.raises(BusinessRuleViolation) as exc_info:
             await use_case.execute(
@@ -157,10 +156,10 @@ class TestUploadDocument:
             visibility=DocumentVisibility.INTERNAL_PRIVATE,
             owner_id=1,
         )
-        doc_repo, group_repo, processor, storage = _mock_repos(existing_doc=existing)
+        doc_repo, group_repo, storage = _mock_repos(existing_doc=existing)
         group_repo.get_user_group_ids.return_value = []
 
-        use_case = UploadDocument(doc_repo, group_repo, processor, storage)
+        use_case = UploadDocument(doc_repo, group_repo, storage)
 
         with pytest.raises(BusinessRuleViolation):
             await use_case.execute(
@@ -175,10 +174,10 @@ class TestUploadDocument:
 
     @pytest.mark.asyncio
     async def test_storage_key_for_owner(self):
-        doc_repo, group_repo, processor, storage = _mock_repos()
+        doc_repo, group_repo, storage = _mock_repos()
         group_repo.get_user_group_ids.return_value = []
 
-        use_case = UploadDocument(doc_repo, group_repo, processor, storage)
+        use_case = UploadDocument(doc_repo, group_repo, storage)
 
         await use_case.execute(
             filename="report.pdf",
@@ -196,10 +195,10 @@ class TestUploadDocument:
 
     @pytest.mark.asyncio
     async def test_storage_key_for_public(self):
-        doc_repo, group_repo, processor, storage = _mock_repos()
+        doc_repo, group_repo, storage = _mock_repos()
         group_repo.get_user_group_ids.return_value = []
 
-        use_case = UploadDocument(doc_repo, group_repo, processor, storage)
+        use_case = UploadDocument(doc_repo, group_repo, storage)
 
         await use_case.execute(
             filename="report.pdf",
@@ -217,10 +216,10 @@ class TestUploadDocument:
 
     @pytest.mark.asyncio
     async def test_storage_key_for_group(self):
-        doc_repo, group_repo, processor, storage = _mock_repos()
+        doc_repo, group_repo, storage = _mock_repos()
         group_repo.get_user_group_ids.return_value = [10]
 
-        use_case = UploadDocument(doc_repo, group_repo, processor, storage)
+        use_case = UploadDocument(doc_repo, group_repo, storage)
 
         await use_case.execute(
             filename="report.pdf",
@@ -238,10 +237,10 @@ class TestUploadDocument:
 
     @pytest.mark.asyncio
     async def test_client_user_upload(self):
-        doc_repo, group_repo, processor, storage = _mock_repos()
+        doc_repo, group_repo, storage = _mock_repos()
         group_repo.get_user_group_ids.return_value = []
 
-        use_case = UploadDocument(doc_repo, group_repo, processor, storage)
+        use_case = UploadDocument(doc_repo, group_repo, storage)
 
         result = await use_case.execute(
             filename="client_doc.pdf",
@@ -257,9 +256,9 @@ class TestUploadDocument:
 
     @pytest.mark.asyncio
     async def test_invalid_visibility_raises(self):
-        doc_repo, group_repo, processor, storage = _mock_repos()
+        doc_repo, group_repo, storage = _mock_repos()
 
-        use_case = UploadDocument(doc_repo, group_repo, processor, storage)
+        use_case = UploadDocument(doc_repo, group_repo, storage)
 
         with pytest.raises(ValidationError):
             await use_case.execute(
@@ -274,12 +273,12 @@ class TestUploadDocument:
 
     @pytest.mark.asyncio
     async def test_no_existing_slot_sets_replace_id_none(self):
-        doc_repo, group_repo, processor, storage = _mock_repos(existing_doc=None)
+        doc_repo, group_repo, storage = _mock_repos(existing_doc=None)
         group_repo.get_user_group_ids.return_value = []
 
-        use_case = UploadDocument(doc_repo, group_repo, processor, storage)
+        use_case = UploadDocument(doc_repo, group_repo, storage)
 
-        await use_case.execute(
+        result = await use_case.execute(
             filename="new.pdf",
             file_data=b"data",
             visibility="internal_private",
@@ -289,8 +288,7 @@ class TestUploadDocument:
             user_role="user",
         )
 
-        call_kwargs = processor.process.call_args.kwargs
-        assert call_kwargs["replace_id"] is None
+        assert result.replace_id is None
 
     @pytest.mark.asyncio
     async def test_failed_existing_allows_reupload(self):
@@ -301,13 +299,13 @@ class TestUploadDocument:
             visibility=DocumentVisibility.INTERNAL_PRIVATE,
             owner_id=1,
         )
-        doc_repo, group_repo, processor, storage = _mock_repos(existing_doc=existing)
+        doc_repo, group_repo, storage = _mock_repos(existing_doc=existing)
         group_repo.get_user_group_ids.return_value = []
 
-        use_case = UploadDocument(doc_repo, group_repo, processor, storage)
+        use_case = UploadDocument(doc_repo, group_repo, storage)
 
         # Should not raise — failed documents can be re-uploaded
-        await use_case.execute(
+        result = await use_case.execute(
             filename="doc.pdf",
             file_data=b"data",
             visibility="internal_private",
@@ -317,8 +315,7 @@ class TestUploadDocument:
             user_role="user",
         )
 
-        call_kwargs = processor.process.call_args.kwargs
-        assert call_kwargs["replace_id"] is None  # Failed doc doesn't get replaced
+        assert result.replace_id is None  # Failed doc doesn't get replaced
 
 
 # ---------------------------------------------------------------------------

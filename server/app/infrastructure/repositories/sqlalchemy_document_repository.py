@@ -87,28 +87,38 @@ class SQLAlchemyDocumentRepository:
         group_ids: list[int],
         assigned_client_ids: list[int],
     ) -> list[Document]:
+        """List documents visible to this user.
+
+        SQL conditions are derived from domain.services.access_control.can_view_document().
+        Visibility string values come from the domain enum to stay in sync.
+        """
+        params: dict = {"user_id": user_id}
+
         if user_kind == "client":
             rows = self._db.execute(
                 text("""
                     SELECT * FROM documents
-                    WHERE visibility = 'client_private'
+                    WHERE visibility = :vis
                       AND owner_id = :user_id
                     ORDER BY created_at DESC
                 """),
-                {"user_id": user_id},
+                {"vis": DocumentVisibility.CLIENT_PRIVATE, "user_id": user_id},
             ).fetchall()
         else:
-            conditions = ["visibility = 'internal_public'"]
-            params: dict = {"user_id": user_id}
+            conditions = ["visibility = :vis_public"]
+            params["vis_public"] = DocumentVisibility.INTERNAL_PUBLIC
 
             if group_ids:
-                conditions.append("(visibility = 'internal_group' AND group_id = ANY(:group_ids))")
+                conditions.append("(visibility = :vis_group AND group_id = ANY(:group_ids))")
+                params["vis_group"] = DocumentVisibility.INTERNAL_GROUP
                 params["group_ids"] = group_ids
 
-            conditions.append("(visibility = 'internal_private' AND owner_id = :user_id)")
+            conditions.append("(visibility = :vis_private AND owner_id = :user_id)")
+            params["vis_private"] = DocumentVisibility.INTERNAL_PRIVATE
 
             if assigned_client_ids:
-                conditions.append("(visibility = 'client_private' AND owner_id = ANY(:assigned_client_ids))")
+                conditions.append("(visibility = :vis_client AND owner_id = ANY(:assigned_client_ids))")
+                params["vis_client"] = DocumentVisibility.CLIENT_PRIVATE
                 params["assigned_client_ids"] = assigned_client_ids
 
             where_clause = " OR ".join(conditions)

@@ -1,6 +1,6 @@
 """
 Tests for application/services/auth_service.py — authentication, user creation, toggle.
-Tests the application service with mocked use cases.
+Tests the application service with mocked UoW factory.
 """
 
 import sys
@@ -10,10 +10,11 @@ from unittest.mock import MagicMock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 import pytest  # noqa: E402
-from application.dto.auth_dto import CreateUserCommand, LoginCommand, LoginResult, UserDTO  # noqa: E402
+from application.dto.auth_dto import CreateUserCommand, LoginCommand  # noqa: E402
 from application.services.auth_service import AuthService  # noqa: E402
+from domain.entities.user import User  # noqa: E402
 from domain.exceptions import BusinessRuleViolation, ValidationError  # noqa: E402
-from fastapi import HTTPException  # noqa: E402
+from domain.value_objects.roles import UserKind, UserRole  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -22,16 +23,23 @@ from fastapi import HTTPException  # noqa: E402
 
 @pytest.fixture
 def auth_service():
-    authenticate_user = MagicMock()
-    create_user = MagicMock()
-    list_users = MagicMock()
-    toggle_user_active = MagicMock()
+    hasher = MagicMock()
+    hasher.hash.return_value = "hashed_pw"
+    hasher.verify.return_value = True
+
+    token_provider = MagicMock()
+    token_provider.create_token.return_value = "token123"
+
+    uow_factory = MagicMock()
+    uow = MagicMock()
+    uow_factory.create.return_value.__enter__ = MagicMock(return_value=uow)
+    uow_factory.create.return_value.__exit__ = MagicMock(return_value=False)
+
     return AuthService(
-        authenticate_user=authenticate_user,
-        create_user=create_user,
-        list_users=list_users,
-        toggle_user_active=toggle_user_active,
-    )
+        uow_factory=uow_factory,
+        password_hasher=hasher,
+        token_provider=token_provider,
+    ), uow
 
 
 # ---------------------------------------------------------------------------
@@ -41,17 +49,26 @@ def auth_service():
 
 class TestAuthenticate:
     def test_successful_authentication(self, auth_service):
-        expected = LoginResult(access_token="token123", role="user", kind="internal")
-        auth_service._authenticate_user.execute.return_value = expected
-        result = auth_service.authenticate(LoginCommand(email="test@test.com", password="password"))
+        service, uow = auth_service
+        user = User(id=1, email="test@test.com", role=UserRole.USER, kind=UserKind.INTERNAL)
+        user.hashed_password = "hashed_pw"
+        user.is_active = True
+        uow.users.get_by_email.return_value = user
+
+        result = service.authenticate(LoginCommand(email="test@test.com", password="password"))
         assert result.access_token == "token123"
         assert result.role == "user"
 
     def test_wrong_password_raises(self, auth_service):
-        auth_service._authenticate_user.execute.side_effect = HTTPException(401, "Invalid credentials")
-        with pytest.raises(HTTPException) as exc_info:
-            auth_service.authenticate(LoginCommand(email="test@test.com", password="wrong"))
-        assert exc_info.value.status_code == 401
+        service, uow = auth_service
+        user = User(id=1, email="test@test.com", role=UserRole.USER, kind=UserKind.INTERNAL)
+        user.hashed_password = "hashed_pw"
+        user.is_active = True
+        uow.users.get_by_email.return_value = user
+        service._hasher.verify.return_value = False
+
+        with pytest.raises(ValidationError):
+            service.authenticate(LoginCommand(email="test@test.com", password="wrong"))
 
 
 # ---------------------------------------------------------------------------
@@ -61,17 +78,20 @@ class TestAuthenticate:
 
 class TestCreateUser:
     def test_successful_creation(self, auth_service):
-        expected = UserDTO(id=1, email="new@test.com", role="user", kind="internal", is_active=True)
-        auth_service._create_user.execute.return_value = expected
-        result = auth_service.create_user(
+        service, uow = auth_service
+        uow.users.get_by_email.return_value = None
+        saved = User(id=1, email="new@test.com", role=UserRole.USER, kind=UserKind.INTERNAL)
+        uow.users.save.return_value = saved
+
+        result = service.create_user(
             CreateUserCommand(email="new@test.com", password="pw", role="user", kind="internal")
         )
         assert result.id == 1
 
     def test_invalid_role_raises(self, auth_service):
-        auth_service._create_user.execute.side_effect = ValidationError("Invalid role")
+        service, uow = auth_service
         with pytest.raises(ValidationError):
-            auth_service.create_user(
+            service.create_user(
                 CreateUserCommand(email="x@x.com", password="pw", role="superadmin", kind="internal")
             )
 
@@ -83,9 +103,11 @@ class TestCreateUser:
 
 class TestListUsers:
     def test_delegates_to_use_case(self, auth_service):
-        expected = [UserDTO(id=1, email="a@test.com", role="user", kind="internal", is_active=True)]
-        auth_service._list_users.execute.return_value = expected
-        result = auth_service.list_users()
+        service, uow = auth_service
+        user = User(id=1, email="a@test.com", role=UserRole.USER, kind=UserKind.INTERNAL)
+        uow.users.list_all.return_value = [user]
+
+        result = service.list_users()
         assert len(result) == 1
 
 
@@ -96,13 +118,17 @@ class TestListUsers:
 
 class TestToggleActive:
     def test_deactivate_user(self, auth_service):
-        auth_service._toggle_user_active.execute.return_value = {"is_active": False}
-        result = auth_service.toggle_active(user_id=5, is_active=False, admin_id=1)
+        service, uow = auth_service
+        user = User(id=5, email="u@test.com", role=UserRole.USER, kind=UserKind.INTERNAL)
+        uow.users.get_by_id.return_value = user
+
+        result = service.toggle_active(user_id=5, is_active=False, admin_id=1)
         assert result["is_active"] is False
 
     def test_cannot_deactivate_self(self, auth_service):
-        auth_service._toggle_user_active.execute.side_effect = BusinessRuleViolation(
-            "Cannot deactivate yourself"
-        )
+        service, uow = auth_service
+        user = User(id=1, email="admin@test.com", role=UserRole.ADMIN, kind=UserKind.INTERNAL)
+        uow.users.get_by_id.return_value = user
+
         with pytest.raises(BusinessRuleViolation):
-            auth_service.toggle_active(user_id=1, is_active=False, admin_id=1)
+            service.toggle_active(user_id=1, is_active=False, admin_id=1)

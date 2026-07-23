@@ -52,6 +52,9 @@ class QdrantVectorStoreRepository:
             ),
         )
 
+    def generate_embeddings(self, text: str) -> list[float]:
+        return get_embeddings().embed_query(text)
+
     def as_retriever(self, search_kwargs: dict | None = None):
         return self._get_store().as_retriever(
             search_type="similarity",
