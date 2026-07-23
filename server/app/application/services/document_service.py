@@ -5,6 +5,8 @@ Each method opens its own UnitOfWork. No db/session parameters.
 
 from __future__ import annotations
 
+import logging
+
 from domain.exceptions import BusinessRuleViolation, EntityNotFound
 from domain.repositories.vector_store_repository import VectorStoreRepository
 from domain.services.access_control import (
@@ -18,6 +20,8 @@ from infrastructure.storage import FileStorage
 from infrastructure.uow_factory import UnitOfWorkFactory
 
 from application.dto.document_dto import DocumentDTO
+
+log = logging.getLogger(__name__)
 
 
 class DocumentService:
@@ -40,6 +44,7 @@ class DocumentService:
         user_id: int,
         user_kind: str,
         user_role: str,
+        rename_on_conflict: bool = False,
     ) -> DocumentDTO:
         from pathlib import Path
 
@@ -67,7 +72,14 @@ class DocumentService:
                 if existing.status in ("pending", "processing"):
                     raise BusinessRuleViolation("This document is already being processed")
                 if existing.status == "done":
-                    replace_id = existing.id
+                    if rename_on_conflict:
+                        filename = self._unique_filename(uow, owner_id, effective_group_id, filename)
+                    else:
+                        replace_id = existing.id
+                        self._vector_store.delete_by_document_id(existing.id)
+                        if existing.source_path:
+                            self._file_storage.delete_file(existing.source_path)
+                        uow.documents.delete(existing.id)
 
             ext = Path(filename).suffix.lower()
             if ext not in self._file_storage.supported_extensions:
@@ -178,6 +190,23 @@ class DocumentService:
                 self._file_storage.delete_file(doc.source_path)
 
             uow.documents.delete(document_id)
+
+    @staticmethod
+    def _unique_filename(uow, owner_id, group_id, filename: str) -> str:
+        """Generate a unique filename like readme(1).md, readme(2).md, etc."""
+        from pathlib import Path
+
+        p = Path(filename)
+        stem = p.stem
+        suffix = p.suffix
+        candidate = filename
+        counter = 1
+        while uow.documents.find_active_slot(owner_id, candidate, group_id) is not None:
+            candidate = f"{stem}({counter}){suffix}"
+            counter += 1
+        if candidate != filename:
+            log.info("Renamed conflict: %s -> %s", filename, candidate)
+        return candidate
 
     @staticmethod
     def _storage_key(owner_id, group_id, document_id, filename):

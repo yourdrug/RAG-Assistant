@@ -74,11 +74,15 @@ async def upload_document(
     file: UploadFile = File(...),
     visibility: str = Form(...),
     group_id: int | None = Form(None),
+    rename_on_conflict: bool = Form(False),
 ):
     """Upload a document.
 
     The UoW commits the document record to DB BEFORE the background task starts,
     so the processor always sees a committed document in a fresh session.
+
+    If rename_on_conflict=true and a file with the same name exists, the new file
+    is auto-renamed (e.g. readme.md -> readme(1).md) instead of replacing it.
     """
     data = await file.read()
     filename = file.filename or "unnamed"
@@ -91,12 +95,13 @@ async def upload_document(
         user_id=current_user["id"],
         user_kind=current_user["kind"],
         user_role=current_user["role"],
+        rename_on_conflict=rename_on_conflict,
     )
     background_tasks.add_task(
         _process_document_in_background,
         document_id=result.id,
         storage_key=result.storage_key,
-        filename=filename,
+        filename=result.filename,
         visibility=visibility,
         owner_id=result.owner_id,
         group_id=group_id,

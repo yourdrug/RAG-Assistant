@@ -1,9 +1,10 @@
 """Tests for domain/services/access_control.py — pure business rules for document visibility.
 
-Tests three functions:
+Tests four functions:
   - validate_document_visibility
   - compute_owner_and_group
   - can_view_document
+  - get_visibility_conditions
 
 All tests are pure unit tests with no infrastructure dependencies.
 """
@@ -21,6 +22,7 @@ from domain.services.access_control import (
     ALLOWED_VISIBILITY_FOR_KIND,
     can_view_document,
     compute_owner_and_group,
+    get_visibility_conditions,
     validate_document_visibility,
 )
 from domain.value_objects.roles import UserKind, UserRole
@@ -277,3 +279,74 @@ class TestCanViewDocumentParameterized:
     ):
         result = can_view_document(visibility, owner_id, group_id, kind, user_id, groups, assigned)
         assert result is expected
+
+
+# ===========================================================================
+# get_visibility_conditions Tests
+# ===========================================================================
+
+
+class TestGetVisibilityConditions:
+    """Tests for the canonical filter conditions generator.
+
+    Each condition is an AND-clause. The full filter is OR of all conditions.
+    """
+
+    def test_client_returns_single_private_condition(self):
+        conds = get_visibility_conditions(UserKind.CLIENT, 42, [], [])
+        assert len(conds) == 1
+        assert conds[0].visibility == DocumentVisibility.CLIENT_PRIVATE
+        assert conds[0].owner_match == "self"
+        assert conds[0].group_match is False
+
+    def test_internal_no_groups_no_clients(self):
+        conds = get_visibility_conditions(UserKind.INTERNAL, 1, [], [])
+        vis = {c.visibility for c in conds}
+        assert DocumentVisibility.INTERNAL_PUBLIC in vis
+        assert DocumentVisibility.INTERNAL_PRIVATE in vis
+        assert DocumentVisibility.INTERNAL_GROUP not in vis
+        assert DocumentVisibility.CLIENT_PRIVATE not in vis
+
+    def test_internal_private_has_owner_self(self):
+        conds = get_visibility_conditions(UserKind.INTERNAL, 1, [], [])
+        private = [c for c in conds if c.visibility == DocumentVisibility.INTERNAL_PRIVATE]
+        assert len(private) == 1
+        assert private[0].owner_match == "self"
+
+    def test_internal_public_has_no_owner(self):
+        conds = get_visibility_conditions(UserKind.INTERNAL, 1, [], [])
+        public = [c for c in conds if c.visibility == DocumentVisibility.INTERNAL_PUBLIC]
+        assert len(public) == 1
+        assert public[0].owner_match is None
+        assert public[0].group_match is False
+
+    def test_internal_with_groups_adds_group_condition(self):
+        conds = get_visibility_conditions(UserKind.INTERNAL, 1, [5, 10], [])
+        group_conds = [c for c in conds if c.visibility == DocumentVisibility.INTERNAL_GROUP]
+        assert len(group_conds) == 1
+        assert group_conds[0].group_match is True
+
+    def test_internal_empty_groups_skips_group_condition(self):
+        conds = get_visibility_conditions(UserKind.INTERNAL, 1, [], [])
+        group_conds = [c for c in conds if c.visibility == DocumentVisibility.INTERNAL_GROUP]
+        assert len(group_conds) == 0
+
+    def test_internal_with_assigned_clients(self):
+        conds = get_visibility_conditions(UserKind.INTERNAL, 1, [], [100, 200])
+        client_conds = [c for c in conds if c.visibility == DocumentVisibility.CLIENT_PRIVATE]
+        assert len(client_conds) == 1
+        assert client_conds[0].owner_match == "assigned"
+
+    def test_internal_empty_assigned_skips_client_condition(self):
+        conds = get_visibility_conditions(UserKind.INTERNAL, 1, [], [])
+        client_conds = [c for c in conds if c.visibility == DocumentVisibility.CLIENT_PRIVATE]
+        assert len(client_conds) == 0
+
+    def test_internal_full_conditions_count(self):
+        conds = get_visibility_conditions(UserKind.INTERNAL, 1, [5], [100])
+        assert len(conds) == 4  # public + private + group + client
+
+    def test_conditions_are_frozen_dataclass(self):
+        conds = get_visibility_conditions(UserKind.CLIENT, 1, [], [])
+        with pytest.raises(AttributeError):
+            conds[0].visibility = DocumentVisibility.INTERNAL_PUBLIC

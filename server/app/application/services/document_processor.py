@@ -62,9 +62,13 @@ class DocumentProcessor:
                         }
                     )
 
+                from domain.entities.chunk import Chunk
+
+                domain_chunks = [Chunk(content=c.page_content, metadata=c.metadata) for c in chunks]
+
                 vector_size = len(self._vector_store.generate_embeddings("test"))
                 self._vector_store.ensure_collection(vector_size, reset=False)
-                self._vector_store.upload_documents(chunks)
+                self._vector_store.upload_documents(domain_chunks)
 
                 if replace_id is not None:
                     self._vector_store.delete_by_document_id(replace_id)
@@ -77,6 +81,7 @@ class DocumentProcessor:
                 uow.documents.update_status(document_id, "done", chunks=len(chunks), chars=total_chars)
 
         except Exception as e:
+            log.exception("Document processing failed for doc %d: %s", document_id, e)
             try:
                 with self._uow_factory.create() as uow:
                     uow.documents.update_status(document_id, "failed", error=str(e))

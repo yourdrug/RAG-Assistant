@@ -9,11 +9,17 @@ from contextlib import asynccontextmanager
 from bootstrap import bootstrap_admin
 from cli.cli import cli
 from config import settings
-from domain.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
-from fastapi import FastAPI, Request
+from domain.exceptions import DomainError
+from fastapi import FastAPI
+from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from infrastructure.logging import logging_config
+from presentation.api.exception_handlers import (
+    handle_domain_exception,
+    handle_http_exception,
+    handle_unexpected_exception,
+    handle_validation_exception,
+)
 from presentation.api.routes.auth import router as auth_router
 from presentation.api.routes.benchmark import router as benchmark_router
 from presentation.api.routes.chat import router as chat_router
@@ -24,6 +30,10 @@ from presentation.api.routes.groups import router as groups_router
 from presentation.api.routes.health import router as health_router
 from presentation.api.routes.ingest import router as ingest_router
 
+# ---------------------------------------------------------------------------
+# Lifespan
+# ---------------------------------------------------------------------------
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator:
@@ -32,45 +42,61 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     yield
 
 
+# ---------------------------------------------------------------------------
+# Application
+# ---------------------------------------------------------------------------
+
+
+class Application:
+    """FastAPI application configurator with structured setup."""
+
+    def __init__(self) -> None:
+        self.app = FastAPI(
+            title="RAG API",
+            description="Corporate RAG assistant",
+            version="0.2.0",
+            lifespan=lifespan,
+        )
+
+        self._configure_logging()
+        self._add_middlewares()
+        self._add_exception_handlers()
+        self._add_routers()
+
+    def _configure_logging(self) -> None:
+        logging.config.dictConfig(logging_config)
+
+    def _add_middlewares(self) -> None:
+        self.app.add_middleware(
+            CORSMiddleware,
+            allow_origins=settings.allowed_origins_list,
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+
+    def _add_exception_handlers(self) -> None:
+        self.app.add_exception_handler(DomainError, handle_domain_exception)  # type: ignore[arg-type]
+        self.app.add_exception_handler(HTTPException, handle_http_exception)  # type: ignore[arg-type]
+        self.app.add_exception_handler(RequestValidationError, handle_validation_exception)  # type: ignore[arg-type]
+        self.app.add_exception_handler(Exception, handle_unexpected_exception)  # type: ignore[arg-type]
+
+    def _add_routers(self) -> None:
+        self.app.include_router(auth_router)
+        self.app.include_router(conversations_router)
+        self.app.include_router(chat_router)
+        self.app.include_router(ingest_router)
+        self.app.include_router(documents_router)
+        self.app.include_router(groups_router)
+        self.app.include_router(clients_router)
+        self.app.include_router(health_router)
+        self.app.include_router(benchmark_router)
+
+
 def create_application() -> FastAPI:
-    application = FastAPI(
-        title="RAG API",
-        description="Corporate RAG assistant",
-        version="0.2.0",
-        lifespan=lifespan,
-    )
-
-    application.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.allowed_origins_list,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-
-    @application.exception_handler(ValidationError)
-    async def validation_error_handler(_req: Request, exc: ValidationError) -> JSONResponse:
-        return JSONResponse(status_code=422, content={"detail": str(exc)})
-
-    @application.exception_handler(BusinessRuleViolation)
-    async def business_rule_handler(_req: Request, exc: BusinessRuleViolation) -> JSONResponse:
-        return JSONResponse(status_code=400, content={"detail": str(exc)})
-
-    @application.exception_handler(EntityNotFound)
-    async def not_found_handler(_req: Request, exc: EntityNotFound) -> JSONResponse:
-        return JSONResponse(status_code=404, content={"detail": str(exc)})
-
-    application.include_router(auth_router)
-    application.include_router(conversations_router)
-    application.include_router(chat_router)
-    application.include_router(ingest_router)
-    application.include_router(documents_router)
-    application.include_router(groups_router)
-    application.include_router(clients_router)
-    application.include_router(health_router)
-    application.include_router(benchmark_router)
-
-    return application
+    """Create and return the configured FastAPI application."""
+    application = Application()
+    return application.app
 
 
 app = create_application()

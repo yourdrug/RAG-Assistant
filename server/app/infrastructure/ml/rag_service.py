@@ -105,14 +105,19 @@ class RagService:
         history_dicts = []
         for msg in history:
             if hasattr(msg, "role") and hasattr(msg, "content"):
+                content = msg.content
+                # Skip very short / garbage messages that might pollute condensation
+                if len(content.strip()) < 3:
+                    continue
                 history_dicts.append(
                     {
                         "role": msg.role.value if hasattr(msg.role, "value") else msg.role,
-                        "content": msg.content,
+                        "content": content,
                     }
                 )
             elif isinstance(msg, dict):
-                history_dicts.append(msg)
+                if len(msg.get("content", "").strip()) >= 3:
+                    history_dicts.append(msg)
         history_messages = history_to_messages(history_dicts)
 
         query_for_search = await condense_question(get_llm(), question, history_messages)

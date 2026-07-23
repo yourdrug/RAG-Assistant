@@ -52,19 +52,13 @@ class ChatService:
         with self._uow_factory.create() as uow:
             conv = uow.conversations.get_or_create(conversation_id, user_id)
 
-            user_msg = Message(
-                conversation_id=conv.id,
-                role=MessageRole.USER,
-                content=question,
-            )
-            uow.messages.save(user_msg)
-
             history = uow.messages.get_history(conv.id, window=self._history_window)
             if history and history[-1].role == MessageRole.USER:
                 history = history[:-1]
 
         full_answer = ""
         sources: list[dict] = []
+        user_msg_saved = False
 
         async for chunk in self._rag_service.stream(
             question=question,
@@ -74,6 +68,18 @@ class ChatService:
             user_group_ids=group_ids,
             assigned_client_ids=assigned_ids,
         ):
+            # Save user message only after first real chunk arrives.
+            # If user cancels before any chunks, the message is never saved.
+            if not user_msg_saved and not chunk.startswith("\n__sources__:"):
+                user_msg_saved = True
+                with self._uow_factory.create() as uow:
+                    user_msg = Message(
+                        conversation_id=conv.id,
+                        role=MessageRole.USER,
+                        content=question,
+                    )
+                    uow.messages.save(user_msg)
+
             if chunk.startswith("\n__sources__:"):
                 try:
                     sources = json.loads(chunk.replace("\n__sources__:", ""))
@@ -107,12 +113,13 @@ class ChatService:
         with self._uow_factory.create() as uow:
             conv = uow.conversations.get_or_create(conversation_id, user_id)
 
-            user_msg = Message(
-                conversation_id=conv.id,
-                role=MessageRole.USER,
-                content=question,
-            )
-            uow.messages.save(user_msg)
+            if len(question.strip()) >= 3:
+                user_msg = Message(
+                    conversation_id=conv.id,
+                    role=MessageRole.USER,
+                    content=question,
+                )
+                uow.messages.save(user_msg)
 
             history = uow.messages.get_history(conv.id, window=self._history_window)
             if history and history[-1].role == MessageRole.USER:

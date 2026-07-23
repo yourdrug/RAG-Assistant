@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from domain.entities.document import Document
+from domain.services.access_control import get_visibility_conditions
 from domain.value_objects.document_status import DocumentStatus
+from domain.value_objects.roles import UserKind
 from domain.value_objects.visibility import DocumentVisibility
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -89,43 +91,37 @@ class SQLAlchemyDocumentRepository:
     ) -> list[Document]:
         """List documents visible to this user.
 
-        SQL conditions are derived from domain.services.access_control.can_view_document().
-        Visibility string values come from the domain enum to stay in sync.
+        Translates canonical VisibilityCondition objects from the domain layer
+        into SQL WHERE clauses. All business logic lives in
+        domain/services/access_control.py.
         """
-        params: dict = {"user_id": user_id}
+        conditions = get_visibility_conditions(UserKind(user_kind), user_id, group_ids, assigned_client_ids)
 
-        if user_kind == "client":
-            rows = self._db.execute(
-                text("""
-                    SELECT * FROM documents
-                    WHERE visibility = :vis
-                      AND owner_id = :user_id
-                    ORDER BY created_at DESC
-                """),
-                {"vis": DocumentVisibility.CLIENT_PRIVATE, "user_id": user_id},
-            ).fetchall()
-        else:
-            conditions = ["visibility = :vis_public"]
-            params["vis_public"] = DocumentVisibility.INTERNAL_PUBLIC
+        sql_parts: list[str] = []
+        params: dict = {"user_id": user_id, "group_ids": group_ids, "assigned_ids": assigned_client_ids}
 
-            if group_ids:
-                conditions.append("(visibility = :vis_group AND group_id = ANY(:group_ids))")
-                params["vis_group"] = DocumentVisibility.INTERNAL_GROUP
-                params["group_ids"] = group_ids
+        for cond in conditions:
+            clauses = [f"visibility = :vis_{cond.visibility.value}"]
+            params[f"vis_{cond.visibility.value}"] = cond.visibility.value
 
-            conditions.append("(visibility = :vis_private AND owner_id = :user_id)")
-            params["vis_private"] = DocumentVisibility.INTERNAL_PRIVATE
+            if cond.owner_match == "self":
+                clauses.append("owner_id = :user_id")
+            elif cond.owner_match == "assigned":
+                clauses.append("owner_id = ANY(:assigned_ids)")
 
-            if assigned_client_ids:
-                conditions.append("(visibility = :vis_client AND owner_id = ANY(:assigned_client_ids))")
-                params["vis_client"] = DocumentVisibility.CLIENT_PRIVATE
-                params["assigned_client_ids"] = assigned_client_ids
+            if cond.group_match:
+                clauses.append("group_id = ANY(:group_ids)")
 
-            where_clause = " OR ".join(conditions)
-            rows = self._db.execute(
-                text(f"SELECT * FROM documents WHERE {where_clause} ORDER BY created_at DESC"),
-                params,
-            ).fetchall()
+            sql_parts.append("(" + " AND ".join(clauses) + ")")
+
+        if not sql_parts:
+            return []
+
+        where_clause = " OR ".join(sql_parts)
+        rows = self._db.execute(
+            text(f"SELECT * FROM documents WHERE {where_clause} ORDER BY created_at DESC"),
+            params,
+        ).fetchall()
 
         return [self._to_entity(r) for r in rows]
 

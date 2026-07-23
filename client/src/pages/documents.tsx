@@ -27,31 +27,90 @@ export function DocumentsPage() {
   const [progress, setProgress] = useState(0);
   const { data: groups } = useGroups();
 
+  // Conflict resolution state
+  const [conflictOpen, setConflictOpen] = useState(false);
+  const [conflictFile, setConflictFile] = useState<File | null>(null);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+
+  const existingNames = new Set((documents || []).map((d) => d.filename));
+
   const onDrop = useCallback((f: File[]) => { setFiles(f); setUploadOpen(true); }, []);
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: { "application/pdf": [".pdf"], "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"], "text/markdown": [".md"], "text/plain": [".txt"] },
   });
 
+  const uploadFile = async (file: File, renameOnConflict: boolean) => {
+    await uploadMut.mutateAsync({
+      file,
+      visibility: vis,
+      groupId: vis === "internal_group" ? groupId : undefined,
+      renameOnConflict,
+    });
+  };
+
   const handleUpload = async () => {
     if (!files.length) return;
+
+    // Check for name conflicts
+    const conflicts = files.filter((f) => existingNames.has(f.name));
+    if (conflicts.length > 0) {
+      setConflictFile(conflicts[0]);
+      setPendingFiles(files);
+      setUploadOpen(false);
+      setConflictOpen(true);
+      return;
+    }
+
+    await doUpload(files, false);
+  };
+
+  const doUpload = async (filesToUpload: File[], renameOnConflict: boolean) => {
+    setUploadOpen(false);
+    setConflictOpen(false);
     setProgress(0);
     let done = 0;
-    for (const f of files) {
+    for (const f of filesToUpload) {
       try {
-        await uploadMut.mutateAsync({ file: f, visibility: vis, groupId: vis === "internal_group" ? groupId : undefined });
+        await uploadFile(f, renameOnConflict);
         done++;
-        setProgress(Math.round((done / files.length) * 100));
+        setProgress(Math.round((done / filesToUpload.length) * 100));
       } catch {
         toast.error(`Failed: ${f.name}`);
       }
     }
-    setUploadOpen(false);
     setFiles([]);
     setProgress(0);
     if (done > 0) {
       toast.success(`${done} file(s) queued for processing`);
     }
+  };
+
+  const handleConflictChoice = async (choice: "replace" | "add_new") => {
+    if (!conflictFile) return;
+    setConflictOpen(false);
+
+    if (choice === "add_new") {
+      await doUpload([conflictFile], true);
+      // Upload remaining files (non-conflicting ones already handled, just re-check)
+      const remaining = pendingFiles.filter((f) => f !== conflictFile);
+      if (remaining.length > 0) {
+        const stillConflicts = remaining.filter((f) => {
+          // Refresh conflict check since we just uploaded
+          return false; // After rename, no conflict
+        });
+        await doUpload(stillConflicts, false);
+      }
+    } else {
+      await doUpload([conflictFile], false);
+      const remaining = pendingFiles.filter((f) => f !== conflictFile);
+      if (remaining.length > 0) {
+        await doUpload(remaining, false);
+      }
+    }
+
+    setConflictFile(null);
+    setPendingFiles([]);
   };
 
   const handleDelete = async () => {
@@ -83,6 +142,7 @@ export function DocumentsPage() {
         <CardContent><DataTable columns={columns} data={documents || []} searchKey="filename" searchPlaceholder="Search documents..." /></CardContent>
       </Card>
 
+      {/* Upload settings dialog */}
       <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
         <DialogContent>
           <DialogHeader><DialogTitle>Upload Documents</DialogTitle><DialogDescription>{files.length} file(s) selected</DialogDescription></DialogHeader>
@@ -118,6 +178,26 @@ export function DocumentsPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setUploadOpen(false)}>Cancel</Button>
             <Button onClick={handleUpload} disabled={uploadMut.isPending || (vis === "internal_group" && groupId == null)}>{uploadMut.isPending ? "Uploading..." : "Upload"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Conflict resolution dialog */}
+      <Dialog open={conflictOpen} onOpenChange={setConflictOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>File Already Exists</DialogTitle>
+            <DialogDescription>
+              A document named <strong>{conflictFile?.name}</strong> already exists. What would you like to do?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => handleConflictChoice("add_new")}>
+              Add as New ({conflictFile?.name?.replace(/(\.[^.]+)$/, "(1)$1")})
+            </Button>
+            <Button onClick={() => handleConflictChoice("replace")}>
+              Replace Existing
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

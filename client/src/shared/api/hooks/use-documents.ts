@@ -21,11 +21,12 @@ export function useDocument(id: number) {
 export function useUploadDocument() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ file, visibility, groupId }: { file: File; visibility: string; groupId?: number | null }) => {
+    mutationFn: async ({ file, visibility, groupId, renameOnConflict }: { file: File; visibility: string; groupId?: number | null; renameOnConflict?: boolean }) => {
       const fd = new FormData();
       fd.append("file", file);
       fd.append("visibility", visibility);
       if (groupId != null) fd.append("group_id", String(groupId));
+      if (renameOnConflict) fd.append("rename_on_conflict", "true");
       return (await apiClient.post<UploadStatusResponse>("/documents", fd, {
         headers: { "Content-Type": "multipart/form-data" },
       })).data;

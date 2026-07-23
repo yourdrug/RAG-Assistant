@@ -1,10 +1,12 @@
 """Access Control Domain Service — pure business rules for document visibility.
 
-This is the domain logic previously in infrastructure/acl.py, now properly
-in the domain layer with no infrastructure dependencies.
+Single source of truth for all visibility/ACL logic. Both Qdrant and SQL adapters
+derive their filter conditions from get_visibility_conditions() to avoid duplication.
 """
 
 from __future__ import annotations
+
+from dataclasses import dataclass
 
 from domain.exceptions import BusinessRuleViolation, ValidationError
 from domain.value_objects.roles import UserKind, UserRole
@@ -19,6 +21,75 @@ ALLOWED_VISIBILITY_FOR_KIND: dict[UserKind, set[DocumentVisibility]] = {
     },
     UserKind.CLIENT: {DocumentVisibility.CLIENT_PRIVATE},
 }
+
+
+@dataclass(frozen=True)
+class VisibilityCondition:
+    """A single AND-clause of a visibility filter.
+
+    The full visible-to-user filter is OR of all returned conditions.
+    This is the canonical intermediate representation — SQL and Qdrant
+    adapters translate these into their respective query languages.
+    """
+
+    visibility: DocumentVisibility
+    owner_match: str | None = None  # "self" = user_id, "assigned" = assigned_client_ids
+    group_match: bool = False  # True = group_id IN user_group_ids
+
+
+def get_visibility_conditions(
+    user_kind: UserKind,
+    user_id: int,
+    group_ids: list[int],
+    assigned_client_ids: list[int],
+) -> list[VisibilityCondition]:
+    """Return canonical filter conditions for documents visible to this user.
+
+    Each condition is an AND-clause. The full filter is OR of all conditions.
+    This is the single source of truth — SQL and Qdrant adapters translate these.
+    """
+    if user_kind == UserKind.CLIENT:
+        return [
+            VisibilityCondition(
+                visibility=DocumentVisibility.CLIENT_PRIVATE,
+                owner_match="self",
+            )
+        ]
+
+    conditions: list[VisibilityCondition] = []
+    allowed = ALLOWED_VISIBILITY_FOR_KIND.get(user_kind, set())
+
+    if DocumentVisibility.INTERNAL_PUBLIC in allowed:
+        conditions.append(VisibilityCondition(visibility=DocumentVisibility.INTERNAL_PUBLIC))
+
+    if DocumentVisibility.INTERNAL_PRIVATE in allowed:
+        conditions.append(
+            VisibilityCondition(
+                visibility=DocumentVisibility.INTERNAL_PRIVATE,
+                owner_match="self",
+            )
+        )
+
+    if DocumentVisibility.INTERNAL_GROUP in allowed and group_ids:
+        conditions.append(
+            VisibilityCondition(
+                visibility=DocumentVisibility.INTERNAL_GROUP,
+                group_match=True,
+            )
+        )
+
+    # Internal users can view client_private docs of their assigned clients
+    # (not in ALLOWED_VISIBILITY_FOR_KIND because they can't CREATE with this visibility,
+    #  but can_view_document() allows viewing)
+    if assigned_client_ids:
+        conditions.append(
+            VisibilityCondition(
+                visibility=DocumentVisibility.CLIENT_PRIVATE,
+                owner_match="assigned",
+            )
+        )
+
+    return conditions
 
 
 def validate_document_visibility(

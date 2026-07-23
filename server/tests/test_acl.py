@@ -178,12 +178,17 @@ class TestBuildQdrantFilter:
     def test_client_gets_owner_filter(self):
         user = {"id": 42, "kind": "client"}
         f = build_qdrant_filter(user, [], [])
-        assert f.must is not None
-        assert len(f.must) == 2
+        # Single condition: must=[visibility, owner_id] wrapped in should
+        assert f.should is not None
+        assert len(f.should) == 1
+        inner = f.should[0]
+        assert inner.must is not None
+        assert len(inner.must) == 2
 
     def test_client_filter_has_correct_visibility(self):
         f = build_qdrant_filter({"id": 1, "kind": "client"}, [], [])
-        vis_match = f.must[0]
+        inner = f.should[0]
+        vis_match = inner.must[0]
         assert vis_match.match.value == "client_private"
 
     def test_internal_user_base_filter_has_public_and_private(self):
