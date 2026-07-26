@@ -6,24 +6,16 @@ from application.dto.auth_dto import CreateUserCommand, LoginCommand
 from application.services.auth_service import AuthService
 from fastapi import APIRouter, Depends
 from infrastructure.auth.fastapi_dependencies import get_current_user, require_admin
-from infrastructure.auth.jwt_provider import JWTProvider
-from infrastructure.auth.password_hasher import BCryptPasswordHasher
-from infrastructure.uow_factory import UnitOfWorkFactory
 
+from presentation.api.dependencies import create_auth_service
 from presentation.api.schemas import CreateUserRequest, LoginRequest, TokenResponse, UserResponse
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-_auth_service = AuthService(
-    uow_factory=UnitOfWorkFactory(),
-    password_hasher=BCryptPasswordHasher(),
-    token_provider=JWTProvider(),
-)
-
 
 @router.post("/login", response_model=TokenResponse)
-async def login(req: LoginRequest):
-    result = _auth_service.authenticate(LoginCommand(email=req.email, password=req.password))
+async def login(req: LoginRequest, auth_service: AuthService = Depends(create_auth_service)):
+    result = auth_service.authenticate(LoginCommand(email=req.email, password=req.password))
     return TokenResponse(**result.__dict__)
 
 
@@ -36,19 +28,20 @@ async def get_me(current_user: dict = Depends(get_current_user)):
 async def add_user(
     req: CreateUserRequest,
     admin: dict = Depends(require_admin),
+    auth_service: AuthService = Depends(create_auth_service),
 ):
-    result = _auth_service.create_user(
+    return auth_service.create_user(
         CreateUserCommand(email=req.email, password=req.password, role=req.role, kind=req.kind),
         creator_role=admin["role"],
     )
-    return result
 
 
 @router.get("/users", response_model=list[UserResponse])
 async def list_all_users(
     admin: dict = Depends(require_admin),
+    auth_service: AuthService = Depends(create_auth_service),
 ):
-    return _auth_service.list_users()
+    return auth_service.list_users()
 
 
 @router.patch("/users/{user_id}")
@@ -56,5 +49,6 @@ async def toggle_user_active(
     user_id: int,
     is_active: bool,
     admin: dict = Depends(require_admin),
+    auth_service: AuthService = Depends(create_auth_service),
 ):
-    return _auth_service.toggle_active(user_id, is_active, admin["id"])
+    return auth_service.toggle_active(user_id, is_active, admin["id"])

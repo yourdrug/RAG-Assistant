@@ -125,6 +125,32 @@ class SQLAlchemyDocumentRepository:
 
         return [self._to_entity(r) for r in rows]
 
+    def find_active_slot_for_update(
+        self, owner_id: int | None, filename: str, group_id: int | None
+    ) -> Document | None:
+        """Locks the matching row (if any) for the duration of the transaction,
+        so a concurrent upload() for the same slot blocks here instead of racing
+        past the check-then-act window.
+        """
+        row = self._db.execute(
+            text("""
+                 SELECT *
+                 FROM documents
+                 WHERE filename = :filename
+                   AND owner_id IS NOT DISTINCT
+                 FROM :owner_id
+                     AND group_id IS NOT DISTINCT
+                 FROM :group_id
+                     AND status IN ('pending', 'processing', 'done')
+                 ORDER BY created_at DESC
+                     LIMIT 1
+                     FOR
+                 UPDATE
+                 """),
+            {"filename": filename, "owner_id": owner_id, "group_id": group_id},
+        ).fetchone()
+        return self._to_entity(row) if row else None
+
     @staticmethod
     def _to_entity(row) -> Document:
         return Document(

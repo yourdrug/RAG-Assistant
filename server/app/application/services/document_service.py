@@ -50,6 +50,7 @@ class DocumentService:
 
         from domain.entities.document import Document
         from domain.exceptions import ValidationError
+        from sqlalchemy.exc import IntegrityError
 
         vis = DocumentVisibility.validate(visibility)
         user_kind_enum = UserKind(user_kind)
@@ -66,7 +67,7 @@ class DocumentService:
 
             owner_id, effective_group_id = compute_owner_and_group(vis, group_id, user_id)
 
-            existing = uow.documents.find_active_slot(owner_id, filename, effective_group_id)
+            existing = uow.documents.find_active_slot_for_update(owner_id, filename, effective_group_id)
             replace_id = None
             if existing:
                 if existing.status in ("pending", "processing"):
@@ -91,7 +92,13 @@ class DocumentService:
                 owner_id=owner_id,
                 group_id=effective_group_id,
             )
-            saved_doc = uow.documents.save(doc)
+
+            try:
+                saved_doc = uow.documents.save(doc)
+            except IntegrityError as exc:
+                raise BusinessRuleViolation(
+                    "This document is already being uploaded by a concurrent request"
+                ) from exc
 
             key = self._storage_key(owner_id, effective_group_id, saved_doc.id, filename)
             self._file_storage.upload_file(key, file_data)

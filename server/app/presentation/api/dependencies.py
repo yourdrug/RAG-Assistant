@@ -1,6 +1,5 @@
-"""Composition Root — Dependency Injection Container.
-
-Wires all services together. Every dependency flows inward: presentation → application → domain.
+"""
+Composition Root — Dependency Injection Container.
 """
 
 from __future__ import annotations
@@ -8,9 +7,16 @@ from __future__ import annotations
 import logging
 from collections.abc import Generator
 
+from application.services.auth_service import AuthService
+from application.services.chat_service import ChatService
+from application.services.document_service import DocumentService
 from application.services.ingest_service import IngestAppService
 from application.uow import UnitOfWork
 from config import settings
+from infrastructure.auth.jwt_provider import JWTProvider
+from infrastructure.auth.password_hasher import BCryptPasswordHasher
+from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
+from infrastructure.ml.rag_service import RagService
 from infrastructure.repositories.qdrant_vector_store_repository import QdrantVectorStoreRepository
 from infrastructure.services.benchmark_service import BenchmarkService
 from infrastructure.services.ingestion_service import IngestionService
@@ -19,7 +25,6 @@ from infrastructure.uow_factory import UnitOfWorkFactory
 
 log = logging.getLogger("default")
 
-
 # ---------------------------------------------------------------------------
 # Shared infrastructure instances (singletons)
 # ---------------------------------------------------------------------------
@@ -27,11 +32,31 @@ log = logging.getLogger("default")
 _vector_store_repo = QdrantVectorStoreRepository()
 _file_storage = get_storage()
 _uow_factory = UnitOfWorkFactory()
+_document_parser = LangchainDocumentParser()
+_document_splitter = LangchainDocumentSplitter()
 
 _ingestion_service = IngestionService(
     vector_store_repo=_vector_store_repo,
     file_storage=_file_storage,
     uow_factory=_uow_factory,
+)
+
+_document_service = DocumentService(
+    uow_factory=_uow_factory,
+    vector_store_repo=_vector_store_repo,
+    file_storage=_file_storage,
+)
+
+_chat_service = ChatService(
+    uow_factory=_uow_factory,
+    rag_service=RagService(),
+    history_window=settings.history_window,
+)
+
+_auth_service = AuthService(
+    uow_factory=_uow_factory,
+    password_hasher=BCryptPasswordHasher(),
+    token_provider=JWTProvider(),
 )
 
 
@@ -41,37 +66,53 @@ _ingestion_service = IngestionService(
 
 
 def get_uow() -> Generator[UnitOfWork, None, None]:
-    """FastAPI dependency — yields a Unit of Work with transaction boundary."""
     with _uow_factory.create() as uow:
         yield uow
 
 
 def get_uow_factory() -> UnitOfWorkFactory:
-    """Return the shared UnitOfWorkFactory for background tasks."""
     return _uow_factory
 
 
 # ---------------------------------------------------------------------------
-# Application Services
+# Application Services — every route depends on these, nothing builds its own
 # ---------------------------------------------------------------------------
 
 
 def create_ingest_service() -> IngestAppService:
-    """Create ingest application service."""
-    return IngestAppService(
-        uow_factory=_uow_factory,
-        ingestion_service=_ingestion_service,
-    )
+    return IngestAppService(uow_factory=_uow_factory, ingestion_service=_ingestion_service)
 
 
 def create_ingestion_service() -> IngestionService:
-    """Create ingestion infrastructure service."""
     return _ingestion_service
 
 
-# ---------------------------------------------------------------------------
-# Benchmark Service
-# ---------------------------------------------------------------------------
+def create_document_service() -> DocumentService:
+    return _document_service
+
+
+def get_document_parser() -> LangchainDocumentParser:
+    return _document_parser
+
+
+def get_document_splitter() -> LangchainDocumentSplitter:
+    return _document_splitter
+
+
+def get_vector_store_repo() -> QdrantVectorStoreRepository:
+    return _vector_store_repo
+
+
+def get_file_storage():
+    return _file_storage
+
+
+def create_chat_service() -> ChatService:
+    return _chat_service
+
+
+def create_auth_service() -> AuthService:
+    return _auth_service
 
 
 def create_benchmark_service():

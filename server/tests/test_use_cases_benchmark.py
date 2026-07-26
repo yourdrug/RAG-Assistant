@@ -35,7 +35,7 @@ class TestRunBenchmark:
     def test_uses_default_paths(self):
         self.benchmark_service.run.return_value = {"status": "done"}
 
-        result = self.use_case.execute()
+        self.use_case.execute()
 
         call_kwargs = self.benchmark_service.run.call_args.kwargs
         assert call_kwargs["questions_path"] == "/data/test_questions.json"
@@ -78,7 +78,7 @@ class TestRunBenchmark:
     def test_all_custom_params(self):
         self.benchmark_service.run.return_value = {"results": []}
 
-        result = self.use_case.execute(
+        self.use_case.execute(
             questions_path="/q.json",
             out_dir="/out",
             top_k=5,
