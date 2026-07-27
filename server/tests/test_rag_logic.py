@@ -10,6 +10,7 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 import infrastructure.ml.rag as rag  # noqa: E402
+from infrastructure.ml.rag import classify_question_breadth  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -206,3 +207,40 @@ class TestRerankDocuments:
         reranker = self._fake_reranker([0.9, 0.1])
         result = rag.rerank_documents("q", docs, top_n=0, reranker=reranker)
         assert result == []
+
+
+# ---------------------------------------------------------------------------
+# classify_question_breadth
+# ---------------------------------------------------------------------------
+
+
+class TestClassifyQuestionBreadth:
+    def test_simple_question_is_narrow(self):
+        assert classify_question_breadth("Какой пароль?") == "narrow"
+
+    def test_podrobno_is_broad(self):
+        assert classify_question_breadth("Расскажи подробно про маркировку") == "broad"
+
+    def test_rasskazhi_pro_is_broad(self):
+        assert classify_question_breadth("Расскажи про систему безопасности") == "broad"
+
+    def test_poryadok_polucheniya_is_broad(self):
+        assert classify_question_breadth("Порядок получения кода маркировки") == "broad"
+
+    def test_sistema_is_broad(self):
+        assert classify_question_breadth("Система маркировки товаров") == "broad"
+
+    def test_obyasni_vse_is_broad(self):
+        assert classify_question_breadth("Объясни всё про пароли") == "broad"
+
+    def test_kak_rabotaet_is_broad(self):
+        assert classify_question_breadth("Как работает шифрование?") == "broad"
+
+    def test_case_insensitive(self):
+        assert classify_question_breadth("ПОДРОБНО про безопасность") == "broad"
+
+    def test_plain_factual_is_narrow(self):
+        assert classify_question_breadth("Какой срок действия пароля?") == "narrow"
+
+    def test_empty_string(self):
+        assert classify_question_breadth("") == "narrow"

@@ -15,6 +15,7 @@ class RagServiceProtocol(Protocol):
         user_kind: str,
         user_group_ids: list[int],
         assigned_client_ids: list[int],
+        depth: str | None = None,
     ) -> AsyncIterator[str]: ...
 
     async def invoke(
@@ -25,4 +26,5 @@ class RagServiceProtocol(Protocol):
         user_kind: str,
         user_group_ids: list[int],
         assigned_client_ids: list[int],
+        depth: str | None = None,
     ) -> tuple[str, list[dict]]: ...

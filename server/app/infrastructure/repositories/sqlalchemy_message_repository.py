@@ -41,7 +41,7 @@ class SQLAlchemyMessageRepository:
 
         messages = []
         for r in reversed(rows):
-            sources = json.loads(r.sources) if r.sources else []
+            sources = r.sources if isinstance(r.sources, list) else (json.loads(r.sources) if r.sources else [])
             messages.append(
                 Message(
                     role=MessageRole(r.role),

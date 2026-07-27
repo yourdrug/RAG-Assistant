@@ -29,15 +29,15 @@ def build_qdrant_filter(
     should: list[FieldCondition | Filter] = []
 
     for cond in conditions:
-        must = [FieldCondition(key="visibility", match=MatchValue(value=cond.visibility))]
+        must = [FieldCondition(key="metadata.visibility", match=MatchValue(value=cond.visibility))]
 
         if cond.owner_match == "self":
-            must.append(FieldCondition(key="owner_id", match=MatchValue(value=user["id"])))
+            must.append(FieldCondition(key="metadata.owner_id", match=MatchValue(value=user["id"])))
         elif cond.owner_match == "assigned":
-            must.append(FieldCondition(key="owner_id", match=MatchAny(any=assigned_client_ids)))
+            must.append(FieldCondition(key="metadata.owner_id", match=MatchAny(any=assigned_client_ids)))
 
         if cond.group_match:
-            must.append(FieldCondition(key="group_id", match=MatchAny(any=group_ids)))
+            must.append(FieldCondition(key="metadata.group_id", match=MatchAny(any=group_ids)))
 
         should.append(Filter(must=must) if len(must) > 1 else must[0])
 

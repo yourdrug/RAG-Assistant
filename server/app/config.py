@@ -55,12 +55,16 @@ class Settings(BaseSettings):
     s3_secret_key: str = os.getenv("S3_SECRET_KEY", "minioadmin")
     s3_region: str = os.getenv("S3_REGION", "us-east-1")
 
-    # RAG параметры
+    # RAG параметры — узкие вопросы
     retriever_fetch_k: int = 25  # сколько кандидатов достаём из Qdrant перед реранком
     retriever_top_k: int = 6  # сколько чанков остаётся после реранка и уходит в промпт
+
+    # RAG параметры — широкие вопросы (подробные, обзорные)
+    retriever_fetch_k_broad: int = 40
+    retriever_top_k_broad: int = 10
     history_window: int = 8
-    chunk_size: int = 512
-    chunk_overlap: int = 128
+    chunk_size: int = 900
+    chunk_overlap: int = 150
 
     # --- Hybrid search (BM25 + dense RRF) ---
     hybrid_enabled: bool = os.getenv("HYBRID_ENABLED", "true").lower() == "true"

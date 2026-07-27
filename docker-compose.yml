@@ -3,8 +3,13 @@ services:
     image: qdrant/qdrant:latest
     hostname: qdrant
     container_name: rag-qdrant
-    ports:
-      - "127.0.0.1:6333:6333"
+    # Qdrant доступен ТОЛЬКО внутри Docker-сети (rag-network).
+    # Для отладки с хоста: docker exec rag-qdrant curl http://localhost:6333/collections
+    # или временно раскомментировать ports ниже.
+    expose:
+      - "6333/tcp"
+    # ports:
+    #   - "127.0.0.1:6333:6333"  # раскомментировать для отладки с хоста
     environment:
       QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:-qdrant_api_key}
     volumes:
@@ -20,11 +25,13 @@ services:
     image: ollama/ollama:latest
     hostname: ollama
     container_name: rag-ollama
-    # Ollama не умеет в собственную авторизацию — единственная реальная защита это не
-    # публиковать порт за пределы хоста. 127.0.0.1: оставляет локальную отладку рабочей
-    # (ollama ls/run на самой машине), но закрывает доступ по сети.
-    ports:
-      - "127.0.0.1:11435:11434"
+    # Ollama не умеет в собственную авторизацию — доступ ТОЛЬКО внутри Docker-сети.
+    # Для отладки с хоста: docker exec rag-ollama ollama list
+    # или временно раскомментировать ports ниже.
+    expose:
+      - "11434/tcp"
+    # ports:
+    #   - "127.0.0.1:11435:11434"  # раскомментировать для отладки с хоста
     volumes:
       - ./data/ollama_models:/root/.ollama
     environment:

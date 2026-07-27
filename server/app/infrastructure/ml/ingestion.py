@@ -159,11 +159,60 @@ def parse_pdf(file_path: Path) -> list[Document]:
 # ---------------------------------------------------------------------------
 
 
+def merge_pdf_pages(pages: list[Document]) -> list[Document]:
+    """Merge per-page Documents from the same source into a single Document.
+
+    Preserves page range in metadata (page_start, page_end, pages list).
+    Prevents the splitter from breaking text at page boundaries.
+    """
+    if len(pages) <= 1:
+        return pages
+
+    # Group by source
+    by_source: dict[str, list[Document]] = {}
+    for p in pages:
+        src = p.metadata.get("source", "")
+        by_source.setdefault(src, []).append(p)
+
+    merged = []
+    for src, group in by_source.items():
+        page_nums = sorted(p.metadata.get("page", i + 1) for i, p in enumerate(group))
+        merged_text = "\n\n".join(p.page_content for p in group)
+        merged.append(
+            Document(
+                page_content=merged_text,
+                metadata={
+                    **group[0].metadata,
+                    "page_start": page_nums[0],
+                    "page_end": page_nums[-1],
+                    "pages": page_nums,
+                },
+            )
+        )
+    return merged
+
+
 def split_documents(docs: list[Document]) -> list[Document]:
+    """Split documents into chunks using structure-aware separators.
+
+    Separators are ordered by priority: articles/sections first, then paragraphs,
+    lines, words, characters. This prevents the splitter from breaking inside
+    numbered articles, legal clauses, or structured content.
+    """
+    separators = [
+        "\nСтатья ",
+        "\nРаздел ",
+        "\nПункт ",
+        "\n\n",
+        "\n",
+        " ",
+        "",
+    ]
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=settings.chunk_size,
         chunk_overlap=settings.chunk_overlap,
         length_function=len,
+        separators=separators,
     )
     chunks = splitter.split_documents(docs)
     log.info("Split %d documents into %d chunks", len(docs), len(chunks))
@@ -175,9 +224,23 @@ def split_documents(docs: list[Document]) -> list[Document]:
 # ---------------------------------------------------------------------------
 
 
-def _parse_docx(file_path: Path) -> str:
+def _parse_docx(file_path: Path) -> tuple[str, dict]:
+    """Parse DOCX and return (text, metadata_with_section).
+
+    Returns tuple of (text, {"section_count": N}) where section_count
+    can be used as a proxy for page numbers.
+    """
     doc = docx.Document(str(file_path))
-    parts = [p.text for p in doc.paragraphs if p.text.strip()]
+    parts = []
+    section_count = 1  # Start at page 1
+
+    for p in doc.paragraphs:
+        if not p.text.strip():
+            continue
+        # Track headings as section boundaries
+        if p.style and p.style.name and p.style.name.startswith("Heading"):
+            section_count += 1
+        parts.append(p.text)
 
     for table in doc.tables:
         parts.append("")  # blank line before table
@@ -185,25 +248,36 @@ def _parse_docx(file_path: Path) -> str:
             cells = [cell.text.strip() for cell in row.cells]
             parts.append(" | ".join(cells))
 
-    return "\n".join(parts)
+    return "\n".join(parts), {"section_count": section_count}
 
 
-def _parse_rtf(file_path: Path) -> str:
-    return rtf_to_text(file_path.read_text(encoding="utf-8", errors="replace"))
+def _parse_rtf(file_path: Path) -> tuple[str, dict]:
+    """Parse RTF and return (text, metadata)."""
+    return rtf_to_text(file_path.read_text(encoding="utf-8", errors="replace")), {}
 
 
-def _parse_markdown(file_path: Path) -> str:
+def _parse_markdown(file_path: Path) -> tuple[str, dict]:
+    """Parse Markdown and return (text, metadata_with_section).
+
+    Tracks headings as section boundaries for page-like metadata.
+    """
     text = file_path.read_text(encoding="utf-8", errors="replace")
     text = re.sub(r"!\[.*?\]\(.*?\)", "", text)
     text = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", text)
-    text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
+
+    # Count headings as section boundaries before stripping #
+    heading_count = len(re.findall(r"^#{1,6}\s+", text, re.MULTILINE))
+
+    # Preserve headings: strip # prefix but keep text, add blank line before for strong separation
+    text = re.sub(r"^(#{1,6})\s+(.+)$", r"\n\n\2", text, flags=re.MULTILINE)
     text = re.sub(r"[*_`~]+", "", text)
     text = html.unescape(text)
-    return text.strip()
+    return text.strip(), {"section_count": heading_count + 1}
 
 
-def _parse_txt(file_path: Path) -> str:
-    return file_path.read_text(encoding="utf-8", errors="replace")
+def _parse_txt(file_path: Path) -> tuple[str, dict]:
+    """Parse TXT and return (text, metadata)."""
+    return file_path.read_text(encoding="utf-8", errors="replace"), {}
 
 
 PARSERS = {

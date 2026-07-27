@@ -15,8 +15,8 @@ from config import settings
 from domain.repositories.vector_store_repository import VectorStoreRepository
 from langchain.schema import Document
 
-from infrastructure.ml.hybrid import BM25Index, save_bm25_index
-from infrastructure.ml.ingestion import PARSERS, parse_pdf, split_documents
+from infrastructure.ml.hybrid import BM25Index, load_bm25_index, save_bm25_index
+from infrastructure.ml.ingestion import PARSERS, merge_pdf_pages, parse_pdf, split_documents
 from infrastructure.registry import file_hash, is_already_indexed, load_registry, save_registry
 from infrastructure.storage import FileItem, FileStorage
 from infrastructure.uow_factory import UnitOfWorkFactory
@@ -69,7 +69,7 @@ class IngestionService:
                 log.error("No documents loaded. Check folder and formats.")
             return
 
-        chunks = split_documents(docs)
+        chunks = split_documents(merge_pdf_pages(docs))
         _tag_internal_public(chunks)
         self._upload_chunks_to_vector_store(chunks)
 
@@ -134,17 +134,25 @@ class IngestionService:
         """Convert LangChain Documents to domain Chunks and upload via repository.
 
         Also builds and persists the BM25 index for hybrid search.
+        When adding to an existing index, merges new texts instead of overwriting.
         """
         from domain.entities.chunk import Chunk
 
         domain_chunks = [Chunk(content=c.page_content, metadata=c.metadata) for c in chunks]
         self._vector_store.upload_documents(domain_chunks)
 
-        # Build and save BM25 index
+        # Build and save BM25 index — merge with existing if present
         if settings.hybrid_enabled:
-            texts = [c.page_content for c in chunks]
-            bm25_index = BM25Index(texts)
             bm25_path = Path(settings.data_dir) / "bm25_index.json"
+            new_texts = [c.page_content for c in chunks]
+
+            existing = load_bm25_index(bm25_path)
+            if existing is not None:
+                all_texts = existing.texts + new_texts
+            else:
+                all_texts = new_texts
+
+            bm25_index = BM25Index(all_texts)
             save_bm25_index(bm25_index, bm25_path)
             # Clear the cached index so next query picks up the new one
             from infrastructure.clients import get_bm25_index
@@ -244,7 +252,8 @@ class IngestionService:
         vector_size = len(self._vector_store.generate_embeddings("test"))
         self._vector_store.ensure_collection(vector_size, reset=False)
 
-        chunks = split_documents(docs)
+        merged = merge_pdf_pages(docs)
+        chunks = split_documents(merged)
         _tag_internal_public(chunks)
         self._upload_chunks_to_vector_store(chunks)
         return chunks

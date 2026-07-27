@@ -5,7 +5,7 @@ import { streamChat } from "@/shared/lib/sse";
 import { apiClient } from "@/shared/api/client";
 import { MessageBubble } from "@/widgets/chat/message-bubble";
 import { SourcePanel } from "@/widgets/chat/source-panel";
-import { ChatInput } from "@/widgets/chat/chat-input";
+import { ChatInput, type DepthOption } from "@/widgets/chat/chat-input";
 import type { Source, ConversationHistoryResponse } from "@/shared/api/types";
 import { MessageSquare } from "lucide-react";
 
@@ -23,6 +23,7 @@ export function ChatPage() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [selectedSources, setSelectedSources] = useState<Source[]>([]);
+  const [depth, setDepth] = useState<DepthOption>(null);
   const abortRef = useRef<AbortController | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const token = useAuthStore((s) => s.token);
@@ -71,7 +72,7 @@ export function ChatPage() {
     hadChunksRef.current = false;
 
     await streamChat({
-      question, conversationId, token,
+      question, conversationId, token, depth,
       onChunk: (text) => { hadChunksRef.current = true; streamingContentRef.current += text; setStreamingMsg(streamingContentRef.current); },
       onDone: (data) => {
         setMessages((p) => [...p, { role: "assistant", content: streamingContentRef.current, sources: data.sources }]);
@@ -130,7 +131,7 @@ export function ChatPage() {
           {streamingMsg !== null && <MessageBubble role="assistant" content={streamingMsg} streaming />}
           <div ref={endRef} />
         </div>
-        <ChatInput onSend={handleSend} onStop={handleStop} disabled={isStreaming} />
+        <ChatInput onSend={handleSend} onStop={handleStop} disabled={isStreaming} depth={depth} onDepthChange={setDepth} />
       </div>
       {selectedSources.length > 0 && <SourcePanel sources={selectedSources} onClose={() => setSelectedSources([])} />}
     </div>
