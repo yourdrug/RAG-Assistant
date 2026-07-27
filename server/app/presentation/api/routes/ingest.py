@@ -21,6 +21,13 @@ logger = logging.getLogger("default")
 router = APIRouter(tags=["ingest"])
 
 
+def _safe_run_ingest(func, *args, **kwargs):
+    try:
+        func(*args, **kwargs)
+    except Exception:
+        logger.exception("Background ingestion task failed")
+
+
 @router.post("/ingest", response_model=IngestStatusResponse)
 async def ingest_documents(
     background_tasks: BackgroundTasks,
@@ -34,7 +41,7 @@ async def ingest_documents(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    background_tasks.add_task(service.run_full, resolved_dir, reset)
+    background_tasks.add_task(_safe_run_ingest, service.run_full, resolved_dir, reset)
     mode = "RESET + full reindex" if reset else "APPEND (new files only)"
     return IngestStatusResponse(status="started", mode=mode, docs_dir=resolved_dir)
 
@@ -56,7 +63,7 @@ async def ingest_single_file(
 
     if force:
         service.force_reindex(Path(resolved).name)
-    background_tasks.add_task(service.run_single, resolved)
+    background_tasks.add_task(_safe_run_ingest, service.run_single, resolved)
     return IngestStatusResponse(status="started", file=resolved, force=force)
 
 

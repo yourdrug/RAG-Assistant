@@ -12,6 +12,7 @@ from pathlib import Path
 import typer
 from config import settings
 from infrastructure.ml.benchmark import run_benchmark
+from infrastructure.ml.benchmark_history import compare_runs, get_last_baseline, print_history
 
 logger = logging.getLogger("cli")
 
@@ -190,3 +191,111 @@ def benchmark_grid_search(
     logger.info("Лучшие параметры: %s", best_params)
     logger.info("Лучший composite score: %.3f", best_score)
     logger.info("Результаты сохранены: %s", grid_path)
+
+
+@benchmark_app.command("regression")
+def benchmark_regression(
+    questions: str = typer.Option(
+        str(Path(settings.data_dir) / "test_questions.json"),
+        "--questions",
+        "-q",
+        help="Путь к JSON-файлу с вопросами",
+    ),
+    out: str = typer.Option(
+        str(Path(settings.data_dir) / "benchmark_results"),
+        "--out",
+        "-o",
+        help="Папка для сохранения результатов",
+    ),
+    top_k: int = typer.Option(
+        settings.retriever_top_k,
+        "--top-k",
+        "-k",
+        help="Количество чанков для retriever",
+    ),
+    judge_model: str = typer.Option(
+        settings.llm_model,
+        "--judge-model",
+        "-j",
+        help="Модель Ollama для роли судьи",
+    ),
+) -> None:
+    """Run benchmark and compare with baseline. Exit code 1 if regression detected."""
+    baseline = get_last_baseline(settings.data_dir)
+
+    if baseline:
+        logger.info("Baseline found: %s", baseline.get("timestamp", "?"))
+    else:
+        logger.info("No baseline found — this run will become the baseline.")
+
+    try:
+        run_benchmark(
+            questions_path=questions,
+            out_dir=out,
+            top_k=top_k,
+            judge_model=judge_model,
+        )
+    except Exception as exc:
+        logger.error("Benchmark failed", exc_info=exc)
+        sys.exit(1)
+
+    if baseline is None:
+        logger.info("First run saved as baseline. No regression check possible.")
+        return
+
+    # Reload history to get the run we just saved
+    from infrastructure.ml.benchmark_history import load_history
+
+    history = load_history(settings.data_dir)
+    if len(history) < 2:
+        logger.info("Not enough history for comparison.")
+        return
+
+    current = history[-1]
+    comp = compare_runs(current, baseline)
+
+    logger.info("")
+    logger.info("=" * 60)
+    logger.info("REGRESSION CHECK  (current vs baseline %s)", baseline.get("timestamp", "?"))
+    logger.info("=" * 60)
+    logger.info(
+        "%-20s  %8s  %8s  %8s  %10s  %s",
+        "Metric",
+        "Baseline",
+        "Current",
+        "Delta",
+        "Threshold",
+        "Status",
+    )
+    logger.info("-" * 60)
+
+    for r in comp["results"]:
+        if r["delta"] is not None:
+            status = "FAIL" if r["failed"] else "ok"
+            logger.info(
+                "%-20s  %8.4f  %8.4f  %+.4f  %+.4f  %s",
+                r["metric"],
+                r["baseline"],
+                r["current"],
+                r["delta"],
+                r["threshold"],
+                status,
+            )
+        else:
+            logger.info("%-20s  %8s  %8s  %8s  %10s  %s", r["metric"], "-", "-", "-", "-", r.get("note", ""))
+
+    logger.info("=" * 60)
+
+    if comp["passed"]:
+        logger.info("PASSED — no regression detected")
+    else:
+        logger.error("FAILED — regression detected (thresholds exceeded)")
+        sys.exit(1)
+
+
+@benchmark_app.command("history")
+def benchmark_history(
+    n: int = typer.Option(10, "--last", "-n", help="Number of recent runs to show"),
+) -> None:
+    """Show benchmark history — last N runs with trend comparison."""
+    print_history(settings.data_dir, n=n)

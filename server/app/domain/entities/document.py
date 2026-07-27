@@ -20,6 +20,7 @@ class Document:
     group_id: int | None = None
     status: DocumentStatus = DocumentStatus.PENDING
     error_message: str | None = None
+    warning_message: str | None = None
     chunks: int | None = None
     chars: int | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
@@ -34,11 +35,12 @@ class Document:
     def mark_processing(self) -> None:
         self.status = DocumentStatus.PROCESSING
 
-    def mark_done(self, chunks: int, chars: int) -> None:
+    def mark_done(self, chunks: int, chars: int, warning_message: str | None = None) -> None:
         self.status = DocumentStatus.DONE
         self.chunks = chunks
         self.chars = chars
         self.indexed_at = datetime.now(UTC)
+        self.warning_message = warning_message
 
     def mark_failed(self, error: str) -> None:
         self.status = DocumentStatus.FAILED

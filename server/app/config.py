@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     ocr_enabled: bool = os.getenv("OCR_ENABLED", "true").lower() == "true"
     ocr_lang_paddle: str = os.getenv("OCR_LANG_PADDLE", "ru")  # ru | en | ...
     ocr_lang_surya: list = ["ru", "en"]
-    ocr_dpi: int = 300  # разрешение рендера страницы перед OCR
+    ocr_dpi: int = int(os.getenv("OCR_DPI", "300"))
 
     # --- Файловое хранилище ---
     file_backend: str = os.getenv("FILE_BACKEND", "local")  # "local" | "s3"
@@ -63,8 +63,9 @@ class Settings(BaseSettings):
     retriever_fetch_k_broad: int = 40
     retriever_top_k_broad: int = 10
     history_window: int = 8
-    chunk_size: int = 900
-    chunk_overlap: int = 150
+    chunk_size: int = int(os.getenv("CHUNK_SIZE", "900"))
+    chunk_overlap: int = int(os.getenv("CHUNK_OVERLAP", "150"))
+    embed_batch_size: int = int(os.getenv("EMBED_BATCH_SIZE", "32"))
 
     # --- Hybrid search (BM25 + dense RRF) ---
     hybrid_enabled: bool = os.getenv("HYBRID_ENABLED", "true").lower() == "true"

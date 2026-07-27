@@ -270,11 +270,16 @@ class TestSplitDocuments:
         assert chunks[0].page_content == "Hello world"
 
     def test_long_text_splits(self):
+        from unittest.mock import patch
+
         from langchain.schema import Document
 
         long_text = "word " * 200  # ~1000 chars
         docs = [Document(page_content=long_text, metadata={"source": "t.txt"})]
-        chunks = split_documents(docs)
+        with patch("infrastructure.ml.ingestion.settings") as mock_settings:
+            mock_settings.chunk_size = 900
+            mock_settings.chunk_overlap = 150
+            chunks = split_documents(docs)
         assert len(chunks) > 1
 
     def test_prefers_paragraph_breaks(self):
@@ -287,13 +292,18 @@ class TestSplitDocuments:
         assert len(chunks) == 1  # fits in one chunk
 
     def test_splits_at_double_newline(self):
+        from unittest.mock import patch
+
         from langchain.schema import Document
 
         # Two paragraphs that together exceed chunk_size
         p1 = "A" * 300
         p2 = "B" * 300
         docs = [Document(page_content=f"{p1}\n\n{p2}", metadata={"source": "t.txt"})]
-        chunks = split_documents(docs)
+        with patch("infrastructure.ml.ingestion.settings") as mock_settings:
+            mock_settings.chunk_size = 900
+            mock_settings.chunk_overlap = 150
+            chunks = split_documents(docs)
         assert len(chunks) >= 2
 
     def test_article_separator_preferred(self):

@@ -12,11 +12,66 @@ pdf_diag.py — диагностика PDF файлов перед индекс�
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 
 import fitz
 
 logger = logging.getLogger("default")
+
+
+@dataclass(frozen=True)
+class PdfQualityReport:
+    """Результат оценки качества извлечения текста из PDF, уже ПОСЛЕ OCR.
+
+    В отличие от `check_pdf` (диагностика "на глаз" до индексации), эта оценка
+    смотрит на то, что реально получилось в `docs` после parse_pdf — то есть
+    учитывает, помог ли OCR восстановить сканы, а не просто факт их наличия.
+    """
+
+    total_pages: int
+    n_ok: int
+    n_missing: int  # OCR не дал текста вообще
+    n_garbled: int  # текст есть, но выглядит как мусор
+    bad_ratio: float
+
+    @property
+    def is_low_quality(self) -> bool:
+        return self.total_pages > 0 and self.bad_ratio > 0.3
+
+
+def assess_pdf_extraction_quality(pdf_path: Path, extracted_docs: list) -> PdfQualityReport:
+    """Сравнивает физическое число страниц PDF с тем, что реально извлеклось.
+
+    Страница считается "плохой", если для неё нет ни одного Document в extracted_docs
+    (текстовый слой пуст и OCR не справился), либо извлечённый текст мусорный
+    (is_garbled). Это именно тот случай ">30% сканов/мусора, и OCR не помог",
+    который нужно поймать перед индексацией.
+    """
+    doc = fitz.open(str(pdf_path))
+    try:
+        total_pages = len(doc)
+    finally:
+        doc.close()
+
+    by_page: dict[int, str] = {}
+    for d in extracted_docs:
+        page_num = d.metadata.get("page")
+        if page_num is not None:
+            by_page[page_num] = by_page.get(page_num, "") + d.page_content
+
+    n_missing = max(total_pages - len(by_page), 0)
+    n_garbled = sum(1 for text in by_page.values() if is_garbled(text))
+    bad = n_missing + n_garbled
+    bad_ratio = bad / total_pages if total_pages else 0.0
+
+    return PdfQualityReport(
+        total_pages=total_pages,
+        n_ok=len(by_page) - n_garbled,
+        n_missing=n_missing,
+        n_garbled=n_garbled,
+        bad_ratio=bad_ratio,
+    )
 
 
 def is_garbled(text: str) -> bool:

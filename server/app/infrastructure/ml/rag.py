@@ -45,6 +45,7 @@ def classify_question_breadth(question: str) -> str:
     q = question.lower()
     return "broad" if any(re.search(p, q) for p in broad_patterns) else "narrow"
 
+
 # ---------------------------------------------------------------------------
 # Query condensation prompt
 # ---------------------------------------------------------------------------
@@ -197,9 +198,15 @@ def format_docs(docs, max_context_tokens: int = 6000) -> str:
         page = doc.metadata.get("page")
         page_start = doc.metadata.get("page_start")
         page_end = doc.metadata.get("page_end")
+        doc_date = doc.metadata.get("doc_date")
         header = f"[{i}] {source}"
+
+        if doc_date:
+            header += f" от {doc_date}"
+
         if page_start is not None and page_end is not None and page_start != page_end:
             header += f" (стр. {page_start}-{page_end})"
+
         elif page is not None:
             header += f" (стр. {page})"
 

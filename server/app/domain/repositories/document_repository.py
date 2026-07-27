@@ -18,6 +18,7 @@ class DocumentRepository(Protocol):
         error: str | None = None,
         chunks: int | None = None,
         chars: int | None = None,
+        warning: str | None = None,
     ) -> None: ...
     def set_source_path(self, document_id: int, source_path: str) -> None: ...
     def find_active_slot(

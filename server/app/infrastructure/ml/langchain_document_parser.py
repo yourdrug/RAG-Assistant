@@ -1,12 +1,15 @@
-"""LangChain Document Parser — infrastructure adapter for domain.services.document_parser."""
-
 from __future__ import annotations
 
 from pathlib import Path
 
 from langchain.schema import Document
 
-from infrastructure.ml.ingestion import PARSERS, parse_pdf
+from infrastructure.ml.ingestion import (
+    PARSERS,
+    parse_docx_sections,
+    parse_markdown_sections,
+    parse_pdf,
+)
 from infrastructure.ml.ingestion import split_documents as _split_documents
 
 
@@ -19,27 +22,36 @@ class LangchainDocumentParser:
         if ext == ".pdf":
             return parse_pdf(file_path)
 
+        if ext == ".md":
+            return self._sections_to_documents(parse_markdown_sections(file_path), file_path)
+
+        if ext in (".docx", ".doc"):
+            return self._sections_to_documents(parse_docx_sections(file_path), file_path)
+
         parser = PARSERS.get(ext)
         if parser is None:
             raise RuntimeError(f"Unsupported format: {ext}")
 
-        result = parser(file_path)
-        # Handle both old (str) and new (tuple) return types
-        if isinstance(result, tuple):
-            text, extra_meta = result
-        else:
-            text, extra_meta = result, {}
-
+        text = parser(file_path)
         if not text or len(text.strip()) < 20:
             raise RuntimeError("Too little text in document")
 
-        metadata = {"source": file_path.name}
-        # Add section_count as a proxy for page numbers in non-PDF formats
-        section_count = extra_meta.get("section_count")
-        if section_count and section_count > 1:
-            metadata["section_count"] = section_count
+        return [Document(page_content=text, metadata={"source": file_path.name})]
 
-        return [Document(page_content=text, metadata=metadata)]
+    @staticmethod
+    def _sections_to_documents(sections: list[tuple[str | None, str]], file_path: Path) -> list[Document]:
+        docs = []
+        for heading, content in sections:
+            if not content.strip():
+                continue
+            metadata: dict = {"source": file_path.name}
+            if heading:
+                metadata["section"] = heading
+            docs.append(Document(page_content=content, metadata=metadata))
+
+        if not docs:
+            raise RuntimeError("Too little text in document")
+        return docs
 
 
 class LangchainDocumentSplitter:

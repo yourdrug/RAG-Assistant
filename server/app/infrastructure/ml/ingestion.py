@@ -256,23 +256,96 @@ def _parse_rtf(file_path: Path) -> tuple[str, dict]:
     return rtf_to_text(file_path.read_text(encoding="utf-8", errors="replace")), {}
 
 
-def _parse_markdown(file_path: Path) -> tuple[str, dict]:
-    """Parse Markdown and return (text, metadata_with_section).
+_MD_HEADER_RE = re.compile(r"^(#{1,6})\s+(.*)$", re.MULTILINE)
+_DATE_IN_FILENAME_RE = re.compile(r"(\d{4}-\d{2}-\d{2})")
 
-    Tracks headings as section boundaries for page-like metadata.
-    """
-    text = file_path.read_text(encoding="utf-8", errors="replace")
+
+def _clean_markdown_text(text: str) -> str:
+    """Общая очистка markdown-разметки — используется и flat-парсером, и секционным."""
     text = re.sub(r"!\[.*?\]\(.*?\)", "", text)
     text = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", text)
-
-    # Count headings as section boundaries before stripping #
-    heading_count = len(re.findall(r"^#{1,6}\s+", text, re.MULTILINE))
-
-    # Preserve headings: strip # prefix but keep text, add blank line before for strong separation
-    text = re.sub(r"^(#{1,6})\s+(.+)$", r"\n\n\2", text, flags=re.MULTILINE)
+    text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
     text = re.sub(r"[*_`~]+", "", text)
     text = html.unescape(text)
-    return text.strip(), {"section_count": heading_count + 1}
+    return text.strip()
+
+
+def parse_markdown_sections(file_path: Path) -> list[tuple[str | None, str]]:
+    """Разбивает markdown на (заголовок, контент) по структуре заголовков.
+
+    Контент между двумя заголовками относится к предыдущему заголовку. Текст до
+    первого заголовка (если есть) получает heading=None.
+    """
+    raw = file_path.read_text(encoding="utf-8", errors="replace")
+    matches = list(_MD_HEADER_RE.finditer(raw))
+
+    if not matches:
+        return [(None, _clean_markdown_text(raw))]
+
+    sections: list[tuple[str | None, str]] = []
+    if matches[0].start() > 0:
+        lead = _clean_markdown_text(raw[: matches[0].start()])
+        if lead:
+            sections.append((None, lead))
+
+    for i, m in enumerate(matches):
+        heading = m.group(2).strip()
+        start = m.end()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(raw)
+        content = _clean_markdown_text(raw[start:end])
+        if content:
+            sections.append((heading, content))
+
+    return sections
+
+
+def parse_docx_sections(file_path: Path) -> list[tuple[str | None, str]]:
+    """Разбивает DOCX на (заголовок, контент) по параграфам со стилем Heading*/Title."""
+    doc = docx.Document(str(file_path))
+    sections: list[tuple[str | None, str]] = []
+    current_heading: str | None = None
+    current_lines: list[str] = []
+
+    def _flush() -> None:
+        content = "\n".join(current_lines).strip()
+        if content:
+            sections.append((current_heading, content))
+
+    for p in doc.paragraphs:
+        text = p.text.strip()
+        if not text:
+            continue
+        style_name = (p.style.name or "").lower() if p.style else ""
+        if style_name.startswith("heading") or style_name == "title":
+            _flush()
+            current_heading = text
+            current_lines = []
+        else:
+            current_lines.append(text)
+    _flush()
+
+    table_lines = []
+    for table in doc.tables:
+        for row in table.rows:
+            cells = [cell.text.strip() for cell in row.cells]
+            table_lines.append(" | ".join(cells))
+    if table_lines:
+        sections.append((None, "\n".join(table_lines)))
+
+    if not sections:
+        return [(None, _parse_docx(file_path))]
+    return sections
+
+
+def extract_date_from_filename(filename: str) -> str | None:
+    """Ищет дату вида YYYY-MM-DD в имени файла — простая эвристика для метаданных."""
+    m = _DATE_IN_FILENAME_RE.search(filename)
+    return m.group(1) if m else None
+
+
+def _parse_markdown(file_path: Path) -> str:
+    text = file_path.read_text(encoding="utf-8", errors="replace")
+    return _clean_markdown_text(text)
 
 
 def _parse_txt(file_path: Path) -> tuple[str, dict]:

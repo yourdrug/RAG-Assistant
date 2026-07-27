@@ -13,6 +13,8 @@ from domain.services.document_parser import DocumentParser, DocumentSplitter
 from infrastructure.storage import FileStorage
 from infrastructure.uow_factory import UnitOfWorkFactory
 
+from infrastructure.ml.ingestion import extract_date_from_filename
+
 log = logging.getLogger("default")
 
 
@@ -48,8 +50,36 @@ class DocumentProcessor:
 
                 temp_path = self._file_storage.download_to_temp(storage_key)
                 docs = self._parser.parse(temp_path)
+
+                if not docs:
+                    raise RuntimeError(
+                        "Текст не извлечён — документ похож на скан, "
+                        "и OCR не смог распознать содержимое."
+                    )
+
+                warning_message = None
+                if Path(original_filename).suffix.lower() == ".pdf":
+                    from infrastructure.ml.pdf_diag import assess_pdf_extraction_quality
+
+                    quality = assess_pdf_extraction_quality(temp_path, docs)
+                    if quality.is_low_quality:
+                        warning_message = (
+                            f"Низкое качество распознавания: {quality.n_missing} стр. без текста, "
+                            f"{quality.n_garbled} стр. с мусорным текстом из {quality.total_pages}. "
+                            "Рекомендуется проверить документ (task pdf:diag) и переиндексировать "
+                            "после конвертации или ручной вычитки."
+                        )
+                        log.warning(
+                            "Low-quality extraction for doc %d (%s): bad_ratio=%.2f",
+                            document_id, original_filename, quality.bad_ratio,
+                        )
+
+                doc_date = extract_date_from_filename(original_filename)
+
                 for doc in docs:
                     doc.metadata["source"] = original_filename
+                    if doc_date:
+                        doc.metadata["doc_date"] = doc_date
 
                 chunks = self._splitter.split(docs)
                 for chunk in chunks:
@@ -61,6 +91,9 @@ class DocumentProcessor:
                             "group_id": group_id,
                         }
                     )
+                    section = chunk.metadata.get("section")
+                    if section:
+                        chunk.page_content = f"[Раздел: {section}]\n{chunk.page_content}"
 
                 from domain.entities.chunk import Chunk
 
@@ -78,7 +111,9 @@ class DocumentProcessor:
                     uow.documents.delete(replace_id)
 
                 total_chars = sum(len(d.page_content) for d in docs)
-                uow.documents.update_status(document_id, "done", chunks=len(chunks), chars=total_chars)
+                uow.documents.update_status(
+                    document_id, "done", chunks=len(chunks), chars=total_chars, warning=warning_message
+                )
 
         except Exception as e:
             log.exception("Document processing failed for doc %d: %s", document_id, e)

@@ -33,25 +33,28 @@ def _process_document_in_background(
     group_id: int | None,
     replace_id: int | None,
 ):
-    processor = DocumentProcessor(
-        uow_factory=get_uow_factory(),
-        vector_store_repo=get_vector_store_repo(),
-        file_storage=get_file_storage(),
-        document_parser=get_document_parser(),
-        document_splitter=get_document_splitter(),
-    )
+    try:
+        processor = DocumentProcessor(
+            uow_factory=get_uow_factory(),
+            vector_store_repo=get_vector_store_repo(),
+            file_storage=get_file_storage(),
+            document_parser=get_document_parser(),
+            document_splitter=get_document_splitter(),
+        )
 
-    logger.info("Background upload started: %s (doc %d)", filename, document_id)
-    processor.process(
-        document_id=document_id,
-        storage_key=storage_key,
-        original_filename=filename,
-        visibility=visibility,
-        owner_id=owner_id,
-        group_id=group_id,
-        replace_id=replace_id,
-    )
-    logger.info("Background upload completed: %s (doc %d)", filename, document_id)
+        logger.info("Background upload started: %s (doc %d)", filename, document_id)
+        processor.process(
+            document_id=document_id,
+            storage_key=storage_key,
+            original_filename=filename,
+            visibility=visibility,
+            owner_id=owner_id,
+            group_id=group_id,
+            replace_id=replace_id,
+        )
+        logger.info("Background upload completed: %s (doc %d)", filename, document_id)
+    except Exception:
+        logger.exception("Background document processing failed for %s (doc %d)", filename, document_id)
 
 
 @router.post("/documents", response_model=UploadStatusResponse)

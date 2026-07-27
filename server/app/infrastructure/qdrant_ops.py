@@ -6,11 +6,11 @@ Extracted from vector_store.py. Pure functions receiving dependencies.
 import hashlib
 import logging
 import time
+import uuid
 
 from config import settings
 from langchain.schema import Document
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams
 
@@ -44,39 +44,39 @@ def ensure_collection(client: QdrantClient, vector_size: int, reset: bool = Fals
 
 
 def upload_to_qdrant(chunks: list[Document], embeddings: HuggingFaceEmbeddings) -> None:
-    batch_size = 500
+    embed_batch = settings.embed_batch_size
+    qdrant_batch = 500
     total = len(chunks)
-    log.info("Uploading %d chunks to Qdrant in batches of %d ...", total, batch_size)
+    log.info("Uploading %d chunks to Qdrant (embed batch=%d, upsert batch=%d) ...", total, embed_batch, qdrant_batch)
     t0 = time.monotonic()
 
-    # Pre-compute all content hashes in batch (faster than per-doc)
+    # Pre-compute all content hashes (faster than per-doc)
     texts = [doc.page_content for doc in chunks]
     hashes = [_content_hash(t) for t in texts]
     for doc, h in zip(chunks, hashes):
         doc.metadata["content_hash"] = h
 
-    # Pre-compute all embeddings in batch (major speedup vs per-query)
-    log.info("Generating embeddings for %d chunks ...", total)
-    t_embed = time.monotonic()
-    embeddings_list = embeddings.embed_documents(texts)
-    log.info("Embeddings generated in %.1fs", time.monotonic() - t_embed)
-
-    # Upload to Qdrant with pre-computed vectors
     from qdrant_client import QdrantClient
     from qdrant_client.models import PointStruct
 
     client = QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key)
 
-    for i in range(0, total, batch_size):
-        batch_chunks = chunks[i : i + batch_size]
-        batch_vectors = embeddings_list[i : i + batch_size]
+    # Embed + upsert in sub-batches to limit peak memory and give visible progress
+    pending_points: list[PointStruct] = []
+    for batch_start in range(0, total, embed_batch):
+        batch_end = min(batch_start + embed_batch, total)
+        batch_texts = texts[batch_start:batch_end]
+        batch_chunks_slice = chunks[batch_start:batch_end]
 
-        points = []
-        for j, (doc, vector) in enumerate(zip(batch_chunks, batch_vectors)):
-            point_id = hashes[i + j]  # Use content_hash as ID for dedup
-            points.append(
+        log.info("  Embedding chunks %d/%d ...", batch_end, total)
+        t_embed = time.monotonic()
+        batch_vectors = embeddings.embed_documents(batch_texts)
+        log.info("  Embedded in %.1fs", time.monotonic() - t_embed)
+
+        for doc, vector in zip(batch_chunks_slice, batch_vectors):
+            pending_points.append(
                 PointStruct(
-                    id=point_id,
+                    id=uuid.uuid4().hex,
                     vector=vector,
                     payload={
                         "page_content": doc.page_content,
@@ -85,21 +85,31 @@ def upload_to_qdrant(chunks: list[Document], embeddings: HuggingFaceEmbeddings) 
                 )
             )
 
-        client.upsert(
-            collection_name=settings.collection_name,
-            points=points,
-        )
+        # Flush to Qdrant when we have enough for a qdrant_batch or at the end
+        while len(pending_points) >= qdrant_batch:
+            client.upsert(
+                collection_name=settings.collection_name,
+                points=pending_points[:qdrant_batch],
+            )
+            pending_points = pending_points[qdrant_batch:]
 
-        done = min(i + batch_size, total)
+        done = batch_end
         elapsed = time.monotonic() - t0
         speed = done / elapsed if elapsed > 0 else 0
         eta = (total - done) / speed if speed > 0 else 0
         log.info(
-            "  Uploaded %d/%d chunks  (%.1f c/s, ETA ~%.0fs)",
+            "  Progress %d/%d chunks  (%.1f c/s, ETA ~%.0fs)",
             done,
             total,
             speed,
             eta,
+        )
+
+    # Flush remaining points
+    if pending_points:
+        client.upsert(
+            collection_name=settings.collection_name,
+            points=pending_points,
         )
 
     log.info("Qdrant upload completed in %.1fs", time.monotonic() - t0)

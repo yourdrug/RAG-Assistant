@@ -12,6 +12,7 @@ class DocumentDTO:
     visibility: str
     status: str
     error_message: str | None = None
+    warning_message: str | None = None
     chunks: int | None = None
     chars: int | None = None
     storage_key: str | None = None

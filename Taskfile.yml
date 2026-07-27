@@ -238,6 +238,16 @@ tasks:
     cmds:
       - "{{.COMPOSE}} exec server bash -c 'cd app && python -m cli benchmark run'"
 
+  bench:regression:
+    desc: Benchmark + regression check vs baseline (exit code 1 при regressions)
+    cmds:
+      - "{{.COMPOSE}} exec server bash -c 'cd app && python -m cli benchmark regression'"
+
+  bench:history:
+    desc: Показать историю последних 10 runs бенчмарка
+    cmds:
+      - "{{.COMPOSE}} exec server bash -c 'cd app && python -m cli benchmark history'"
+
   pdf:diag:
     desc: "Диагностика PDF-файла (task pdf:diag -- /path/to/file.pdf)"
     cmds:

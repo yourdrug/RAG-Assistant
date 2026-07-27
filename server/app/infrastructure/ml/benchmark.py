@@ -400,6 +400,50 @@ def save_results(results: list[dict], out_dir: str, model_name: str = ""):
     logger.info("  JSON: %s", json_path)
     logger.info("  CSV:  %s", csv_path)
 
+    # Append to history for trend tracking
+    from infrastructure.ml.benchmark_history import save_summary_to_history
+
+    n = len(results)
+    faiths = [r["generator_metrics"]["faithfulness"] for r in results]
+    rels = [r["generator_metrics"]["relevancy"] for r in results]
+    corrs = [
+        r["generator_metrics"]["correctness"]
+        for r in results
+        if r["generator_metrics"]["correctness"] is not None
+    ]
+    hit_rates = [
+        r["retriever_metrics"]["hit_rate"]
+        for r in results
+        if r["retriever_metrics"]["hit_rate"] is not None
+    ]
+    mrrs = [r["retriever_metrics"]["mrr"] for r in results if r["retriever_metrics"]["mrr"] is not None]
+    sims = [r["retriever_metrics"]["avg_similarity"] for r in results]
+
+    summary = {
+        "total_questions": n,
+        "total_time_sec": round(sum(r["latency_sec"] for r in results), 1),
+        "hit_rate": round(sum(hit_rates) / len(hit_rates), 3) if hit_rates else None,
+        "avg_mrr": round(sum(mrrs) / len(mrrs), 3) if mrrs else None,
+        "avg_faithfulness": round(sum(faiths) / len(faiths), 1) if faiths else None,
+        "avg_relevancy": round(sum(rels) / len(rels), 1) if rels else None,
+        "avg_correctness": round(sum(corrs) / len(corrs), 1) if corrs else None,
+        "avg_similarity": round(sum(sims) / len(sims), 3) if sims else 0,
+    }
+
+    config = {
+        "top_k": settings.retriever_top_k,
+        "chunk_size": settings.chunk_size,
+        "chunk_overlap": settings.chunk_overlap,
+        "embed_model": settings.embed_model,
+        "llm_model": model_name or settings.llm_model,
+        "hybrid_enabled": settings.hybrid_enabled,
+        "dense_weight": settings.dense_weight,
+        "sparse_weight": settings.sparse_weight,
+        "rrf_k": settings.rrf_k,
+    }
+
+    save_summary_to_history(summary, config, settings.data_dir)
+
 
 # ---------------------------------------------------------------------------
 # Главный цикл

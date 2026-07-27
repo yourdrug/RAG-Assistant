@@ -47,18 +47,23 @@ class SQLAlchemyDocumentRepository:
         error: str | None = None,
         chunks: int | None = None,
         chars: int | None = None,
+        warning: str | None = None,
     ) -> None:
         self._db.execute(
             text("""
-                UPDATE documents
-                SET status = :status,
-                    error_message = :error,
-                    chunks = COALESCE(:chunks, chunks),
-                    chars = COALESCE(:chars, chars),
-                    indexed_at = CASE WHEN :status = 'done' THEN NOW() ELSE indexed_at END
-                WHERE id = :id
-            """),
-            {"status": status, "error": error, "chunks": chunks, "chars": chars, "id": document_id},
+                 UPDATE documents
+                 SET status          = :status,
+                     error_message   = :error,
+                     warning_message = CASE WHEN :status = 'done' THEN :warning ELSE warning_message END,
+                     chunks          = COALESCE(:chunks, chunks),
+                     chars           = COALESCE(:chars, chars),
+                     indexed_at      = CASE WHEN :status = 'done' THEN NOW() ELSE indexed_at END
+                 WHERE id = :id
+                 """),
+            {
+                "status": status, "error": error, "chunks": chunks,
+                "chars": chars, "warning": warning, "id": document_id,
+            },
         )
 
     def set_source_path(self, document_id: int, source_path: str) -> None:
@@ -162,6 +167,7 @@ class SQLAlchemyDocumentRepository:
             group_id=row.group_id,
             status=DocumentStatus(row.status),
             error_message=row.error_message,
+            warning_message=row.warning_message,
             chunks=row.chunks,
             chars=row.chars,
             created_at=row.created_at,

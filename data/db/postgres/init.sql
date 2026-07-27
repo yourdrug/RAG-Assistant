@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS documents (
     status        VARCHAR(16) NOT NULL DEFAULT 'pending'
                   CHECK (status IN ('pending', 'processing', 'done', 'failed')),
     error_message TEXT,
+    warning_message TEXT,
     chunks        INTEGER,
     chars         INTEGER,
     created_at    TIMESTAMP DEFAULT NOW(),
