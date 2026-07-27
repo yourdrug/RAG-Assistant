@@ -46,6 +46,7 @@ class CreateUserRequest(BaseModel):
 class ChatRequest(BaseModel):
     question: str
     conversation_id: int | None = None
+    depth: str | None = None  # "short" | "detailed" | None (auto)
 
 
 class ChatResponse(BaseModel):

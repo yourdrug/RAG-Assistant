@@ -1,5 +1,5 @@
 """
-Tests for domain/ingestion.py — text cleaning and markdown parsing.
+Tests for domain/ingestion.py — text cleaning, markdown parsing, merging, splitting.
 Pure string transformations, no OCR/Qdrant/embeddings.
 """
 
@@ -8,7 +8,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-from infrastructure.ml.ingestion import PARSERS, _parse_markdown, _parse_txt, clean_pdf_text  # noqa: E402
+from infrastructure.ml.ingestion import (  # noqa: E402
+    PARSERS,
+    _parse_markdown,
+    _parse_txt,
+    clean_pdf_text,
+    merge_pdf_pages,
+    split_documents,
+)
 
 # ---------------------------------------------------------------------------
 # clean_pdf_text
@@ -194,3 +201,115 @@ class TestParsersRegistry:
     def test_all_parsers_are_callable(self):
         for ext, parser in PARSERS.items():
             assert callable(parser), f"Parser for {ext} is not callable"
+
+
+# ---------------------------------------------------------------------------
+# merge_pdf_pages
+# ---------------------------------------------------------------------------
+
+
+def _page_doc(text: str, page: int, source: str = "test.pdf"):
+    from langchain.schema import Document
+
+    return Document(page_content=text, metadata={"page": page, "source": source})
+
+
+class TestMergePdfPages:
+    def test_single_page_returned_as_is(self):
+        pages = [_page_doc("hello", 1)]
+        result = merge_pdf_pages(pages)
+        assert len(result) == 1
+        assert result[0].page_content == "hello"
+
+    def test_two_pages_merged(self):
+        pages = [_page_doc("page1", 1), _page_doc("page2", 2)]
+        result = merge_pdf_pages(pages)
+        assert len(result) == 1
+        assert "page1" in result[0].page_content
+        assert "page2" in result[0].page_content
+
+    def test_metadata_preserves_page_range(self):
+        pages = [_page_doc("a", 1), _page_doc("b", 3), _page_doc("c", 5)]
+        result = merge_pdf_pages(pages)
+        assert result[0].metadata["page_start"] == 1
+        assert result[0].metadata["page_end"] == 5
+        assert result[0].metadata["pages"] == [1, 3, 5]
+
+    def test_pages_sorted_even_if_input_unsorted(self):
+        pages = [_page_doc("c", 3), _page_doc("a", 1), _page_doc("b", 2)]
+        result = merge_pdf_pages(pages)
+        assert result[0].metadata["pages"] == [1, 2, 3]
+
+    def test_groups_by_source(self):
+        pages = [
+            _page_doc("p1", 1, "a.pdf"),
+            _page_doc("p2", 2, "a.pdf"),
+            _page_doc("q1", 1, "b.pdf"),
+        ]
+        result = merge_pdf_pages(pages)
+        assert len(result) == 2
+        sources = {r.metadata["source"] for r in result}
+        assert sources == {"a.pdf", "b.pdf"}
+
+    def test_empty_list(self):
+        assert merge_pdf_pages([]) == []
+
+
+# ---------------------------------------------------------------------------
+# split_documents
+# ---------------------------------------------------------------------------
+
+
+class TestSplitDocuments:
+    def test_short_text_single_chunk(self):
+        from langchain.schema import Document
+
+        docs = [Document(page_content="Hello world", metadata={"source": "t.txt"})]
+        chunks = split_documents(docs)
+        assert len(chunks) == 1
+        assert chunks[0].page_content == "Hello world"
+
+    def test_long_text_splits(self):
+        from langchain.schema import Document
+
+        long_text = "word " * 200  # ~1000 chars
+        docs = [Document(page_content=long_text, metadata={"source": "t.txt"})]
+        chunks = split_documents(docs)
+        assert len(chunks) > 1
+
+    def test_prefers_paragraph_breaks(self):
+        from langchain.schema import Document
+
+        # Two paragraphs, each under chunk_size
+        text = "First paragraph content.\n\nSecond paragraph content."
+        docs = [Document(page_content=text, metadata={"source": "t.txt"})]
+        chunks = split_documents(docs)
+        assert len(chunks) == 1  # fits in one chunk
+
+    def test_splits_at_double_newline(self):
+        from langchain.schema import Document
+
+        # Two paragraphs that together exceed chunk_size
+        p1 = "A" * 300
+        p2 = "B" * 300
+        docs = [Document(page_content=f"{p1}\n\n{p2}", metadata={"source": "t.txt"})]
+        chunks = split_documents(docs)
+        assert len(chunks) >= 2
+
+    def test_article_separator_preferred(self):
+        from langchain.schema import Document
+
+        text = "Intro text.\n\nСтатья 123. Article content here."
+        docs = [Document(page_content=text, metadata={"source": "t.txt"})]
+        chunks = split_documents(docs)
+        # Should split at "Статья" boundary, keeping article intact
+        texts = [c.page_content for c in chunks]
+        assert any("Статья 123" in t for t in texts)
+
+    def test_metadata_preserved(self):
+        from langchain.schema import Document
+
+        docs = [Document(page_content="content", metadata={"source": "x.pdf", "page": 5})]
+        chunks = split_documents(docs)
+        assert chunks[0].metadata["source"] == "x.pdf"
+        assert chunks[0].metadata["page"] == 5

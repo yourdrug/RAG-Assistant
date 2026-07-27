@@ -52,6 +52,13 @@ surya = [
     "surya-ocr==0.9.0",
 ]
 
+# CPU-only — экономит ~2GB в образе, убирая CUDA-зависимости (nvidia-cublas, nvidia-cudnn, triton).
+# Используй: uv sync --extra cpu  (вместо полного torch с CUDA)
+# Для GPU: раскомментировать devices в docker-compose.yml и убрать --extra cpu
+cpu = [
+    "torch>=2.0.0",
+]
+
 [dependency-groups]
 # Инструменты разработки: тесты, форматирование, линт.
 # Ставятся по умолчанию при `uv sync` (dev-машина), но исключаются в Docker-образе
@@ -68,6 +75,12 @@ package = false
 environments = [
     "sys_platform == 'linux' and platform_machine == 'x86_64'",
 ]
+
+# CPU-only индекс для PyTorch — убирает CUDA-зависимости (~2GB экономии)
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [tool.uv.extra-build-dependencies]
 grpcio-tools = ["setuptools<81"]

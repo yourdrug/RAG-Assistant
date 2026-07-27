@@ -23,11 +23,23 @@ class LangchainDocumentParser:
         if parser is None:
             raise RuntimeError(f"Unsupported format: {ext}")
 
-        text = parser(file_path)
+        result = parser(file_path)
+        # Handle both old (str) and new (tuple) return types
+        if isinstance(result, tuple):
+            text, extra_meta = result
+        else:
+            text, extra_meta = result, {}
+
         if not text or len(text.strip()) < 20:
             raise RuntimeError("Too little text in document")
 
-        return [Document(page_content=text, metadata={"source": file_path.name})]
+        metadata = {"source": file_path.name}
+        # Add section_count as a proxy for page numbers in non-PDF formats
+        section_count = extra_meta.get("section_count")
+        if section_count and section_count > 1:
+            metadata["section_count"] = section_count
+
+        return [Document(page_content=text, metadata=metadata)]
 
 
 class LangchainDocumentSplitter:

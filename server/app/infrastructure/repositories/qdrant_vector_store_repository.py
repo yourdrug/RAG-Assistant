@@ -48,7 +48,7 @@ class QdrantVectorStoreRepository:
         self._get_client().delete(
             collection_name=settings.collection_name,
             points_selector=Filter(
-                must=[FieldCondition(key="document_id", match=MatchValue(value=document_id))]
+                must=[FieldCondition(key="metadata.document_id", match=MatchValue(value=document_id))]
             ),
         )
 

@@ -34,6 +34,7 @@ export interface CreateUserRequest {
 export interface ChatRequest {
   question: string;
   conversation_id?: number | null;
+  depth?: "short" | "detailed" | null;
 }
 
 export interface ChatResponse {

@@ -32,6 +32,7 @@ async def chat_stream(
                 current_user["id"],
                 current_user["kind"],
                 current_user["role"],
+                depth=req.depth,
             ):
                 if chunk.startswith("\n__meta__:"):
                     meta = json.loads(chunk.replace("\n__meta__:", ""))
@@ -64,5 +65,6 @@ async def chat_sync(
         current_user["id"],
         current_user["kind"],
         current_user["role"],
+        depth=req.depth,
     )
     return ChatResponse(answer=result.answer, conversation_id=result.conversation_id, sources=result.sources)

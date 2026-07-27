@@ -9,6 +9,7 @@ interface StreamChatParams {
   question: string;
   conversationId?: number | null;
   token: string;
+  depth?: "short" | "detailed" | null;
   onChunk: (text: string) => void;
   onDone: (data: SSEDone) => void;
   onError: (error: string) => void;
@@ -21,6 +22,7 @@ export async function streamChat({
   question,
   conversationId,
   token,
+  depth,
   onChunk,
   onDone,
   onError,
@@ -29,7 +31,7 @@ export async function streamChat({
   const response = await fetch(`${API_BASE_URL}/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ question, conversation_id: conversationId ?? null }),
+    body: JSON.stringify({ question, conversation_id: conversationId ?? null, depth: depth ?? null }),
     signal,
   });
 

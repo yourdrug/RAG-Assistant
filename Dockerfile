@@ -53,6 +53,7 @@ SHELL ["/bin/bash", "-c"]
 
 # -----------------------------------------------------------------------------------
 # uv-base stage installs uv, creates venv and installs project deps
+# CPU-only: используем --extra cpu для установки PyTorch без CUDA (~2GB экономии)
 FROM builder-base AS uv-base
 
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -63,7 +64,7 @@ WORKDIR $PYSETUP_PATH
 COPY server/pyproject.toml server/uv.lock ./
 
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
+    uv sync --frozen --no-dev --extra cpu
 
 # -----------------------------------------------------------------------------------
 # Development stage — используется docker-compose.yml (target: development) с
@@ -79,8 +80,9 @@ COPY --from=uv-base $VENV_PATH $VENV_PATH
 COPY server/pyproject.toml server/uv.lock ./
 
 # Ставим ещё и dev-зависимости (pytest, ruff) — их нет в --no-dev слое выше
+# CPU-only: добавляем --extra cpu для PyTorch без CUDA
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen
+    uv sync --frozen --extra cpu
 
 COPY server/entrypoint.sh ./
 COPY VERSION ./

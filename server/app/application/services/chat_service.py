@@ -46,6 +46,7 @@ class ChatService:
         user_id: int,
         user_kind: str,
         user_role: str,
+        depth: str | None = None,
     ) -> AsyncIterator[str]:
         group_ids, assigned_ids = self._get_user_context(user_id, user_kind)
 
@@ -67,6 +68,7 @@ class ChatService:
             user_kind=user_kind,
             user_group_ids=group_ids,
             assigned_client_ids=assigned_ids,
+            depth=depth,
         ):
             # Save user message only after first real chunk arrives.
             # If user cancels before any chunks, the message is never saved.
@@ -107,6 +109,7 @@ class ChatService:
         user_id: int,
         user_kind: str,
         user_role: str,
+        depth: str | None = None,
     ) -> ChatResult:
         group_ids, assigned_ids = self._get_user_context(user_id, user_kind)
 
@@ -132,6 +135,7 @@ class ChatService:
             user_kind=user_kind,
             user_group_ids=group_ids,
             assigned_client_ids=assigned_ids,
+            depth=depth,
         )
 
         with self._uow_factory.create() as uow:

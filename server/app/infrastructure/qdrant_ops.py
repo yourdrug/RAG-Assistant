@@ -44,24 +44,52 @@ def ensure_collection(client: QdrantClient, vector_size: int, reset: bool = Fals
 
 
 def upload_to_qdrant(chunks: list[Document], embeddings: HuggingFaceEmbeddings) -> None:
-    batch_size = 100
+    batch_size = 500
     total = len(chunks)
     log.info("Uploading %d chunks to Qdrant in batches of %d ...", total, batch_size)
     t0 = time.monotonic()
 
+    # Pre-compute all content hashes in batch (faster than per-doc)
+    texts = [doc.page_content for doc in chunks]
+    hashes = [_content_hash(t) for t in texts]
+    for doc, h in zip(chunks, hashes):
+        doc.metadata["content_hash"] = h
+
+    # Pre-compute all embeddings in batch (major speedup vs per-query)
+    log.info("Generating embeddings for %d chunks ...", total)
+    t_embed = time.monotonic()
+    embeddings_list = embeddings.embed_documents(texts)
+    log.info("Embeddings generated in %.1fs", time.monotonic() - t_embed)
+
+    # Upload to Qdrant with pre-computed vectors
+    from qdrant_client import QdrantClient
+    from qdrant_client.models import PointStruct
+
+    client = QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key)
+
     for i in range(0, total, batch_size):
-        batch = chunks[i : i + batch_size]
-        # Add content_hash to each document's metadata for hybrid search merge
-        for doc in batch:
-            doc.metadata["content_hash"] = _content_hash(doc.page_content)
-        QdrantVectorStore.from_documents(
-            documents=batch,
-            embedding=embeddings,
-            url=settings.qdrant_url,
-            api_key=settings.qdrant_api_key,
+        batch_chunks = chunks[i : i + batch_size]
+        batch_vectors = embeddings_list[i : i + batch_size]
+
+        points = []
+        for j, (doc, vector) in enumerate(zip(batch_chunks, batch_vectors)):
+            point_id = hashes[i + j]  # Use content_hash as ID for dedup
+            points.append(
+                PointStruct(
+                    id=point_id,
+                    vector=vector,
+                    payload={
+                        "page_content": doc.page_content,
+                        "metadata": doc.metadata,
+                    },
+                )
+            )
+
+        client.upsert(
             collection_name=settings.collection_name,
-            force_recreate=False,
+            points=points,
         )
+
         done = min(i + batch_size, total)
         elapsed = time.monotonic() - t0
         speed = done / elapsed if elapsed > 0 else 0

@@ -3,6 +3,7 @@ infrastructure/ml/hybrid.py — BM25 sparse retrieval + RRF merge for hybrid sea
 
 Pure functions, no side effects at module level.
 BM25 implementation from scratch — zero external dependencies beyond stdlib.
+Includes lightweight Russian suffix stemmer for better sparse recall.
 """
 
 import hashlib
@@ -21,6 +22,55 @@ def content_hash(text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Lightweight Russian stemmer (suffix stripping)
+# ---------------------------------------------------------------------------
+
+# Common Russian suffixes to strip for better sparse recall.
+# Ordered by length (longest first) to avoid partial matches.
+_RU_SUFFIXES = [
+    "ости", "ость", "ений", "ение", "ания", "ями", "ого", "ать", "ить",
+    "ыть", "ять", "ути", "яти", "ей", "ой", "ий", "ый", "ая", "яя",
+    "ое", "ее", "ие", "ые", "ов", "ев", "ам", "ям", "ом", "ем",
+    "ах", "ях", "ки", "ка", "ик", "ов", "ев", "ые", "ие", "ы", "и",
+    "у", "ю", "я", "е", "а",
+]
+
+# Sort by length descending for greedy matching
+_RU_SUFFIXES.sort(key=len, reverse=True)
+
+
+def _stem_russian(word: str) -> str:
+    """Strip common Russian suffixes to normalize word forms.
+
+    This is a simple heuristic stemmer — not as accurate as pymorphy2,
+    but zero dependencies and very fast.
+    """
+    if len(word) < 5:  # Too short to stem meaningfully
+        return word
+
+    for suffix in _RU_SUFFIXES:
+        if word.endswith(suffix) and len(word) - len(suffix) >= 3:
+            return word[: -len(suffix)]
+    return word
+
+
+def _stem_token(token: str) -> str:
+    """Apply stemming to a single token."""
+    # Stem Latin tokens (basic English suffix stripping)
+    if token.isascii():
+        for suffix in ["tion", "sion", "ment", "ness", "able", "ible", "ful", "less", "ous", "ive"]:
+            if token.endswith(suffix) and len(token) - len(suffix) >= 3:
+                return token[: -len(suffix)]
+        return token
+
+    # Stem Russian tokens
+    if re.match(r"[а-яё]", token):
+        return _stem_russian(token)
+
+    return token
+
+
+# ---------------------------------------------------------------------------
 # Tokenizer
 # ---------------------------------------------------------------------------
 
@@ -28,7 +78,13 @@ _TOKEN_RE = re.compile(r"[a-zа-яё0-9]{2,}", re.UNICODE)
 
 
 def tokenize(text: str) -> list[str]:
-    """Lowercase + split on non-alphanumeric. 2+ char tokens only."""
+    """Lowercase, split on non-alphanumeric, stem tokens. 2+ char tokens only."""
+    tokens = _TOKEN_RE.findall(text.lower())
+    return [_stem_token(t) for t in tokens]
+
+
+def tokenize_raw(text: str) -> list[str]:
+    """Lowercase + split on non-alphanumeric without stemming. For indexing."""
     return _TOKEN_RE.findall(text.lower())
 
 

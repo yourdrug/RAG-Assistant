@@ -10,11 +10,13 @@ from config import settings
 from langchain.schema import Document as LCDocument
 
 from infrastructure.acl import build_qdrant_filter
-from infrastructure.clients import get_bm25_index, get_llm, get_reranker, get_vector_store
+from infrastructure.clients import get_bm25_index, get_embeddings, get_llm, get_reranker, get_vector_store
 from infrastructure.ml.hybrid import content_hash, rrf_merge
 from infrastructure.ml.rag import (
     build_prompt,
+    classify_question_breadth,
     condense_question,
+    deduplicate_docs,
     extract_sources,
     format_docs,
     history_to_messages,
@@ -61,7 +63,7 @@ def _qdrant_dense_search(query: str, k: int, access_filter) -> list[tuple[str, f
     from qdrant_client import QdrantClient
 
     client = QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key)
-    embeddings = get_vector_store().embedding
+    embeddings = get_embeddings()
 
     query_vector = embeddings.embed_query(query)
     # Apply access filter if it has conditions (check should list for non-empty)
@@ -96,11 +98,10 @@ class RagService:
         user_kind: str,
         user_group_ids: list[int],
         assigned_client_ids: list[int],
+        depth: str | None = None,
     ) -> AsyncIterator[str]:
         user = {"id": user_id, "kind": user_kind}
         access_filter = build_qdrant_filter(user, user_group_ids, assigned_client_ids)
-
-        prompt = build_prompt()
 
         history_dicts = []
         for msg in history:
@@ -122,16 +123,27 @@ class RagService:
 
         query_for_search = await condense_question(get_llm(), question, history_messages)
 
+        # --- Adaptive breadth: user override or auto-detect ---
+        breadth = depth if depth in ("short", "detailed") else classify_question_breadth(query_for_search)
+        if breadth == "detailed":
+            breadth = "broad"
+        elif breadth == "short":
+            breadth = "narrow"
+        fetch_k = settings.retriever_fetch_k_broad if breadth == "broad" else settings.retriever_fetch_k
+        top_k = settings.retriever_top_k_broad if breadth == "broad" else settings.retriever_top_k
+
+        prompt = build_prompt(breadth)
+
         # --- Hybrid retrieval: dense (Qdrant) + sparse (BM25) with RRF ---
         bm25_index = get_bm25_index()
 
         if settings.hybrid_enabled and bm25_index is not None:
             # Dense search via Qdrant (returns content_hash + score + doc)
-            dense_results = _qdrant_dense_search(query_for_search, settings.retriever_fetch_k, access_filter)
+            dense_results = _qdrant_dense_search(query_for_search, fetch_k, access_filter)
             dense_by_hash = {h: (score, doc) for h, score, doc in dense_results}
 
             # Sparse search via BM25 (returns content_hash + score)
-            sparse_results = bm25_index.search_with_hashes(query_for_search, k=settings.bm25_fetch_k)
+            sparse_results = bm25_index.search_with_hashes(query_for_search, k=fetch_k)
 
             # RRF merge
             merged_hashes = rrf_merge(
@@ -171,8 +183,11 @@ class RagService:
             )
             candidates = retriever.invoke(query_for_search)
 
+        # Deduplicate candidates before reranking to improve context diversity
+        candidates = deduplicate_docs(candidates)
+
         docs = rerank_documents(
-            query_for_search, candidates, top_n=settings.retriever_top_k, reranker=get_reranker()
+            query_for_search, candidates, top_n=top_k, reranker=get_reranker()
         )
 
         context = format_docs(docs)
@@ -199,12 +214,13 @@ class RagService:
         user_kind: str,
         user_group_ids: list[int],
         assigned_client_ids: list[int],
+        depth: str | None = None,
     ) -> tuple[str, list[dict]]:
         answer_parts: list[str] = []
         sources: list[dict] = []
 
         async for chunk in self.stream(
-            question, history, user_id, user_kind, user_group_ids, assigned_client_ids
+            question, history, user_id, user_kind, user_group_ids, assigned_client_ids, depth=depth
         ):
             if chunk.startswith("\n__sources__:"):
                 sources = json.loads(chunk.replace("\n__sources__:", ""))
