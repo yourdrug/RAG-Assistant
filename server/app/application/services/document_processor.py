@@ -32,7 +32,7 @@ class DocumentProcessor:
         self._parser = document_parser
         self._splitter = document_splitter
 
-    def process(
+    async def process(
         self,
         document_id: int,
         storage_key: str,
@@ -44,8 +44,8 @@ class DocumentProcessor:
     ) -> None:
         temp_path: Path | None = None
         try:
-            with self._uow_factory.create() as uow:
-                uow.documents.update_status(document_id, "processing")
+            async with self._uow_factory.create() as uow:
+                await uow.documents.update_status(document_id, "processing")
 
                 temp_path = self._file_storage.download_to_temp(storage_key)
                 docs = self._parser.parse(temp_path)
@@ -105,21 +105,21 @@ class DocumentProcessor:
 
                 if replace_id is not None:
                     self._vector_store.delete_by_document_id(replace_id)
-                    old = uow.documents.get_by_id(replace_id)
+                    old = await uow.documents.get_by_id(replace_id)
                     if old and old.source_path:
                         self._file_storage.delete_file(old.source_path)
-                    uow.documents.delete(replace_id)
+                    await uow.documents.delete(replace_id)
 
                 total_chars = sum(len(d.page_content) for d in docs)
-                uow.documents.update_status(
+                await uow.documents.update_status(
                     document_id, "done", chunks=len(chunks), chars=total_chars, warning=warning_message
                 )
 
         except Exception as e:
             log.exception("Document processing failed for doc %d: %s", document_id, e)
             try:
-                with self._uow_factory.create() as uow:
-                    uow.documents.update_status(document_id, "failed", error=str(e))
+                async with self._uow_factory.create() as uow:
+                    await uow.documents.update_status(document_id, "failed", error=str(e))
             except Exception:
                 log.exception("Failed to mark document as failed")
         finally:

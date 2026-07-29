@@ -24,7 +24,7 @@ logger = logging.getLogger("default")
 router = APIRouter(tags=["documents"])
 
 
-def _process_document_in_background(
+async def _process_document_in_background(
     document_id: int,
     storage_key: str,
     filename: str,
@@ -43,7 +43,7 @@ def _process_document_in_background(
         )
 
         logger.info("Background upload started: %s (doc %d)", filename, document_id)
-        processor.process(
+        await processor.process(
             document_id=document_id,
             storage_key=storage_key,
             original_filename=filename,

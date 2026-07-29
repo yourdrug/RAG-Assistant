@@ -66,9 +66,9 @@ class SQLAlchemyDocumentRepository:
         if chars is not None:
             orm.chars = chars
         if status == "done":
-            from datetime import datetime
+            from datetime import datetime, timezone
 
-            orm.indexed_at = datetime.now(tz=datetime.UTC)
+            orm.indexed_at = datetime.now(tz=timezone.utc)
         await self._db.flush()
 
     async def set_source_path(self, document_id: int, source_path: str) -> None:

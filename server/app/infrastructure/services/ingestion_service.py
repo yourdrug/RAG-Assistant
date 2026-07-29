@@ -6,6 +6,7 @@ instead of concrete infrastructure implementations.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from datetime import datetime
@@ -100,7 +101,7 @@ class IngestionService:
                 "indexed_at": datetime.now().isoformat(timespec="seconds"),
             }
         save_registry(data_dir, registry)
-        self._sync_documents_to_db(registry, source_chars, chunks)
+        asyncio.run(self._sync_documents_to_db(registry, source_chars, chunks))
 
         total_elapsed = time.monotonic() - t_start
         log.info("=" * 55)
@@ -108,26 +109,26 @@ class IngestionService:
         log.info("Registry: %d files", len(registry))
         log.info("=" * 55)
 
-    def _sync_documents_to_db(self, registry: dict, source_chars: dict, chunks: list) -> None:
+    async def _sync_documents_to_db(self, registry: dict, source_chars: dict, chunks: list) -> None:
         if self._uow_factory is None:
             return
-        with self._uow_factory.create() as uow:
+        async with self._uow_factory.create() as uow:
             for fname, info in registry.items():
                 src = info.get("source", "")
-                existing = uow.documents.find_active_slot(None, fname, None)
+                existing = await uow.documents.find_active_slot(None, fname, None)
                 if existing:
                     file_chunks = sum(1 for c in chunks if c.metadata.get("source") == src)
                     file_chars = source_chars.get(src, 0)
-                    uow.documents.update_status(existing.id, "done", chunks=file_chunks, chars=file_chars)
+                    await uow.documents.update_status(existing.id, "done", chunks=file_chunks, chars=file_chars)
                 else:
                     from domain.entities.document import Document as DocEntity
                     from domain.value_objects.visibility import DocumentVisibility
 
                     doc = DocEntity(filename=fname, visibility=DocumentVisibility.INTERNAL_PUBLIC)
-                    saved = uow.documents.save(doc)
+                    saved = await uow.documents.save(doc)
                     file_chunks = info.get("chunks", 0)
                     file_chars = info.get("chars", 0)
-                    uow.documents.update_status(saved.id, "done", chunks=file_chunks, chars=file_chars)
+                    await uow.documents.update_status(saved.id, "done", chunks=file_chunks, chars=file_chars)
             log.info("Synced %d documents to database", len(registry))
 
     def _upload_chunks_to_vector_store(self, chunks: list) -> None:
@@ -203,9 +204,9 @@ class IngestionService:
                     "indexed_at": datetime.now().isoformat(timespec="seconds"),
                 }
                 save_registry(data_dir, registry)
-                self._sync_documents_to_db(
+                asyncio.run(self._sync_documents_to_db(
                     registry, {f"s3://{settings.s3_bucket}/{key}": total_chars}, chunks
-                )
+                ))
             else:
                 log.warning("File '%s' already in registry.", file_info.filename)
         else:
@@ -242,7 +243,7 @@ class IngestionService:
                 "indexed_at": datetime.now().isoformat(timespec="seconds"),
             }
             save_registry(data_dir, registry)
-            self._sync_documents_to_db(registry, {str(path): total_chars}, chunks)
+            asyncio.run(self._sync_documents_to_db(registry, {str(path): total_chars}, chunks))
 
         log.info("=" * 55)
         log.info("DONE  |  %d chunks  |  %.1fs", len(chunks), time.monotonic() - t_start)

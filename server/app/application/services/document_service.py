@@ -66,17 +66,16 @@ class DocumentService:
                 if not groups:
                     raise EntityNotFound("Group", group_id)
 
-            if vis == DocumentVisibility.CLIENT_PRIVATE and user_kind == "internal":
-                if client_id is None:
-                    raise ValidationError("client_id required for client_private upload")
-                client_user = await uow.users.get_by_id(client_id)
-                if client_user is None or client_user.kind != "client":
-                    raise ValidationError("client_id must be a user with kind='client'")
-                if user_role != "admin":
-                    assigned_ids = await uow.client_assignments.get_assigned_client_ids(user_id)
-                    if client_id not in assigned_ids:
-                        raise BusinessRuleViolation("You are not assigned to this client")
-                effective_owner_id = client_id
+            if vis == DocumentVisibility.CLIENT_PRIVATE:
+                if user_kind == "client":
+                    effective_owner_id = user_id
+                else:
+                    if client_id is None:
+                        raise ValidationError("client_id required for client_private upload")
+                    client_user = await uow.users.get_by_id(client_id)
+                    if client_user is None or client_user.kind != "client":
+                        raise ValidationError("client_id must be a user with kind='client'")
+                    effective_owner_id = client_id
             else:
                 effective_owner_id = user_id
 

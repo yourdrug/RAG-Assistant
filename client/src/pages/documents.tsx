@@ -25,6 +25,7 @@ export function DocumentsPage() {
   const [files, setFiles] = useState<File[]>([]);
   const user = useAuthStore((s) => s.user);
   const isClient = user?.kind === "client";
+  const isAdmin = user?.role === "admin";
   const [vis, setVis] = useState<DocumentVisibility>(isClient ? "client_private" : "internal_private");
   const [groupId, setGroupId] = useState<number | null>(null);
   const [clientId, setClientId] = useState<number | null>(null);
@@ -160,12 +161,17 @@ export function DocumentsPage() {
                 <SelectContent>
                   {isClient ? (
                     <SelectItem value="client_private">Client Private</SelectItem>
-                  ) : (
+                  ) : isAdmin ? (
                     <>
                       <SelectItem value="internal_private">Private</SelectItem>
                       <SelectItem value="internal_public">Public</SelectItem>
                       <SelectItem value="internal_group">Group</SelectItem>
                       <SelectItem value="client_private">Client Private</SelectItem>
+                    </>
+                  ) : (
+                    <>
+                      <SelectItem value="internal_private">Private</SelectItem>
+                      <SelectItem value="internal_group">Group</SelectItem>
                     </>
                   )}
                 </SelectContent>

@@ -18,6 +18,7 @@ ALLOWED_VISIBILITY_FOR_KIND: dict[UserKind, set[DocumentVisibility]] = {
         DocumentVisibility.INTERNAL_PUBLIC,
         DocumentVisibility.INTERNAL_GROUP,
         DocumentVisibility.INTERNAL_PRIVATE,
+        DocumentVisibility.CLIENT_PRIVATE,
     },
     UserKind.CLIENT: {DocumentVisibility.CLIENT_PRIVATE},
 }
@@ -106,6 +107,9 @@ def validate_document_visibility(
 
     if visibility == DocumentVisibility.INTERNAL_PUBLIC and user_role != UserRole.ADMIN:
         raise BusinessRuleViolation("Only admin can publish to internal_public")
+
+    if visibility == DocumentVisibility.CLIENT_PRIVATE and user_kind == UserKind.INTERNAL and user_role != UserRole.ADMIN:
+        raise BusinessRuleViolation("Only admin can upload documents for clients")
 
     if visibility == DocumentVisibility.INTERNAL_GROUP:
         if group_id is None:
