@@ -1,6 +1,5 @@
-"""Database package — re-exports the new engine and session."""
+"""Database package — exports the async DatabaseManager singleton."""
 
-from infrastructure.database.engine import SessionLocal
-from infrastructure.database.session import get_db
+from infrastructure.database.database import DatabaseManager, database
 
-__all__ = ["SessionLocal", "get_db"]
+__all__ = ["DatabaseManager", "database"]

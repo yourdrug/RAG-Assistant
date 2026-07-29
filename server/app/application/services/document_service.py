@@ -1,6 +1,6 @@
 """Application Service: DocumentService — manages documents via UoWFactory.
 
-Each method opens its own UnitOfWork. No db/session parameters.
+Each method opens its own async UnitOfWork. No db/session parameters.
 """
 
 from __future__ import annotations
@@ -44,6 +44,7 @@ class DocumentService:
         user_id: int,
         user_kind: str,
         user_role: str,
+        client_id: int | None = None,
         rename_on_conflict: bool = False,
     ) -> DocumentDTO:
         from pathlib import Path
@@ -56,31 +57,45 @@ class DocumentService:
         user_kind_enum = UserKind(user_kind)
         user_role_enum = UserRole(user_role)
 
-        with self._uow_factory.create() as uow:
-            user_group_ids = uow.groups.get_user_group_ids(user_id)
+        async with self._uow_factory.create() as uow:
+            user_group_ids = await uow.groups.get_user_group_ids(user_id)
             validate_document_visibility(vis, group_id, user_kind_enum, user_role_enum, user_group_ids)
 
             if vis == DocumentVisibility.INTERNAL_GROUP:
-                groups = uow.groups.list_by_ids([group_id])
+                groups = await uow.groups.list_by_ids([group_id])
                 if not groups:
                     raise EntityNotFound("Group", group_id)
 
-            owner_id, effective_group_id = compute_owner_and_group(vis, group_id, user_id)
+            if vis == DocumentVisibility.CLIENT_PRIVATE and user_kind == "internal":
+                if client_id is None:
+                    raise ValidationError("client_id required for client_private upload")
+                client_user = await uow.users.get_by_id(client_id)
+                if client_user is None or client_user.kind != "client":
+                    raise ValidationError("client_id must be a user with kind='client'")
+                if user_role != "admin":
+                    assigned_ids = await uow.client_assignments.get_assigned_client_ids(user_id)
+                    if client_id not in assigned_ids:
+                        raise BusinessRuleViolation("You are not assigned to this client")
+                effective_owner_id = client_id
+            else:
+                effective_owner_id = user_id
 
-            existing = uow.documents.find_active_slot_for_update(owner_id, filename, effective_group_id)
+            owner_id, effective_group_id = compute_owner_and_group(vis, group_id, effective_owner_id)
+
+            existing = await uow.documents.find_active_slot_for_update(owner_id, filename, effective_group_id)
             replace_id = None
             if existing:
                 if existing.status in ("pending", "processing"):
                     raise BusinessRuleViolation("This document is already being processed")
                 if existing.status == "done":
                     if rename_on_conflict:
-                        filename = self._unique_filename(uow, owner_id, effective_group_id, filename)
+                        filename = await self._unique_filename(uow, owner_id, effective_group_id, filename)
                     else:
                         replace_id = existing.id
                         self._vector_store.delete_by_document_id(existing.id)
                         if existing.source_path:
                             self._file_storage.delete_file(existing.source_path)
-                        uow.documents.delete(existing.id)
+                        await uow.documents.delete(existing.id)
 
             ext = Path(filename).suffix.lower()
             if ext not in self._file_storage.supported_extensions:
@@ -94,7 +109,7 @@ class DocumentService:
             )
 
             try:
-                saved_doc = uow.documents.save(doc)
+                saved_doc = await uow.documents.save(doc)
             except IntegrityError as exc:
                 raise BusinessRuleViolation(
                     "This document is already being uploaded by a concurrent request"
@@ -102,9 +117,9 @@ class DocumentService:
 
             key = self._storage_key(owner_id, effective_group_id, saved_doc.id, filename)
             self._file_storage.upload_file(key, file_data)
-            uow.documents.set_source_path(saved_doc.id, key)
+            await uow.documents.set_source_path(saved_doc.id, key)
 
-            final_doc = uow.documents.get_by_id(saved_doc.id)
+            final_doc = await uow.documents.get_by_id(saved_doc.id)
             return DocumentDTO(
                 id=final_doc.id,
                 filename=final_doc.filename,
@@ -119,16 +134,33 @@ class DocumentService:
                 group_id=effective_group_id,
             )
 
-    def list_documents(self, user_id: int, user_kind: str) -> list[DocumentDTO]:
-        with self._uow_factory.create() as uow:
+    async def list_uploadable_clients(self, user_id: int, user_kind: str, user_role: str) -> list[dict]:
+        async with self._uow_factory.create() as uow:
+            if user_kind == "client":
+                return []
+            if user_role == "admin":
+                all_users = await uow.users.list_all()
+                return [{"id": u.id, "email": u.email} for u in all_users if u.kind == "client"]
+            assigned_ids = await uow.client_assignments.get_assigned_client_ids(user_id)
+            if not assigned_ids:
+                return []
+            clients = []
+            for cid in assigned_ids:
+                u = await uow.users.get_by_id(cid)
+                if u and u.is_active:
+                    clients.append({"id": u.id, "email": u.email})
+            return clients
+
+    async def list_documents(self, user_id: int, user_kind: str) -> list[DocumentDTO]:
+        async with self._uow_factory.create() as uow:
             if user_kind == "client":
                 group_ids = []
                 assigned_ids = []
             else:
-                group_ids = uow.groups.get_user_group_ids(user_id)
-                assigned_ids = uow.client_assignments.get_assigned_client_ids(user_id)
+                group_ids = await uow.groups.get_user_group_ids(user_id)
+                assigned_ids = await uow.client_assignments.get_assigned_client_ids(user_id)
 
-            docs = uow.documents.list_visible(
+            docs = await uow.documents.list_visible(
                 user_kind=user_kind,
                 user_id=user_id,
                 group_ids=group_ids or [],
@@ -148,15 +180,19 @@ class DocumentService:
                 for d in docs
             ]
 
-    def get_document(self, document_id: int, user_id: int, user_kind: str, user_role: str) -> DocumentDTO:
-        with self._uow_factory.create() as uow:
-            doc = uow.documents.get_by_id(document_id)
+    async def get_document(
+        self, document_id: int, user_id: int, user_kind: str, user_role: str
+    ) -> DocumentDTO:
+        async with self._uow_factory.create() as uow:
+            doc = await uow.documents.get_by_id(document_id)
             if doc is None:
                 raise EntityNotFound("Document", document_id)
 
-            user_group_ids = uow.groups.get_user_group_ids(user_id) if user_kind == "internal" else []
+            user_group_ids = await uow.groups.get_user_group_ids(user_id) if user_kind == "internal" else []
             assigned_ids = (
-                uow.client_assignments.get_assigned_client_ids(user_id) if user_kind == "internal" else []
+                await uow.client_assignments.get_assigned_client_ids(user_id)
+                if user_kind == "internal"
+                else []
             )
 
             if not can_view_document(
@@ -180,14 +216,14 @@ class DocumentService:
                 chars=doc.chars,
             )
 
-    def delete_document(self, document_id: int, user_id: int, user_role: str) -> None:
-        with self._uow_factory.create() as uow:
-            doc = uow.documents.get_by_id(document_id)
+    async def delete_document(self, document_id: int, user_id: int, user_role: str) -> None:
+        async with self._uow_factory.create() as uow:
+            doc = await uow.documents.get_by_id(document_id)
             if doc is None:
                 raise EntityNotFound("Document", document_id)
 
             role = UserRole(user_role)
-            user_group_ids = uow.groups.get_user_group_ids(user_id)
+            user_group_ids = await uow.groups.get_user_group_ids(user_id)
             if not doc.can_be_deleted_by(user_id, role, user_group_ids):
                 raise BusinessRuleViolation("Can only delete your own documents")
 
@@ -196,11 +232,10 @@ class DocumentService:
             if doc.source_path:
                 self._file_storage.delete_file(doc.source_path)
 
-            uow.documents.delete(document_id)
+            await uow.documents.delete(document_id)
 
     @staticmethod
-    def _unique_filename(uow, owner_id, group_id, filename: str) -> str:
-        """Generate a unique filename like readme(1).md, readme(2).md, etc."""
+    async def _unique_filename(uow, owner_id, group_id, filename: str) -> str:
         from pathlib import Path
 
         p = Path(filename)
@@ -208,7 +243,7 @@ class DocumentService:
         suffix = p.suffix
         candidate = filename
         counter = 1
-        while uow.documents.find_active_slot(owner_id, candidate, group_id) is not None:
+        while await uow.documents.find_active_slot(owner_id, candidate, group_id) is not None:
             candidate = f"{stem}({counter}){suffix}"
             counter += 1
         if candidate != filename:

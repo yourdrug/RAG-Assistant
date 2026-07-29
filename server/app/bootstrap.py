@@ -1,4 +1,4 @@
-"""bootstrap.py — Auto-create admin on startup."""
+"""bootstrap.py — Auto-create admin on startup (async, KinTree-style)."""
 
 from __future__ import annotations
 
@@ -11,10 +11,9 @@ from infrastructure.uow_factory import UnitOfWorkFactory
 logger = logging.getLogger("default")
 
 
-def bootstrap_admin() -> None:
-    factory = UnitOfWorkFactory()
-    with factory.create() as uow:
-        if uow.users.exists_admin():
+async def bootstrap_admin(uow_factory: UnitOfWorkFactory) -> None:
+    async with uow_factory.create() as uow:
+        if await uow.users.exists_admin():
             return
 
         if not settings.admin_email or not settings.admin_password:
@@ -34,5 +33,5 @@ def bootstrap_admin() -> None:
             role=UserRole.ADMIN,
             kind=UserKind.INTERNAL,
         )
-        uow.users.save(user)
+        await uow.users.save(user)
         logger.info("Admin created: %s", settings.admin_email)

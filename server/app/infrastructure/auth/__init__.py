@@ -10,6 +10,7 @@ Legacy code imports:
 """
 
 from presentation.api.auth_dependencies import get_current_user, require_admin
+
 from infrastructure.auth.jwt_provider import JWTProvider
 from infrastructure.auth.password_hasher import BCryptPasswordHasher
 

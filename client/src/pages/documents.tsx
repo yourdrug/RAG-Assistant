@@ -1,7 +1,7 @@
 "use client";
 import { useState, useCallback } from "react";
 import { useDropzone } from "react-dropzone";
-import { useDocuments, useUploadDocument, useDeleteDocument, useGroups } from "@/shared/api/hooks";
+import { useDocuments, useUploadDocument, useDeleteDocument, useGroups, useUploadableClients } from "@/shared/api/hooks";
 import { DataTable } from "@/shared/ui/data-table";
 import { Button } from "@/shared/ui/button";
 import { Badge } from "@/shared/ui/badge";
@@ -27,8 +27,10 @@ export function DocumentsPage() {
   const isClient = user?.kind === "client";
   const [vis, setVis] = useState<DocumentVisibility>(isClient ? "client_private" : "internal_private");
   const [groupId, setGroupId] = useState<number | null>(null);
+  const [clientId, setClientId] = useState<number | null>(null);
   const [progress, setProgress] = useState(0);
   const { data: groups } = useGroups();
+  const { data: uploadableClients } = useUploadableClients();
 
   // Conflict resolution state
   const [conflictOpen, setConflictOpen] = useState(false);
@@ -48,6 +50,7 @@ export function DocumentsPage() {
       file,
       visibility: vis,
       groupId: vis === "internal_group" ? groupId : undefined,
+      clientId: vis === "client_private" ? clientId : undefined,
       renameOnConflict,
     });
   };
@@ -152,7 +155,7 @@ export function DocumentsPage() {
           <div className="space-y-4">
             <div className="space-y-2">
               <label className="text-sm font-medium">Visibility</label>
-              <Select value={vis} onValueChange={(v) => { setVis(v as DocumentVisibility); if (v !== "internal_group") setGroupId(null); }}>
+              <Select value={vis} onValueChange={(v) => { setVis(v as DocumentVisibility); if (v !== "internal_group") setGroupId(null); if (v !== "client_private") setClientId(null); }}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {isClient ? (
@@ -181,12 +184,28 @@ export function DocumentsPage() {
                 </Select>
               </div>
             )}
+            {vis === "client_private" && !isClient && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Client</label>
+                <Select value={clientId != null ? String(clientId) : ""} onValueChange={(v) => setClientId(Number(v))}>
+                  <SelectTrigger><SelectValue placeholder="Select a client" /></SelectTrigger>
+                  <SelectContent>
+                    {uploadableClients?.map((c) => (
+                      <SelectItem key={c.id} value={String(c.id)}>{c.email}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {(!uploadableClients || uploadableClients.length === 0) && (
+                  <p className="text-xs text-muted-foreground">No clients assigned to you</p>
+                )}
+              </div>
+            )}
             {files.length > 0 && <div className="space-y-1">{files.map((f, i) => <div key={i} className="flex items-center justify-between text-sm"><span className="truncate">{f.name}</span><span className="text-muted-foreground">{(f.size / 1024).toFixed(1)} KB</span></div>)}</div>}
             {progress > 0 && <Progress value={progress} />}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setUploadOpen(false)}>Cancel</Button>
-            <Button onClick={handleUpload} disabled={uploadMut.isPending || (vis === "internal_group" && groupId == null)}>{uploadMut.isPending ? "Uploading..." : "Upload"}</Button>
+            <Button onClick={handleUpload} disabled={uploadMut.isPending || (vis === "internal_group" && groupId == null) || (vis === "client_private" && !isClient && clientId == null)}>{uploadMut.isPending ? "Uploading..." : "Upload"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

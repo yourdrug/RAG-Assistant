@@ -47,7 +47,12 @@ def upload_to_qdrant(chunks: list[Document], embeddings: HuggingFaceEmbeddings) 
     embed_batch = settings.embed_batch_size
     qdrant_batch = 500
     total = len(chunks)
-    log.info("Uploading %d chunks to Qdrant (embed batch=%d, upsert batch=%d) ...", total, embed_batch, qdrant_batch)
+    log.info(
+        "Uploading %d chunks to Qdrant (embed batch=%d, upsert batch=%d) ...",
+        total,
+        embed_batch,
+        qdrant_batch,
+    )
     t0 = time.monotonic()
 
     # Pre-compute all content hashes (faster than per-doc)

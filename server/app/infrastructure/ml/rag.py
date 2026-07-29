@@ -247,6 +247,7 @@ def history_to_messages(history: list[dict]):
 def _clean_source_name(source: str) -> str:
     """Extract clean filename from full path, strip directory."""
     from pathlib import Path
+
     return Path(source).name if source else "unknown"
 
 

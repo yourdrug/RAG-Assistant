@@ -1,6 +1,6 @@
 """Application Service: ChatService — manages chat via UoWFactory.
 
-Each method opens its own UnitOfWork. No db/session parameters.
+Each method opens its own async UnitOfWork. No db/session parameters.
 """
 
 from __future__ import annotations
@@ -30,13 +30,12 @@ class ChatService:
         self._rag_service = rag_service
         self._history_window = history_window
 
-    def _get_user_context(self, user_id: int, user_kind: str) -> tuple[list[int], list[int]]:
-        """Fetch group_ids and assigned_client_ids for the user."""
-        with self._uow_factory.create() as uow:
+    async def _get_user_context(self, user_id: int, user_kind: str) -> tuple[list[int], list[int]]:
+        async with self._uow_factory.create() as uow:
             if user_kind == "client":
                 return [], []
-            group_ids = uow.groups.get_user_group_ids(user_id)
-            assigned_ids = uow.client_assignments.get_assigned_client_ids(user_id)
+            group_ids = await uow.groups.get_user_group_ids(user_id)
+            assigned_ids = await uow.client_assignments.get_assigned_client_ids(user_id)
             return group_ids or [], assigned_ids or []
 
     async def stream_chat(
@@ -48,12 +47,12 @@ class ChatService:
         user_role: str,
         depth: str | None = None,
     ) -> AsyncIterator[str]:
-        group_ids, assigned_ids = self._get_user_context(user_id, user_kind)
+        group_ids, assigned_ids = await self._get_user_context(user_id, user_kind)
 
-        with self._uow_factory.create() as uow:
-            conv = uow.conversations.get_or_create(conversation_id, user_id)
+        async with self._uow_factory.create() as uow:
+            conv = await uow.conversations.get_or_create(conversation_id, user_id)
 
-            history = uow.messages.get_history(conv.id, window=self._history_window)
+            history = await uow.messages.get_history(conv.id, window=self._history_window)
             if history and history[-1].role == MessageRole.USER:
                 history = history[:-1]
 
@@ -70,17 +69,15 @@ class ChatService:
             assigned_client_ids=assigned_ids,
             depth=depth,
         ):
-            # Save user message only after first real chunk arrives.
-            # If user cancels before any chunks, the message is never saved.
             if not user_msg_saved and not chunk.startswith("\n__sources__:"):
                 user_msg_saved = True
-                with self._uow_factory.create() as uow:
+                async with self._uow_factory.create() as uow:
                     user_msg = Message(
                         conversation_id=conv.id,
                         role=MessageRole.USER,
                         content=question,
                     )
-                    uow.messages.save(user_msg)
+                    await uow.messages.save(user_msg)
 
             if chunk.startswith("\n__sources__:"):
                 try:
@@ -91,14 +88,14 @@ class ChatService:
                 full_answer += chunk
                 yield chunk
 
-        with self._uow_factory.create() as uow:
+        async with self._uow_factory.create() as uow:
             assistant_msg = Message(
                 conversation_id=conv.id,
                 role=MessageRole.ASSISTANT,
                 content=full_answer,
                 sources=sources,
             )
-            uow.messages.save(assistant_msg)
+            await uow.messages.save(assistant_msg)
 
         yield f"\n__meta__:{json.dumps({'conversation_id': conv.id, 'sources': sources}, ensure_ascii=False)}"
 
@@ -111,10 +108,10 @@ class ChatService:
         user_role: str,
         depth: str | None = None,
     ) -> ChatResult:
-        group_ids, assigned_ids = self._get_user_context(user_id, user_kind)
+        group_ids, assigned_ids = await self._get_user_context(user_id, user_kind)
 
-        with self._uow_factory.create() as uow:
-            conv = uow.conversations.get_or_create(conversation_id, user_id)
+        async with self._uow_factory.create() as uow:
+            conv = await uow.conversations.get_or_create(conversation_id, user_id)
 
             if len(question.strip()) >= 3:
                 user_msg = Message(
@@ -122,9 +119,9 @@ class ChatService:
                     role=MessageRole.USER,
                     content=question,
                 )
-                uow.messages.save(user_msg)
+                await uow.messages.save(user_msg)
 
-            history = uow.messages.get_history(conv.id, window=self._history_window)
+            history = await uow.messages.get_history(conv.id, window=self._history_window)
             if history and history[-1].role == MessageRole.USER:
                 history = history[:-1]
 
@@ -138,13 +135,13 @@ class ChatService:
             depth=depth,
         )
 
-        with self._uow_factory.create() as uow:
+        async with self._uow_factory.create() as uow:
             assistant_msg = Message(
                 conversation_id=conv.id,
                 role=MessageRole.ASSISTANT,
                 content=answer,
                 sources=sources,
             )
-            uow.messages.save(assistant_msg)
+            await uow.messages.save(assistant_msg)
 
         return ChatResult(answer=answer, conversation_id=conv.id, sources=sources)

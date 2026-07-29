@@ -15,7 +15,7 @@ class Message:
     role: MessageRole = MessageRole.USER
     content: str = ""
     sources: list[dict] = field(default_factory=list)
-    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    creation_date: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def __post_init__(self) -> None:
         if isinstance(self.role, str):

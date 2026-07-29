@@ -8,31 +8,28 @@
 from __future__ import annotations
 
 import jwt as _jwt
-from fastapi import Depends, HTTPException, status
-
 from application.uow import UnitOfWork
+from domain.exceptions import AuthenticationError, PermissionDeniedError
+from fastapi import Depends
 from infrastructure.auth.api_key_provider import api_key_provider
 from infrastructure.auth.jwt_provider import JWTProvider
-from presentation.api.dependencies import get_uow, auth_key_header
+
+from presentation.api.dependencies import auth_key_header, get_uow
 
 jwt_provider = JWTProvider()
 
 
-def _authenticate_via_jwt(token: str, uow: UnitOfWork) -> dict:
+async def _authenticate_via_jwt(token: str, uow: UnitOfWork) -> dict:
     try:
         payload = jwt_provider.decode_token(token)
     except _jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired") from None
+        raise AuthenticationError("Token expired") from None
     except _jwt.InvalidTokenError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token"
-        ) from None
+        raise AuthenticationError("Invalid or expired token") from None
 
-    user = uow.users.get_by_id(int(payload["sub"]))
+    user = await uow.users.get_by_id(int(payload["sub"]))
     if user is None or not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or deactivated"
-        )
+        raise AuthenticationError("User not found or deactivated")
 
     return {
         "id": user.id,
@@ -43,20 +40,20 @@ def _authenticate_via_jwt(token: str, uow: UnitOfWork) -> dict:
     }
 
 
-def _authenticate_via_api_key(raw_key: str, uow: UnitOfWork) -> dict:
+async def _authenticate_via_api_key(raw_key: str, uow: UnitOfWork) -> dict:
     key_hash = api_key_provider.hash_key(raw_key)
     cached = api_key_provider.get_cached(key_hash)
 
     if cached is api_key_provider.MISS:
-        result = uow.api_keys.get_active_client_by_hash(key_hash)
+        result = await uow.api_keys.get_active_client_by_hash(key_hash)
         api_key_provider.set_cached(key_hash, result)
         if result is not None:
-            uow.api_keys.touch_last_used(result["api_key_id"])
+            await uow.api_keys.touch_last_used(result["api_key_id"])
     else:
         result = cached
 
     if result is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or revoked API key")
+        raise AuthenticationError("Invalid or revoked API key")
 
     return {
         "id": result["id"],
@@ -81,41 +78,29 @@ def _parse_auth_header_value(value: str) -> tuple[str, str] | None:
     return scheme, credentials
 
 
-def get_current_user(
-        authorization: str | None = Depends(auth_key_header),
-        uow: UnitOfWork = Depends(get_uow),
+async def get_current_user(
+    authorization: str | None = Depends(auth_key_header),
+    uow: UnitOfWork = Depends(get_uow),
 ) -> dict:
     if authorization is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        raise AuthenticationError("Not authenticated")
 
     parsed = _parse_auth_header_value(authorization)
     if parsed is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid Authorization header",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        raise AuthenticationError("Invalid Authorization header")
 
     scheme, credentials = parsed
 
     if scheme.lower() == "bearer":
-        return _authenticate_via_jwt(credentials, uow)
+        return await _authenticate_via_jwt(credentials, uow)
 
     if scheme.lower() == "api-key":
-        return _authenticate_via_api_key(credentials, uow)
+        return await _authenticate_via_api_key(credentials, uow)
 
-    raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Unsupported authorization scheme",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+    raise AuthenticationError("Unsupported authorization scheme")
 
 
 def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
     if current_user["role"] != "admin":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin rights required")
+        raise PermissionDeniedError("admin")
     return current_user

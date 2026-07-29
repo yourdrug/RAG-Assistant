@@ -1,91 +1,119 @@
-"""SQLAlchemy ORM models — mapped to existing PostgreSQL tables."""
+"""SQLAlchemy ORM models — mapped to existing PostgreSQL tables.
+
+Uses shared BaseModel (int PK + creation_date) and LinkedBaseModel (M2M join tables).
+"""
 
 from __future__ import annotations
 
-from datetime import datetime
+from shared.infrastructure.db.basemodel import BaseModel, LinkedBaseModel
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+)
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text
-from sqlalchemy.orm import DeclarativeBase, relationship
 
-
-class Base(DeclarativeBase):
-    pass
-
-
-class UserModel(Base):
+class UserModel(BaseModel):
     __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint("role IN ('admin', 'user')", name="users_role_check"),
+        CheckConstraint("kind IN ('internal', 'client')", name="users_kind_check"),
+        CheckConstraint("NOT (kind = 'client' AND role = 'admin')", name="chk_client_not_admin"),
+    )
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    email = Column(String(255), unique=True, nullable=False)
-    hashed_password = Column(String(255), nullable=False)
-    role = Column(String(16), nullable=False, default="user")
-    kind = Column(String(16), nullable=False, default="internal")
-    is_active = Column(Boolean, nullable=False, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    role: Mapped[str] = mapped_column(String(16), nullable=False, default="user")
+    kind: Mapped[str] = mapped_column(String(16), nullable=False, default="internal")
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     groups = relationship("GroupModel", secondary="user_groups", back_populates="members")
 
 
-class ConversationModel(Base):
+class ConversationModel(BaseModel):
     __tablename__ = "conversations"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
 
     messages = relationship("MessageModel", back_populates="conversation", cascade="all, delete-orphan")
 
 
-class MessageModel(Base):
+class MessageModel(BaseModel):
     __tablename__ = "messages"
+    __table_args__ = (CheckConstraint("role IN ('user', 'assistant')", name="messages_role_check"),)
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    conversation_id = Column(Integer, ForeignKey("conversations.id", ondelete="CASCADE"))
-    role = Column(String(16), nullable=False)
-    content = Column(Text, nullable=False)
-    sources = Column(Text)  # JSON stored as text
-    created_at = Column(DateTime, default=datetime.utcnow)
+    conversation_id: Mapped[int | None] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"))
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    sources: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     conversation = relationship("ConversationModel", back_populates="messages")
 
 
-class GroupModel(Base):
+class GroupModel(BaseModel):
     __tablename__ = "groups"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String(100), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
 
     members = relationship("UserModel", secondary="user_groups", back_populates="groups")
 
 
-class UserGroupModel(Base):
+class UserGroupModel(LinkedBaseModel):
     __tablename__ = "user_groups"
 
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
-    group_id = Column(Integer, ForeignKey("groups.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"), primary_key=True)
 
 
-class ClientAssignmentModel(Base):
+class ClientAssignmentModel(LinkedBaseModel):
     __tablename__ = "client_assignments"
 
-    internal_user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
-    client_user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
-    assigned_by = Column(Integer, ForeignKey("users.id"))
-    assigned_at = Column(DateTime, default=datetime.utcnow)
+    internal_user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    client_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    assigned_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    assigned_at: Mapped[DateTime | None] = mapped_column(DateTime)
 
 
-class DocumentModel(Base):
+class DocumentModel(BaseModel):
     __tablename__ = "documents"
+    __table_args__ = (
+        CheckConstraint(
+            "visibility IN ('internal_public', 'internal_group', 'internal_private', 'client_private')",
+            name="documents_visibility_check",
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'processing', 'done', 'failed')",
+            name="documents_status_check",
+        ),
+    )
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    filename = Column(String(255), nullable=False)
-    source_path = Column(Text, nullable=False, default="")
-    visibility = Column(String(20), nullable=False)
-    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
-    group_id = Column(Integer, ForeignKey("groups.id", ondelete="CASCADE"))
-    status = Column(String(16), nullable=False, default="pending")
-    error_message = Column(Text)
-    chunks = Column(Integer)
-    chars = Column(Integer)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    indexed_at = Column(DateTime)
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_path: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    visibility: Mapped[str] = mapped_column(String(20), nullable=False)
+    owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    group_id: Mapped[int | None] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"))
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    error_message: Mapped[str | None] = mapped_column(Text)
+    warning_message: Mapped[str | None] = mapped_column(Text)
+    chunks: Mapped[int | None] = mapped_column(Integer)
+    chars: Mapped[int | None] = mapped_column(Integer)
+    indexed_at: Mapped[DateTime | None] = mapped_column(DateTime)
+
+
+class ApiKeyModel(BaseModel):
+    __tablename__ = "api_keys"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    key_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    key_prefix: Mapped[str] = mapped_column(String(20), nullable=False)
+    name: Mapped[str | None] = mapped_column(String(255))
+    revoked_at: Mapped[DateTime | None] = mapped_column(DateTime)
+    last_used_at: Mapped[DateTime | None] = mapped_column(DateTime)

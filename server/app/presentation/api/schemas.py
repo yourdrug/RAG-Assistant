@@ -6,7 +6,6 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
-
 # ---------------------------------------------------------------------------
 # Auth
 # ---------------------------------------------------------------------------
@@ -216,14 +215,14 @@ class ApiKeyCreatedResponse(BaseModel):
     api_key: str  # показывается только в этом ответе, больше нигде
     key_prefix: str
     name: str | None = None
-    created_at: datetime
+    creation_date: datetime
 
 
 class ApiKeyResponse(BaseModel):
     id: int
     key_prefix: str
     name: str | None = None
-    created_at: datetime
+    creation_date: datetime
     revoked_at: datetime | None = None
     last_used_at: datetime | None = None
     is_active: bool

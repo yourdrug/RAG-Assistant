@@ -1,4 +1,4 @@
-"""SQLAlchemy implementation of DocumentRepository."""
+"""SQLAlchemy ORM implementation of DocumentRepository."""
 
 from __future__ import annotations
 
@@ -7,40 +7,43 @@ from domain.services.access_control import get_visibility_conditions
 from domain.value_objects.document_status import DocumentStatus
 from domain.value_objects.roles import UserKind
 from domain.value_objects.visibility import DocumentVisibility
-from sqlalchemy import text
-from sqlalchemy.orm import Session
+from sqlalchemy import and_, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from infrastructure.database.models import DocumentModel
 
 
 class SQLAlchemyDocumentRepository:
-    def __init__(self, db: Session) -> None:
+    def __init__(self, db: AsyncSession) -> None:
         self._db = db
 
-    def save(self, document: Document) -> Document:
-        result = self._db.execute(
-            text("""
-                INSERT INTO documents (filename, source_path, visibility, owner_id, group_id, status)
-                VALUES (:filename, :source_path, :visibility, :owner_id, :group_id, 'pending')
-                RETURNING id
-            """),
-            {
-                "filename": document.filename,
-                "source_path": document.source_path,
-                "visibility": document.visibility,
-                "owner_id": document.owner_id,
-                "group_id": document.group_id,
-            },
+    async def save(self, document: Document) -> Document:
+        orm = DocumentModel(
+            filename=document.filename,
+            source_path=document.source_path,
+            visibility=document.visibility,
+            owner_id=document.owner_id,
+            group_id=document.group_id,
         )
-        document.id = result.scalar()
+        self._db.add(orm)
+        await self._db.flush()
+        await self._db.refresh(orm)
+        document.id = orm.id
         return document
 
-    def get_by_id(self, document_id: int) -> Document | None:
-        row = self._db.execute(text("SELECT * FROM documents WHERE id = :id"), {"id": document_id}).fetchone()
-        return self._to_entity(row) if row else None
+    async def get_by_id(self, document_id: int) -> Document | None:
+        result = await self._db.execute(select(DocumentModel).where(DocumentModel.id == document_id))
+        orm = result.scalar_one_or_none()
+        return self._to_entity(orm) if orm else None
 
-    def delete(self, document_id: int) -> None:
-        self._db.execute(text("DELETE FROM documents WHERE id = :id"), {"id": document_id})
+    async def delete(self, document_id: int) -> None:
+        result = await self._db.execute(select(DocumentModel).where(DocumentModel.id == document_id))
+        orm = result.scalar_one_or_none()
+        if orm:
+            await self._db.delete(orm)
+            await self._db.flush()
 
-    def update_status(
+    async def update_status(
         self,
         document_id: int,
         status: str,
@@ -49,127 +52,114 @@ class SQLAlchemyDocumentRepository:
         chars: int | None = None,
         warning: str | None = None,
     ) -> None:
-        self._db.execute(
-            text("""
-                 UPDATE documents
-                 SET status          = :status,
-                     error_message   = :error,
-                     warning_message = CASE WHEN :status = 'done' THEN :warning ELSE warning_message END,
-                     chunks          = COALESCE(:chunks, chunks),
-                     chars           = COALESCE(:chars, chars),
-                     indexed_at      = CASE WHEN :status = 'done' THEN NOW() ELSE indexed_at END
-                 WHERE id = :id
-                 """),
-            {
-                "status": status, "error": error, "chunks": chunks,
-                "chars": chars, "warning": warning, "id": document_id,
-            },
+        result = await self._db.execute(select(DocumentModel).where(DocumentModel.id == document_id))
+        orm = result.scalar_one_or_none()
+        if orm is None:
+            return
+
+        orm.status = status
+        orm.error_message = error
+        if status == "done":
+            orm.warning_message = warning
+        if chunks is not None:
+            orm.chunks = chunks
+        if chars is not None:
+            orm.chars = chars
+        if status == "done":
+            from datetime import datetime
+
+            orm.indexed_at = datetime.now(tz=datetime.UTC)
+        await self._db.flush()
+
+    async def set_source_path(self, document_id: int, source_path: str) -> None:
+        result = await self._db.execute(select(DocumentModel).where(DocumentModel.id == document_id))
+        orm = result.scalar_one_or_none()
+        if orm:
+            orm.source_path = source_path
+            await self._db.flush()
+
+    async def find_active_slot(
+        self, owner_id: int | None, filename: str, group_id: int | None
+    ) -> Document | None:
+        stmt = (
+            select(DocumentModel)
+            .where(
+                DocumentModel.filename == filename,
+                DocumentModel.owner_id == owner_id,
+                DocumentModel.group_id == group_id,
+                DocumentModel.status.in_(["pending", "processing", "done"]),
+            )
+            .order_by(DocumentModel.creation_date.desc())
+            .limit(1)
         )
+        result = await self._db.execute(stmt)
+        orm = result.scalar_one_or_none()
+        return self._to_entity(orm) if orm else None
 
-    def set_source_path(self, document_id: int, source_path: str) -> None:
-        self._db.execute(
-            text("UPDATE documents SET source_path = :path WHERE id = :id"),
-            {"path": source_path, "id": document_id},
-        )
-
-    def find_active_slot(self, owner_id: int | None, filename: str, group_id: int | None) -> Document | None:
-        row = self._db.execute(
-            text("""
-                SELECT * FROM documents
-                WHERE filename = :filename
-                  AND owner_id IS NOT DISTINCT FROM :owner_id
-                  AND group_id IS NOT DISTINCT FROM :group_id
-                  AND status IN ('pending', 'processing', 'done')
-                ORDER BY created_at DESC
-                LIMIT 1
-            """),
-            {"filename": filename, "owner_id": owner_id, "group_id": group_id},
-        ).fetchone()
-        return self._to_entity(row) if row else None
-
-    def list_visible(
+    async def list_visible(
         self,
         user_kind: str,
         user_id: int,
         group_ids: list[int],
         assigned_client_ids: list[int],
     ) -> list[Document]:
-        """List documents visible to this user.
-
-        Translates canonical VisibilityCondition objects from the domain layer
-        into SQL WHERE clauses. All business logic lives in
-        domain/services/access_control.py.
-        """
         conditions = get_visibility_conditions(UserKind(user_kind), user_id, group_ids, assigned_client_ids)
 
-        sql_parts: list[str] = []
-        params: dict = {"user_id": user_id, "group_ids": group_ids, "assigned_ids": assigned_client_ids}
-
+        or_clauses = []
         for cond in conditions:
-            clauses = [f"visibility = :vis_{cond.visibility.value}"]
-            params[f"vis_{cond.visibility.value}"] = cond.visibility.value
+            and_parts = [DocumentModel.visibility == cond.visibility.value]
 
             if cond.owner_match == "self":
-                clauses.append("owner_id = :user_id")
+                and_parts.append(DocumentModel.owner_id == user_id)
             elif cond.owner_match == "assigned":
-                clauses.append("owner_id = ANY(:assigned_ids)")
+                and_parts.append(DocumentModel.owner_id.in_(assigned_client_ids))
 
             if cond.group_match:
-                clauses.append("group_id = ANY(:group_ids)")
+                and_parts.append(DocumentModel.group_id.in_(group_ids))
 
-            sql_parts.append("(" + " AND ".join(clauses) + ")")
+            or_clauses.append(and_(*and_parts))
 
-        if not sql_parts:
+        if not or_clauses:
             return []
 
-        where_clause = " OR ".join(sql_parts)
-        rows = self._db.execute(
-            text(f"SELECT * FROM documents WHERE {where_clause} ORDER BY created_at DESC"),
-            params,
-        ).fetchall()
+        result = await self._db.execute(
+            select(DocumentModel).where(or_(*or_clauses)).order_by(DocumentModel.creation_date.desc())
+        )
+        return [self._to_entity(orm) for orm in result.scalars().all()]
 
-        return [self._to_entity(r) for r in rows]
-
-    def find_active_slot_for_update(
+    async def find_active_slot_for_update(
         self, owner_id: int | None, filename: str, group_id: int | None
     ) -> Document | None:
-        """Locks the matching row (if any) for the duration of the transaction,
-        so a concurrent upload() for the same slot blocks here instead of racing
-        past the check-then-act window.
-        """
-        row = self._db.execute(
-            text("""
-                 SELECT *
-                 FROM documents
-                 WHERE filename = :filename
-                   AND owner_id IS NOT DISTINCT
-                 FROM :owner_id
-                     AND group_id IS NOT DISTINCT
-                 FROM :group_id
-                     AND status IN ('pending', 'processing', 'done')
-                 ORDER BY created_at DESC
-                     LIMIT 1
-                     FOR
-                 UPDATE
-                 """),
-            {"filename": filename, "owner_id": owner_id, "group_id": group_id},
-        ).fetchone()
-        return self._to_entity(row) if row else None
+        stmt = (
+            select(DocumentModel)
+            .where(
+                DocumentModel.filename == filename,
+                DocumentModel.owner_id == owner_id,
+                DocumentModel.group_id == group_id,
+                DocumentModel.status.in_(["pending", "processing", "done"]),
+            )
+            .order_by(DocumentModel.creation_date.desc())
+            .limit(1)
+            .with_for_update()
+        )
+        result = await self._db.execute(stmt)
+        orm = result.scalar_one_or_none()
+        return self._to_entity(orm) if orm else None
 
     @staticmethod
-    def _to_entity(row) -> Document:
+    def _to_entity(orm: DocumentModel) -> Document:
         return Document(
-            id=row.id,
-            filename=row.filename,
-            source_path=row.source_path,
-            visibility=DocumentVisibility(row.visibility),
-            owner_id=row.owner_id,
-            group_id=row.group_id,
-            status=DocumentStatus(row.status),
-            error_message=row.error_message,
-            warning_message=row.warning_message,
-            chunks=row.chunks,
-            chars=row.chars,
-            created_at=row.created_at,
-            indexed_at=row.indexed_at,
+            id=orm.id,
+            filename=orm.filename,
+            source_path=orm.source_path,
+            visibility=DocumentVisibility(orm.visibility),
+            owner_id=orm.owner_id,
+            group_id=orm.group_id,
+            status=DocumentStatus(orm.status),
+            error_message=orm.error_message,
+            warning_message=orm.warning_message,
+            chunks=orm.chunks,
+            chars=orm.chars,
+            creation_date=orm.creation_date,
+            indexed_at=orm.indexed_at,
         )

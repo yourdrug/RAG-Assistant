@@ -186,9 +186,7 @@ class RagService:
         # Deduplicate candidates before reranking to improve context diversity
         candidates = deduplicate_docs(candidates)
 
-        docs = rerank_documents(
-            query_for_search, candidates, top_n=top_k, reranker=get_reranker()
-        )
+        docs = rerank_documents(query_for_search, candidates, top_n=top_k, reranker=get_reranker())
 
         context = format_docs(docs)
         sources = extract_sources(docs)

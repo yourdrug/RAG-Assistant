@@ -270,6 +270,40 @@ tasks:
       - 'echo "Дамп сохранён в data/db/postgres/backups/"'
 
   # -------------------------------------------------------------------------
+  # Alembic миграции
+  # -------------------------------------------------------------------------
+
+  db:migrate:
+    desc: "Применить все pending миграции (alembic upgrade head)"
+    dir: server
+    cmds:
+      - alembic upgrade head
+
+  db:migrate:make:
+    desc: "Создать новую миграцию (task db:migrate:make -- \"описание\")"
+    dir: server
+    cmds:
+      - alembic revision --autogenerate -m "{{.CLI_ARGS}}"
+
+  db:migrate:current:
+    desc: Показать текущую версию миграций
+    dir: server
+    cmds:
+      - alembic current
+
+  db:migrate:history:
+    desc: История миграций
+    dir: server
+    cmds:
+      - alembic history
+
+  db:migrate:downgrade:
+    desc: "Откатить на одну миграцию вниз (alembic downgrade -1)"
+    dir: server
+    cmds:
+      - alembic downgrade -1
+
+  # -------------------------------------------------------------------------
   # Локальная разработка без Docker (uv)
   # -------------------------------------------------------------------------
 

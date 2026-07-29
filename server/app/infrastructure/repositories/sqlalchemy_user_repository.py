@@ -1,70 +1,66 @@
-"""SQLAlchemy implementation of UserRepository."""
+"""SQLAlchemy ORM implementation of UserRepository."""
 
 from __future__ import annotations
 
 from domain.entities.user import User
 from domain.value_objects.roles import UserKind, UserRole
-from sqlalchemy import text
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from infrastructure.database.models import UserModel
 
 
 class SQLAlchemyUserRepository:
-    def __init__(self, db: Session) -> None:
+    def __init__(self, db: AsyncSession) -> None:
         self._db = db
 
-    def get_by_id(self, user_id: int) -> User | None:
-        row = self._db.execute(text("SELECT * FROM users WHERE id = :id"), {"id": user_id}).fetchone()
-        return self._to_entity(row) if row else None
+    async def get_by_id(self, user_id: int) -> User | None:
+        result = await self._db.execute(select(UserModel).where(UserModel.id == user_id))
+        orm = result.scalar_one_or_none()
+        return self._to_entity(orm) if orm else None
 
-    def get_by_email(self, email: str) -> User | None:
-        row = self._db.execute(
-            text("SELECT * FROM users WHERE email = :email"), {"email": email.lower()}
-        ).fetchone()
-        return self._to_entity(row) if row else None
+    async def get_by_email(self, email: str) -> User | None:
+        result = await self._db.execute(select(UserModel).where(UserModel.email == email.lower()))
+        orm = result.scalar_one_or_none()
+        return self._to_entity(orm) if orm else None
 
-    def save(self, user: User) -> User:
-        result = self._db.execute(
-            text("""
-                INSERT INTO users (email, hashed_password, role, kind)
-                VALUES (:email, :hashed_password, :role, :kind)
-                RETURNING id, email, hashed_password, role, kind, is_active, created_at
-            """),
-            {
-                "email": user.email.lower(),
-                "hashed_password": user.hashed_password,
-                "role": user.role,
-                "kind": user.kind,
-            },
+    async def save(self, user: User) -> User:
+        orm = UserModel(
+            email=user.email.lower(),
+            hashed_password=user.hashed_password,
+            role=user.role,
+            kind=user.kind,
         )
-        return self._to_entity(result.fetchone())
+        self._db.add(orm)
+        await self._db.flush()
+        await self._db.refresh(orm)
+        return self._to_entity(orm)
 
-    def exists_admin(self) -> bool:
-        row = self._db.execute(text("SELECT 1 FROM users WHERE role = 'admin' LIMIT 1")).fetchone()
-        return row is not None
+    async def exists_admin(self) -> bool:
+        result = await self._db.execute(select(UserModel.id).where(UserModel.role == "admin").limit(1))
+        return result.scalar_one_or_none() is not None
 
-    def list_all(self) -> list[User]:
-        rows = self._db.execute(
-            text(
-                "SELECT id, email, hashed_password, role, kind, is_active, created_at FROM users ORDER BY created_at"
-            )
-        ).fetchall()
-        return [self._to_entity(r) for r in rows]
+    async def list_all(self) -> list[User]:
+        result = await self._db.execute(select(UserModel).order_by(UserModel.creation_date))
+        return [self._to_entity(orm) for orm in result.scalars().all()]
 
-    def set_active(self, user_id: int, is_active: bool) -> bool:
-        result = self._db.execute(
-            text("UPDATE users SET is_active = :active WHERE id = :id"),
-            {"active": is_active, "id": user_id},
-        )
-        return result.rowcount > 0
+    async def set_active(self, user_id: int, is_active: bool) -> bool:
+        result = await self._db.execute(select(UserModel).where(UserModel.id == user_id))
+        orm = result.scalar_one_or_none()
+        if orm is None:
+            return False
+        orm.is_active = is_active
+        await self._db.flush()
+        return True
 
     @staticmethod
-    def _to_entity(row) -> User:
+    def _to_entity(orm: UserModel) -> User:
         return User(
-            id=row.id,
-            email=row.email,
-            hashed_password=row.hashed_password,
-            role=UserRole(row.role),
-            kind=UserKind(row.kind),
-            is_active=row.is_active,
-            created_at=row.created_at,
+            id=orm.id,
+            email=orm.email,
+            hashed_password=orm.hashed_password,
+            role=UserRole(orm.role),
+            kind=UserKind(orm.kind),
+            is_active=orm.is_active,
+            creation_date=orm.creation_date,
         )

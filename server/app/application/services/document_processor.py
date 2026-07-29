@@ -10,10 +10,9 @@ from pathlib import Path
 
 from domain.repositories.vector_store_repository import VectorStoreRepository
 from domain.services.document_parser import DocumentParser, DocumentSplitter
+from infrastructure.ml.ingestion import extract_date_from_filename
 from infrastructure.storage import FileStorage
 from infrastructure.uow_factory import UnitOfWorkFactory
-
-from infrastructure.ml.ingestion import extract_date_from_filename
 
 log = logging.getLogger("default")
 
@@ -53,8 +52,7 @@ class DocumentProcessor:
 
                 if not docs:
                     raise RuntimeError(
-                        "Текст не извлечён — документ похож на скан, "
-                        "и OCR не смог распознать содержимое."
+                        "Текст не извлечён — документ похож на скан, " "и OCR не смог распознать содержимое."
                     )
 
                 warning_message = None
@@ -71,7 +69,9 @@ class DocumentProcessor:
                         )
                         log.warning(
                             "Low-quality extraction for doc %d (%s): bad_ratio=%.2f",
-                            document_id, original_filename, quality.bad_ratio,
+                            document_id,
+                            original_filename,
+                            quality.bad_ratio,
                         )
 
                 doc_date = extract_date_from_filename(original_filename)

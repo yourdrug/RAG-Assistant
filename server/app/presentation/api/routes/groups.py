@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from application.uow import UnitOfWork
 from fastapi import APIRouter, Depends, HTTPException
-from presentation.api.auth_dependencies import get_current_user, require_admin
 
+from presentation.api.auth_dependencies import get_current_user, require_admin
 from presentation.api.dependencies import get_uow
 from presentation.api.schemas import (
     CreateGroupRequest,
@@ -23,7 +23,7 @@ async def create_group_endpoint(
     admin: dict = Depends(require_admin),
     uow: UnitOfWork = Depends(get_uow),
 ):
-    group_id = uow.groups.create(req.name)
+    group_id = await uow.groups.create(req.name)
     return GroupResponse(id=group_id, name=req.name)
 
 
@@ -33,12 +33,12 @@ async def list_groups_endpoint(
     uow: UnitOfWork = Depends(get_uow),
 ):
     if current_user["role"] == "admin":
-        rows = uow.groups.list_all()
+        rows = await uow.groups.list_all()
     elif current_user["kind"] != "internal":
         rows = []
     else:
-        group_ids = uow.groups.get_user_group_ids(current_user["id"])
-        rows = uow.groups.list_by_ids(group_ids) if group_ids else []
+        group_ids = await uow.groups.get_user_group_ids(current_user["id"])
+        rows = await uow.groups.list_by_ids(group_ids) if group_ids else []
     return [GroupResponse(id=r["id"], name=r["name"]) for r in rows]
 
 
@@ -48,7 +48,7 @@ async def get_group_members(
     admin: dict = Depends(require_admin),
     uow: UnitOfWork = Depends(get_uow),
 ):
-    rows = uow.groups.list_members(group_id)
+    rows = await uow.groups.list_members(group_id)
     return [GroupMemberResponse(id=r["id"], email=r["email"]) for r in rows]
 
 
@@ -59,12 +59,12 @@ async def add_group_member(
     admin: dict = Depends(require_admin),
     uow: UnitOfWork = Depends(get_uow),
 ):
-    target = uow.users.get_by_id(req.user_id)
+    target = await uow.users.get_by_id(req.user_id)
     if target is None:
         raise HTTPException(status_code=404, detail="User not found")
     if target.kind != "internal":
         raise HTTPException(status_code=400, detail="Only internal employees can be added to groups")
-    uow.groups.add_user(req.user_id, group_id)
+    await uow.groups.add_user(req.user_id, group_id)
     return {"group_id": group_id, "user_id": req.user_id}
 
 
@@ -75,5 +75,5 @@ async def remove_group_member(
     admin: dict = Depends(require_admin),
     uow: UnitOfWork = Depends(get_uow),
 ):
-    uow.groups.remove_user(user_id, group_id)
+    await uow.groups.remove_user(user_id, group_id)
     return {"group_id": group_id, "user_id": user_id}

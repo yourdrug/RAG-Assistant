@@ -1,4 +1,4 @@
-"""main.py — Composition root for the RAG API."""
+"""main.py — Composition root for the RAG API (KinTree-style lifespan)."""
 
 from __future__ import annotations
 
@@ -6,18 +6,20 @@ import logging.config
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
-from fastapi.exceptions import HTTPException, RequestValidationError
-from fastapi.middleware.cors import CORSMiddleware
-
 from bootstrap import bootstrap_admin
 from cli.cli import cli
 from config import settings
-from domain.exceptions import DomainError
+from domain.exceptions import ClientException, ServerException
+from fastapi import FastAPI
+from fastapi.exceptions import HTTPException, RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
+from infrastructure.database.database import database
 from infrastructure.logging import logging_config
+from presentation.api.dependencies import _uow_factory
 from presentation.api.exception_handlers import (
-    handle_domain_exception,
+    handle_client_exception,
     handle_http_exception,
+    handle_server_exception,
     handle_unexpected_exception,
     handle_validation_exception,
 )
@@ -32,17 +34,21 @@ from presentation.api.routes.groups import router as groups_router
 from presentation.api.routes.health import router as health_router
 from presentation.api.routes.ingest import router as ingest_router
 
-
 # ---------------------------------------------------------------------------
-# Lifespan
+# Lifespan (KinTree-style: await database.connect/disconnect)
 # ---------------------------------------------------------------------------
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator:
     logging.config.dictConfig(logging_config)
-    bootstrap_admin()
+
+    await database.connect()
+    await bootstrap_admin(_uow_factory)
+
     yield
+
+    await database.disconnect()
 
 
 # ---------------------------------------------------------------------------
@@ -79,7 +85,8 @@ class Application:
         )
 
     def _add_exception_handlers(self) -> None:
-        self.app.add_exception_handler(DomainError, handle_domain_exception)  # type: ignore[arg-type]
+        self.app.add_exception_handler(ClientException, handle_client_exception)  # type: ignore[arg-type]
+        self.app.add_exception_handler(ServerException, handle_server_exception)  # type: ignore[arg-type]
         self.app.add_exception_handler(HTTPException, handle_http_exception)  # type: ignore[arg-type]
         self.app.add_exception_handler(RequestValidationError, handle_validation_exception)  # type: ignore[arg-type]
         self.app.add_exception_handler(Exception, handle_unexpected_exception)  # type: ignore[arg-type]

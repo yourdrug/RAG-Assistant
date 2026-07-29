@@ -477,7 +477,7 @@ class TestMessageDefaults:
         assert msg.role == MessageRole.USER
         assert msg.content == ""
         assert msg.sources == []
-        assert msg.created_at is not None
+        assert msg.creation_date is not None
 
 
 class TestMessageSources:

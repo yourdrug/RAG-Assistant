@@ -84,6 +84,7 @@ COPY server/pyproject.toml server/uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --extra cpu
 
+COPY server/alembic.ini ./
 COPY server/entrypoint.sh ./
 COPY VERSION ./
 COPY server/app ./app
@@ -117,6 +118,7 @@ USER raguser
 
 WORKDIR $PYSETUP_PATH
 
+COPY --chown=raguser:raguser server/alembic.ini ./
 COPY --chown=raguser:raguser server/entrypoint.sh ./
 COPY --chown=raguser:raguser VERSION ./
 COPY --chown=raguser:raguser server/app ./app

@@ -1,8 +1,6 @@
-"""Unit of Work — manages transaction across all repositories."""
+"""Unit of Work — async transaction management across all repositories."""
 
 from __future__ import annotations
-
-from types import TracebackType
 
 from domain.repositories import ApiKeyRepository
 from domain.repositories.client_assignment_repository import ClientAssignmentRepository
@@ -19,9 +17,9 @@ class UnitOfWork(BaseUnitOfWork):
     """Concrete UoW holding all application repositories.
 
     Usage:
-        with UnitOfWork(session) as uow:
-            user = uow.users.get_by_id(1)
-            uow.conversations.create(user_id=1)
+        async with UnitOfWork(session) as uow:
+            user = await uow.users.get_by_id(1)
+            await uow.conversations.create(user_id=1)
             # Transaction commits automatically on clean exit
     """
 
@@ -34,15 +32,15 @@ class UnitOfWork(BaseUnitOfWork):
     api_keys: ApiKeyRepository
 
     def __init__(
-            self,
-            session: SessionProtocol,
-            users: UserRepository,
-            conversations: ConversationRepository,
-            messages: MessageRepository,
-            documents: DocumentRepository,
-            groups: GroupRepository,
-            client_assignments: ClientAssignmentRepository,
-            api_keys: ApiKeyRepository,
+        self,
+        session: SessionProtocol,
+        users: UserRepository,
+        conversations: ConversationRepository,
+        messages: MessageRepository,
+        documents: DocumentRepository,
+        groups: GroupRepository,
+        client_assignments: ClientAssignmentRepository,
+        api_keys: ApiKeyRepository,
     ) -> None:
         super().__init__(session)
         self.users = users
@@ -52,14 +50,3 @@ class UnitOfWork(BaseUnitOfWork):
         self.groups = groups
         self.client_assignments = client_assignments
         self.api_keys = api_keys
-
-    def __enter__(self) -> UnitOfWork:
-        return super().__enter__()
-
-    def __exit__(
-            self,
-            exc_type: type[BaseException] | None,
-            exc_val: BaseException | None,
-            exc_tb: TracebackType | None,
-    ) -> None:
-        super().__exit__(exc_type, exc_val, exc_tb)

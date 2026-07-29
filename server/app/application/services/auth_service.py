@@ -1,11 +1,10 @@
 """Application Service: AuthService — manages authentication via UoWFactory.
 
-Each method opens its own UnitOfWork. No db/session parameters.
+Each method opens its own async UnitOfWork. No db/session parameters.
 """
 
 from __future__ import annotations
 
-from application.dto.auth_dto import CreateUserCommand, LoginCommand, LoginResult, UserDTO
 from domain.entities.user import User
 from domain.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
 from domain.services.password_hasher import IPasswordHasher
@@ -14,21 +13,23 @@ from domain.value_objects.roles import UserKind, UserRole
 from infrastructure.auth.api_key_provider import api_key_provider
 from infrastructure.uow_factory import UnitOfWorkFactory
 
+from application.dto.auth_dto import CreateUserCommand, LoginCommand, LoginResult, UserDTO
+
 
 class AuthService:
     def __init__(
-            self,
-            uow_factory: UnitOfWorkFactory,
-            password_hasher: IPasswordHasher,
-            token_provider: ITokenProvider,
+        self,
+        uow_factory: UnitOfWorkFactory,
+        password_hasher: IPasswordHasher,
+        token_provider: ITokenProvider,
     ) -> None:
         self._uow_factory = uow_factory
         self._hasher = password_hasher
         self._tokens = token_provider
 
-    def authenticate(self, command: LoginCommand) -> LoginResult:
-        with self._uow_factory.create() as uow:
-            user = uow.users.get_by_email(command.email)
+    async def authenticate(self, command: LoginCommand) -> LoginResult:
+        async with self._uow_factory.create() as uow:
+            user = await uow.users.get_by_email(command.email)
             if user is None or not user.is_active:
                 raise ValidationError("Invalid email or password")
             if not self._hasher.verify(command.password, user.hashed_password):
@@ -37,8 +38,8 @@ class AuthService:
             token = self._tokens.create_token(user_id=user.id, role=user.role)
             return LoginResult(access_token=token, role=user.role, kind=user.kind)
 
-    def create_user(self, command: CreateUserCommand, creator_role: str = "admin") -> UserDTO:
-        with self._uow_factory.create() as uow:
+    async def create_user(self, command: CreateUserCommand, creator_role: str = "admin") -> UserDTO:
+        async with self._uow_factory.create() as uow:
             role = UserRole.validate(command.role)
             kind = UserKind.validate(command.kind)
 
@@ -50,11 +51,11 @@ class AuthService:
             user.ensure_valid_for_creation()
             user.can_be_created_by(UserRole(creator_role))
 
-            if uow.users.get_by_email(command.email) is not None:
+            if await uow.users.get_by_email(command.email) is not None:
                 raise BusinessRuleViolation("User with this email already exists")
 
             user.hashed_password = self._hasher.hash(command.password)
-            saved = uow.users.save(user)
+            saved = await uow.users.save(user)
 
             return UserDTO(
                 id=saved.id,
@@ -64,9 +65,9 @@ class AuthService:
                 is_active=saved.is_active,
             )
 
-    def list_users(self) -> list[UserDTO]:
-        with self._uow_factory.create() as uow:
-            users = uow.users.list_all()
+    async def list_users(self) -> list[UserDTO]:
+        async with self._uow_factory.create() as uow:
+            users = await uow.users.list_all()
             return [
                 UserDTO(
                     id=u.id,
@@ -78,21 +79,18 @@ class AuthService:
                 for u in users
             ]
 
-    def toggle_active(self, user_id: int, is_active: bool, admin_id: int) -> dict:
-        with self._uow_factory.create() as uow:
-            user = uow.users.get_by_id(user_id)
+    async def toggle_active(self, user_id: int, is_active: bool, admin_id: int) -> dict:
+        async with self._uow_factory.create() as uow:
+            user = await uow.users.get_by_id(user_id)
             if user is None:
                 raise EntityNotFound("User", user_id)
             user.deactivate_self_prohibited(admin_id)
-            uow.users.set_active(user_id, is_active)
+            await uow.users.set_active(user_id, is_active)
             return {"id": user_id, "is_active": is_active}
 
-    def issue_api_key(self, client_user_id: int, name: str | None = None) -> dict:
-        """Выпустить новый статический ключ для внешнего (kind='client') пользователя.
-        Ключ в открытом виде возвращается ОДИН РАЗ — сохраняется только его хеш.
-        """
-        with self._uow_factory.create() as uow:
-            user = uow.users.get_by_id(client_user_id)
+    async def issue_api_key(self, client_user_id: int, name: str | None = None) -> dict:
+        async with self._uow_factory.create() as uow:
+            user = await uow.users.get_by_id(client_user_id)
             if user is None:
                 raise EntityNotFound("User", client_user_id)
             if user.kind != "client":
@@ -102,7 +100,7 @@ class AuthService:
             key_hash = api_key_provider.hash_key(raw_key)
             prefix = api_key_provider.key_prefix_for_display(raw_key)
 
-            saved = uow.api_keys.create(
+            saved = await uow.api_keys.create(
                 user_id=client_user_id, key_hash=key_hash, key_prefix=prefix, name=name
             )
 
@@ -111,18 +109,18 @@ class AuthService:
                 "api_key": raw_key,
                 "key_prefix": saved.key_prefix,
                 "name": saved.name,
-                "created_at": saved.created_at,
+                "creation_date": saved.creation_date,
             }
 
-    def list_api_keys(self, client_user_id: int) -> list[dict]:
-        with self._uow_factory.create() as uow:
-            keys = uow.api_keys.list_for_user(client_user_id)
+    async def list_api_keys(self, client_user_id: int) -> list[dict]:
+        async with self._uow_factory.create() as uow:
+            keys = await uow.api_keys.list_for_user(client_user_id)
             return [
                 {
                     "id": k.id,
                     "key_prefix": k.key_prefix,
                     "name": k.name,
-                    "created_at": k.created_at,
+                    "creation_date": k.creation_date,
                     "revoked_at": k.revoked_at,
                     "last_used_at": k.last_used_at,
                     "is_active": k.is_active,
@@ -130,9 +128,9 @@ class AuthService:
                 for k in keys
             ]
 
-    def revoke_api_key(self, api_key_id: int, client_user_id: int | None = None) -> dict:
-        with self._uow_factory.create() as uow:
-            revoked = uow.api_keys.revoke(api_key_id, user_id=client_user_id)
+    async def revoke_api_key(self, api_key_id: int, client_user_id: int | None = None) -> dict:
+        async with self._uow_factory.create() as uow:
+            revoked = await uow.api_keys.revoke(api_key_id, user_id=client_user_id)
             if not revoked:
                 raise EntityNotFound("ApiKey", api_key_id)
 

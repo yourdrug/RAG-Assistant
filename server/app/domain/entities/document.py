@@ -23,7 +23,7 @@ class Document:
     warning_message: str | None = None
     chunks: int | None = None
     chars: int | None = None
-    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    creation_date: datetime = field(default_factory=lambda: datetime.now(UTC))
     indexed_at: datetime | None = None
 
     def __post_init__(self) -> None:

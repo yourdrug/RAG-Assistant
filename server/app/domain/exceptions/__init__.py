@@ -1,15 +1,23 @@
 from domain.exceptions.domain_errors import (
+    AppException,
+    AuthenticationError,
     BusinessRuleViolation,
+    ClientException,
     DatabaseError,
-    DomainError,
     EntityNotFound,
+    PermissionDeniedError,
+    ServerException,
     ValidationError,
 )
 
 __all__ = [
-    "DomainError",
+    "AppException",
+    "ClientException",
+    "ServerException",
     "ValidationError",
     "EntityNotFound",
     "BusinessRuleViolation",
     "DatabaseError",
+    "AuthenticationError",
+    "PermissionDeniedError",
 ]

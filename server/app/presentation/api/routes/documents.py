@@ -7,8 +7,8 @@ import logging
 from application.services.document_processor import DocumentProcessor
 from application.services.document_service import DocumentService
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, UploadFile
-from presentation.api.auth_dependencies import get_current_user
 
+from presentation.api.auth_dependencies import get_current_user
 from presentation.api.dependencies import (
     create_document_service,
     get_document_parser,
@@ -57,6 +57,17 @@ def _process_document_in_background(
         logger.exception("Background document processing failed for %s (doc %d)", filename, document_id)
 
 
+@router.get("/documents/clients")
+async def list_uploadable_clients(
+    current_user: dict = Depends(get_current_user),
+    document_service: DocumentService = Depends(create_document_service),
+):
+    """List clients available for client_private upload (assigned clients for internal, self for client)."""
+    return await document_service.list_uploadable_clients(
+        current_user["id"], current_user["kind"], current_user["role"]
+    )
+
+
 @router.post("/documents", response_model=UploadStatusResponse)
 async def upload_document(
     background_tasks: BackgroundTasks,
@@ -64,6 +75,7 @@ async def upload_document(
     file: UploadFile = File(...),
     visibility: str = Form(...),
     group_id: int | None = Form(None),
+    client_id: int | None = Form(None),
     rename_on_conflict: bool = Form(False),
     document_service: DocumentService = Depends(create_document_service),
 ):
@@ -75,6 +87,7 @@ async def upload_document(
         file_data=data,
         visibility=visibility,
         group_id=group_id,
+        client_id=client_id,
         user_id=current_user["id"],
         user_kind=current_user["kind"],
         user_role=current_user["role"],
@@ -99,7 +112,7 @@ async def list_documents(
     current_user: dict = Depends(get_current_user),
     document_service: DocumentService = Depends(create_document_service),
 ):
-    return document_service.list_documents(current_user["id"], current_user["kind"])
+    return await document_service.list_documents(current_user["id"], current_user["kind"])
 
 
 @router.get("/documents/{document_id}", response_model=DocumentResponse)
@@ -108,7 +121,7 @@ async def get_document_status(
     current_user: dict = Depends(get_current_user),
     document_service: DocumentService = Depends(create_document_service),
 ):
-    return document_service.get_document(
+    return await document_service.get_document(
         document_id, current_user["id"], current_user["kind"], current_user["role"]
     )
 
@@ -119,5 +132,5 @@ async def delete_document(
     current_user: dict = Depends(get_current_user),
     document_service: DocumentService = Depends(create_document_service),
 ):
-    document_service.delete_document(document_id, current_user["id"], current_user["role"])
+    await document_service.delete_document(document_id, current_user["id"], current_user["role"])
     return {"status": "deleted", "document_id": document_id}

@@ -412,9 +412,7 @@ def save_results(results: list[dict], out_dir: str, model_name: str = ""):
         if r["generator_metrics"]["correctness"] is not None
     ]
     hit_rates = [
-        r["retriever_metrics"]["hit_rate"]
-        for r in results
-        if r["retriever_metrics"]["hit_rate"] is not None
+        r["retriever_metrics"]["hit_rate"] for r in results if r["retriever_metrics"]["hit_rate"] is not None
     ]
     mrrs = [r["retriever_metrics"]["mrr"] for r in results if r["retriever_metrics"]["mrr"] is not None]
     sims = [r["retriever_metrics"]["avg_similarity"] for r in results]

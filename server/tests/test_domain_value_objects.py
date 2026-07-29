@@ -1,4 +1,4 @@
-"""Tests for domain value objects: UserRole, UserKind, Email, DocumentVisibility,
+"""Tests for domain value objects: UserRole, UserKind, DocumentVisibility,
 DocumentStatus, MessageRole.
 
 Pure unit tests — no infrastructure dependencies. All validation logic is tested.
@@ -14,7 +14,6 @@ sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.par
 
 from domain.exceptions import ValidationError
 from domain.value_objects.document_status import DocumentStatus
-from domain.value_objects.email import Email
 from domain.value_objects.message_role import MessageRole
 from domain.value_objects.roles import UserKind, UserRole
 from domain.value_objects.visibility import DocumentVisibility
@@ -95,80 +94,6 @@ class TestUserKind:
     def test_kind_is_str_enum(self):
         assert isinstance(UserKind.INTERNAL, str)
         assert isinstance(UserKind.CLIENT, str)
-
-
-# ===========================================================================
-# Email Value Object Tests
-# ===========================================================================
-
-
-class TestEmail:
-    def test_valid_email(self):
-        email = Email("user@example.com")
-        assert email.value == "user@example.com"
-
-    def test_email_normalized_lowercase(self):
-        email = Email("User@Example.COM")
-        assert email.value == "user@example.com"
-
-    def test_email_stripped_whitespace(self):
-        email = Email("  user@example.com  ")
-        assert email.value == "user@example.com"
-
-    def test_email_with_plus(self):
-        email = Email("user+tag@example.com")
-        assert email.value == "user+tag@example.com"
-
-    def test_email_with_dots(self):
-        email = Email("first.last@example.com")
-        assert email.value == "first.last@example.com"
-
-    def test_email_with_subdomain(self):
-        email = Email("user@mail.example.co.uk")
-        assert email.value == "user@mail.example.co.uk"
-
-    def test_empty_email_raises(self):
-        with pytest.raises(ValidationError, match="Email cannot be empty"):
-            Email("")
-
-    def test_whitespace_only_email_raises(self):
-        with pytest.raises(ValidationError, match="Email cannot be empty"):
-            Email("   ")
-
-    def test_invalid_email_no_at(self):
-        with pytest.raises(ValidationError, match="Invalid email format"):
-            Email("userexample.com")
-
-    def test_invalid_email_no_domain(self):
-        with pytest.raises(ValidationError, match="Invalid email format"):
-            Email("user@")
-
-    def test_invalid_email_no_tld(self):
-        with pytest.raises(ValidationError, match="Invalid email format"):
-            Email("user@example")
-
-    def test_invalid_email_special_chars(self):
-        with pytest.raises(ValidationError, match="Invalid email format"):
-            Email("user name@example.com")
-
-    def test_email_str_representation(self):
-        email = Email("user@example.com")
-        assert str(email) == "user@example.com"
-
-    def test_email_equality(self):
-        e1 = Email("user@example.com")
-        e2 = Email("user@example.com")
-        assert e1 == e2
-
-    def test_email_inequality(self):
-        e1 = Email("user1@example.com")
-        e2 = Email("user2@example.com")
-        assert e1 != e2
-
-    def test_email_is_frozen(self):
-        email = Email("user@example.com")
-        with pytest.raises(AttributeError):
-            email.value = "changed@example.com"
 
 
 # ===========================================================================

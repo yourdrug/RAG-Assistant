@@ -17,7 +17,7 @@ class User:
     role: UserRole = UserRole.USER
     kind: UserKind = UserKind.INTERNAL
     is_active: bool = True
-    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    creation_date: datetime = field(default_factory=lambda: datetime.now(UTC))
     group_ids: list[int] = field(default_factory=list)
     assigned_client_ids: list[int] = field(default_factory=list)
 

@@ -13,7 +13,7 @@ class ApiKey:
     key_hash: str = ""
     key_prefix: str = ""
     name: str | None = None
-    created_at: datetime | None = None
+    creation_date: datetime | None = None
     revoked_at: datetime | None = None
     last_used_at: datetime | None = None
 

@@ -1,50 +1,62 @@
-"""SQLAlchemy implementation of ClientAssignmentRepository."""
+"""SQLAlchemy ORM implementation of ClientAssignmentRepository."""
 
 from __future__ import annotations
 
-from sqlalchemy import text
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from infrastructure.database.models import ClientAssignmentModel, UserModel
 
 
 class SQLAlchemyClientAssignmentRepository:
-    def __init__(self, db: Session) -> None:
+    def __init__(self, db: AsyncSession) -> None:
         self._db = db
 
-    def assign(self, internal_user_id: int, client_user_id: int, assigned_by: int) -> None:
-        self._db.execute(
-            text("""
-                INSERT INTO client_assignments (internal_user_id, client_user_id, assigned_by)
-                VALUES (:iu, :cu, :by)
-                ON CONFLICT DO NOTHING
-            """),
-            {"iu": internal_user_id, "cu": client_user_id, "by": assigned_by},
+    async def assign(self, internal_user_id: int, client_user_id: int, assigned_by: int) -> None:
+        orm = ClientAssignmentModel(
+            internal_user_id=internal_user_id,
+            client_user_id=client_user_id,
+            assigned_by=assigned_by,
         )
+        self._db.add(orm)
+        await self._db.flush()
 
-    def unassign(self, internal_user_id: int, client_user_id: int) -> None:
-        self._db.execute(
-            text("DELETE FROM client_assignments WHERE internal_user_id = :iu AND client_user_id = :cu"),
-            {"iu": internal_user_id, "cu": client_user_id},
+    async def unassign(self, internal_user_id: int, client_user_id: int) -> None:
+        result = await self._db.execute(
+            select(ClientAssignmentModel).where(
+                ClientAssignmentModel.internal_user_id == internal_user_id,
+                ClientAssignmentModel.client_user_id == client_user_id,
+            )
         )
+        orm = result.scalar_one_or_none()
+        if orm:
+            await self._db.delete(orm)
+            await self._db.flush()
 
-    def get_assigned_client_ids(self, internal_user_id: int) -> list[int]:
-        rows = self._db.execute(
-            text("SELECT client_user_id FROM client_assignments WHERE internal_user_id = :iu"),
-            {"iu": internal_user_id},
-        ).fetchall()
-        return [r.client_user_id for r in rows]
+    async def get_assigned_client_ids(self, internal_user_id: int) -> list[int]:
+        result = await self._db.execute(
+            select(ClientAssignmentModel.client_user_id).where(
+                ClientAssignmentModel.internal_user_id == internal_user_id
+            )
+        )
+        return [row[0] for row in result.all()]
 
-    def list_for_client(self, client_user_id: int) -> list[dict]:
-        rows = self._db.execute(
-            text("""
-                SELECT u.id AS internal_user_id, u.email, ca.assigned_at
-                FROM client_assignments ca
-                JOIN users u ON u.id = ca.internal_user_id
-                WHERE ca.client_user_id = :cu
-                ORDER BY ca.assigned_at
-            """),
-            {"cu": client_user_id},
-        ).fetchall()
+    async def list_for_client(self, client_user_id: int) -> list[dict]:
+        result = await self._db.execute(
+            select(
+                UserModel.id.label("internal_user_id"),
+                UserModel.email,
+                ClientAssignmentModel.assigned_at,
+            )
+            .join(UserModel, UserModel.id == ClientAssignmentModel.internal_user_id)
+            .where(ClientAssignmentModel.client_user_id == client_user_id)
+            .order_by(ClientAssignmentModel.assigned_at)
+        )
         return [
-            {"internal_user_id": r.internal_user_id, "email": r.email, "assigned_at": r.assigned_at}
-            for r in rows
+            {
+                "internal_user_id": row.internal_user_id,
+                "email": row.email,
+                "assigned_at": row.assigned_at,
+            }
+            for row in result.all()
         ]

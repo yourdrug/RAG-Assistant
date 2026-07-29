@@ -7,7 +7,6 @@ from domain.repositories.group_repository import GroupRepository
 from domain.repositories.ingestion_registry_repository import IngestionRegistryRepository
 from domain.repositories.message_repository import MessageRepository
 from domain.repositories.rag_service_repository import RagServiceProtocol
-from domain.repositories.settings_repository import SettingsProtocol
 from domain.repositories.user_repository import UserRepository
 from domain.repositories.vector_store_repository import VectorStoreRepository
 
@@ -21,7 +20,6 @@ __all__ = [
     "VectorStoreRepository",
     "IngestionRegistryRepository",
     "RagServiceProtocol",
-    "SettingsProtocol",
     "BenchmarkSettingsProtocol",
     "ApiKeyRepository",
 ]

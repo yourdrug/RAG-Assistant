@@ -17,10 +17,15 @@ main() {
 
     log_info "rag-server starting (version: $(cat VERSION 2>/dev/null || echo 'dev'))"
 
+    # Run Alembic migrations from project root (alembic.ini is here)
+    log_info "Running Alembic migrations..."
+    alembic upgrade head
+    log_info "Alembic migrations completed."
+
     cd app
     log_info "Current working directory: '$(pwd)'"
 
-    # Показывать текущую директорию в промпте bash
+    # Show current prompt
     export PS1='\[\033[01;32m\]rag\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
 
     if [ $# -eq 0 ]; then

@@ -10,6 +10,17 @@ class Settings(BaseSettings):
     qdrant_api_key: str | None = os.getenv("QDRANT_API_KEY") or None
     ollama_base_url: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     database_url: str = os.getenv("DATABASE_URL", "postgresql://raguser:ragpassword@localhost:5432/ragdb")
+
+    # --- Individual DB params (used by async DatabaseManager) ---
+    db_host: str = os.getenv("DB_HOST", "localhost")
+    db_port: str = os.getenv("DB_PORT", "5432")
+    db_user: str = os.getenv("DB_USER", "raguser")
+    db_password: str = os.getenv("DB_PASSWORD", "ragpassword")
+    db_name: str = os.getenv("DB_NAME", "ragdb")
+
+    # --- Cluster slave nodes (comma-separated host:port pairs, e.g. "slave1:5433,slave2:5434") ---
+    db_slave_hosts: str = os.getenv("DB_SLAVE_HOSTS", "")
+    db_slave_ports: str = os.getenv("DB_SLAVE_PORTS", "")
     collection_name: str = os.getenv("COLLECTION_NAME", "company_docs")
 
     data_dir: str = os.getenv("DATA_DIR", "/code/project/data")
@@ -82,6 +93,9 @@ class Settings(BaseSettings):
 
     admin_email: str | None = os.getenv("ADMIN_EMAIL")
     admin_password: str | None = os.getenv("ADMIN_PASSWORD")
+
+    # --- Timezone (IANA tz name) ---
+    timezone: str = os.getenv("TIMEZONE", "UTC")
 
     # Поддерживаемые расширения файлов
     supported_extensions: tuple = (".pdf", ".docx", ".doc", ".rtf", ".md", ".txt")

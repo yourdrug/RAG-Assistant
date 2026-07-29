@@ -98,28 +98,32 @@ def compare_runs(
         base_val = baseline_metrics.get(metric_name)
 
         if curr_val is None or base_val is None:
-            results.append({
-                "metric": metric_name,
-                "baseline": base_val,
-                "current": curr_val,
-                "delta": None,
-                "threshold": threshold,
-                "failed": False,
-                "note": "skipped (missing data)",
-            })
+            results.append(
+                {
+                    "metric": metric_name,
+                    "baseline": base_val,
+                    "current": curr_val,
+                    "delta": None,
+                    "threshold": threshold,
+                    "failed": False,
+                    "note": "skipped (missing data)",
+                }
+            )
             continue
 
         delta = curr_val - base_val
         failed = delta < threshold
 
-        results.append({
-            "metric": metric_name,
-            "baseline": round(base_val, 4),
-            "current": round(curr_val, 4),
-            "delta": round(delta, 4),
-            "threshold": threshold,
-            "failed": failed,
-        })
+        results.append(
+            {
+                "metric": metric_name,
+                "baseline": round(base_val, 4),
+                "current": round(curr_val, 4),
+                "delta": round(delta, 4),
+                "threshold": threshold,
+                "failed": failed,
+            }
+        )
 
     all_passed = not any(r["failed"] for r in results)
     return {"passed": all_passed, "results": results}

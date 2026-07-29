@@ -1,13 +1,11 @@
 """
-Composition Root — Dependency Injection Container.
+Composition Root — Dependency Injection Container (KinTree-style).
 """
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Generator
-
-from fastapi.security import APIKeyHeader
+from collections.abc import AsyncGenerator
 
 from application.services.auth_service import AuthService
 from application.services.chat_service import ChatService
@@ -15,8 +13,10 @@ from application.services.document_service import DocumentService
 from application.services.ingest_service import IngestAppService
 from application.uow import UnitOfWork
 from config import settings
+from fastapi.security import APIKeyHeader
 from infrastructure.auth.jwt_provider import JWTProvider
 from infrastructure.auth.password_hasher import BCryptPasswordHasher
+from infrastructure.database.database import database
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
 from infrastructure.ml.rag_service import RagService
 from infrastructure.repositories.qdrant_vector_store_repository import QdrantVectorStoreRepository
@@ -33,7 +33,7 @@ log = logging.getLogger("default")
 
 _vector_store_repo = QdrantVectorStoreRepository()
 _file_storage = get_storage()
-_uow_factory = UnitOfWorkFactory()
+_uow_factory = UnitOfWorkFactory(database=database)
 _document_parser = LangchainDocumentParser()
 _document_splitter = LangchainDocumentSplitter()
 
@@ -72,8 +72,8 @@ auth_key_header = APIKeyHeader(
 # ---------------------------------------------------------------------------
 
 
-def get_uow() -> Generator[UnitOfWork, None, None]:
-    with _uow_factory.create() as uow:
+async def get_uow() -> AsyncGenerator[UnitOfWork, None]:
+    async with _uow_factory.create() as uow:
         yield uow
 
 
