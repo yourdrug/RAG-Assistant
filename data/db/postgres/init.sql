@@ -73,6 +73,18 @@ CREATE TABLE IF NOT EXISTS documents (
     indexed_at    TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS api_keys (
+    id           SERIAL PRIMARY KEY,
+    user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    key_hash     VARCHAR(64) NOT NULL UNIQUE,   -- sha256(raw_key), сам ключ никогда не хранится
+    key_prefix   VARCHAR(20) NOT NULL,          -- показывается админу для опознания ключа
+    name         VARCHAR(255),
+    created_at   TIMESTAMP NOT NULL DEFAULT NOW(),
+    revoked_at   TIMESTAMP,
+    last_used_at TIMESTAMP
+);
+
+
 CREATE UNIQUE INDEX IF NOT EXISTS ux_documents_active_slot
     ON documents (owner_id, filename, COALESCE(group_id, -1))
     WHERE status IN ('pending', 'processing', 'done');
@@ -81,3 +93,4 @@ CREATE INDEX IF NOT EXISTS idx_documents_owner ON documents(owner_id);
 CREATE INDEX IF NOT EXISTS idx_documents_group ON documents(group_id);
 CREATE INDEX IF NOT EXISTS idx_documents_visibility ON documents(visibility);
 CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(status);
+CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id);

@@ -57,6 +57,7 @@ export interface NewConversationResponse {
 export interface MessageResponse {
   role: "user" | "assistant";
   content: string;
+  sources?: Source[];
 }
 
 export interface ConversationHistoryResponse {
@@ -148,6 +149,30 @@ export interface ClientAssignmentResponse {
   internal_user_id: number;
   email: string;
   assigned_at: string;
+}
+
+// ─── API Keys ─────────────────────────────────────────────────────────────────
+
+export interface ApiKeyCreateRequest {
+  name?: string | null;
+}
+
+export interface ApiKeyCreatedResponse {
+  id: number;
+  api_key: string; // shown only in this response, never stored
+  key_prefix: string;
+  name?: string | null;
+  created_at: string;
+}
+
+export interface ApiKeyResponse {
+  id: number;
+  key_prefix: string;
+  name?: string | null;
+  created_at: string;
+  revoked_at?: string | null;
+  last_used_at?: string | null;
+  is_active: boolean;
 }
 
 // ─── Health ──────────────────────────────────────────────────────────────────

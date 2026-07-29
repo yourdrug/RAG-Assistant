@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from types import TracebackType
 
+from domain.repositories import ApiKeyRepository
 from domain.repositories.client_assignment_repository import ClientAssignmentRepository
 from domain.repositories.conversation_repository import ConversationRepository
 from domain.repositories.document_repository import DocumentRepository
@@ -30,16 +31,18 @@ class UnitOfWork(BaseUnitOfWork):
     documents: DocumentRepository
     groups: GroupRepository
     client_assignments: ClientAssignmentRepository
+    api_keys: ApiKeyRepository
 
     def __init__(
-        self,
-        session: SessionProtocol,
-        users: UserRepository,
-        conversations: ConversationRepository,
-        messages: MessageRepository,
-        documents: DocumentRepository,
-        groups: GroupRepository,
-        client_assignments: ClientAssignmentRepository,
+            self,
+            session: SessionProtocol,
+            users: UserRepository,
+            conversations: ConversationRepository,
+            messages: MessageRepository,
+            documents: DocumentRepository,
+            groups: GroupRepository,
+            client_assignments: ClientAssignmentRepository,
+            api_keys: ApiKeyRepository,
     ) -> None:
         super().__init__(session)
         self.users = users
@@ -48,14 +51,15 @@ class UnitOfWork(BaseUnitOfWork):
         self.documents = documents
         self.groups = groups
         self.client_assignments = client_assignments
+        self.api_keys = api_keys
 
     def __enter__(self) -> UnitOfWork:
         return super().__enter__()
 
     def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: TracebackType | None,
+            self,
+            exc_type: type[BaseException] | None,
+            exc_val: BaseException | None,
+            exc_tb: TracebackType | None,
     ) -> None:
         super().__exit__(exc_type, exc_val, exc_tb)

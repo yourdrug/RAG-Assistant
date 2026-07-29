@@ -7,7 +7,7 @@ import logging
 from application.services.document_processor import DocumentProcessor
 from application.services.document_service import DocumentService
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, UploadFile
-from infrastructure.auth.fastapi_dependencies import get_current_user
+from presentation.api.auth_dependencies import get_current_user
 
 from presentation.api.dependencies import (
     create_document_service,

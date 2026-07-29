@@ -6,13 +6,14 @@ import logging.config
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
+from fastapi import FastAPI
+from fastapi.exceptions import HTTPException, RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
+
 from bootstrap import bootstrap_admin
 from cli.cli import cli
 from config import settings
 from domain.exceptions import DomainError
-from fastapi import FastAPI
-from fastapi.exceptions import HTTPException, RequestValidationError
-from fastapi.middleware.cors import CORSMiddleware
 from infrastructure.logging import logging_config
 from presentation.api.exception_handlers import (
     handle_domain_exception,
@@ -20,6 +21,7 @@ from presentation.api.exception_handlers import (
     handle_unexpected_exception,
     handle_validation_exception,
 )
+from presentation.api.routes.api_keys import router as api_keys_router
 from presentation.api.routes.auth import router as auth_router
 from presentation.api.routes.benchmark import router as benchmark_router
 from presentation.api.routes.chat import router as chat_router
@@ -29,6 +31,7 @@ from presentation.api.routes.documents import router as documents_router
 from presentation.api.routes.groups import router as groups_router
 from presentation.api.routes.health import router as health_router
 from presentation.api.routes.ingest import router as ingest_router
+
 
 # ---------------------------------------------------------------------------
 # Lifespan
@@ -91,6 +94,7 @@ class Application:
         self.app.include_router(clients_router)
         self.app.include_router(health_router)
         self.app.include_router(benchmark_router)
+        self.app.include_router(api_keys_router)
 
 
 def create_application() -> FastAPI:

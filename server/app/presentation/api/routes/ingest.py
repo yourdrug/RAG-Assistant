@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
-from infrastructure.auth.fastapi_dependencies import require_admin
+from presentation.api.auth_dependencies import require_admin
 
 from presentation.api.dependencies import create_ingest_service, create_ingestion_service
 from presentation.api.schemas import (

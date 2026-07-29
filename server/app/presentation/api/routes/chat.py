@@ -7,7 +7,7 @@ import json
 from application.services.chat_service import ChatService
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from infrastructure.auth.fastapi_dependencies import get_current_user
+from presentation.api.auth_dependencies import get_current_user
 
 from presentation.api.dependencies import create_chat_service
 from presentation.api.schemas import ChatRequest, ChatResponse

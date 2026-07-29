@@ -6,3 +6,4 @@ export { useClientAssignments, useAssignClient, useUnassignClient } from "./use-
 export { useIngestRegistry, useIngestAll, useIngestFile, useUploadFiles } from "./use-ingest";
 export { useHealth } from "./use-health";
 export { useBenchmark } from "./use-benchmark";
+export { useClientApiKeys, useCreateClientApiKey, useRevokeClientApiKey } from "./use-api-keys";

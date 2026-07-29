@@ -262,7 +262,7 @@ _DATE_IN_FILENAME_RE = re.compile(r"(\d{4}-\d{2}-\d{2})")
 
 def _clean_markdown_text(text: str) -> str:
     """Общая очистка markdown-разметки — используется и flat-парсером, и секционным."""
-    text = re.sub(r"!\[.*?\]\(.*?\)", "", text)
+    text = re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", r"[image: \1](\2)", text)
     text = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", text)
     text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
     text = re.sub(r"[*_`~]+", "", text)

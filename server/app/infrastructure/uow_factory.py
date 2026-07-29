@@ -6,8 +6,8 @@ from collections.abc import Generator
 from contextlib import contextmanager
 
 from application.uow import UnitOfWork
-
 from infrastructure.database.engine import SessionLocal
+from infrastructure.repositories.sqlalchemy_api_key_repository import SQLAlchemyApiKeyRepository
 from infrastructure.repositories.sqlalchemy_client_assignment_repository import (
     SQLAlchemyClientAssignmentRepository,
 )
@@ -36,6 +36,7 @@ class UnitOfWorkFactory:
             documents=SQLAlchemyDocumentRepository(session),
             groups=SQLAlchemyGroupRepository(session),
             client_assignments=SQLAlchemyClientAssignmentRepository(session),
+            api_keys=SQLAlchemyApiKeyRepository(session),
         )
         with uow:
             yield uow

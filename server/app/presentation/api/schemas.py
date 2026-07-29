@@ -6,6 +6,7 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
+
 # ---------------------------------------------------------------------------
 # Auth
 # ---------------------------------------------------------------------------
@@ -67,6 +68,7 @@ class NewConversationResponse(BaseModel):
 class MessageResponse(BaseModel):
     role: str
     content: str
+    sources: list[dict] | None = None
 
 
 class ConversationHistoryResponse(BaseModel):
@@ -203,3 +205,25 @@ class StatusResponse(BaseModel):
     detail: str | None = None
     id: int | None = None
     is_active: bool | None = None
+
+
+class ApiKeyCreateRequest(BaseModel):
+    name: str | None = None
+
+
+class ApiKeyCreatedResponse(BaseModel):
+    id: int
+    api_key: str  # показывается только в этом ответе, больше нигде
+    key_prefix: str
+    name: str | None = None
+    created_at: datetime
+
+
+class ApiKeyResponse(BaseModel):
+    id: int
+    key_prefix: str
+    name: str | None = None
+    created_at: datetime
+    revoked_at: datetime | None = None
+    last_used_at: datetime | None = None
+    is_active: bool

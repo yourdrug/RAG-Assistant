@@ -5,7 +5,7 @@ from __future__ import annotations
 from application.dto.auth_dto import CreateUserCommand, LoginCommand
 from application.services.auth_service import AuthService
 from fastapi import APIRouter, Depends
-from infrastructure.auth.fastapi_dependencies import get_current_user, require_admin
+from presentation.api.auth_dependencies import get_current_user, require_admin
 
 from presentation.api.dependencies import create_auth_service
 from presentation.api.schemas import CreateUserRequest, LoginRequest, TokenResponse, UserResponse

@@ -17,7 +17,7 @@ export function SourcePanel({ sources, onClose }: Props) {
         <div className="space-y-3">
           {sources.map((s, i) => (
             <div key={i} className="rounded-md border p-3 space-y-2">
-              <div className="flex items-center gap-2"><FileText className="h-4 w-4 text-muted-foreground shrink-0" /><span className="text-sm font-medium truncate">{s.source}</span></div>
+              <div className="flex items-start gap-2"><FileText className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" /><span className="text-sm font-medium break-words">{s.source}</span></div>
               {s.pages && s.pages.length > 0 && <div className="flex items-center gap-1 text-xs text-muted-foreground"><Hash className="h-3 w-3" /><span>Pages: {s.pages.join(", ")}</span></div>}
             </div>
           ))}

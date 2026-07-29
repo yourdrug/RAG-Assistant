@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from application.uow import UnitOfWork
 from fastapi import APIRouter, Depends, HTTPException
-from infrastructure.auth.fastapi_dependencies import get_current_user, require_admin
+from presentation.api.auth_dependencies import get_current_user, require_admin
 
 from presentation.api.dependencies import get_uow
 from presentation.api.schemas import (

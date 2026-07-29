@@ -3,13 +3,13 @@
 The new DDD structure uses:
   - infrastructure.auth.password_hasher.BCryptPasswordHasher
   - infrastructure.auth.jwt_provider.JWTProvider
-  - infrastructure.auth.fastapi_dependencies.get_current_user, require_admin
+  - presentation.api.auth_dependencies.get_current_user, require_admin
 
 Legacy code imports:
   - infrastructure.auth.create_access_token, hash_password, verify_password, etc.
 """
 
-from infrastructure.auth.fastapi_dependencies import get_current_user, require_admin
+from presentation.api.auth_dependencies import get_current_user, require_admin
 from infrastructure.auth.jwt_provider import JWTProvider
 from infrastructure.auth.password_hasher import BCryptPasswordHasher
 

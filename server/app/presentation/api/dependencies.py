@@ -7,6 +7,8 @@ from __future__ import annotations
 import logging
 from collections.abc import Generator
 
+from fastapi.security import APIKeyHeader
+
 from application.services.auth_service import AuthService
 from application.services.chat_service import ChatService
 from application.services.document_service import DocumentService
@@ -57,6 +59,11 @@ _auth_service = AuthService(
     uow_factory=_uow_factory,
     password_hasher=BCryptPasswordHasher(),
     token_provider=JWTProvider(),
+)
+
+auth_key_header = APIKeyHeader(
+    name="Authorization",
+    auto_error=False,
 )
 
 

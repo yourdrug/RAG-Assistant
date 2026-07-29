@@ -1,7 +1,7 @@
 import {
   MessageSquare, FileText, Search, User, LayoutDashboard, Users, UserCog,
   FolderOpen, Upload, Cpu, Settings, Database, ScanText, Clock, BarChart3,
-  ScrollText, Server,
+  ScrollText, Server, Key,
 } from "lucide-react";
 
 export const userNavItems = [
@@ -23,6 +23,7 @@ export const adminNavItems: AdminNavItem[] = [
   { title: "Users", href: "/admin/users", icon: Users },
   { title: "Groups", href: "/admin/groups", icon: UserCog },
   { title: "Clients", href: "/admin/clients", icon: FolderOpen },
+  { title: "API Keys", href: "/admin/api-keys", icon: Key },
   { title: "Documents", href: "/admin/documents", icon: FileText },
   { title: "Ingest", href: "/admin/ingest", icon: Upload },
   { title: "Models", href: "/admin/models", icon: Cpu, disabled: true },

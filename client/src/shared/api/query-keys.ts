@@ -22,6 +22,10 @@ export const queryKeys = {
     all: ["clients"] as const,
     assignments: (id: number) => [...queryKeys.clients.all, "assignments", id] as const,
   },
+  apiKeys: {
+    all: ["apiKeys"] as const,
+    clientKeys: (id: number) => [...queryKeys.apiKeys.all, "clientKeys", id] as const,
+  },
   ingest: {
     all: ["ingest"] as const,
     registry: () => [...queryKeys.ingest.all, "registry"] as const,

@@ -14,6 +14,7 @@ import { AdminDashboardPage } from "@/pages/admin/dashboard";
 import { AdminUsersPage } from "@/pages/admin/users";
 import { AdminGroupsPage } from "@/pages/admin/groups";
 import { AdminClientsPage } from "@/pages/admin/clients";
+import { AdminApiKeysPage } from "@/pages/admin/api-keys";
 import { AdminDocumentsPage } from "@/pages/admin/documents";
 import { AdminIngestPage } from "@/pages/admin/ingest";
 import { PlaceholderPage } from "@/pages/admin/placeholder";
@@ -40,6 +41,7 @@ export default function App() {
                 <Route path="users" element={<AdminUsersPage />} />
                 <Route path="groups" element={<AdminGroupsPage />} />
                 <Route path="clients" element={<AdminClientsPage />} />
+                <Route path="api-keys" element={<AdminApiKeysPage />} />
                 <Route path="documents" element={<AdminDocumentsPage />} />
                 <Route path="ingest" element={<AdminIngestPage />} />
                 <Route path="models" element={<PlaceholderPage title="Models" description="LLM model configuration" endpoint="GET/POST /admin/models" />} />

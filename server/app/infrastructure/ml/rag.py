@@ -109,6 +109,7 @@ SYSTEM_PROMPT = """Ты — корпоративный ассистент. Ст�
 4. Отвечай на том же языке, на котором задан вопрос.
 5. Указывай номера страниц (например: "см. стр. 3, 7"), если они есть в контексте.
 6. Если в контексте есть частичная информация — укажи только то, что есть, и скажи чего не хватает.
+7. Если в контексте есть ссылки на изображения [image: ...] — ОБЯЗАТЕЛЬНО включай их в ответ. Не удаляй и не игнорируй.
 
 Контекст из документов:
 {context}
@@ -195,11 +196,12 @@ def format_docs(docs, max_context_tokens: int = 6000) -> str:
 
     for i, doc in enumerate(docs, 1):
         source = doc.metadata.get("source", "unknown")
+        source_name = _clean_source_name(source)
         page = doc.metadata.get("page")
         page_start = doc.metadata.get("page_start")
         page_end = doc.metadata.get("page_end")
         doc_date = doc.metadata.get("doc_date")
-        header = f"[{i}] {source}"
+        header = f"[{i}] {source_name}"
 
         if doc_date:
             header += f" от {doc_date}"
@@ -242,23 +244,30 @@ def history_to_messages(history: list[dict]):
     return messages
 
 
+def _clean_source_name(source: str) -> str:
+    """Extract clean filename from full path, strip directory."""
+    from pathlib import Path
+    return Path(source).name if source else "unknown"
+
+
 def extract_sources(docs) -> list[dict]:
     """Извлекает метаданные источников для сохранения в БД."""
-    pages_by_source: dict[str, set[int]] = {}
+    pages_by_source: dict[str, set[str]] = {}
     for doc in docs:
         src = doc.metadata.get("source", "unknown")
+        clean_name = _clean_source_name(src)
         page = doc.metadata.get("page")
         page_start = doc.metadata.get("page_start")
         page_end = doc.metadata.get("page_end")
         pages_list = doc.metadata.get("pages")
-        if src not in pages_by_source:
-            pages_by_source[src] = set()
+        if clean_name not in pages_by_source:
+            pages_by_source[clean_name] = set()
         if pages_list:
-            pages_by_source[src].update(pages_list)
+            pages_by_source[clean_name].update(pages_list)
         elif page_start is not None and page_end is not None:
-            pages_by_source[src].update(range(page_start, page_end + 1))
+            pages_by_source[clean_name].update(range(page_start, page_end + 1))
         elif page is not None:
-            pages_by_source[src].add(page)
+            pages_by_source[clean_name].add(page)
 
     sources = []
     for src, pages in pages_by_source.items():

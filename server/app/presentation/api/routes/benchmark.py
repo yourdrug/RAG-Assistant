@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends
-from infrastructure.auth.fastapi_dependencies import require_admin
+from presentation.api.auth_dependencies import require_admin
 
 from presentation.api.dependencies import create_benchmark_service
 from presentation.api.schemas import BenchmarkRequest, BenchmarkResponse

@@ -13,6 +13,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Trash2, FileText, CloudUpload } from "lucide-react";
 import { type ColumnDef } from "@tanstack/react-table";
 import toast from "react-hot-toast";
+import { useAuthStore } from "@/stores/auth-store";
 import type { DocumentResponse, DocumentVisibility } from "@/shared/api/types";
 
 export function DocumentsPage() {
@@ -22,7 +23,9 @@ export function DocumentsPage() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const [files, setFiles] = useState<File[]>([]);
-  const [vis, setVis] = useState<DocumentVisibility>("internal_private");
+  const user = useAuthStore((s) => s.user);
+  const isClient = user?.kind === "client";
+  const [vis, setVis] = useState<DocumentVisibility>(isClient ? "client_private" : "internal_private");
   const [groupId, setGroupId] = useState<number | null>(null);
   const [progress, setProgress] = useState(0);
   const { data: groups } = useGroups();
@@ -152,10 +155,16 @@ export function DocumentsPage() {
               <Select value={vis} onValueChange={(v) => { setVis(v as DocumentVisibility); if (v !== "internal_group") setGroupId(null); }}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="internal_private">Private</SelectItem>
-                  <SelectItem value="internal_public">Public</SelectItem>
-                  <SelectItem value="internal_group">Group</SelectItem>
-                  <SelectItem value="client_private">Client Private</SelectItem>
+                  {isClient ? (
+                    <SelectItem value="client_private">Client Private</SelectItem>
+                  ) : (
+                    <>
+                      <SelectItem value="internal_private">Private</SelectItem>
+                      <SelectItem value="internal_public">Public</SelectItem>
+                      <SelectItem value="internal_group">Group</SelectItem>
+                      <SelectItem value="client_private">Client Private</SelectItem>
+                    </>
+                  )}
                 </SelectContent>
               </Select>
             </div>

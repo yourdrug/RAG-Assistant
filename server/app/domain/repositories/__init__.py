@@ -1,3 +1,4 @@
+from domain.repositories.api_key_repository import ApiKeyRepository
 from domain.repositories.benchmark_settings_repository import BenchmarkSettingsProtocol
 from domain.repositories.client_assignment_repository import ClientAssignmentRepository
 from domain.repositories.conversation_repository import ConversationRepository
@@ -22,4 +23,5 @@ __all__ = [
     "RagServiceProtocol",
     "SettingsProtocol",
     "BenchmarkSettingsProtocol",
+    "ApiKeyRepository",
 ]
