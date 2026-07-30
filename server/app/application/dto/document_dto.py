@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from domain.value_objects.roles import UserKind, UserRole
+
 
 @dataclass(frozen=True)
 class DocumentDTO:
@@ -28,5 +30,5 @@ class UploadDocumentCommand:
     visibility: str
     group_id: int | None = None
     user_id: int | None = None
-    user_kind: str = "internal"
-    user_role: str = "user"
+    user_kind: str = UserKind.INTERNAL
+    user_role: str = UserRole.USER

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC
+
 from domain.entities.document import Document
 from domain.services.access_control import get_visibility_conditions
 from domain.value_objects.document_status import DocumentStatus
@@ -66,9 +68,9 @@ class SQLAlchemyDocumentRepository:
         if chars is not None:
             orm.chars = chars
         if status == "done":
-            from datetime import datetime, timezone
+            from datetime import datetime
 
-            orm.indexed_at = datetime.now(tz=timezone.utc)
+            orm.indexed_at = datetime.now(tz=UTC)
         await self._db.flush()
 
     async def set_source_path(self, document_id: int, source_path: str) -> None:
@@ -125,6 +127,10 @@ class SQLAlchemyDocumentRepository:
         result = await self._db.execute(
             select(DocumentModel).where(or_(*or_clauses)).order_by(DocumentModel.creation_date.desc())
         )
+        return [self._to_entity(orm) for orm in result.scalars().all()]
+
+    async def list_all(self) -> list[Document]:
+        result = await self._db.execute(select(DocumentModel).order_by(DocumentModel.creation_date.desc()))
         return [self._to_entity(orm) for orm in result.scalars().all()]
 
     async def find_active_slot_for_update(

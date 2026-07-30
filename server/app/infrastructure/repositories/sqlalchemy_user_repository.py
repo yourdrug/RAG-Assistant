@@ -37,7 +37,7 @@ class SQLAlchemyUserRepository:
         return self._to_entity(orm)
 
     async def exists_admin(self) -> bool:
-        result = await self._db.execute(select(UserModel.id).where(UserModel.role == "admin").limit(1))
+        result = await self._db.execute(select(UserModel.id).where(UserModel.role == UserRole.ADMIN).limit(1))
         return result.scalar_one_or_none() is not None
 
     async def list_all(self) -> list[User]:

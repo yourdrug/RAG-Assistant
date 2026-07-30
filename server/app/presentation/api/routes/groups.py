@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from application.uow import UnitOfWork
+from domain.value_objects.roles import UserKind, UserRole
 from fastapi import APIRouter, Depends, HTTPException
 
 from presentation.api.auth_dependencies import get_current_user, require_admin
@@ -32,9 +33,9 @@ async def list_groups_endpoint(
     current_user: dict = Depends(get_current_user),
     uow: UnitOfWork = Depends(get_uow),
 ):
-    if current_user["role"] == "admin":
+    if current_user["role"] == UserRole.ADMIN:
         rows = await uow.groups.list_all()
-    elif current_user["kind"] != "internal":
+    elif current_user["kind"] != UserKind.INTERNAL:
         rows = []
     else:
         group_ids = await uow.groups.get_user_group_ids(current_user["id"])
@@ -62,7 +63,7 @@ async def add_group_member(
     target = await uow.users.get_by_id(req.user_id)
     if target is None:
         raise HTTPException(status_code=404, detail="User not found")
-    if target.kind != "internal":
+    if target.kind != UserKind.INTERNAL:
         raise HTTPException(status_code=400, detail="Only internal employees can be added to groups")
     await uow.groups.add_user(req.user_id, group_id)
     return {"group_id": group_id, "user_id": req.user_id}

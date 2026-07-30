@@ -119,7 +119,9 @@ class IngestionService:
                 if existing:
                     file_chunks = sum(1 for c in chunks if c.metadata.get("source") == src)
                     file_chars = source_chars.get(src, 0)
-                    await uow.documents.update_status(existing.id, "done", chunks=file_chunks, chars=file_chars)
+                    await uow.documents.update_status(
+                        existing.id, "done", chunks=file_chunks, chars=file_chars
+                    )
                 else:
                     from domain.entities.document import Document as DocEntity
                     from domain.value_objects.visibility import DocumentVisibility
@@ -204,9 +206,11 @@ class IngestionService:
                     "indexed_at": datetime.now().isoformat(timespec="seconds"),
                 }
                 save_registry(data_dir, registry)
-                asyncio.run(self._sync_documents_to_db(
-                    registry, {f"s3://{settings.s3_bucket}/{key}": total_chars}, chunks
-                ))
+                asyncio.run(
+                    self._sync_documents_to_db(
+                        registry, {f"s3://{settings.s3_bucket}/{key}": total_chars}, chunks
+                    )
+                )
             else:
                 log.warning("File '%s' already in registry.", file_info.filename)
         else:

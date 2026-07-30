@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import UTC
+
 from domain.entities.api_key import ApiKey
+from domain.value_objects.roles import UserKind
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -46,9 +49,9 @@ class SQLAlchemyApiKeyRepository:
         if orm is None:
             return False
 
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        orm.revoked_at = datetime.now(tz=timezone.utc)
+        orm.revoked_at = datetime.now(tz=UTC)
         await self._db.flush()
         return True
 
@@ -59,7 +62,7 @@ class SQLAlchemyApiKeyRepository:
             .where(
                 ApiKeyModel.key_hash == key_hash,
                 ApiKeyModel.revoked_at.is_(None),
-                UserModel.kind == "client",
+                UserModel.kind == UserKind.CLIENT,
                 UserModel.is_active.is_(True),
             )
             .limit(1)
@@ -82,9 +85,9 @@ class SQLAlchemyApiKeyRepository:
         result = await self._db.execute(select(ApiKeyModel).where(ApiKeyModel.id == api_key_id))
         orm = result.scalar_one_or_none()
         if orm:
-            from datetime import datetime, timezone
+            from datetime import datetime
 
-            orm.last_used_at = datetime.now(tz=timezone.utc)
+            orm.last_used_at = datetime.now(tz=UTC)
             await self._db.flush()
 
     @staticmethod

@@ -12,6 +12,7 @@ from collections.abc import AsyncIterator
 from domain.entities.message import Message
 from domain.repositories.rag_service_repository import RagServiceProtocol
 from domain.value_objects.message_role import MessageRole
+from domain.value_objects.roles import UserKind
 from infrastructure.uow_factory import UnitOfWorkFactory
 
 from application.dto.chat_dto import ChatResult
@@ -32,7 +33,7 @@ class ChatService:
 
     async def _get_user_context(self, user_id: int, user_kind: str) -> tuple[list[int], list[int]]:
         async with self._uow_factory.create() as uow:
-            if user_kind == "client":
+            if user_kind == UserKind.CLIENT:
                 return [], []
             group_ids = await uow.groups.get_user_group_ids(user_id)
             assigned_ids = await uow.client_assignments.get_assigned_client_ids(user_id)

@@ -67,13 +67,13 @@ class DocumentService:
                     raise EntityNotFound("Group", group_id)
 
             if vis == DocumentVisibility.CLIENT_PRIVATE:
-                if user_kind == "client":
+                if user_kind == UserKind.CLIENT:
                     effective_owner_id = user_id
                 else:
                     if client_id is None:
                         raise ValidationError("client_id required for client_private upload")
                     client_user = await uow.users.get_by_id(client_id)
-                    if client_user is None or client_user.kind != "client":
+                    if client_user is None or client_user.kind != UserKind.CLIENT:
                         raise ValidationError("client_id must be a user with kind='client'")
                     effective_owner_id = client_id
             else:
@@ -135,11 +135,11 @@ class DocumentService:
 
     async def list_uploadable_clients(self, user_id: int, user_kind: str, user_role: str) -> list[dict]:
         async with self._uow_factory.create() as uow:
-            if user_kind == "client":
+            if user_kind == UserKind.CLIENT:
                 return []
-            if user_role == "admin":
+            if user_role == UserRole.ADMIN:
                 all_users = await uow.users.list_all()
-                return [{"id": u.id, "email": u.email} for u in all_users if u.kind == "client"]
+                return [{"id": u.id, "email": u.email} for u in all_users if u.kind == UserKind.CLIENT]
             assigned_ids = await uow.client_assignments.get_assigned_client_ids(user_id)
             if not assigned_ids:
                 return []
@@ -150,21 +150,28 @@ class DocumentService:
                     clients.append({"id": u.id, "email": u.email})
             return clients
 
-    async def list_documents(self, user_id: int, user_kind: str) -> list[DocumentDTO]:
+    async def list_documents(
+        self, user_id: int, user_kind: str, user_role: str | UserRole = UserRole.USER
+    ) -> list[DocumentDTO]:
         async with self._uow_factory.create() as uow:
-            if user_kind == "client":
-                group_ids = []
-                assigned_ids = []
+            if user_role == UserRole.ADMIN:
+                docs = await uow.documents.list_all()
+            elif user_kind == UserKind.CLIENT:
+                docs = await uow.documents.list_visible(
+                    user_kind=user_kind,
+                    user_id=user_id,
+                    group_ids=[],
+                    assigned_client_ids=[],
+                )
             else:
                 group_ids = await uow.groups.get_user_group_ids(user_id)
                 assigned_ids = await uow.client_assignments.get_assigned_client_ids(user_id)
-
-            docs = await uow.documents.list_visible(
-                user_kind=user_kind,
-                user_id=user_id,
-                group_ids=group_ids or [],
-                assigned_client_ids=assigned_ids or [],
-            )
+                docs = await uow.documents.list_visible(
+                    user_kind=user_kind,
+                    user_id=user_id,
+                    group_ids=group_ids or [],
+                    assigned_client_ids=assigned_ids or [],
+                )
 
             return [
                 DocumentDTO(
@@ -175,6 +182,7 @@ class DocumentService:
                     error_message=d.error_message,
                     chunks=d.chunks,
                     chars=d.chars,
+                    owner_id=d.owner_id,
                 )
                 for d in docs
             ]
@@ -187,10 +195,12 @@ class DocumentService:
             if doc is None:
                 raise EntityNotFound("Document", document_id)
 
-            user_group_ids = await uow.groups.get_user_group_ids(user_id) if user_kind == "internal" else []
+            user_group_ids = (
+                await uow.groups.get_user_group_ids(user_id) if user_kind == UserKind.INTERNAL else []
+            )
             assigned_ids = (
                 await uow.client_assignments.get_assigned_client_ids(user_id)
-                if user_kind == "internal"
+                if user_kind == UserKind.INTERNAL
                 else []
             )
 

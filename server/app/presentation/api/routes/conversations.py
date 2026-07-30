@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from application.uow import UnitOfWork
+from domain.value_objects.roles import UserRole
 from fastapi import APIRouter, Depends, HTTPException
 
 from presentation.api.auth_dependencies import get_current_user
@@ -30,7 +31,7 @@ async def get_conversation_history(
     owner_id = await uow.conversations.get_owner_id(conversation_id)
     if owner_id is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    if owner_id != current_user["id"] and current_user["role"] != "admin":
+    if owner_id != current_user["id"] and current_user["role"] != UserRole.ADMIN:
         raise HTTPException(status_code=403, detail="Not your conversation")
 
     messages = await uow.messages.get_history(conversation_id, window=100)

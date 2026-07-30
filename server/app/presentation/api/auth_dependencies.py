@@ -10,6 +10,7 @@ from __future__ import annotations
 import jwt as _jwt
 from application.uow import UnitOfWork
 from domain.exceptions import AuthenticationError, PermissionDeniedError
+from domain.value_objects.roles import UserRole
 from fastapi import Depends
 from infrastructure.auth.api_key_provider import api_key_provider
 from infrastructure.auth.jwt_provider import JWTProvider
@@ -101,6 +102,6 @@ async def get_current_user(
 
 
 def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
-    if current_user["role"] != "admin":
+    if current_user["role"] != UserRole.ADMIN:
         raise PermissionDeniedError("admin")
     return current_user

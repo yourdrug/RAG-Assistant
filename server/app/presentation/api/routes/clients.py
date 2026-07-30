@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from application.uow import UnitOfWork
+from domain.value_objects.roles import UserKind
 from fastapi import APIRouter, Depends, HTTPException
 
 from presentation.api.auth_dependencies import require_admin
@@ -21,9 +22,9 @@ async def assign_client_endpoint(
 ):
     client_user = await uow.users.get_by_id(client_user_id)
     internal_user = await uow.users.get_by_id(req.internal_user_id)
-    if client_user is None or client_user.kind != "client":
+    if client_user is None or client_user.kind != UserKind.CLIENT:
         raise HTTPException(status_code=400, detail="client_user_id must be a user with kind='client'")
-    if internal_user is None or internal_user.kind != "internal":
+    if internal_user is None or internal_user.kind != UserKind.INTERNAL:
         raise HTTPException(status_code=400, detail="internal_user_id must be a user with kind='internal'")
 
     await uow.client_assignments.assign(req.internal_user_id, client_user_id, admin["id"])

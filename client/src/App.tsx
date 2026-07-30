@@ -17,6 +17,10 @@ import { AdminClientsPage } from "@/pages/admin/clients";
 import { AdminApiKeysPage } from "@/pages/admin/api-keys";
 import { AdminDocumentsPage } from "@/pages/admin/documents";
 import { AdminIngestPage } from "@/pages/admin/ingest";
+import { AdminModelsPage } from "@/pages/admin/models";
+import { AdminRAGPage } from "@/pages/admin/rag";
+import { AdminVectorDBPage } from "@/pages/admin/vectordb";
+import { AdminSettingsPage } from "@/pages/admin/settings";
 import { PlaceholderPage } from "@/pages/admin/placeholder";
 
 export default function App() {
@@ -44,14 +48,14 @@ export default function App() {
                 <Route path="api-keys" element={<AdminApiKeysPage />} />
                 <Route path="documents" element={<AdminDocumentsPage />} />
                 <Route path="ingest" element={<AdminIngestPage />} />
-                <Route path="models" element={<PlaceholderPage title="Models" description="LLM model configuration" endpoint="GET/POST /admin/models" />} />
-                <Route path="rag" element={<PlaceholderPage title="RAG Settings" description="RAG pipeline configuration" endpoint="GET/PUT /admin/rag/settings" />} />
-                <Route path="vectordb" element={<PlaceholderPage title="Vector DB" description="Qdrant collections" endpoint="GET /admin/vectordb/collections" />} />
+                <Route path="models" element={<AdminModelsPage />} />
+                <Route path="rag" element={<AdminRAGPage />} />
+                <Route path="vectordb" element={<AdminVectorDBPage />} />
                 <Route path="ocr" element={<PlaceholderPage title="OCR" description="OCR settings and history" endpoint="GET /admin/ocr/settings" />} />
                 <Route path="jobs" element={<PlaceholderPage title="Jobs" description="Background tasks" endpoint="GET /admin/jobs" />} />
                 <Route path="monitoring" element={<PlaceholderPage title="Monitoring" description="System metrics" endpoint="GET /admin/metrics" />} />
                 <Route path="logs" element={<PlaceholderPage title="Logs" description="System logs" endpoint="GET /admin/logs" />} />
-                <Route path="settings" element={<PlaceholderPage title="Settings" description="System configuration" endpoint="GET /admin/settings" />} />
+                <Route path="settings" element={<AdminSettingsPage />} />
               </Route>
             </Routes>
           </BrowserRouter>

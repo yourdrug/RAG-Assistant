@@ -83,6 +83,7 @@ export interface DocumentResponse {
   error_message?: string | null;
   chunks?: number | null;
   chars?: number | null;
+  owner_id?: number | null;
 }
 
 export interface UploadStatusResponse {

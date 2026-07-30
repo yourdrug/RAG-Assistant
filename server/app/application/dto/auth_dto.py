@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from domain.value_objects.roles import UserKind, UserRole
+
 
 @dataclass(frozen=True)
 class LoginCommand:
@@ -22,8 +24,8 @@ class LoginResult:
 class CreateUserCommand:
     email: str
     password: str
-    role: str = "user"
-    kind: str = "internal"
+    role: str = UserRole.USER
+    kind: str = UserKind.INTERNAL
 
 
 @dataclass(frozen=True)

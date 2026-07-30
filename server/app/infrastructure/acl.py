@@ -24,7 +24,9 @@ def build_qdrant_filter(
         group_ids: pre-fetched group IDs for this user
         assigned_client_ids: pre-fetched assigned client IDs for this user
     """
-    conditions = get_visibility_conditions(UserKind(user["kind"]), user["id"], group_ids, assigned_client_ids)
+    conditions = get_visibility_conditions(
+        UserKind(user["kind"]), user["id"], group_ids, assigned_client_ids, for_list=False
+    )
 
     should: list[FieldCondition | Filter] = []
 

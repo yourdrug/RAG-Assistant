@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from application.services.auth_service import AuthService
+from domain.value_objects.roles import UserKind, UserRole
 from fastapi import APIRouter, Depends, HTTPException
 
 from presentation.api.auth_dependencies import get_current_user, require_admin
@@ -28,8 +29,8 @@ async def list_api_keys(
     current_user: dict = Depends(get_current_user),
     auth_service: AuthService = Depends(create_auth_service),
 ):
-    if current_user["role"] == "admin" or (
-        current_user["kind"] == "client" and current_user["id"] == client_user_id
+    if current_user["role"] == UserRole.ADMIN or (
+        current_user["kind"] == UserKind.CLIENT and current_user["id"] == client_user_id
     ):
         return await auth_service.list_api_keys(client_user_id)
     raise HTTPException(status_code=403, detail="Forbidden")
@@ -42,8 +43,8 @@ async def revoke_api_key(
     current_user: dict = Depends(get_current_user),
     auth_service: AuthService = Depends(create_auth_service),
 ):
-    if current_user["role"] == "admin" or (
-        current_user["kind"] == "client" and current_user["id"] == client_user_id
+    if current_user["role"] == UserRole.ADMIN or (
+        current_user["kind"] == UserKind.CLIENT and current_user["id"] == client_user_id
     ):
         return await auth_service.revoke_api_key(api_key_id, client_user_id=client_user_id)
     raise HTTPException(status_code=403, detail="Forbidden")

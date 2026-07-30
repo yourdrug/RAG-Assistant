@@ -64,7 +64,7 @@ services:
       resources:
         limits:
           cpus: "8"
-          memory: 20G
+          memory: 14G
         reservations:
           cpus: "2"
           memory: 4G
@@ -85,8 +85,8 @@ services:
     hostname: postgres
     container_name: rag-postgres
     user: root
-    entrypoint: ["/usr/local/bin/docker-entrypoint.sh"]
-    command: ["postgres", "-c", "config_file=/etc/postgres/postgresql.conf"]
+    entrypoint: [ "/usr/local/bin/docker-entrypoint.sh" ]
+    command: [ "postgres", "-c", "config_file=/etc/postgres/postgresql.conf" ]
     expose:
       - "5432/tcp"
     environment:

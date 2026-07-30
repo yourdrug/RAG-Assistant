@@ -38,7 +38,9 @@ class AuthService:
             token = self._tokens.create_token(user_id=user.id, role=user.role)
             return LoginResult(access_token=token, role=user.role, kind=user.kind)
 
-    async def create_user(self, command: CreateUserCommand, creator_role: str = "admin") -> UserDTO:
+    async def create_user(
+        self, command: CreateUserCommand, creator_role: str | UserRole = UserRole.ADMIN
+    ) -> UserDTO:
         async with self._uow_factory.create() as uow:
             role = UserRole.validate(command.role)
             kind = UserKind.validate(command.kind)
@@ -93,7 +95,7 @@ class AuthService:
             user = await uow.users.get_by_id(client_user_id)
             if user is None:
                 raise EntityNotFound("User", client_user_id)
-            if user.kind != "client":
+            if user.kind != UserKind.CLIENT:
                 raise BusinessRuleViolation("API keys can only be issued to external (client) users")
 
             raw_key = api_key_provider.generate_key()

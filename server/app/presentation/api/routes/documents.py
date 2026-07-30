@@ -112,7 +112,9 @@ async def list_documents(
     current_user: dict = Depends(get_current_user),
     document_service: DocumentService = Depends(create_document_service),
 ):
-    return await document_service.list_documents(current_user["id"], current_user["kind"])
+    return await document_service.list_documents(
+        current_user["id"], current_user["kind"], current_user["role"]
+    )
 
 
 @router.get("/documents/{document_id}", response_model=DocumentResponse)

@@ -7,7 +7,7 @@ import { userNavItems, adminNavItems } from "@/shared/config/nav";
 import { Button } from "@/shared/ui/button";
 import { ScrollArea } from "@/shared/ui/scroll-area";
 import { Separator } from "@/shared/ui/separator";
-import { ArrowLeft, Shield, Menu, X, LogOut } from "lucide-react";
+import { ArrowLeft, Shield, Menu, X } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 
 export function AdminLayout() {

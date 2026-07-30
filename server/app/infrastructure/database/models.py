@@ -108,6 +108,18 @@ class DocumentModel(BaseModel):
     indexed_at: Mapped[DateTime | None] = mapped_column(DateTime)
 
 
+class ConfigParameterModel(BaseModel):
+    __tablename__ = "config_parameters"
+
+    key: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    value: Mapped[str] = mapped_column(Text, nullable=False)
+    value_type: Mapped[str] = mapped_column(String(20), nullable=False, default="str")
+    category: Mapped[str] = mapped_column(String(50), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    min_value: Mapped[float | None] = mapped_column(nullable=True)
+    max_value: Mapped[float | None] = mapped_column(nullable=True)
+
+
 class ApiKeyModel(BaseModel):
     __tablename__ = "api_keys"
 

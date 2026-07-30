@@ -1,5 +1,5 @@
 "use client";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useDropzone } from "react-dropzone";
 import { useDocuments, useUploadDocument, useDeleteDocument, useGroups, useUploadableClients } from "@/shared/api/hooks";
 import { DataTable } from "@/shared/ui/data-table";
@@ -26,12 +26,20 @@ export function DocumentsPage() {
   const user = useAuthStore((s) => s.user);
   const isClient = user?.kind === "client";
   const isAdmin = user?.role === "admin";
-  const [vis, setVis] = useState<DocumentVisibility>(isClient ? "client_private" : "internal_private");
+  const [vis, setVis] = useState<DocumentVisibility>("internal_private");
   const [groupId, setGroupId] = useState<number | null>(null);
   const [clientId, setClientId] = useState<number | null>(null);
   const [progress, setProgress] = useState(0);
   const { data: groups } = useGroups();
   const { data: uploadableClients } = useUploadableClients();
+
+  useEffect(() => {
+    if (user) {
+      setVis(isClient ? "client_private" : "internal_private");
+      setGroupId(null);
+      setClientId(null);
+    }
+  }, [user?.kind, user?.role, isClient]);
 
   // Conflict resolution state
   const [conflictOpen, setConflictOpen] = useState(false);
@@ -102,7 +110,7 @@ export function DocumentsPage() {
       // Upload remaining files (non-conflicting ones already handled, just re-check)
       const remaining = pendingFiles.filter((f) => f !== conflictFile);
       if (remaining.length > 0) {
-        const stillConflicts = remaining.filter((f) => {
+        const stillConflicts = remaining.filter((_f) => {
           // Refresh conflict check since we just uploaded
           return false; // After rename, no conflict
         });
@@ -128,7 +136,21 @@ export function DocumentsPage() {
 
   const columns: ColumnDef<DocumentResponse>[] = [
     { accessorKey: "filename", header: "Filename", cell: ({ row }) => <div className="flex items-center gap-2"><FileText className="h-4 w-4 text-muted-foreground" /><span className="font-medium">{row.original.filename}</span></div> },
-    { accessorKey: "visibility", header: "Visibility", cell: ({ row }) => <Badge variant="secondary">{row.original.visibility.replace(/_/g, " ")}</Badge> },
+    { accessorKey: "visibility", header: "Visibility", cell: ({ row }) => {
+      const vis = row.original.visibility;
+      const isClientDoc = vis === "client_private" && isAdmin;
+      return (
+        <div className="flex items-center gap-1.5">
+          <Badge variant="secondary">{vis.replace(/_/g, " ")}</Badge>
+          {isClientDoc && <Badge variant="outline" className="text-xs text-muted-foreground">not in your search</Badge>}
+        </div>
+      );
+    }},
+    { accessorKey: "owner_id", header: "Owner", cell: ({ row }) => {
+      const owner = uploadableClients?.find((c) => c.id === row.original.owner_id);
+      if (!owner) return <span className="text-muted-foreground">—</span>;
+      return <span className="text-sm">{owner.email}</span>;
+    }},
     { accessorKey: "status", header: "Status", cell: ({ row }) => <Badge variant={row.original.status === "done" ? "success" : row.original.status === "failed" ? "destructive" : row.original.status === "processing" ? "warning" : "secondary"}>{row.original.status}</Badge> },
     { accessorKey: "chunks", header: "Chunks", cell: ({ row }) => row.original.chunks ?? "—" },
     { accessorKey: "chars", header: "Chars", cell: ({ row }) => row.original.chars?.toLocaleString() ?? "—" },

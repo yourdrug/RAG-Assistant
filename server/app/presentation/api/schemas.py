@@ -89,6 +89,7 @@ class DocumentResponse(BaseModel):
     warning_message: str | None = None
     chunks: int | None = None
     chars: int | None = None
+    owner_id: int | None = None
 
 
 class UploadStatusResponse(BaseModel):
@@ -192,6 +193,56 @@ class BenchmarkRequest(BaseModel):
 
 class BenchmarkResponse(BaseModel):
     status: str
+
+
+# ---------------------------------------------------------------------------
+# Admin Config
+# ---------------------------------------------------------------------------
+
+
+class ConfigParamResponse(BaseModel):
+    key: str
+    value: str
+    value_type: str
+    category: str
+    description: str | None = None
+    min_value: float | None = None
+    max_value: float | None = None
+
+
+class ConfigParamUpdateRequest(BaseModel):
+    value: str
+
+
+class ModelsInfoResponse(BaseModel):
+    llm_model: str
+    embed_model: str
+    rerank_model: str
+    rerank_device: str
+    ocr_engine: str
+    ocr_enabled: bool
+    ollama_models: list[str] | None = None
+
+
+class VectorDBCollectionInfo(BaseModel):
+    name: str
+    points_count: int
+    vectors_count: int
+    indexed_vectors_count: int
+    segments_count: int
+    status: str
+    optimizer_status: str
+    hnsw_m: int | None = None
+    hnsw_ef_construct: int | None = None
+    on_disk_payload: bool | None = None
+    vector_size: int | None = None
+    distance: str | None = None
+
+
+class VectorDBInfoResponse(BaseModel):
+    collections: list[VectorDBCollectionInfo]
+    active_collection: str
+    qdrant_status: str
 
 
 # ---------------------------------------------------------------------------

@@ -43,11 +43,16 @@ def get_visibility_conditions(
     user_id: int,
     group_ids: list[int],
     assigned_client_ids: list[int],
+    for_list: bool = True,
 ) -> list[VisibilityCondition]:
     """Return canonical filter conditions for documents visible to this user.
 
     Each condition is an AND-clause. The full filter is OR of all conditions.
     This is the single source of truth — SQL and Qdrant adapters translate these.
+
+    Args:
+        for_list: True for document list (admin sees assigned client docs),
+                  False for RAG queries (admin should not search client docs).
     """
     if user_kind == UserKind.CLIENT:
         return [
@@ -82,7 +87,9 @@ def get_visibility_conditions(
     # Internal users can view client_private docs of their assigned clients
     # (not in ALLOWED_VISIBILITY_FOR_KIND because they can't CREATE with this visibility,
     #  but can_view_document() allows viewing)
-    if assigned_client_ids:
+    # For_list=True: admin sees these in document list
+    # For_list=False: admin does NOT search these in RAG queries
+    if for_list and assigned_client_ids:
         conditions.append(
             VisibilityCondition(
                 visibility=DocumentVisibility.CLIENT_PRIVATE,
@@ -108,7 +115,11 @@ def validate_document_visibility(
     if visibility == DocumentVisibility.INTERNAL_PUBLIC and user_role != UserRole.ADMIN:
         raise BusinessRuleViolation("Only admin can publish to internal_public")
 
-    if visibility == DocumentVisibility.CLIENT_PRIVATE and user_kind == UserKind.INTERNAL and user_role != UserRole.ADMIN:
+    if (
+        visibility == DocumentVisibility.CLIENT_PRIVATE
+        and user_kind == UserKind.INTERNAL
+        and user_role != UserRole.ADMIN
+    ):
         raise BusinessRuleViolation("Only admin can upload documents for clients")
 
     if visibility == DocumentVisibility.INTERNAL_GROUP:

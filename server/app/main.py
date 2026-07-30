@@ -23,6 +23,7 @@ from presentation.api.exception_handlers import (
     handle_unexpected_exception,
     handle_validation_exception,
 )
+from presentation.api.routes.admin_config import router as admin_config_router
 from presentation.api.routes.api_keys import router as api_keys_router
 from presentation.api.routes.auth import router as auth_router
 from presentation.api.routes.benchmark import router as benchmark_router
@@ -45,10 +46,25 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
 
     await database.connect()
     await bootstrap_admin(_uow_factory)
+    await _load_config_from_db()
 
     yield
 
     await database.disconnect()
+
+
+async def _load_config_from_db() -> None:
+    """Load dynamic config from DB and apply to in-memory settings."""
+    from presentation.api.routes.admin_config import _apply_config_to_settings
+
+    try:
+        async with _uow_factory.create(master=True) as uow:
+            rows = await uow.config_parameters.get_all()
+            for r in rows:
+                _apply_config_to_settings(r.key, r.value, r.value_type)
+            logging.getLogger("default").info("Loaded %d config parameters from DB", len(rows))
+    except Exception as e:
+        logging.getLogger("default").warning("Failed to load config from DB: %s", e)
 
 
 # ---------------------------------------------------------------------------
@@ -102,6 +118,7 @@ class Application:
         self.app.include_router(health_router)
         self.app.include_router(benchmark_router)
         self.app.include_router(api_keys_router)
+        self.app.include_router(admin_config_router)
 
 
 def create_application() -> FastAPI:

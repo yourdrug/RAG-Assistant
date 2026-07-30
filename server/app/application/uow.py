@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from domain.repositories import ApiKeyRepository
 from domain.repositories.client_assignment_repository import ClientAssignmentRepository
+from domain.repositories.config_parameter_repository import ConfigParameterRepository
 from domain.repositories.conversation_repository import ConversationRepository
 from domain.repositories.document_repository import DocumentRepository
 from domain.repositories.group_repository import GroupRepository
@@ -30,6 +31,7 @@ class UnitOfWork(BaseUnitOfWork):
     groups: GroupRepository
     client_assignments: ClientAssignmentRepository
     api_keys: ApiKeyRepository
+    config_parameters: ConfigParameterRepository
 
     def __init__(
         self,
@@ -41,6 +43,7 @@ class UnitOfWork(BaseUnitOfWork):
         groups: GroupRepository,
         client_assignments: ClientAssignmentRepository,
         api_keys: ApiKeyRepository,
+        config_parameters: ConfigParameterRepository,
     ) -> None:
         super().__init__(session)
         self.users = users
@@ -50,3 +53,4 @@ class UnitOfWork(BaseUnitOfWork):
         self.groups = groups
         self.client_assignments = client_assignments
         self.api_keys = api_keys
+        self.config_parameters = config_parameters

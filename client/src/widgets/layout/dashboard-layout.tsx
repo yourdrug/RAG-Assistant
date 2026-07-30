@@ -24,6 +24,12 @@ export function DashboardLayout() {
     if (!isAuthenticated && !token) navigate("/login");
   }, [isAuthenticated, token, navigate]);
 
+  useEffect(() => {
+    if (currentUser && currentUser !== user) {
+      useAuthStore.getState().setUser(currentUser);
+    }
+  }, [currentUser]);
+
   const handleLogout = () => { logout(); navigate("/login"); };
   const displayUser = currentUser || user;
   const isAdmin = displayUser?.role === "admin";

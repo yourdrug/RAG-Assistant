@@ -12,6 +12,9 @@ from infrastructure.repositories.sqlalchemy_api_key_repository import SQLAlchemy
 from infrastructure.repositories.sqlalchemy_client_assignment_repository import (
     SQLAlchemyClientAssignmentRepository,
 )
+from infrastructure.repositories.sqlalchemy_config_parameter_repository import (
+    SQLAlchemyConfigParameterRepository,
+)
 from infrastructure.repositories.sqlalchemy_conversation_repository import SQLAlchemyConversationRepository
 from infrastructure.repositories.sqlalchemy_document_repository import SQLAlchemyDocumentRepository
 from infrastructure.repositories.sqlalchemy_group_repository import SQLAlchemyGroupRepository
@@ -40,6 +43,7 @@ class UnitOfWorkFactory:
             groups=SQLAlchemyGroupRepository(session),
             client_assignments=SQLAlchemyClientAssignmentRepository(session),
             api_keys=SQLAlchemyApiKeyRepository(session),
+            config_parameters=SQLAlchemyConfigParameterRepository(session),
         )
         async with uow:
             yield uow
