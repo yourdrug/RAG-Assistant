@@ -30,6 +30,17 @@ def _tag_internal_public(chunks: list) -> None:
         c.metadata.update({"visibility": "internal_public", "owner_id": None, "group_id": None})
 
 
+def _register_file(registry: dict, fname: str, file_hash: str, source: str, chunks_count: int, chars: int) -> None:
+    """Add or update a file entry in the ingestion registry."""
+    registry[fname] = {
+        "hash": file_hash,
+        "source": source,
+        "chunks": chunks_count,
+        "chars": chars,
+        "indexed_at": datetime.now().isoformat(timespec="seconds"),
+    }
+
+
 class IngestionService:
     def __init__(
         self,
@@ -93,13 +104,8 @@ class IngestionService:
                 path = Path(src)
                 fname = path.name
                 h = file_hash(path)
-            registry[fname] = {
-                "hash": h,
-                "source": src,
-                "chunks": sum(1 for c in chunks if c.metadata.get("source") == src),
-                "chars": chars,
-                "indexed_at": datetime.now().isoformat(timespec="seconds"),
-            }
+            chunks_count = sum(1 for c in chunks if c.metadata.get("source") == src)
+            _register_file(registry, fname, h, src, chunks_count, chars)
         save_registry(data_dir, registry)
         asyncio.run(self._sync_documents_to_db(registry, source_chars, chunks))
 
@@ -198,13 +204,14 @@ class IngestionService:
                 log.info("OK  %s  —  %s chars, %d pages", file_info.filename, f"{total_chars:,}", len(docs))
 
                 chunks = self._index_docs(docs)
-                registry[file_info.filename] = {
-                    "hash": f"{file_info.size_bytes}_{file_info.last_modified}",
-                    "source": f"s3://{settings.s3_bucket}/{key}",
-                    "chunks": len(chunks),
-                    "chars": total_chars,
-                    "indexed_at": datetime.now().isoformat(timespec="seconds"),
-                }
+                _register_file(
+                    registry,
+                    file_info.filename,
+                    f"{file_info.size_bytes}_{file_info.last_modified}",
+                    f"s3://{settings.s3_bucket}/{key}",
+                    len(chunks),
+                    total_chars,
+                )
                 save_registry(data_dir, registry)
                 asyncio.run(
                     self._sync_documents_to_db(
@@ -239,13 +246,14 @@ class IngestionService:
             log.info("OK  %s  —  %s chars, %d pages", path.name, f"{total_chars:,}", len(docs))
 
             chunks = self._index_docs(docs)
-            registry[path.name] = {
-                "hash": file_hash(path),
-                "source": str(path),
-                "chunks": len(chunks),
-                "chars": total_chars,
-                "indexed_at": datetime.now().isoformat(timespec="seconds"),
-            }
+            _register_file(
+                registry,
+                path.name,
+                file_hash(path),
+                str(path),
+                len(chunks),
+                total_chars,
+            )
             save_registry(data_dir, registry)
             asyncio.run(self._sync_documents_to_db(registry, {str(path): total_chars}, chunks))
 

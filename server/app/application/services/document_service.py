@@ -81,7 +81,7 @@ class DocumentService:
 
             owner_id, effective_group_id = compute_owner_and_group(vis, group_id, effective_owner_id)
 
-            existing = await uow.documents.find_active_slot_for_update(owner_id, filename, effective_group_id)
+            existing = await uow.documents.find_active_slot(owner_id, filename, effective_group_id, for_update=True)
             replace_id = None
             if existing:
                 if existing.status in ("pending", "processing"):

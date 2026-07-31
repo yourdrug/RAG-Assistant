@@ -3,6 +3,7 @@ infrastructure/ml/rag.py — RAG logic using LangChain: prompts, reranking, form
 Moved from domain/rag.py to keep domain free of LangChain dependencies.
 """
 
+import asyncio
 import logging
 import re
 from pathlib import Path
@@ -22,7 +23,24 @@ CHARS_PER_TOKEN = 4
 
 
 def classify_question_breadth(question: str) -> str:
-    """Classify question as 'narrow' or 'broad' based on simple heuristics."""
+    """Classify question as 'narrow' or 'broad' based on heuristics."""
+    q = question.lower()
+
+    # Narrow exceptions: even if a broad pattern matches, these stay narrow
+    narrow_overrides = [
+        r"как\w*\s+(убедиться|проверить|узнать|найти|получить|скачать|открыть)",
+        r"где\s+(найти|скачать|посмотреть|открыть)",
+        r"что\s+(такое|означает|является)",
+        r"какой\s+(пароль|срок|размер|номер|формат|статус)",
+        r"каки[ех]\s+исключени",
+        r"каки[ех]\s+особы",
+        r"каки[ех]\s+альтернатив",
+        r"почему\s+",
+        r"можно\s+ли\s+",
+    ]
+    if any(re.search(p, q) for p in narrow_overrides):
+        return "narrow"
+
     broad_patterns = [
         r"подробно",
         r"объясни\s+вс[ёе]",
@@ -39,10 +57,8 @@ def classify_question_breadth(question: str) -> str:
         r"что\s+входит",
         r"что\s+включ\w+",
         r"список\s+\w+",
-        r"какие\s+\w+\s+существуют",
         r"какие\s+\w+\s+нужн",
     ]
-    q = question.lower()
     return "broad" if any(re.search(p, q) for p in broad_patterns) else "narrow"
 
 
@@ -105,8 +121,8 @@ SYSTEM_PROMPT = """Ты — корпоративный ассистент. Ст�
 
 1. Отвечай ТОЛЬКО на основе предоставленного контекста. Контекст — единственный источник правды.
 2. Если ответа нет в контексте — ответь ровно: "Информация не найдена в документах." Не придумывай и не додумывай.
-3. Отвечай КРАТКО: 1-3 предложения. Не пересказывай весь документ — отвечай конкретно на заданный вопрос.
-4. Отвечай на том же языке, на котором задан вопрос.
+3. Отвечай на том же языке, на котором задан вопрос.
+4. Используй точные термины и сокращения из документов. НЕ заменяй сокращения (например: ЭТТН, ЭТН, ИМН — пиши как в источнике). Не подменяй их другими аббревиатурами.
 5. Указывай номера страниц (например: "см. стр. 3, 7"), если они есть в контексте.
 6. Если в контексте есть частичная информация — укажи только то, что есть, и скажи чего не хватает.
 7. Если в контексте есть ссылки на изображения [image: ...] — ОБЯЗАТЕЛЬНО включай их в ответ. Не удаляй и не игнорируй.
@@ -117,14 +133,29 @@ SYSTEM_PROMPT = """Ты — корпоративный ассистент. Ст�
 
 
 def build_prompt(breadth: str = "narrow") -> ChatPromptTemplate:
-    brevity_rule = (
-        "3. Отвечай РАЗВЁРНУТО: раскрывай тему полностью, с примерами и деталями."
-        if breadth == "broad"
-        else "3. Отвечай КРАТКО: 1-3 предложения. Не пересказывай весь документ — отвечай конкретно на заданный вопрос."
-    )
+    if breadth == "broad":
+        rule3 = (
+            "3. Отвечай РАЗВЁРНУТО по структуре:\n"
+            "   - Начни с краткого прямого ответа (1 предложение)\n"
+            "   - Затем раскрой тему по подпунктам: 1-2 предложения с деталями из контекста\n"
+            "   - Заверши нюансами/исключениями, если они есть в контексте\n"
+            "   Не пересказывай весь документ — освещай аспекты заданного вопроса."
+        )
+    else:
+        rule3 = (
+            "3. Отвечай КРАТКО: 1-3 предложения. Только прямой ответ на вопрос.\n"
+            "   Не добавляй контекст, не относящийся напрямую к вопросу.\n"
+            "   Не перечисляй всё из документа — отвечай конкретно на то, что спрашивают."
+        )
+
     system_text = SYSTEM_PROMPT.replace(
-        "3. Отвечай КРАТКО: 1-3 предложения. Не пересказывай весь документ — отвечай конкретно на заданный вопрос.",
-        brevity_rule,
+        "3. Отвечай на том же языке, на котором задан вопрос.",
+        rule3,
+    )
+    # Релевантный номер:原来的rule3 → rule4,原来的rule4-7 → rule5-8
+    system_text = system_text.replace(
+        "4. Используй точные термины",
+        "4. Используй точные термины",
     )
     return ChatPromptTemplate.from_messages(
         [
@@ -140,29 +171,49 @@ def build_prompt(breadth: str = "narrow") -> ChatPromptTemplate:
 # ---------------------------------------------------------------------------
 
 
-def rerank_documents(question: str, docs: list, top_n: int, reranker=None) -> list:
+async def rerank_documents(
+    question: str,
+    docs: list,
+    top_n: int,
+    reranker=None,
+    min_score: float | None = None,
+    score_gap_ratio: float | None = None,
+) -> list[tuple]:
     """
-    Переранжирует кандидатов кросс-энкодером и возвращает top_n лучших.
-    reranker — объект с методом .predict(pairs).
+    Переранжирует кандидатов кросс-энкодером и возвращает top_n лучших
+    как список пар (doc, score).
 
-    Adds document name prefix to reranker input for better context.
+    Фильтрация:
+      - min_score: отбросить чанки с score < min_score (абсолютный порог)
+      - score_gap_ratio: отбросить чанки, чей score ниже top-1 более чем в N раз
+        (например score_gap_ratio=0.1 означает «оставить всё ≥ 10% от лучшего»)
+
+    reranker — объект с методом .predict(pairs).
     """
     if not docs:
-        return docs
+        return []
 
     pairs = []
     for doc in docs:
-        # Add source filename as prefix for reranker context
         source = doc.metadata.get("source", "")
         filename = doc.metadata.get("filename", "")
         doc_name = filename or Path(source).name if source else ""
         content_with_prefix = f"[{doc_name}] {doc.page_content}" if doc_name else doc.page_content
         pairs.append((question, content_with_prefix))
 
-    scores = reranker.predict(pairs)
+    scores = await asyncio.to_thread(reranker.predict, pairs)
 
-    ranked = sorted(zip(docs, scores), key=lambda x: x[1], reverse=True)
-    return [doc for doc, _score in ranked[:top_n]]
+    ranked = sorted(zip(docs, scores), key=lambda x: x[1], reverse=True)[:top_n]
+
+    if min_score is not None:
+        ranked = [(d, s) for d, s in ranked if s >= min_score]
+
+    if score_gap_ratio is not None and ranked:
+        top_score = ranked[0][1]
+        cutoff = top_score * score_gap_ratio
+        ranked = [(d, s) for d, s in ranked if s >= cutoff]
+
+    return ranked
 
 
 def deduplicate_docs(docs: list) -> list:
@@ -187,6 +238,7 @@ def deduplicate_docs(docs: list) -> list:
 def format_docs(docs, max_context_tokens: int = 6000) -> str:
     """Форматирует найденные чанки в строку для промпта.
 
+    Принимает list[Document] или list[tuple[Document, float]] (после rerank_documents).
     Respects context budget: truncates docs list if total estimated tokens exceed limit.
     qwen2.5:14b supports ~32k context, but we reserve space for system prompt + history + response.
     """
@@ -194,7 +246,8 @@ def format_docs(docs, max_context_tokens: int = 6000) -> str:
     total_chars = 0
     max_chars = max_context_tokens * CHARS_PER_TOKEN
 
-    for i, doc in enumerate(docs, 1):
+    for i, item in enumerate(docs, 1):
+        doc = item[0] if isinstance(item, tuple) else item
         source = doc.metadata.get("source", "unknown")
         source_name = _clean_source_name(source)
         page = doc.metadata.get("page")
@@ -251,10 +304,20 @@ def _clean_source_name(source: str) -> str:
     return Path(source).name if source else "unknown"
 
 
-def extract_sources(docs) -> list[dict]:
-    """Извлекает метаданные источников для сохранения в БД."""
+def extract_sources(docs, min_score: float | None = None) -> list[dict]:
+    """Извлекает метаданные источников для сохранения в БД.
+
+    Принимает list[Document] или list[tuple[Document, float]] (после rerank_documents).
+    Если переданы пары (doc, score), в каждый источник добавляется max_score
+    и список сортируется по убыванию max_score (самый релевантный — первый).
+
+    min_score: если задан, источники с max_score < min_score отбрасываются.
+    """
     pages_by_source: dict[str, set[str]] = {}
-    for doc in docs:
+    scores_by_source: dict[str, float] = {}
+    for item in docs:
+        doc = item[0] if isinstance(item, tuple) else item
+        score = item[1] if isinstance(item, tuple) else None
         src = doc.metadata.get("source", "unknown")
         clean_name = _clean_source_name(src)
         page = doc.metadata.get("page")
@@ -269,14 +332,39 @@ def extract_sources(docs) -> list[dict]:
             pages_by_source[clean_name].update(range(page_start, page_end + 1))
         elif page is not None:
             pages_by_source[clean_name].add(page)
+        if score is not None:
+            prev = scores_by_source.get(clean_name, float("-inf"))
+            if score > prev:
+                scores_by_source[clean_name] = score
 
     sources = []
     for src, pages in pages_by_source.items():
         sorted_pages = sorted(pages) if pages else []
-        sources.append(
-            {
-                "source": src,
-                "pages": sorted_pages,
-            }
-        )
+        entry = {
+            "source": src,
+            "pages": sorted_pages,
+        }
+        if scores_by_source:
+            entry["max_score"] = round(float(scores_by_source.get(src, 0.0)), 4)
+        sources.append(entry)
+
+    if scores_by_source:
+        sources.sort(key=lambda s: s.get("max_score", 0.0), reverse=True)
+
+    if min_score is not None and sources and scores_by_source:
+        sources = [s for s in sources if s.get("max_score", 0.0) >= min_score]
+
     return sources
+
+
+def filter_cited_sources(answer: str, sources: list[dict]) -> list[dict]:
+    """Фильтрует источники, оставляя только те, на которые LLM действительно ссылалась.
+
+    Ищет паттерны [N] в ответе и возвращает источники с соответствующими индексами (1-based).
+    Если в ответе нет ни одной ссылки или ни один индекс не совпадает — возвращаем все источники.
+    """
+    cited = {int(m) for m in re.findall(r"\[(\d+)\]", answer)}
+    if not cited:
+        return sources
+    filtered = [src for i, src in enumerate(sources, 1) if i in cited]
+    return filtered if filtered else sources

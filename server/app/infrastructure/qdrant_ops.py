@@ -3,7 +3,6 @@ infrastructure/qdrant_ops.py — Qdrant collection operations.
 Extracted from vector_store.py. Pure functions receiving dependencies.
 """
 
-import hashlib
 import logging
 import time
 import uuid
@@ -11,17 +10,15 @@ import uuid
 from config import settings
 from langchain.schema import Document
 from langchain_huggingface import HuggingFaceEmbeddings
-from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams
+
+from infrastructure.clients import get_qdrant_client
+from infrastructure.ml.hybrid import content_hash
 
 log = logging.getLogger("default")
 
 
-def _content_hash(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
-
-
-def ensure_collection(client: QdrantClient, vector_size: int, reset: bool = False) -> None:
+def ensure_collection(client, vector_size: int, reset: bool = False) -> None:
     existing = [c.name for c in client.get_collections().collections]
     if settings.collection_name in existing:
         if reset:
@@ -57,14 +54,13 @@ def upload_to_qdrant(chunks: list[Document], embeddings: HuggingFaceEmbeddings) 
 
     # Pre-compute all content hashes (faster than per-doc)
     texts = [doc.page_content for doc in chunks]
-    hashes = [_content_hash(t) for t in texts]
+    hashes = [content_hash(t) for t in texts]
     for doc, h in zip(chunks, hashes):
         doc.metadata["content_hash"] = h
 
-    from qdrant_client import QdrantClient
     from qdrant_client.models import PointStruct
 
-    client = QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key)
+    client = get_qdrant_client()
 
     # Embed + upsert in sub-batches to limit peak memory and give visible progress
     pending_points: list[PointStruct] = []

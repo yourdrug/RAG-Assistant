@@ -137,6 +137,7 @@ class BM25Index:
     """Minimal BM25 index that can be serialized to/from dict.
 
     Stores content hashes alongside texts for hybrid search merge.
+    Uses an inverted index for fast candidate filtering during search.
     """
 
     def __init__(self, texts: list[str], hashes: list[str] | None = None, k1: float = 1.5, b: float = 0.75):
@@ -149,15 +150,17 @@ class BM25Index:
         self.avgdl: float = 0.0
         self.token_freqs: list[dict[str, int]] = []
         self.doc_freq: dict[str, int] = {}
+        self.inverted_index: dict[str, set[int]] = {}
         self._build()
 
     def _build(self) -> None:
         self.doc_freq.clear()
         self.token_freqs.clear()
         self.doc_lens.clear()
+        self.inverted_index.clear()
 
         total_len = 0
-        for text in self.texts:
+        for idx, text in enumerate(self.texts):
             tokens = tokenize(text)
             self.doc_lens.append(len(tokens))
             total_len += len(tokens)
@@ -166,6 +169,7 @@ class BM25Index:
             for t in tokens:
                 tf[t] = tf.get(t, 0) + 1
                 self.doc_freq[t] = self.doc_freq.get(t, 0) + (1 if tf[t] == 1 else 0)
+                self.inverted_index.setdefault(t, set()).add(idx)
             self.token_freqs.append(tf)
 
         self.avgdl = total_len / self.n_docs if self.n_docs > 0 else 1.0
@@ -189,12 +193,26 @@ class BM25Index:
         return score
 
     def search(self, query: str, k: int = 25) -> list[tuple[int, float]]:
-        """Return (doc_index, score) pairs sorted by descending score."""
+        """Return (doc_index, score) pairs sorted by descending score.
+
+        Uses inverted index to only score documents containing at least one query token,
+        avoiding a full scan of all N documents.
+        """
         q_tokens = tokenize(query)
         if not q_tokens:
             return []
 
-        scored = [(i, self.score(q_tokens, i)) for i in range(self.n_docs)]
+        # Collect candidate doc indices from inverted index (union of posting lists)
+        candidate_indices: set[int] = set()
+        for t in q_tokens:
+            posting = self.inverted_index.get(t)
+            if posting:
+                candidate_indices.update(posting)
+
+        if not candidate_indices:
+            return []
+
+        scored = [(i, self.score(q_tokens, i)) for i in candidate_indices]
         scored.sort(key=lambda x: x[1], reverse=True)
         return scored[:k]
 

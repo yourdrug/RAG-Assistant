@@ -42,6 +42,8 @@ class Settings(BaseSettings):
     # qwen2.5:14b — лучший баланс русского языка и качества среди безопасных по лицензии моделей.
     # mistral-nemo:12b — альтернатива (Apache-2.0), если нужна модель без ограничений Qwen License.
     llm_model: str = os.getenv("LLM_MODEL", "qwen2.5:14b")
+    llm_num_predict_narrow: int = int(os.getenv("LLM_NUM_PREDICT_NARROW", "180"))
+    llm_num_predict_broad: int = int(os.getenv("LLM_NUM_PREDICT_BROAD", "900"))
 
     # --- OCR (для сканов внутри PDF) ---
     # "paddleocr" (по умолчанию) — Apache-2.0, без ограничений по выручке компании.
@@ -74,6 +76,16 @@ class Settings(BaseSettings):
     retriever_fetch_k_broad: int = 40
     retriever_top_k_broad: int = 10
     history_window: int = 8
+
+    # --- Reranker score filters ---
+    rerank_min_score: float | None = None  # абсолютный порог (logit); None = не фильтровать
+    rerank_score_gap_ratio: float | None = None  # относительный разрыв (0..1); None = не фильтровать
+
+    # --- Source display filter ---
+    source_min_score: float = float(os.getenv("SOURCE_MIN_SCORE", "0.3"))  # мин. max_score источника для показа
+
+    # --- Citation filter ---
+    citation_filter_enabled: bool = os.getenv("CITATION_FILTER_ENABLED", "false").lower() == "true"
     chunk_size: int = int(os.getenv("CHUNK_SIZE", "900"))
     chunk_overlap: int = int(os.getenv("CHUNK_OVERLAP", "150"))
     embed_batch_size: int = int(os.getenv("EMBED_BATCH_SIZE", "32"))

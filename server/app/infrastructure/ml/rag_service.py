@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from collections.abc import AsyncIterator
@@ -10,7 +11,15 @@ from config import settings
 from langchain.schema import Document as LCDocument
 
 from infrastructure.acl import build_qdrant_filter
-from infrastructure.clients import get_bm25_index, get_embeddings, get_llm, get_reranker, get_vector_store
+from infrastructure.clients import (
+    get_bm25_index,
+    get_embeddings,
+    get_llm,
+    get_llm_for_breadth,
+    get_qdrant_client,
+    get_reranker,
+    get_vector_store,
+)
 from infrastructure.ml.hybrid import content_hash, rrf_merge
 from infrastructure.ml.rag import (
     build_prompt,
@@ -18,6 +27,7 @@ from infrastructure.ml.rag import (
     condense_question,
     deduplicate_docs,
     extract_sources,
+    filter_cited_sources,
     format_docs,
     history_to_messages,
     rerank_documents,
@@ -26,15 +36,14 @@ from infrastructure.ml.rag import (
 log = logging.getLogger("default")
 
 
-def _resolve_hash_to_doc(h: str, access_filter) -> LCDocument | None:
+async def _resolve_hash_to_doc(h: str, access_filter) -> LCDocument | None:
     """Retrieve a document from Qdrant by its content_hash."""
-    from qdrant_client import QdrantClient
     from qdrant_client.models import FieldCondition, Filter, MatchValue
 
-    client = QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key)
+    client = get_qdrant_client()
 
-    # Search by content_hash in metadata
-    results = client.scroll(
+    results = await asyncio.to_thread(
+        client.scroll,
         collection_name=settings.collection_name,
         scroll_filter=Filter(
             must=[
@@ -58,20 +67,18 @@ def _resolve_hash_to_doc(h: str, access_filter) -> LCDocument | None:
     return LCDocument(page_content=page_content, metadata=metadata)
 
 
-def _qdrant_dense_search(query: str, k: int, access_filter) -> list[tuple[str, float, LCDocument]]:
+async def _qdrant_dense_search(query: str, k: int, access_filter) -> list[tuple[str, float, LCDocument]]:
     """Search Qdrant directly, returning (content_hash, score, Document) tuples."""
-    from qdrant_client import QdrantClient
-
-    client = QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key)
+    client = get_qdrant_client()
     embeddings = get_embeddings()
 
-    query_vector = embeddings.embed_query(query)
-    # Apply access filter if it has conditions (check should list for non-empty)
+    query_vector = await asyncio.to_thread(embeddings.embed_query, query)
     qdrant_filter = None
     if access_filter and access_filter.should:
         qdrant_filter = access_filter
 
-    results = client.search(
+    results = await asyncio.to_thread(
+        client.search,
         collection_name=settings.collection_name,
         query_vector=query_vector,
         limit=k,
@@ -139,11 +146,11 @@ class RagService:
 
         if settings.hybrid_enabled and bm25_index is not None:
             # Dense search via Qdrant (returns content_hash + score + doc)
-            dense_results = _qdrant_dense_search(query_for_search, fetch_k, access_filter)
+            dense_results = await _qdrant_dense_search(query_for_search, fetch_k, access_filter)
             dense_by_hash = {h: (score, doc) for h, score, doc in dense_results}
 
             # Sparse search via BM25 (returns content_hash + score)
-            sparse_results = bm25_index.search_with_hashes(query_for_search, k=fetch_k)
+            sparse_results = await asyncio.to_thread(bm25_index.search_with_hashes, query_for_search, fetch_k)
 
             # RRF merge
             merged_hashes = rrf_merge(
@@ -165,7 +172,7 @@ class RagService:
                     candidates.append(dense_by_hash[h][1])
                 else:
                     # Sparse-only result — retrieve full doc from Qdrant by hash
-                    doc = _resolve_hash_to_doc(h, access_filter)
+                    doc = await _resolve_hash_to_doc(h, access_filter)
                     if doc is not None:
                         candidates.append(doc)
 
@@ -181,15 +188,22 @@ class RagService:
                 search_type="similarity",
                 search_kwargs={"k": settings.retriever_fetch_k, "filter": access_filter},
             )
-            candidates = retriever.invoke(query_for_search)
+            candidates = await asyncio.to_thread(retriever.invoke, query_for_search)
 
         # Deduplicate candidates before reranking to improve context diversity
         candidates = deduplicate_docs(candidates)
 
-        docs = rerank_documents(query_for_search, candidates, top_n=top_k, reranker=get_reranker())
+        docs = await rerank_documents(
+            query_for_search,
+            candidates,
+            top_n=top_k,
+            reranker=get_reranker(),
+            min_score=settings.rerank_min_score,
+            score_gap_ratio=settings.rerank_score_gap_ratio,
+        )
 
         context = format_docs(docs)
-        sources = extract_sources(docs)
+        sources = extract_sources(docs, min_score=settings.source_min_score)
 
         messages = prompt.format_messages(
             context=context,
@@ -197,10 +211,16 @@ class RagService:
             question=question,
         )
 
-        async for chunk in get_llm().astream(messages):
+        answer_parts: list[str] = []
+        async for chunk in get_llm_for_breadth(breadth).astream(messages):
             text = chunk.content
             if text:
+                answer_parts.append(text)
                 yield text
+
+        if settings.citation_filter_enabled and sources:
+            full_answer = "".join(answer_parts)
+            sources = filter_cited_sources(full_answer, sources)
 
         yield f"\n__sources__:{json.dumps(sources, ensure_ascii=False)}"
 

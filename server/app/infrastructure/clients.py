@@ -45,6 +45,17 @@ def get_llm() -> ChatOllama:
     )
 
 
+def get_llm_for_breadth(breadth: str) -> ChatOllama:
+    """Return LLM with num_predict limit matching breadth mode."""
+    num_predict = settings.llm_num_predict_broad if breadth == "broad" else settings.llm_num_predict_narrow
+    return ChatOllama(
+        model=settings.llm_model,
+        base_url=settings.ollama_base_url,
+        temperature=0.1,
+        num_predict=num_predict,
+    )
+
+
 @functools.lru_cache(maxsize=1)
 def get_reranker() -> CrossEncoder:
     log.info("Loading reranker %s ...", settings.rerank_model)
@@ -55,6 +66,13 @@ def get_reranker() -> CrossEncoder:
     )
     log.info("Reranker loaded")
     return reranker
+
+
+@functools.lru_cache(maxsize=1)
+def get_qdrant_client():
+    from qdrant_client import QdrantClient
+
+    return QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key)
 
 
 @functools.lru_cache(maxsize=1)

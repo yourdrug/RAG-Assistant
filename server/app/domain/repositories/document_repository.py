@@ -22,17 +22,8 @@ class DocumentRepository(Protocol):
     ) -> None: ...
     def set_source_path(self, document_id: int, source_path: str) -> None: ...
     def find_active_slot(
-        self, owner_id: int | None, filename: str, group_id: int | None
+        self, owner_id: int | None, filename: str, group_id: int | None, for_update: bool = False
     ) -> Document | None: ...
-    def find_active_slot_for_update(
-        self, owner_id: int | None, filename: str, group_id: int | None
-    ) -> Document | None:
-        """Same as find_active_slot but takes a row lock (SELECT ... FOR UPDATE).
-
-        Use inside upload() to serialize concurrent uploads targeting the same
-        (owner_id, filename, group_id) slot.
-        """
-        ...
 
     def list_visible(
         self,

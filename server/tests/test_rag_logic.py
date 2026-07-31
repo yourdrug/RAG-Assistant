@@ -3,6 +3,7 @@ Tests for domain/rag.py — pure RAG logic: formatting, sources, history, rerank
 Complements test_rag_chain.py with additional edge cases.
 """
 
+import asyncio
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -116,6 +117,65 @@ class TestExtractSources:
         sources = rag.extract_sources(docs)
         assert sources[0]["pages"] == [2, 5, 8]
 
+    def test_with_scored_pairs_adds_max_score(self):
+        docs = [_doc("t1", "a.pdf", 1), _doc("t2", "a.pdf", 3), _doc("t3", "b.pdf", 1)]
+        scored = [(docs[0], 0.5), (docs[1], 0.9), (docs[2], 0.3)]
+        sources = rag.extract_sources(scored)
+        by_name = {s["source"]: s for s in sources}
+        assert by_name["a.pdf"]["max_score"] == 0.9
+        assert by_name["b.pdf"]["max_score"] == 0.3
+
+    def test_with_scored_pairs_sorted_by_max_score(self):
+        docs = [_doc("t1", "low.pdf", 1), _doc("t2", "high.pdf", 1)]
+        scored = [(docs[0], 0.2), (docs[1], 0.95)]
+        sources = rag.extract_sources(scored)
+        assert sources[0]["source"] == "high.pdf"
+        assert sources[1]["source"] == "low.pdf"
+
+    def test_without_scores_no_max_score_key(self):
+        docs = [_doc("t", "a.pdf", 1)]
+        sources = rag.extract_sources(docs)
+        assert "max_score" not in sources[0]
+
+
+# ---------------------------------------------------------------------------
+# filter_cited_sources
+# ---------------------------------------------------------------------------
+
+
+class TestFilterCitedSources:
+    def test_keeps_cited_sources(self):
+        sources = [
+            {"source": "a.pdf", "pages": [1]},
+            {"source": "b.pdf", "pages": [2]},
+            {"source": "c.pdf", "pages": [3]},
+        ]
+        answer = "Согласно [1], нужно X. Также [3] указывает на Y."
+        result = rag.filter_cited_sources(answer, sources)
+        assert [s["source"] for s in result] == ["a.pdf", "c.pdf"]
+
+    def test_no_citations_returns_all(self):
+        sources = [{"source": "a.pdf", "pages": [1]}, {"source": "b.pdf", "pages": [2]}]
+        answer = "Ответ без ссылок."
+        result = rag.filter_cited_sources(answer, sources)
+        assert len(result) == 2
+
+    def test_empty_sources(self):
+        assert rag.filter_cited_sources("answer [1]", []) == []
+
+    def test_citation_out_of_range_returns_all_as_fallback(self):
+        sources = [{"source": "a.pdf", "pages": [1]}]
+        answer = "См. [5] для деталей."
+        result = rag.filter_cited_sources(answer, sources)
+        assert len(result) == 1
+
+    def test_multiple_citations_same_source(self):
+        sources = [{"source": "a.pdf", "pages": [1]}, {"source": "b.pdf", "pages": [2]}]
+        answer = "[1] и [1] оба указывают на a.pdf"
+        result = rag.filter_cited_sources(answer, sources)
+        assert len(result) == 1
+        assert result[0]["source"] == "a.pdf"
+
 
 # ---------------------------------------------------------------------------
 # history_to_messages
@@ -170,43 +230,77 @@ class TestRerankDocuments:
     def test_top_n_less_than_docs(self):
         docs = [_doc("a"), _doc("b"), _doc("c")]
         reranker = self._fake_reranker([0.1, 0.9, 0.5])
-        result = rag.rerank_documents("q", docs, top_n=2, reranker=reranker)
+        result = asyncio.run(rag.rerank_documents("q", docs, top_n=2, reranker=reranker))
         assert len(result) == 2
-        assert result[0].page_content == "b"
+        assert isinstance(result[0], tuple)
+        assert result[0][0].page_content == "b"
+        assert result[0][1] == 0.9
 
     def test_top_n_greater_than_docs_returns_all(self):
         docs = [_doc("a"), _doc("b")]
         reranker = self._fake_reranker([0.5, 0.3])
-        result = rag.rerank_documents("q", docs, top_n=10, reranker=reranker)
+        result = asyncio.run(rag.rerank_documents("q", docs, top_n=10, reranker=reranker))
         assert len(result) == 2
 
     def test_equal_scores_preserve_original_order(self):
         docs = [_doc("first"), _doc("second")]
         reranker = self._fake_reranker([0.5, 0.5])
-        result = rag.rerank_documents("q", docs, top_n=2, reranker=reranker)
-        assert [d.page_content for d in result] == ["first", "second"]
+        result = asyncio.run(rag.rerank_documents("q", docs, top_n=2, reranker=reranker))
+        assert [d.page_content for d, _ in result] == ["first", "second"]
 
     def test_negative_scores_handled(self):
         docs = [_doc("bad"), _doc("worse")]
         reranker = self._fake_reranker([-0.8, -0.2])
-        result = rag.rerank_documents("q", docs, top_n=1, reranker=reranker)
-        assert result[0].page_content == "worse"
+        result = asyncio.run(rag.rerank_documents("q", docs, top_n=1, reranker=reranker))
+        assert result[0][0].page_content == "worse"
 
     def test_empty_docs_returns_empty(self):
         reranker = self._fake_reranker([])
-        assert rag.rerank_documents("q", [], top_n=5, reranker=reranker) == []
+        assert asyncio.run(rag.rerank_documents("q", [], top_n=5, reranker=reranker)) == []
 
     def test_single_doc_returns_single(self):
         docs = [_doc("only")]
         reranker = self._fake_reranker([0.7])
-        result = rag.rerank_documents("q", docs, top_n=5, reranker=reranker)
+        result = asyncio.run(rag.rerank_documents("q", docs, top_n=5, reranker=reranker))
         assert len(result) == 1
 
     def test_top_n_zero_returns_empty(self):
         docs = [_doc("a"), _doc("b")]
         reranker = self._fake_reranker([0.9, 0.1])
-        result = rag.rerank_documents("q", docs, top_n=0, reranker=reranker)
+        result = asyncio.run(rag.rerank_documents("q", docs, top_n=0, reranker=reranker))
         assert result == []
+
+    def test_min_score_filters_low_scores(self):
+        docs = [_doc("a"), _doc("b"), _doc("c")]
+        reranker = self._fake_reranker([0.9, 0.3, 0.1])
+        result = asyncio.run(
+            rag.rerank_documents("q", docs, top_n=3, reranker=reranker, min_score=0.5)
+        )
+        assert len(result) == 1
+        assert result[0][0].page_content == "a"
+
+    def test_score_gap_ratio_filters_far_from_top(self):
+        docs = [_doc("a"), _doc("b"), _doc("c")]
+        reranker = self._fake_reranker([1.0, 0.05, 0.01])
+        result = asyncio.run(
+            rag.rerank_documents("q", docs, top_n=3, reranker=reranker, score_gap_ratio=0.1)
+        )
+        assert len(result) == 1
+        assert result[0][0].page_content == "a"
+
+    def test_min_score_and_gap_ratio_combined(self):
+        docs = [_doc("a"), _doc("b"), _doc("c")]
+        reranker = self._fake_reranker([1.0, 0.8, 0.01])
+        result = asyncio.run(
+            rag.rerank_documents(
+                "q", docs, top_n=3, reranker=reranker, min_score=0.5, score_gap_ratio=0.5
+            )
+        )
+        # gap_ratio cutoff = 1.0 * 0.5 = 0.5; min_score = 0.5
+        # a: 1.0 >= 0.5 and >= 0.5 → keep
+        # b: 0.8 >= 0.5 and >= 0.5 → keep
+        # c: 0.01 < 0.5 → filtered by min_score
+        assert len(result) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -244,3 +338,15 @@ class TestClassifyQuestionBreadth:
 
     def test_empty_string(self):
         assert classify_question_breadth("") == "narrow"
+
+    def test_kakie_isklyucheniya_is_narrow(self):
+        assert classify_question_breadth("Какие есть исключения из правила?") == "narrow"
+
+    def test_kak_ubititsya_is_narrow(self):
+        assert classify_question_breadth("Как убедиться что всё верно?") == "narrow"
+
+    def test_chto_takoe_is_narrow(self):
+        assert classify_question_breadth("Что такое ЭТТН?") == "narrow"
+
+    def test_kakoy_srok_deystviya_is_narrow(self):
+        assert classify_question_breadth("Какой срок действия пароля?") == "narrow"

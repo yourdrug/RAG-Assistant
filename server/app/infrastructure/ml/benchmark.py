@@ -25,9 +25,10 @@ from pathlib import Path
 
 from config import settings
 from langchain.schema import Document
-from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_ollama import ChatOllama
 from langchain_qdrant import QdrantVectorStore
+
+from infrastructure.clients import get_vector_store
 
 logger = logging.getLogger("default")
 
@@ -72,18 +73,8 @@ def load_questions(path: str) -> list[dict]:
 
 
 def build_retriever(top_k: int):
-    logger.info("Загружаю эмбеддинг-модель %s ...", settings.embed_model)
-    embeddings = HuggingFaceEmbeddings(
-        model_name=settings.embed_model,
-        model_kwargs={"device": "cpu"},
-        encode_kwargs={"normalize_embeddings": True},
-    )
-    vs = QdrantVectorStore.from_existing_collection(
-        embedding=embeddings,
-        url=settings.qdrant_url,
-        api_key=settings.qdrant_api_key,
-        collection_name=settings.collection_name,
-    )
+    logger.info("Using cached embedding model %s ...", settings.embed_model)
+    vs = get_vector_store()
     return vs.as_retriever(
         search_type="similarity_score_threshold",
         search_kwargs={"k": top_k, "score_threshold": 0.0},
@@ -295,6 +286,38 @@ def log_question_result(idx: int, total: int, q: dict, result: dict):
 
 
 # ---------------------------------------------------------------------------
+# Summary metrics (shared by log_summary, save_results, BenchmarkService)
+# ---------------------------------------------------------------------------
+
+
+def compute_summary_metrics(results: list[dict]) -> dict:
+    """Extract aggregated metrics from benchmark results."""
+    faiths = [r["generator_metrics"]["faithfulness"] for r in results]
+    rels = [r["generator_metrics"]["relevancy"] for r in results]
+    corrs = [
+        r["generator_metrics"]["correctness"]
+        for r in results
+        if r["generator_metrics"]["correctness"] is not None
+    ]
+    hit_rates = [
+        r["retriever_metrics"]["hit_rate"] for r in results if r["retriever_metrics"]["hit_rate"] is not None
+    ]
+    mrrs = [r["retriever_metrics"]["mrr"] for r in results if r["retriever_metrics"]["mrr"] is not None]
+    sims = [r["retriever_metrics"]["avg_similarity"] for r in results]
+
+    return {
+        "total_questions": len(results),
+        "total_time_sec": round(sum(r["latency_sec"] for r in results), 1),
+        "hit_rate": round(sum(hit_rates) / len(hit_rates), 3) if hit_rates else None,
+        "avg_mrr": round(sum(mrrs) / len(mrrs), 3) if mrrs else None,
+        "avg_faithfulness": round(sum(faiths) / len(faiths), 1) if faiths else None,
+        "avg_relevancy": round(sum(rels) / len(rels), 1) if rels else None,
+        "avg_correctness": round(sum(corrs) / len(corrs), 1) if corrs else None,
+        "avg_similarity": round(sum(sims) / len(sims), 3) if sims else 0,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Итоговый отчёт
 # ---------------------------------------------------------------------------
 
@@ -305,37 +328,23 @@ def log_summary(results: list[dict], total_time: float):
     logger.info("ИТОГОВЫЙ ОТЧЁТ  (%d вопросов, %.1fs)", n, total_time)
     logger.info("=" * 60)
 
-    hit_rates = [
-        r["retriever_metrics"]["hit_rate"] for r in results if r["retriever_metrics"]["hit_rate"] is not None
-    ]
-    mrrs = [r["retriever_metrics"]["mrr"] for r in results if r["retriever_metrics"]["mrr"] is not None]
-    sims = [r["retriever_metrics"]["avg_similarity"] for r in results]
+    m = compute_summary_metrics(results)
 
     logger.info("Retriever:")
-    if hit_rates:
-        avg_hr = sum(hit_rates) / len(hit_rates)
-        avg_mrr = sum(mrrs) / len(mrrs)
+    if m["hit_rate"] is not None:
         logger.info(
-            "  Hit Rate:        %.1f/10  (%.0f%% вопросов нашли нужный источник)", avg_hr * 10, avg_hr * 100
+            "  Hit Rate:        %.1f/10  (%.0f%% вопросов нашли нужный источник)", m["hit_rate"] * 10, m["hit_rate"] * 100
         )
-        logger.info("  MRR:             %.3f  (1.0 = нужный чанк всегда первый)", avg_mrr)
-    logger.info("  Avg Similarity:  %.3f", sum(sims) / len(sims))
-
-    faiths = [r["generator_metrics"]["faithfulness"] for r in results]
-    rels = [r["generator_metrics"]["relevancy"] for r in results]
-    corrs = [
-        r["generator_metrics"]["correctness"]
-        for r in results
-        if r["generator_metrics"]["correctness"] is not None
-    ]
+        logger.info("  MRR:             %.3f  (1.0 = нужный чанк всегда первый)", m["avg_mrr"])
+    logger.info("  Avg Similarity:  %.3f", m["avg_similarity"])
 
     logger.info("Generator:")
     logger.info(
-        "  Faithfulness:    %.1f/10  (достоверность — нет ли выдуманных фактов)", sum(faiths) / len(faiths)
+        "  Faithfulness:    %.1f/10  (достоверность — нет ли выдуманных фактов)", m["avg_faithfulness"]
     )
-    logger.info("  Relevancy:       %.1f/10  (ответ по существу вопроса)", sum(rels) / len(rels))
-    if corrs:
-        logger.info("  Correctness:     %.1f/10  (совпадение с эталоном)", sum(corrs) / len(corrs))
+    logger.info("  Relevancy:       %.1f/10  (ответ по существу вопроса)", m["avg_relevancy"])
+    if m["avg_correctness"] is not None:
+        logger.info("  Correctness:     %.1f/10  (совпадение с эталоном)", m["avg_correctness"])
 
     bad = [
         r
@@ -403,30 +412,7 @@ def save_results(results: list[dict], out_dir: str, model_name: str = ""):
     # Append to history for trend tracking
     from infrastructure.ml.benchmark_history import save_summary_to_history
 
-    n = len(results)
-    faiths = [r["generator_metrics"]["faithfulness"] for r in results]
-    rels = [r["generator_metrics"]["relevancy"] for r in results]
-    corrs = [
-        r["generator_metrics"]["correctness"]
-        for r in results
-        if r["generator_metrics"]["correctness"] is not None
-    ]
-    hit_rates = [
-        r["retriever_metrics"]["hit_rate"] for r in results if r["retriever_metrics"]["hit_rate"] is not None
-    ]
-    mrrs = [r["retriever_metrics"]["mrr"] for r in results if r["retriever_metrics"]["mrr"] is not None]
-    sims = [r["retriever_metrics"]["avg_similarity"] for r in results]
-
-    summary = {
-        "total_questions": n,
-        "total_time_sec": round(sum(r["latency_sec"] for r in results), 1),
-        "hit_rate": round(sum(hit_rates) / len(hit_rates), 3) if hit_rates else None,
-        "avg_mrr": round(sum(mrrs) / len(mrrs), 3) if mrrs else None,
-        "avg_faithfulness": round(sum(faiths) / len(faiths), 1) if faiths else None,
-        "avg_relevancy": round(sum(rels) / len(rels), 1) if rels else None,
-        "avg_correctness": round(sum(corrs) / len(corrs), 1) if corrs else None,
-        "avg_similarity": round(sum(sims) / len(sims), 3) if sims else 0,
-    }
+    summary = compute_summary_metrics(results)
 
     config = {
         "top_k": settings.retriever_top_k,

@@ -81,7 +81,7 @@ class SQLAlchemyDocumentRepository:
             await self._db.flush()
 
     async def find_active_slot(
-        self, owner_id: int | None, filename: str, group_id: int | None
+        self, owner_id: int | None, filename: str, group_id: int | None, for_update: bool = False
     ) -> Document | None:
         stmt = (
             select(DocumentModel)
@@ -94,6 +94,8 @@ class SQLAlchemyDocumentRepository:
             .order_by(DocumentModel.creation_date.desc())
             .limit(1)
         )
+        if for_update:
+            stmt = stmt.with_for_update()
         result = await self._db.execute(stmt)
         orm = result.scalar_one_or_none()
         return self._to_entity(orm) if orm else None
@@ -132,25 +134,6 @@ class SQLAlchemyDocumentRepository:
     async def list_all(self) -> list[Document]:
         result = await self._db.execute(select(DocumentModel).order_by(DocumentModel.creation_date.desc()))
         return [self._to_entity(orm) for orm in result.scalars().all()]
-
-    async def find_active_slot_for_update(
-        self, owner_id: int | None, filename: str, group_id: int | None
-    ) -> Document | None:
-        stmt = (
-            select(DocumentModel)
-            .where(
-                DocumentModel.filename == filename,
-                DocumentModel.owner_id == owner_id,
-                DocumentModel.group_id == group_id,
-                DocumentModel.status.in_(["pending", "processing", "done"]),
-            )
-            .order_by(DocumentModel.creation_date.desc())
-            .limit(1)
-            .with_for_update()
-        )
-        result = await self._db.execute(stmt)
-        orm = result.scalar_one_or_none()
-        return self._to_entity(orm) if orm else None
 
     @staticmethod
     def _to_entity(orm: DocumentModel) -> Document:
