@@ -4,15 +4,24 @@ CLI-команда: бенчмарк RAG-системы.
 
 from __future__ import annotations
 
+import asyncio
 import itertools
+import json
 import logging
 import sys
 from pathlib import Path
 
 import typer
 from config import settings
-from infrastructure.ml.benchmark import run_benchmark
+from infrastructure.clients import get_bm25_index, get_embeddings, get_qdrant_client
+from infrastructure.ml.benchmark import (
+    load_questions,
+    run_benchmark,
+    run_benchmark_async,
+)
 from infrastructure.ml.benchmark_history import compare_runs, get_last_baseline, print_history
+from infrastructure.ml.hybrid import content_hash, rrf_merge
+from langchain.schema import Document as LCDocument
 
 logger = logging.getLogger("cli")
 
@@ -45,15 +54,51 @@ def benchmark_run(
         "-j",
         help="Модель Ollama для роли судьи",
     ),
+    async_mode: bool = typer.Option(
+        False,
+        "--async",
+        help="Запускать вопросы параллельно (requires OLLAMA_NUM_PARALLEL > 1)",
+    ),
+    max_concurrent: int = typer.Option(
+        4,
+        "--max-concurrent",
+        help="Макс. параллельных вопросов (при --async)",
+    ),
+    seed: int | None = typer.Option(
+        None,
+        "--seed",
+        "-s",
+        help="Seed для воспроизводимости (передаётся в ChatOllama)",
+    ),
+    n_runs: int = typer.Option(
+        1,
+        "--n-runs",
+        help="Количество запусков для усреднения (при n_runs>1 результаты усредняются)",
+    ),
 ) -> None:
     """Запустить бенчмарк: retriever-метрики + LLM-судья (faithfulness, relevancy, correctness)."""
     try:
-        run_benchmark(
-            questions_path=questions,
-            out_dir=out,
-            top_k=top_k,
-            judge_model=judge_model,
-        )
+        if async_mode:
+            asyncio.run(
+                run_benchmark_async(
+                    questions_path=questions,
+                    out_dir=out,
+                    top_k=top_k,
+                    judge_model=judge_model,
+                    max_concurrent=max_concurrent,
+                    seed=seed,
+                    n_runs=n_runs,
+                )
+            )
+        else:
+            run_benchmark(
+                questions_path=questions,
+                out_dir=out,
+                top_k=top_k,
+                judge_model=judge_model,
+                seed=seed,
+                n_runs=n_runs,
+            )
     except Exception as exc:
         logger.error("Ошибка при запуске бенчмарка", exc_info=exc)
         sys.exit(1)
@@ -79,8 +124,13 @@ def benchmark_grid_search(
         "-j",
         help="Модель Ollama для роли судьи",
     ),
+    top_n_llm: int = typer.Option(
+        3,
+        "--top-n-llm",
+        help="Сколько лучших конфигураций проверять с LLM-судьёй",
+    ),
 ) -> None:
-    """Grid search по параметрам retriever: top_k, fetch_k, dense_weight, sparse_weight, rrf_k."""
+    """Grid search: быстрый retrieval-scoring для всех комбинаций, LLM-судья только для топ-N."""
     # Parameter grid
     top_k_values = [4, 6, 8, 10]
     dense_weight_values = [0.5, 1.0, 1.5]
@@ -91,119 +141,178 @@ def benchmark_grid_search(
         itertools.product(top_k_values, dense_weight_values, sparse_weight_values, rrf_k_values)
     )
 
-    logger.info("Grid Search: %d комбинаций параметров", len(combinations))
+    logger.info("Grid Search: %d комбинаций (fast retrieval phase)", len(combinations))
     logger.info("  top_k: %s", top_k_values)
     logger.info("  dense_weight: %s", dense_weight_values)
     logger.info("  sparse_weight: %s", sparse_weight_values)
     logger.info("  rrf_k: %s", rrf_k_values)
 
-    best_score = -1.0
-    best_params = None
-    best_result = None
+    questions_data = load_questions(questions)
+
+    # --- Phase 1: cache dense+sparse candidates for all questions (one Qdrant pass each) ---
+    logger.info("Phase 1: Кэширую.dense + sparse кандидатов для %d вопросов...", len(questions_data))
+    fetch_k = max(settings.retriever_fetch_k, settings.retriever_fetch_k_broad)
+    dense_cache: dict[str, list] = {}  # question -> [(hash, score, doc)]
+    sparse_cache: dict[str, list] = {}  # question -> [(hash, score)]
+    all_candidates_by_hash: dict[str, LCDocument] = {}  # hash -> doc (universal)
+
+    for q in questions_data:
+        qtext = q["question"]
+        # Dense search
+        dense_results = []
+        for point in get_qdrant_client().search(
+            collection_name=settings.collection_name,
+            query_vector=get_embeddings().embed_query(qtext),
+            limit=fetch_k,
+        ):
+            payload = point.payload or {}
+            page_content = payload.get("page_content", "")
+            metadata = payload.get("metadata", {})
+            h = metadata.get("content_hash") or content_hash(page_content)
+            doc = LCDocument(page_content=page_content, metadata=metadata)
+            dense_results.append((h, point.score, doc))
+            all_candidates_by_hash[h] = doc
+        dense_cache[qtext] = dense_results
+
+        # Sparse search
+        bm25 = get_bm25_index()
+        sparse_results = await_if_needed(bm25.search_with_hashes, qtext, fetch_k) if bm25 else []
+        sparse_cache[qtext] = sparse_results
+
+    logger.info("Phase 1 done: %d dense, %d sparse, %d unique hashes",
+                sum(len(v) for v in dense_cache.values()),
+                sum(len(v) for v in sparse_cache.values()),
+                len(all_candidates_by_hash))
+
+    # --- Phase 2: fast retrieval-only scoring for all combinations ---
+    logger.info("Phase 2: Retrieval-scoring для %d комбинаций...", len(combinations))
     results_summary = []
 
     for idx, (top_k, dw, sw, rrf_k) in enumerate(combinations, 1):
-        logger.info(
-            "\n[%d/%d] top_k=%d, dense=%.1f, sparse=%.1f, rrf_k=%d",
-            idx,
-            len(combinations),
-            top_k,
-            dw,
-            sw,
-            rrf_k,
-        )
+        hit_rates_all = []
+        mrrs_all = []
 
-        # Temporarily override settings
+        for q in questions_data:
+            qtext = q["question"]
+            source_hint = q.get("source_hint")
+            if source_hint is None:
+                continue
+
+            merged_hashes = rrf_merge(
+                dense_cache.get(qtext, []),
+                sparse_cache.get(qtext, []),
+                k=rrf_k,
+                dense_weight=dw,
+                sparse_weight=sw,
+            )
+
+            # Deduplicate + top_k
+            seen = set()
+            top_hashes = []
+            for h in merged_hashes:
+                if h not in seen:
+                    seen.add(h)
+                    top_hashes.append(h)
+                    if len(top_hashes) >= top_k:
+                        break
+
+            hit = 0
+            mrr = 0.0
+            for rank, h in enumerate(top_hashes, 1):
+                doc = all_candidates_by_hash.get(h)
+                if doc is None:
+                    continue
+                filename = doc.metadata.get("filename", "") or doc.metadata.get("source", "")
+                if source_hint.lower() in filename.lower():
+                    hit = 1
+                    if mrr == 0.0:
+                        mrr = 1.0 / rank
+                    break
+
+            hit_rates_all.append(hit)
+            mrrs_all.append(mrr)
+
+        avg_hr = sum(hit_rates_all) / len(hit_rates_all) if hit_rates_all else 0
+        avg_mrr = sum(mrrs_all) / len(mrrs_all) if mrrs_all else 0
+
+        results_summary.append({
+            "top_k": top_k,
+            "dense_weight": dw,
+            "sparse_weight": sw,
+            "rrf_k": rrf_k,
+            "avg_hit_rate": round(avg_hr, 3),
+            "avg_mrr": round(avg_mrr, 4),
+        })
+
+        if (idx % 27) == 0:
+            logger.info("  %d/%d done", idx, len(combinations))
+
+    # Sort by hit_rate (primary) then MRR (secondary)
+    results_summary.sort(key=lambda x: (x["avg_hit_rate"], x["avg_mrr"]), reverse=True)
+
+    logger.info("Phase 2 done. Top-5 by retrieval:")
+    for i, r in enumerate(results_summary[:5], 1):
+        logger.info("  #%d  top_k=%d dw=%.1f sw=%.1f rrf_k=%d  HR=%.3f MRR=%.4f",
+                     i, r["top_k"], r["dense_weight"], r["sparse_weight"], r["rrf_k"],
+                     r["avg_hit_rate"], r["avg_mrr"])
+
+    # --- Phase 3: full LLM+judge only on top-N configs ---
+    logger.info("Phase 3: LLM-судья для топ-%d конфигураций...", top_n_llm)
+    top_configs = results_summary[:top_n_llm]
+
+    for config_idx, cfg in enumerate(top_configs, 1):
+        logger.info("\n--- LLM evaluation #%d: top_k=%d dw=%.1f sw=%.1f rrf_k=%d ---",
+                     config_idx, cfg["top_k"], cfg["dense_weight"], cfg["sparse_weight"], cfg["rrf_k"])
+
         original_top_k = settings.retriever_top_k
         original_dense = settings.dense_weight
         original_sparse = settings.sparse_weight
         original_rrf = settings.rrf_k
 
         try:
-            settings.retriever_top_k = top_k
-            settings.dense_weight = dw
-            settings.sparse_weight = sw
-            settings.rrf_k = rrf_k
+            settings.retriever_top_k = cfg["top_k"]
+            settings.dense_weight = cfg["dense_weight"]
+            settings.sparse_weight = cfg["sparse_weight"]
+            settings.rrf_k = cfg["rrf_k"]
 
-            # Run benchmark with these settings
             run_benchmark(
                 questions_path=questions,
                 out_dir=out,
-                top_k=top_k,
+                top_k=cfg["top_k"],
                 judge_model=judge_model,
             )
 
-            # Read the latest result to get metrics
+            # Read back the metrics
             result_files = sorted(Path(out).glob("benchmark_*.json"))
             if result_files:
-                import json
-
                 latest = json.loads(result_files[-1].read_text(encoding="utf-8"))
-                # Calculate average metrics
-                hit_rates = [
-                    r["retriever_metrics"]["hit_rate"]
-                    for r in latest
-                    if r["retriever_metrics"]["hit_rate"] is not None
-                ]
                 faiths = [r["generator_metrics"]["faithfulness"] for r in latest]
                 rels = [r["generator_metrics"]["relevancy"] for r in latest]
-
-                avg_hr = sum(hit_rates) / len(hit_rates) if hit_rates else 0
                 avg_faith = sum(faiths) / len(faiths) if faiths else 0
                 avg_rel = sum(rels) / len(rels) if rels else 0
+                composite = 0.4 * cfg["avg_hit_rate"] + 0.3 * avg_faith / 10 + 0.3 * avg_rel / 10
 
-                # Composite score: weighted combination
-                composite = 0.4 * avg_hr + 0.3 * avg_faith / 10 + 0.3 * avg_rel / 10
+                cfg["avg_faithfulness"] = round(avg_faith, 1)
+                cfg["avg_relevancy"] = round(avg_rel, 1)
+                cfg["composite_score"] = round(composite, 3)
 
-                results_summary.append(
-                    {
-                        "top_k": top_k,
-                        "dense_weight": dw,
-                        "sparse_weight": sw,
-                        "rrf_k": rrf_k,
-                        "avg_hit_rate": round(avg_hr, 3),
-                        "avg_faithfulness": round(avg_faith, 1),
-                        "avg_relevancy": round(avg_rel, 1),
-                        "composite_score": round(composite, 3),
-                    }
-                )
-
-                logger.info(
-                    "  Hit Rate: %.1f%%, Faith: %.1f, Rel: %.1f, Score: %.3f",
-                    avg_hr * 100,
-                    avg_faith,
-                    avg_rel,
-                    composite,
-                )
-
-                if composite > best_score:
-                    best_score = composite
-                    best_params = {
-                        "top_k": top_k,
-                        "dense_weight": dw,
-                        "sparse_weight": sw,
-                        "rrf_k": rrf_k,
-                    }
-                    best_result = results_summary[-1]
-
+                logger.info("  HR=%.3f  Faith=%.1f  Rel=%.1f  Composite=%.3f",
+                             cfg["avg_hit_rate"], avg_faith, avg_rel, composite)
         finally:
-            # Restore original settings
             settings.retriever_top_k = original_top_k
             settings.dense_weight = original_dense
             settings.sparse_weight = original_sparse
             settings.rrf_k = original_rrf
 
     # Save grid search results
-    import json
-
     grid_path = Path(out) / "grid_search_results.json"
     grid_path.parent.mkdir(parents=True, exist_ok=True)
     grid_path.write_text(
         json.dumps(
             {
-                "best_params": best_params,
-                "best_score": best_score,
-                "all_results": sorted(results_summary, key=lambda x: x["composite_score"], reverse=True),
+                "best_params": top_configs[0] if top_configs else None,
+                "best_score": top_configs[0].get("composite_score", 0) if top_configs else 0,
+                "all_results": results_summary,
             },
             ensure_ascii=False,
             indent=2,
@@ -214,9 +323,23 @@ def benchmark_grid_search(
     logger.info("\n" + "=" * 60)
     logger.info("GRID SEARCH ЗАВЕРШЁН")
     logger.info("=" * 60)
-    logger.info("Лучшие параметры: %s", best_params)
-    logger.info("Лучший composite score: %.3f", best_score)
+    if top_configs:
+        logger.info("Лучшие параметры: %s", {k: v for k, v in top_configs[0].items() if k in ("top_k", "dense_weight", "sparse_weight", "rrf_k")})
+        logger.info("Лучший composite score: %.3f", top_configs[0].get("composite_score", 0))
     logger.info("Результаты сохранены: %s", grid_path)
+
+
+def await_if_needed(func, *args, **kwargs):
+    """Run sync function; if in async context, use asyncio.to_thread."""
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                return pool.submit(func, *args, **kwargs).result()
+    except RuntimeError:
+        pass
+    return func(*args, **kwargs)
 
 
 @benchmark_app.command("regression")

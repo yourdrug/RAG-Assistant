@@ -15,6 +15,7 @@ benchmark.py — оценка качества RAG-системы.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -185,6 +186,43 @@ def parse_judge_response(raw: str, metric: str) -> tuple[float, str]:
         return 0.0, f"[JSON parse error: {e}]"
 
 
+async def judge_answer_async(
+    judge_llm: ChatOllama,
+    question: str,
+    answer: str,
+    context: str,
+    expected_answer: str | None = None,
+) -> dict:
+    """Judge answer quality with 3 parallel LLM calls (faithfulness, relevancy, correctness)."""
+
+    async def _judge_one(prompt: str) -> str:
+        return await asyncio.to_thread(judge_llm.invoke, prompt).content
+
+    prompts = {
+        "faithfulness": FAITHFULNESS_PROMPT.format(context=context, question=question, answer=answer),
+        "relevancy": RELEVANCY_PROMPT.format(question=question, answer=answer),
+    }
+    if expected_answer:
+        prompts["correctness"] = CORRECTNESS_PROMPT.format(
+            question=question, expected=expected_answer, answer=answer
+        )
+
+    keys = list(prompts.keys())
+    raw_results = await asyncio.gather(*[_judge_one(prompts[k]) for k in keys])
+
+    scores = {}
+    for key, raw in zip(keys, raw_results):
+        score, reason = parse_judge_response(raw, key)
+        scores[key] = score
+        scores[f"{key}_reason"] = reason
+
+    if "correctness" not in scores:
+        scores["correctness"] = None
+        scores["correctness_reason"] = "Эталонный ответ не задан"
+
+    return scores
+
+
 def judge_answer(
     judge_llm: ChatOllama,
     question: str,
@@ -192,26 +230,43 @@ def judge_answer(
     context: str,
     expected_answer: str | None = None,
 ) -> dict:
-    scores = {}
+    """Sync wrapper for judge_answer_async — runs in event loop or standalone."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
 
-    raw = judge_llm.invoke(
-        FAITHFULNESS_PROMPT.format(context=context, question=question, answer=answer)
-    ).content
-    scores["faithfulness"], scores["faithfulness_reason"] = parse_judge_response(raw, "faithfulness")
+    if loop and loop.is_running():
+        # Already in async context — use to_thread for blocking invoke
+        scores = {}
 
-    raw = judge_llm.invoke(RELEVANCY_PROMPT.format(question=question, answer=answer)).content
-    scores["relevancy"], scores["relevancy_reason"] = parse_judge_response(raw, "relevancy")
+        def _invoke(prompt: str) -> str:
+            return judge_llm.invoke(prompt).content
 
-    if expected_answer:
-        raw = judge_llm.invoke(
-            CORRECTNESS_PROMPT.format(question=question, expected=expected_answer, answer=answer)
-        ).content
-        scores["correctness"], scores["correctness_reason"] = parse_judge_response(raw, "correctness")
+        prompts = {
+            "faithfulness": FAITHFULNESS_PROMPT.format(context=context, question=question, answer=answer),
+            "relevancy": RELEVANCY_PROMPT.format(question=question, answer=answer),
+        }
+        if expected_answer:
+            prompts["correctness"] = CORRECTNESS_PROMPT.format(
+                question=question, expected=expected_answer, answer=answer
+            )
+
+        # Sequential fallback when already in running loop
+        for key, prompt in prompts.items():
+            raw = judge_llm.invoke(prompt).content
+            score, reason = parse_judge_response(raw, key)
+            scores[key] = score
+            scores[f"{key}_reason"] = reason
+
+        if "correctness" not in scores:
+            scores["correctness"] = None
+            scores["correctness_reason"] = "Эталонный ответ не задан"
+        return scores
     else:
-        scores["correctness"] = None
-        scores["correctness_reason"] = "Эталонный ответ не задан"
-
-    return scores
+        return asyncio.run(
+            judge_answer_async(judge_llm, question, answer, context, expected_answer)
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -373,17 +428,18 @@ def _sanitize_model_name(model: str) -> str:
     return re.sub(r'[\\/:*?"<>|]', "_", model)
 
 
-def save_results(results: list[dict], out_dir: str, model_name: str = ""):
+def save_results(results: list[dict], out_dir: str, model_name: str = "", run_id: str = ""):
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     model_tag = f"_{_sanitize_model_name(model_name)}" if model_name else ""
+    run_tag = f"_{run_id}" if run_id else ""
 
-    json_path = out / f"benchmark_{ts}{model_tag}.json"
+    json_path = out / f"benchmark_{ts}{model_tag}{run_tag}.json"
     json_path.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    csv_path = out / f"benchmark_{ts}{model_tag}.csv"
+    csv_path = out / f"benchmark_{ts}{model_tag}{run_tag}.csv"
     rows = ["id,question,faithfulness,relevancy,correctness,hit_rate,mrr,avg_sim,latency_sec"]
     for r in results:
         gm = r["generator_metrics"]
@@ -430,6 +486,76 @@ def save_results(results: list[dict], out_dir: str, model_name: str = ""):
 
 
 # ---------------------------------------------------------------------------
+# Grid search helpers (retrieval-only, no LLM)
+# ---------------------------------------------------------------------------
+
+
+def compute_retrieval_metrics_grid(
+    dense_by_hash: dict,
+    sparse_results: list[tuple[str, float]],
+    questions: list[dict],
+    candidates_by_hash: dict,
+    top_k: int,
+    rrf_k: int,
+    dense_weight: float,
+    sparse_weight: float,
+) -> dict:
+    """Compute retrieval metrics for a single RRF config in-memory (no LLM/Qdrant calls)."""
+    from infrastructure.ml.hybrid import rrf_merge
+
+    merged_hashes = rrf_merge(
+        [(h, s) for h, s, _ in []] if not dense_by_hash else list(dense_by_hash.values()),
+        sparse_results,
+        k=rrf_k,
+        dense_weight=dense_weight,
+        sparse_weight=sparse_weight,
+    )
+
+    # Deduplicate and take top_k
+    seen = set()
+    top_hashes = []
+    for h in merged_hashes:
+        if h not in seen:
+            seen.add(h)
+            top_hashes.append(h)
+            if len(top_hashes) >= top_k:
+                break
+
+    # Compute metrics for each question
+    hit_rates = []
+    mrrs = []
+
+    for q in questions:
+        source_hint = q.get("source_hint")
+        if source_hint is None:
+            continue
+
+        hit = 0
+        mrr = 0.0
+        for rank, h in enumerate(top_hashes, 1):
+            doc = candidates_by_hash.get(h)
+            if doc is None:
+                continue
+            filename = doc.metadata.get("filename", "") or doc.metadata.get("source", "")
+            if source_hint.lower() in filename.lower():
+                hit = 1
+                if mrr == 0.0:
+                    mrr = 1.0 / rank
+                break
+
+        hit_rates.append(hit)
+        mrrs.append(mrr)
+
+    avg_hr = sum(hit_rates) / len(hit_rates) if hit_rates else 0
+    avg_mrr = sum(mrrs) / len(mrrs) if mrrs else 0
+
+    return {
+        "avg_hit_rate": round(avg_hr, 3),
+        "avg_mrr": round(avg_mrr, 4),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Главный цикл
 # ---------------------------------------------------------------------------
 
@@ -439,12 +565,16 @@ def run_benchmark(
     out_dir: str,
     top_k: int,
     judge_model: str,
+    seed: int | None = None,
+    n_runs: int = 1,
 ):
     logger.info("RAG Benchmark")
     logger.info("  questions : %s", questions_path)
     logger.info("  top_k     : %d", top_k)
     logger.info("  rag model : %s", settings.llm_model)
     logger.info("  judge     : %s", judge_model)
+    logger.info("  seed      : %s", seed if seed is not None else "none")
+    logger.info("  n_runs    : %d", n_runs)
     logger.info("  qdrant    : %s", settings.qdrant_url)
 
     questions = load_questions(questions_path)
@@ -453,50 +583,206 @@ def run_benchmark(
 
     logger.info("Подключаюсь к RAG LLM (%s) ...", settings.llm_model)
     rag_llm = build_llm(settings.llm_model, settings.ollama_base_url)
+    if seed is not None:
+        rag_llm = rag_llm.with_config({"configurable": {"seed": seed}})
 
     logger.info("Подключаюсь к LLM-судье (%s) ...", judge_model)
     judge_llm = build_llm(judge_model, settings.ollama_base_url)
+    if seed is not None:
+        judge_llm = judge_llm.with_config({"configurable": {"seed": seed}})
 
     logger.info("Прогрев моделей ...")
     rag_llm.invoke("Привет")
     if judge_model != settings.llm_model:
         judge_llm.invoke("Привет")
 
-    logger.info("Запускаю тесты...")
-    results = []
-    total_start = time.time()
+    all_results: list[dict] = []
 
-    for idx, q in enumerate(questions, 1):
-        t_start = time.time()
+    for run_idx in range(1, n_runs + 1):
+        if n_runs > 1:
+            logger.info("=== Run %d/%d ===", run_idx, n_runs)
 
-        docs_with_scores = retrieve_with_scores(vs, q["question"], top_k)
-        answer = get_rag_answer(rag_llm, docs_with_scores, q["question"])
-        retriever_metrics = compute_retriever_metrics(docs_with_scores, q.get("source_hint"))
+        logger.info("Запускаю тесты (параллельные judge-выcalls)...")
+        results = []
+        total_start = time.time()
 
-        context_for_judge = "\n\n---\n\n".join(d.page_content for d, _ in docs_with_scores)
-        generator_metrics = judge_answer(
-            judge_llm,
-            question=q["question"],
-            answer=answer,
-            context=context_for_judge,
-            expected_answer=q.get("expected_answer"),
-        )
+        for idx, q in enumerate(questions, 1):
+            t_start = time.time()
 
-        latency = time.time() - t_start
+            docs_with_scores = retrieve_with_scores(vs, q["question"], top_k)
+            answer = get_rag_answer(rag_llm, docs_with_scores, q["question"])
+            retriever_metrics = compute_retriever_metrics(docs_with_scores, q.get("source_hint"))
 
-        result = {
-            "id": q.get("id", str(idx)),
-            "question": q["question"],
-            "answer": answer,
-            "expected_answer": q.get("expected_answer"),
-            "source_hint": q.get("source_hint"),
-            "retriever_metrics": retriever_metrics,
-            "generator_metrics": generator_metrics,
-            "latency_sec": round(latency, 2),
+            context_for_judge = "\n\n---\n\n".join(d.page_content for d, _ in docs_with_scores)
+            generator_metrics = judge_answer(
+                judge_llm,
+                question=q["question"],
+                answer=answer,
+                context=context_for_judge,
+                expected_answer=q.get("expected_answer"),
+            )
+
+            latency = time.time() - t_start
+
+            result = {
+                "id": q.get("id", str(idx)),
+                "question": q["question"],
+                "answer": answer,
+                "expected_answer": q.get("expected_answer"),
+                "source_hint": q.get("source_hint"),
+                "retriever_metrics": retriever_metrics,
+                "generator_metrics": generator_metrics,
+                "latency_sec": round(latency, 2),
+            }
+            results.append(result)
+            log_question_result(idx, len(questions), q, result)
+
+        total_time = time.time() - total_start
+        log_summary(results, total_time)
+
+        # Tag with run index
+        for r in results:
+            r["run"] = run_idx
+        all_results.extend(results)
+
+    # Save all runs (for multi-run, we save aggregate + per-run)
+    if n_runs > 1:
+        save_results(all_results, out_dir, model_name=settings.llm_model, run_id="all")
+
+        # Compute and log aggregate summary
+        logger.info("=" * 60)
+        logger.info("AGGREGATE SUMMARY (%d runs)", n_runs)
+        logger.info("=" * 60)
+
+        question_ids = list(set(r["id"] for r in all_results))
+        agg_results = []
+        for qid in question_ids:
+            q_runs = [r for r in all_results if r["id"] == qid]
+            q_questions = [r["question"] for r in q_runs]
+
+            agg = {
+                "id": qid,
+                "question": q_questions[0] if q_questions else "",
+                "n_runs": len(q_runs),
+                "retriever_metrics": {
+                    "avg_hit_rate": _safe_avg(r["retriever_metrics"]["avg_hit_rate"] for r in q_runs),
+                    "avg_mrr": _safe_avg(r["retriever_metrics"]["avg_mrr"] for r in q_runs),
+                },
+                "generator_metrics": {
+                    "faithfulness": _safe_avg(r["generator_metrics"]["faithfulness"] for r in q_runs),
+                    "relevancy": _safe_avg(r["generator_metrics"]["relevancy"] for r in q_runs),
+                    "correctness": _safe_avg(r["generator_metrics"]["correctness"] for r in q_runs),
+                },
+                "latency_sec": _safe_avg(r["latency_sec"] for r in q_runs),
+            }
+            agg_results.append(agg)
+
+        agg_metrics = {
+            "avg_hit_rate": _safe_avg(r["retriever_metrics"]["avg_hit_rate"] for r in agg_results),
+            "avg_mrr": _safe_avg(r["retriever_metrics"]["avg_mrr"] for r in agg_results),
+            "avg_faithfulness": _safe_avg(r["generator_metrics"]["faithfulness"] for r in agg_results),
+            "avg_relevancy": _safe_avg(r["generator_metrics"]["relevancy"] for r in agg_results),
+            "avg_correctness": _safe_avg(r["generator_metrics"]["correctness"] for r in agg_results),
+            "avg_latency": _safe_avg(r["latency_sec"] for r in agg_results),
         }
-        results.append(result)
-        log_question_result(idx, len(questions), q, result)
+        logger.info("  Hit Rate:  %.3f", agg_metrics["avg_hit_rate"])
+        logger.info("  MRR:       %.4f", agg_metrics["avg_mrr"])
+        logger.info("  Faith:     %.1f/10", agg_metrics["avg_faithfulness"])
+        logger.info("  Rel:       %.1f/10", agg_metrics["avg_relevancy"])
+        logger.info("  Correct:   %.1f/10", agg_metrics["avg_correctness"])
+        logger.info("  Latency:   %.1fs", agg_metrics["avg_latency"])
+    else:
+        save_results(all_results, out_dir, model_name=settings.llm_model)
 
-    total_time = time.time() - total_start
-    log_summary(results, total_time)
-    save_results(results, out_dir, model_name=settings.llm_model)
+
+def _safe_avg(vals) -> float:
+    vals = list(vals)
+    return round(sum(vals) / len(vals), 4) if vals else 0
+
+
+async def run_benchmark_async(
+    questions_path: str,
+    out_dir: str,
+    top_k: int,
+    judge_model: str,
+    max_concurrent: int = 4,
+    seed: int | None = None,
+    n_runs: int = 1,
+):
+    """Async benchmark with parallel question processing and parallel judge calls."""
+    logger.info("RAG Benchmark (async, max_concurrent=%d)", max_concurrent)
+    logger.info("  questions : %s", questions_path)
+    logger.info("  top_k     : %d", top_k)
+    logger.info("  rag model : %s", settings.llm_model)
+    logger.info("  judge     : %s", judge_model)
+    logger.info("  seed      : %s", seed if seed is not None else "none")
+    logger.info("  n_runs    : %d", n_runs)
+
+    questions = load_questions(questions_path)
+    retriever, vs = build_retriever(top_k)
+
+    rag_llm = build_llm(settings.llm_model, settings.ollama_base_url)
+    if seed is not None:
+        rag_llm = rag_llm.with_config({"configurable": {"seed": seed}})
+
+    judge_llm = build_llm(judge_model, settings.ollama_base_url)
+    if seed is not None:
+        judge_llm = judge_llm.with_config({"configurable": {"seed": seed}})
+
+    logger.info("Прогрев моделей ...")
+    await asyncio.to_thread(rag_llm.invoke, "Привет")
+    if judge_model != settings.llm_model:
+        await asyncio.to_thread(judge_llm.invoke, "Привет")
+
+    semaphore = asyncio.Semaphore(max_concurrent)
+
+    all_results: list[dict] = []
+
+    for run_idx in range(1, n_runs + 1):
+        if n_runs > 1:
+            logger.info("=== Run %d/%d ===", run_idx, n_runs)
+
+        async def _process_question(idx: int, q: dict) -> dict:
+            async with semaphore:
+                t_start = time.time()
+
+                docs_with_scores = await asyncio.to_thread(retrieve_with_scores, vs, q["question"], top_k)
+                answer = await asyncio.to_thread(get_rag_answer, rag_llm, docs_with_scores, q["question"])
+                retriever_metrics = compute_retriever_metrics(docs_with_scores, q.get("source_hint"))
+
+                context_for_judge = "\n\n---\n\n".join(d.page_content for d, _ in docs_with_scores)
+                generator_metrics = await judge_answer_async(
+                    judge_llm,
+                    question=q["question"],
+                    answer=answer,
+                    context=context_for_judge,
+                    expected_answer=q.get("expected_answer"),
+                )
+
+                latency = time.time() - t_start
+
+                result = {
+                    "id": q.get("id", str(idx)),
+                    "question": q["question"],
+                    "answer": answer,
+                    "expected_answer": q.get("expected_answer"),
+                    "source_hint": q.get("source_hint"),
+                    "retriever_metrics": retriever_metrics,
+                    "generator_metrics": generator_metrics,
+                    "latency_sec": round(latency, 2),
+                    "run": run_idx,
+                }
+                log_question_result(idx, len(questions), q, result)
+                return result
+
+        logger.info("Запускаю тесты...")
+        total_start = time.time()
+
+        tasks = [_process_question(idx, q) for idx, q in enumerate(questions, 1)]
+        results = await asyncio.gather(*tasks)
+
+        total_time = time.time() - total_start
+        log_summary(list(results), total_time)
+        all_results.extend(results)
+
+    save_results(all_results, out_dir, model_name=settings.llm_model, run_id="all" if n_runs > 1 else None)
