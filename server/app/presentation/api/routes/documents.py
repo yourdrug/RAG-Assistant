@@ -17,6 +17,7 @@ from presentation.api.dependencies import (
     get_uow_factory,
     get_vector_store_repo,
 )
+from presentation.api.routes.common import create_background_job
 from presentation.api.schemas import DocumentResponse, UploadStatusResponse
 
 logger = logging.getLogger("default")
@@ -32,17 +33,22 @@ async def _process_document_in_background(
     owner_id: int | None,
     group_id: int | None,
     replace_id: int | None,
+    job_id: int,
 ):
+    uow_factory = get_uow_factory()
     try:
+        async with uow_factory.create(master=True) as uow:
+            await uow.background_jobs.mark_running(job_id)
+
         processor = DocumentProcessor(
-            uow_factory=get_uow_factory(),
+            uow_factory=uow_factory,
             vector_store_repo=get_vector_store_repo(),
             file_storage=get_file_storage(),
             document_parser=get_document_parser(),
             document_splitter=get_document_splitter(),
         )
 
-        logger.info("Background upload started: %s (doc %d)", filename, document_id)
+        logger.info("Background upload started: %s (doc %d, job %d)", filename, document_id, job_id)
         await processor.process(
             document_id=document_id,
             storage_key=storage_key,
@@ -52,9 +58,18 @@ async def _process_document_in_background(
             group_id=group_id,
             replace_id=replace_id,
         )
-        logger.info("Background upload completed: %s (doc %d)", filename, document_id)
-    except Exception:
-        logger.exception("Background document processing failed for %s (doc %d)", filename, document_id)
+        logger.info("Background upload completed: %s (doc %d, job %d)", filename, document_id, job_id)
+        async with uow_factory.create(master=True) as uow:
+            await uow.background_jobs.mark_done(job_id)
+    except Exception as e:
+        logger.exception(
+            "Background document processing failed for %s (doc %d, job %d)", filename, document_id, job_id
+        )
+        try:
+            async with uow_factory.create(master=True) as uow:
+                await uow.background_jobs.mark_failed(job_id, str(e)[:500])
+        except Exception:
+            logger.exception("Failed to mark job %d as failed", job_id)
 
 
 @router.get("/documents/clients")
@@ -93,6 +108,9 @@ async def upload_document(
         user_role=current_user["role"],
         rename_on_conflict=rename_on_conflict,
     )
+
+    job_id = await create_background_job(get_uow_factory(), "document_processing", related_id=result.id)
+
     background_tasks.add_task(
         _process_document_in_background,
         document_id=result.id,
@@ -102,6 +120,7 @@ async def upload_document(
         owner_id=result.owner_id,
         group_id=group_id,
         replace_id=result.replace_id,
+        job_id=job_id,
     )
 
     return UploadStatusResponse(status="processing", document_id=result.id, filename=filename)

@@ -8,12 +8,12 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from presentation.api.auth_dependencies import get_current_user, require_admin
 from presentation.api.dependencies import create_auth_service
-from presentation.api.schemas import ApiKeyCreatedResponse, ApiKeyCreateRequest, ApiKeyResponse
+from presentation.api.schemas import ApiKeyCreateRequest, ApiKeyCreateResponse, ApiKeyResponse
 
 router = APIRouter(prefix="/clients", tags=["api-keys"])
 
 
-@router.post("/{client_user_id}/api-keys", response_model=ApiKeyCreatedResponse)
+@router.post("/{client_user_id}/api-keys", response_model=ApiKeyCreateResponse)
 async def issue_api_key(
     client_user_id: int,
     req: ApiKeyCreateRequest,

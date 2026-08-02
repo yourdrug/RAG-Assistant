@@ -6,7 +6,6 @@ instead of concrete infrastructure implementations.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 from datetime import datetime
@@ -18,6 +17,7 @@ from langchain.schema import Document
 
 from infrastructure.ml.hybrid import BM25Index, load_bm25_index, save_bm25_index
 from infrastructure.ml.ingestion import PARSERS, merge_pdf_pages, parse_pdf, split_documents
+from infrastructure.ml.metrics import INGEST_FILES_TOTAL
 from infrastructure.registry import file_hash, is_already_indexed, load_registry, save_registry
 from infrastructure.storage import FileItem, FileStorage
 from infrastructure.uow_factory import UnitOfWorkFactory
@@ -30,7 +30,9 @@ def _tag_internal_public(chunks: list) -> None:
         c.metadata.update({"visibility": "internal_public", "owner_id": None, "group_id": None})
 
 
-def _register_file(registry: dict, fname: str, file_hash: str, source: str, chunks_count: int, chars: int) -> None:
+def _register_file(
+    registry: dict, fname: str, file_hash: str, source: str, chunks_count: int, chars: int
+) -> None:
     """Add or update a file entry in the ingestion registry."""
     registry[fname] = {
         "hash": file_hash,
@@ -52,7 +54,7 @@ class IngestionService:
         self._file_storage = file_storage
         self._uow_factory = uow_factory
 
-    def run_full_ingestion(self, docs_dir: str, reset: bool = False, prefix: str | None = None) -> None:
+    async def run_full_ingestion(self, docs_dir: str, reset: bool = False, prefix: str | None = None) -> None:
         t_start = time.monotonic()
         data_dir = settings.data_dir
         log.info("=" * 55)
@@ -107,7 +109,7 @@ class IngestionService:
             chunks_count = sum(1 for c in chunks if c.metadata.get("source") == src)
             _register_file(registry, fname, h, src, chunks_count, chars)
         save_registry(data_dir, registry)
-        asyncio.run(self._sync_documents_to_db(registry, source_chars, chunks))
+        await self._sync_documents_to_db(registry, source_chars, chunks)
 
         total_elapsed = time.monotonic() - t_start
         log.info("=" * 55)
@@ -168,7 +170,7 @@ class IngestionService:
 
             get_bm25_index.cache_clear()
 
-    def run_single_file(self, file_path: str) -> None:
+    async def run_single_file(self, file_path: str) -> None:
         t_start = time.monotonic()
         data_dir = settings.data_dir
 
@@ -213,10 +215,8 @@ class IngestionService:
                     total_chars,
                 )
                 save_registry(data_dir, registry)
-                asyncio.run(
-                    self._sync_documents_to_db(
-                        registry, {f"s3://{settings.s3_bucket}/{key}": total_chars}, chunks
-                    )
+                await self._sync_documents_to_db(
+                    registry, {f"s3://{settings.s3_bucket}/{key}": total_chars}, chunks
                 )
             else:
                 log.warning("File '%s' already in registry.", file_info.filename)
@@ -255,7 +255,7 @@ class IngestionService:
                 total_chars,
             )
             save_registry(data_dir, registry)
-            asyncio.run(self._sync_documents_to_db(registry, {str(path): total_chars}, chunks))
+            await self._sync_documents_to_db(registry, {str(path): total_chars}, chunks)
 
         log.info("=" * 55)
         log.info("DONE  |  %d chunks  |  %.1fs", len(chunks), time.monotonic() - t_start)
@@ -407,6 +407,7 @@ class IngestionService:
                 if not force and is_already_indexed(file_item, registry):
                     log.info("%s CACHED  %s", tag, file_item.filename)
                     skipped_cached += 1
+                    INGEST_FILES_TOTAL.labels(status="cached").inc()
                     continue
 
                 size_kb = file_item.size_bytes / 1024
@@ -432,14 +433,17 @@ class IngestionService:
                         elapsed,
                     )
                     ok += 1
+                    INGEST_FILES_TOTAL.labels(status="ok").inc()
                 else:
                     errors += 1
+                    INGEST_FILES_TOTAL.labels(status="error").inc()
         else:
             for i, file_path in enumerate(local_files, 1):
                 tag = f"[{i:>3}/{len(local_files)}]"
                 if not force and is_already_indexed(file_path, registry):
                     log.info("%s CACHED  %s", tag, file_path.name)
                     skipped_cached += 1
+                    INGEST_FILES_TOTAL.labels(status="cached").inc()
                     continue
 
                 size_kb = file_path.stat().st_size / 1024
@@ -461,8 +465,10 @@ class IngestionService:
                         elapsed,
                     )
                     ok += 1
+                    INGEST_FILES_TOTAL.labels(status="ok").inc()
                 else:
                     errors += 1
+                    INGEST_FILES_TOTAL.labels(status="error").inc()
 
         log.info("Parsing complete: %d loaded, %d errors, %d already in registry", ok, errors, skipped_cached)
         return documents, skipped_cached

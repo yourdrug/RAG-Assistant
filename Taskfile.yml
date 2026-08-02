@@ -52,10 +52,21 @@ tasks:
     cmds:
       - "{{.COMPOSE}} build server"
 
+  build:gpu:
+    desc: Собрать образ server с CUDA/PyTorch GPU
+    cmds:
+      - "{{.COMPOSE}} -f docker-compose.yml -f docker-compose.gpu.yml build server"
+
   up:
     desc: Поднять весь стек (qdrant, ollama, postgres, server) в фоне — без Caddy/домена
     cmds:
       - "{{.COMPOSE}} up -d"
+      - task: ps
+
+  up:gpu:
+    desc: Поднять стек с GPU (нужен nvidia-container-toolkit + nvidia-smi)
+    cmds:
+      - "{{.COMPOSE}} -f docker-compose.yml -f docker-compose.gpu.yml up -d"
       - task: ps
 
   up:public:

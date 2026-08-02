@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from collections.abc import AsyncIterator
 
 from config import settings
@@ -21,6 +22,11 @@ from infrastructure.clients import (
     get_vector_store,
 )
 from infrastructure.ml.hybrid import content_hash, rrf_merge
+from infrastructure.ml.metrics import (
+    RAG_BREADTH_TOTAL,
+    RAG_STAGE_DURATION,
+    record_rag_answer,
+)
 from infrastructure.ml.rag import (
     build_prompt,
     classify_question_breadth,
@@ -107,6 +113,8 @@ class RagService:
         assigned_client_ids: list[int],
         depth: str | None = None,
     ) -> AsyncIterator[str]:
+        t_pipeline_start = time.monotonic()
+
         user = {"id": user_id, "kind": user_kind}
         access_filter = build_qdrant_filter(user, user_group_ids, assigned_client_ids)
 
@@ -128,7 +136,9 @@ class RagService:
                     history_dicts.append(msg)
         history_messages = history_to_messages(history_dicts)
 
+        t0 = time.monotonic()
         query_for_search = await condense_question(get_llm(), question, history_messages)
+        RAG_STAGE_DURATION.labels("condense").observe(time.monotonic() - t0)
 
         # --- Adaptive breadth: user override or auto-detect ---
         breadth = depth if depth in ("short", "detailed") else classify_question_breadth(query_for_search)
@@ -136,6 +146,8 @@ class RagService:
             breadth = "broad"
         elif breadth == "short":
             breadth = "narrow"
+        RAG_BREADTH_TOTAL.labels(breadth=breadth).inc()
+
         fetch_k = settings.retriever_fetch_k_broad if breadth == "broad" else settings.retriever_fetch_k
         top_k = settings.retriever_top_k_broad if breadth == "broad" else settings.retriever_top_k
 
@@ -146,11 +158,15 @@ class RagService:
 
         if settings.hybrid_enabled and bm25_index is not None:
             # Dense search via Qdrant (returns content_hash + score + doc)
+            t0 = time.monotonic()
             dense_results = await _qdrant_dense_search(query_for_search, fetch_k, access_filter)
+            RAG_STAGE_DURATION.labels("dense_search").observe(time.monotonic() - t0)
             dense_by_hash = {h: (score, doc) for h, score, doc in dense_results}
 
             # Sparse search via BM25 (returns content_hash + score)
+            t0 = time.monotonic()
             sparse_results = await asyncio.to_thread(bm25_index.search_with_hashes, query_for_search, fetch_k)
+            RAG_STAGE_DURATION.labels("sparse_search").observe(time.monotonic() - t0)
 
             # RRF merge
             merged_hashes = rrf_merge(
@@ -184,15 +200,18 @@ class RagService:
             )
         else:
             # Fallback: dense-only retrieval
+            t0 = time.monotonic()
             retriever = get_vector_store().as_retriever(
                 search_type="similarity",
                 search_kwargs={"k": settings.retriever_fetch_k, "filter": access_filter},
             )
             candidates = await asyncio.to_thread(retriever.invoke, query_for_search)
+            RAG_STAGE_DURATION.labels("dense_search").observe(time.monotonic() - t0)
 
         # Deduplicate candidates before reranking to improve context diversity
         candidates = deduplicate_docs(candidates)
 
+        t0 = time.monotonic()
         docs = await rerank_documents(
             query_for_search,
             candidates,
@@ -201,6 +220,7 @@ class RagService:
             min_score=settings.rerank_min_score,
             score_gap_ratio=settings.rerank_score_gap_ratio,
         )
+        RAG_STAGE_DURATION.labels("rerank").observe(time.monotonic() - t0)
 
         context = format_docs(docs)
         sources = extract_sources(docs, min_score=settings.source_min_score)
@@ -211,16 +231,29 @@ class RagService:
             question=question,
         )
 
+        t0 = time.monotonic()
         answer_parts: list[str] = []
         async for chunk in get_llm_for_breadth(breadth).astream(messages):
             text = chunk.content
             if text:
                 answer_parts.append(text)
                 yield text
+        RAG_STAGE_DURATION.labels("generate").observe(time.monotonic() - t0)
+
+        full_answer = "".join(answer_parts)
 
         if settings.citation_filter_enabled and sources:
-            full_answer = "".join(answer_parts)
             sources = filter_cited_sources(full_answer, sources)
+
+        # Record pipeline-level metrics
+        avg_sim = sum(s for _, s, _ in docs) / len(docs) if docs else 0.0
+        record_rag_answer(
+            breadth=breadth,
+            answer=full_answer,
+            retrieved_count=len(docs),
+            avg_similarity=avg_sim,
+        )
+        RAG_STAGE_DURATION.labels("total").observe(time.monotonic() - t_pipeline_start)
 
         yield f"\n__sources__:{json.dumps(sources, ensure_ascii=False)}"
 

@@ -7,6 +7,7 @@ LABEL author.name="Eugene Mitsko"
 
 ARG SOURCE_VERSION
 ARG BUILD_DATE
+ARG TORCH_MODE=cpu
 
 ENV                                                                                 \
     # Force stdout and stderr streams to be unbuffered
@@ -53,8 +54,9 @@ SHELL ["/bin/bash", "-c"]
 
 # -----------------------------------------------------------------------------------
 # uv-base stage installs uv, creates venv and installs project deps
-# CPU-only: используем --extra cpu для установки PyTorch без CUDA (~2GB экономии)
 FROM builder-base AS uv-base
+
+ARG TORCH_MODE=cpu
 
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 
@@ -64,13 +66,15 @@ WORKDIR $PYSETUP_PATH
 COPY server/pyproject.toml server/uv.lock ./
 
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --extra cpu
+    if [ "$TORCH_MODE" = "cpu" ]; then uv sync --frozen --no-dev --extra cpu; else uv sync --frozen --no-dev; fi
 
 # -----------------------------------------------------------------------------------
 # Development stage — используется docker-compose.yml (target: development) с
 # бинд-маунтом ./server/app поверх $PYSETUP_PATH/app для live-reload при разработке.
 # venv, entrypoint.sh и манифесты лежат в $PYSETUP_PATH напрямую — bind-mount app/ их не трогает.
 FROM builder-base AS development
+
+ARG TORCH_MODE=cpu
 
 WORKDIR $PYSETUP_PATH
 
@@ -80,9 +84,8 @@ COPY --from=uv-base $VENV_PATH $VENV_PATH
 COPY server/pyproject.toml server/uv.lock ./
 
 # Ставим ещё и dev-зависимости (pytest, ruff) — их нет в --no-dev слое выше
-# CPU-only: добавляем --extra cpu для PyTorch без CUDA
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --extra cpu
+    if [ "$TORCH_MODE" = "cpu" ]; then uv sync --frozen --extra cpu; else uv sync --frozen; fi
 
 COPY server/alembic.ini ./
 COPY server/entrypoint.sh ./

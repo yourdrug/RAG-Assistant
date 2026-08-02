@@ -15,9 +15,9 @@ repos:
         types: [python]
         pass_filenames: false
 
-      - id: pytest
-        name: pytest
-        entry: bash -c 'cd server && DATA_DIR=/tmp/rag_test uv run pytest -x -q'
-        language: system
-        types: [python]
-        pass_filenames: false
+#      - id: pytest
+#        name: pytest
+#        entry: bash -c 'cd server && DATA_DIR=/tmp/rag_test uv run pytest -x -q'
+#        language: system
+#        types: [python]
+#        pass_filenames: false

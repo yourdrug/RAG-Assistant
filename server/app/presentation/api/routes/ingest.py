@@ -8,8 +8,8 @@ from pathlib import Path
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
 
 from presentation.api.auth_dependencies import require_admin
-from presentation.api.dependencies import create_ingest_service, create_ingestion_service
-from presentation.api.routes.common import safe_background_call
+from presentation.api.dependencies import create_ingest_service, create_ingestion_service, get_uow_factory
+from presentation.api.routes.common import create_background_job
 from presentation.api.schemas import (
     IngestRegistryItem,
     IngestRegistryResponse,
@@ -35,7 +35,25 @@ async def ingest_documents(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    background_tasks.add_task(safe_background_call, service.run_full, resolved_dir, reset)
+    job_id = await create_background_job(get_uow_factory(), "ingest")
+
+    async def _tracked_ingest():
+        uow_factory = get_uow_factory()
+        try:
+            async with uow_factory.create(master=True) as uow:
+                await uow.background_jobs.mark_running(job_id)
+            await service.run_full(resolved_dir, reset)
+            async with uow_factory.create(master=True) as uow:
+                await uow.background_jobs.mark_done(job_id)
+        except Exception as e:
+            logger.exception("Background ingest failed (job %d)", job_id)
+            try:
+                async with uow_factory.create(master=True) as uow:
+                    await uow.background_jobs.mark_failed(job_id, str(e)[:500])
+            except Exception:
+                logger.exception("Failed to mark job %d as failed", job_id)
+
+    background_tasks.add_task(_tracked_ingest)
     mode = "RESET + full reindex" if reset else "APPEND (new files only)"
     return IngestStatusResponse(status="started", mode=mode, docs_dir=resolved_dir)
 
@@ -57,7 +75,26 @@ async def ingest_single_file(
 
     if force:
         service.force_reindex(Path(resolved).name)
-    background_tasks.add_task(safe_background_call, service.run_single, resolved)
+
+    job_id = await create_background_job(get_uow_factory(), "ingest", related_id=None)
+
+    async def _tracked_single():
+        uow_factory = get_uow_factory()
+        try:
+            async with uow_factory.create(master=True) as uow:
+                await uow.background_jobs.mark_running(job_id)
+            await service.run_single(resolved)
+            async with uow_factory.create(master=True) as uow:
+                await uow.background_jobs.mark_done(job_id)
+        except Exception as e:
+            logger.exception("Background single-file ingest failed (job %d)", job_id)
+            try:
+                async with uow_factory.create(master=True) as uow:
+                    await uow.background_jobs.mark_failed(job_id, str(e)[:500])
+            except Exception:
+                logger.exception("Failed to mark job %d as failed", job_id)
+
+    background_tasks.add_task(_tracked_single)
     return IngestStatusResponse(status="started", file=resolved, force=force)
 
 

@@ -1,4 +1,5 @@
 import os
+from datetime import UTC, datetime
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -70,7 +71,7 @@ class Settings(BaseSettings):
 
     # RAG параметры — узкие вопросы
     retriever_fetch_k: int = 25  # сколько кандидатов достаём из Qdrant перед реранком
-    retriever_top_k: int = 6  # сколько чанков остаётся после реранка и уходит в промпт
+    retriever_top_k: int = 4  # сколько чанков остаётся после реранка и уходит в промпт
 
     # RAG параметры — широкие вопросы (подробные, обзорные)
     retriever_fetch_k_broad: int = 40
@@ -82,20 +83,22 @@ class Settings(BaseSettings):
     rerank_score_gap_ratio: float | None = None  # относительный разрыв (0..1); None = не фильтровать
 
     # --- Source display filter ---
-    source_min_score: float = float(os.getenv("SOURCE_MIN_SCORE", "0.3"))  # мин. max_score источника для показа
+    source_min_score: float = float(
+        os.getenv("SOURCE_MIN_SCORE", "0.3")
+    )  # мин. max_score источника для показа
 
     # --- Citation filter ---
     citation_filter_enabled: bool = os.getenv("CITATION_FILTER_ENABLED", "false").lower() == "true"
-    chunk_size: int = int(os.getenv("CHUNK_SIZE", "900"))
+    chunk_size: int = int(os.getenv("CHUNK_SIZE", "600"))
     chunk_overlap: int = int(os.getenv("CHUNK_OVERLAP", "150"))
     embed_batch_size: int = int(os.getenv("EMBED_BATCH_SIZE", "32"))
 
     # --- Hybrid search (BM25 + dense RRF) ---
     hybrid_enabled: bool = os.getenv("HYBRID_ENABLED", "true").lower() == "true"
     bm25_fetch_k: int = 25  # сколько кандидатов из BM25 перед RRF
-    rrf_k: int = 60  # константа RRF (стандартное значение)
-    dense_weight: float = 1.0
-    sparse_weight: float = 1.0
+    rrf_k: int = 30  # константа RRF
+    dense_weight: float = 1.5
+    sparse_weight: float = 0.5
 
     # --- Авторизация ---
     # ОБЯЗАТЕЛЬНО смени в проде — например: openssl rand -hex 32
@@ -109,10 +112,28 @@ class Settings(BaseSettings):
     # --- Timezone (IANA tz name) ---
     timezone: str = os.getenv("TIMEZONE", "UTC")
 
+    # --- App version & metadata ---
+    version: str = os.getenv("VERSION", "0.2.0")
+    service_start_datetime: str = os.getenv("SERVICE_START_DATETIME", "")
+
+    # --- Background jobs cleanup ---
+    job_cleanup_days: int = int(os.getenv("JOB_CLEANUP_DAYS", "30"))
+
     # Поддерживаемые расширения файлов
     supported_extensions: tuple = (".pdf", ".docx", ".doc", ".rtf", ".md", ".txt")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @property
+    def uptime_seconds(self) -> float:
+        if not self.service_start_datetime:
+            return 0.0
+        try:
+            start = datetime.fromisoformat(self.service_start_datetime)
+            now = datetime.now(tz=UTC)
+            return (now - start).total_seconds()
+        except ValueError:
+            return 0.0
 
 
 settings = Settings()

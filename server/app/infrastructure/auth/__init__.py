@@ -9,8 +9,6 @@ Legacy code imports:
   - infrastructure.auth.create_access_token, hash_password, verify_password, etc.
 """
 
-from presentation.api.auth_dependencies import get_current_user, require_admin
-
 from infrastructure.auth.jwt_provider import JWTProvider
 from infrastructure.auth.password_hasher import BCryptPasswordHasher
 
@@ -42,8 +40,6 @@ def decode_access_token(token: str) -> dict:
 __all__ = [
     "BCryptPasswordHasher",
     "JWTProvider",
-    "get_current_user",
-    "require_admin",
     "hash_password",
     "verify_password",
     "create_access_token",

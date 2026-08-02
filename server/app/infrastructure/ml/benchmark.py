@@ -33,6 +33,9 @@ from infrastructure.clients import get_vector_store
 
 logger = logging.getLogger("default")
 
+JUDGE_MAX_RETRIES = 3
+JUDGE_RETRY_DELAY = 5.0
+
 
 # ---------------------------------------------------------------------------
 # Загрузка тестовых вопросов
@@ -116,8 +119,26 @@ def get_rag_answer(llm: ChatOllama, docs_with_scores: list[tuple[Document, float
         f"[Источник: {d.metadata.get('filename', 'unknown')}]\n{d.page_content}" for d, _ in docs_with_scores
     )
     prompt = ANSWER_PROMPT.format(context=context, question=question)
-    response = llm.invoke(prompt)
-    return response.content.strip()
+    last_exc: Exception | None = None
+    for attempt in range(1, JUDGE_MAX_RETRIES + 1):
+        try:
+            response = llm.invoke(prompt)
+            return response.content.strip()
+        except Exception as exc:
+            last_exc = exc
+            if attempt < JUDGE_MAX_RETRIES:
+                delay = JUDGE_RETRY_DELAY * attempt
+                logger.warning(
+                    "RAG LLM invoke failed (attempt %d/%d): %s — retrying in %.1fs",
+                    attempt,
+                    JUDGE_MAX_RETRIES,
+                    exc,
+                    delay,
+                )
+                time.sleep(delay)
+            else:
+                logger.error("RAG LLM invoke failed after %d attempts: %s", JUDGE_MAX_RETRIES, exc)
+    raise last_exc  # type: ignore[misc]
 
 
 # ---------------------------------------------------------------------------
@@ -195,8 +216,25 @@ async def judge_answer_async(
 ) -> dict:
     """Judge answer quality with 3 parallel LLM calls (faithfulness, relevancy, correctness)."""
 
-    async def _judge_one(prompt: str) -> str:
-        return await asyncio.to_thread(judge_llm.invoke, prompt).content
+    async def _judge_one(prompt):
+        last_exc: Exception | None = None
+        for attempt in range(1, JUDGE_MAX_RETRIES + 1):
+            try:
+                response = await judge_llm.ainvoke(prompt)
+                return response.content
+            except Exception as exc:
+                last_exc = exc
+                if attempt < JUDGE_MAX_RETRIES:
+                    delay = JUDGE_RETRY_DELAY * attempt
+                    logger.warning(
+                        "Async judge invoke failed (attempt %d/%d): %s — retrying in %.1fs",
+                        attempt,
+                        JUDGE_MAX_RETRIES,
+                        exc,
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
+        raise last_exc  # type: ignore[misc]
 
     prompts = {
         "faithfulness": FAITHFULNESS_PROMPT.format(context=context, question=question, answer=answer),
@@ -230,43 +268,52 @@ def judge_answer(
     context: str,
     expected_answer: str | None = None,
 ) -> dict:
-    """Sync wrapper for judge_answer_async — runs in event loop or standalone."""
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = None
+    """Run judge LLM synchronously with retry on transient Ollama errors."""
+    scores = {}
 
-    if loop and loop.is_running():
-        # Already in async context — use to_thread for blocking invoke
-        scores = {}
-
-        def _invoke(prompt: str) -> str:
-            return judge_llm.invoke(prompt).content
-
-        prompts = {
-            "faithfulness": FAITHFULNESS_PROMPT.format(context=context, question=question, answer=answer),
-            "relevancy": RELEVANCY_PROMPT.format(question=question, answer=answer),
-        }
-        if expected_answer:
-            prompts["correctness"] = CORRECTNESS_PROMPT.format(
-                question=question, expected=expected_answer, answer=answer
-            )
-
-        # Sequential fallback when already in running loop
-        for key, prompt in prompts.items():
-            raw = judge_llm.invoke(prompt).content
-            score, reason = parse_judge_response(raw, key)
-            scores[key] = score
-            scores[f"{key}_reason"] = reason
-
-        if "correctness" not in scores:
-            scores["correctness"] = None
-            scores["correctness_reason"] = "Эталонный ответ не задан"
-        return scores
-    else:
-        return asyncio.run(
-            judge_answer_async(judge_llm, question, answer, context, expected_answer)
+    prompts = {
+        "faithfulness": FAITHFULNESS_PROMPT.format(context=context, question=question, answer=answer),
+        "relevancy": RELEVANCY_PROMPT.format(question=question, answer=answer),
+    }
+    if expected_answer:
+        prompts["correctness"] = CORRECTNESS_PROMPT.format(
+            question=question, expected=expected_answer, answer=answer
         )
+
+    for key, prompt in prompts.items():
+        raw = _invoke_with_retry(judge_llm, prompt, key)
+        score, reason = parse_judge_response(raw, key)
+        scores[key] = score
+        scores[f"{key}_reason"] = reason
+
+    if "correctness" not in scores:
+        scores["correctness"] = None
+        scores["correctness_reason"] = "Эталонный ответ не задан"
+    return scores
+
+
+def _invoke_with_retry(llm: ChatOllama, prompt: str, label: str, max_retries: int = JUDGE_MAX_RETRIES) -> str:
+    """Invoke LLM with retry on transient errors (500, connection reset, etc.)."""
+    last_exc: Exception | None = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            return llm.invoke(prompt).content
+        except Exception as exc:
+            last_exc = exc
+            if attempt < max_retries:
+                delay = JUDGE_RETRY_DELAY * attempt
+                logger.warning(
+                    "Judge invoke failed (attempt %d/%d, %s): %s — retrying in %.1fs",
+                    attempt,
+                    max_retries,
+                    label,
+                    exc,
+                    delay,
+                )
+                time.sleep(delay)
+            else:
+                logger.error("Judge invoke failed after %d attempts (%s): %s", max_retries, label, exc)
+    raise last_exc  # type: ignore[misc]
 
 
 # ---------------------------------------------------------------------------
@@ -388,7 +435,9 @@ def log_summary(results: list[dict], total_time: float):
     logger.info("Retriever:")
     if m["hit_rate"] is not None:
         logger.info(
-            "  Hit Rate:        %.1f/10  (%.0f%% вопросов нашли нужный источник)", m["hit_rate"] * 10, m["hit_rate"] * 100
+            "  Hit Rate:        %.1f/10  (%.0f%% вопросов нашли нужный источник)",
+            m["hit_rate"] * 10,
+            m["hit_rate"] * 100,
         )
         logger.info("  MRR:             %.3f  (1.0 = нужный чанк всегда первый)", m["avg_mrr"])
     logger.info("  Avg Similarity:  %.3f", m["avg_similarity"])

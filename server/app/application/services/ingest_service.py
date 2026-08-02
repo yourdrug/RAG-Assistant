@@ -21,15 +21,15 @@ class IngestAppService:
         self._uow_factory = uow_factory
         self._ingestion = ingestion_service
 
-    def run_full(self, docs_dir: str, reset: bool = False) -> IngestStatusResult:
+    async def run_full(self, docs_dir: str, reset: bool = False) -> IngestStatusResult:
         resolved_dir = self._ingestion.resolve_docs_dir(docs_dir)
-        self._ingestion.run_full_ingestion(resolved_dir, reset=reset)
+        await self._ingestion.run_full_ingestion(resolved_dir, reset=reset)
         mode = "RESET + full reindex" if reset else "APPEND (new files only)"
         return IngestStatusResult(status="started", mode=mode, docs_dir=resolved_dir)
 
-    def run_single(self, file_path: str, force: bool = False) -> IngestStatusResult:
+    async def run_single(self, file_path: str, force: bool = False) -> IngestStatusResult:
         resolved = self._ingestion.resolve_ingest_target(file_path)
-        self._ingestion.run_single_file(resolved)
+        await self._ingestion.run_single_file(resolved)
         return IngestStatusResult(status="started", file=resolved, force=force)
 
     def get_registry(self) -> IngestRegistryResult:

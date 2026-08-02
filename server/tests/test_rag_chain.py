@@ -91,9 +91,7 @@ def test_rerank_documents_empty_input_returns_empty():
 def test_rerank_documents_min_score_filter():
     docs = [_doc("a"), _doc("b"), _doc("c")]
     fake_reranker = SimpleNamespace(predict=lambda pairs: [0.9, 0.3, 0.1])
-    result = asyncio.run(
-        rag.rerank_documents("q", docs, top_n=3, reranker=fake_reranker, min_score=0.5)
-    )
+    result = asyncio.run(rag.rerank_documents("q", docs, top_n=3, reranker=fake_reranker, min_score=0.5))
     assert len(result) == 1
     assert result[0][0].page_content == "a"
 

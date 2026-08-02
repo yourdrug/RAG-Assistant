@@ -6,11 +6,19 @@ Uses UoWFactory to manage its own transaction. No db/session parameters.
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 
 from domain.repositories.vector_store_repository import VectorStoreRepository
 from domain.services.document_parser import DocumentParser, DocumentSplitter
 from infrastructure.ml.ingestion import extract_date_from_filename
+from infrastructure.ml.metrics import (
+    INGEST_CHUNKS_TOTAL,
+    INGEST_DOCUMENT_DURATION,
+    INGEST_DOCUMENTS_TOTAL,
+    INGEST_PDF_BAD_RATIO,
+    INGEST_PDF_PAGES_TOTAL,
+)
 from infrastructure.storage import FileStorage
 from infrastructure.uow_factory import UnitOfWorkFactory
 
@@ -42,7 +50,9 @@ class DocumentProcessor:
         group_id: int | None,
         replace_id: int | None,
     ) -> None:
+        t_start = time.monotonic()
         temp_path: Path | None = None
+        status = "failed"
         try:
             async with self._uow_factory.create() as uow:
                 await uow.documents.update_status(document_id, "processing")
@@ -73,6 +83,11 @@ class DocumentProcessor:
                             original_filename,
                             quality.bad_ratio,
                         )
+
+                    INGEST_PDF_PAGES_TOTAL.labels(quality="ok").inc(quality.n_ok)
+                    INGEST_PDF_PAGES_TOTAL.labels(quality="missing").inc(quality.n_missing)
+                    INGEST_PDF_PAGES_TOTAL.labels(quality="garbled").inc(quality.n_garbled)
+                    INGEST_PDF_BAD_RATIO.observe(quality.bad_ratio)
 
                 doc_date = extract_date_from_filename(original_filename)
 
@@ -115,6 +130,9 @@ class DocumentProcessor:
                     document_id, "done", chunks=len(chunks), chars=total_chars, warning=warning_message
                 )
 
+            status = "done"
+            INGEST_CHUNKS_TOTAL.inc(len(chunks))
+
         except Exception as e:
             log.exception("Document processing failed for doc %d: %s", document_id, e)
             try:
@@ -123,5 +141,7 @@ class DocumentProcessor:
             except Exception:
                 log.exception("Failed to mark document as failed")
         finally:
+            INGEST_DOCUMENTS_TOTAL.labels(status=status).inc()
+            INGEST_DOCUMENT_DURATION.labels(status=status).observe(time.monotonic() - t_start)
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)

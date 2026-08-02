@@ -1,4 +1,4 @@
-"""main.py — Composition root for the RAG API (KinTree-style lifespan)."""
+"""main.py — Composition root for the RAG API (provider-observer style)."""
 
 from __future__ import annotations
 
@@ -6,8 +6,10 @@ import logging.config
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from bootstrap import bootstrap_admin
 from cli.cli import cli
+from common.initialization import initialize_app
+from common.scheduler import scheduler
+from common.utils import Singleton
 from config import settings
 from domain.exceptions import ClientException, ServerException
 from fastapi import FastAPI
@@ -15,6 +17,7 @@ from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from infrastructure.database.database import database
 from infrastructure.logging import logging_config
+from infrastructure.ml.metrics_middleware import add_metrics_middleware
 from presentation.api.dependencies import _uow_factory
 from presentation.api.exception_handlers import (
     handle_client_exception,
@@ -23,6 +26,7 @@ from presentation.api.exception_handlers import (
     handle_unexpected_exception,
     handle_validation_exception,
 )
+from presentation.api.middleware.request_id import RequestIDMiddleware
 from presentation.api.routes.admin_config import router as admin_config_router
 from presentation.api.routes.api_keys import router as api_keys_router
 from presentation.api.routes.auth import router as auth_router
@@ -36,7 +40,7 @@ from presentation.api.routes.health import router as health_router
 from presentation.api.routes.ingest import router as ingest_router
 
 # ---------------------------------------------------------------------------
-# Lifespan (KinTree-style: await database.connect/disconnect)
+# Lifespan
 # ---------------------------------------------------------------------------
 
 
@@ -45,53 +49,57 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     logging.config.dictConfig(logging_config)
 
     await database.connect()
-    await bootstrap_admin(_uow_factory)
-    await _load_config_from_db()
+    await initialize_app(_uow_factory)
+
+    # Startup scheduler (periodic jobs)
+    await scheduler.startup()
+
+    # Initial infra metrics snapshot
+    from infrastructure.ml.metrics import collect_infra_metrics
+
+    await collect_infra_metrics()
 
     yield
 
+    # Shutdown
+    await scheduler.shutdown()
     await database.disconnect()
 
 
-async def _load_config_from_db() -> None:
-    """Load dynamic config from DB and apply to in-memory settings."""
-    from presentation.api.routes.admin_config import _apply_config_to_settings
-
-    try:
-        async with _uow_factory.create(master=True) as uow:
-            rows = await uow.config_parameters.get_all()
-            for r in rows:
-                _apply_config_to_settings(r.key, r.value, r.value_type)
-            logging.getLogger("default").info("Loaded %d config parameters from DB", len(rows))
-    except Exception as e:
-        logging.getLogger("default").warning("Failed to load config from DB: %s", e)
-
-
 # ---------------------------------------------------------------------------
-# Application
+# Application (Singleton)
 # ---------------------------------------------------------------------------
 
 
+@Singleton
 class Application:
     """FastAPI application configurator with structured setup."""
 
     def __init__(self) -> None:
-        self.app = FastAPI(
+        self.app: FastAPI = FastAPI(
             title="RAG API",
             description="Corporate RAG assistant",
-            version="0.2.0",
+            version=settings.version,
             lifespan=lifespan,
         )
 
-        self._configure_logging()
-        self._add_middlewares()
-        self._add_exception_handlers()
-        self._add_routers()
+        self.configure_logging()
+        self.add_exception_handlers()
+        self.add_middlewares()
+        self.add_routers()
+        add_metrics_middleware(self.app)
 
-    def _configure_logging(self) -> None:
+    def configure_logging(self) -> None:
         logging.config.dictConfig(logging_config)
 
-    def _add_middlewares(self) -> None:
+    def add_exception_handlers(self) -> None:
+        self.app.add_exception_handler(ClientException, handle_client_exception)  # type: ignore[arg-type]
+        self.app.add_exception_handler(ServerException, handle_server_exception)  # type: ignore[arg-type]
+        self.app.add_exception_handler(HTTPException, handle_http_exception)  # type: ignore[arg-type]
+        self.app.add_exception_handler(RequestValidationError, handle_validation_exception)  # type: ignore[arg-type]
+        self.app.add_exception_handler(Exception, handle_unexpected_exception)  # type: ignore[arg-type]
+
+    def add_middlewares(self) -> None:
         self.app.add_middleware(
             CORSMiddleware,
             allow_origins=settings.allowed_origins_list,
@@ -99,31 +107,33 @@ class Application:
             allow_methods=["*"],
             allow_headers=["*"],
         )
+        self.app.add_middleware(RequestIDMiddleware)
 
-    def _add_exception_handlers(self) -> None:
-        self.app.add_exception_handler(ClientException, handle_client_exception)  # type: ignore[arg-type]
-        self.app.add_exception_handler(ServerException, handle_server_exception)  # type: ignore[arg-type]
-        self.app.add_exception_handler(HTTPException, handle_http_exception)  # type: ignore[arg-type]
-        self.app.add_exception_handler(RequestValidationError, handle_validation_exception)  # type: ignore[arg-type]
-        self.app.add_exception_handler(Exception, handle_unexpected_exception)  # type: ignore[arg-type]
+    def add_routers(self) -> None:
+        routers = (
+            auth_router,
+            conversations_router,
+            chat_router,
+            ingest_router,
+            documents_router,
+            groups_router,
+            clients_router,
+            health_router,
+            benchmark_router,
+            api_keys_router,
+            admin_config_router,
+        )
+        for router in routers:
+            self.app.include_router(router)
 
-    def _add_routers(self) -> None:
-        self.app.include_router(auth_router)
-        self.app.include_router(conversations_router)
-        self.app.include_router(chat_router)
-        self.app.include_router(ingest_router)
-        self.app.include_router(documents_router)
-        self.app.include_router(groups_router)
-        self.app.include_router(clients_router)
-        self.app.include_router(health_router)
-        self.app.include_router(benchmark_router)
-        self.app.include_router(api_keys_router)
-        self.app.include_router(admin_config_router)
+
+# ---------------------------------------------------------------------------
+# Factory
+# ---------------------------------------------------------------------------
 
 
 def create_application() -> FastAPI:
-    """Create and return the configured FastAPI application."""
-    application = Application()
+    application: Application = Application()
     return application.app
 
 

@@ -4,6 +4,7 @@ CLI command: Document indexing in Qdrant.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import sys
 from pathlib import Path
@@ -36,7 +37,7 @@ def ingest_run(
             settings.file_backend = "s3"
 
         service = IngestionService()
-        service.run_full_ingestion(docs_dir, reset=reset, prefix=prefix)
+        asyncio.run(service.run_full_ingestion(docs_dir, reset=reset, prefix=prefix))
     except Exception as exc:
         logger.error("Indexing error", exc_info=exc)
         sys.exit(1)
@@ -58,7 +59,7 @@ def ingest_file(
         if force:
             service.force_reindex(Path(file_path).name)
 
-        service.run_single_file(file_path)
+        asyncio.run(service.run_single_file(file_path))
     except Exception as exc:
         logger.error("File indexing error", exc_info=exc)
         sys.exit(1)

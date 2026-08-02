@@ -179,10 +179,12 @@ def benchmark_grid_search(
         sparse_results = await_if_needed(bm25.search_with_hashes, qtext, fetch_k) if bm25 else []
         sparse_cache[qtext] = sparse_results
 
-    logger.info("Phase 1 done: %d dense, %d sparse, %d unique hashes",
-                sum(len(v) for v in dense_cache.values()),
-                sum(len(v) for v in sparse_cache.values()),
-                len(all_candidates_by_hash))
+    logger.info(
+        "Phase 1 done: %d dense, %d sparse, %d unique hashes",
+        sum(len(v) for v in dense_cache.values()),
+        sum(len(v) for v in sparse_cache.values()),
+        len(all_candidates_by_hash),
+    )
 
     # --- Phase 2: fast retrieval-only scoring for all combinations ---
     logger.info("Phase 2: Retrieval-scoring для %d комбинаций...", len(combinations))
@@ -199,7 +201,7 @@ def benchmark_grid_search(
                 continue
 
             merged_hashes = rrf_merge(
-                dense_cache.get(qtext, []),
+                [(h, score) for h, score, _doc in dense_cache.get(qtext, [])],
                 sparse_cache.get(qtext, []),
                 k=rrf_k,
                 dense_weight=dw,
@@ -235,14 +237,16 @@ def benchmark_grid_search(
         avg_hr = sum(hit_rates_all) / len(hit_rates_all) if hit_rates_all else 0
         avg_mrr = sum(mrrs_all) / len(mrrs_all) if mrrs_all else 0
 
-        results_summary.append({
-            "top_k": top_k,
-            "dense_weight": dw,
-            "sparse_weight": sw,
-            "rrf_k": rrf_k,
-            "avg_hit_rate": round(avg_hr, 3),
-            "avg_mrr": round(avg_mrr, 4),
-        })
+        results_summary.append(
+            {
+                "top_k": top_k,
+                "dense_weight": dw,
+                "sparse_weight": sw,
+                "rrf_k": rrf_k,
+                "avg_hit_rate": round(avg_hr, 3),
+                "avg_mrr": round(avg_mrr, 4),
+            }
+        )
 
         if (idx % 27) == 0:
             logger.info("  %d/%d done", idx, len(combinations))
@@ -252,17 +256,30 @@ def benchmark_grid_search(
 
     logger.info("Phase 2 done. Top-5 by retrieval:")
     for i, r in enumerate(results_summary[:5], 1):
-        logger.info("  #%d  top_k=%d dw=%.1f sw=%.1f rrf_k=%d  HR=%.3f MRR=%.4f",
-                     i, r["top_k"], r["dense_weight"], r["sparse_weight"], r["rrf_k"],
-                     r["avg_hit_rate"], r["avg_mrr"])
+        logger.info(
+            "  #%d  top_k=%d dw=%.1f sw=%.1f rrf_k=%d  HR=%.3f MRR=%.4f",
+            i,
+            r["top_k"],
+            r["dense_weight"],
+            r["sparse_weight"],
+            r["rrf_k"],
+            r["avg_hit_rate"],
+            r["avg_mrr"],
+        )
 
     # --- Phase 3: full LLM+judge only on top-N configs ---
     logger.info("Phase 3: LLM-судья для топ-%d конфигураций...", top_n_llm)
     top_configs = results_summary[:top_n_llm]
 
     for config_idx, cfg in enumerate(top_configs, 1):
-        logger.info("\n--- LLM evaluation #%d: top_k=%d dw=%.1f sw=%.1f rrf_k=%d ---",
-                     config_idx, cfg["top_k"], cfg["dense_weight"], cfg["sparse_weight"], cfg["rrf_k"])
+        logger.info(
+            "\n--- LLM evaluation #%d: top_k=%d dw=%.1f sw=%.1f rrf_k=%d ---",
+            config_idx,
+            cfg["top_k"],
+            cfg["dense_weight"],
+            cfg["sparse_weight"],
+            cfg["rrf_k"],
+        )
 
         original_top_k = settings.retriever_top_k
         original_dense = settings.dense_weight
@@ -296,8 +313,13 @@ def benchmark_grid_search(
                 cfg["avg_relevancy"] = round(avg_rel, 1)
                 cfg["composite_score"] = round(composite, 3)
 
-                logger.info("  HR=%.3f  Faith=%.1f  Rel=%.1f  Composite=%.3f",
-                             cfg["avg_hit_rate"], avg_faith, avg_rel, composite)
+                logger.info(
+                    "  HR=%.3f  Faith=%.1f  Rel=%.1f  Composite=%.3f",
+                    cfg["avg_hit_rate"],
+                    avg_faith,
+                    avg_rel,
+                    composite,
+                )
         finally:
             settings.retriever_top_k = original_top_k
             settings.dense_weight = original_dense
@@ -324,7 +346,14 @@ def benchmark_grid_search(
     logger.info("GRID SEARCH ЗАВЕРШЁН")
     logger.info("=" * 60)
     if top_configs:
-        logger.info("Лучшие параметры: %s", {k: v for k, v in top_configs[0].items() if k in ("top_k", "dense_weight", "sparse_weight", "rrf_k")})
+        logger.info(
+            "Лучшие параметры: %s",
+            {
+                k: v
+                for k, v in top_configs[0].items()
+                if k in ("top_k", "dense_weight", "sparse_weight", "rrf_k")
+            },
+        )
         logger.info("Лучший composite score: %.3f", top_configs[0].get("composite_score", 0))
     logger.info("Результаты сохранены: %s", grid_path)
 
@@ -335,6 +364,7 @@ def await_if_needed(func, *args, **kwargs):
         loop = asyncio.get_running_loop()
         if loop.is_running():
             import concurrent.futures
+
             with concurrent.futures.ThreadPoolExecutor() as pool:
                 return pool.submit(func, *args, **kwargs).result()
     except RuntimeError:

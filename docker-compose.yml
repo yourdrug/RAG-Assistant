@@ -68,11 +68,6 @@ services:
         reservations:
           cpus: "2"
           memory: 4G
-    # Раскомментировать если есть NVIDIA GPU:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
     healthcheck:
       test: [ "CMD-SHELL", "bash -c '</dev/tcp/localhost/11434' || exit 1" ]
       interval: 10s

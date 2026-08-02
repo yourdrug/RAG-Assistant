@@ -15,7 +15,10 @@ main() {
     export SERVICE_START_DATETIME
     SERVICE_START_DATETIME=$(date --utc '+%Y-%m-%d %H:%M:%S%z')
 
-    log_info "rag-server starting (version: $(cat VERSION 2>/dev/null || echo 'dev'))"
+    export VERSION
+    VERSION=$(cat VERSION 2>/dev/null || echo 'dev')
+
+    log_info "rag-server starting (version: $VERSION)"
 
     # Run Alembic migrations from project root (alembic.ini is here)
     log_info "Running Alembic migrations..."

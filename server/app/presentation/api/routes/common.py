@@ -4,7 +4,27 @@ from __future__ import annotations
 
 import logging
 
+from domain.repositories.background_job_repository import BackgroundJob
+from infrastructure.uow_factory import UnitOfWorkFactory  # noqa: F401
+
+from presentation.api.middleware.request_id import request_id_ctx
+
 logger = logging.getLogger("default")
+
+
+async def create_background_job(
+    uow_factory: UnitOfWorkFactory, job_type: str, related_id: int | None = None
+) -> int:
+    """Create a background job record and return its ID."""
+    async with uow_factory.create(master=True) as uow:
+        job = BackgroundJob(
+            job_type=job_type,
+            status="pending",
+            related_id=related_id,
+            request_id=request_id_ctx.get("-"),
+        )
+        job = await uow.background_jobs.create(job)
+        return job.id  # type: ignore[return-value]
 
 
 def safe_background_call(func, *args, **kwargs):

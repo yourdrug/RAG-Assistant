@@ -9,6 +9,7 @@ from application.uow import UnitOfWork
 
 from infrastructure.database.database import DatabaseManager
 from infrastructure.repositories.sqlalchemy_api_key_repository import SQLAlchemyApiKeyRepository
+from infrastructure.repositories.sqlalchemy_background_job_repository import SQLAlchemyBackgroundJobRepository
 from infrastructure.repositories.sqlalchemy_client_assignment_repository import (
     SQLAlchemyClientAssignmentRepository,
 )
@@ -44,6 +45,7 @@ class UnitOfWorkFactory:
             client_assignments=SQLAlchemyClientAssignmentRepository(session),
             api_keys=SQLAlchemyApiKeyRepository(session),
             config_parameters=SQLAlchemyConfigParameterRepository(session),
+            background_jobs=SQLAlchemyBackgroundJobRepository(session),
         )
         async with uow:
             yield uow

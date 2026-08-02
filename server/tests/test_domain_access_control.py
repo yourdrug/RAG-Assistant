@@ -39,7 +39,7 @@ class TestAllowedVisibilityForKind:
         assert DocumentVisibility.INTERNAL_PUBLIC in allowed
         assert DocumentVisibility.INTERNAL_GROUP in allowed
         assert DocumentVisibility.INTERNAL_PRIVATE in allowed
-        assert DocumentVisibility.CLIENT_PRIVATE not in allowed
+        assert DocumentVisibility.CLIENT_PRIVATE in allowed
 
     def test_client_allowed_visibilities(self):
         allowed = ALLOWED_VISIBILITY_FOR_KIND[UserKind.CLIENT]
@@ -106,7 +106,7 @@ class TestValidateDocumentVisibility:
             )
 
     def test_internal_cannot_use_client_private(self):
-        with pytest.raises(ValidationError, match="not available for kind"):
+        with pytest.raises(BusinessRuleViolation, match="Only admin can upload documents for clients"):
             validate_document_visibility(
                 DocumentVisibility.CLIENT_PRIVATE, None, UserKind.INTERNAL, UserRole.USER, []
             )

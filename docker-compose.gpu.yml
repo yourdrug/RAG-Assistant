@@ -1,0 +1,30 @@
+# GPU override — uses together with docker-compose.yml:
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+#
+# Or via Taskfile:
+#   task up:gpu
+
+services:
+  server:
+    build:
+      args:
+        TORCH_MODE: gpu
+    environment:
+      RERANK_DEVICE: cuda
+      EMBED_DEVICE: cuda
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

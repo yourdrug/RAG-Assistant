@@ -44,6 +44,7 @@ class TestAllowedVisibility:
             DocumentVisibility.INTERNAL_PUBLIC,
             DocumentVisibility.INTERNAL_GROUP,
             DocumentVisibility.INTERNAL_PRIVATE,
+            DocumentVisibility.CLIENT_PRIVATE,
         }
 
     def test_client_allowed_visibilities(self):
@@ -202,8 +203,10 @@ class TestBuildQdrantFilter:
 
     def test_internal_with_clients_adds_client_filter(self):
         f = build_qdrant_filter({"id": 1, "kind": "internal"}, [], [50])
-        assert len(f.should) == 3  # public + private + client
+        # for_list=False: client_private NOT included in RAG search filters
+        assert len(f.should) == 2  # public + private
 
     def test_internal_with_both_groups_and_clients(self):
         f = build_qdrant_filter({"id": 1, "kind": "internal"}, [10], [50])
-        assert len(f.should) == 4  # public + private + group + client
+        # for_list=False: client_private NOT included, but group IS included
+        assert len(f.should) == 3  # public + private + group

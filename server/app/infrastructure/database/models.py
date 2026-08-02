@@ -129,3 +129,21 @@ class ApiKeyModel(BaseModel):
     name: Mapped[str | None] = mapped_column(String(255))
     revoked_at: Mapped[DateTime | None] = mapped_column(DateTime)
     last_used_at: Mapped[DateTime | None] = mapped_column(DateTime)
+
+
+class BackgroundJobModel(BaseModel):
+    __tablename__ = "background_jobs"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'running', 'done', 'failed')",
+            name="background_jobs_status_check",
+        ),
+    )
+
+    job_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    related_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    request_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    started_at: Mapped[DateTime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[DateTime | None] = mapped_column(DateTime, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
