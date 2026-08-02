@@ -89,8 +89,8 @@ class Settings(BaseSettings):
 
     # --- Citation filter ---
     citation_filter_enabled: bool = os.getenv("CITATION_FILTER_ENABLED", "false").lower() == "true"
-    chunk_size: int = int(os.getenv("CHUNK_SIZE", "600"))
-    chunk_overlap: int = int(os.getenv("CHUNK_OVERLAP", "150"))
+    chunk_size: int = int(os.getenv("CHUNK_SIZE", "550"))
+    chunk_overlap: int = int(os.getenv("CHUNK_OVERLAP", "200"))
     embed_batch_size: int = int(os.getenv("EMBED_BATCH_SIZE", "32"))
 
     # --- Hybrid search (BM25 + dense RRF) ---

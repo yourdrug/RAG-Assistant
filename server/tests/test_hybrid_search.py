@@ -21,7 +21,7 @@ class TestTokenize:
         assert hybrid.tokenize("Hello World") == ["hello", "world"]
 
     def test_russian_text(self):
-        tokens = hybrid.tokenize("Постановление от 14.04.2026 года")
+        tokens = hybrid.tokenize_raw("Постановление от 14.04.2026 года")
         assert "постановление" in tokens
         assert "14" in tokens
         assert "04" in tokens
@@ -34,7 +34,7 @@ class TestTokenize:
         assert tokens == []
 
     def test_punctuation_removed(self):
-        tokens = hybrid.tokenize("маркировка: код, номер!")
+        tokens = hybrid.tokenize_raw("маркировка: код, номер!")
         assert "маркировка" in tokens
         assert "код" in tokens
         assert "номер" in tokens

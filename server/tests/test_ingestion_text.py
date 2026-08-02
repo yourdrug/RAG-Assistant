@@ -171,17 +171,20 @@ class TestParseTxt:
     def test_reads_file(self, tmp_path):
         f = tmp_path / "test.txt"
         f.write_text("hello world", encoding="utf-8")
-        assert _parse_txt(f) == "hello world"
+        text, _meta = _parse_txt(f)
+        assert text == "hello world"
 
     def test_preserves_encoding(self, tmp_path):
         f = tmp_path / "ru.txt"
         f.write_text("Привет мир", encoding="utf-8")
-        assert _parse_txt(f) == "Привет мир"
+        text, _meta = _parse_txt(f)
+        assert text == "Привет мир"
 
     def test_empty_file(self, tmp_path):
         f = tmp_path / "empty.txt"
         f.write_text("", encoding="utf-8")
-        assert _parse_txt(f) == ""
+        text, _meta = _parse_txt(f)
+        assert text == ""
 
 
 # ---------------------------------------------------------------------------
@@ -297,12 +300,12 @@ class TestSplitDocuments:
         from langchain.schema import Document
 
         # Two paragraphs that together exceed chunk_size
-        p1 = "A" * 300
-        p2 = "B" * 300
+        p1 = "A" * 500
+        p2 = "B" * 500
         docs = [Document(page_content=f"{p1}\n\n{p2}", metadata={"source": "t.txt"})]
         with patch("infrastructure.ml.ingestion.settings") as mock_settings:
-            mock_settings.chunk_size = 900
-            mock_settings.chunk_overlap = 150
+            mock_settings.chunk_size = 600
+            mock_settings.chunk_overlap = 100
             chunks = split_documents(docs)
         assert len(chunks) >= 2
 
