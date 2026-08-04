@@ -43,8 +43,10 @@ class Settings(BaseSettings):
     # qwen2.5:14b — лучший баланс русского языка и качества среди безопасных по лицензии моделей.
     # mistral-nemo:12b — альтернатива (Apache-2.0), если нужна модель без ограничений Qwen License.
     llm_model: str = os.getenv("LLM_MODEL", "qwen2.5:14b")
-    llm_num_predict_narrow: int = int(os.getenv("LLM_NUM_PREDICT_NARROW", "180"))
-    llm_num_predict_broad: int = int(os.getenv("LLM_NUM_PREDICT_BROAD", "900"))
+    llm_num_predict_narrow: int = int(os.getenv("LLM_NUM_PREDICT_NARROW", "400"))
+    llm_num_predict_broad: int = int(os.getenv("LLM_NUM_PREDICT_BROAD", "2048"))
+    llm_num_ctx_narrow: int = int(os.getenv("LLM_NUM_CTX_NARROW", "8192"))
+    llm_num_ctx_broad: int = int(os.getenv("LLM_NUM_CTX_BROAD", "16384"))
 
     # --- OCR (для сканов внутри PDF) ---
     # "paddleocr" (по умолчанию) — Apache-2.0, без ограничений по выручке компании.

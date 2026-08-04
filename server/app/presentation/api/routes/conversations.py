@@ -36,6 +36,10 @@ async def get_conversation_history(
 
     messages = await uow.messages.get_history(conversation_id, window=100)
     msg_responses = [
-        MessageResponse(role=m.role, content=m.content, sources=m.sources or None) for m in messages
+        MessageResponse(
+            id=m.id, role=m.role, content=m.content,
+            sources=m.sources or None, creation_date=m.creation_date,
+        )
+        for m in messages
     ]
     return ConversationHistoryResponse(conversation_id=conversation_id, messages=msg_responses)

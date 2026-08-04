@@ -157,16 +157,15 @@ class RagService:
         bm25_index = get_bm25_index()
 
         if settings.hybrid_enabled and bm25_index is not None:
-            # Dense search via Qdrant (returns content_hash + score + doc)
+            # Dense + sparse search in parallel
             t0 = time.monotonic()
-            dense_results = await _qdrant_dense_search(query_for_search, fetch_k, access_filter)
-            RAG_STAGE_DURATION.labels("dense_search").observe(time.monotonic() - t0)
+            dense_coro = _qdrant_dense_search(query_for_search, fetch_k, access_filter)
+            sparse_coro = asyncio.to_thread(bm25_index.search_with_hashes, query_for_search, fetch_k)
+            dense_results, sparse_results = await asyncio.gather(dense_coro, sparse_coro)
+            elapsed = time.monotonic() - t0
+            RAG_STAGE_DURATION.labels("dense_search").observe(elapsed)
+            RAG_STAGE_DURATION.labels("sparse_search").observe(elapsed)
             dense_by_hash = {h: (score, doc) for h, score, doc in dense_results}
-
-            # Sparse search via BM25 (returns content_hash + score)
-            t0 = time.monotonic()
-            sparse_results = await asyncio.to_thread(bm25_index.search_with_hashes, query_for_search, fetch_k)
-            RAG_STAGE_DURATION.labels("sparse_search").observe(time.monotonic() - t0)
 
             # RRF merge
             merged_hashes = rrf_merge(
@@ -246,7 +245,7 @@ class RagService:
             sources = filter_cited_sources(full_answer, sources)
 
         # Record pipeline-level metrics
-        avg_sim = sum(s for _, s, _ in docs) / len(docs) if docs else 0.0
+        avg_sim = sum(s for _, s in docs) / len(docs) if docs else 0.0
         record_rag_answer(
             breadth=breadth,
             answer=full_answer,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 
 from domain.value_objects.roles import UserKind, UserRole
 
@@ -13,6 +14,9 @@ class DocumentDTO:
     filename: str
     visibility: str
     status: str
+    source_path: str | None = None
+    creation_date: datetime | None = None
+    indexed_at: datetime | None = None
     error_message: str | None = None
     warning_message: str | None = None
     chunks: int | None = None

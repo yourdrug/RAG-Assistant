@@ -37,9 +37,11 @@ class SQLAlchemyMessageRepository:
         for orm in reversed(rows):
             messages.append(
                 Message(
+                    id=orm.id,
                     role=MessageRole(orm.role),
                     content=orm.content,
                     sources=orm.sources or [],
+                    creation_date=orm.creation_date,
                 )
             )
         return messages

@@ -6,6 +6,7 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
+
 # ---------------------------------------------------------------------------
 # Health
 # ---------------------------------------------------------------------------
@@ -133,13 +134,14 @@ class MessageResponse(BaseModel):
     id: int
     role: str
     content: str
-    sources: dict | None
+    sources: list | None
     creation_date: datetime | None
 
 
 class ChatRequest(BaseModel):
-    message: str
+    question: str
     conversation_id: int | None = None
+    depth: str | None = None
 
 
 class ChatResponse(BaseModel):
@@ -209,6 +211,7 @@ class ApiKeyResponse(BaseModel):
     created_at: datetime | None
     last_used_at: datetime | None
     revoked_at: datetime | None
+    is_active: bool
 
 
 # ---------------------------------------------------------------------------

@@ -42,17 +42,20 @@ def get_llm() -> ChatOllama:
         model=settings.llm_model,
         base_url=settings.ollama_base_url,
         temperature=0.1,
+        num_ctx=settings.llm_num_ctx_narrow,
     )
 
 
 def get_llm_for_breadth(breadth: str) -> ChatOllama:
-    """Return LLM with num_predict limit matching breadth mode."""
+    """Return LLM with num_predict and num_ctx matching breadth mode."""
     num_predict = settings.llm_num_predict_broad if breadth == "broad" else settings.llm_num_predict_narrow
+    num_ctx = settings.llm_num_ctx_broad if breadth == "broad" else settings.llm_num_ctx_narrow
     return ChatOllama(
         model=settings.llm_model,
         base_url=settings.ollama_base_url,
         temperature=0.1,
         num_predict=num_predict,
+        num_ctx=num_ctx,
     )
 
 
