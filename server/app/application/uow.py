@@ -11,8 +11,8 @@ from domain.repositories.document_repository import DocumentRepository
 from domain.repositories.group_repository import GroupRepository
 from domain.repositories.message_repository import MessageRepository
 from domain.repositories.user_repository import UserRepository
-from shared.session import SessionProtocol
-from shared.unit_of_work import BaseUnitOfWork
+from infrastructure.database.base_uow import BaseUnitOfWork
+from infrastructure.database.session_protocol import SessionProtocol
 
 
 class UnitOfWork(BaseUnitOfWork):

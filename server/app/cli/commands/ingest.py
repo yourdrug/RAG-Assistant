@@ -11,12 +11,23 @@ from pathlib import Path
 
 import typer
 from config import settings
+from infrastructure.registry import load_registry
+from infrastructure.repositories.qdrant_vector_store_repository import QdrantVectorStoreRepository
 from infrastructure.services.ingestion_service import IngestionService
 from infrastructure.storage import get_storage
 
 logger = logging.getLogger("cli")
 
 ingest_app = typer.Typer(help="Document indexing in Qdrant")
+
+
+def _create_service(uow_factory=None) -> IngestionService:
+    """Create IngestionService with proper dependencies (no DB in CLI mode)."""
+    return IngestionService(
+        vector_store_repo=QdrantVectorStoreRepository(),
+        file_storage=get_storage(),
+        uow_factory=uow_factory,
+    )
 
 
 @ingest_app.command("run")
@@ -36,7 +47,7 @@ def ingest_run(
         if s3:
             settings.file_backend = "s3"
 
-        service = IngestionService()
+        service = _create_service()
         asyncio.run(service.run_full_ingestion(docs_dir, reset=reset, prefix=prefix))
     except Exception as exc:
         logger.error("Indexing error", exc_info=exc)
@@ -54,7 +65,7 @@ def ingest_file(
         if s3:
             settings.file_backend = "s3"
 
-        service = IngestionService()
+        service = _create_service()
 
         if force:
             service.force_reindex(Path(file_path).name)
@@ -93,8 +104,7 @@ def ingest_upload(
 def ingest_list() -> None:
     """Show list of indexed files."""
     try:
-        service = IngestionService()
-        registry = service.get_registry()
+        registry = load_registry(settings.data_dir)
 
         if not registry:
             logger.info("Registry empty — no files indexed.")
@@ -112,5 +122,5 @@ def ingest_list() -> None:
                 meta.get("indexed_at", "?")[:19],
             )
     except Exception as exc:
-        logger.error("Registry error", exc_info=exc)
+        logger.error("Registry listing error", exc_info=exc)
         sys.exit(1)

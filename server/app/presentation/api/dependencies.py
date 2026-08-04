@@ -123,6 +123,4 @@ def create_auth_service() -> AuthService:
 
 
 def create_benchmark_service():
-    from application.use_cases.benchmark.run_benchmark import RunBenchmark
-
-    return RunBenchmark(benchmark_service=BenchmarkService(), settings=settings)
+    return BenchmarkService()

@@ -1,5 +1,6 @@
 import os
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -22,6 +23,15 @@ class Settings(BaseSettings):
     # --- Cluster slave nodes (comma-separated host:port pairs, e.g. "slave1:5433,slave2:5434") ---
     db_slave_hosts: str = os.getenv("DB_SLAVE_HOSTS", "")
     db_slave_ports: str = os.getenv("DB_SLAVE_PORTS", "")
+
+    @property
+    def db_slave_hosts_list(self) -> list[str]:
+        return [h.strip() for h in self.db_slave_hosts.split(",") if h.strip()]
+
+    @property
+    def db_slave_ports_list(self) -> list[str]:
+        return [p.strip() for p in self.db_slave_ports.split(",") if p.strip()]
+
     collection_name: str = os.getenv("COLLECTION_NAME", "company_docs")
 
     data_dir: str = os.getenv("DATA_DIR", "/code/project/data")
@@ -113,6 +123,10 @@ class Settings(BaseSettings):
 
     # --- Timezone (IANA tz name) ---
     timezone: str = os.getenv("TIMEZONE", "UTC")
+
+    @property
+    def tz(self) -> ZoneInfo:
+        return ZoneInfo(self.timezone)
 
     # --- App version & metadata ---
     version: str = os.getenv("VERSION", "0.2.0")

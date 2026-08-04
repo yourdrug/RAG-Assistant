@@ -9,10 +9,14 @@ export function DashboardPage() {
   const { data: health, isLoading: hl } = useHealth();
   const { data: documents, isLoading: dl } = useDocuments();
 
+  const apiStatus = health?.checks?.api?.status || "—";
+  const qdrantStatus = health?.checks?.qdrant?.status || "—";
+  const ollamaStatus = health?.checks?.ollama?.status || "—";
+
   const stats = [
-    { title: "API Status", value: health?.api || "—", icon: Server, color: health?.api === "ok" ? "success" : "destructive" },
-    { title: "Qdrant", value: health?.qdrant || "—", icon: Activity, color: health?.qdrant === "ok" ? "success" : "destructive" },
-    { title: "Ollama", value: health?.ollama || "—", icon: Activity, color: health?.ollama === "ok" ? "success" : "destructive" },
+    { title: "API Status", value: apiStatus, icon: Server, color: apiStatus === "ok" ? "success" : "destructive" },
+    { title: "Qdrant", value: qdrantStatus, icon: Activity, color: qdrantStatus === "ok" ? "success" : "destructive" },
+    { title: "Ollama", value: ollamaStatus, icon: Activity, color: ollamaStatus === "ok" ? "success" : "destructive" },
     { title: "Documents", value: documents?.length?.toString() || "0", icon: FileText, color: "default" },
   ];
 
@@ -33,10 +37,10 @@ export function DashboardPage() {
           );
         })}
       </div>
-      {health?.ollama_models && health.ollama_models.length > 0 && (
+      {health?.checks?.ollama?.models && health.checks.ollama.models.length > 0 && (
         <Card>
           <CardHeader><CardTitle>Available Models</CardTitle><CardDescription>Models loaded in Ollama</CardDescription></CardHeader>
-          <CardContent><div className="flex flex-wrap gap-2">{health.ollama_models.map((m) => <Badge key={m} variant="secondary">{m}</Badge>)}</div></CardContent>
+          <CardContent><div className="flex flex-wrap gap-2">{health.checks.ollama.models.map((m) => <Badge key={m} variant="secondary">{m}</Badge>)}</div></CardContent>
         </Card>
       )}
       <Card>

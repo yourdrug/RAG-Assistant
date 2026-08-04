@@ -9,7 +9,7 @@ from types import TracebackType
 from domain.exceptions import DatabaseError
 from sqlalchemy.exc import DBAPIError
 
-from shared.session import SessionProtocol
+from infrastructure.database.session_protocol import SessionProtocol
 
 
 class BaseUnitOfWork(ABC):

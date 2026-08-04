@@ -7,16 +7,17 @@ from logging import (
     getLogger,
 )
 
-from shared.domain.exceptions import DatabaseError
-from shared.infrastructure.db.dataclasses import DatabaseURL
-from shared.infrastructure.db.enums import DatabaseNodeRole
-from shared.infrastructure.db.settings import settings
+from config import settings
+from domain.exceptions import DatabaseError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
+
+from infrastructure.database.dataclasses import DatabaseURL
+from infrastructure.database.enums import DatabaseNodeRole
 
 logger: Logger = getLogger("default")
 
@@ -201,11 +202,11 @@ class DatabaseManager:
         """
 
         master_url: DatabaseURL = DatabaseURL(
-            settings.DB_USER,
-            settings.DB_PASSWORD,
-            settings.DB_HOST,
-            settings.DB_PORT,
-            settings.DB_NAME,
+            settings.db_user,
+            settings.db_password,
+            settings.db_host,
+            settings.db_port,
+            settings.db_name,
         )
 
         self.master_node = DatabaseNode(
@@ -216,18 +217,18 @@ class DatabaseManager:
 
         for node_number, (host, port) in enumerate(
             zip(
-                getattr(settings, "DB_SLAVE_HOSTS", []),
-                getattr(settings, "DB_SLAVE_PORTS", []),
+                settings.db_slave_hosts_list,
+                settings.db_slave_ports_list,
                 strict=True,
             )
         ):
             if host and port:
                 slave_url: DatabaseURL = DatabaseURL(
-                    settings.DB_USER,
-                    settings.DB_PASSWORD,
-                    host.strip(),
-                    port.strip(),
-                    settings.DB_NAME,
+                    settings.db_user,
+                    settings.db_password,
+                    host,
+                    port,
+                    settings.db_name,
                 )
 
                 slave_node: DatabaseNode = DatabaseNode(
@@ -249,11 +250,11 @@ class DatabaseManager:
         """
 
         master_url: DatabaseURL = DatabaseURL(
-            settings.DB_USER,
-            settings.DB_PASSWORD,
-            settings.DB_HOST,
-            settings.DB_PORT,
-            settings.DB_NAME,
+            settings.db_user,
+            settings.db_password,
+            settings.db_host,
+            settings.db_port,
+            settings.db_name,
         )
 
         self.master_node = DatabaseNode(
@@ -271,7 +272,7 @@ class DatabaseManager:
         _detect_environment: Detect if we're in a cluster environment or single node.
         """
 
-        self.is_cluster = bool(settings.DB_SLAVE_HOSTS and settings.DB_SLAVE_PORTS)
+        self.is_cluster = bool(settings.db_slave_hosts and settings.db_slave_ports)
 
         if self.is_cluster:
             self._setup_cluster_environment()

@@ -5,16 +5,16 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Protocol
 
-from langchain.schema import Document
+from domain.entities.raw_document import RawDocument
 
 
 class DocumentParser(Protocol):
-    """Parses a file into LangChain Documents."""
+    """Parses a file into domain RawDocuments."""
 
-    def parse(self, file_path: Path) -> list[Document]: ...
+    def parse(self, file_path: Path) -> list[RawDocument]: ...
 
 
 class DocumentSplitter(Protocol):
     """Splits documents into chunks for embedding."""
 
-    def split(self, documents: list[Document]) -> list[Document]: ...
+    def split(self, documents: list[RawDocument]) -> list[RawDocument]: ...

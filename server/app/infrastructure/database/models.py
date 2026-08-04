@@ -5,7 +5,6 @@ Uses shared BaseModel (int PK + creation_date) and LinkedBaseModel (M2M join tab
 
 from __future__ import annotations
 
-from shared.infrastructure.db.basemodel import BaseModel, LinkedBaseModel
 from sqlalchemy import (
     JSON,
     Boolean,
@@ -17,6 +16,8 @@ from sqlalchemy import (
     Text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from infrastructure.database.basemodel import BaseModel, LinkedBaseModel
 
 
 class UserModel(BaseModel):

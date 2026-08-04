@@ -5,8 +5,8 @@ import importlib
 from logging.config import fileConfig
 
 from alembic import context
-from shared.infrastructure.db.basemodel import _Base as Base
-from shared.infrastructure.db.settings import settings
+from config import settings
+from infrastructure.database.basemodel import _Base as Base
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
@@ -34,11 +34,11 @@ def init_alembic_config() -> None:
     if config.config_file_name is not None:
         fileConfig(config.config_file_name)
 
-    config.set_section_option(section, "DB_USER", settings.DB_USER)
-    config.set_section_option(section, "DB_PASSWORD", settings.DB_PASSWORD)
-    config.set_section_option(section, "DB_HOST", settings.DB_HOST)
-    config.set_section_option(section, "DB_PORT", settings.DB_PORT)
-    config.set_section_option(section, "DB_NAME", settings.DB_NAME)
+    config.set_section_option(section, "DB_USER", settings.db_user)
+    config.set_section_option(section, "DB_PASSWORD", settings.db_password)
+    config.set_section_option(section, "DB_HOST", settings.db_host)
+    config.set_section_option(section, "DB_PORT", settings.db_port)
+    config.set_section_option(section, "DB_NAME", settings.db_name)
 
 
 def run_migrations_offline() -> None:

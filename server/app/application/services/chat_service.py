@@ -10,12 +10,13 @@ import logging
 from collections.abc import AsyncIterator
 
 from domain.entities.message import Message
-from domain.repositories.rag_service_repository import RagServiceProtocol
+from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.message_role import MessageRole
 from domain.value_objects.roles import UserKind
 from infrastructure.uow_factory import UnitOfWorkFactory
 
 from application.dto.chat_dto import ChatResult
+from application.services.chat_rag_port import ChatRAGPort
 
 log = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ class ChatService:
     def __init__(
         self,
         uow_factory: UnitOfWorkFactory,
-        rag_service: RagServiceProtocol,
+        rag_service: ChatRAGPort,
         history_window: int = 8,
     ) -> None:
         self._uow_factory = uow_factory
@@ -49,6 +50,13 @@ class ChatService:
         depth: str | None = None,
     ) -> AsyncIterator[str]:
         group_ids, assigned_ids = await self._get_user_context(user_id, user_kind)
+        ctx = ChatContext(
+            user_id=user_id,
+            user_kind=user_kind,
+            user_group_ids=group_ids,
+            assigned_client_ids=assigned_ids,
+            depth=depth,
+        )
 
         async with self._uow_factory.create() as uow:
             conv = await uow.conversations.get_or_create(conversation_id, user_id)
@@ -64,11 +72,7 @@ class ChatService:
         async for chunk in self._rag_service.stream(
             question=question,
             history=history,
-            user_id=user_id,
-            user_kind=user_kind,
-            user_group_ids=group_ids,
-            assigned_client_ids=assigned_ids,
-            depth=depth,
+            ctx=ctx,
         ):
             if not user_msg_saved and not chunk.startswith("\n__sources__:"):
                 user_msg_saved = True
@@ -110,6 +114,13 @@ class ChatService:
         depth: str | None = None,
     ) -> ChatResult:
         group_ids, assigned_ids = await self._get_user_context(user_id, user_kind)
+        ctx = ChatContext(
+            user_id=user_id,
+            user_kind=user_kind,
+            user_group_ids=group_ids,
+            assigned_client_ids=assigned_ids,
+            depth=depth,
+        )
 
         async with self._uow_factory.create() as uow:
             conv = await uow.conversations.get_or_create(conversation_id, user_id)
@@ -129,11 +140,7 @@ class ChatService:
         answer, sources = await self._rag_service.invoke(
             question=question,
             history=history,
-            user_id=user_id,
-            user_kind=user_kind,
-            user_group_ids=group_ids,
-            assigned_client_ids=assigned_ids,
-            depth=depth,
+            ctx=ctx,
         )
 
         async with self._uow_factory.create() as uow:

@@ -16,11 +16,11 @@ from config import settings
 from infrastructure.clients import get_bm25_index, get_embeddings, get_qdrant_client
 from infrastructure.ml.benchmark import (
     load_questions,
-    run_benchmark,
     run_benchmark_async,
 )
 from infrastructure.ml.benchmark_history import compare_runs, get_last_baseline, print_history
 from infrastructure.ml.hybrid import content_hash, rrf_merge
+from infrastructure.services.benchmark_service import BenchmarkService
 from langchain.schema import Document as LCDocument
 
 logger = logging.getLogger("cli")
@@ -91,7 +91,8 @@ def benchmark_run(
                 )
             )
         else:
-            run_benchmark(
+            service = BenchmarkService()
+            service.run(
                 questions_path=questions,
                 out_dir=out,
                 top_k=top_k,
@@ -131,7 +132,6 @@ def benchmark_grid_search(
     ),
 ) -> None:
     """Grid search: быстрый retrieval-scoring для всех комбинаций, LLM-судья только для топ-N."""
-    # Parameter grid
     top_k_values = [4, 6, 8, 10]
     dense_weight_values = [0.5, 1.0, 1.5]
     sparse_weight_values = [0.5, 1.0, 1.5]
@@ -149,16 +149,15 @@ def benchmark_grid_search(
 
     questions_data = load_questions(questions)
 
-    # --- Phase 1: cache dense+sparse candidates for all questions (one Qdrant pass each) ---
-    logger.info("Phase 1: Кэширую.dense + sparse кандидатов для %d вопросов...", len(questions_data))
+    # Phase 1: cache dense+sparse candidates
+    logger.info("Phase 1: Кэширую dense + sparse кандидатов для %d вопросов...", len(questions_data))
     fetch_k = max(settings.retriever_fetch_k, settings.retriever_fetch_k_broad)
-    dense_cache: dict[str, list] = {}  # question -> [(hash, score, doc)]
-    sparse_cache: dict[str, list] = {}  # question -> [(hash, score)]
-    all_candidates_by_hash: dict[str, LCDocument] = {}  # hash -> doc (universal)
+    dense_cache: dict[str, list] = {}
+    sparse_cache: dict[str, list] = {}
+    all_candidates_by_hash: dict[str, LCDocument] = {}
 
     for q in questions_data:
         qtext = q["question"]
-        # Dense search
         dense_results = []
         for point in get_qdrant_client().search(
             collection_name=settings.collection_name,
@@ -174,7 +173,6 @@ def benchmark_grid_search(
             all_candidates_by_hash[h] = doc
         dense_cache[qtext] = dense_results
 
-        # Sparse search
         bm25 = get_bm25_index()
         sparse_results = await_if_needed(bm25.search_with_hashes, qtext, fetch_k) if bm25 else []
         sparse_cache[qtext] = sparse_results
@@ -186,7 +184,7 @@ def benchmark_grid_search(
         len(all_candidates_by_hash),
     )
 
-    # --- Phase 2: fast retrieval-only scoring for all combinations ---
+    # Phase 2: fast retrieval-only scoring
     logger.info("Phase 2: Retrieval-scoring для %d комбинаций...", len(combinations))
     results_summary = []
 
@@ -208,7 +206,6 @@ def benchmark_grid_search(
                 sparse_weight=sw,
             )
 
-            # Deduplicate + top_k
             seen = set()
             top_hashes = []
             for h in merged_hashes:
@@ -251,7 +248,6 @@ def benchmark_grid_search(
         if (idx % 27) == 0:
             logger.info("  %d/%d done", idx, len(combinations))
 
-    # Sort by hit_rate (primary) then MRR (secondary)
     results_summary.sort(key=lambda x: (x["avg_hit_rate"], x["avg_mrr"]), reverse=True)
 
     logger.info("Phase 2 done. Top-5 by retrieval:")
@@ -267,9 +263,10 @@ def benchmark_grid_search(
             r["avg_mrr"],
         )
 
-    # --- Phase 3: full LLM+judge only on top-N configs ---
+    # Phase 3: full LLM+judge on top-N configs via BenchmarkService
     logger.info("Phase 3: LLM-судья для топ-%d конфигураций...", top_n_llm)
     top_configs = results_summary[:top_n_llm]
+    service = BenchmarkService()
 
     for config_idx, cfg in enumerate(top_configs, 1):
         logger.info(
@@ -292,34 +289,28 @@ def benchmark_grid_search(
             settings.sparse_weight = cfg["sparse_weight"]
             settings.rrf_k = cfg["rrf_k"]
 
-            run_benchmark(
+            result = service.run(
                 questions_path=questions,
                 out_dir=out,
                 top_k=cfg["top_k"],
                 judge_model=judge_model,
             )
 
-            # Read back the metrics
-            result_files = sorted(Path(out).glob("benchmark_*.json"))
-            if result_files:
-                latest = json.loads(result_files[-1].read_text(encoding="utf-8"))
-                faiths = [r["generator_metrics"]["faithfulness"] for r in latest]
-                rels = [r["generator_metrics"]["relevancy"] for r in latest]
-                avg_faith = sum(faiths) / len(faiths) if faiths else 0
-                avg_rel = sum(rels) / len(rels) if rels else 0
-                composite = 0.4 * cfg["avg_hit_rate"] + 0.3 * avg_faith / 10 + 0.3 * avg_rel / 10
+            avg_faith = result.get("avg_faithfulness", 0) or 0
+            avg_rel = result.get("avg_relevancy", 0) or 0
+            composite = 0.4 * cfg["avg_hit_rate"] + 0.3 * avg_faith / 10 + 0.3 * avg_rel / 10
 
-                cfg["avg_faithfulness"] = round(avg_faith, 1)
-                cfg["avg_relevancy"] = round(avg_rel, 1)
-                cfg["composite_score"] = round(composite, 3)
+            cfg["avg_faithfulness"] = round(avg_faith, 1)
+            cfg["avg_relevancy"] = round(avg_rel, 1)
+            cfg["composite_score"] = round(composite, 3)
 
-                logger.info(
-                    "  HR=%.3f  Faith=%.1f  Rel=%.1f  Composite=%.3f",
-                    cfg["avg_hit_rate"],
-                    avg_faith,
-                    avg_rel,
-                    composite,
-                )
+            logger.info(
+                "  HR=%.3f  Faith=%.1f  Rel=%.1f  Composite=%.3f",
+                cfg["avg_hit_rate"],
+                avg_faith,
+                avg_rel,
+                composite,
+            )
         finally:
             settings.retriever_top_k = original_top_k
             settings.dense_weight = original_dense
@@ -408,7 +399,8 @@ def benchmark_regression(
         logger.info("No baseline found — this run will become the baseline.")
 
     try:
-        run_benchmark(
+        service = BenchmarkService()
+        service.run(
             questions_path=questions,
             out_dir=out,
             top_k=top_k,
@@ -422,7 +414,6 @@ def benchmark_regression(
         logger.info("First run saved as baseline. No regression check possible.")
         return
 
-    # Reload history to get the run we just saved
     from infrastructure.ml.benchmark_history import load_history
 
     history = load_history(settings.data_dir)

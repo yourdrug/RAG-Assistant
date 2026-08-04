@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from config import settings
 from sqlalchemy import DateTime, Integer
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-
-from shared.infrastructure.db.settings import settings
 
 
 class _Base(AsyncAttrs, DeclarativeBase):

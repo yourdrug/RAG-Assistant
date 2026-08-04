@@ -1,4 +1,4 @@
-"""RAG Service — infrastructure implementation of the rag_service protocol used by chat use cases."""
+"""RAG Service — infrastructure implementation of ChatRAGPort used by ChatService."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import time
 from collections.abc import AsyncIterator
 
 from config import settings
+from domain.value_objects.chat_context import ChatContext
 from langchain.schema import Document as LCDocument
 
 from infrastructure.acl import build_qdrant_filter
@@ -107,22 +108,17 @@ class RagService:
         self,
         question: str,
         history: list,
-        user_id: int,
-        user_kind: str,
-        user_group_ids: list[int],
-        assigned_client_ids: list[int],
-        depth: str | None = None,
+        ctx: ChatContext,
     ) -> AsyncIterator[str]:
         t_pipeline_start = time.monotonic()
 
-        user = {"id": user_id, "kind": user_kind}
-        access_filter = build_qdrant_filter(user, user_group_ids, assigned_client_ids)
+        user = {"id": ctx.user_id, "kind": ctx.user_kind}
+        access_filter = build_qdrant_filter(user, ctx.user_group_ids, ctx.assigned_client_ids)
 
         history_dicts = []
         for msg in history:
             if hasattr(msg, "role") and hasattr(msg, "content"):
                 content = msg.content
-                # Skip very short / garbage messages that might pollute condensation
                 if len(content.strip()) < 3:
                     continue
                 history_dicts.append(
@@ -140,8 +136,9 @@ class RagService:
         query_for_search = await condense_question(get_llm(), question, history_messages)
         RAG_STAGE_DURATION.labels("condense").observe(time.monotonic() - t0)
 
-        # --- Adaptive breadth: user override or auto-detect ---
-        breadth = depth if depth in ("short", "detailed") else classify_question_breadth(query_for_search)
+        breadth = (
+            ctx.depth if ctx.depth in ("short", "detailed") else classify_question_breadth(query_for_search)
+        )
         if breadth == "detailed":
             breadth = "broad"
         elif breadth == "short":
@@ -153,11 +150,9 @@ class RagService:
 
         prompt = build_prompt(breadth)
 
-        # --- Hybrid retrieval: dense (Qdrant) + sparse (BM25) with RRF ---
         bm25_index = get_bm25_index()
 
         if settings.hybrid_enabled and bm25_index is not None:
-            # Dense + sparse search in parallel
             t0 = time.monotonic()
             dense_coro = _qdrant_dense_search(query_for_search, fetch_k, access_filter)
             sparse_coro = asyncio.to_thread(bm25_index.search_with_hashes, query_for_search, fetch_k)
@@ -167,7 +162,6 @@ class RagService:
             RAG_STAGE_DURATION.labels("sparse_search").observe(elapsed)
             dense_by_hash = {h: (score, doc) for h, score, doc in dense_results}
 
-            # RRF merge
             merged_hashes = rrf_merge(
                 [(h, s) for h, s, _ in dense_results],
                 sparse_results,
@@ -176,7 +170,6 @@ class RagService:
                 sparse_weight=settings.sparse_weight,
             )
 
-            # Resolve hashes to LangChain Documents (prefer dense doc if available)
             candidates = []
             seen_hashes = set()
             for h in merged_hashes:
@@ -186,7 +179,6 @@ class RagService:
                 if h in dense_by_hash:
                     candidates.append(dense_by_hash[h][1])
                 else:
-                    # Sparse-only result — retrieve full doc from Qdrant by hash
                     doc = await _resolve_hash_to_doc(h, access_filter)
                     if doc is not None:
                         candidates.append(doc)
@@ -198,7 +190,6 @@ class RagService:
                 len(candidates),
             )
         else:
-            # Fallback: dense-only retrieval
             t0 = time.monotonic()
             retriever = get_vector_store().as_retriever(
                 search_type="similarity",
@@ -207,7 +198,6 @@ class RagService:
             candidates = await asyncio.to_thread(retriever.invoke, query_for_search)
             RAG_STAGE_DURATION.labels("dense_search").observe(time.monotonic() - t0)
 
-        # Deduplicate candidates before reranking to improve context diversity
         candidates = deduplicate_docs(candidates)
 
         t0 = time.monotonic()
@@ -244,7 +234,6 @@ class RagService:
         if settings.citation_filter_enabled and sources:
             sources = filter_cited_sources(full_answer, sources)
 
-        # Record pipeline-level metrics
         avg_sim = sum(s for _, s in docs) / len(docs) if docs else 0.0
         record_rag_answer(
             breadth=breadth,
@@ -260,18 +249,12 @@ class RagService:
         self,
         question: str,
         history: list,
-        user_id: int,
-        user_kind: str,
-        user_group_ids: list[int],
-        assigned_client_ids: list[int],
-        depth: str | None = None,
+        ctx: ChatContext,
     ) -> tuple[str, list[dict]]:
         answer_parts: list[str] = []
         sources: list[dict] = []
 
-        async for chunk in self.stream(
-            question, history, user_id, user_kind, user_group_ids, assigned_client_ids, depth=depth
-        ):
+        async for chunk in self.stream(question, history, ctx):
             if chunk.startswith("\n__sources__:"):
                 sources = json.loads(chunk.replace("\n__sources__:", ""))
             else:

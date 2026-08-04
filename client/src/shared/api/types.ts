@@ -10,8 +10,6 @@ export interface LoginRequest {
 export interface TokenResponse {
   access_token: string;
   token_type: string;
-  role: "admin" | "user";
-  kind: "internal" | "client";
 }
 
 export interface UserResponse {
@@ -78,12 +76,17 @@ export type DocumentStatus = "pending" | "processing" | "done" | "failed";
 export interface DocumentResponse {
   id: number;
   filename: string;
+  source_path: string;
   visibility: DocumentVisibility;
+  owner_id?: number | null;
+  group_id?: number | null;
   status: DocumentStatus;
   error_message?: string | null;
+  warning_message?: string | null;
   chunks?: number | null;
   chars?: number | null;
-  owner_id?: number | null;
+  creation_date?: string | null;
+  indexed_at?: string | null;
 }
 
 export interface UploadStatusResponse {
@@ -178,11 +181,23 @@ export interface ApiKeyResponse {
 
 // ─── Health ──────────────────────────────────────────────────────────────────
 
+export interface HealthCheck {
+  status: string;
+  latency_ms?: number | null;
+  models?: string[] | null;
+}
+
 export interface HealthResponse {
-  api: string;
-  qdrant: string;
-  ollama: string;
-  ollama_models?: string[] | null;
+  status: string;
+  version: string;
+  uptime_seconds: number;
+  checks: {
+    api: HealthCheck;
+    qdrant: HealthCheck;
+    ollama: HealthCheck;
+    postgres: HealthCheck;
+  };
+  background_jobs: { running: number };
 }
 
 // ─── Benchmark ───────────────────────────────────────────────────────────────

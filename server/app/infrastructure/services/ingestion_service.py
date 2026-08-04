@@ -72,8 +72,8 @@ class IngestionService:
         if reset:
             registry = {}
 
-        vector_size = len(self._vector_store.generate_embeddings("test"))
-        self._vector_store.ensure_collection(vector_size, reset=reset)
+        vector_size = len(await self._vector_store.generate_embeddings("test"))
+        await self._vector_store.ensure_collection(vector_size, reset=reset)
 
         docs, cached = self._load_documents(docs_dir, registry, force=reset, prefix=prefix)
         if not docs:
@@ -85,7 +85,7 @@ class IngestionService:
 
         chunks = split_documents(merge_pdf_pages(docs))
         _tag_internal_public(chunks)
-        self._upload_chunks_to_vector_store(chunks)
+        await self._upload_chunks_to_vector_store(chunks)
 
         source_chars: dict[str, int] = {}
         for doc in docs:
@@ -141,7 +141,7 @@ class IngestionService:
                     await uow.documents.update_status(saved.id, "done", chunks=file_chunks, chars=file_chars)
             log.info("Synced %d documents to database", len(registry))
 
-    def _upload_chunks_to_vector_store(self, chunks: list) -> None:
+    async def _upload_chunks_to_vector_store(self, chunks: list) -> None:
         """Convert LangChain Documents to domain Chunks and upload via repository.
 
         Also builds and persists the BM25 index for hybrid search.
@@ -150,7 +150,7 @@ class IngestionService:
         from domain.entities.chunk import Chunk
 
         domain_chunks = [Chunk(content=c.page_content, metadata=c.metadata) for c in chunks]
-        self._vector_store.upload_documents(domain_chunks)
+        await self._vector_store.upload_documents(domain_chunks)
 
         # Build and save BM25 index — merge with existing if present
         if settings.hybrid_enabled:
@@ -205,7 +205,7 @@ class IngestionService:
                 total_chars = sum(len(d.page_content) for d in docs)
                 log.info("OK  %s  —  %s chars, %d pages", file_info.filename, f"{total_chars:,}", len(docs))
 
-                chunks = self._index_docs(docs)
+                chunks = await self._index_docs(docs)
                 _register_file(
                     registry,
                     file_info.filename,
@@ -245,7 +245,7 @@ class IngestionService:
             total_chars = sum(len(d.page_content) for d in docs)
             log.info("OK  %s  —  %s chars, %d pages", path.name, f"{total_chars:,}", len(docs))
 
-            chunks = self._index_docs(docs)
+            chunks = await self._index_docs(docs)
             _register_file(
                 registry,
                 path.name,
@@ -261,14 +261,14 @@ class IngestionService:
         log.info("DONE  |  %d chunks  |  %.1fs", len(chunks), time.monotonic() - t_start)
         log.info("=" * 55)
 
-    def _index_docs(self, docs: list) -> list:
-        vector_size = len(self._vector_store.generate_embeddings("test"))
-        self._vector_store.ensure_collection(vector_size, reset=False)
+    async def _index_docs(self, docs: list) -> list:
+        vector_size = len(await self._vector_store.generate_embeddings("test"))
+        await self._vector_store.ensure_collection(vector_size, reset=False)
 
         merged = merge_pdf_pages(docs)
         chunks = split_documents(merged)
         _tag_internal_public(chunks)
-        self._upload_chunks_to_vector_store(chunks)
+        await self._upload_chunks_to_vector_store(chunks)
         return chunks
 
     def upload_files(self, files, prefix: str = "docs/") -> list[str]:

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
+from config import settings
 from fastapi import APIRouter, BackgroundTasks, Depends
 
 from presentation.api.auth_dependencies import require_admin
@@ -26,6 +28,11 @@ async def run_benchmark(
 
     job_id = await create_background_job(get_uow_factory(), "benchmark")
 
+    q_path = req.questions_path or str(Path(settings.data_dir) / "test_questions.json")
+    o_dir = req.out_dir or str(Path(settings.data_dir) / "benchmark_results")
+    k = req.top_k or settings.retriever_top_k
+    judge = req.judge_model or settings.llm_model
+
     def _run():
         uow_factory = get_uow_factory()
         import asyncio
@@ -42,11 +49,11 @@ async def run_benchmark(
         loop = asyncio.new_event_loop()
         try:
             loop.run_until_complete(_update("running"))
-            service.execute(
-                questions_path=req.questions_path,
-                out_dir=req.out_dir,
-                top_k=req.top_k,
-                judge_model=req.judge_model,
+            service.run(
+                questions_path=q_path,
+                out_dir=o_dir,
+                top_k=k,
+                judge_model=judge,
             )
             loop.run_until_complete(_update("done"))
         except Exception as e:

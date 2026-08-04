@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel
-
+from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------
 # Health
@@ -166,7 +165,8 @@ class GroupResponse(BaseModel):
 
 
 class GroupMemberResponse(BaseModel):
-    user_id: int
+    model_config = {"populate_by_name": True}
+    id: int = Field(validation_alias="user_id")
     email: str
 
 
@@ -181,7 +181,7 @@ class AddMemberRequest(BaseModel):
 
 class ClientAssignmentResponse(BaseModel):
     internal_user_id: int
-    client_user_id: int
+    email: str
     assigned_at: datetime | None
 
 

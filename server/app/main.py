@@ -7,17 +7,17 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from cli.cli import cli
-from common.initialization import initialize_app
-from common.scheduler import scheduler
-from common.utils import Singleton
 from config import settings
 from domain.exceptions import ClientException, ServerException
 from fastapi import FastAPI
 from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from infrastructure.database.database import database
+from infrastructure.initialization import initialize_app
 from infrastructure.logging import logging_config
 from infrastructure.ml.metrics_middleware import add_metrics_middleware
+from infrastructure.scheduler import scheduler
+from infrastructure.utils import Singleton
 from presentation.api.dependencies import _uow_factory
 from presentation.api.exception_handlers import (
     handle_client_exception,

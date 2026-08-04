@@ -6,19 +6,6 @@ from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
-class IngestCommand:
-    docs_dir: str
-    reset: bool = False
-    prefix: str | None = None
-
-
-@dataclass(frozen=True)
-class IngestSingleFileCommand:
-    file_path: str
-    force: bool = False
-
-
-@dataclass(frozen=True)
 class IngestStatusResult:
     status: str
     mode: str | None = None

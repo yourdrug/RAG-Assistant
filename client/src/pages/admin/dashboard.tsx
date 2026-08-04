@@ -28,9 +28,9 @@ export function AdminDashboardPage() {
         <CardContent>
           {hl ? <div className="flex gap-4">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-8 w-24" />)}</div> : (
             <div className="flex flex-wrap gap-4">
-              <div className="flex items-center gap-2"><span className="text-sm text-muted-foreground">API:</span><Badge variant={health?.api === "ok" ? "success" : "destructive"}>{health?.api || "unknown"}</Badge></div>
-              <div className="flex items-center gap-2"><span className="text-sm text-muted-foreground">Qdrant:</span><Badge variant={health?.qdrant === "ok" ? "success" : "destructive"}>{health?.qdrant || "unknown"}</Badge></div>
-              <div className="flex items-center gap-2"><span className="text-sm text-muted-foreground">Ollama:</span><Badge variant={health?.ollama === "ok" ? "success" : "destructive"}>{health?.ollama || "unknown"}</Badge></div>
+              <div className="flex items-center gap-2"><span className="text-sm text-muted-foreground">API:</span><Badge variant={health?.checks?.api?.status === "ok" ? "success" : "destructive"}>{health?.checks?.api?.status || "unknown"}</Badge></div>
+              <div className="flex items-center gap-2"><span className="text-sm text-muted-foreground">Qdrant:</span><Badge variant={health?.checks?.qdrant?.status === "ok" ? "success" : "destructive"}>{health?.checks?.qdrant?.status || "unknown"}</Badge></div>
+              <div className="flex items-center gap-2"><span className="text-sm text-muted-foreground">Ollama:</span><Badge variant={health?.checks?.ollama?.status === "ok" ? "success" : "destructive"}>{health?.checks?.ollama?.status || "unknown"}</Badge></div>
             </div>
           )}
         </CardContent>

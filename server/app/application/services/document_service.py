@@ -93,7 +93,7 @@ class DocumentService:
                         filename = await self._unique_filename(uow, owner_id, effective_group_id, filename)
                     else:
                         replace_id = existing.id
-                        self._vector_store.delete_by_document_id(existing.id)
+                        await self._vector_store.delete_by_document_id(existing.id)
                         if existing.source_path:
                             self._file_storage.delete_file(existing.source_path)
                         await uow.documents.delete(existing.id)
@@ -247,7 +247,7 @@ class DocumentService:
             if not doc.can_be_deleted_by(user_id, role, user_group_ids):
                 raise BusinessRuleViolation("Can only delete your own documents")
 
-            self._vector_store.delete_by_document_id(document_id)
+            await self._vector_store.delete_by_document_id(document_id)
 
             if doc.source_path:
                 self._file_storage.delete_file(doc.source_path)

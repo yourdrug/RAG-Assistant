@@ -96,9 +96,9 @@ class DocumentProcessor:
                     if doc_date:
                         doc.metadata["doc_date"] = doc_date
 
-                chunks = self._splitter.split(docs)
-                for chunk in chunks:
-                    chunk.metadata.update(
+                raw_chunks = self._splitter.split(docs)
+                for rc in raw_chunks:
+                    rc.metadata.update(
                         {
                             "document_id": document_id,
                             "visibility": visibility,
@@ -106,20 +106,20 @@ class DocumentProcessor:
                             "group_id": group_id,
                         }
                     )
-                    section = chunk.metadata.get("section")
+                    section = rc.metadata.get("section")
                     if section:
-                        chunk.page_content = f"[Раздел: {section}]\n{chunk.page_content}"
+                        rc.page_content = f"[Раздел: {section}]\n{rc.page_content}"
 
                 from domain.entities.chunk import Chunk
 
-                domain_chunks = [Chunk(content=c.page_content, metadata=c.metadata) for c in chunks]
+                domain_chunks = [Chunk(content=rc.page_content, metadata=rc.metadata) for rc in raw_chunks]
 
-                vector_size = len(self._vector_store.generate_embeddings("test"))
-                self._vector_store.ensure_collection(vector_size, reset=False)
-                self._vector_store.upload_documents(domain_chunks)
+                vector_size = len(await self._vector_store.generate_embeddings("test"))
+                await self._vector_store.ensure_collection(vector_size, reset=False)
+                await self._vector_store.upload_documents(domain_chunks)
 
                 if replace_id is not None:
-                    self._vector_store.delete_by_document_id(replace_id)
+                    await self._vector_store.delete_by_document_id(replace_id)
                     old = await uow.documents.get_by_id(replace_id)
                     if old and old.source_path:
                         self._file_storage.delete_file(old.source_path)
@@ -127,11 +127,11 @@ class DocumentProcessor:
 
                 total_chars = sum(len(d.page_content) for d in docs)
                 await uow.documents.update_status(
-                    document_id, "done", chunks=len(chunks), chars=total_chars, warning=warning_message
+                    document_id, "done", chunks=len(raw_chunks), chars=total_chars, warning=warning_message
                 )
 
             status = "done"
-            INGEST_CHUNKS_TOTAL.inc(len(chunks))
+            INGEST_CHUNKS_TOTAL.inc(len(raw_chunks))
 
         except Exception as e:
             log.exception("Document processing failed for doc %d: %s", document_id, e)
