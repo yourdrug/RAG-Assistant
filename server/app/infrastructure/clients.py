@@ -18,10 +18,10 @@ log = logging.getLogger("default")
 
 @functools.lru_cache(maxsize=1)
 def get_embeddings() -> HuggingFaceEmbeddings:
-    log.info("Loading embedding model %s ...", settings.embed_model)
+    log.info("Loading embedding model %s on %s ...", settings.embed_model, settings.embed_resolved_device)
     return HuggingFaceEmbeddings(
         model_name=settings.embed_model,
-        model_kwargs={"device": settings.resolved_device},
+        model_kwargs={"device": settings.embed_resolved_device},
         encode_kwargs={"normalize_embeddings": True, "batch_size": settings.embed_batch_size},
     )
 
@@ -63,11 +63,11 @@ def get_llm_for_breadth(breadth: str) -> ChatOllama:
 
 @functools.lru_cache(maxsize=1)
 def get_reranker() -> CrossEncoder:
-    log.info("Loading reranker %s ...", settings.rerank_model)
+    log.info("Loading reranker %s on %s ...", settings.rerank_model, settings.rerank_resolved_device)
     reranker = CrossEncoder(
         settings.rerank_model,
         max_length=1024,
-        device=settings.resolved_device,
+        device=settings.rerank_resolved_device,
     )
     log.info("Reranker loaded")
     return reranker

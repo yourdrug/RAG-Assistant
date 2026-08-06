@@ -6,6 +6,7 @@ from domain.entities.raw_document import RawDocument
 
 from infrastructure.ml.ingestion import (
     PARSERS,
+    _parse_docx,
     parse_docx_sections,
     parse_markdown_sections,
     parse_pdf,
@@ -36,20 +37,32 @@ class LangchainDocumentParser:
             return self._sections_to_documents(parse_markdown_sections(file_path), file_path)
 
         if ext in (".docx", ".doc"):
-            return self._sections_to_documents(parse_docx_sections(file_path), file_path)
+            sections = parse_docx_sections(file_path)
+            # Get page metadata from docx page break detection
+            _text, page_meta = _parse_docx(file_path)
+            return self._sections_to_documents(sections, file_path, page_meta)
 
         parser = PARSERS.get(ext)
         if parser is None:
             raise RuntimeError(f"Unsupported format: {ext}")
 
-        text = parser(file_path)
+        result = parser(file_path)
+        # Parsers may return str or tuple[str, dict]
+        if isinstance(result, tuple):
+            text, _meta = result
+        else:
+            text = result
         if not text or len(text.strip()) < 20:
             raise RuntimeError("Too little text in document")
 
         return [RawDocument(page_content=text, metadata={"source": file_path.name})]
 
     @staticmethod
-    def _sections_to_documents(sections: list[tuple[str | None, str]], file_path: Path) -> list[RawDocument]:
+    def _sections_to_documents(
+        sections: list[tuple[str | None, str]],
+        file_path: Path,
+        page_meta: dict | None = None,
+    ) -> list[RawDocument]:
         docs = []
         for heading, content in sections:
             if not content.strip():
@@ -57,6 +70,8 @@ class LangchainDocumentParser:
             metadata: dict = {"source": file_path.name}
             if heading:
                 metadata["section"] = heading
+            if page_meta:
+                metadata.update(page_meta)
             docs.append(RawDocument(page_content=content, metadata=metadata))
 
         if not docs:
