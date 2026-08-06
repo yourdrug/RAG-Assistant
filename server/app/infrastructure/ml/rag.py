@@ -155,7 +155,7 @@ def build_prompt(breadth: str = "narrow") -> ChatPromptTemplate:
         "3. Отвечай на том же языке, на котором задан вопрос.",
         rule3,
     )
-    # Релевантный номер:原来的rule3 → rule4,原来的rule4-7 → rule5-8
+
     system_text = system_text.replace(
         "4. Используй точные термины",
         "4. Используй точные термины",
@@ -175,12 +175,12 @@ def build_prompt(breadth: str = "narrow") -> ChatPromptTemplate:
 
 
 async def rerank_documents(
-    question: str,
-    docs: list,
-    top_n: int,
-    reranker=None,
-    min_score: float | None = None,
-    score_gap_ratio: float | None = None,
+        question: str,
+        docs: list,
+        top_n: int,
+        reranker=None,
+        min_score: float | None = None,
+        score_gap_ratio: float | None = None,
 ) -> list[tuple]:
     """
     Переранжирует кандидатов кросс-энкодером и возвращает top_n лучших

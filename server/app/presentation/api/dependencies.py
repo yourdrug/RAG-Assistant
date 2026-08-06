@@ -26,13 +26,16 @@ from infrastructure.ml.config_subscribers import (
     apply_to_settings,
     audit_log_config_change,
     invalidate_bm25_cache_on_hybrid_toggle,
+    invalidate_llm_cache,
+    invalidate_paddle_ocr_cache,
+    invalidate_storage_cache,
 )
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
 from infrastructure.ml.rag_service import RagService
 from infrastructure.repositories.qdrant_vector_store_repository import QdrantVectorStoreRepository
 from infrastructure.services.benchmark_service import BenchmarkService
 from infrastructure.services.ingestion_service import IngestionService
-from infrastructure.storage import get_storage
+from infrastructure.storage import LazyStorage
 from infrastructure.uow_factory import UnitOfWorkFactory
 
 log = logging.getLogger("default")
@@ -43,6 +46,9 @@ log = logging.getLogger("default")
 
 event_bus.subscribe(ConfigParameterChanged, apply_to_settings)
 event_bus.subscribe(ConfigParameterChanged, invalidate_bm25_cache_on_hybrid_toggle)
+event_bus.subscribe(ConfigParameterChanged, invalidate_llm_cache)
+event_bus.subscribe(ConfigParameterChanged, invalidate_paddle_ocr_cache)
+event_bus.subscribe(ConfigParameterChanged, invalidate_storage_cache)
 event_bus.subscribe(ConfigParameterChanged, audit_log_config_change)
 
 # ---------------------------------------------------------------------------
@@ -50,7 +56,7 @@ event_bus.subscribe(ConfigParameterChanged, audit_log_config_change)
 # ---------------------------------------------------------------------------
 
 _vector_store_repo = QdrantVectorStoreRepository()
-_file_storage = get_storage()
+_file_storage = LazyStorage()  # resolves lazily on first access; re-resolves after cache_clear()
 _uow_factory = UnitOfWorkFactory(database=database)
 _document_parser = LangchainDocumentParser()
 _document_splitter = LangchainDocumentSplitter()

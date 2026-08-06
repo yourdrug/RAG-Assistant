@@ -41,7 +41,8 @@ def get_llm() -> ChatOllama:
     return ChatOllama(
         model=settings.llm_model,
         base_url=settings.ollama_base_url,
-        temperature=0.1,
+        temperature=settings.llm_temperature,
+        top_p=settings.llm_top_p,
         num_ctx=settings.llm_num_ctx_narrow,
     )
 
@@ -53,7 +54,8 @@ def get_llm_for_breadth(breadth: str) -> ChatOllama:
     return ChatOllama(
         model=settings.llm_model,
         base_url=settings.ollama_base_url,
-        temperature=0.1,
+        temperature=settings.llm_temperature,
+        top_p=settings.llm_top_p,
         num_predict=num_predict,
         num_ctx=num_ctx,
     )

@@ -1,12 +1,10 @@
 "use client";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { apiClient } from "@/shared/api/client";
-import { queryKeys } from "@/shared/api/query-keys";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Badge } from "@/shared/ui/badge";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { Cpu, Brain, ScanText, FileText } from "lucide-react";
-import toast from "react-hot-toast";
 
 interface ModelsInfo {
   llm_model: string;

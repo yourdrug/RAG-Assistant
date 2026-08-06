@@ -164,6 +164,24 @@ class S3Storage:
         self.client.delete_object(Bucket=self.bucket, Key=key)
 
 
+class LazyStorage:
+    """Lazy proxy — calls get_storage() on first attribute access.
+
+    After get_storage().cache_clear() the next access creates a fresh instance.
+    """
+
+    def __init__(self):
+        self._resolved = None
+
+    def _ensure(self):
+        if self._resolved is None:
+            self._resolved = get_storage()
+        return self._resolved
+
+    def __getattr__(self, name):
+        return getattr(self._ensure(), name)
+
+
 @functools.lru_cache(maxsize=1)
 def get_storage() -> FileStorage:
     if settings.file_backend == "s3":
