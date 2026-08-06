@@ -289,7 +289,7 @@ class ModelsInfoResponse(BaseModel):
     llm_model: str
     embed_model: str
     rerank_model: str
-    rerank_device: str
+    device: str
     ocr_engine: str
     ocr_enabled: bool
     ollama_models: list[str]

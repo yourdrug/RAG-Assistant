@@ -10,7 +10,7 @@ interface ModelsInfo {
   llm_model: string;
   embed_model: string;
   rerank_model: string;
-  rerank_device: string;
+  device: string;
   ocr_engine: string;
   ocr_enabled: boolean;
   ollama_models: string[] | null;
@@ -103,8 +103,8 @@ export function AdminModelsPage() {
         <CardContent>
           <div className="space-y-3">
             <div className="flex justify-between border-b pb-2">
-              <span className="text-sm text-muted-foreground">Reranker Device</span>
-              <span className="text-sm font-medium">{data?.rerank_device}</span>
+              <span className="text-sm text-muted-foreground">Device</span>
+              <span className="text-sm font-medium">{data?.device}</span>
             </div>
             <div className="flex justify-between border-b pb-2">
               <span className="text-sm text-muted-foreground">OCR Enabled</span>

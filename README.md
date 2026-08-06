@@ -58,7 +58,7 @@ task chat -- "Вопрос"
 LLM_MODEL=qwen2.5:14b          # или mistral-nemo:12b, qwen2.5:7b
 EMBED_MODEL=BAAI/bge-m3
 RERANK_MODEL=BAAI/bge-reranker-v2-m3
-RERANK_DEVICE=cpu               # cuda если есть GPU
+DEVICE=cpu                        # cuda если есть GPU
 OCR_ENGINE=paddleocr            # paddleocr | surya | auto
 JWT_SECRET_KEY=change-me        # openssl rand -hex 32
 ADMIN_EMAIL=admin@example.com

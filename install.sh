@@ -240,21 +240,8 @@ fi
 # 5. Сборка и запуск
 # ---------------------------------------------------------------------------
 
-# RAG_USE_PREBUILT=1 — взять готовый образ из GHCR вместо сборки из исходников
-# (быстрее в разы, не требует скачивать/компилировать torch/paddleocr локально).
-# По умолчанию выключено — собираем из исходников, это всегда работает, даже
-# если релиз ещё ни разу не публиковался.
-if [ "${RAG_USE_PREBUILT:-0}" = "1" ]; then
-    COMPOSE_FILES="-f docker-compose.prod.yml"
-    log "RAG_USE_PREBUILT=1 — тяну готовый образ из GHCR вместо сборки ..."
-    # shellcheck disable=SC2086
-    docker compose $COMPOSE_FILES pull server
-else
-    COMPOSE_FILES=""
-    log "Собираю образ (первый раз — долго, тянет torch/paddleocr, несколько GB)..."
-    log "(быстрее: RAG_USE_PREBUILT=1 перед install.sh — готовый образ вместо сборки)"
-    task build
-fi
+log "Собираю образ (первый раз — долго, тянет torch/paddleocr, несколько GB)..."
+task build
 
 if [ "$ALREADY_CONFIGURED" = false ] && [ "${MODE:-1}" = "2" ]; then
     log "Поднимаю стек с Caddy и авто-HTTPS ..."

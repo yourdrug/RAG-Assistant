@@ -50,29 +50,35 @@ tasks:
   build:
     desc: Собрать образ server (после изменений в Dockerfile / pyproject.toml)
     cmds:
-      - "{{.COMPOSE}} build server"
+      - "{{.COMPOSE}} --env-file .env.cpu build server"
 
   build:gpu:
     desc: Собрать образ server с CUDA/PyTorch GPU
     cmds:
-      - "{{.COMPOSE}} -f docker-compose.yml -f docker-compose.gpu.yml build server"
+      - "{{.COMPOSE}} --env-file .env.gpu build server"
 
   up:
     desc: Поднять весь стек (qdrant, ollama, postgres, server) в фоне — без Caddy/домена
     cmds:
-      - "{{.COMPOSE}} up -d"
+      - "{{.COMPOSE}} --env-file .env.cpu up -d"
       - task: ps
 
   up:gpu:
     desc: Поднять стек с GPU (нужен nvidia-container-toolkit + nvidia-smi)
     cmds:
-      - "{{.COMPOSE}} -f docker-compose.yml -f docker-compose.gpu.yml up -d"
+      - "{{.COMPOSE}} --env-file .env.gpu up -d"
       - task: ps
 
-  up:public:
-    desc: "То же + Caddy с авто-HTTPS на своём домене (нужен DOMAIN в .env — см. README)"
+  up:cpu:public:
+    desc: "CPU + Caddy с авто-HTTPS (нужен DOMAIN в .env)"
     cmds:
-      - "{{.COMPOSE}} --profile domain up -d"
+      - "{{.COMPOSE}} --env-file .env.cpu --profile domain up -d"
+      - task: ps
+
+  up:gpu:public:
+    desc: "GPU + Caddy с авто-HTTPS (нужен nvidia-container-toolkit + DOMAIN в .env)"
+    cmds:
+      - "{{.COMPOSE}} --env-file .env.gpu --profile domain up -d"
       - task: ps
 
   down:
@@ -84,33 +90,6 @@ tasks:
     desc: "Перезапустить сервис (task restart -- server)"
     cmds:
       - "{{.COMPOSE}} restart {{.CLI_ARGS | default \"server\"}}"
-
-  # -------------------------------------------------------------------------
-  # Продакшн — прекомпилированный образ из GHCR, без сборки из исходников.
-  # Публикуется .github/workflows/release.yml. См. README → «Прекомпилированные образы».
-  # -------------------------------------------------------------------------
-
-  prod:pull:
-    desc: Скачать готовый образ server из GHCR (вместо сборки из исходников)
-    cmds:
-      - docker compose -f docker-compose.prod.yml pull server
-
-  prod:up:
-    desc: Поднять стек из готового образа (после prod:pull) — без Caddy/домена
-    cmds:
-      - docker compose -f docker-compose.prod.yml up -d
-      - docker compose -f docker-compose.prod.yml ps
-
-  prod:up:public:
-    desc: То же + Caddy с авто-HTTPS (нужен DOMAIN в .env)
-    cmds:
-      - docker compose -f docker-compose.prod.yml --profile domain up -d
-      - docker compose -f docker-compose.prod.yml ps
-
-  prod:down:
-    desc: Остановить prod-стек (данные в data/ сохраняются)
-    cmds:
-      - docker compose -f docker-compose.prod.yml --profile domain down
 
   ps:
     desc: Статус контейнеров

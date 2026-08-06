@@ -21,7 +21,7 @@ def get_embeddings() -> HuggingFaceEmbeddings:
     log.info("Loading embedding model %s ...", settings.embed_model)
     return HuggingFaceEmbeddings(
         model_name=settings.embed_model,
-        model_kwargs={"device": "cpu"},
+        model_kwargs={"device": settings.resolved_device},
         encode_kwargs={"normalize_embeddings": True, "batch_size": settings.embed_batch_size},
     )
 
@@ -67,7 +67,7 @@ def get_reranker() -> CrossEncoder:
     reranker = CrossEncoder(
         settings.rerank_model,
         max_length=1024,
-        device=settings.rerank_device,
+        device=settings.resolved_device,
     )
     log.info("Reranker loaded")
     return reranker

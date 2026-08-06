@@ -68,6 +68,10 @@ services:
         reservations:
           cpus: "2"
           memory: 4G
+          devices:
+            - driver: nvidia
+              count: ${GPU_COUNT:-0}
+              capabilities: [gpu]
     healthcheck:
       test: [ "CMD-SHELL", "bash -c '</dev/tcp/localhost/11434' || exit 1" ]
       interval: 10s
@@ -146,7 +150,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      target: development
+      target: development-${BUILD_TARGET:-cpu}
+      args:
+        BUILD_DATE: ${BUILD_DATE:-}
     hostname: rag-server
     container_name: rag-server
     entrypoint: [ "./entrypoint.sh" ]
@@ -161,6 +167,8 @@ services:
     env_file:
       - path: server/.env
         required: true
+    environment:
+      DEVICE: ${DEVICE:-cpu}
     volumes:
       - type: bind
         source: server/app
@@ -201,6 +209,10 @@ services:
         reservations:
           cpus: "1"
           memory: 4G
+          devices:
+            - driver: nvidia
+              count: ${GPU_COUNT:-0}
+              capabilities: [gpu]
     depends_on:
       qdrant:
         condition: service_healthy
@@ -244,6 +256,21 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    restart: unless-stopped
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    hostname: rag-client
+    container_name: rag-client
+    expose:
+      - "80/tcp"
+    healthcheck:
+      test: ["CMD", "curl", "--silent", "--fail", "http://localhost:80"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
 
   caddy:
@@ -301,6 +328,8 @@ services:
     depends_on:
       server:
         condition: service_healthy
+    networks:
+      - default
     restart: unless-stopped
 
 networks:
