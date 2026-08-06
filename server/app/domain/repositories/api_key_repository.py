@@ -8,7 +8,9 @@ from domain.entities.api_key import ApiKey
 
 
 class ApiKeyRepository(Protocol):
-    async def create(self, user_id: int, key_hash: str, key_prefix: str, name: str | None = None) -> ApiKey: ...
+    async def create(
+        self, user_id: int, key_hash: str, key_prefix: str, name: str | None = None
+    ) -> ApiKey: ...
 
     async def list_for_user(self, user_id: int) -> list[ApiKey]: ...
 

@@ -20,7 +20,8 @@ from infrastructure.ml.metrics import (
     INGEST_PDF_PAGES_TOTAL,
 )
 from infrastructure.storage import FileStorage
-from infrastructure.uow_factory import UnitOfWorkFactory
+
+from application.ports.unit_of_work_factory import UnitOfWorkFactory
 
 log = logging.getLogger("default")
 

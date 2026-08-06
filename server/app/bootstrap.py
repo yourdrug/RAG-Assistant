@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import logging
 
+from application.ports.unit_of_work_factory import UnitOfWorkFactory
 from config import settings
 from infrastructure.auth.password_hasher import BCryptPasswordHasher
-from infrastructure.uow_factory import UnitOfWorkFactory
 
 logger = logging.getLogger("default")
 
 
 async def bootstrap_admin(uow_factory: UnitOfWorkFactory) -> None:
-    async with uow_factory.create() as uow:
+    async with uow_factory.create(master=True) as uow:
         if await uow.users.exists_admin():
             return
 

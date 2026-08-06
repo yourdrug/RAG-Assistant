@@ -17,9 +17,9 @@ from domain.services.access_control import (
 from domain.value_objects.roles import UserKind, UserRole
 from domain.value_objects.visibility import DocumentVisibility
 from infrastructure.storage import FileStorage
-from infrastructure.uow_factory import UnitOfWorkFactory
 
 from application.dto.document_dto import DocumentDTO
+from application.ports.unit_of_work_factory import UnitOfWorkFactory
 
 log = logging.getLogger(__name__)
 

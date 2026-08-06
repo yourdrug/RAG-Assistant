@@ -7,9 +7,9 @@ No db/session parameters.
 from __future__ import annotations
 
 from infrastructure.services.ingestion_service import IngestionService
-from infrastructure.uow_factory import UnitOfWorkFactory
 
 from application.dto.ingest_dto import IngestRegistryItemDTO, IngestRegistryResult, IngestStatusResult
+from application.ports.unit_of_work_factory import UnitOfWorkFactory
 
 
 class IngestAppService:

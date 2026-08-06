@@ -110,6 +110,14 @@ class DocumentModel(BaseModel):
 
 
 class ConfigParameterModel(BaseModel):
+    """Dynamic configuration parameters — hot-reloadable without restart.
+
+    WARNING: This table is NOT suitable for storing secrets (JWT keys, DB passwords,
+    API keys, etc.). Values are returned in plaintext via GET /admin/config, logged
+    in audit_log_config_change, and visible to any admin user. Use .env / environment
+    variables for sensitive configuration.
+    """
+
     __tablename__ = "config_parameters"
 
     key: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
@@ -119,6 +127,7 @@ class ConfigParameterModel(BaseModel):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     min_value: Mapped[float | None] = mapped_column(nullable=True)
     max_value: Mapped[float | None] = mapped_column(nullable=True)
+    allowed_values: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 class ApiKeyModel(BaseModel):

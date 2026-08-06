@@ -24,14 +24,27 @@ async def _bootstrap_admin(uow_factory) -> None:
 
 
 async def _load_config_from_db(uow_factory) -> None:
-    """Load dynamic config from DB and apply to in-memory settings."""
-    from presentation.api.routes.admin_config import _apply_config_to_settings
+    """При старте — прогнать все сохранённые параметры через событийную шину.
+
+    Единый путь применения конфига: и runtime-обновления, и startup идут
+    через ConfigParameterChanged → EventBus → подписчики.
+    """
+    from domain.events.config_events import ConfigParameterChanged
+
+    from infrastructure.events.in_process_event_bus import event_bus
 
     try:
         async with uow_factory.create(master=True) as uow:
             rows = await uow.config_parameters.get_all()
             for r in rows:
-                _apply_config_to_settings(r.key, r.value, r.value_type)
-            logger.info("Loaded %d config parameters from DB", len(rows))
+                event_bus.publish(
+                    ConfigParameterChanged(
+                        key=r.key,
+                        old_value=None,
+                        new_value=r.value,
+                        value_type=r.value_type,
+                    )
+                )
+            logger.info("Loaded %d config parameters via event bus", len(rows))
     except Exception as e:
         logger.warning("Failed to load config from DB: %s", e)

@@ -67,13 +67,18 @@ async def _count_active_jobs() -> int:
 
 @router.get("/health", response_model=HealthResponse)
 async def health():
+    from presentation.api.dependencies import get_config_listener
+
     qdrant = _check_qdrant()
     ollama = await _check_ollama()
     postgres = await _check_postgres()
     active_jobs = await _count_active_jobs()
 
+    listener = get_config_listener()
+    config_listener_status = HealthCheck(status="ok" if listener.is_connected else "error: not connected")
+
     overall = "healthy"
-    if any(c.status.startswith("error") for c in [qdrant, ollama, postgres]):
+    if any(c.status.startswith("error") for c in [qdrant, ollama, postgres, config_listener_status]):
         overall = "degraded"
 
     return HealthResponse(
@@ -85,6 +90,7 @@ async def health():
             "qdrant": qdrant,
             "ollama": ollama,
             "postgres": postgres,
+            "config_listener": config_listener_status,
         },
         background_jobs={"running": active_jobs},
     )

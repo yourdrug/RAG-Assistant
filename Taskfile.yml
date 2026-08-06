@@ -3,7 +3,7 @@ version: "3"
 vars:
   COMPOSE: docker compose
 
-dotenv: ["server/.env"]
+dotenv: [ "server/.env" ]
 
 tasks:
 
@@ -286,33 +286,29 @@ tasks:
 
   db:migrate:
     desc: "Применить все pending миграции (alembic upgrade head)"
-    dir: server
     cmds:
-      - alembic upgrade head
+      - "{{.COMPOSE}} exec server alembic upgrade head"
 
   db:migrate:make:
     desc: "Создать новую миграцию (task db:migrate:make -- \"описание\")"
-    dir: server
+    aliases: [ mm ]
     cmds:
-      - alembic revision --autogenerate -m "{{.CLI_ARGS}}"
+      - "{{.COMPOSE}} exec server alembic revision --autogenerate -m {{.CLI_ARGS}}"
 
   db:migrate:current:
     desc: Показать текущую версию миграций
-    dir: server
     cmds:
-      - alembic current
+      - "{{.COMPOSE}} exec server alembic current"
 
   db:migrate:history:
     desc: История миграций
-    dir: server
     cmds:
-      - alembic history
+      - "{{.COMPOSE}} exec server alembic history"
 
   db:migrate:downgrade:
     desc: "Откатить на одну миграцию вниз (alembic downgrade -1)"
-    dir: server
     cmds:
-      - alembic downgrade -1
+      - "{{.COMPOSE}} exec server alembic downgrade -1"
 
   # -------------------------------------------------------------------------
   # Локальная разработка без Docker (uv)

@@ -25,7 +25,9 @@ class SQLAlchemyConfigParameterRepository:
         return self._to_entity(orm) if orm else None
 
     async def update_value(self, key: str, value: str) -> None:
-        result = await self._db.execute(select(ConfigParameterModel).where(ConfigParameterModel.key == key))
+        result = await self._db.execute(
+            select(ConfigParameterModel).where(ConfigParameterModel.key == key).with_for_update()
+        )
         orm = result.scalar_one_or_none()
         if orm:
             orm.value = value
@@ -33,6 +35,9 @@ class SQLAlchemyConfigParameterRepository:
 
     @staticmethod
     def _to_entity(orm: ConfigParameterModel) -> ConfigParameter:
+        allowed = orm.allowed_values
+        if isinstance(allowed, dict):
+            allowed = allowed.get("values")
         return ConfigParameter(
             key=orm.key,
             value=orm.value,
@@ -41,4 +46,5 @@ class SQLAlchemyConfigParameterRepository:
             description=orm.description,
             min_value=orm.min_value,
             max_value=orm.max_value,
+            allowed_values=allowed,
         )

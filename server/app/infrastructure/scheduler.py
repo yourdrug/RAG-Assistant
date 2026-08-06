@@ -63,6 +63,13 @@ class Scheduler:
             seconds=30,
         )
 
+        # Config resync — страховка от потерянных NOTIFY (every 5 min)
+        self.add_interval_job(
+            job_id="config_resync",
+            func=self._periodic_config_resync,
+            seconds=300,
+        )
+
     @staticmethod
     @handle_exceptions
     async def _periodic_job_cleanup() -> None:
@@ -83,6 +90,20 @@ class Scheduler:
         from infrastructure.ml.metrics import collect_infra_metrics
 
         await collect_infra_metrics()
+
+    @staticmethod
+    @handle_exceptions
+    async def _periodic_config_resync() -> None:
+        """Страховочная полная сверка config_parameters -> settings.
+
+        Не заменяет LISTEN/NOTIFY (тот даёт near-real-time применение), а закрывает
+        редкое окно потери NOTIFY между network blip и переустановкой listener.
+        """
+        from presentation.api.dependencies import get_config_listener
+
+        listener = get_config_listener()
+        if listener.is_connected:
+            await listener.resync(trigger="periodic")
 
     async def startup(self) -> None:
         """Configure and start the scheduler."""

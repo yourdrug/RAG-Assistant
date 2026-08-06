@@ -10,6 +10,7 @@ from collections.abc import AsyncIterator
 
 from config import settings
 from domain.value_objects.chat_context import ChatContext
+from domain.value_objects.rag_settings import RagSettings
 from langchain.schema import Document as LCDocument
 
 from infrastructure.acl import build_qdrant_filter
@@ -110,6 +111,7 @@ class RagService:
         history: list,
         ctx: ChatContext,
     ) -> AsyncIterator[str]:
+        rag = RagSettings.from_settings()
         t_pipeline_start = time.monotonic()
 
         user = {"id": ctx.user_id, "kind": ctx.user_kind}
@@ -145,14 +147,14 @@ class RagService:
             breadth = "narrow"
         RAG_BREADTH_TOTAL.labels(breadth=breadth).inc()
 
-        fetch_k = settings.retriever_fetch_k_broad if breadth == "broad" else settings.retriever_fetch_k
-        top_k = settings.retriever_top_k_broad if breadth == "broad" else settings.retriever_top_k
+        fetch_k = rag.retriever_fetch_k_broad if breadth == "broad" else rag.retriever_fetch_k
+        top_k = rag.retriever_top_k_broad if breadth == "broad" else rag.retriever_top_k
 
         prompt = build_prompt(breadth)
 
         bm25_index = get_bm25_index()
 
-        if settings.hybrid_enabled and bm25_index is not None:
+        if rag.hybrid_enabled and bm25_index is not None:
             t0 = time.monotonic()
             dense_coro = _qdrant_dense_search(query_for_search, fetch_k, access_filter)
             sparse_coro = asyncio.to_thread(bm25_index.search_with_hashes, query_for_search, fetch_k)
@@ -165,9 +167,9 @@ class RagService:
             merged_hashes = rrf_merge(
                 [(h, s) for h, s, _ in dense_results],
                 sparse_results,
-                k=settings.rrf_k,
-                dense_weight=settings.dense_weight,
-                sparse_weight=settings.sparse_weight,
+                k=rag.rrf_k,
+                dense_weight=rag.dense_weight,
+                sparse_weight=rag.sparse_weight,
             )
 
             candidates = []
@@ -193,7 +195,7 @@ class RagService:
             t0 = time.monotonic()
             retriever = get_vector_store().as_retriever(
                 search_type="similarity",
-                search_kwargs={"k": settings.retriever_fetch_k, "filter": access_filter},
+                search_kwargs={"k": rag.retriever_fetch_k, "filter": access_filter},
             )
             candidates = await asyncio.to_thread(retriever.invoke, query_for_search)
             RAG_STAGE_DURATION.labels("dense_search").observe(time.monotonic() - t0)
@@ -206,13 +208,13 @@ class RagService:
             candidates,
             top_n=top_k,
             reranker=get_reranker(),
-            min_score=settings.rerank_min_score,
-            score_gap_ratio=settings.rerank_score_gap_ratio,
+            min_score=rag.rerank_min_score,
+            score_gap_ratio=rag.rerank_score_gap_ratio,
         )
         RAG_STAGE_DURATION.labels("rerank").observe(time.monotonic() - t0)
 
         context = format_docs(docs)
-        sources = extract_sources(docs, min_score=settings.source_min_score)
+        sources = extract_sources(docs, min_score=rag.source_min_score)
 
         messages = prompt.format_messages(
             context=context,
@@ -231,7 +233,7 @@ class RagService:
 
         full_answer = "".join(answer_parts)
 
-        if settings.citation_filter_enabled and sources:
+        if rag.citation_filter_enabled and sources:
             sources = filter_cited_sources(full_answer, sources)
 
         avg_sim = sum(s for _, s in docs) / len(docs) if docs else 0.0

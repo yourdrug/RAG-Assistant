@@ -6,7 +6,16 @@ from typing import Protocol
 
 
 class ConfigParameter:
-    __slots__ = ("key", "value", "value_type", "category", "description", "min_value", "max_value")
+    __slots__ = (
+        "key",
+        "value",
+        "value_type",
+        "category",
+        "description",
+        "min_value",
+        "max_value",
+        "allowed_values",
+    )
 
     def __init__(
         self,
@@ -17,6 +26,7 @@ class ConfigParameter:
         description: str | None = None,
         min_value: float | None = None,
         max_value: float | None = None,
+        allowed_values: list[str] | None = None,
     ) -> None:
         self.key = key
         self.value = value
@@ -25,6 +35,7 @@ class ConfigParameter:
         self.description = description
         self.min_value = min_value
         self.max_value = max_value
+        self.allowed_values = allowed_values
 
 
 class ConfigParameterRepository(Protocol):

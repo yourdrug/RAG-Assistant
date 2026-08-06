@@ -13,9 +13,9 @@ from domain.entities.message import Message
 from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.message_role import MessageRole
 from domain.value_objects.roles import UserKind
-from infrastructure.uow_factory import UnitOfWorkFactory
 
 from application.dto.chat_dto import ChatResult
+from application.ports.unit_of_work_factory import UnitOfWorkFactory
 from application.services.chat_rag_port import ChatRAGPort
 
 log = logging.getLogger(__name__)

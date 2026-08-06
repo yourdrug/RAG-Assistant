@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import logging
 
-from application.uow import UnitOfWork
+from application.services.config_service import ConfigService
 from config import settings
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from qdrant_client import QdrantClient
 
 from presentation.api.auth_dependencies import require_admin
-from presentation.api.dependencies import get_uow
+from presentation.api.dependencies import create_config_service
 from presentation.api.routes.health import get_ollama_models, get_qdrant_status
 from presentation.api.schemas import (
     ConfigParamResponse,
@@ -26,47 +26,6 @@ router = APIRouter(tags=["admin-config"])
 
 
 # ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-_DYNAMIC_FIELDS = {
-    "retriever_fetch_k": ("retriever_fetch_k", int),
-    "retriever_top_k": ("retriever_top_k", int),
-    "retriever_fetch_k_broad": ("retriever_fetch_k_broad", int),
-    "retriever_top_k_broad": ("retriever_top_k_broad", int),
-    "history_window": ("history_window", int),
-    "chunk_size": ("chunk_size", int),
-    "chunk_overlap": ("chunk_overlap", int),
-    "hybrid_enabled": ("hybrid_enabled", bool),
-    "bm25_fetch_k": ("bm25_fetch_k", int),
-    "rrf_k": ("rrf_k", int),
-    "dense_weight": ("dense_weight", float),
-    "sparse_weight": ("sparse_weight", float),
-    "embed_batch_size": ("embed_batch_size", int),
-    "source_min_score": ("source_min_score", float),
-}
-
-
-def _apply_config_to_settings(key: str, raw_value: str, value_type: str) -> None:
-    """Apply a config value from DB to the in-memory settings object."""
-    attr, expected_type = _DYNAMIC_FIELDS.get(key, (key, None))
-    if not hasattr(settings, attr):
-        return
-
-    try:
-        if expected_type is bool:
-            setattr(settings, attr, raw_value.lower() in ("true", "1", "yes"))
-        elif expected_type is int:
-            setattr(settings, attr, int(raw_value))
-        elif expected_type is float:
-            setattr(settings, attr, float(raw_value))
-        else:
-            setattr(settings, attr, raw_value)
-    except (ValueError, TypeError) as e:
-        logger.warning("Failed to apply config %s=%r: %s", key, raw_value, e)
-
-
-# ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
 
@@ -74,9 +33,9 @@ def _apply_config_to_settings(key: str, raw_value: str, value_type: str) -> None
 @router.get("/admin/config", response_model=list[ConfigParamResponse])
 async def list_config(
     admin: dict = Depends(require_admin),
-    uow: UnitOfWork = Depends(get_uow),
+    config_service: ConfigService = Depends(create_config_service),
 ):
-    rows = await uow.config_parameters.get_all()
+    rows = await config_service.list_parameters()
     return [
         ConfigParamResponse(
             key=r.key,
@@ -96,41 +55,9 @@ async def update_config(
     key: str,
     body: ConfigParamUpdateRequest,
     admin: dict = Depends(require_admin),
-    uow: UnitOfWork = Depends(get_uow),
+    config_service: ConfigService = Depends(create_config_service),
 ):
-    param = await uow.config_parameters.get_by_key(key)
-    if param is None:
-        raise HTTPException(status_code=404, detail=f"Parameter '{key}' not found")
-
-    # Validate type
-    try:
-        if param.value_type == "int":
-            val = int(body.value)
-            if param.min_value is not None and val < param.min_value:
-                raise HTTPException(status_code=400, detail=f"Value must be >= {param.min_value}")
-            if param.max_value is not None and val > param.max_value:
-                raise HTTPException(status_code=400, detail=f"Value must be <= {param.max_value}")
-        elif param.value_type == "float":
-            val = float(body.value)
-            if param.min_value is not None and val < param.min_value:
-                raise HTTPException(status_code=400, detail=f"Value must be >= {param.min_value}")
-            if param.max_value is not None and val > param.max_value:
-                raise HTTPException(status_code=400, detail=f"Value must be <= {param.max_value}")
-        elif param.value_type == "bool":
-            if body.value.lower() not in ("true", "false", "1", "0", "yes", "no"):
-                raise HTTPException(status_code=400, detail="Value must be a boolean")
-    except HTTPException:
-        raise
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=f"Invalid value: {e}")
-
-    await uow.config_parameters.update_value(key, body.value)
-
-    # Apply to in-memory settings immediately
-    _apply_config_to_settings(key, body.value, param.value_type)
-    logger.info("Config updated: %s = %s", key, body.value)
-
-    param.value = body.value
+    param = await config_service.update_parameter(key, body.value, changed_by=admin["id"])
     return ConfigParamResponse(
         key=param.key,
         value=param.value,

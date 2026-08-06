@@ -141,6 +141,26 @@ OLLAMA_RAM_MEMORY_BYTES = Gauge(
     ["model"],
 )
 
+# ---------------------------------------------------------------------------
+# Config listener metrics
+# ---------------------------------------------------------------------------
+
+CONFIG_LISTENER_CONNECTED = Gauge(
+    "config_listener_connected",
+    "1 if Postgres LISTEN/NOTIFY connection for dynamic config is active, else 0",
+)
+
+CONFIG_RESYNC_TOTAL = Counter(
+    "config_resync_total",
+    "Number of full config resyncs performed",
+    ["trigger"],  # "reconnect" | "periodic" | "manual"
+)
+
+CONFIG_NOTIFY_RECEIVED_TOTAL = Counter(
+    "config_notify_received_total",
+    "Number of config_changed NOTIFY payloads received",
+)
+
 
 # ---------------------------------------------------------------------------
 # Helper: record RAG pipeline answer metrics (called after generation)

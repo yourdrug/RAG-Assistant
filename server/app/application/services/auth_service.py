@@ -11,9 +11,9 @@ from domain.services.password_hasher import IPasswordHasher
 from domain.services.token_provider import ITokenProvider
 from domain.value_objects.roles import UserKind, UserRole
 from infrastructure.auth.api_key_provider import api_key_provider
-from infrastructure.uow_factory import UnitOfWorkFactory
 
 from application.dto.auth_dto import CreateUserCommand, LoginCommand, LoginResult, UserDTO
+from application.ports.unit_of_work_factory import UnitOfWorkFactory
 
 
 class AuthService:
