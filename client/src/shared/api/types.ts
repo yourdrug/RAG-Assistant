@@ -63,6 +63,17 @@ export interface ConversationHistoryResponse {
   messages: MessageResponse[];
 }
 
+export interface ConversationListItem {
+  id: number;
+  title?: string | null;
+  created_at?: string | null;
+  message_count: number;
+}
+
+export interface ConversationListResponse {
+  conversations: ConversationListItem[];
+}
+
 // ─── Documents ───────────────────────────────────────────────────────────────
 
 export type DocumentVisibility =

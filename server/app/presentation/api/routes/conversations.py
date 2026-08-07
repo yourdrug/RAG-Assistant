@@ -4,13 +4,40 @@ from __future__ import annotations
 
 from application.uow import UnitOfWork
 from domain.value_objects.roles import UserRole
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from presentation.api.auth_dependencies import get_current_user
 from presentation.api.dependencies import get_uow
-from presentation.api.schemas import ConversationHistoryResponse, MessageResponse, NewConversationResponse
+from presentation.api.schemas import (
+    ConversationHistoryResponse,
+    ConversationListItem,
+    ConversationListResponse,
+    MessageResponse,
+    NewConversationResponse,
+)
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
+
+
+@router.get("", response_model=ConversationListResponse)
+async def list_conversations(
+    current_user: dict = Depends(get_current_user),
+    uow: UnitOfWork = Depends(get_uow),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+):
+    items = await uow.conversations.list_by_user(current_user["id"], limit=limit, offset=offset)
+    return ConversationListResponse(
+        conversations=[
+            ConversationListItem(
+                id=item.id,
+                title=item.title,
+                created_at=item.creation_date,
+                message_count=item.message_count,
+            )
+            for item in items
+        ]
+    )
 
 
 @router.post("", response_model=NewConversationResponse)

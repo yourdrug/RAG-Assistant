@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from domain.entities.conversation import Conversation
-from sqlalchemy import select
+from domain.repositories.conversation_repository import ConversationListItem
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from infrastructure.database.models import ConversationModel
+from infrastructure.database.models import ConversationModel, MessageModel
 
 
 class SQLAlchemyConversationRepository:
@@ -41,3 +42,59 @@ class SQLAlchemyConversationRepository:
             select(ConversationModel.user_id).where(ConversationModel.id == conversation_id)
         )
         return result.scalar_one_or_none()
+
+    async def list_by_user(self, user_id: int, limit: int = 50, offset: int = 0) -> list[ConversationListItem]:
+        min_msg_ids = (
+            select(
+                MessageModel.conversation_id,
+                func.min(MessageModel.id).label("min_id"),
+            )
+            .where(MessageModel.role == "user")
+            .group_by(MessageModel.conversation_id)
+            .subquery()
+        )
+
+        first_msg_sq = (
+            select(
+                min_msg_ids.c.conversation_id,
+                MessageModel.content.label("first_content"),
+            )
+            .join(MessageModel, MessageModel.id == min_msg_ids.c.min_id)
+            .subquery()
+        )
+
+        msg_count_sq = (
+            select(
+                MessageModel.conversation_id,
+                func.count().label("msg_count"),
+            )
+            .group_by(MessageModel.conversation_id)
+            .subquery()
+        )
+
+        result = await self._db.execute(
+            select(
+                ConversationModel.id,
+                ConversationModel.user_id,
+                ConversationModel.creation_date,
+                first_msg_sq.c.first_content,
+                func.coalesce(msg_count_sq.c.msg_count, 0).label("message_count"),
+            )
+            .outerjoin(first_msg_sq, ConversationModel.id == first_msg_sq.c.conversation_id)
+            .outerjoin(msg_count_sq, ConversationModel.id == msg_count_sq.c.conversation_id)
+            .where(ConversationModel.user_id == user_id)
+            .order_by(ConversationModel.creation_date.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+
+        return [
+            ConversationListItem(
+                id=row.id,
+                user_id=row.user_id,
+                creation_date=row.creation_date,
+                title=row.first_content,
+                message_count=row.message_count,
+            )
+            for row in result.all()
+        ]

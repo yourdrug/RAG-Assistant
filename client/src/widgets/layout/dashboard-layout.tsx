@@ -1,8 +1,8 @@
 "use client";
-import { useEffect, useState } from "react";
-import { Outlet, useNavigate, useLocation, Link } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { Outlet, useNavigate, useLocation, Link, useSearchParams } from "react-router-dom";
 import { useAuthStore } from "@/stores/auth-store";
-import { useCurrentUser } from "@/shared/api/hooks";
+import { useCurrentUser, useConversations } from "@/shared/api/hooks";
 import { userNavItems, adminNavItems } from "@/shared/config/nav";
 import { ThemeToggle } from "@/features/auth/theme-toggle";
 import { Button } from "@/shared/ui/button";
@@ -10,15 +10,19 @@ import { Avatar, AvatarFallback } from "@/shared/ui/avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/shared/ui/dropdown-menu";
 import { ScrollArea } from "@/shared/ui/scroll-area";
 import { Separator } from "@/shared/ui/separator";
-import { LogOut, User, Shield, Menu, X } from "lucide-react";
+import { LogOut, User, Shield, Menu, X, Plus, MessageSquare, History } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 
 export function DashboardLayout() {
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const { token, user, isAuthenticated, logout } = useAuthStore();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [convPanelOpen, setConvPanelOpen] = useState(false);
+  const convPanelRef = useRef<HTMLDivElement>(null);
   const { data: currentUser } = useCurrentUser();
+  const { data: convData } = useConversations();
 
   useEffect(() => {
     if (!isAuthenticated && !token) navigate("/login");
@@ -30,9 +34,60 @@ export function DashboardLayout() {
     }
   }, [currentUser]);
 
+  // Close conversation panel when clicking outside
+  useEffect(() => {
+    if (!convPanelOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (convPanelRef.current && !convPanelRef.current.contains(e.target as Node)) {
+        setConvPanelOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [convPanelOpen]);
+
   const handleLogout = () => { logout(); navigate("/login"); };
   const displayUser = currentUser || user;
   const isAdmin = displayUser?.role === "admin";
+  const activeConversationId = searchParams.get("id");
+
+  const handleNewChat = () => {
+    navigate("/chat");
+    setConvPanelOpen(false);
+    setSidebarOpen(false);
+  };
+
+  const handleSelectConversation = (id: number) => {
+    navigate(`/chat?id=${id}`);
+    setConvPanelOpen(false);
+    setSidebarOpen(false);
+  };
+
+  const handleChatClick = () => {
+    if (location.pathname === "/chat") {
+      setConvPanelOpen((p) => !p);
+    } else {
+      navigate("/chat");
+    }
+    setSidebarOpen(false);
+  };
+
+  const formatConvTitle = (title: string | null | undefined) => {
+    if (!title) return "New chat";
+    return title.length > 40 ? title.slice(0, 40) + "..." : title;
+  };
+
+  const formatConvDate = (dateStr: string | null | undefined) => {
+    if (!dateStr) return "";
+    const d = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now.getTime() - d.getTime();
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    if (diffDays === 0) return "Today";
+    if (diffDays === 1) return "Yesterday";
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" });
+  };
 
   return (
     <div className="flex h-screen bg-background">
@@ -53,12 +108,25 @@ export function DashboardLayout() {
           <nav className="space-y-1">
             {userNavItems.map((item) => {
               const Icon = item.icon;
-              const active = location.pathname === item.href || location.pathname.startsWith(item.href + "/");
+              const active = item.href === "/chat"
+                ? location.pathname === "/chat"
+                : location.pathname === item.href || location.pathname.startsWith(item.href + "/");
               return (
-                <Link key={item.href} to={item.href} onClick={() => setSidebarOpen(false)}
+                <Link key={item.href} to={item.href}
+                  onClick={(e) => {
+                    if (item.href === "/chat") {
+                      e.preventDefault();
+                      handleChatClick();
+                    } else {
+                      setSidebarOpen(false);
+                    }
+                  }}
                   className={cn("flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                     active ? "bg-sidebar-accent text-sidebar-accent-foreground" : "text-sidebar-foreground/70")}>
                   <Icon className="h-4 w-4" />{item.title}
+                  {item.href === "/chat" && (
+                    <History className="ml-auto h-3.5 w-3.5 text-sidebar-foreground/40" />
+                  )}
                 </Link>
               );
             })}
@@ -88,7 +156,52 @@ export function DashboardLayout() {
         </ScrollArea>
       </aside>
 
-      <div className="flex flex-1 flex-col overflow-hidden">
+      {/* Conversation history panel — part of flex flow, shifts main content */}
+      {convPanelOpen && (
+        <div ref={convPanelRef} className="hidden lg:flex flex-col w-72 shrink-0 border-r bg-sidebar">
+          <div className="flex h-14 items-center justify-between border-b px-4">
+            <div className="flex items-center gap-2">
+              <History className="h-4 w-4" />
+              <span className="font-semibold text-sm">Dialogues</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleNewChat} title="New chat">
+                <Plus className="h-3.5 w-3.5" />
+              </Button>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setConvPanelOpen(false)}>
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
+          <ScrollArea className="flex-1">
+            <nav className="space-y-0.5 p-2">
+              {convData?.conversations?.map((conv) => (
+                <button
+                  key={conv.id}
+                  onClick={() => handleSelectConversation(conv.id)}
+                  className={cn(
+                    "flex w-full items-start gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                    activeConversationId === String(conv.id)
+                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                      : "text-sidebar-foreground/70"
+                  )}
+                >
+                  <MessageSquare className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate">{formatConvTitle(conv.title)}</div>
+                    <div className="text-xs text-sidebar-foreground/40">{formatConvDate(conv.created_at)}</div>
+                  </div>
+                </button>
+              ))}
+              {convData?.conversations?.length === 0 && (
+                <p className="px-3 py-4 text-xs text-center text-sidebar-foreground/40">No dialogues yet</p>
+              )}
+            </nav>
+          </ScrollArea>
+        </div>
+      )}
+
+      <div className="flex flex-1 flex-col overflow-hidden min-w-0">
         <header className="flex h-14 items-center border-b px-4 lg:px-6">
           <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setSidebarOpen(true)}>
             <Menu className="h-5 w-5" />

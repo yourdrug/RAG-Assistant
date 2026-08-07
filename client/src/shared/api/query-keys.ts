@@ -12,6 +12,7 @@ export const queryKeys = {
   },
   conversations: {
     all: ["conversations"] as const,
+    list: () => [...queryKeys.conversations.all, "list"] as const,
     history: (id: number) => [...queryKeys.conversations.all, "history", id] as const,
   },
   groups: {

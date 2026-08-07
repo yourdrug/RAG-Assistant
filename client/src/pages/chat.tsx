@@ -1,5 +1,6 @@
 "use client";
 import {useCallback, useEffect, useRef, useState} from "react";
+import {useSearchParams} from "react-router-dom";
 import {useAuthStore} from "@/stores/auth-store";
 import {streamChat} from "@/shared/lib/sse";
 import {apiClient} from "@/shared/api/client";
@@ -15,14 +16,13 @@ interface Message {
     sources?: Source[];
 }
 
-const STORAGE_KEY = "rag_conversation_id";
-
 export function ChatPage() {
+    const [searchParams, setSearchParams] = useSearchParams();
     const [messages, setMessages] = useState<Message[]>([]);
     const [streamingMsg, setStreamingMsg] = useState<string | null>(null);
     const [conversationId, setConversationId] = useState<number | null>(() => {
-        const saved = localStorage.getItem(STORAGE_KEY);
-        return saved ? Number(saved) : null;
+        const urlId = searchParams.get("id");
+        return urlId ? Number(urlId) : null;
     });
     const [isStreaming, setIsStreaming] = useState(false);
     const [isLoadingHistory, setIsLoadingHistory] = useState(false);
@@ -39,9 +39,24 @@ export function ChatPage() {
         scroll();
     }, [messages, streamingMsg, scroll]);
 
+    // Sync conversationId with URL params
+    useEffect(() => {
+        const urlId = searchParams.get("id");
+        const newId = urlId ? Number(urlId) : null;
+        if (newId !== conversationId) {
+            setConversationId(newId);
+        }
+    }, [searchParams]);
+
     // Load conversation history when conversationId changes
     useEffect(() => {
-        if (!conversationId || !token) return;
+        if (!conversationId || !token) {
+            if (!conversationId) {
+                setMessages([]);
+                setSelectedSources([]);
+            }
+            return;
+        }
 
         const controller = new AbortController();
         setIsLoadingHistory(true);
@@ -60,8 +75,7 @@ export function ChatPage() {
             })
             .catch((err) => {
                 if (err?.code === "ERR_CANCELED") return;
-                // Conversation not found or error — start fresh
-                localStorage.removeItem(STORAGE_KEY);
+                setSearchParams({});
                 setConversationId(null);
             })
             .finally(() => setIsLoadingHistory(false));
@@ -84,7 +98,6 @@ export function ChatPage() {
                 hadChunksRef.current = true;
                 streamingContentRef.current += text;
                 setStreamingMsg(streamingContentRef.current);
-                console.log(text)
             },
             onDone: (data) => {
                 setMessages((p) => [...p, {
@@ -93,7 +106,7 @@ export function ChatPage() {
                     sources: data.sources
                 }]);
                 setConversationId(data.conversation_id);
-                localStorage.setItem(STORAGE_KEY, String(data.conversation_id));
+                setSearchParams({id: String(data.conversation_id)});
                 setStreamingMsg(null);
                 setIsStreaming(false);
             },
@@ -111,7 +124,6 @@ export function ChatPage() {
         if (hadChunksRef.current && streamingContentRef.current) {
             setMessages((p) => [...p, {role: "assistant", content: streamingContentRef.current}]);
         } else if (!hadChunksRef.current) {
-            // No chunks received — remove the user message we just added
             setMessages((p) => p.slice(0, -1));
         }
         setStreamingMsg(null);
@@ -125,7 +137,7 @@ export function ChatPage() {
         setIsStreaming(false);
         setConversationId(null);
         setSelectedSources([]);
-        localStorage.removeItem(STORAGE_KEY);
+        setSearchParams({});
     };
 
     return (

@@ -253,6 +253,17 @@ class ConversationHistoryResponse(BaseModel):
     messages: list[MessageResponse]
 
 
+class ConversationListItem(BaseModel):
+    id: int
+    title: str | None = None
+    created_at: datetime | None = None
+    message_count: int = 0
+
+
+class ConversationListResponse(BaseModel):
+    conversations: list[ConversationListItem]
+
+
 # ---------------------------------------------------------------------------
 # Groups
 # ---------------------------------------------------------------------------
