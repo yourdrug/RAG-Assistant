@@ -22,7 +22,9 @@ async def issue_api_key(
     auth_service: AuthService = Depends(create_auth_service),
 ):
     result = await auth_service.issue_api_key(client_user_id, name=req.name)
-    log_action("api_key.create", user_id=admin["id"], details={"client_user_id": client_user_id, "name": req.name})
+    log_action(
+        "api_key.create", user_id=admin["id"], details={"client_user_id": client_user_id, "name": req.name}
+    )
     return result
 
 

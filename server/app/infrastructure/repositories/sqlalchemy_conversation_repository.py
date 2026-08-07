@@ -43,7 +43,9 @@ class SQLAlchemyConversationRepository:
         )
         return result.scalar_one_or_none()
 
-    async def list_by_user(self, user_id: int, limit: int = 50, offset: int = 0) -> list[ConversationListItem]:
+    async def list_by_user(
+        self, user_id: int, limit: int = 50, offset: int = 0
+    ) -> list[ConversationListItem]:
         min_msg_ids = (
             select(
                 MessageModel.conversation_id,

@@ -53,9 +53,7 @@ class LogBufferHandler(logging.Handler):
 
 log_buffer = LogBufferHandler(capacity=2000)
 log_buffer.setFormatter(
-    logging.Formatter(
-        "[%(asctime)s] %(levelname)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
-    )
+    logging.Formatter("[%(asctime)s] %(levelname)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
 )
 
 

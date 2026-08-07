@@ -110,7 +110,11 @@ async def upload_document(
         rename_on_conflict=rename_on_conflict,
     )
 
-    log_action("document.upload", user_id=current_user["id"], details={"filename": filename, "visibility": visibility})
+    log_action(
+        "document.upload",
+        user_id=current_user["id"],
+        details={"filename": filename, "visibility": visibility},
+    )
 
     job_id = await create_background_job(get_uow_factory(), "document_processing", related_id=result.id)
 

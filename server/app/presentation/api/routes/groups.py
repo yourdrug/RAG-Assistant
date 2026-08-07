@@ -68,7 +68,9 @@ async def add_group_member(
     if target.kind != UserKind.INTERNAL:
         raise HTTPException(status_code=400, detail="Only internal employees can be added to groups")
     await uow.groups.add_user(req.user_id, group_id)
-    log_action("group.add_member", user_id=admin["id"], details={"group_id": group_id, "user_id": req.user_id})
+    log_action(
+        "group.add_member", user_id=admin["id"], details={"group_id": group_id, "user_id": req.user_id}
+    )
     return {"group_id": group_id, "user_id": req.user_id}
 
 

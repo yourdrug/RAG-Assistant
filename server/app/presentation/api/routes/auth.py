@@ -56,5 +56,7 @@ async def toggle_user_active(
     auth_service: AuthService = Depends(create_auth_service),
 ):
     result = await auth_service.toggle_active(user_id, is_active, admin["id"])
-    log_action("user.toggle_active", user_id=admin["id"], details={"target_user": user_id, "is_active": is_active})
+    log_action(
+        "user.toggle_active", user_id=admin["id"], details={"target_user": user_id, "is_active": is_active}
+    )
     return result

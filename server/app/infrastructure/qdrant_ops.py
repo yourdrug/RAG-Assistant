@@ -41,7 +41,9 @@ def ensure_collection(client, vector_size: int, reset: bool = False) -> None:
         )
     except Exception as e:
         if "already exists" in str(e):
-            log.info("Collection '%s' already exists (created by concurrent process)", settings.collection_name)
+            log.info(
+                "Collection '%s' already exists (created by concurrent process)", settings.collection_name
+            )
         else:
             raise
 
