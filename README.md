@@ -30,7 +30,8 @@ task chat -- "Вопрос"
 |---|---|
 | `task init` | .env + собрать образ |
 | `task up` / `task down` | Поднять / остановить стек |
-| `task up:public` | + Caddy с авто-HTTPS (нужен `DOMAIN` в `.env`) |
+| `task up:cpu:public` | + Caddy с авто-HTTPS, CPU (нужен `DOMAIN` в `.env`) |
+| `task up:gpu:public` | + Caddy с авто-HTTPS, GPU (нужен `DOMAIN` в `.env`) |
 | `task build` | Пересобрать образ server |
 | `task pull-model` | Скачать LLM в Ollama |
 | `task login email=... password=...` | Залогиниться → `.auth_token` |
@@ -49,7 +50,7 @@ task chat -- "Вопрос"
 
 Два `.env` файла:
 
-- **`.env`** (корень) — `DOCKER_MTU`, `DOMAIN` (для `task up:public`)
+- **`.env`** (корень) — `DOCKER_MTU`, `DOMAIN` (для `task up:cpu:public` / `task up:gpu:public`)
 - **`server/.env`** — настройки приложения (БД, LLM, OCR, JWT и т.д.)
 
 Ключевые переменные в `server/.env`:

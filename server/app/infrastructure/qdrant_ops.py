@@ -34,10 +34,16 @@ def ensure_collection(client, vector_size: int, reset: bool = False) -> None:
             )
             return
     log.info("Creating collection '%s' (dim=%d) ...", settings.collection_name, vector_size)
-    client.create_collection(
-        collection_name=settings.collection_name,
-        vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
-    )
+    try:
+        client.create_collection(
+            collection_name=settings.collection_name,
+            vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
+        )
+    except Exception as e:
+        if "already exists" in str(e):
+            log.info("Collection '%s' already exists (created by concurrent process)", settings.collection_name)
+        else:
+            raise
 
 
 def upload_to_qdrant(chunks: list[Document], embeddings: HuggingFaceEmbeddings) -> None:

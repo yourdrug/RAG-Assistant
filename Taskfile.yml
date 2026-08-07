@@ -48,38 +48,112 @@ tasks:
   # -------------------------------------------------------------------------
 
   build:
-    desc: Собрать образ server (после изменений в Dockerfile / pyproject.toml)
+    desc: Собрать dev-образы server + client (CPU)
     cmds:
-      - "{{.COMPOSE}} --env-file .env.cpu build server"
+      - "{{.COMPOSE}} build server client"
+    env:
+      BUILD_TARGET: cpu
+      DEVICE: cpu
+      GPU_COUNT: "0"
+      STAGE: development
 
   build:gpu:
-    desc: Собрать образ server с CUDA/PyTorch GPU
+    desc: Собрать dev-образы server + client (GPU / CUDA)
     cmds:
-      - "{{.COMPOSE}} --env-file .env.gpu build server"
+      - "{{.COMPOSE}} -f docker-compose.yml -f docker-compose.gpu.yml build server client"
+    env:
+      BUILD_TARGET: gpu
+      DEVICE: cuda
+      GPU_COUNT: "all"
+      STAGE: development
+
+  build:prod:
+    desc: Собрать production-образы server + client (CPU)
+    cmds:
+      - "{{.COMPOSE}} build server client"
+    env:
+      BUILD_TARGET: cpu
+      DEVICE: cpu
+      GPU_COUNT: "0"
+      STAGE: prod
+
+  build:prod:gpu:
+    desc: Собрать production-образы server + client (GPU / CUDA)
+    cmds:
+      - "{{.COMPOSE}} -f docker-compose.yml -f docker-compose.gpu.yml build server client"
+    env:
+      BUILD_TARGET: gpu
+      DEVICE: cuda
+      GPU_COUNT: "all"
+      STAGE: prod
 
   up:
-    desc: Поднять весь стек (qdrant, ollama, postgres, server) в фоне — без Caddy/домена
+    desc: Поднять стек (dev, CPU) — без Caddy/домена
     cmds:
-      - "{{.COMPOSE}} --env-file .env.cpu up -d"
+      - "{{.COMPOSE}} up -d"
       - task: ps
+    env:
+      BUILD_TARGET: cpu
+      DEVICE: cpu
+      GPU_COUNT: "0"
+      STAGE: development
 
   up:gpu:
-    desc: Поднять стек с GPU (нужен nvidia-container-toolkit + nvidia-smi)
+    desc: Поднять стек (dev, GPU) — без Caddy/домена
     cmds:
-      - "{{.COMPOSE}} --env-file .env.gpu up -d"
+      - "{{.COMPOSE}} -f docker-compose.yml -f docker-compose.gpu.yml up -d"
       - task: ps
+    env:
+      BUILD_TARGET: gpu
+      DEVICE: cuda
+      GPU_COUNT: "all"
+      STAGE: development
+
+  up:prod:
+    desc: Поднять стек (prod, CPU) — без Caddy/домена
+    cmds:
+      - "{{.COMPOSE}} up -d"
+      - task: ps
+    env:
+      BUILD_TARGET: cpu
+      DEVICE: cpu
+      GPU_COUNT: "0"
+      STAGE: prod
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+
+  up:prod:gpu:
+    desc: Поднять стек (prod, GPU) — без Caddy/домена
+    cmds:
+      - "{{.COMPOSE}} -f docker-compose.yml -f docker-compose.gpu.yml up -d"
+      - task: ps
+    env:
+      BUILD_TARGET: gpu
+      DEVICE: cuda
+      GPU_COUNT: "all"
+      STAGE: prod
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
 
   up:cpu:public:
-    desc: "CPU + Caddy с авто-HTTPS (нужен DOMAIN в .env)"
+    desc: "Dev CPU + Caddy с авто-HTTPS (нужен DOMAIN в .env)"
     cmds:
-      - "{{.COMPOSE}} --env-file .env.cpu --profile domain up -d"
+      - "{{.COMPOSE}} --profile domain up -d"
       - task: ps
+    env:
+      BUILD_TARGET: cpu
+      DEVICE: cpu
+      GPU_COUNT: "0"
+      STAGE: development
 
   up:gpu:public:
-    desc: "GPU + Caddy с авто-HTTPS (нужен nvidia-container-toolkit + DOMAIN в .env)"
+    desc: "Dev GPU + Caddy с авто-HTTPS (нужен DOMAIN в .env)"
     cmds:
-      - "{{.COMPOSE}} --env-file .env.gpu --profile domain up -d"
+      - "{{.COMPOSE}} -f docker-compose.yml -f docker-compose.gpu.yml --profile domain up -d"
       - task: ps
+    env:
+      BUILD_TARGET: gpu
+      DEVICE: cuda
+      GPU_COUNT: "all"
+      STAGE: development
 
   down:
     desc: Остановить и удалить контейнеры, включая Caddy если был поднят (данные в data/ сохраняются)
@@ -258,6 +332,47 @@ tasks:
       - mkdir -p data/db/postgres/backups
       - "{{.COMPOSE}} exec -T postgres pg_dump -U raguser ragdb > data/db/postgres/backups/backup_$(date +%F_%H%M%S).sql"
       - 'echo "Дамп сохранён в data/db/postgres/backups/"'
+
+  db:backup:qdrant:
+    desc: Создать снимок Qdrant (snapshot API) в data/qdrant_backups/
+    cmds:
+      - mkdir -p data/qdrant_backups
+      - >
+        {{.COMPOSE}} exec -T qdrant curl -s http://localhost:6333/collections
+        | jq -r '.result.collections[].name'
+      - >
+        TIMESTAMP=$(date +%F_%H%M%S) &&
+        for COLL in $({{.COMPOSE}} exec -T qdrant curl -s http://localhost:6333/collections | jq -r '.result.collections[].name'); do
+          echo "Снимок коллекции $COLL..." &&
+          {{.COMPOSE}} exec -T qdrant curl -s -X POST
+            "http://localhost:6333/collections/$COLL/snapshots"
+            -o "/qdrant/storage/../snapshots/$COLL" 2>/dev/null || true;
+        done &&
+        {{.COMPOSE}} exec -T qdrant tar czf - /qdrant/snapshots/ > "data/qdrant_backups/qdrant_snapshots_$TIMESTAMP.tar.gz" &&
+        echo "Снимки Qdrant сохранены в data/qdrant_backups/"
+
+  db:backup:minio:
+    desc: Скопировать бакеты MinIO в data/minio_backups/ (через mc)
+    cmds:
+      - mkdir -p data/minio_backups
+      - >
+        TIMESTAMP=$(date +%F_%H%M%S) &&
+        {{.COMPOSE}} exec -T minio mc alias set local http://localhost:9000
+          "${MINIO_ROOT_USER:-minioadmin}" "${MINIO_ROOT_PASSWORD:-minioadmin}" &&
+        for BUCKET in $({{.COMPOSE}} exec -T minio mc ls local/ --summarize | awk '{print $NF}' | grep -v '/$'); do
+          echo "Копирование бакета $BUCKET..." &&
+          {{.COMPOSE}} exec -T minio mc mirror --overwrite "local/$BUCKET" "/data/$BUCKET" 2>/dev/null || true;
+        done &&
+        tar czf "data/minio_backups/minio_$TIMESTAMP.tar.gz" -C data minio/ &&
+        echo "Бакеты MinIO сохранены в data/minio_backups/"
+
+  db:backup:all:
+    desc: Бэкап всех данных (Postgres + Qdrant + MinIO)
+    cmds:
+      - task: db:backup
+      - task: db:backup:qdrant
+      - task: db:backup:minio
+      - 'echo "Полный бэкап завершён"'
 
   # -------------------------------------------------------------------------
   # Alembic миграции

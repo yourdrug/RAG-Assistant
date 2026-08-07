@@ -244,8 +244,8 @@ export interface MetricsResponse {
   qdrant: Record<string, number>;
   bm25: Record<string, number>;
   ollama: Array<{ model: string; gpu_bytes: number; ram_bytes: number }>;
-  rag: Record<string, object>;
-  ingestion: Record<string, object>;
+  rag: Record<string, number | Record<string, number>>;
+  ingestion: Record<string, number | Record<string, number>>;
 }
 
 // ─── Logs ──────────────────────────────────────────────────────────────────

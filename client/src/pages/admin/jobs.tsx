@@ -110,7 +110,7 @@ export function JobsPage() {
                         {job.request_id ?? "-"}
                       </TableCell>
                       <TableCell className="text-xs">
-                        {formatDuration(job.started_at, job.finished_at)}
+                        {formatDuration(job.started_at ?? null, job.finished_at ?? null)}
                       </TableCell>
                       <TableCell className="text-xs text-destructive max-w-[200px] truncate">
                         {job.error_message ?? "-"}

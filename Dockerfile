@@ -87,6 +87,9 @@ COPY server/entrypoint.sh ./
 COPY VERSION ./
 COPY server/app ./app
 
+ENTRYPOINT ["./entrypoint.sh"]
+CMD ["python", "main.py", "runserver", "--host", "0.0.0.0", "--port", "8001", "--reload"]
+
 EXPOSE 8001
 
 # -----------------------------------------------------------------------------------
@@ -107,6 +110,9 @@ COPY server/alembic.ini ./
 COPY server/entrypoint.sh ./
 COPY VERSION ./
 COPY server/app ./app
+
+ENTRYPOINT ["./entrypoint.sh"]
+CMD ["python", "main.py", "runserver", "--host", "0.0.0.0", "--port", "8001", "--reload"]
 
 EXPOSE 8001
 

@@ -121,11 +121,11 @@ export function MonitoringPage() {
           <div className="space-y-2">
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Total Queries</span>
-              <span className="font-mono font-bold">{(metrics?.rag?.queries_total as number) ?? 0}</span>
+              <span className="font-mono font-bold">{Number(metrics?.rag?.queries_total) || 0}</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Not Found</span>
-              <span className="font-mono font-bold text-amber-600">{(metrics?.rag?.not_found_total as number) ?? 0}</span>
+              <span className="font-mono font-bold text-amber-600">{Number(metrics?.rag?.not_found_total) || 0}</span>
             </div>
             {metrics?.rag?.stage_latency && typeof metrics.rag.stage_latency === "object" && (
               <div className="pt-2 border-t">
@@ -152,15 +152,15 @@ export function MonitoringPage() {
           <div className="space-y-2">
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Documents</span>
-              <span className="font-mono font-bold">{(metrics?.ingestion?.documents_total as number) ?? 0}</span>
+              <span className="font-mono font-bold">{Number(metrics?.ingestion?.documents_total) || 0}</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Chunks</span>
-              <span className="font-mono font-bold">{(metrics?.ingestion?.chunks_total as number) ?? 0}</span>
+              <span className="font-mono font-bold">{Number(metrics?.ingestion?.chunks_total) || 0}</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Files</span>
-              <span className="font-mono font-bold">{(metrics?.ingestion?.files_total as number) ?? 0}</span>
+              <span className="font-mono font-bold">{Number(metrics?.ingestion?.files_total) || 0}</span>
             </div>
           </div>
         </MetricCard>

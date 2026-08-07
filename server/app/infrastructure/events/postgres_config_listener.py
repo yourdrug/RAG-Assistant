@@ -103,17 +103,12 @@ class PostgresConfigListener:
             applied = 0
             for r in rows:
                 current = getattr(settings, r.key, None)
-                current_str = (
-                    str(current).lower()
-                    if isinstance(current, bool)
-                    else (str(current) if current is not None else None)
-                )
-                if current_str == r.value:
+                if self._values_equal(current, r.value):
                     continue
                 self._bus.publish(
                     ConfigParameterChanged(
                         key=r.key,
-                        old_value=current_str,
+                        old_value=json.dumps(current) if isinstance(current, (list, dict)) else str(current),
                         new_value=r.value,
                         value_type=r.value_type,
                     )
@@ -192,3 +187,33 @@ class PostgresConfigListener:
     @property
     def is_connected(self) -> bool:
         return self._conn is not None and not self._conn.is_closed()
+
+    @staticmethod
+    def _values_equal(current: object, db_value: str | None) -> bool:
+        """Compare in-memory setting with DB-stored JSON value, ignoring format differences.
+
+        DB stores JSON (``["ru","en"]``), while Python objects serialise as repr
+        (``['ru', 'en']``).  We parse both sides to JSON and compare tokens so
+        that whitespace / quote style doesn't trigger a false "changed" event.
+        """
+        if current is None and db_value is None:
+            return True
+        if current is None or db_value is None:
+            return False
+        # Normalise in-memory value to JSON string for comparison
+        if isinstance(current, bool):
+            current_json = json.dumps(current)
+        elif isinstance(current, (list, dict, int, float)):
+            current_json = json.dumps(current, ensure_ascii=False, sort_keys=True)
+        else:
+            current_json = json.dumps(str(current), ensure_ascii=False)
+        try:
+            db_parsed = json.loads(db_value)
+        except (json.JSONDecodeError, TypeError):
+            # DB value is a plain string, not JSON
+            return str(current) == db_value
+        try:
+            current_parsed = json.loads(current_json)
+        except (json.JSONDecodeError, TypeError):
+            return current_json == db_value
+        return current_parsed == db_parsed

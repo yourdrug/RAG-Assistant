@@ -1,6 +1,6 @@
 services:
   qdrant:
-    image: qdrant/qdrant:latest
+    image: qdrant/qdrant:v1.12.1
     hostname: qdrant
     container_name: rag-qdrant
     # Qdrant доступен ТОЛЬКО внутри Docker-сети (rag-network).
@@ -30,10 +30,18 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 4G
+        reservations:
+          cpus: "0.5"
+          memory: 1G
     restart: unless-stopped
 
   ollama:
-    image: ollama/ollama:latest
+    image: ollama/ollama:0.9.5
     hostname: ollama
     container_name: rag-ollama
     # Ollama не умеет в собственную авторизацию — доступ ТОЛЬКО внутри Docker-сети.
@@ -68,10 +76,6 @@ services:
         reservations:
           cpus: "2"
           memory: 4G
-          devices:
-            - driver: nvidia
-              count: ${GPU_COUNT:-0}
-              capabilities: [gpu]
     healthcheck:
       test: [ "CMD-SHELL", "bash -c '</dev/tcp/localhost/11434' || exit 1" ]
       interval: 10s
@@ -80,7 +84,7 @@ services:
     restart: unless-stopped
 
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16.4-alpine
     hostname: postgres
     container_name: rag-postgres
     user: root
@@ -92,7 +96,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ragpassword}
       POSTGRES_DB: postgres
-      POSTGRES_HOST_AUTH_METHOD: trust
+      POSTGRES_HOST_AUTH_METHOD: ${POSTGRES_HOST_AUTH_METHOD:-trust}
     # App user (raguser) and database (ragdb) are created by init.sql.
     volumes:
       - type: bind
@@ -126,7 +130,7 @@ services:
           host=postgres
           port=5432
           user=postgres
-          password=ragpassword
+          password=${POSTGRES_PASSWORD:-ragpassword}
           dbname=postgres
         - "-c"
         - "SELECT 'OK'"
@@ -147,16 +151,15 @@ services:
     restart: always
 
   server:
+    image: rag-server:${STAGE:-development}-${BUILD_TARGET:-cpu}
     build:
       context: .
       dockerfile: Dockerfile
-      target: development-${BUILD_TARGET:-cpu}
+      target: ${STAGE:-development}-${BUILD_TARGET:-cpu}
       args:
         BUILD_DATE: ${BUILD_DATE:-}
     hostname: rag-server
     container_name: rag-server
-    entrypoint: [ "./entrypoint.sh" ]
-    command: [ "python", "main.py", "runserver", "--host", "0.0.0.0", "--port", "8001", "--reload" ]
     ports:
       - name: rag-server
         target: 8001
@@ -209,10 +212,6 @@ services:
         reservations:
           cpus: "1"
           memory: 4G
-          devices:
-            - driver: nvidia
-              count: ${GPU_COUNT:-0}
-              capabilities: [gpu]
     depends_on:
       qdrant:
         condition: service_healthy
@@ -223,7 +222,7 @@ services:
     restart: unless-stopped
 
   minio:
-    image: minio/minio:latest
+    image: minio/minio:RELEASE.2024-09-22T00-33-43Z
     hostname: minio
     container_name: rag-minio
     command: server /data --console-address ":9001"
@@ -256,25 +255,50 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
     restart: unless-stopped
 
   client:
     build:
       context: ./client
       dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-/api}
     hostname: rag-client
     container_name: rag-client
-    expose:
-      - "80/tcp"
+    ports:
+      - name: rag-client
+        target: 80
+        published: 3000
+        host_ip: 127.0.0.1
+        protocol: tcp
+        mode: host
+    environment:
+      VITE_API_URL: ${VITE_API_URL:-/api}
     healthcheck:
-      test: ["CMD", "curl", "--silent", "--fail", "http://localhost:80"]
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:80"]
       interval: 30s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
     restart: unless-stopped
 
   caddy:
-    image: caddy:2-alpine
+    image: caddy:2.9.1-alpine
     hostname: caddy
     container_name: rag-caddy
     profiles: [ "domain" ]
@@ -328,6 +352,14 @@ services:
     depends_on:
       server:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 256M
+        reservations:
+          cpus: "0.25"
+          memory: 64M
     networks:
       - default
     restart: unless-stopped
