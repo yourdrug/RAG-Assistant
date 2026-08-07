@@ -7,3 +7,6 @@ export { useIngestRegistry, useIngestAll, useIngestFile, useUploadFiles } from "
 export { useHealth } from "./use-health";
 export { useBenchmark } from "./use-benchmark";
 export { useClientApiKeys, useCreateClientApiKey, useRevokeClientApiKey } from "./use-api-keys";
+export { useJobs, useJobStats } from "./use-jobs";
+export { useMetrics } from "./use-metrics";
+export { useLogs } from "./use-logs";

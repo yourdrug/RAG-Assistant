@@ -5,6 +5,7 @@ from __future__ import annotations
 from application.uow import UnitOfWork
 from domain.value_objects.roles import UserKind, UserRole
 from fastapi import APIRouter, Depends, HTTPException
+from infrastructure.logging.actions import log_action
 
 from presentation.api.auth_dependencies import get_current_user, require_admin
 from presentation.api.dependencies import get_uow
@@ -25,6 +26,7 @@ async def create_group_endpoint(
     uow: UnitOfWork = Depends(get_uow),
 ):
     group_id = await uow.groups.create(req.name)
+    log_action("group.create", user_id=admin["id"], details={"name": req.name})
     return GroupResponse(id=group_id, name=req.name)
 
 
@@ -66,6 +68,7 @@ async def add_group_member(
     if target.kind != UserKind.INTERNAL:
         raise HTTPException(status_code=400, detail="Only internal employees can be added to groups")
     await uow.groups.add_user(req.user_id, group_id)
+    log_action("group.add_member", user_id=admin["id"], details={"group_id": group_id, "user_id": req.user_id})
     return {"group_id": group_id, "user_id": req.user_id}
 
 
@@ -77,4 +80,5 @@ async def remove_group_member(
     uow: UnitOfWork = Depends(get_uow),
 ):
     await uow.groups.remove_user(user_id, group_id)
+    log_action("group.remove_member", user_id=admin["id"], details={"group_id": group_id, "user_id": user_id})
     return {"group_id": group_id, "user_id": user_id}

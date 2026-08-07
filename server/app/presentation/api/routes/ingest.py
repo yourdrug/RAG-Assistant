@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
+from infrastructure.logging.actions import log_action
 
 from presentation.api.auth_dependencies import require_admin
 from presentation.api.dependencies import create_ingest_service, create_ingestion_service, get_uow_factory
@@ -36,6 +37,8 @@ async def ingest_documents(
         raise HTTPException(status_code=400, detail=str(e))
 
     job_id = await create_background_job(get_uow_factory(), "ingest")
+
+    log_action("ingest.full", user_id=admin["id"], details={"docs_dir": resolved_dir, "reset": reset})
 
     async def _tracked_ingest():
         uow_factory = get_uow_factory()
@@ -77,6 +80,8 @@ async def ingest_single_file(
         service.force_reindex(Path(resolved).name)
 
     job_id = await create_background_job(get_uow_factory(), "ingest", related_id=None)
+
+    log_action("ingest.file", user_id=admin["id"], details={"file": resolved, "force": force})
 
     async def _tracked_single():
         uow_factory = get_uow_factory()

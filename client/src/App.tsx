@@ -20,7 +20,9 @@ import { AdminIngestPage } from "@/pages/admin/ingest";
 import { AdminModelsPage } from "@/pages/admin/models";
 import { AdminVectorDBPage } from "@/pages/admin/vectordb";
 import { AdminSettingsPage } from "@/pages/admin/settings";
-import { PlaceholderPage } from "@/pages/admin/placeholder";
+import { JobsPage } from "@/pages/admin/jobs";
+import { MonitoringPage } from "@/pages/admin/monitoring";
+import { LogsPage } from "@/pages/admin/logs";
 
 export default function App() {
   return (
@@ -49,9 +51,9 @@ export default function App() {
                 <Route path="ingest" element={<AdminIngestPage />} />
                 <Route path="models" element={<AdminModelsPage />} />
                 <Route path="vectordb" element={<AdminVectorDBPage />} />
-                <Route path="jobs" element={<PlaceholderPage title="Jobs" description="Background tasks" endpoint="GET /admin/jobs" />} />
-                <Route path="monitoring" element={<PlaceholderPage title="Monitoring" description="System metrics" endpoint="GET /admin/metrics" />} />
-                <Route path="logs" element={<PlaceholderPage title="Logs" description="System logs" endpoint="GET /admin/logs" />} />
+                <Route path="jobs" element={<JobsPage />} />
+                <Route path="monitoring" element={<MonitoringPage />} />
+                <Route path="logs" element={<LogsPage />} />
                 <Route path="settings" element={<AdminSettingsPage />} />
               </Route>
             </Routes>

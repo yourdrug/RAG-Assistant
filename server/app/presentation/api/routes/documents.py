@@ -7,6 +7,7 @@ import logging
 from application.services.document_processor import DocumentProcessor
 from application.services.document_service import DocumentService
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, UploadFile
+from infrastructure.logging.actions import log_action
 
 from presentation.api.auth_dependencies import get_current_user
 from presentation.api.dependencies import (
@@ -109,6 +110,8 @@ async def upload_document(
         rename_on_conflict=rename_on_conflict,
     )
 
+    log_action("document.upload", user_id=current_user["id"], details={"filename": filename, "visibility": visibility})
+
     job_id = await create_background_job(get_uow_factory(), "document_processing", related_id=result.id)
 
     background_tasks.add_task(
@@ -154,4 +157,5 @@ async def delete_document(
     document_service: DocumentService = Depends(create_document_service),
 ):
     await document_service.delete_document(document_id, current_user["id"], current_user["role"])
+    log_action("document.delete", user_id=current_user["id"], details={"document_id": document_id})
     return {"status": "deleted", "document_id": document_id}

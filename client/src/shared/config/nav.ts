@@ -29,7 +29,7 @@ export const adminNavItems: AdminNavItem[] = [
   { title: "Models", href: "/admin/models", icon: Cpu },
   { title: "Vector DB", href: "/admin/vectordb", icon: Database },
   { title: "Settings", href: "/admin/settings", icon: Server },
-  { title: "Jobs", href: "/admin/jobs", icon: Clock, disabled: true },
-  { title: "Monitoring", href: "/admin/monitoring", icon: BarChart3, disabled: true },
-  { title: "Logs", href: "/admin/logs", icon: ScrollText, disabled: true },
+  { title: "Jobs", href: "/admin/jobs", icon: Clock },
+  { title: "Monitoring", href: "/admin/monitoring", icon: BarChart3 },
+  { title: "Actions", href: "/admin/logs", icon: ScrollText },
 ];

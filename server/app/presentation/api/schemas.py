@@ -314,3 +314,70 @@ class VectorDBInfoResponse(BaseModel):
     collections: list[VectorDBCollectionInfo]
     active_collection: str
     qdrant_status: str
+
+
+# ---------------------------------------------------------------------------
+# Background Jobs
+# ---------------------------------------------------------------------------
+
+
+class JobResponse(BaseModel):
+    id: int
+    job_type: str
+    status: str
+    related_id: int | None = None
+    request_id: str | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    error_message: str | None = None
+    creation_date: datetime | None = None
+
+
+class JobsListResponse(BaseModel):
+    total: int
+    jobs: list[JobResponse]
+
+
+class JobsStatsResponse(BaseModel):
+    total: int
+    by_status: dict[str, int]
+
+
+# ---------------------------------------------------------------------------
+# Monitoring / Metrics
+# ---------------------------------------------------------------------------
+
+
+class MetricValue(BaseModel):
+    name: str
+    value: float
+    labels: dict[str, str] = {}
+
+
+class MetricsResponse(BaseModel):
+    db_pool: dict[str, float]
+    qdrant: dict[str, float]
+    bm25: dict[str, float]
+    ollama: list[dict[str, object]]
+    rag: dict[str, object]
+    ingestion: dict[str, object]
+
+
+# ---------------------------------------------------------------------------
+# Logs
+# ---------------------------------------------------------------------------
+
+
+class LogEntry(BaseModel):
+    timestamp: str
+    level: str
+    logger: str
+    request_id: str
+    message: str
+    filename: str | None = None
+    lineno: int | None = None
+
+
+class LogsResponse(BaseModel):
+    logs: list[LogEntry]
+    total: int

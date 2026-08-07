@@ -69,3 +69,49 @@ class SQLAlchemyBackgroundJobRepository:
         )
         await self._db.flush()
         return result.rowcount  # type: ignore[return-value]
+
+    async def list_recent(self, limit: int = 50, offset: int = 0) -> list[BackgroundJob]:
+        result = await self._db.execute(
+            select(BackgroundJobModel)
+            .order_by(BackgroundJobModel.creation_date.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        rows = result.scalars().all()
+        return [
+            BackgroundJob(
+                id=orm.id,
+                job_type=orm.job_type,
+                status=orm.status,
+                related_id=orm.related_id,
+                request_id=orm.request_id,
+                started_at=orm.started_at,
+                finished_at=orm.finished_at,
+                error_message=orm.error_message,
+                creation_date=orm.creation_date,
+            )
+            for orm in rows
+        ]
+
+    async def get_by_id(self, job_id: int) -> BackgroundJob | None:
+        result = await self._db.execute(select(BackgroundJobModel).where(BackgroundJobModel.id == job_id))
+        orm = result.scalar_one_or_none()
+        if not orm:
+            return None
+        return BackgroundJob(
+            id=orm.id,
+            job_type=orm.job_type,
+            status=orm.status,
+            related_id=orm.related_id,
+            request_id=orm.request_id,
+            started_at=orm.started_at,
+            finished_at=orm.finished_at,
+            error_message=orm.error_message,
+            creation_date=orm.creation_date,
+        )
+
+    async def count_by_status(self) -> dict[str, int]:
+        result = await self._db.execute(
+            select(BackgroundJobModel.status, func.count()).group_by(BackgroundJobModel.status)
+        )
+        return {row[0]: row[1] for row in result.all()}

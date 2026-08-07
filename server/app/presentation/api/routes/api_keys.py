@@ -5,6 +5,7 @@ from __future__ import annotations
 from application.services.auth_service import AuthService
 from domain.value_objects.roles import UserKind, UserRole
 from fastapi import APIRouter, Depends, HTTPException
+from infrastructure.logging.actions import log_action
 
 from presentation.api.auth_dependencies import get_current_user, require_admin
 from presentation.api.dependencies import create_auth_service
@@ -20,7 +21,9 @@ async def issue_api_key(
     admin: dict = Depends(require_admin),
     auth_service: AuthService = Depends(create_auth_service),
 ):
-    return await auth_service.issue_api_key(client_user_id, name=req.name)
+    result = await auth_service.issue_api_key(client_user_id, name=req.name)
+    log_action("api_key.create", user_id=admin["id"], details={"client_user_id": client_user_id, "name": req.name})
+    return result
 
 
 @router.get("/{client_user_id}/api-keys", response_model=list[ApiKeyResponse])
@@ -46,5 +49,7 @@ async def revoke_api_key(
     if current_user["role"] == UserRole.ADMIN or (
         current_user["kind"] == UserKind.CLIENT and current_user["id"] == client_user_id
     ):
-        return await auth_service.revoke_api_key(api_key_id, client_user_id=client_user_id)
+        await auth_service.revoke_api_key(api_key_id, client_user_id=client_user_id)
+        log_action("api_key.revoke", user_id=current_user["id"], details={"api_key_id": api_key_id})
+        return {"status": "revoked"}
     raise HTTPException(status_code=403, detail="Forbidden")

@@ -28,6 +28,9 @@ from presentation.api.exception_handlers import (
 )
 from presentation.api.middleware.request_id import RequestIDMiddleware
 from presentation.api.routes.admin_config import router as admin_config_router
+from presentation.api.routes.admin_jobs import router as admin_jobs_router
+from presentation.api.routes.admin_logs import router as admin_logs_router
+from presentation.api.routes.admin_metrics import router as admin_metrics_router
 from presentation.api.routes.api_keys import router as api_keys_router
 from presentation.api.routes.auth import router as auth_router
 from presentation.api.routes.benchmark import router as benchmark_router
@@ -47,6 +50,11 @@ from presentation.api.routes.ingest import router as ingest_router
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator:
     logging.config.dictConfig(logging_config)
+
+    # Attach in-memory log buffer for /admin/logs endpoint
+    from infrastructure.logging.log_buffer import attach_log_buffer
+
+    attach_log_buffer()
 
     await database.connect()
     await initialize_app(_uow_factory)
@@ -124,6 +132,9 @@ class Application:
             benchmark_router,
             api_keys_router,
             admin_config_router,
+            admin_jobs_router,
+            admin_metrics_router,
+            admin_logs_router,
         )
         for router in routers:
             self.app.include_router(router)

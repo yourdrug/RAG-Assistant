@@ -34,4 +34,18 @@ export const queryKeys = {
   health: {
     all: ["health"] as const,
   },
+  jobs: {
+    all: ["jobs"] as const,
+    list: (params?: { limit?: number; offset?: number }) =>
+      [...queryKeys.jobs.all, "list", params] as const,
+    stats: () => [...queryKeys.jobs.all, "stats"] as const,
+  },
+  metrics: {
+    all: ["metrics"] as const,
+  },
+  logs: {
+    all: ["logs"] as const,
+    list: (params?: { limit?: number; level?: string; search?: string }) =>
+      [...queryKeys.logs.all, "list", params] as const,
+  },
 } as const;

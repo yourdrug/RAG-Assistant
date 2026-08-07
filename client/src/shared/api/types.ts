@@ -212,3 +212,55 @@ export interface BenchmarkRequest {
 export interface BenchmarkResponse {
   status: string;
 }
+
+// ─── Background Jobs ───────────────────────────────────────────────────────
+
+export interface JobResponse {
+  id: number;
+  job_type: string;
+  status: "pending" | "running" | "done" | "failed";
+  related_id?: number | null;
+  request_id?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  error_message?: string | null;
+  creation_date?: string | null;
+}
+
+export interface JobsListResponse {
+  total: number;
+  jobs: JobResponse[];
+}
+
+export interface JobsStatsResponse {
+  total: number;
+  by_status: Record<string, number>;
+}
+
+// ─── Monitoring / Metrics ──────────────────────────────────────────────────
+
+export interface MetricsResponse {
+  db_pool: Record<string, number>;
+  qdrant: Record<string, number>;
+  bm25: Record<string, number>;
+  ollama: Array<{ model: string; gpu_bytes: number; ram_bytes: number }>;
+  rag: Record<string, object>;
+  ingestion: Record<string, object>;
+}
+
+// ─── Logs ──────────────────────────────────────────────────────────────────
+
+export interface LogEntry {
+  timestamp: string;
+  level: string;
+  logger: string;
+  request_id: string;
+  message: string;
+  filename?: string | null;
+  lineno?: number | null;
+}
+
+export interface LogsResponse {
+  logs: LogEntry[];
+  total: number;
+}

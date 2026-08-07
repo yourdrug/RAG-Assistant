@@ -5,6 +5,7 @@ from __future__ import annotations
 from application.uow import UnitOfWork
 from domain.value_objects.roles import UserKind
 from fastapi import APIRouter, Depends, HTTPException
+from infrastructure.logging.actions import log_action
 
 from presentation.api.auth_dependencies import require_admin
 from presentation.api.dependencies import get_uow
@@ -28,6 +29,7 @@ async def assign_client_endpoint(
         raise HTTPException(status_code=400, detail="internal_user_id must be a user with kind='internal'")
 
     await uow.client_assignments.assign(req.internal_user_id, client_user_id, admin["id"])
+    log_action("client.assign", user_id=admin["id"], details={"client_user_id": client_user_id, "internal_user_id": req.internal_user_id})
     return {"client_user_id": client_user_id, "internal_user_id": req.internal_user_id}
 
 
@@ -39,6 +41,7 @@ async def unassign_client_endpoint(
     uow: UnitOfWork = Depends(get_uow),
 ):
     await uow.client_assignments.unassign(internal_user_id, client_user_id)
+    log_action("client.unassign", user_id=admin["id"], details={"client_user_id": client_user_id, "internal_user_id": internal_user_id})
     return {"status": "removed"}
 
 

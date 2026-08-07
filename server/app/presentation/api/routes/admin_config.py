@@ -7,6 +7,7 @@ import logging
 from application.services.config_service import ConfigService
 from config import settings
 from fastapi import APIRouter, Depends
+from infrastructure.logging.actions import log_action
 from qdrant_client import QdrantClient
 
 from presentation.api.auth_dependencies import require_admin
@@ -58,6 +59,7 @@ async def update_config(
     config_service: ConfigService = Depends(create_config_service),
 ):
     param = await config_service.update_parameter(key, body.value, changed_by=admin["id"])
+    log_action("config.update", user_id=admin["id"], details={"key": key, "value": body.value[:100]})
     return ConfigParamResponse(
         key=param.key,
         value=param.value,

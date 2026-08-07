@@ -5,6 +5,7 @@ from __future__ import annotations
 from application.dto.auth_dto import CreateUserCommand, LoginCommand
 from application.services.auth_service import AuthService
 from fastapi import APIRouter, Depends
+from infrastructure.logging.actions import log_action
 
 from presentation.api.auth_dependencies import get_current_user, require_admin
 from presentation.api.dependencies import create_auth_service
@@ -16,6 +17,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @router.post("/login", response_model=TokenResponse)
 async def login(req: LoginRequest, auth_service: AuthService = Depends(create_auth_service)):
     result = await auth_service.authenticate(LoginCommand(email=req.email, password=req.password))
+    log_action("login", details={"email": req.email})
     return TokenResponse(**result.__dict__)
 
 
@@ -30,10 +32,12 @@ async def add_user(
     admin: dict = Depends(require_admin),
     auth_service: AuthService = Depends(create_auth_service),
 ):
-    return await auth_service.create_user(
+    result = await auth_service.create_user(
         CreateUserCommand(email=req.email, password=req.password, role=req.role, kind=req.kind),
         creator_role=admin["role"],
     )
+    log_action("user.create", user_id=admin["id"], details={"email": req.email, "role": req.role})
+    return result
 
 
 @router.get("/users", response_model=list[UserResponse])
@@ -51,4 +55,6 @@ async def toggle_user_active(
     admin: dict = Depends(require_admin),
     auth_service: AuthService = Depends(create_auth_service),
 ):
-    return await auth_service.toggle_active(user_id, is_active, admin["id"])
+    result = await auth_service.toggle_active(user_id, is_active, admin["id"])
+    log_action("user.toggle_active", user_id=admin["id"], details={"target_user": user_id, "is_active": is_active})
+    return result

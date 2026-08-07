@@ -7,6 +7,7 @@ import json
 from application.services.chat_service import ChatService
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
+from infrastructure.logging.actions import log_action
 
 from presentation.api.auth_dependencies import get_current_user
 from presentation.api.dependencies import create_chat_service
@@ -23,6 +24,8 @@ async def chat_stream(
 ):
     if not req.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty")
+
+    log_action("chat", user_id=current_user["id"], details={"question": req.question[:100]})
 
     async def event_generator():
         try:
@@ -58,6 +61,8 @@ async def chat_sync(
 ):
     if not req.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty")
+
+    log_action("chat.sync", user_id=current_user["id"], details={"question": req.question[:100]})
 
     result = await chat_service.sync_chat(
         req.question,
