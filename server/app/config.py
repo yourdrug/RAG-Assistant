@@ -2,6 +2,7 @@ import os
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
+import torch
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -46,8 +47,10 @@ class Settings(BaseSettings):
 
     # --- Эмбеддинги и реранкер (лицензионно безопасный набор, MIT/Apache-2.0) ---
     embed_model: str = os.getenv("EMBED_MODEL", "BAAI/bge-m3")
+    device: str = os.getenv("DEVICE", "cpu")  # "cuda" если есть GPU (fallback для всех)
+    embed_device: str = os.getenv("EMBED_DEVICE", "")  # отдельно для embedding; пусто = использовать device
+    rerank_device: str = os.getenv("RERANK_DEVICE", "")  # отдельно для reranker; пусто = использовать device
     rerank_model: str = os.getenv("RERANK_MODEL", "BAAI/bge-reranker-v2-m3")
-    rerank_device: str = os.getenv("RERANK_DEVICE", "cpu")  # "cuda" если есть GPU
 
     # --- LLM ---
     # qwen2.5:14b — лучший баланс русского языка и качества среди безопасных по лицензии моделей.
@@ -129,6 +132,31 @@ class Settings(BaseSettings):
     @property
     def tz(self) -> ZoneInfo:
         return ZoneInfo(self.timezone)
+
+    @property
+    def resolved_device(self) -> str:
+        """Return 'cuda' only if DEVICE=cuda AND GPU is available."""
+        if self.device == "cuda" and torch.cuda.is_available():
+            return "cuda"
+        return "cpu"
+
+    @property
+    def embed_resolved_device(self) -> str:
+        """Return device for embedding model. Uses EMBED_DEVICE if set, else falls back to resolved_device."""
+        if self.embed_device:
+            if self.embed_device == "cuda" and torch.cuda.is_available():
+                return "cuda"
+            return "cpu"
+        return self.resolved_device
+
+    @property
+    def rerank_resolved_device(self) -> str:
+        """Return device for reranker model. Uses RERANK_DEVICE if set, else falls back to resolved_device."""
+        if self.rerank_device:
+            if self.rerank_device == "cuda" and torch.cuda.is_available():
+                return "cuda"
+            return "cpu"
+        return self.resolved_device
 
     # --- App version & metadata ---
     version: str = os.getenv("VERSION", "0.2.0")

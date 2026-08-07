@@ -24,7 +24,7 @@ class AppException(Exception):
         return self.message
 
     def __repr__(self) -> str:
-        return f"{self.__class__.__name__}" f"(message={self.message!r}, errors={self.errors!r})"
+        return f"{self.__class__.__name__}(message={self.message!r}, errors={self.errors!r})"
 
     def as_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = {"message": self.message}

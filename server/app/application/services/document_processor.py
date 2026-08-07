@@ -63,7 +63,7 @@ class DocumentProcessor:
 
                 if not docs:
                     raise RuntimeError(
-                        "Текст не извлечён — документ похож на скан, " "и OCR не смог распознать содержимое."
+                        "Текст не извлечён — документ похож на скан, и OCR не смог распознать содержимое."
                     )
 
                 warning_message = None

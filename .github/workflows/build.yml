@@ -9,6 +9,10 @@ on:
         description: "Image tag (e.g. v1.0.0)"
         required: false
         default: "latest"
+      build_target:
+        description: "Build target (cpu or gpu)"
+        required: false
+        default: "cpu"
 
 env:
   REGISTRY: ghcr.io
@@ -56,7 +60,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          target: production
+          target: production-${{ inputs.build_target || 'cpu' }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

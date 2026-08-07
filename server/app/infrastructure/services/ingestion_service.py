@@ -346,14 +346,21 @@ class IngestionService:
             log.debug("  SKIP  unsupported format: %s", fname)
             return None
         try:
-            text = parser(path)
+            result = parser(path)
+            # Parsers may return str or tuple[str, dict]
+            if isinstance(result, tuple):
+                text, extra_meta = result
+            else:
+                text, extra_meta = result, {}
             if not text or len(text.strip()) < 20:
                 log.warning("  SKIP  too little text: %s", fname)
                 return None
+            base = self._base_metadata(source, path)
+            base.update(extra_meta)
             return [
                 Document(
                     page_content=text,
-                    metadata=self._base_metadata(source, path),
+                    metadata=base,
                 )
             ]
         except Exception as e:

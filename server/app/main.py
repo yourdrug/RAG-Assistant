@@ -91,6 +91,7 @@ class Application:
             description="Corporate RAG assistant",
             version=settings.version,
             lifespan=lifespan,
+            servers=[{"url": "./", "description": "Relative server"}],
         )
 
         self.configure_logging()

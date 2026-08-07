@@ -289,6 +289,8 @@ class ModelsInfoResponse(BaseModel):
     llm_model: str
     embed_model: str
     rerank_model: str
+    device: str
+    embed_device: str
     rerank_device: str
     ocr_engine: str
     ocr_enabled: bool

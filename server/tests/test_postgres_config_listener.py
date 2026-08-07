@@ -15,8 +15,7 @@ def test_on_notify_publishes_event():
     listener = PostgresConfigListener(bus, factory)
 
     payload = (
-        '{"key": "retriever_top_k", "old_value": "4", "new_value": "8", '
-        '"value_type": "int", "changed_by": 1}'
+        '{"key": "retriever_top_k", "old_value": "4", "new_value": "8", "value_type": "int", "changed_by": 1}'
     )
     listener._on_notify(None, None, "config_changed", payload)
 

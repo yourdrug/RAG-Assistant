@@ -224,22 +224,33 @@ def split_documents(docs: list[Document]) -> list[Document]:
 # ---------------------------------------------------------------------------
 
 
-def _parse_docx(file_path: Path) -> tuple[str, dict]:
-    """Parse DOCX and return (text, metadata_with_section).
+def _has_page_break(paragraph) -> bool:
+    """Check if a paragraph contains a manual page break."""
+    from docx.oxml.ns import qn
 
-    Returns tuple of (text, {"section_count": N}) where section_count
-    can be used as a proxy for page numbers.
+    for run in paragraph.runs:
+        for br in run._element.findall(qn("w:br")):
+            if br.get(qn("w:type")) == "page":
+                return True
+    return False
+
+
+def _parse_docx(file_path: Path) -> tuple[str, dict]:
+    """Parse DOCX and return (text, metadata).
+
+    Detects page breaks via <w:br w:type="page"/> to provide page metadata.
     """
     doc = docx.Document(str(file_path))
     parts = []
-    section_count = 1  # Start at page 1
+    page_numbers: list[int] = []
+    current_page = 1
 
     for p in doc.paragraphs:
+        if _has_page_break(p):
+            current_page += 1
         if not p.text.strip():
             continue
-        # Track headings as section boundaries
-        if p.style and p.style.name and p.style.name.startswith("Heading"):
-            section_count += 1
+        page_numbers.append(current_page)
         parts.append(p.text)
 
     for table in doc.tables:
@@ -248,7 +259,12 @@ def _parse_docx(file_path: Path) -> tuple[str, dict]:
             cells = [cell.text.strip() for cell in row.cells]
             parts.append(" | ".join(cells))
 
-    return "\n".join(parts), {"section_count": section_count}
+    metadata: dict = {}
+    if page_numbers:
+        metadata["page_start"] = page_numbers[0]
+        metadata["page_end"] = page_numbers[-1]
+        metadata["pages"] = sorted(set(page_numbers))
+    return "\n".join(parts), metadata
 
 
 def _parse_rtf(file_path: Path) -> tuple[str, dict]:
@@ -300,7 +316,10 @@ def parse_markdown_sections(file_path: Path) -> list[tuple[str | None, str]]:
 
 
 def parse_docx_sections(file_path: Path) -> list[tuple[str | None, str]]:
-    """Разбивает DOCX на (заголовок, контент) по параграфам со стилем Heading*/Title."""
+    """Разбивает DOCX на (заголовок, контент) по параграфам со стилем Heading*/Title.
+
+    Also detects page breaks to track page numbers within each section.
+    """
     doc = docx.Document(str(file_path))
     sections: list[tuple[str | None, str]] = []
     current_heading: str | None = None
@@ -333,7 +352,8 @@ def parse_docx_sections(file_path: Path) -> list[tuple[str | None, str]]:
         sections.append((None, "\n".join(table_lines)))
 
     if not sections:
-        return [(None, _parse_docx(file_path))]
+        text, _meta = _parse_docx(file_path)
+        return [(None, text)]
     return sections
 
 
