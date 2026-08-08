@@ -157,3 +157,23 @@ class BackgroundJobModel(BaseModel):
     started_at: Mapped[DateTime | None] = mapped_column(DateTime, nullable=True)
     finished_at: Mapped[DateTime | None] = mapped_column(DateTime, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class ChunkModel(BaseModel):
+    """Chunk text stored in Postgres for exact substring search (pg_trgm).
+
+    Chunks live primarily in Qdrant (vectors). This table stores the raw text
+    for Ctrl+F style search via trigram GIN index.
+    """
+
+    __tablename__ = "chunks"
+
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    filename: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    visibility: Mapped[str] = mapped_column(String(20), nullable=False)
+    owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    group_id: Mapped[int | None] = mapped_column(ForeignKey("groups.id", ondelete="SET NULL"))

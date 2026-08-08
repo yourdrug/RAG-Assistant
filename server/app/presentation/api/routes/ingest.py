@@ -41,7 +41,9 @@ async def ingest_documents(
     log_action("ingest.full", user_id=admin["id"], details={"docs_dir": resolved_dir, "reset": reset})
 
     async def _tracked_ingest():
+        """Async — runs on the event loop after the response is sent."""
         uow_factory = get_uow_factory()
+
         try:
             async with uow_factory.create(master=True) as uow:
                 await uow.background_jobs.mark_running(job_id)
@@ -84,7 +86,9 @@ async def ingest_single_file(
     log_action("ingest.file", user_id=admin["id"], details={"file": resolved, "force": force})
 
     async def _tracked_single():
+        """Async — runs on the event loop after the response is sent."""
         uow_factory = get_uow_factory()
+
         try:
             async with uow_factory.create(master=True) as uow:
                 await uow.background_jobs.mark_running(job_id)

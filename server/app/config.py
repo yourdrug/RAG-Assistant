@@ -1,29 +1,47 @@
-import os
+import sys
 from datetime import UTC, datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import torch
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_INSECURE_DEFAULTS = {
+    "jwt_secret_key": "change-me-in-production",
+    "db_password": "ragpassword",
+    "qdrant_api_key": "qdrant_api_key",
+    "s3_access_key": "minioadmin",
+    "s3_secret_key": "minioadmin",
+    "admin_password": "admin",
+}
+
+
+def _read_version() -> str:
+    """Read version from VERSION file in project root."""
+    version_file = Path(__file__).parent.parent.parent / "VERSION"
+    try:
+        return version_file.read_text().strip()
+    except (FileNotFoundError, OSError):
+        return "0.0.0"
 
 
 class Settings(BaseSettings):
-    qdrant_url: str = os.getenv("QDRANT_URL", "http://localhost:6333")
-
-    # Ключ авторизации Qdrant. ОБЯЗАТЕЛЕН вне чисто localhost-разработки
-    qdrant_api_key: str | None = os.getenv("QDRANT_API_KEY") or None
-    ollama_base_url: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    database_url: str = os.getenv("DATABASE_URL", "postgresql://raguser:ragpassword@localhost:5432/ragdb")
+    qdrant_url: str = "http://localhost:6333"
+    qdrant_api_key: str | None = None
+    ollama_base_url: str = "http://localhost:11434"
+    database_url: str = "postgresql://raguser:ragpassword@localhost:5432/ragdb"
 
     # --- Individual DB params (used by async DatabaseManager) ---
-    db_host: str = os.getenv("DB_HOST", "localhost")
-    db_port: str = os.getenv("DB_PORT", "5432")
-    db_user: str = os.getenv("DB_USER", "raguser")
-    db_password: str = os.getenv("DB_PASSWORD", "ragpassword")
-    db_name: str = os.getenv("DB_NAME", "ragdb")
+    db_host: str = "localhost"
+    db_port: str = "5432"
+    db_user: str = "raguser"
+    db_password: str = "ragpassword"
+    db_name: str = "ragdb"
 
     # --- Cluster slave nodes (comma-separated host:port pairs, e.g. "slave1:5433,slave2:5434") ---
-    db_slave_hosts: str = os.getenv("DB_SLAVE_HOSTS", "")
-    db_slave_ports: str = os.getenv("DB_SLAVE_PORTS", "")
+    db_slave_hosts: str = ""
+    db_slave_ports: str = ""
 
     @property
     def db_slave_hosts_list(self) -> list[str]:
@@ -33,62 +51,54 @@ class Settings(BaseSettings):
     def db_slave_ports_list(self) -> list[str]:
         return [p.strip() for p in self.db_slave_ports.split(",") if p.strip()]
 
-    collection_name: str = os.getenv("COLLECTION_NAME", "company_docs")
+    collection_name: str = "company_docs"
 
-    data_dir: str = os.getenv("DATA_DIR", "/code/project/data")
+    data_dir: str = "/code/project/data"
 
-    uploads_prefix: str = os.getenv("UPLOADS_PREFIX", "uploads/")
+    uploads_prefix: str = "uploads/"
 
-    allowed_origins: str = os.getenv("ALLOWED_ORIGINS", "*")
+    allowed_origins: str = "*"
 
     @property
     def allowed_origins_list(self) -> list[str]:
         return [o.strip() for o in self.allowed_origins.split(",") if o.strip()]
 
     # --- Эмбеддинги и реранкер (лицензионно безопасный набор, MIT/Apache-2.0) ---
-    embed_model: str = os.getenv("EMBED_MODEL", "BAAI/bge-m3")
-    device: str = os.getenv("DEVICE", "cpu")  # "cuda" если есть GPU (fallback для всех)
-    embed_device: str = os.getenv("EMBED_DEVICE", "")  # отдельно для embedding; пусто = использовать device
-    rerank_device: str = os.getenv("RERANK_DEVICE", "")  # отдельно для reranker; пусто = использовать device
-    rerank_model: str = os.getenv("RERANK_MODEL", "BAAI/bge-reranker-v2-m3")
+    embed_model: str = "BAAI/bge-m3"
+    device: str = "cpu"  # "cuda" если есть GPU (fallback для всех)
+    embed_device: str = ""  # отдельно для embedding; пусто = использовать device
+    rerank_device: str = ""  # отдельно для reranker; пусто = использовать device
+    rerank_model: str = "BAAI/bge-reranker-v2-m3"
 
     # --- LLM ---
-    # qwen2.5:14b — лучший баланс русского языка и качества среди безопасных по лицензии моделей.
-    # mistral-nemo:12b — альтернатива (Apache-2.0), если нужна модель без ограничений Qwen License.
-    llm_model: str = os.getenv("LLM_MODEL", "qwen2.5:14b")
-    llm_temperature: float = float(os.getenv("LLM_TEMPERATURE", "0.1"))
-    llm_top_p: float = float(os.getenv("LLM_TOP_P", "0.9"))
-    llm_num_predict_narrow: int = int(os.getenv("LLM_NUM_PREDICT_NARROW", "400"))
-    llm_num_predict_broad: int = int(os.getenv("LLM_NUM_PREDICT_BROAD", "2048"))
-    llm_num_ctx_narrow: int = int(os.getenv("LLM_NUM_CTX_NARROW", "8192"))
-    llm_num_ctx_broad: int = int(os.getenv("LLM_NUM_CTX_BROAD", "16384"))
+    llm_model: str = "qwen2.5:7b"
+    llm_temperature: float = 0.1
+    llm_top_p: float = 0.9
+    llm_num_predict_narrow: int = 400
+    llm_num_predict_broad: int = 2048
+    llm_num_ctx_narrow: int = 8192
+    llm_num_ctx_broad: int = 16384
 
     # --- OCR (для сканов внутри PDF) ---
-    # "paddleocr" (по умолчанию) — Apache-2.0, без ограничений по выручке компании.
-    # "surya"    — точнее на сложной вёрстке, НО веса модели лицензированы отдельно
-    #              (бесплатно для research/личного использования и стартапов до $5M
-    #              выручки/финансирования; коммерческое использование сверх этого — платно,
-    #              см. README раздел "Лицензии"). Включай осознанно через OCR_ENGINE=surya|auto.
-    # "auto"     — сначала PaddleOCR, и только если он не дал текста — Surya (если включён).
-    ocr_engine: str = os.getenv("OCR_ENGINE", "paddleocr")
-    ocr_enabled: bool = os.getenv("OCR_ENABLED", "true").lower() == "true"
-    ocr_lang_paddle: str = os.getenv("OCR_LANG_PADDLE", "ru")  # ru | en | ...
+    ocr_engine: str = "paddleocr"
+    ocr_enabled: bool = True
+    ocr_lang_paddle: str = "ru"  # ru | en | ...
     ocr_lang_surya: list = ["ru", "en"]
-    ocr_dpi: int = int(os.getenv("OCR_DPI", "300"))
+    ocr_dpi: int = 300
 
     # --- Файловое хранилище ---
-    file_backend: str = os.getenv("FILE_BACKEND", "local")  # "local" | "s3"
+    file_backend: str = "local"  # "local" | "s3"
 
     # S3 / MinIO
-    s3_endpoint: str = os.getenv("S3_ENDPOINT", "http://minio:9000")
-    s3_bucket: str = os.getenv("S3_BUCKET", "rag-documents")
-    s3_access_key: str = os.getenv("S3_ACCESS_KEY", "minioadmin")
-    s3_secret_key: str = os.getenv("S3_SECRET_KEY", "minioadmin")
-    s3_region: str = os.getenv("S3_REGION", "us-east-1")
+    s3_endpoint: str = "http://minio:9000"
+    s3_bucket: str = "rag-documents"
+    s3_access_key: str = "minioadmin"
+    s3_secret_key: str = "minioadmin"
+    s3_region: str = "us-east-1"
 
     # RAG параметры — узкие вопросы
-    retriever_fetch_k: int = 25  # сколько кандидатов достаём из Qdrant перед реранком
-    retriever_top_k: int = 4  # сколько чанков остаётся после реранка и уходит в промпт
+    retriever_fetch_k: int = 25
+    retriever_top_k: int = 4
 
     # RAG параметры — широкие вопросы (подробные, обзорные)
     retriever_fetch_k_broad: int = 40
@@ -96,38 +106,35 @@ class Settings(BaseSettings):
     history_window: int = 8
 
     # --- Reranker score filters ---
-    rerank_min_score: float | None = None  # абсолютный порог (logit); None = не фильтровать
-    rerank_score_gap_ratio: float | None = None  # относительный разрыв (0..1); None = не фильтровать
+    rerank_min_score: float | None = None
+    rerank_score_gap_ratio: float | None = None
 
     # --- Source display filter ---
-    source_min_score: float = float(
-        os.getenv("SOURCE_MIN_SCORE", "0.3")
-    )  # мин. max_score источника для показа
+    source_min_score: float = 0.3
 
     # --- Citation filter ---
-    citation_filter_enabled: bool = os.getenv("CITATION_FILTER_ENABLED", "false").lower() == "true"
-    chunk_size: int = int(os.getenv("CHUNK_SIZE", "550"))
-    chunk_overlap: int = int(os.getenv("CHUNK_OVERLAP", "200"))
-    embed_batch_size: int = int(os.getenv("EMBED_BATCH_SIZE", "32"))
+    citation_filter_enabled: bool = False
+    chunk_size: int = 550
+    chunk_overlap: int = 200
+    embed_batch_size: int = 32
 
     # --- Hybrid search (BM25 + dense RRF) ---
-    hybrid_enabled: bool = os.getenv("HYBRID_ENABLED", "true").lower() == "true"
-    bm25_fetch_k: int = 25  # сколько кандидатов из BM25 перед RRF
-    rrf_k: int = 30  # константа RRF
+    hybrid_enabled: bool = True
+    bm25_fetch_k: int = 25
+    rrf_k: int = 30
     dense_weight: float = 1.5
     sparse_weight: float = 0.5
 
     # --- Авторизация ---
-    # ОБЯЗАТЕЛЬНО смени в проде — например: openssl rand -hex 32
-    jwt_secret_key: str = os.getenv("JWT_SECRET_KEY", "change-me-in-production")
+    jwt_secret_key: str = "change-me-in-production"
     jwt_algorithm: str = "HS256"
-    jwt_expire_minutes: int = int(os.getenv("JWT_EXPIRE_MINUTES", "1440"))  # 24 часа
+    jwt_expire_minutes: int = 1440  # 24 часа
 
-    admin_email: str | None = os.getenv("ADMIN_EMAIL")
-    admin_password: str | None = os.getenv("ADMIN_PASSWORD")
+    admin_email: str | None = None
+    admin_password: str | None = None
 
     # --- Timezone (IANA tz name) ---
-    timezone: str = os.getenv("TIMEZONE", "UTC")
+    timezone: str = "UTC"
 
     @property
     def tz(self) -> ZoneInfo:
@@ -159,16 +166,58 @@ class Settings(BaseSettings):
         return self.resolved_device
 
     # --- App version & metadata ---
-    version: str = os.getenv("VERSION", "0.2.0")
-    service_start_datetime: str = os.getenv("SERVICE_START_DATETIME", "")
+    version: str = ""
+    service_start_datetime: str = ""
+
+    stage: str = "development"  # development | prod
 
     # --- Background jobs cleanup ---
-    job_cleanup_days: int = int(os.getenv("JOB_CLEANUP_DAYS", "30"))
+    job_cleanup_days: int = 30
 
     # Поддерживаемые расширения файлов
     supported_extensions: tuple = (".pdf", ".docx", ".doc", ".rtf", ".md", ".txt")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @model_validator(mode="after")
+    def _check_security_defaults(self) -> "Settings":
+        # Read version from VERSION file if not set via env
+        if not self.version:
+            self.version = _read_version()
+
+        errors: list[str] = []
+        is_prod = self.stage == "prod"
+
+        if is_prod and self.jwt_secret_key == _INSECURE_DEFAULTS["jwt_secret_key"]:
+            errors.append(
+                "JWT_SECRET_KEY must be changed in production "
+                "(currently 'change-me-in-production'). "
+                "Generate with: openssl rand -hex 32"
+            )
+
+        if is_prod:
+            for field, default in _INSECURE_DEFAULTS.items():
+                if field == "jwt_secret_key":
+                    continue
+                val = getattr(self, field, None)
+                if val == default:
+                    errors.append(
+                        f"{field} uses the insecure default value '{default}' "
+                        f"which is not allowed in production (stage=prod). "
+                        f"Set a strong value in server/.env"
+                    )
+
+        if errors:
+            msg = "Security validation failed:\n" + "\n".join(f"  - {e}" for e in errors)
+            if is_prod:
+                print(msg, file=sys.stderr)
+                sys.exit(1)
+            else:
+                import logging
+
+                logging.getLogger("default").warning(msg)
+
+        return self
 
     @property
     def uptime_seconds(self) -> float:

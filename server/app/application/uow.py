@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from domain.repositories import ApiKeyRepository
 from domain.repositories.background_job_repository import BackgroundJobRepository
+from domain.repositories.chunk_repository import ChunkRepository
 from domain.repositories.client_assignment_repository import ClientAssignmentRepository
 from domain.repositories.config_parameter_repository import ConfigParameterRepository
 from domain.repositories.conversation_repository import ConversationRepository
@@ -29,6 +30,7 @@ class UnitOfWork(BaseUnitOfWork):
     conversations: ConversationRepository
     messages: MessageRepository
     documents: DocumentRepository
+    chunks: ChunkRepository
     groups: GroupRepository
     client_assignments: ClientAssignmentRepository
     api_keys: ApiKeyRepository
@@ -42,6 +44,7 @@ class UnitOfWork(BaseUnitOfWork):
         conversations: ConversationRepository,
         messages: MessageRepository,
         documents: DocumentRepository,
+        chunks: ChunkRepository,
         groups: GroupRepository,
         client_assignments: ClientAssignmentRepository,
         api_keys: ApiKeyRepository,
@@ -53,6 +56,7 @@ class UnitOfWork(BaseUnitOfWork):
         self.conversations = conversations
         self.messages = messages
         self.documents = documents
+        self.chunks = chunks
         self.groups = groups
         self.client_assignments = client_assignments
         self.api_keys = api_keys

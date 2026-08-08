@@ -119,6 +119,16 @@ class DocumentProcessor:
                 await self._vector_store.ensure_collection(vector_size, reset=False)
                 await self._vector_store.upload_documents(domain_chunks)
 
+                # Write chunk text to Postgres for Ctrl+F substring search
+                await uow.chunks.bulk_insert(
+                    document_id=document_id,
+                    filename=original_filename,
+                    visibility=visibility,
+                    chunks=[rc.page_content for rc in raw_chunks],
+                    owner_id=owner_id,
+                    group_id=group_id,
+                )
+
                 if replace_id is not None:
                     await self._vector_store.delete_by_document_id(replace_id)
                     old = await uow.documents.get_by_id(replace_id)

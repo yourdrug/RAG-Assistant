@@ -120,11 +120,12 @@ class IngestionService:
     async def _sync_documents_to_db(self, registry: dict, source_chars: dict, chunks: list) -> None:
         if self._uow_factory is None:
             return
-        async with self._uow_factory.create() as uow:
+        async with self._uow_factory.create(master=True) as uow:
             for fname, info in registry.items():
                 src = info.get("source", "")
                 existing = await uow.documents.find_active_slot(None, fname, None)
                 if existing:
+                    doc_id = existing.id
                     file_chunks = sum(1 for c in chunks if c.metadata.get("source") == src)
                     file_chars = source_chars.get(src, 0)
                     await uow.documents.update_status(
@@ -136,9 +137,30 @@ class IngestionService:
 
                     doc = DocEntity(filename=fname, visibility=DocumentVisibility.INTERNAL_PUBLIC)
                     saved = await uow.documents.save(doc)
+                    doc_id = saved.id
                     file_chunks = info.get("chunks", 0)
                     file_chars = info.get("chars", 0)
                     await uow.documents.update_status(saved.id, "done", chunks=file_chunks, chars=file_chars)
+
+                # Write chunks to Postgres for substring search
+                file_chunk_texts = [c.page_content for c in chunks if c.metadata.get("source") == src]
+                if file_chunk_texts and doc_id is not None:
+                    first_chunk = next((c for c in chunks if c.metadata.get("source") == src), None)
+                    vis = (
+                        first_chunk.metadata.get("visibility", "internal_public")
+                        if first_chunk
+                        else "internal_public"
+                    )
+                    owner = first_chunk.metadata.get("owner_id") if first_chunk else None
+                    group = first_chunk.metadata.get("group_id") if first_chunk else None
+                    await uow.chunks.bulk_insert(
+                        document_id=doc_id,
+                        filename=fname,
+                        visibility=vis,
+                        chunks=file_chunk_texts,
+                        owner_id=owner,
+                        group_id=group,
+                    )
             log.info("Synced %d documents to database", len(registry))
 
     async def _upload_chunks_to_vector_store(self, chunks: list) -> None:

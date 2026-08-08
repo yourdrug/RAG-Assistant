@@ -36,7 +36,9 @@ async def _process_document_in_background(
     replace_id: int | None,
     job_id: int,
 ):
+    """Async — runs on the event loop after the response is sent."""
     uow_factory = get_uow_factory()
+
     try:
         async with uow_factory.create(master=True) as uow:
             await uow.background_jobs.mark_running(job_id)

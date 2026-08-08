@@ -108,7 +108,7 @@ class PostgresConfigListener:
                 self._bus.publish(
                     ConfigParameterChanged(
                         key=r.key,
-                        old_value=json.dumps(current) if isinstance(current, (list, dict)) else str(current),
+                        old_value=json.dumps(current) if isinstance(current, list | dict) else str(current),
                         new_value=r.value,
                         value_type=r.value_type,
                     )
@@ -203,7 +203,7 @@ class PostgresConfigListener:
         # Normalise in-memory value to JSON string for comparison
         if isinstance(current, bool):
             current_json = json.dumps(current)
-        elif isinstance(current, (list, dict, int, float)):
+        elif isinstance(current, list | dict | int | float):
             current_json = json.dumps(current, ensure_ascii=False, sort_keys=True)
         else:
             current_json = json.dumps(str(current), ensure_ascii=False)

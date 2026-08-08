@@ -257,6 +257,7 @@ export interface MetricsResponse {
   ollama: Array<{ model: string; gpu_bytes: number; ram_bytes: number }>;
   rag: Record<string, number | Record<string, number>>;
   ingestion: Record<string, number | Record<string, number>>;
+  http_requests: Record<string, number | Record<string, number>>;
 }
 
 // ─── Logs ──────────────────────────────────────────────────────────────────
@@ -273,5 +274,21 @@ export interface LogEntry {
 
 export interface LogsResponse {
   logs: LogEntry[];
+  total: number;
+}
+
+// ─── Exact Substring Search (pg_trgm) ────────────────────────────────────────
+
+export interface ExactSearchResult {
+  chunk_id: number;
+  document_id: number;
+  filename: string;
+  content: string;
+  chunk_index: number;
+}
+
+export interface ExactSearchResponse {
+  query: string;
+  results: ExactSearchResult[];
   total: number;
 }
