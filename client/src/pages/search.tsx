@@ -1,15 +1,25 @@
 "use client";
-import {useState} from "react";
+import {useState, type ReactNode} from "react";
 import {useExactSearch, type SearchMode} from "@/shared/api/hooks/use-search";
 import type {ExactSearchResult} from "@/shared/api/types";
 import {Input} from "@/shared/ui/input";
 import {Button} from "@/shared/ui/button";
 import {Search as SearchIcon, FileText} from "lucide-react";
 
-function highlightMatch(text: string, query: string) {
-    if (!query.trim()) return text;
-    const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi");
-    return text.replace(regex, `<mark class="bg-yellow-200 dark:bg-yellow-800 rounded px-0.5">$1</mark>`);
+function highlightMatch(text: string, query: string): ReactNode[] {
+    if (!query.trim()) return [text];
+    const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const regex = new RegExp(`(${escaped})`, "gi");
+    const parts = text.split(regex);
+    return parts.map((part, i) =>
+        regex.test(part) ? (
+            <mark key={i} className="bg-yellow-200 dark:bg-yellow-800 rounded px-0.5">
+                {part}
+            </mark>
+        ) : (
+            part
+        )
+    );
 }
 
 export function SearchPage() {
@@ -111,10 +121,9 @@ export function SearchPage() {
                                         </div>
                                         <span className="text-xs text-muted-foreground">chunk #{r.chunk_index}</span>
                                     </div>
-                                    <p
-                                        className="text-sm leading-relaxed text-muted-foreground"
-                                        dangerouslySetInnerHTML={{__html: highlightMatch(r.content, query)}}
-                                    />
+                                    <p className="text-sm leading-relaxed text-muted-foreground">
+                                        {highlightMatch(r.content, query)}
+                                    </p>
                                 </div>
                             ))}
                         </div>

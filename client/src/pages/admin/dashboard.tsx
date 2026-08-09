@@ -6,7 +6,7 @@ import { Skeleton } from "@/shared/ui/skeleton";
 import {
   Activity, FileText, Server, Database, Cpu, Clock, Zap, HardDrive,
   AlertCircle, CheckCircle2, XCircle, BarChart3, Search, TrendingUp,
-  Users, FolderOpen, Globe,
+  Users, FolderOpen,
 } from "lucide-react";
 
 function formatUptime(seconds: number): string {

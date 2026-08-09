@@ -107,21 +107,15 @@ export function DocumentsPage() {
 
     if (choice === "add_new") {
       await doUpload([conflictFile], true);
-      // Upload remaining files (non-conflicting ones already handled, just re-check)
-      const remaining = pendingFiles.filter((f) => f !== conflictFile);
-      if (remaining.length > 0) {
-        const stillConflicts = remaining.filter((_f) => {
-          // Refresh conflict check since we just uploaded
-          return false; // After rename, no conflict
-        });
-        await doUpload(stillConflicts, false);
-      }
     } else {
       await doUpload([conflictFile], false);
-      const remaining = pendingFiles.filter((f) => f !== conflictFile);
-      if (remaining.length > 0) {
-        await doUpload(remaining, false);
-      }
+    }
+
+    // Upload remaining files after resolving this conflict
+    const remaining = pendingFiles.filter((f) => f !== conflictFile);
+    if (remaining.length > 0) {
+      // Re-check remaining files against current document list for new conflicts
+      await doUpload(remaining, false);
     }
 
     setConflictFile(null);

@@ -38,9 +38,15 @@ export function MessageBubble({ role, content, sources, streaming, onSourcesClic
         )}
         {!isUser && !streaming && content && (
           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={handleCopy}>{copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}</Button>
-            <Button variant="ghost" size="icon" className={cn("h-6 w-6", liked === "like" && "text-emerald-500")} onClick={() => setLiked(liked === "like" ? null : "like")}><ThumbsUp className="h-3 w-3" /></Button>
-            <Button variant="ghost" size="icon" className={cn("h-6 w-6", liked === "dislike" && "text-red-500")} onClick={() => setLiked(liked === "dislike" ? null : "dislike")}><ThumbsDown className="h-3 w-3" /></Button>
+            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={handleCopy} aria-label={copied ? "Copied" : "Copy message"}>
+              {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+            </Button>
+            <Button variant="ghost" size="icon" className={cn("h-6 w-6", liked === "like" && "text-emerald-500")} onClick={() => setLiked(liked === "like" ? null : "like")} aria-label="Like">
+              <ThumbsUp className="h-3 w-3" />
+            </Button>
+            <Button variant="ghost" size="icon" className={cn("h-6 w-6", liked === "dislike" && "text-red-500")} onClick={() => setLiked(liked === "dislike" ? null : "dislike")} aria-label="Dislike">
+              <ThumbsDown className="h-3 w-3" />
+            </Button>
           </div>
         )}
       </div>
