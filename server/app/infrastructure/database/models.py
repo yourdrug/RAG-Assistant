@@ -11,6 +11,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -39,6 +40,7 @@ class UserModel(BaseModel):
 
 class ConversationModel(BaseModel):
     __tablename__ = "conversations"
+    __table_args__ = (Index("idx_conversations_user", "user_id"),)
 
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
 
@@ -47,7 +49,10 @@ class ConversationModel(BaseModel):
 
 class MessageModel(BaseModel):
     __tablename__ = "messages"
-    __table_args__ = (CheckConstraint("role IN ('user', 'assistant')", name="messages_role_check"),)
+    __table_args__ = (
+        CheckConstraint("role IN ('user', 'assistant')", name="messages_role_check"),
+        Index("idx_messages_conv", "conversation_id"),
+    )
 
     conversation_id: Mapped[int | None] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"))
     role: Mapped[str] = mapped_column(String(16), nullable=False)
@@ -94,6 +99,17 @@ class DocumentModel(BaseModel):
             "status IN ('pending', 'processing', 'done', 'failed')",
             name="documents_status_check",
         ),
+        Index("idx_documents_owner", "owner_id"),
+        Index("idx_documents_group", "group_id"),
+        Index("idx_documents_visibility", "visibility"),
+        Index("idx_documents_status", "status"),
+        Index(
+            "ux_documents_active_slot",
+            "owner_id",
+            "filename",
+            unique=True,
+            postgresql_where="status IN ('pending', 'processing', 'done')",
+        ),
     )
 
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -119,6 +135,7 @@ class ConfigParameterModel(BaseModel):
     """
 
     __tablename__ = "config_parameters"
+    __table_args__ = (Index("idx_config_parameters_category", "category"),)
 
     key: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     value: Mapped[str] = mapped_column(Text, nullable=False)
@@ -132,6 +149,7 @@ class ConfigParameterModel(BaseModel):
 
 class ApiKeyModel(BaseModel):
     __tablename__ = "api_keys"
+    __table_args__ = (Index("idx_api_keys_user_id", "user_id"),)
 
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     key_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
@@ -148,6 +166,9 @@ class BackgroundJobModel(BaseModel):
             "status IN ('pending', 'running', 'done', 'failed')",
             name="background_jobs_status_check",
         ),
+        Index("idx_background_jobs_status", "status"),
+        Index("idx_background_jobs_job_type", "job_type"),
+        Index("idx_background_jobs_creation_date", "creation_date"),
     )
 
     job_type: Mapped[str] = mapped_column(String(50), nullable=False)

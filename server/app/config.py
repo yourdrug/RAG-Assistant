@@ -177,6 +177,9 @@ class Settings(BaseSettings):
     # Поддерживаемые расширения файлов
     supported_extensions: tuple = (".pdf", ".docx", ".doc", ".rtf", ".md", ".txt")
 
+    # Upload limits
+    max_upload_size_mb: int = 50
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @model_validator(mode="after")
@@ -216,6 +219,14 @@ class Settings(BaseSettings):
                 import logging
 
                 logging.getLogger("default").warning(msg)
+
+        if is_prod and "*" in self.allowed_origins_list:
+            msg = (
+                "CORS allowed_origins contains '*' which is insecure in production. "
+                "Set ALLOWED_ORIGINS to specific origins in server/.env"
+            )
+            print(msg, file=sys.stderr)
+            sys.exit(1)
 
         return self
 

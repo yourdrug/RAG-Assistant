@@ -12,8 +12,3 @@ class Environment(Enum):
 class DatabaseNodeRole(StrEnum):
     MASTER = "master"
     SLAVE = "slave"
-
-
-class CircuitBreakerState(Enum):
-    CLOSED = "closed"
-    OPEN = "open"

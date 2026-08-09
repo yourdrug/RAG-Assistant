@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import time
 from collections.abc import AsyncIterator
@@ -11,6 +10,7 @@ from collections.abc import AsyncIterator
 from config import settings
 from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.rag_settings import RagSettings
+from domain.value_objects.stream_events import SourcesEvent, StreamEvent, TextChunk
 from langchain.schema import Document as LCDocument
 
 from infrastructure.acl import build_qdrant_filter
@@ -110,7 +110,7 @@ class RagService:
         question: str,
         history: list,
         ctx: ChatContext,
-    ) -> AsyncIterator[str]:
+    ) -> AsyncIterator[StreamEvent]:
         rag = RagSettings.from_settings()
         t_pipeline_start = time.monotonic()
 
@@ -228,7 +228,7 @@ class RagService:
             text = chunk.content
             if text:
                 answer_parts.append(text)
-                yield text
+                yield TextChunk(text=text)
         RAG_STAGE_DURATION.labels("generate").observe(time.monotonic() - t0)
 
         full_answer = "".join(answer_parts)
@@ -245,7 +245,7 @@ class RagService:
         )
         RAG_STAGE_DURATION.labels("total").observe(time.monotonic() - t_pipeline_start)
 
-        yield f"\n__sources__:{json.dumps(sources, ensure_ascii=False)}"
+        yield SourcesEvent(sources=sources)
 
     async def invoke(
         self,
@@ -256,10 +256,10 @@ class RagService:
         answer_parts: list[str] = []
         sources: list[dict] = []
 
-        async for chunk in self.stream(question, history, ctx):
-            if chunk.startswith("\n__sources__:"):
-                sources = json.loads(chunk.replace("\n__sources__:", ""))
-            else:
-                answer_parts.append(chunk)
+        async for event in self.stream(question, history, ctx):
+            if isinstance(event, SourcesEvent):
+                sources = event.sources
+            elif isinstance(event, TextChunk):
+                answer_parts.append(event.text)
 
         return "".join(answer_parts), sources

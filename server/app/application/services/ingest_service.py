@@ -6,9 +6,8 @@ No db/session parameters.
 
 from __future__ import annotations
 
-from infrastructure.services.ingestion_service import IngestionService
-
 from application.dto.ingest_dto import IngestRegistryItemDTO, IngestRegistryResult, IngestStatusResult
+from application.ports.ingestion_port import IngestionPort
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
 
 
@@ -16,7 +15,7 @@ class IngestAppService:
     def __init__(
         self,
         uow_factory: UnitOfWorkFactory,
-        ingestion_service: IngestionService,
+        ingestion_service: IngestionPort,
     ) -> None:
         self._uow_factory = uow_factory
         self._ingestion = ingestion_service

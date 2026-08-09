@@ -26,6 +26,7 @@ from presentation.api.exception_handlers import (
     handle_unexpected_exception,
     handle_validation_exception,
 )
+from presentation.api.middleware.rate_limit import RateLimitMiddleware
 from presentation.api.middleware.request_id import RequestIDMiddleware
 from presentation.api.routes.admin_config import router as admin_config_router
 from presentation.api.routes.admin_jobs import router as admin_jobs_router
@@ -120,6 +121,7 @@ class Application:
             allow_headers=["*"],
         )
         self.app.add_middleware(RequestIDMiddleware)
+        self.app.add_middleware(RateLimitMiddleware)
 
     def add_routers(self) -> None:
         routers = (

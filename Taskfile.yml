@@ -26,8 +26,8 @@ tasks:
       - task: data:perms
       - task: build
       - 'echo "Готово. Дальше:  task up  →  task pull-model  →  task login email=... password=...  →  task ingest  →  task chat -- \"вопрос\""'
-      - 'echo "Свой домен вместо localhost:8001?  task up:public  (нужен DOMAIN в .env — см. README)"'
-      - 'echo "(Для локальной разработки/тестов вне Docker: task install)"'
+      - 'echo "Свой домен вместо localhost:8001?  task up -- public  (нужен DOMAIN в .env — см. README)"'
+      - 'echo "(Для GPU: task up -- gpu, для prod: task up -- prod)"'
 
   env:
     desc: Создать .env и server/.env из соответствующих .env.example, если ещё не созданы
@@ -57,134 +57,37 @@ tasks:
   # -------------------------------------------------------------------------
 
   build:
-    desc: Собрать dev-образы server + client (CPU)
+    desc: "Собрать образы (task build -- [gpu] [prod])"
     cmds:
-      - "{{.COMPOSE}} -f docker-compose.yml -f docker-compose.dev.yml build server client"
+      - >
+        {{.COMPOSE}}
+        {{if not (has "prod" .CLI_ARGS)}}-f docker-compose.dev.yml{{end}}
+        {{if has "gpu" .CLI_ARGS}}-f docker-compose.gpu.yml{{end}}
+        build server client
     env:
-      BUILD_TARGET: cpu
-      DEVICE: cpu
-      GPU_COUNT: "0"
-      STAGE: development
-      VERSION: "{{.VERSION}}"
-      VITE_API_URL: ${VITE_API_URL}
-
-  build:gpu:
-    desc: Собрать dev-образы server + client (GPU / CUDA)
-    cmds:
-      - "{{.COMPOSE}} -f docker-compose.yml -f docker-compose.dev.yml -f docker-compose.gpu.yml build server client"
-    env:
-      BUILD_TARGET: gpu
-      DEVICE: cuda
-      GPU_COUNT: "all"
-      STAGE: development
-      VERSION: "{{.VERSION}}"
-      VITE_API_URL: ${VITE_API_URL}
-
-  build:prod:
-    desc: Собрать production-образы server + client (CPU)
-    cmds:
-      - "{{.COMPOSE}} build server client"
-    env:
-      BUILD_TARGET: cpu
-      DEVICE: cpu
-      GPU_COUNT: "0"
-      STAGE: prod
-      VERSION: "{{.VERSION}}"
-      VITE_API_URL: ${VITE_API_URL}
-
-  build:prod:gpu:
-    desc: Собрать production-образы server + client (GPU / CUDA)
-    cmds:
-      - "{{.COMPOSE}} -f docker-compose.yml -f docker-compose.gpu.yml build server client"
-    env:
-      BUILD_TARGET: gpu
-      DEVICE: cuda
-      GPU_COUNT: "all"
-      STAGE: prod
+      BUILD_TARGET: '{{if has "gpu" .CLI_ARGS}}gpu{{else}}cpu{{end}}'
+      DEVICE: '{{if has "gpu" .CLI_ARGS}}cuda{{else}}cpu{{end}}'
+      GPU_COUNT: '{{if has "gpu" .CLI_ARGS}}all{{else}}0{{end}}'
+      STAGE: '{{if has "prod" .CLI_ARGS}}prod{{else}}development{{end}}'
       VERSION: "{{.VERSION}}"
       VITE_API_URL: ${VITE_API_URL}
 
   up:
-    desc: Поднять стек (dev, CPU) — без Caddy/домена
+    desc: "Поднять стек (task up -- [gpu] [prod] [public])"
     cmds:
       - task: data:create
-      - "{{.COMPOSE}} -f docker-compose.yml -f docker-compose.dev.yml up -d"
+      - >
+        {{.COMPOSE}}
+        {{if not (has "prod" .CLI_ARGS)}}-f docker-compose.dev.yml{{end}}
+        {{if has "gpu" .CLI_ARGS}}-f docker-compose.gpu.yml{{end}}
+        {{if has "public" .CLI_ARGS}}--profile domain{{end}}
+        up -d
       - task: ps
     env:
-      BUILD_TARGET: cpu
-      DEVICE: cpu
-      GPU_COUNT: "0"
-      STAGE: development
-      VERSION: "{{.VERSION}}"
-      VITE_API_URL: ${VITE_API_URL}
-
-  up:gpu:
-    desc: Поднять стек (dev, GPU) — без Caddy/домена
-    cmds:
-      - task: data:create
-      - "{{.COMPOSE}} -f docker-compose.yml -f docker-compose.dev.yml -f docker-compose.gpu.yml up -d"
-      - task: ps
-    env:
-      BUILD_TARGET: gpu
-      DEVICE: cuda
-      GPU_COUNT: "all"
-      STAGE: development
-      VERSION: "{{.VERSION}}"
-      VITE_API_URL: ${VITE_API_URL}
-
-  up:prod:
-    desc: Поднять стек (prod, CPU) — без Caddy/домена
-    cmds:
-      - task: data:create
-      - "{{.COMPOSE}} up -d"
-      - task: ps
-    env:
-      BUILD_TARGET: cpu
-      DEVICE: cpu
-      GPU_COUNT: "0"
-      STAGE: prod
-      VERSION: "{{.VERSION}}"
-      VITE_API_URL: ${VITE_API_URL}
-
-  up:prod:gpu:
-    desc: Поднять стек (prod, GPU) — без Caddy/домена
-    cmds:
-      - task: data:create
-      - "{{.COMPOSE}} -f docker-compose.yml -f docker-compose.gpu.yml up -d"
-      - task: ps
-    env:
-      BUILD_TARGET: gpu
-      DEVICE: cuda
-      GPU_COUNT: "all"
-      STAGE: prod
-      VERSION: "{{.VERSION}}"
-      VITE_API_URL: ${VITE_API_URL}
-
-  up:cpu:public:
-    desc: "Dev CPU + Caddy с авто-HTTPS (нужен DOMAIN в .env)"
-    cmds:
-      - task: data:create
-      - "{{.COMPOSE}} -f docker-compose.yml -f docker-compose.dev.yml --profile domain up -d"
-      - task: ps
-    env:
-      BUILD_TARGET: cpu
-      DEVICE: cpu
-      GPU_COUNT: "0"
-      STAGE: development
-      VERSION: "{{.VERSION}}"
-      VITE_API_URL: ${VITE_API_URL}
-
-  up:gpu:public:
-    desc: "Dev GPU + Caddy с авто-HTTPS (нужен DOMAIN в .env)"
-    cmds:
-      - task: data:create
-      - "{{.COMPOSE}} -f docker-compose.yml -f docker-compose.dev.yml -f docker-compose.gpu.yml --profile domain up -d"
-      - task: ps
-    env:
-      BUILD_TARGET: gpu
-      DEVICE: cuda
-      GPU_COUNT: "all"
-      STAGE: development
+      BUILD_TARGET: '{{if has "gpu" .CLI_ARGS}}gpu{{else}}cpu{{end}}'
+      DEVICE: '{{if has "gpu" .CLI_ARGS}}cuda{{else}}cpu{{end}}'
+      GPU_COUNT: '{{if has "gpu" .CLI_ARGS}}all{{else}}0{{end}}'
+      STAGE: '{{if has "prod" .CLI_ARGS}}prod{{else}}development{{end}}'
       VERSION: "{{.VERSION}}"
       VITE_API_URL: ${VITE_API_URL}
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 from application.services.chat_service import ChatService
+from domain.value_objects.stream_events import MetaEvent, TextChunk
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from infrastructure.logging.actions import log_action
@@ -29,7 +30,7 @@ async def chat_stream(
 
     async def event_generator():
         try:
-            async for chunk in chat_service.stream_chat(
+            async for event in chat_service.stream_chat(
                 req.question,
                 req.conversation_id,
                 current_user["id"],
@@ -37,12 +38,11 @@ async def chat_stream(
                 current_user["role"],
                 depth=req.depth,
             ):
-                if chunk.startswith("\n__meta__:"):
-                    meta = json.loads(chunk.replace("\n__meta__:", ""))
-                    sources = meta.get("sources", [])
-                    yield f"event: done\ndata: {json.dumps({'conversation_id': meta['conversation_id'], 'sources': sources}, ensure_ascii=False)}\n\n"
-                else:
-                    yield f"data: {json.dumps({'text': chunk}, ensure_ascii=False)}\n\n"
+                if isinstance(event, MetaEvent):
+                    sources = event.sources
+                    yield f"event: done\ndata: {json.dumps({'conversation_id': event.conversation_id, 'sources': sources}, ensure_ascii=False)}\n\n"
+                elif isinstance(event, TextChunk):
+                    yield f"data: {json.dumps({'text': event.text}, ensure_ascii=False)}\n\n"
         except Exception as e:
             yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
 
