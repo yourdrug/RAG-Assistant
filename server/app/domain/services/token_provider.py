@@ -1,4 +1,8 @@
-"""Token Provider Protocol — abstracts token creation for the domain layer."""
+"""Token provider protocol -- abstracts JWT creation and decoding for the domain layer.
+
+The concrete implementation lives in ``infrastructure.auth.jwt_provider``;
+the domain layer depends only on this protocol.
+"""
 
 from __future__ import annotations
 

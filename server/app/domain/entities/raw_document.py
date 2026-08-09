@@ -1,4 +1,9 @@
-"""RawDocument — domain-owned parsed document, framework-independent."""
+"""RawDocument -- parsed document content before chunking, framework-independent.
+
+Holds the full extracted text and metadata from a single file.  Serves as
+the hand-off type between the parser (infrastructure) and the splitter
+(domain service).
+"""
 
 from __future__ import annotations
 

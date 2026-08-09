@@ -1,4 +1,4 @@
-"""ChunkRepository — domain interface for exact substring search storage."""
+"""Chunk repository interface -- exact substring search (pg_trgm) for document chunks."""
 
 from __future__ import annotations
 

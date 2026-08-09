@@ -1,4 +1,9 @@
-"""ChatContext — value object encapsulating user access context for RAG retrieval."""
+"""ChatContext value object -- encapsulates user access context for RAG retrieval.
+
+Bundles the user's identity, group memberships, and assigned client IDs so
+the retriever can build ACL-filtered Qdrant queries without reaching into
+the infrastructure layer.
+"""
 
 from __future__ import annotations
 

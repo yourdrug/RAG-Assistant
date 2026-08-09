@@ -1,4 +1,4 @@
-"""BackgroundJob Repository interface."""
+"""Background job repository interface -- tracking for async background tasks."""
 
 from __future__ import annotations
 

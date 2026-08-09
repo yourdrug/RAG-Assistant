@@ -1,4 +1,4 @@
-"""ApiKey Entity — статический ключ доступа для внешних (client) пользователей."""
+"""ApiKey Entity -- static access key for external (client) users."""
 
 from __future__ import annotations
 

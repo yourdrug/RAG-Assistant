@@ -1,3 +1,5 @@
+"""Domain services -- pure business logic (access control, RAG policy, protocols)."""
+
 from domain.services.access_control import (
     VisibilityCondition,
     can_view_document,

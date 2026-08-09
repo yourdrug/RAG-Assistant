@@ -1,4 +1,9 @@
-"""Document Parser Protocol — abstracts file parsing for the ML pipeline."""
+"""Document parser protocol -- abstracts file parsing and text splitting for the ML pipeline.
+
+Implementations live in ``infrastructure.ml.ingestion`` and
+``infrastructure.ml.langchain_document_parser``; the domain service
+(``DocumentProcessor``) depends only on this protocol.
+"""
 
 from __future__ import annotations
 

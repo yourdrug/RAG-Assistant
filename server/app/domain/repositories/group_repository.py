@@ -1,4 +1,4 @@
-"""Group Repository interface."""
+"""Group repository interface -- CRUD for user groups (ACL boundaries)."""
 
 from __future__ import annotations
 

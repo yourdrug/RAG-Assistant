@@ -1,4 +1,4 @@
-"""ApiKey Repository interface."""
+"""ApiKey repository interface -- persistence for static API key entities."""
 
 from __future__ import annotations
 

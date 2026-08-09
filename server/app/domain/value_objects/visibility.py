@@ -1,4 +1,9 @@
-"""DocumentVisibility Value Object."""
+"""DocumentVisibility value object -- ACL visibility levels for documents.
+
+Defines the four visibility scopes (PRIVATE, INTERNAL, GROUP, INTERNAL_PUBLIC)
+and provides validation / serialization helpers used by both the domain
+services and the API layer.
+"""
 
 from __future__ import annotations
 

@@ -1,7 +1,7 @@
-"""StreamEvent — tagged-union types for the RagService -> ChatService -> endpoint streaming protocol.
+"""StreamEvent -- tagged-union types for the RagService -> ChatService -> endpoint streaming protocol.
 
-Replaces the fragile "\n__sources__:" / "\n__meta__:" string-sentinel convention
-with a proper typed protocol.
+Replaces the fragile ``\\n__sources__`` / ``\\n__meta__`` string-sentinel
+convention with a proper typed union (``TextChunk | SourcesEvent``).
 """
 
 from __future__ import annotations

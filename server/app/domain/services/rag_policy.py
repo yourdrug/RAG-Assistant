@@ -1,7 +1,7 @@
-"""RAG policy functions — pure business logic for question classification and prompt construction.
+"""RAG policy functions -- pure business logic for question classification and prompt construction.
 
-These functions are framework-agnostic: no LangChain, no infrastructure imports.
-The LangChatPromptTemplate construction stays in infrastructure/ml/rag.py.
+These functions are framework-agnostic (no LangChain, no infrastructure imports).
+LangChain-specific prompt template construction stays in ``infrastructure.ml.rag``.
 """
 
 from __future__ import annotations

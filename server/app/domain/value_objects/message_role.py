@@ -1,4 +1,4 @@
-"""MessageRole Value Object."""
+"""MessageRole value object -- enum for conversation turn authorship."""
 
 from __future__ import annotations
 

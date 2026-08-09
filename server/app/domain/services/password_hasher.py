@@ -1,4 +1,8 @@
-"""Password Hasher Protocol — abstracts password hashing for the domain layer."""
+"""Password hasher protocol -- abstracts password hashing and verification for the domain layer.
+
+The concrete implementation lives in ``infrastructure.auth.password_hasher``;
+the domain layer depends only on this protocol.
+"""
 
 from __future__ import annotations
 
