@@ -1,13 +1,18 @@
-"""Application Service: DocumentService — manages documents via UoWFactory.
+"""Application service for document lifecycle management.
 
-Each method opens its own async UnitOfWork. No db/session parameters.
+Provides upload, rename, delete, permission management and storage-key
+resolution for user documents. Each public method opens its own async
+UnitOfWork via the injected UnitOfWorkFactory, keeping the service
+stateless and transaction-safe.
 """
 
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
-from domain.exceptions import BusinessRuleViolation, EntityNotFound
+from domain.entities.document import Document
+from domain.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
 from domain.repositories.vector_store_repository import VectorStoreRepository
 from domain.services.access_control import (
     can_view_document,
@@ -17,6 +22,7 @@ from domain.services.access_control import (
 from domain.value_objects.roles import UserKind, UserRole
 from domain.value_objects.visibility import DocumentVisibility
 from infrastructure.storage import FileStorage
+from sqlalchemy.exc import IntegrityError
 
 from application.dto.document_dto import DocumentDTO
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
@@ -47,12 +53,6 @@ class DocumentService:
         client_id: int | None = None,
         rename_on_conflict: bool = False,
     ) -> DocumentDTO:
-        from pathlib import Path
-
-        from domain.entities.document import Document
-        from domain.exceptions import ValidationError
-        from sqlalchemy.exc import IntegrityError
-
         vis = DocumentVisibility.validate(visibility)
         user_kind_enum = UserKind(user_kind)
         user_role_enum = UserRole(user_role)
@@ -256,8 +256,6 @@ class DocumentService:
 
     @staticmethod
     async def _unique_filename(uow, owner_id, group_id, filename: str) -> str:
-        from pathlib import Path
-
         p = Path(filename)
         stem = p.stem
         suffix = p.suffix
@@ -272,8 +270,6 @@ class DocumentService:
 
     @staticmethod
     def _storage_key(owner_id, group_id, document_id, filename):
-        from pathlib import Path
-
         safe_name = Path(filename).name
         if owner_id is not None:
             return f"uploads/users/{owner_id}/{document_id}_{safe_name}"

@@ -1,7 +1,10 @@
-"""Ingestion Service — infrastructure implementation for document ingestion.
+"""Infrastructure implementation of the full-document ingestion pipeline.
 
-Uses injected abstractions (VectorStoreRepository, FileStorage, UnitOfWorkFactory)
-instead of concrete infrastructure implementations.
+Scans a local directory or S3 bucket, parses each supported file, splits
+into chunks, generates embeddings, uploads to Qdrant, builds a BM25 index
+for hybrid search, and synchronises document metadata to Postgres via the
+Unit-of-Work factory.  Supports both full-reset and incremental (append)
+modes.
 """
 
 from __future__ import annotations
@@ -12,7 +15,10 @@ from datetime import datetime
 from pathlib import Path
 
 from config import settings
+from domain.entities.chunk import Chunk
+from domain.entities.document import Document as DocEntity
 from domain.repositories.vector_store_repository import VectorStoreRepository
+from domain.value_objects.visibility import DocumentVisibility
 from langchain.schema import Document
 
 from infrastructure.ml.hybrid import BM25Index, load_bm25_index, save_bm25_index
@@ -132,9 +138,6 @@ class IngestionService:
                         existing.id, "done", chunks=file_chunks, chars=file_chars
                     )
                 else:
-                    from domain.entities.document import Document as DocEntity
-                    from domain.value_objects.visibility import DocumentVisibility
-
                     doc = DocEntity(filename=fname, visibility=DocumentVisibility.INTERNAL_PUBLIC)
                     saved = await uow.documents.save(doc)
                     doc_id = saved.id
@@ -169,8 +172,6 @@ class IngestionService:
         Also builds and persists the BM25 index for hybrid search.
         When adding to an existing index, merges new texts instead of overwriting.
         """
-        from domain.entities.chunk import Chunk
-
         domain_chunks = [Chunk(content=c.page_content, metadata=c.metadata) for c in chunks]
         await self._vector_store.upload_documents(domain_chunks)
 

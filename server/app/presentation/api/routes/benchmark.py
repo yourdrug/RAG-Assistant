@@ -1,7 +1,8 @@
-"""Benchmark endpoint — run RAG benchmark via API."""
+"""API endpoint for running the RAG quality benchmark as a background job."""
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 
@@ -35,7 +36,6 @@ async def run_benchmark(
 
     def _run():
         uow_factory = get_uow_factory()
-        import asyncio
 
         async def _update(status: str, error: str | None = None):
             async with uow_factory.create(master=True) as uow:

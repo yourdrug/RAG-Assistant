@@ -1,6 +1,9 @@
-"""Document Processor — application service for processing uploaded documents.
+"""Application service for processing uploaded documents end-to-end.
 
-Uses UoWFactory to manage its own transaction. No db/session parameters.
+Orchestrates the pipeline: download from storage, parse, split, generate
+embeddings, upload to vector store, and persist chunk metadata to Postgres.
+Reports quality warnings for low-fidelity PDF extractions and records
+Prometheus metrics for each processing stage.
 """
 
 from __future__ import annotations
@@ -9,6 +12,7 @@ import logging
 import time
 from pathlib import Path
 
+from domain.entities.chunk import Chunk
 from domain.repositories.vector_store_repository import VectorStoreRepository
 from domain.services.document_parser import DocumentParser, DocumentSplitter
 from infrastructure.ml.ingestion import extract_date_from_filename
@@ -110,8 +114,6 @@ class DocumentProcessor:
                     section = rc.metadata.get("section")
                     if section:
                         rc.page_content = f"[Раздел: {section}]\n{rc.page_content}"
-
-                from domain.entities.chunk import Chunk
 
                 domain_chunks = [Chunk(content=rc.page_content, metadata=rc.metadata) for rc in raw_chunks]
 

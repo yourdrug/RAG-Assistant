@@ -1,9 +1,9 @@
-"""
-CLI command: Reconcile Qdrant and Postgres document state.
+"""CLI command: reconcile Qdrant and Postgres document state.
 
-Finds orphaned Qdrant points (points whose document_id no longer exists in
-Postgres) and optionally deletes them. Also detects Postgres documents that
-have no corresponding Qdrant chunks.
+Scans Qdrant for orphaned points (document_id no longer in Postgres) and
+optionally deletes them.  Also detects Postgres documents missing Qdrant
+chunks.  Runs as a one-shot CLI command with --dry-run (default) or
+--delete to actually remove orphans.
 """
 
 from __future__ import annotations
@@ -15,6 +15,8 @@ import sys
 import typer
 from config import settings
 from infrastructure.clients import get_qdrant_client
+from infrastructure.database.database import database
+from qdrant_client.models import FieldCondition, Filter, MatchValue
 
 logger = logging.getLogger("cli")
 
@@ -45,8 +47,6 @@ def _get_all_qdrant_doc_ids() -> set[int]:
 
 async def _get_all_postgres_doc_ids() -> set[int]:
     """Query Postgres for all document IDs with status != 'failed'."""
-    from infrastructure.database.database import database
-
     await database.connect()
     try:
         rows = await database.fetch_all("SELECT id FROM documents WHERE status != 'failed'")
@@ -57,8 +57,6 @@ async def _get_all_postgres_doc_ids() -> set[int]:
 
 def _delete_orphans_from_qdrant(doc_ids: set[int]) -> int:
     """Delete all Qdrant points whose document_id is in the given set."""
-    from qdrant_client.models import FieldCondition, Filter, MatchValue
-
     client = get_qdrant_client()
     total_deleted = 0
     for doc_id in doc_ids:

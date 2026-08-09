@@ -1,10 +1,9 @@
-"""
-CLI-команда: бенчмарк RAG-системы.
-"""
+"""CLI command: RAG quality benchmark with retrieval and LLM-judge scoring."""
 
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import itertools
 import json
 import logging
@@ -18,14 +17,19 @@ from infrastructure.ml.benchmark import (
     load_questions,
     run_benchmark_async,
 )
-from infrastructure.ml.benchmark_history import compare_runs, get_last_baseline, print_history
+from infrastructure.ml.benchmark_history import (
+    compare_runs,
+    get_last_baseline,
+    load_history,
+    print_history,
+)
 from infrastructure.ml.hybrid import content_hash, rrf_merge
 from infrastructure.services.benchmark_service import BenchmarkService
 from langchain.schema import Document as LCDocument
 
 logger = logging.getLogger("cli")
 
-benchmark_app = typer.Typer(help="Оценка качества RAG-системы (retriever + LLM-судья)")
+benchmark_app = typer.Typer(help="RAG quality benchmark (retriever + LLM-judge)")
 
 
 @benchmark_app.command("run")
@@ -354,8 +358,6 @@ def await_if_needed(func, *args, **kwargs):
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            import concurrent.futures
-
             with concurrent.futures.ThreadPoolExecutor() as pool:
                 return pool.submit(func, *args, **kwargs).result()
     except RuntimeError:
@@ -413,8 +415,6 @@ def benchmark_regression(
     if baseline is None:
         logger.info("First run saved as baseline. No regression check possible.")
         return
-
-    from infrastructure.ml.benchmark_history import load_history
 
     history = load_history(settings.data_dir)
     if len(history) < 2:

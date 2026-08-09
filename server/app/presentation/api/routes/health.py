@@ -1,4 +1,4 @@
-"""Health check endpoint."""
+"""Health-check endpoint aggregating Postgres, Qdrant, and Ollama status."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from infrastructure.database.database import database
 from qdrant_client import QdrantClient
 from sqlalchemy import text
 
+from presentation.api.dependencies import _uow_factory, get_config_listener
 from presentation.api.schemas import HealthCheck, HealthResponse
 
 router = APIRouter(tags=["health"])
@@ -56,8 +57,6 @@ async def _check_postgres() -> HealthCheck:
 
 async def _count_active_jobs() -> int:
     """Count currently running/pending background jobs."""
-    from presentation.api.dependencies import _uow_factory
-
     try:
         async with _uow_factory.create() as uow:
             return await uow.background_jobs.count_active()
@@ -67,8 +66,6 @@ async def _count_active_jobs() -> int:
 
 @router.get("/health", response_model=HealthResponse)
 async def health():
-    from presentation.api.dependencies import get_config_listener
-
     qdrant = _check_qdrant()
     ollama = await _check_ollama()
     postgres = await _check_postgres()

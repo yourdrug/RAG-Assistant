@@ -1,4 +1,10 @@
-"""Prometheus metrics for RAG pipeline, ingestion, and infrastructure."""
+"""Prometheus metrics and collectors for the RAG pipeline and infrastructure.
+
+Defines counters, histograms, and gauges for RAG query quality, document
+ingestion throughput, and infrastructure health (Postgres pool, Qdrant
+collection size, Ollama GPU usage).  A periodic background collector
+refreshes the infrastructure gauges every 30 seconds.
+"""
 
 from __future__ import annotations
 
@@ -6,7 +12,12 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
+import httpx
+from config import settings
 from prometheus_client import Counter, Gauge, Histogram
+
+from infrastructure.clients import get_bm25_index, get_qdrant_client
+from infrastructure.database.database import database
 
 if TYPE_CHECKING:
     pass
@@ -205,11 +216,6 @@ def record_rag_answer(
 
 async def collect_infra_metrics() -> None:
     """Update infrastructure gauges. Called periodically from lifespan."""
-    from config import settings
-
-    from infrastructure.clients import get_bm25_index, get_qdrant_client
-    from infrastructure.database.database import database
-
     # Postgres pool
     try:
         engine = database.master_node.async_engine  # type: ignore[union-attr]
@@ -238,8 +244,6 @@ async def collect_infra_metrics() -> None:
 
     # Ollama GPU/RAM usage
     try:
-        import httpx
-
         async with httpx.AsyncClient(timeout=3) as http:
             r = await http.get(f"{settings.ollama_base_url}/api/ps")
             if r.status_code == 200:

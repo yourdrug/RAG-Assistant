@@ -1,4 +1,10 @@
-"""RAG Service — infrastructure implementation of ChatRAGPort used by ChatService."""
+"""Infrastructure implementation of the ChatRAGPort used by ChatService.
+
+Handles the full RAG pipeline: question classification, context retrieval
+(Qdrant + BM25 hybrid), reranking, prompt assembly, and LLM streaming.
+Exposes ``stream_answer`` as an async iterator of tagged union events
+(``TextChunk | SourcesEvent``).
+"""
 
 from __future__ import annotations
 
@@ -12,6 +18,7 @@ from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.rag_settings import RagSettings
 from domain.value_objects.stream_events import SourcesEvent, StreamEvent, TextChunk
 from langchain.schema import Document as LCDocument
+from qdrant_client.models import FieldCondition, Filter, MatchValue
 
 from infrastructure.acl import build_qdrant_filter
 from infrastructure.clients import (
@@ -46,8 +53,6 @@ log = logging.getLogger("default")
 
 async def _resolve_hash_to_doc(h: str, access_filter) -> LCDocument | None:
     """Retrieve a document from Qdrant by its content_hash."""
-    from qdrant_client.models import FieldCondition, Filter, MatchValue
-
     client = get_qdrant_client()
 
     results = await asyncio.to_thread(

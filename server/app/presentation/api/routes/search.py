@@ -1,10 +1,11 @@
-"""Search endpoints — exact substring search via pg_trgm."""
+"""Exact substring search endpoint backed by PostgreSQL pg_trgm GIN index."""
 
 from __future__ import annotations
 
 import logging
 
 from fastapi import APIRouter, Depends
+from infrastructure.repositories.sqlalchemy_chunk_repository import SQLAlchemyChunkRepository
 
 from presentation.api.auth_dependencies import get_current_user
 from presentation.api.dependencies import get_uow_factory
@@ -25,8 +26,6 @@ async def exact_search(
     Uses pg_trgm GIN index for fast ILIKE on millions of chunks.
     Requires min 3 characters for trigram index efficiency.
     """
-    from infrastructure.repositories.sqlalchemy_chunk_repository import SQLAlchemyChunkRepository
-
     uow_factory = get_uow_factory()
 
     # Fetch ACL data for the current user
