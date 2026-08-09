@@ -1,6 +1,8 @@
-"""
-infrastructure/ml/rag.py — RAG logic using LangChain: prompts, reranking, formatting, source extraction.
-Pure policy functions live in domain/services/rag_policy.py; this module handles LangChain construction.
+"""LangChain-based RAG helpers -- prompts, reranking, formatting, and source extraction.
+
+Pure policy functions (breadth classification, prompt building) live in
+``domain/services/rag_policy.py``; this module handles LangChain-specific
+construction (chain assembly, document formatting, citation extraction).
 """
 
 import asyncio

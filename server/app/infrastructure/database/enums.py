@@ -1,4 +1,4 @@
-"""Enums for database infrastructure."""
+"""Database infrastructure enums -- environment, job status, and role definitions."""
 
 from enum import Enum, StrEnum
 

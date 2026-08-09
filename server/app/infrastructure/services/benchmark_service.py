@@ -1,6 +1,7 @@
-"""Benchmark Service — shared benchmark logic used by both API and CLI.
+"""Benchmark service -- shared orchestration logic used by both the API endpoint and CLI.
 
-Delegates to infrastructure/ml/benchmark.py for the actual execution.
+Delegates the actual benchmark execution to ``infrastructure.ml.benchmark``
+and handles result persistence, history tracking, and regression comparison.
 """
 
 from __future__ import annotations

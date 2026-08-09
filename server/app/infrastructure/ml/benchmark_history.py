@@ -1,4 +1,9 @@
-"""Benchmark History — track metric trends across runs for regression detection."""
+"""Benchmark history -- append-only JSON log of benchmark runs for trend tracking.
+
+Each run is stored as a JSON line in ``benchmark_history.jsonl`` inside
+``DATA_DIR``.  Provides helpers to load history, compute summary metrics,
+compare two runs for regression, and print a human-readable trend table.
+"""
 
 from __future__ import annotations
 

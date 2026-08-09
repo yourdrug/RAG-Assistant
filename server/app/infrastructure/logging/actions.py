@@ -1,4 +1,10 @@
-"""User action logger — tracks meaningful user operations for audit trail."""
+"""User action logger -- records meaningful operations to a dedicated audit log.
+
+Emits structured log entries (via the ``actions`` logger) for operations
+such as document uploads, user creation, and config changes.  Entries
+include the action name, user ID, and relevant metadata for compliance
+and debugging.
+"""
 
 from __future__ import annotations
 

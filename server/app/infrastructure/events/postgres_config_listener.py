@@ -1,9 +1,9 @@
-"""Слушает канал Postgres config_changed и ретранслирует в локальный EventBus.
+"""Postgres LISTEN/NOTIFY listener for config_changed channel.
 
-Использует отдельное raw asyncpg-соединение (не пул SQLAlchemy) — LISTEN держит
-соединение открытым постоянно, это соединение нельзя возвращать в пул.
-Содержит supervisor-таск для автопереподключения при обрыве + полную resync
-при (пере)подключении для закрытия окна потерянных NOTIFY.
+Uses a dedicated raw asyncpg connection (not the SQLAlchemy pool) -- LISTEN
+holds the connection open permanently, so it cannot be returned to the pool.
+Includes a supervisor task for automatic reconnection on disconnect and a
+full resync on (re)connect to close the window of lost NOTIFY messages.
 """
 
 from __future__ import annotations

@@ -1,4 +1,8 @@
-"""BCrypt password hasher — infrastructure implementation."""
+"""BCrypt password hasher -- hashes and verifies user passwords.
+
+Uses ``bcrypt`` with automatic salt generation.  The ``hash`` method returns
+a Base64-encoded string; ``verify`` performs a constant-time comparison.
+"""
 
 from __future__ import annotations
 

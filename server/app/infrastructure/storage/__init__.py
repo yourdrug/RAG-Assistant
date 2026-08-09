@@ -1,3 +1,5 @@
+"""File storage abstraction -- local filesystem and S3 backends."""
+
 from infrastructure.storage.file_storage import (
     FileItem,
     FileStorage,

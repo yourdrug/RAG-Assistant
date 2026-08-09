@@ -1,12 +1,13 @@
-"""Auth infrastructure — backward-compatible re-exports.
+"""Auth infrastructure -- password hashing, JWT tokens, and backward-compatible re-exports.
 
-The new DDD structure uses:
-  - infrastructure.auth.password_hasher.BCryptPasswordHasher
-  - infrastructure.auth.jwt_provider.JWTProvider
-  - presentation.api.auth_dependencies.get_current_user, require_admin
+New DDD consumers should import directly from:
+  - ``infrastructure.auth.password_hasher.BCryptPasswordHasher``
+  - ``infrastructure.auth.jwt_provider.JWTProvider``
+  - ``presentation.api.auth_dependencies.get_current_user``, ``require_admin``
 
-Legacy code imports:
-  - infrastructure.auth.create_access_token, hash_password, verify_password, etc.
+Legacy code may continue importing convenience functions from this module
+(``hash_password``, ``verify_password``, ``create_access_token``,
+``decode_access_token``).
 """
 
 from infrastructure.auth.jwt_provider import JWTProvider

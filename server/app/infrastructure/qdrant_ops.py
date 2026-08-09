@@ -1,6 +1,8 @@
-"""
-infrastructure/qdrant_ops.py — Qdrant collection operations.
-Extracted from vector_store.py. Pure functions receiving dependencies.
+"""Qdrant collection operations -- pure functions receiving explicit dependencies.
+
+Provides collection creation, point upsert/deletion, payload indexing,
+and ACL-filtered search helpers.  Extracted from the original vector_store
+module to keep concerns separated.
 """
 
 import logging

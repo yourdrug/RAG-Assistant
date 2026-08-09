@@ -1,5 +1,9 @@
-"""
-database.py: File containing async connection to PostgreSQL database using SQLAlchemy.
+"""Async PostgreSQL connection manager using SQLAlchemy 2.0.
+
+Provides ``DatabaseManager`` with separate read/write async engines,
+session factories, and convenience helpers (``fetch_all``, ``fetch_one``,
+``execute``).  The module-level ``database`` singleton is the primary
+entry point used throughout the application.
 """
 
 from logging import (

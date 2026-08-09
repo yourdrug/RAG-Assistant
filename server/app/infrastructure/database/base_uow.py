@@ -1,4 +1,9 @@
-"""Base Unit of Work — async transaction management pattern (KinTree-style)."""
+"""Base Unit of Work -- async transaction management with automatic commit/rollback.
+
+Concrete subclasses expose repository attributes (``documents``, ``users``, etc.)
+and override ``_commit()`` to flush changes.  Used as an async context manager:
+on exit, ``commit`` is called on success and ``rollback`` on exception.
+"""
 
 from __future__ import annotations
 

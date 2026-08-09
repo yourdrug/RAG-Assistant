@@ -1,6 +1,9 @@
-"""
-infrastructure/clients.py — Lazy-loaded ML/infra clients via functools.lru_cache.
-No globals, no classes, no DI container.
+"""Lazy-loaded ML and infrastructure clients via functools.lru_cache.
+
+Provides module-level singleton accessors for the embedding model, LLM,
+reranker, Qdrant vector store, BM25 index, and Ollama chat clients.
+No globals, no classes, no DI container -- each getter returns a cached
+instance created on first call.
 """
 
 import functools

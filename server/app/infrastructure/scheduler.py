@@ -1,4 +1,9 @@
-"""Scheduler — APScheduler-based periodic job system."""
+"""APScheduler-based periodic job system.
+
+Wraps ``AsyncIOScheduler`` and exposes ``start_scheduler`` / ``stop_scheduler``
+lifespan helpers plus a ``schedule_periodic`` decorator for registering
+recurring background tasks (e.g. infra-metrics collection).
+"""
 
 from __future__ import annotations
 

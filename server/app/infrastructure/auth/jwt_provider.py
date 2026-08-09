@@ -1,4 +1,9 @@
-"""JWT token provider — infrastructure implementation."""
+"""JWT token provider -- creates and decodes PyJWT access tokens.
+
+Tokens are signed with HS256 using the secret from ``settings.jwt_secret_key``
+and expire after ``settings.jwt_expire_minutes``.  The ``decode_token`` method
+returns the payload dict or raises ``jwt.InvalidTokenError``.
+"""
 
 from __future__ import annotations
 

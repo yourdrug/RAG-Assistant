@@ -1,17 +1,17 @@
-"""Подписчики на ConfigParameterChanged.
+"""ConfigParameterChanged subscribers -- hot-reload reactions for dynamic settings.
 
-Каждая забота — отдельная функция; добавить новую реакцию = добавить
-новый subscribe(), не трогая существующие.
+Each concern is a separate function; adding a new reaction means adding a new
+subscribe() call without touching existing ones.
 
-Динамические (hot-reloadable) параметры — те, что перечислены в _DYNAMIC_FIELDS.
-Их можно менять через API без перезапуска; они применяются к in-memory settings
-сразу после commit в БД + NOTIFY.
+Dynamic (hot-reloadable) parameters are those listed in _DYNAMIC_FIELDS.
+They can be changed via the API without a restart and are applied to the
+in-memory settings immediately after a DB commit + NOTIFY.
 
-Статические параметры — всё остальное в .env / Settings.
-Их нельзя изменить без перезапуска процесса (читаются один раз при старте).
-При добавлении нового параметра решите: должен ли он быть hot-reloadable?
-Если да — добавьте его в _DYNAMIC_FIELDS и в БД-таблицу config_parameters.
-Если нет — он остаётся в .env и требует рестарта.
+Static parameters -- everything else in .env / Settings -- cannot be changed
+without restarting the process (read once at startup).  When adding a new
+parameter, decide: should it be hot-reloadable?  If yes, add it to
+_DYNAMIC_FIELDS and the config_parameters DB table.  If no, leave it in
+.env and require a restart.
 """
 
 from __future__ import annotations

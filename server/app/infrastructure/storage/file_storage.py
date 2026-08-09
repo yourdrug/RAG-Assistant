@@ -1,4 +1,10 @@
-"""File storage abstraction (local filesystem / S3)."""
+"""File storage abstraction -- local filesystem and S3 backends.
+
+Defines the ``FileStorage`` protocol and concrete implementations
+(``LocalStorage``, ``S3Storage``).  ``LazyStorage`` defers backend
+initialisation until first use.  ``get_storage`` returns the configured
+backend based on ``settings.file_backend``.
+"""
 
 from __future__ import annotations
 

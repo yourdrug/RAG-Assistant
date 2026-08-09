@@ -1,4 +1,9 @@
-"""In-memory log buffer for UI consumption."""
+"""In-memory log buffer -- stores recent log records for UI consumption.
+
+A thread-safe ``LogBufferHandler`` (``logging.Handler`` subclass) keeps the
+last N records in a ``deque``.  The ``/api/logs`` endpoint reads from this
+buffer to display recent application logs in the admin dashboard.
+"""
 
 from __future__ import annotations
 

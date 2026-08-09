@@ -1,4 +1,9 @@
-"""Unit of Work Factory — async, uses DatabaseManager (KinTree-style)."""
+"""Unit of Work factory -- creates async UnitOfWork instances bound to the DatabaseManager.
+
+Each call to ``create()`` yields a fresh UnitOfWork with its own read/write
+sessions.  The ``master=True`` variant uses the write session for mutations
+that must bypass read replicas.
+"""
 
 from __future__ import annotations
 

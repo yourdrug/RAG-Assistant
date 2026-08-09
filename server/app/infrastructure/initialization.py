@@ -1,4 +1,9 @@
-"""Initialization — bootstrap admin user + load dynamic config from DB."""
+"""Application bootstrap -- creates the default admin user and loads dynamic config from DB.
+
+Called once during FastAPI lifespan startup.  If the admin user already
+exists, the step is a no-op.  Dynamic config parameters are loaded from
+the ``config_parameters`` table and applied to in-memory settings.
+"""
 
 from __future__ import annotations
 
