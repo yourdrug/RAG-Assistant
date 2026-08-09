@@ -1,4 +1,9 @@
-"""Unit of Work — async transaction management across all repositories."""
+"""Unit of Work -- aggregates all repository interfaces into a single transaction boundary.
+
+Each ``UnitOfWork`` instance exposes typed repository attributes (documents,
+users, conversations, etc.) and a ``commit()`` / ``rollback()`` lifecycle.
+Created by the ``UnitOfWorkFactory`` port and consumed by application services.
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,9 @@
-"""UnitOfWorkFactory port — application-layer abstraction for UoW creation."""
+"""UnitOfWorkFactory port -- application-layer abstraction for creating UnitOfWork instances.
+
+Concrete implementations (SQLAlchemy-backed) live in ``infrastructure.uow_factory``.
+The ``master=True`` flag selects the write session for mutations that must
+bypass read replicas.
+"""
 
 from __future__ import annotations
 

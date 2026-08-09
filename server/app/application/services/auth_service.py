@@ -1,6 +1,8 @@
-"""Application Service: AuthService — manages authentication via UoWFactory.
+"""Application service for authentication and user management.
 
-Each method opens its own async UnitOfWork. No db/session parameters.
+Provides login, registration, API-key CRUD, and token refresh.  Each public
+method opens its own async UnitOfWork via the injected UnitOfWorkFactory,
+keeping the service stateless and transaction-safe.
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""Ingestion-related DTOs."""
+"""Ingestion-related DTOs -- immutable data-transfer objects for the ingestion API."""
 
 from __future__ import annotations
 

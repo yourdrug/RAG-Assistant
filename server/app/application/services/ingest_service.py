@@ -1,7 +1,9 @@
-"""Application Service: IngestAppService — manages ingestion via UoWFactory.
+"""Application service for document ingestion orchestration.
 
-Each method that touches DB opens its own UnitOfWork.
-No db/session parameters.
+Delegates the heavy lifting (parsing, embedding, vector upload) to the
+``IngestionPort`` while managing DB-side concerns: status queries, registry
+lookups, and force-reindex operations.  Each method that touches the
+database opens its own UnitOfWork.
 """
 
 from __future__ import annotations

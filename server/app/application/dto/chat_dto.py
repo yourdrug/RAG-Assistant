@@ -1,4 +1,4 @@
-"""Chat-related DTOs."""
+"""Chat-related DTOs -- immutable data-transfer objects for the chat API."""
 
 from __future__ import annotations
 

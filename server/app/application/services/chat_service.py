@@ -1,6 +1,8 @@
-"""Application Service: ChatService — manages chat via UoWFactory.
+"""Application service for RAG chat orchestration.
 
-Each method opens its own async UnitOfWork. No db/session parameters.
+Manages conversation lifecycle (create, list, delete), persists messages,
+and streams RAG answers to the client via the ``ChatRAGPort``.  Each public
+method opens its own async UnitOfWork via the injected UnitOfWorkFactory.
 """
 
 from __future__ import annotations

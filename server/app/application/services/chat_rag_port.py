@@ -1,7 +1,8 @@
-"""ChatRAGPort — application-layer port for the RAG service used by ChatService.
+"""ChatRAGPort -- application-layer port for the RAG streaming service.
 
-Moved out of domain/repositories because the interface is shaped by
-application orchestration (ACL context, depth) rather than domain concepts.
+Defines the ``stream_answer`` protocol consumed by ``ChatService``.  Moved
+out of ``domain/repositories`` because the interface is shaped by application
+orchestration (ACL context, depth) rather than pure domain concepts.
 """
 
 from __future__ import annotations
