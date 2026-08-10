@@ -1,16 +1,14 @@
-"""
-benchmark.py — оценка качества RAG-системы.
+"""RAG quality benchmark: retrieval hit-rate, MRR, and LLM-judge scores.
 
-Что измеряет:
-  Retriever:
-    hit_rate       — есть ли среди top-k чанков хотя бы один с правильным источником
-    mrr            — Mean Reciprocal Rank (насколько высоко стоит правильный чанк)
-    avg_similarity — средний similarity score найденных чанков
+Retriever metrics:
+    hit_rate       -- at least one correct-source chunk in top-k
+    mrr            -- Mean Reciprocal Rank of the correct chunk
+    avg_similarity -- mean cosine similarity of retrieved chunks
 
-  Generator (LLM-судья через Ollama):
-    faithfulness   — ответ основан на контексте или модель придумала? (0-10)
-    relevancy      — ответ по существу вопроса? (0-10)
-    correctness    — совпадает с эталонным ответом? (0-10, только если задан expected_answer)
+Generator metrics (LLM-judge via Ollama):
+    faithfulness   -- answer grounded in context (0-10)
+    relevancy      -- answer addresses the question (0-10)
+    correctness    -- matches expected answer (0-10, only if expected_answer provided)
 """
 
 from __future__ import annotations
@@ -30,6 +28,8 @@ from langchain_ollama import ChatOllama
 from langchain_qdrant import QdrantVectorStore
 
 from infrastructure.clients import get_vector_store
+from infrastructure.ml.benchmark_history import save_summary_to_history
+from infrastructure.ml.hybrid import rrf_merge
 
 logger = logging.getLogger("default")
 
@@ -515,8 +515,6 @@ def save_results(results: list[dict], out_dir: str, model_name: str = "", run_id
     logger.info("  CSV:  %s", csv_path)
 
     # Append to history for trend tracking
-    from infrastructure.ml.benchmark_history import save_summary_to_history
-
     summary = compute_summary_metrics(results)
 
     config = {
@@ -550,8 +548,6 @@ def compute_retrieval_metrics_grid(
     sparse_weight: float,
 ) -> dict:
     """Compute retrieval metrics for a single RRF config in-memory (no LLM/Qdrant calls)."""
-    from infrastructure.ml.hybrid import rrf_merge
-
     merged_hashes = rrf_merge(
         [(h, s) for h, s, _ in []] if not dense_by_hash else list(dense_by_hash.values()),
         sparse_results,

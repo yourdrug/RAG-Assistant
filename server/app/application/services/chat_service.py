@@ -1,11 +1,12 @@
-"""Application Service: ChatService — manages chat via UoWFactory.
+"""Application service for RAG chat orchestration.
 
-Each method opens its own async UnitOfWork. No db/session parameters.
+Manages conversation lifecycle (create, list, delete), persists messages,
+and streams RAG answers to the client via the ``ChatRAGPort``.  Each public
+method opens its own async UnitOfWork via the injected UnitOfWorkFactory.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 from collections.abc import AsyncIterator
 
@@ -13,6 +14,7 @@ from domain.entities.message import Message
 from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.message_role import MessageRole
 from domain.value_objects.roles import UserKind
+from domain.value_objects.stream_events import MetaEvent, SourcesEvent, StreamEvent, TextChunk
 
 from application.dto.chat_dto import ChatResult
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
@@ -48,7 +50,7 @@ class ChatService:
         user_kind: str,
         user_role: str,
         depth: str | None = None,
-    ) -> AsyncIterator[str]:
+    ) -> AsyncIterator[StreamEvent]:
         group_ids, assigned_ids = await self._get_user_context(user_id, user_kind)
         ctx = ChatContext(
             user_id=user_id,
@@ -69,29 +71,26 @@ class ChatService:
         sources: list[dict] = []
         user_msg_saved = False
 
-        async for chunk in self._rag_service.stream(
+        async for event in self._rag_service.stream(
             question=question,
             history=history,
             ctx=ctx,
         ):
-            if not user_msg_saved and not chunk.startswith("\n__sources__:"):
-                user_msg_saved = True
-                async with self._uow_factory.create() as uow:
-                    user_msg = Message(
-                        conversation_id=conv.id,
-                        role=MessageRole.USER,
-                        content=question,
-                    )
-                    await uow.messages.save(user_msg)
+            if isinstance(event, SourcesEvent):
+                sources = event.sources
+            elif isinstance(event, TextChunk):
+                if not user_msg_saved:
+                    user_msg_saved = True
+                    async with self._uow_factory.create() as uow:
+                        user_msg = Message(
+                            conversation_id=conv.id,
+                            role=MessageRole.USER,
+                            content=question,
+                        )
+                        await uow.messages.save(user_msg)
 
-            if chunk.startswith("\n__sources__:"):
-                try:
-                    sources = json.loads(chunk.replace("\n__sources__:", ""))
-                except json.JSONDecodeError:
-                    log.warning("Failed to parse sources chunk: %s", chunk)
-            else:
-                full_answer += chunk
-                yield chunk
+                full_answer += event.text
+                yield event
 
         async with self._uow_factory.create() as uow:
             assistant_msg = Message(
@@ -102,7 +101,7 @@ class ChatService:
             )
             await uow.messages.save(assistant_msg)
 
-        yield f"\n__meta__:{json.dumps({'conversation_id': conv.id, 'sources': sources}, ensure_ascii=False)}"
+        yield MetaEvent(conversation_id=conv.id, sources=sources)
 
     async def sync_chat(
         self,

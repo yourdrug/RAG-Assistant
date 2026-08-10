@@ -1,4 +1,9 @@
-"""Async Session Protocol — abstract database session interface."""
+"""Async Session Protocol -- abstract database session interface.
+
+Defines the ``SessionProtocol`` that both real SQLAlchemy ``AsyncSession``
+and test mock sessions must satisfy.  Used for type-checking without
+importing the concrete SQLAlchemy implementation.
+"""
 
 from __future__ import annotations
 

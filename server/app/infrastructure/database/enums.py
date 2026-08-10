@@ -1,4 +1,4 @@
-"""Enums for database infrastructure."""
+"""Database infrastructure enums -- environment, job status, and role definitions."""
 
 from enum import Enum, StrEnum
 
@@ -12,8 +12,3 @@ class Environment(Enum):
 class DatabaseNodeRole(StrEnum):
     MASTER = "master"
     SLAVE = "slave"
-
-
-class CircuitBreakerState(Enum):
-    CLOSED = "closed"
-    OPEN = "open"

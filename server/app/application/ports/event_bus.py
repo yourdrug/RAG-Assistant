@@ -1,7 +1,8 @@
-"""EventBus port — абстракция шины доменных событий.
+"""EventBus port -- abstraction for the domain event bus.
 
-Application и Domain зависят только от этого протокола.
-Конкретная реализация (in-process / Postgres LISTEN/NOTIFY / Kafka) — в infrastructure.
+The application and domain layers depend only on this protocol.  Concrete
+implementations (in-process, Postgres LISTEN/NOTIFY, Kafka) live in the
+infrastructure layer.
 """
 
 from __future__ import annotations

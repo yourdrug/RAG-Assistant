@@ -1,6 +1,8 @@
-"""
-infrastructure/qdrant_ops.py — Qdrant collection operations.
-Extracted from vector_store.py. Pure functions receiving dependencies.
+"""Qdrant collection operations -- pure functions receiving explicit dependencies.
+
+Provides collection creation, point upsert/deletion, payload indexing,
+and ACL-filtered search helpers.  Extracted from the original vector_store
+module to keep concerns separated.
 """
 
 import logging
@@ -10,7 +12,7 @@ import uuid
 from config import settings
 from langchain.schema import Document
 from langchain_huggingface import HuggingFaceEmbeddings
-from qdrant_client.models import Distance, VectorParams
+from qdrant_client.models import Distance, PayloadSchemaType, VectorParams
 
 from infrastructure.clients import get_qdrant_client
 from infrastructure.ml.hybrid import content_hash
@@ -32,6 +34,7 @@ def ensure_collection(client, vector_size: int, reset: bool = False) -> None:
                 settings.collection_name,
                 count,
             )
+            _ensure_payload_indexes(client)
             return
     log.info("Creating collection '%s' (dim=%d) ...", settings.collection_name, vector_size)
     try:
@@ -46,6 +49,29 @@ def ensure_collection(client, vector_size: int, reset: bool = False) -> None:
             )
         else:
             raise
+    _ensure_payload_indexes(client)
+
+
+def _ensure_payload_indexes(client) -> None:
+    """Create payload indexes on ACL fields for efficient filtered search."""
+    acl_fields = [
+        ("metadata.visibility", PayloadSchemaType.KEYWORD),
+        ("metadata.owner_id", PayloadSchemaType.INTEGER),
+        ("metadata.group_id", PayloadSchemaType.INTEGER),
+    ]
+    for field_name, field_type in acl_fields:
+        try:
+            client.create_payload_index(
+                collection_name=settings.collection_name,
+                field_name=field_name,
+                field_schema=field_type,
+            )
+            log.info("Payload index created: %s", field_name)
+        except Exception as e:
+            if "already exists" in str(e):
+                log.debug("Payload index already exists: %s", field_name)
+            else:
+                log.warning("Failed to create payload index %s: %s", field_name, e)
 
 
 def upload_to_qdrant(chunks: list[Document], embeddings: HuggingFaceEmbeddings) -> None:

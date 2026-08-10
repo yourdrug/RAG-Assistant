@@ -3,8 +3,6 @@
 }
 
 "{$DOMAIN}" {
-    tls /etc/caddy/certs/myapp.rag.crt /etc/caddy/certs/myapp.rag.key
-
     handle /openapi.json {
         reverse_proxy server:8001
     }

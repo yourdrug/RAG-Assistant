@@ -1,4 +1,10 @@
-"""Custom logging filters + logging config dict."""
+"""Logging configuration -- dict-based config with custom filters.
+
+Defines loggers (``default``, ``detailed``, ``uvicorn``), custom filters
+(``ExceptionFilter``, ``LevelThresholdFilter``, ``LevelMinFilter``,
+``RequestIDFilter``), and formatting.  Applied during application startup
+via ``logging.config.dictConfig()``.
+"""
 
 from __future__ import annotations
 

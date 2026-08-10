@@ -1,4 +1,4 @@
-"""Domain utilities — pure functions with no infrastructure dependencies."""
+"""Domain utilities -- pure helper functions with no infrastructure dependencies."""
 
 from __future__ import annotations
 

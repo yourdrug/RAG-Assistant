@@ -1,4 +1,9 @@
-"""UserRole and UserKind Value Objects."""
+"""UserRole and UserKind value objects -- role-based access control primitives.
+
+UserRole distinguishes admin vs regular users; UserKind distinguishes
+internal (employee) vs external (client) accounts.  Both are validated
+StrEnums that reject unknown values at construction time.
+"""
 
 from __future__ import annotations
 

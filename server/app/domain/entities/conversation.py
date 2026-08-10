@@ -1,4 +1,8 @@
-"""Conversation Entity — Aggregate Root for Conversation context."""
+"""Conversation entity -- aggregate root for the Chat bounded context.
+
+Groups a sequence of Messages between a user and the RAG assistant.
+Tracks title, ownership, and creation timestamp.
+"""
 
 from __future__ import annotations
 

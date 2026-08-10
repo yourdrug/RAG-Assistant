@@ -1,4 +1,4 @@
-"""ConfigParameter Repository interface."""
+"""ConfigParameter repository interface -- CRUD for dynamic configuration parameters."""
 
 from __future__ import annotations
 

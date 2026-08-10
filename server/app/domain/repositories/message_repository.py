@@ -1,4 +1,4 @@
-"""Message Repository interface."""
+"""Message repository interface -- persistence for chat message entities."""
 
 from __future__ import annotations
 

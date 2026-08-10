@@ -199,14 +199,14 @@ if [ "$ALREADY_CONFIGURED" = false ]; then
 
     echo
     echo "${BOLD}Модель LLM${NC}"
-    echo "  1) qwen2.5:14b     — лучшее качество, ~10 GB RAM (по умолчанию)"
-    echo "  2) qwen2.5:7b      — быстрее, ~8 GB RAM"
+    echo "  1) qwen2.5:7b      — быстрее, ~8 GB RAM (по умолчанию)"
+    echo "  2) qwen2.5:14b     — лучшее качество, ~10 GB RAM"
     echo "  3) mistral-nemo:12b — альтернатива, ~9 GB RAM"
     LLM_CHOICE="$(ask "Выбор [1/2/3, по умолчанию 1]: " "1")"
     case "$LLM_CHOICE" in
-        2) LLM_MODEL="qwen2.5:7b" ;;
+        2) LLM_MODEL="qwen2.5:14b" ;;
         3) LLM_MODEL="mistral-nemo:12b" ;;
-        *) LLM_MODEL="qwen2.5:14b" ;;
+        *) LLM_MODEL="qwen2.5:7b" ;;
     esac
 
     # --- Секреты ---

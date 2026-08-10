@@ -1,4 +1,9 @@
-"""DatabaseURL dataclass — builds async-capable connection string."""
+"""DatabaseURL dataclass -- builds an async-capable PostgreSQL connection string.
+
+Accepts individual components (user, password, host, port, database) and
+exposes ``.connection_string`` for synchronous drivers and
+``.async_connection_string`` for ``asyncpg``/`` SQLAlchemy async`` drivers.
+"""
 
 from dataclasses import dataclass
 

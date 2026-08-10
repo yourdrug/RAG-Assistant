@@ -1,3 +1,5 @@
+"""Repository interfaces -- abstract ports for persistence and external storage."""
+
 from domain.repositories.api_key_repository import ApiKeyRepository
 from domain.repositories.benchmark_settings_repository import BenchmarkSettingsProtocol
 from domain.repositories.client_assignment_repository import ClientAssignmentRepository

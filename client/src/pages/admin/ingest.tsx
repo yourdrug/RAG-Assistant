@@ -31,7 +31,7 @@ export function AdminIngestPage() {
   };
 
   const columns: ColumnDef<IngestRegistryItem>[] = [
-    { accessorKey: "filename", header: "Filename", cell: ({ row }) => <span className="font-medium">{row.original.filename}</span> },
+    { accessorKey: "filename", header: "Filename", cell: ({ row }) => <span className="font-medium truncate max-w-xs block">{row.original.filename}</span> },
     { accessorKey: "chunks", header: "Chunks" },
     { accessorKey: "chars", header: "Chars", cell: ({ row }) => row.original.chars.toLocaleString() },
     { accessorKey: "source", header: "Source", cell: ({ row }) => <Badge variant="outline">{row.original.source}</Badge> },

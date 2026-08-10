@@ -1,9 +1,9 @@
-"""Слушает канал Postgres config_changed и ретранслирует в локальный EventBus.
+"""Postgres LISTEN/NOTIFY listener for config_changed channel.
 
-Использует отдельное raw asyncpg-соединение (не пул SQLAlchemy) — LISTEN держит
-соединение открытым постоянно, это соединение нельзя возвращать в пул.
-Содержит supervisor-таск для автопереподключения при обрыве + полную resync
-при (пере)подключении для закрытия окна потерянных NOTIFY.
+Uses a dedicated raw asyncpg connection (not the SQLAlchemy pool) -- LISTEN
+holds the connection open permanently, so it cannot be returned to the pool.
+Includes a supervisor task for automatic reconnection on disconnect and a
+full resync on (re)connect to close the window of lost NOTIFY messages.
 """
 
 from __future__ import annotations
@@ -108,7 +108,7 @@ class PostgresConfigListener:
                 self._bus.publish(
                     ConfigParameterChanged(
                         key=r.key,
-                        old_value=json.dumps(current) if isinstance(current, (list, dict)) else str(current),
+                        old_value=json.dumps(current) if isinstance(current, list | dict) else str(current),
                         new_value=r.value,
                         value_type=r.value_type,
                     )
@@ -203,7 +203,7 @@ class PostgresConfigListener:
         # Normalise in-memory value to JSON string for comparison
         if isinstance(current, bool):
             current_json = json.dumps(current)
-        elif isinstance(current, (list, dict, int, float)):
+        elif isinstance(current, list | dict | int | float):
             current_json = json.dumps(current, ensure_ascii=False, sort_keys=True)
         else:
             current_json = json.dumps(str(current), ensure_ascii=False)

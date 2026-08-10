@@ -107,21 +107,15 @@ export function DocumentsPage() {
 
     if (choice === "add_new") {
       await doUpload([conflictFile], true);
-      // Upload remaining files (non-conflicting ones already handled, just re-check)
-      const remaining = pendingFiles.filter((f) => f !== conflictFile);
-      if (remaining.length > 0) {
-        const stillConflicts = remaining.filter((_f) => {
-          // Refresh conflict check since we just uploaded
-          return false; // After rename, no conflict
-        });
-        await doUpload(stillConflicts, false);
-      }
     } else {
       await doUpload([conflictFile], false);
-      const remaining = pendingFiles.filter((f) => f !== conflictFile);
-      if (remaining.length > 0) {
-        await doUpload(remaining, false);
-      }
+    }
+
+    // Upload remaining files after resolving this conflict
+    const remaining = pendingFiles.filter((f) => f !== conflictFile);
+    if (remaining.length > 0) {
+      // Re-check remaining files against current document list for new conflicts
+      await doUpload(remaining, false);
     }
 
     setConflictFile(null);
@@ -135,7 +129,7 @@ export function DocumentsPage() {
   };
 
   const columns: ColumnDef<DocumentResponse>[] = [
-    { accessorKey: "filename", header: "Filename", cell: ({ row }) => <div className="flex items-center gap-2"><FileText className="h-4 w-4 text-muted-foreground" /><span className="font-medium">{row.original.filename}</span></div> },
+    { accessorKey: "filename", header: "Filename", cell: ({ row }) => <div className="flex items-center gap-2 max-w-xs"><FileText className="h-4 w-4 shrink-0 text-muted-foreground" /><span className="font-medium truncate">{row.original.filename}</span></div> },
     { accessorKey: "visibility", header: "Visibility", cell: ({ row }) => {
       const vis = row.original.visibility;
       const isClientDoc = vis === "client_private" && isAdmin;
@@ -173,7 +167,7 @@ export function DocumentsPage() {
 
       {/* Upload settings dialog */}
       <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
-        <DialogContent>
+        <DialogContent className="overflow-hidden">
           <DialogHeader><DialogTitle>Upload Documents</DialogTitle><DialogDescription>{files.length} file(s) selected</DialogDescription></DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
@@ -228,7 +222,7 @@ export function DocumentsPage() {
                 )}
               </div>
             )}
-            {files.length > 0 && <div className="space-y-1">{files.map((f, i) => <div key={i} className="flex items-center justify-between text-sm"><span className="truncate">{f.name}</span><span className="text-muted-foreground">{(f.size / 1024).toFixed(1)} KB</span></div>)}</div>}
+            {files.length > 0 && <div className="space-y-1 max-h-40 overflow-y-auto">{files.map((f, i) => <div key={i} className="flex items-center gap-2 text-sm min-w-0 overflow-hidden"><FileText className="h-4 w-4 shrink-0 text-muted-foreground" /><span className="truncate min-w-0 flex-1">{f.name}</span><span className="shrink-0 text-muted-foreground">{(f.size / 1024).toFixed(1)} KB</span></div>)}</div>}
             {progress > 0 && <Progress value={progress} />}
           </div>
           <DialogFooter>
@@ -240,16 +234,16 @@ export function DocumentsPage() {
 
       {/* Conflict resolution dialog */}
       <Dialog open={conflictOpen} onOpenChange={setConflictOpen}>
-        <DialogContent>
+        <DialogContent className="overflow-hidden">
           <DialogHeader>
             <DialogTitle>File Already Exists</DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="break-all">
               A document named <strong>{conflictFile?.name}</strong> already exists. What would you like to do?
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" onClick={() => handleConflictChoice("add_new")}>
-              Add as New ({conflictFile?.name?.replace(/(\.[^.]+)$/, "(1)$1")})
+            <Button variant="outline" className="min-w-0" onClick={() => handleConflictChoice("add_new")}>
+              <span className="truncate">Add as New ({conflictFile?.name?.replace(/(\.[^.]+)$/, "(1)$1")})</span>
             </Button>
             <Button onClick={() => handleConflictChoice("replace")}>
               Replace Existing
@@ -259,7 +253,7 @@ export function DocumentsPage() {
       </Dialog>
 
       <AlertDialog open={deleteId !== null} onOpenChange={() => setDeleteId(null)}>
-        <AlertDialogContent>
+        <AlertDialogContent className="overflow-hidden">
           <AlertDialogHeader><AlertDialogTitle>Delete Document</AlertDialogTitle><AlertDialogDescription>This action cannot be undone.</AlertDialogDescription></AlertDialogHeader>
           <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>

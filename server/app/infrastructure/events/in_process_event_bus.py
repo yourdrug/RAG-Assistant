@@ -1,8 +1,8 @@
-"""In-process синхронная реализация EventBus.
+"""In-process synchronous EventBus implementation.
 
-Без внешнего брокера: обработчики регистрируются в памяти процесса и вызываются
-синхронно при publish(). Исключение в одном подписчике не должно ронять остальных —
-поэтому каждый handler оборачивается в try/except с логированием.
+No external broker: handlers are registered in-process and called synchronously
+on publish(). An exception in one subscriber must not crash others, so each
+handler is wrapped in a try/except with logging.
 """
 
 from __future__ import annotations

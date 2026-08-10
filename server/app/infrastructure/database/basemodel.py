@@ -1,4 +1,9 @@
-"""SQLAlchemy declarative bases — KinTree-style with AsyncAttrs."""
+"""SQLAlchemy declarative bases -- shared ``BaseModel`` with int PK and creation_date.
+
+``BaseModel`` provides an auto-incrementing integer primary key and a
+``creation_date`` column (set on insert).  ``LinkedBaseModel`` extends it
+with a composite PK for many-to-many join tables.
+"""
 
 from __future__ import annotations
 

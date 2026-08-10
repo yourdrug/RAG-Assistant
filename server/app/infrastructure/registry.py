@@ -1,6 +1,9 @@
-"""
-infrastructure/registry.py — Ingestion registry (JSON file tracking indexed files).
-Extracted from vector_store.py. Pure functions, no globals.
+"""Ingestion registry -- JSON file tracking which documents have been indexed.
+
+Pure functions for loading, saving, and querying the registry.  Each entry
+records the file hash, source path, chunk count, character count, and
+indexing timestamp.  Used by the ingestion pipeline to skip already-indexed
+files and by the CLI ``ingest list`` command.
 """
 
 import json

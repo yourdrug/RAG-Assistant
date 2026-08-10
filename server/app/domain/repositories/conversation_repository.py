@@ -1,4 +1,4 @@
-"""Conversation Repository interface."""
+"""Conversation repository interface -- CRUD and listing for Conversation aggregates."""
 
 from __future__ import annotations
 

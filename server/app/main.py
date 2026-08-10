@@ -26,6 +26,7 @@ from presentation.api.exception_handlers import (
     handle_unexpected_exception,
     handle_validation_exception,
 )
+from presentation.api.middleware.rate_limit import RateLimitMiddleware
 from presentation.api.middleware.request_id import RequestIDMiddleware
 from presentation.api.routes.admin_config import router as admin_config_router
 from presentation.api.routes.admin_jobs import router as admin_jobs_router
@@ -41,6 +42,7 @@ from presentation.api.routes.documents import router as documents_router
 from presentation.api.routes.groups import router as groups_router
 from presentation.api.routes.health import router as health_router
 from presentation.api.routes.ingest import router as ingest_router
+from presentation.api.routes.search import router as search_router
 
 # ---------------------------------------------------------------------------
 # Lifespan
@@ -119,6 +121,7 @@ class Application:
             allow_headers=["*"],
         )
         self.app.add_middleware(RequestIDMiddleware)
+        self.app.add_middleware(RateLimitMiddleware)
 
     def add_routers(self) -> None:
         routers = (
@@ -126,6 +129,7 @@ class Application:
             conversations_router,
             chat_router,
             ingest_router,
+            search_router,
             documents_router,
             groups_router,
             clients_router,

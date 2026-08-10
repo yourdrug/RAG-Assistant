@@ -1,0 +1,31 @@
+# Dev-override: live-reload bind-mounts for local development.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# Production image (target: production-*) does NOT use this file —
+# code runs from inside the image, not from the host.
+
+services:
+  server:
+    volumes:
+      - type: bind
+        source: server/app
+        target: /code/project/app
+        bind:
+          propagation: rprivate
+          create_host_path: false
+          selinux: Z
+      - type: bind
+        source: server/entrypoint.sh
+        target: /code/project/entrypoint.sh
+        read_only: true
+        bind:
+          propagation: rprivate
+          create_host_path: false
+          selinux: Z
+      - type: bind
+        source: data
+        target: /code/project/data
+        bind:
+          propagation: rprivate
+          create_host_path: false
+          selinux: Z

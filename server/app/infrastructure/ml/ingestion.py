@@ -1,5 +1,9 @@
-"""
-domain/ingestion.py — Pure parsers + text splitting. No Qdrant, no storage, no registry.
+"""Pure document parsers and text splitting -- no Qdrant, no storage, no registry.
+
+Provides file-type-specific parsers (PDF via PyMuPDF, DOCX, Markdown, plain
+text) and a LangChain-compatible text splitter.  All functions are pure:
+they accept a file path and return ``langchain.schema.Document`` lists with
+no side effects.
 """
 
 import functools

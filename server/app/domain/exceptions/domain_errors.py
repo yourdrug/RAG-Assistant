@@ -1,8 +1,10 @@
-"""Domain exception hierarchy — KinTree-style with as_dict() and Client/Server split.
+"""Domain exception hierarchy -- client/server split with uniform JSON serialization.
 
-All exceptions carry message + errors and expose as_dict() for uniform JSON serialization.
-- ClientException  → 4xx (client errors)
-- ServerException  → 5xx (server errors)
+All exceptions carry a ``message`` and optional ``errors`` dict and expose
+``as_dict()`` for uniform JSON serialization in API error responses.
+
+- ``ClientException``  -- 4xx errors (bad input, not found, forbidden)
+- ``ServerException``  -- 5xx errors (database failures, unexpected errors)
 """
 
 from __future__ import annotations

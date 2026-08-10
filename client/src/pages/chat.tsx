@@ -150,6 +150,7 @@ export function ChatPage() {
                             className="text-sm text-muted-foreground hover:text-foreground transition-colors">New Chat
                     </button>
                 </div>
+
                 <div className="flex-1 overflow-auto p-4 space-y-4">
                     {messages.length === 0 && !streamingMsg && !isLoadingHistory && (
                         <div className="flex h-full items-center justify-center">
@@ -166,7 +167,7 @@ export function ChatPage() {
                         </div>
                     )}
                     {messages.map((m, i) => <MessageBubble key={i} role={m.role} content={m.content} sources={m.sources}
-                                                           onSourcesClick={setSelectedSources}/>)}
+                                                            onSourcesClick={setSelectedSources}/>)}
                     {streamingMsg !== null && <MessageBubble role="assistant" content={streamingMsg} streaming/>}
                     <div ref={endRef}/>
                 </div>

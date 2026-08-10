@@ -20,3 +20,9 @@ server/app/results/
 .DS_Store
 .idea/
 .vscode/
+
+# Auth tokens
+.auth_token
+
+# Mimocode
+.mimocode/

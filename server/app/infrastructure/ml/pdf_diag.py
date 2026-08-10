@@ -1,12 +1,11 @@
-"""
-pdf_diag.py — диагностика PDF файлов перед индексацией.
+"""PDF quality diagnostics before ingestion.
 
-Что проверяет:
-  1. Тип PDF: текстовый / сканированный / смешанный
-  2. Количество извлечённого текста на страницу
-  3. Качество текста (мусорные символы, кодировка)
-  4. Итоговые чанки которые попадут в Qdrant
-  5. Проблемные страницы
+Checks performed:
+  1. PDF type: text-based / scanned / mixed
+  2. Extracted text volume per page
+  3. Text quality (garbled characters, encoding issues)
+  4. Final chunks that will be uploaded to Qdrant
+  5. Problematic pages
 """
 
 from __future__ import annotations

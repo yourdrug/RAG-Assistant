@@ -1,4 +1,8 @@
-"""Message Entity — child of Conversation aggregate."""
+"""Message entity -- child of the Conversation aggregate.
+
+Represents a single turn in a conversation (user or assistant).  Stores the
+text content, role, optional source citations, and timestamp.
+"""
 
 from __future__ import annotations
 

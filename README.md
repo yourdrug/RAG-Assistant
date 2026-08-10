@@ -56,7 +56,7 @@ task chat -- "Вопрос"
 Ключевые переменные в `server/.env`:
 
 ```bash
-LLM_MODEL=qwen2.5:14b          # или mistral-nemo:12b, qwen2.5:7b
+LLM_MODEL=qwen2.5:7b           # или qwen2.5:14b, mistral-nemo:12b
 EMBED_MODEL=BAAI/bge-m3
 RERANK_MODEL=BAAI/bge-reranker-v2-m3
 DEVICE=cpu                        # cuda если есть GPU

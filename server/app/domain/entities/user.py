@@ -1,4 +1,9 @@
-"""User Entity — Aggregate Root for Identity & Access context."""
+"""User entity -- aggregate root for the Identity & Access bounded context.
+
+Encapsulates credentials (password hash), role-based access control (UserRole,
+UserKind), and group membership.  Enforces invariants such as role/kind
+consistency on construction.
+"""
 
 from __future__ import annotations
 

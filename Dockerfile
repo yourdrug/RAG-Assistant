@@ -6,7 +6,6 @@ LABEL author.email="mitkojenia@gmail.com"
 LABEL author.name="Eugene Mitsko"
 
 ARG SOURCE_VERSION
-ARG BUILD_DATE
 
 ENV                                                                                 \
     PYTHONUNBUFFERED=1                                                              \
@@ -18,8 +17,7 @@ ENV                                                                             
     UV_PROJECT_ENVIRONMENT="/code/.venv"                                            \
     UV_LINK_MODE=copy                                                               \
     UV_COMPILE_BYTECODE=1                                                           \
-    SOURCE_VERSION=${SOURCE_VERSION}                                                \
-    BUILD_DATE=${BUILD_DATE}
+    SOURCE_VERSION=${SOURCE_VERSION}
 
 ENV PATH="/code/.venv/bin:$PATH:$UV_INSTALL_DIR"
 
@@ -46,7 +44,8 @@ SHELL ["/bin/bash", "-c"]
 # CPU: uv-base — install deps from pytorch-cpu index (~300MB torch)
 FROM builder-base AS uv-base-cpu
 
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ARG UV_VERSION=0.7.2
+RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_VERSION=${UV_VERSION} sh
 
 WORKDIR $PYSETUP_PATH
 
@@ -59,7 +58,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # GPU: uv-base — install deps from pytorch-gpu index (~2.5GB with CUDA)
 FROM builder-base AS uv-base-gpu
 
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ARG UV_VERSION=0.7.2
+RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_VERSION=${UV_VERSION} sh
 
 WORKDIR $PYSETUP_PATH
 

@@ -96,7 +96,7 @@ async def get_metrics(admin: dict = Depends(require_admin)):
         "retrieved_chunks": rag_chunks,
     }
 
-    # Ingestion metrics
+    # Ingestion metrics (total + by status)
     ingest_docs = _collect_counter("ingest_documents_total")
     ingest_chunks = _collect_counter("ingest_chunks_total")
     ingest_files = _collect_counter("ingest_files_total")
@@ -107,6 +107,34 @@ async def get_metrics(admin: dict = Depends(require_admin)):
         "files_total": sum(ingest_files.values()) if ingest_files else 0.0,
         "duration": ingest_duration,
     }
+    # Per-status breakdown from labels
+    ingest_by_status: dict[str, float] = {}
+    for metric in REGISTRY.collect():
+        if metric.name == "ingest_documents_total":
+            for sample in metric.samples:
+                if sample.name.endswith("_total") or sample.name == "ingest_documents_total":
+                    status = sample.labels.get("status", "unknown") if sample.labels else "unknown"
+                    ingest_by_status[status] = sample.value
+    ingestion["by_status"] = ingest_by_status
+
+    # HTTP requests
+    http_requests_raw = _collect_counter("http_requests_total")
+    # Aggregate by handler
+    by_handler: dict[str, float] = {}
+    total_requests = 0.0
+    for key, val in http_requests_raw.items():
+        total_requests += val
+        # key is like "handler_method_status"
+        parts = key.split("_")
+        if len(parts) >= 2:
+            handler = parts[0]  # first part is the handler path
+        else:
+            handler = key
+        by_handler[handler] = by_handler.get(handler, 0) + val
+    http_requests = {
+        "total": total_requests,
+        "by_endpoint": http_requests_raw,
+    }
 
     return MetricsResponse(
         db_pool=db_pool,
@@ -115,4 +143,5 @@ async def get_metrics(admin: dict = Depends(require_admin)):
         ollama=ollama,
         rag=rag,
         ingestion=ingestion,
+        http_requests=http_requests,
     )

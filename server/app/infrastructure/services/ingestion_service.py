@@ -1,7 +1,10 @@
-"""Ingestion Service — infrastructure implementation for document ingestion.
+"""Infrastructure implementation of the full-document ingestion pipeline.
 
-Uses injected abstractions (VectorStoreRepository, FileStorage, UnitOfWorkFactory)
-instead of concrete infrastructure implementations.
+Scans a local directory or S3 bucket, parses each supported file, splits
+into chunks, generates embeddings, uploads to Qdrant, builds a BM25 index
+for hybrid search, and synchronises document metadata to Postgres via the
+Unit-of-Work factory.  Supports both full-reset and incremental (append)
+modes.
 """
 
 from __future__ import annotations
@@ -12,7 +15,10 @@ from datetime import datetime
 from pathlib import Path
 
 from config import settings
+from domain.entities.chunk import Chunk
+from domain.entities.document import Document as DocEntity
 from domain.repositories.vector_store_repository import VectorStoreRepository
+from domain.value_objects.visibility import DocumentVisibility
 from langchain.schema import Document
 
 from infrastructure.ml.hybrid import BM25Index, load_bm25_index, save_bm25_index
@@ -120,25 +126,44 @@ class IngestionService:
     async def _sync_documents_to_db(self, registry: dict, source_chars: dict, chunks: list) -> None:
         if self._uow_factory is None:
             return
-        async with self._uow_factory.create() as uow:
+        async with self._uow_factory.create(master=True) as uow:
             for fname, info in registry.items():
                 src = info.get("source", "")
                 existing = await uow.documents.find_active_slot(None, fname, None)
                 if existing:
+                    doc_id = existing.id
                     file_chunks = sum(1 for c in chunks if c.metadata.get("source") == src)
                     file_chars = source_chars.get(src, 0)
                     await uow.documents.update_status(
                         existing.id, "done", chunks=file_chunks, chars=file_chars
                     )
                 else:
-                    from domain.entities.document import Document as DocEntity
-                    from domain.value_objects.visibility import DocumentVisibility
-
                     doc = DocEntity(filename=fname, visibility=DocumentVisibility.INTERNAL_PUBLIC)
                     saved = await uow.documents.save(doc)
+                    doc_id = saved.id
                     file_chunks = info.get("chunks", 0)
                     file_chars = info.get("chars", 0)
                     await uow.documents.update_status(saved.id, "done", chunks=file_chunks, chars=file_chars)
+
+                # Write chunks to Postgres for substring search
+                file_chunk_texts = [c.page_content for c in chunks if c.metadata.get("source") == src]
+                if file_chunk_texts and doc_id is not None:
+                    first_chunk = next((c for c in chunks if c.metadata.get("source") == src), None)
+                    vis = (
+                        first_chunk.metadata.get("visibility", "internal_public")
+                        if first_chunk
+                        else "internal_public"
+                    )
+                    owner = first_chunk.metadata.get("owner_id") if first_chunk else None
+                    group = first_chunk.metadata.get("group_id") if first_chunk else None
+                    await uow.chunks.bulk_insert(
+                        document_id=doc_id,
+                        filename=fname,
+                        visibility=vis,
+                        chunks=file_chunk_texts,
+                        owner_id=owner,
+                        group_id=group,
+                    )
             log.info("Synced %d documents to database", len(registry))
 
     async def _upload_chunks_to_vector_store(self, chunks: list) -> None:
@@ -147,8 +172,6 @@ class IngestionService:
         Also builds and persists the BM25 index for hybrid search.
         When adding to an existing index, merges new texts instead of overwriting.
         """
-        from domain.entities.chunk import Chunk
-
         domain_chunks = [Chunk(content=c.page_content, metadata=c.metadata) for c in chunks]
         await self._vector_store.upload_documents(domain_chunks)
 

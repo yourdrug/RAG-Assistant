@@ -374,6 +374,7 @@ class MetricsResponse(BaseModel):
     ollama: list[dict[str, object]]
     rag: dict[str, object]
     ingestion: dict[str, object]
+    http_requests: dict[str, object]
 
 
 # ---------------------------------------------------------------------------
@@ -393,4 +394,31 @@ class LogEntry(BaseModel):
 
 class LogsResponse(BaseModel):
     logs: list[LogEntry]
+    total: int
+
+
+# ---------------------------------------------------------------------------
+# Exact Substring Search (pg_trgm)
+# ---------------------------------------------------------------------------
+
+
+class ExactSearchRequest(BaseModel):
+    query: str = Field(..., min_length=3, max_length=200, description="Search query (min 3 chars)")
+    mode: str = Field(
+        "exact", pattern="^(exact|icontains)$", description="exact=pg_trgm ranked, icontains=plain ILIKE"
+    )
+    limit: int = Field(20, ge=1, le=100)
+
+
+class ExactSearchResult(BaseModel):
+    chunk_id: int
+    document_id: int
+    filename: str
+    content: str
+    chunk_index: int
+
+
+class ExactSearchResponse(BaseModel):
+    query: str
+    results: list[ExactSearchResult]
     total: int

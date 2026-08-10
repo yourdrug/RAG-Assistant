@@ -1,3 +1,10 @@
+"""LangChain document parser -- bridges RawDocument entities to LangChain Documents.
+
+Wraps the low-level parsers from ``infrastructure.ml.ingestion`` and exposes a
+``DocumentParser`` / ``DocumentSplitter`` pair compatible with the domain
+service layer (``DocumentProcessor``).
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

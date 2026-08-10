@@ -1,4 +1,9 @@
-"""Unit of Work Factory — async, uses DatabaseManager (KinTree-style)."""
+"""Unit of Work factory -- creates async UnitOfWork instances bound to the DatabaseManager.
+
+Each call to ``create()`` yields a fresh UnitOfWork with its own read/write
+sessions.  The ``master=True`` variant uses the write session for mutations
+that must bypass read replicas.
+"""
 
 from __future__ import annotations
 
@@ -10,6 +15,7 @@ from application.uow import UnitOfWork
 from infrastructure.database.database import DatabaseManager
 from infrastructure.repositories.sqlalchemy_api_key_repository import SQLAlchemyApiKeyRepository
 from infrastructure.repositories.sqlalchemy_background_job_repository import SQLAlchemyBackgroundJobRepository
+from infrastructure.repositories.sqlalchemy_chunk_repository import SQLAlchemyChunkRepository
 from infrastructure.repositories.sqlalchemy_client_assignment_repository import (
     SQLAlchemyClientAssignmentRepository,
 )
@@ -41,6 +47,7 @@ class UnitOfWorkFactory:
             conversations=SQLAlchemyConversationRepository(session),
             messages=SQLAlchemyMessageRepository(session),
             documents=SQLAlchemyDocumentRepository(session),
+            chunks=SQLAlchemyChunkRepository(session),
             groups=SQLAlchemyGroupRepository(session),
             client_assignments=SQLAlchemyClientAssignmentRepository(session),
             api_keys=SQLAlchemyApiKeyRepository(session),

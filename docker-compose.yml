@@ -8,22 +8,18 @@ services:
     # или временно раскомментировать ports ниже.
     expose:
       - "6333/tcp"
-    # ports:
-    #   - name: qdrant-debug
-    #     target: 6333
-    #     published: 6333
-    #     host_ip: 127.0.0.1
-    #     protocol: tcp
-    #     mode: host
+    env_file:
+      - path: server/.env
+        required: true
     environment:
-      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:-qdrant_api_key}
+      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY}
     volumes:
       - type: bind
         source: ./data/qdrant_storage
         target: /qdrant/storage
         bind:
           propagation: rprivate
-          create_host_path: false
+          create_host_path: true
           selinux: Z
     healthcheck:
       test: [ "CMD-SHELL", "bash -c '</dev/tcp/localhost/6333' || exit 1" ]
@@ -39,6 +35,8 @@ services:
           cpus: "0.5"
           memory: 1G
     restart: unless-stopped
+    networks:
+      - backend
 
   ollama:
     image: ollama/ollama:0.9.5
@@ -62,7 +60,7 @@ services:
         target: /root/.ollama
         bind:
           propagation: rprivate
-          create_host_path: false
+          create_host_path: true
           selinux: Z
     environment:
       OLLAMA_MAX_LOADED_MODELS: 1
@@ -82,6 +80,8 @@ services:
       timeout: 5s
       retries: 10
     restart: unless-stopped
+    networks:
+      - backend
 
   postgres:
     image: postgres:16.4-alpine
@@ -92,11 +92,14 @@ services:
     command: [ "postgres", "-c", "config_file=/etc/postgres/postgresql.conf" ]
     expose:
       - "5432/tcp"
+    env_file:
+      - path: server/.env
+        required: true
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ragpassword}
-      POSTGRES_DB: postgres
-      POSTGRES_HOST_AUTH_METHOD: ${POSTGRES_HOST_AUTH_METHOD:-trust}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
     # App user (raguser) and database (ragdb) are created by init.sql.
     volumes:
       - type: bind
@@ -130,8 +133,8 @@ services:
           host=postgres
           port=5432
           user=postgres
-          password=${POSTGRES_PASSWORD:-ragpassword}
-          dbname=postgres
+          password=${DB_PASSWORD}
+          dbname=${DB_NAME}
         - "-c"
         - "SELECT 'OK'"
       interval: 30s
@@ -149,52 +152,25 @@ services:
           memory: 500M
     pull_policy: missing
     restart: always
+    networks:
+      - backend
 
   server:
-    image: rag-server:${STAGE:-development}-${BUILD_TARGET:-cpu}
+    image: rag-server:${STAGE}-${BUILD_TARGET}-${VERSION}
     build:
       context: .
       dockerfile: Dockerfile
-      target: ${STAGE:-development}-${BUILD_TARGET:-cpu}
-      args:
-        BUILD_DATE: ${BUILD_DATE:-}
+      target: ${STAGE}-${BUILD_TARGET}
     hostname: rag-server
     container_name: rag-server
     ports:
-      - name: rag-server
-        target: 8001
-        published: 8001
-        host_ip: 0.0.0.0
-        protocol: tcp
-        mode: host
+      - "127.0.0.1:8001:8001"
     env_file:
       - path: server/.env
         required: true
     environment:
-      DEVICE: ${DEVICE:-cpu}
+      DEVICE: ${DEVICE}
     volumes:
-      - type: bind
-        source: server/app
-        target: /code/project/app
-        bind:
-          propagation: rprivate
-          create_host_path: false
-          selinux: Z
-      - type: bind
-        source: server/entrypoint.sh
-        target: /code/project/entrypoint.sh
-        read_only: true
-        bind:
-          propagation: rprivate
-          create_host_path: false
-          selinux: Z
-      - type: bind
-        source: data
-        target: /code/project/data
-        bind:
-          propagation: rprivate
-          create_host_path: false
-          selinux: Z
       - type: volume
         source: huggingface_cache
         target: /root/.cache/huggingface
@@ -220,6 +196,9 @@ services:
       postgres:
         condition: service_healthy
     restart: unless-stopped
+    networks:
+      - default
+      - backend
 
   minio:
     image: minio/minio:RELEASE.2024-09-22T00-33-43Z
@@ -239,16 +218,19 @@ services:
         host_ip: 127.0.0.1
         protocol: tcp
         mode: host
+    env_file:
+      - path: server/.env
+        required: true
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY}
     volumes:
       - type: bind
         source: ./data/minio
         target: /data
         bind:
           propagation: rprivate
-          create_host_path: false
+          create_host_path: true
           selinux: Z
     healthcheck:
       test: [ "CMD", "mc", "ready", "local" ]
@@ -270,7 +252,7 @@ services:
       context: ./client
       dockerfile: Dockerfile
       args:
-        VITE_API_URL: ${VITE_API_URL:-/api}
+        VITE_API_URL: ${VITE_API_URL}
     hostname: rag-client
     container_name: rag-client
     ports:
@@ -281,7 +263,7 @@ services:
         protocol: tcp
         mode: host
     environment:
-      VITE_API_URL: ${VITE_API_URL:-/api}
+      VITE_API_URL: ${VITE_API_URL}
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:80"]
       interval: 30s
@@ -333,21 +315,21 @@ services:
         read_only: true
         bind:
           propagation: rprivate
-          create_host_path: false
+          create_host_path: true
           selinux: Z
       - type: bind
         source: ./data/caddy_data
         target: /data
         bind:
           propagation: rprivate
-          create_host_path: false
+          create_host_path: true
           selinux: Z
       - type: bind
         source: ./data/caddy_config
         target: /config
         bind:
           propagation: rprivate
-          create_host_path: false
+          create_host_path: true
           selinux: Z
     depends_on:
       server:
@@ -372,7 +354,11 @@ networks:
       # По умолчанию Docker-мост держит MTU=1500. Если на хосте поднят VPN (обычно
       # снижает MTU до ~1400 и меньше), крупные TLS-пакеты при долгих скачиваниях рвутся
       # с "EOF" — см. README → Troubleshooting.
-      com.docker.network.driver.mtu: ${DOCKER_MTU:-1500}
+      com.docker.network.driver.mtu: ${DOCKER_MTU}
+  backend:
+    name: rag-backend
+    driver: bridge
+    internal: true
 
 volumes:
   huggingface_cache:

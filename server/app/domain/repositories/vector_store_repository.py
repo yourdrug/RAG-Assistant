@@ -1,4 +1,4 @@
-"""Vector Store Repository interface — abstracts Qdrant/vector operations."""
+"""Vector store repository interface -- abstracts embedding generation and Qdrant operations."""
 
 from __future__ import annotations
 

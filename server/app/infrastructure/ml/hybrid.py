@@ -1,9 +1,8 @@
-"""
-infrastructure/ml/hybrid.py — BM25 sparse retrieval + RRF merge for hybrid search.
+"""BM25 sparse retrieval and Reciprocal Rank Fusion (RRF) merge for hybrid search.
 
-Pure functions, no side effects at module level.
-BM25 implementation from scratch — zero external dependencies beyond stdlib.
-Includes lightweight Russian suffix stemmer for better sparse recall.
+Pure functions with no side effects at module level.  The BM25 implementation
+is written from scratch with zero external dependencies beyond stdlib.  Includes
+a lightweight Russian suffix stemmer for better sparse recall on Cyrillic text.
 """
 
 import hashlib

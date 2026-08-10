@@ -1,4 +1,4 @@
-"""Domain Events — конфигурационные события."""
+"""Domain events for dynamic configuration changes."""
 
 from __future__ import annotations
 
@@ -8,11 +8,10 @@ from datetime import UTC, datetime
 
 @dataclass(frozen=True)
 class ConfigParameterChanged:
-    """Параметр динамической конфигурации изменён.
+    """Published after a dynamic config parameter is committed to the database.
 
-    Публикуется ПОСЛЕ успешного commit в БД. Подписчики сами решают,
-    релевантно ли для них изменение конкретного key — событие общее,
-    фильтрация происходит внутри каждого хендлера.
+    Subscribers decide whether the changed key is relevant to them -- the
+    event is broadcast generically and filtering happens inside each handler.
     """
 
     key: str

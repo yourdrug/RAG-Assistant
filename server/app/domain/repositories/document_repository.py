@@ -1,4 +1,4 @@
-"""Document Repository interface."""
+"""Document repository interface -- CRUD and status queries for Document entities."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Auth-related DTOs."""
+"""Auth-related DTOs -- immutable data-transfer objects for login, registration, and user info."""
 
 from __future__ import annotations
 

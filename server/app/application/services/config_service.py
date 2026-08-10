@@ -1,8 +1,9 @@
-"""Application Service: ConfigService — управление динамической конфигурацией.
+"""Application service for managing dynamic configuration parameters.
 
-Валидация min/max — бизнес-правило, поэтому здесь, а не в роутере.
-publish() вызывается ПОСЛЕ выхода из `async with uow_factory.create()`,
-то есть гарантированно после commit — подписчики не увидят "недокоммиченное" значение.
+Validates min/max bounds (a business rule, so it lives here, not in the
+router).  ``publish()`` is called *after* exiting the ``async with
+uow_factory.create()`` block, guaranteeing the event fires only after a
+successful commit -- subscribers never see uncommitted values.
 """
 
 from __future__ import annotations

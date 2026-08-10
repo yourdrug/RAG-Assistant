@@ -1,9 +1,9 @@
-"""CLI-команда: ручной resync динамической конфигурации из БД.
+"""CLI command: one-shot resync of dynamic configuration from the database.
 
-Отличие от listener resync:
-- Одноразовая команда (не слушает NOTIFY)
-- Не отправляет pg_notify другим процессам (они не узнают об изменении)
-- Использует ту же логику сравнения с текущими settings, что и listener
+Unlike the listener-based resync:
+- Fires once (does not listen for NOTIFY).
+- Does not broadcast pg_notify to other processes.
+- Uses the same diffing logic against current in-memory settings.
 """
 
 from __future__ import annotations
@@ -13,30 +13,24 @@ import logging
 import sys
 
 import typer
+from config import settings
+from domain.events.config_events import ConfigParameterChanged
+from infrastructure.database.database import database
+from infrastructure.events.in_process_event_bus import event_bus
+from infrastructure.ml.config_subscribers import apply_to_settings
+from infrastructure.uow_factory import UnitOfWorkFactory
 
 logger = logging.getLogger("cli")
 
-config_app = typer.Typer(help="Управление динамической конфигурацией")
+config_app = typer.Typer(help="Manage dynamic configuration")
 
 
 @config_app.command("resync")
 def config_resync() -> None:
-    """Принудительно применить все config_parameters из БД к in-memory settings.
-
-    Полезно после ручного изменения таблицы config_parameters в обход API,
-    либо для диагностики, если /health показывает config_listener: error.
-    """
-    from domain.events.config_events import ConfigParameterChanged
-    from infrastructure.database.database import database
-    from infrastructure.events.in_process_event_bus import event_bus
-    from infrastructure.ml.config_subscribers import apply_to_settings
-    from infrastructure.uow_factory import UnitOfWorkFactory
-
+    """Force-apply all config_parameters from the database to in-memory settings."""
     event_bus.subscribe(ConfigParameterChanged, apply_to_settings)
 
     async def _run() -> None:
-        from config import settings
-
         await database.connect()
         uow_factory = UnitOfWorkFactory(database=database)
 

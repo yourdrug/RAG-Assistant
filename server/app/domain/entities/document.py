@@ -1,4 +1,9 @@
-"""Document Entity — Aggregate Root for Knowledge Base context."""
+"""Document entity -- aggregate root for the Knowledge Base bounded context.
+
+Represents an uploaded file with its metadata (visibility, owner, status,
+chunk count).  Owns lifecycle transitions (pending -> processing -> done/failed)
+and ACL enforcement.
+"""
 
 from __future__ import annotations
 

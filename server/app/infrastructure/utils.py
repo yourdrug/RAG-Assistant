@@ -1,4 +1,11 @@
-"""Singleton decorator — ensures only one instance of a class exists."""
+"""Singleton decorator -- ensures only one instance of a class exists.
+
+Usage::
+
+    @Singleton
+    class MyService:
+        ...
+"""
 
 from __future__ import annotations
 

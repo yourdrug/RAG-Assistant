@@ -1,4 +1,4 @@
-"""Document-related DTOs."""
+"""Document-related DTOs -- immutable data-transfer objects for document upload and metadata."""
 
 from __future__ import annotations
 

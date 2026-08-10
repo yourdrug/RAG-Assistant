@@ -1,8 +1,9 @@
-"""Postgres LISTEN/NOTIFY implementation of ConfigChangeBroadcaster.
+"""Postgres LISTEN/NOTIFY broadcaster for config change events.
 
-Sends pg_notify('config_changed', payload) to alert other processes
-about config parameter changes. Uses a dedicated write session from
-the database manager, or an existing session for transactional atomicity.
+Sends ``pg_notify('config_changed', payload)`` to alert other processes
+about config parameter changes.  Uses a dedicated write session from the
+database manager, or an existing session for transactional atomicity
+when the config change originates from the same transaction.
 """
 
 from __future__ import annotations

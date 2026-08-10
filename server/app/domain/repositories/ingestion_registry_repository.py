@@ -1,4 +1,4 @@
-"""Ingestion Registry Repository interface."""
+"""Ingestion registry repository interface -- tracks which files have been indexed."""
 
 from __future__ import annotations
 

@@ -1,7 +1,8 @@
-"""ChatRAGPort — application-layer port for the RAG service used by ChatService.
+"""ChatRAGPort -- application-layer port for the RAG streaming service.
 
-Moved out of domain/repositories because the interface is shaped by
-application orchestration (ACL context, depth) rather than domain concepts.
+Defines the ``stream_answer`` protocol consumed by ``ChatService``.  Moved
+out of ``domain/repositories`` because the interface is shaped by application
+orchestration (ACL context, depth) rather than pure domain concepts.
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ from collections.abc import AsyncIterator
 from typing import Protocol
 
 from domain.value_objects.chat_context import ChatContext
+from domain.value_objects.stream_events import StreamEvent
 
 
 class ChatRAGPort(Protocol):
@@ -18,7 +20,7 @@ class ChatRAGPort(Protocol):
         question: str,
         history: list,
         ctx: ChatContext,
-    ) -> AsyncIterator[str]: ...
+    ) -> AsyncIterator[StreamEvent]: ...
 
     async def invoke(
         self,

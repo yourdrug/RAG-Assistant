@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from application.services.document_processor import DocumentProcessor
 from application.services.document_service import DocumentService
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, UploadFile
+from config import settings
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from infrastructure.logging.actions import log_action
 
 from presentation.api.auth_dependencies import get_current_user
@@ -25,6 +27,30 @@ logger = logging.getLogger("default")
 
 router = APIRouter(tags=["documents"])
 
+# Magic-byte signatures for supported extensions
+_MAGIC_BYTES: dict[str, list[bytes]] = {
+    ".pdf": [b"%PDF"],
+    ".docx": [b"PK\x03\x04"],  # ZIP-based
+    ".doc": [b"\xd0\xcf\x11\xe0"],  # OLE2
+    ".rtf": [b"{\\rtf"],
+    ".md": [],  # plain text, no reliable magic
+    ".txt": [],  # plain text
+}
+
+
+def _validate_mime(file_data: bytes, extension: str) -> None:
+    """Verify file contents match declared extension using magic bytes."""
+    if extension not in _MAGIC_BYTES:
+        raise HTTPException(status_code=400, detail=f"Unsupported file extension: {extension}")
+    expected = _MAGIC_BYTES[extension]
+    if not expected:
+        return  # plain text — no magic to check
+    if not any(file_data[: len(sig)] == sig for sig in expected):
+        raise HTTPException(
+            status_code=400,
+            detail=f"File content does not match extension {extension}",
+        )
+
 
 async def _process_document_in_background(
     document_id: int,
@@ -36,7 +62,9 @@ async def _process_document_in_background(
     replace_id: int | None,
     job_id: int,
 ):
+    """Async — runs on the event loop after the response is sent."""
     uow_factory = get_uow_factory()
+
     try:
         async with uow_factory.create(master=True) as uow:
             await uow.background_jobs.mark_running(job_id)
@@ -95,8 +123,18 @@ async def upload_document(
     rename_on_conflict: bool = Form(False),
     document_service: DocumentService = Depends(create_document_service),
 ):
-    data = await file.read()
     filename = file.filename or "unnamed"
+    ext = Path(filename).suffix.lower()
+
+    max_bytes = settings.max_upload_size_mb * 1024 * 1024
+    data = await file.read()
+    if len(data) > max_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large: {len(data) / 1024 / 1024:.1f} MB (limit {settings.max_upload_size_mb} MB)",
+        )
+
+    _validate_mime(data, ext)
 
     result = await document_service.upload(
         filename=filename,

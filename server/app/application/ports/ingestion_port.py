@@ -1,4 +1,8 @@
-"""IngestionPort — application-layer abstraction for document ingestion."""
+"""IngestionPort -- application-layer abstraction for the document ingestion pipeline.
+
+Defines the protocol that ``IngestAppService`` depends on.  The concrete
+implementation (local files, S3, hybrid) lives in ``infrastructure.services``.
+"""
 
 from __future__ import annotations
 

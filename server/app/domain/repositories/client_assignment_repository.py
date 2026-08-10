@@ -1,4 +1,4 @@
-"""Client Assignment Repository interface."""
+"""Client assignment repository interface -- maps internal users to external client accounts."""
 
 from __future__ import annotations
 

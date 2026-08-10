@@ -1,4 +1,4 @@
-"""User Repository interface."""
+"""User repository interface -- CRUD and lookup for User entities."""
 
 from __future__ import annotations
 

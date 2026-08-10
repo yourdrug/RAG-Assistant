@@ -1,3 +1,5 @@
+"""Value objects -- immutable, self-validating domain primitives."""
+
 from domain.value_objects.document_status import DocumentStatus
 from domain.value_objects.message_role import MessageRole
 from domain.value_objects.roles import UserKind, UserRole

@@ -49,4 +49,10 @@ export const queryKeys = {
     list: (params?: { limit?: number; level?: string; search?: string }) =>
       [...queryKeys.logs.all, "list", params] as const,
   },
+  admin: {
+    all: ["admin"] as const,
+    config: () => [...queryKeys.admin.all, "config"] as const,
+    models: () => [...queryKeys.admin.all, "models"] as const,
+    vectordb: () => [...queryKeys.admin.all, "vectordb"] as const,
+  },
 } as const;

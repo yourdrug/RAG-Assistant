@@ -1,8 +1,9 @@
-"""API Key provider — генерация, хеширование и in-memory кэш проверки.
+"""Static API key provider -- generation, hashing, and in-memory cache verification.
 
-Статический API-ключ — метод аутентификации ТОЛЬКО для внешних (kind='client')
-пользователей. В отличие от JWT ключ проверяется по базе (через кэш) и может
-быть отозван мгновенно и без криптографии — как у Stripe/OpenAI.
+Static API keys are an authentication method for external (kind='client')
+users only. Unlike JWT, the key is verified against the database (via a
+short-TTL cache) and can be revoked instantly without cryptography -- similar
+to Stripe/OpenAI key schemes.
 """
 
 from __future__ import annotations

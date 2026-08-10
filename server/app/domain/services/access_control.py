@@ -1,7 +1,8 @@
-"""Access Control Domain Service — pure business rules for document visibility.
+"""Access control domain service -- pure business rules for document visibility.
 
-Single source of truth for all visibility/ACL logic. Both Qdrant and SQL adapters
-derive their filter conditions from get_visibility_conditions() to avoid duplication.
+Single source of truth for all visibility/ACL logic.  Both the Qdrant
+filter builder and the SQLAlchemy query builder derive their conditions
+from ``get_visibility_conditions()`` to avoid duplication.
 """
 
 from __future__ import annotations

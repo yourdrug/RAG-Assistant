@@ -2,6 +2,8 @@ version: "3"
 
 vars:
   COMPOSE: docker compose
+  VERSION:
+    sh: cat VERSION
 
 dotenv: [ "server/.env" ]
 
@@ -20,11 +22,12 @@ tasks:
     desc: Первоначальная настройка — .env файлы + права на data/ + сборка образа
     cmds:
       - task: env
+      - task: data:create
       - task: data:perms
       - task: build
       - 'echo "Готово. Дальше:  task up  →  task pull-model  →  task login email=... password=...  →  task ingest  →  task chat -- \"вопрос\""'
-      - 'echo "Свой домен вместо localhost:8001?  task up:public  (нужен DOMAIN в .env — см. README)"'
-      - 'echo "(Для локальной разработки/тестов вне Docker: task install)"'
+      - 'echo "Свой домен вместо localhost:8001?  task up -- public  (нужен DOMAIN в .env — см. README)"'
+      - 'echo "(Для GPU: task up -- gpu, для prod: task up -- prod)"'
 
   env:
     desc: Создать .env и server/.env из соответствующих .env.example, если ещё не созданы
@@ -36,10 +39,16 @@ tasks:
       - test -f server/.env || cp server/.env.example server/.env
       - 'echo ".env и server/.env готовы"'
 
+  data:create:
+    desc: Создать все data-директории, необходимые для Docker-сервисов
+    cmds:
+      - mkdir -p data/qdrant_storage data/ollama_models data/postgres data/minio data/caddy_certs data/caddy_data data/caddy_config data/db/postgres
+      - 'echo "Data-директории созданы"'
+
   data:perms:
     desc: "Права на data/ для записи любым UID контейнера (нужно для task prod:up / production-стадии)"
     cmds:
-      - mkdir -p data
+      - task: data:create
       - chmod -R a+rwX data
       - 'echo "data/ доступна на запись"'
 
@@ -48,132 +57,104 @@ tasks:
   # -------------------------------------------------------------------------
 
   build:
-    desc: Собрать dev-образы server + client (CPU)
+    desc: "Собрать образы (task build -- [gpu] [prod])"
     cmds:
-      - "{{.COMPOSE}} build server client"
+      - >
+        {{.COMPOSE}}
+        {{if not (has "prod" .CLI_ARGS)}}-f docker-compose.dev.yml{{end}}
+        {{if has "gpu" .CLI_ARGS}}-f docker-compose.gpu.yml{{end}}
+        build server client
     env:
-      BUILD_TARGET: cpu
-      DEVICE: cpu
-      GPU_COUNT: "0"
-      STAGE: development
-
-  build:gpu:
-    desc: Собрать dev-образы server + client (GPU / CUDA)
-    cmds:
-      - "{{.COMPOSE}} -f docker-compose.yml -f docker-compose.gpu.yml build server client"
-    env:
-      BUILD_TARGET: gpu
-      DEVICE: cuda
-      GPU_COUNT: "all"
-      STAGE: development
-
-  build:prod:
-    desc: Собрать production-образы server + client (CPU)
-    cmds:
-      - "{{.COMPOSE}} build server client"
-    env:
-      BUILD_TARGET: cpu
-      DEVICE: cpu
-      GPU_COUNT: "0"
-      STAGE: prod
-
-  build:prod:gpu:
-    desc: Собрать production-образы server + client (GPU / CUDA)
-    cmds:
-      - "{{.COMPOSE}} -f docker-compose.yml -f docker-compose.gpu.yml build server client"
-    env:
-      BUILD_TARGET: gpu
-      DEVICE: cuda
-      GPU_COUNT: "all"
-      STAGE: prod
+      BUILD_TARGET: '{{if has "gpu" .CLI_ARGS}}gpu{{else}}cpu{{end}}'
+      DEVICE: '{{if has "gpu" .CLI_ARGS}}cuda{{else}}cpu{{end}}'
+      GPU_COUNT: '{{if has "gpu" .CLI_ARGS}}all{{else}}0{{end}}'
+      STAGE: '{{if has "prod" .CLI_ARGS}}prod{{else}}development{{end}}'
+      VERSION: "{{.VERSION}}"
+      VITE_API_URL: ${VITE_API_URL}
 
   up:
-    desc: Поднять стек (dev, CPU) — без Caddy/домена
+    desc: "Поднять стек (task up -- [gpu] [prod] [public])"
     cmds:
-      - "{{.COMPOSE}} up -d"
+      - task: data:create
+      - >
+        {{.COMPOSE}}
+        {{if not (has "prod" .CLI_ARGS)}}-f docker-compose.dev.yml{{end}}
+        {{if has "gpu" .CLI_ARGS}}-f docker-compose.gpu.yml{{end}}
+        {{if has "public" .CLI_ARGS}}--profile domain{{end}}
+        up -d
       - task: ps
     env:
-      BUILD_TARGET: cpu
-      DEVICE: cpu
-      GPU_COUNT: "0"
-      STAGE: development
-
-  up:gpu:
-    desc: Поднять стек (dev, GPU) — без Caddy/домена
-    cmds:
-      - "{{.COMPOSE}} -f docker-compose.yml -f docker-compose.gpu.yml up -d"
-      - task: ps
-    env:
-      BUILD_TARGET: gpu
-      DEVICE: cuda
-      GPU_COUNT: "all"
-      STAGE: development
-
-  up:prod:
-    desc: Поднять стек (prod, CPU) — без Caddy/домена
-    cmds:
-      - "{{.COMPOSE}} up -d"
-      - task: ps
-    env:
-      BUILD_TARGET: cpu
-      DEVICE: cpu
-      GPU_COUNT: "0"
-      STAGE: prod
-      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
-
-  up:prod:gpu:
-    desc: Поднять стек (prod, GPU) — без Caddy/домена
-    cmds:
-      - "{{.COMPOSE}} -f docker-compose.yml -f docker-compose.gpu.yml up -d"
-      - task: ps
-    env:
-      BUILD_TARGET: gpu
-      DEVICE: cuda
-      GPU_COUNT: "all"
-      STAGE: prod
-      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
-
-  up:cpu:public:
-    desc: "Dev CPU + Caddy с авто-HTTPS (нужен DOMAIN в .env)"
-    cmds:
-      - "{{.COMPOSE}} --profile domain up -d"
-      - task: ps
-    env:
-      BUILD_TARGET: cpu
-      DEVICE: cpu
-      GPU_COUNT: "0"
-      STAGE: development
-
-  up:gpu:public:
-    desc: "Dev GPU + Caddy с авто-HTTPS (нужен DOMAIN в .env)"
-    cmds:
-      - "{{.COMPOSE}} -f docker-compose.yml -f docker-compose.gpu.yml --profile domain up -d"
-      - task: ps
-    env:
-      BUILD_TARGET: gpu
-      DEVICE: cuda
-      GPU_COUNT: "all"
-      STAGE: development
+      BUILD_TARGET: '{{if has "gpu" .CLI_ARGS}}gpu{{else}}cpu{{end}}'
+      DEVICE: '{{if has "gpu" .CLI_ARGS}}cuda{{else}}cpu{{end}}'
+      GPU_COUNT: '{{if has "gpu" .CLI_ARGS}}all{{else}}0{{end}}'
+      STAGE: '{{if has "prod" .CLI_ARGS}}prod{{else}}development{{end}}'
+      VERSION: "{{.VERSION}}"
+      VITE_API_URL: ${VITE_API_URL}
 
   down:
     desc: Остановить и удалить контейнеры, включая Caddy если был поднят (данные в data/ сохраняются)
     cmds:
       - "{{.COMPOSE}} --profile domain down"
+    env:
+      STAGE: development
+      BUILD_TARGET: cpu
+      VERSION: "{{.VERSION}}"
+
+  version:bump:
+    desc: "Увеличить минорную версию (0.2.0 → 0.3.0) в VERSION и пересобрать образ"
+    cmds:
+      - |
+        CURRENT=$(cat VERSION)
+        MAJOR=$(echo $CURRENT | cut -d. -f1)
+        MINOR=$(echo $CURRENT | cut -d. -f2)
+        NEW_MINOR=$((MINOR + 1))
+        NEW_VERSION="${MAJOR}.${NEW_MINOR}.0"
+        echo $NEW_VERSION > VERSION
+        echo "Version bumped: $CURRENT → $NEW_VERSION"
+      - task: build
+
+  version:set:
+    desc: "Установить конкретную версию (task version:set -- 1.0.0)"
+    cmds:
+      - |
+        NEW_VERSION="{{.CLI_ARGS}}"
+        CURRENT=$(cat VERSION)
+        echo $NEW_VERSION > VERSION
+        echo "Version set: $CURRENT → $NEW_VERSION"
+      - task: build
+
+  version:show:
+    desc: Показать текущую версию
+    cmds:
+      - |
+        echo "Current version: $(cat VERSION)"
 
   restart:
     desc: "Перезапустить сервис (task restart -- server)"
     cmds:
       - "{{.COMPOSE}} restart {{.CLI_ARGS | default \"server\"}}"
+    env:
+      STAGE: development
+      BUILD_TARGET: cpu
+      VERSION: "{{.VERSION}}"
 
   ps:
     desc: Статус контейнеров
     cmds:
       - "{{.COMPOSE}} ps"
+    env:
+      STAGE: development
+      BUILD_TARGET: cpu
+      VERSION: "{{.VERSION}}"
 
   logs:
     desc: "Логи сервиса, по умолчанию server (task logs -- postgres)"
     cmds:
       - "{{.COMPOSE}} logs -f {{.CLI_ARGS | default \"server\"}}"
+    env:
+      STAGE: development
+      BUILD_TARGET: cpu
+      VERSION: "{{.VERSION}}"
 
   clean:
     desc: Остановить стек и удалить data/postgres, data/qdrant_storage, data/ollama_models, data/caddy_* — ОПАСНО
@@ -181,6 +162,10 @@ tasks:
     cmds:
       - "{{.COMPOSE}} --profile domain down -v"
       - rm -rf data/postgres data/qdrant_storage data/ollama_models data/caddy_data data/caddy_config
+    env:
+      STAGE: development
+      BUILD_TARGET: cpu
+      VERSION: "{{.VERSION}}"
 
   # -------------------------------------------------------------------------
   # Модель LLM (Ollama — сервис в docker-compose.yml)
@@ -189,7 +174,11 @@ tasks:
   pull-model:
     desc: Скачать LLM в контейнер Ollama (по умолчанию — модель из server/.env / LLM_MODEL)
     cmds:
-      - "{{.COMPOSE}} exec ollama ollama pull {{.CLI_ARGS | default \"qwen2.5:14b\"}}"
+      - "{{.COMPOSE}} exec ollama ollama pull {{.CLI_ARGS | default .LLM_MODEL}}"
+    env:
+      STAGE: development
+      BUILD_TARGET: cpu
+      VERSION: "{{.VERSION}}"
 
   # -------------------------------------------------------------------------
   # Авторизация
@@ -301,21 +290,37 @@ tasks:
     desc: Запустить оценку качества (retriever + LLM-судья) по data/test_questions.json
     cmds:
       - "{{.COMPOSE}} exec server bash -c 'cd app && python -m cli benchmark run'"
+    env:
+      STAGE: development
+      BUILD_TARGET: cpu
+      VERSION: "{{.VERSION}}"
 
   bench:regression:
     desc: Benchmark + regression check vs baseline (exit code 1 при regressions)
     cmds:
       - "{{.COMPOSE}} exec server bash -c 'cd app && python -m cli benchmark regression'"
+    env:
+      STAGE: development
+      BUILD_TARGET: cpu
+      VERSION: "{{.VERSION}}"
 
   bench:history:
     desc: Показать историю последних 10 runs бенчмарка
     cmds:
       - "{{.COMPOSE}} exec server bash -c 'cd app && python -m cli benchmark history'"
+    env:
+      STAGE: development
+      BUILD_TARGET: cpu
+      VERSION: "{{.VERSION}}"
 
   pdf:diag:
     desc: "Диагностика PDF-файла (task pdf:diag -- /path/to/file.pdf)"
     cmds:
       - "{{.COMPOSE}} exec server bash -c 'cd app && python -m cli pdf-diag check {{.CLI_ARGS}}'"
+    env:
+      STAGE: development
+      BUILD_TARGET: cpu
+      VERSION: "{{.VERSION}}"
 
   # -------------------------------------------------------------------------
   # База данных
@@ -325,6 +330,10 @@ tasks:
     desc: Открыть psql внутри контейнера postgres
     cmds:
       - "{{.COMPOSE}} exec postgres psql -U raguser -d ragdb"
+    env:
+      STAGE: development
+      BUILD_TARGET: cpu
+      VERSION: "{{.VERSION}}"
 
   db:backup:
     desc: Сделать дамп БД в data/db/postgres/backups/
@@ -332,6 +341,10 @@ tasks:
       - mkdir -p data/db/postgres/backups
       - "{{.COMPOSE}} exec -T postgres pg_dump -U raguser ragdb > data/db/postgres/backups/backup_$(date +%F_%H%M%S).sql"
       - 'echo "Дамп сохранён в data/db/postgres/backups/"'
+    env:
+      STAGE: development
+      BUILD_TARGET: cpu
+      VERSION: "{{.VERSION}}"
 
   db:backup:qdrant:
     desc: Создать снимок Qdrant (snapshot API) в data/qdrant_backups/
@@ -350,6 +363,10 @@ tasks:
         done &&
         {{.COMPOSE}} exec -T qdrant tar czf - /qdrant/snapshots/ > "data/qdrant_backups/qdrant_snapshots_$TIMESTAMP.tar.gz" &&
         echo "Снимки Qdrant сохранены в data/qdrant_backups/"
+    env:
+      STAGE: development
+      BUILD_TARGET: cpu
+      VERSION: "{{.VERSION}}"
 
   db:backup:minio:
     desc: Скопировать бакеты MinIO в data/minio_backups/ (через mc)
@@ -382,27 +399,47 @@ tasks:
     desc: "Применить все pending миграции (alembic upgrade head)"
     cmds:
       - "{{.COMPOSE}} exec server alembic upgrade head"
+    env:
+      STAGE: development
+      BUILD_TARGET: cpu
+      VERSION: "{{.VERSION}}"
 
   db:migrate:make:
     desc: "Создать новую миграцию (task db:migrate:make -- \"описание\")"
     aliases: [ mm ]
     cmds:
       - "{{.COMPOSE}} exec server alembic revision --autogenerate -m {{.CLI_ARGS}}"
+    env:
+      STAGE: development
+      BUILD_TARGET: cpu
+      VERSION: "{{.VERSION}}"
 
   db:migrate:current:
     desc: Показать текущую версию миграций
     cmds:
       - "{{.COMPOSE}} exec server alembic current"
+    env:
+      STAGE: development
+      BUILD_TARGET: cpu
+      VERSION: "{{.VERSION}}"
 
   db:migrate:history:
     desc: История миграций
     cmds:
       - "{{.COMPOSE}} exec server alembic history"
+    env:
+      STAGE: development
+      BUILD_TARGET: cpu
+      VERSION: "{{.VERSION}}"
 
   db:migrate:downgrade:
     desc: "Откатить на одну миграцию вниз (alembic downgrade -1)"
     cmds:
       - "{{.COMPOSE}} exec server alembic downgrade -1"
+    env:
+      STAGE: development
+      BUILD_TARGET: cpu
+      VERSION: "{{.VERSION}}"
 
   # -------------------------------------------------------------------------
   # Локальная разработка без Docker (uv)
