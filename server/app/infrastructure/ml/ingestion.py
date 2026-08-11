@@ -125,6 +125,30 @@ def ocr_pdf_pages(doc, page_nums: list[int], filename: str) -> dict:
 # ---------------------------------------------------------------------------
 
 
+def _pymupdf_table_to_markdown(table) -> str:
+    """Convert a PyMuPDF table to markdown format."""
+    try:
+        data = table.extract()
+    except Exception:
+        return ""
+    if not data or len(data) < 1:
+        return ""
+
+    # Normalize column count
+    max_cols = max(len(row) for row in data)
+    rows = []
+    for row in data:
+        normalized = [str(cell).strip().replace("|", "\\|") if cell else "" for cell in row]
+        while len(normalized) < max_cols:
+            normalized.append("")
+        rows.append(normalized)
+
+    header = "| " + " | ".join(rows[0]) + " |"
+    separator = "|" + "|".join(["---"] * max_cols) + "|"
+    body = ["| " + " | ".join(row) + " |" for row in rows[1:]]
+    return "\n".join([header, separator] + body) if body else header
+
+
 def parse_pdf(file_path: Path) -> list[Document]:
     doc = fitz.open(str(file_path))
     pages = []
@@ -133,6 +157,27 @@ def parse_pdf(file_path: Path) -> list[Document]:
     for page_num in range(1, len(doc) + 1):
         page = doc.load_page(page_num - 1)
         text = page.get_text("text").strip()
+
+        # Check for tables on this page
+        try:
+            tables = page.find_tables()
+            if tables and tables.tables:
+                for table in tables.tables:
+                    md_table = _pymupdf_table_to_markdown(table)
+                    if md_table:
+                        pages.append(
+                            Document(
+                                page_content=md_table,
+                                metadata={
+                                    "page": page_num,
+                                    "source": str(file_path),
+                                    "content_type": "table",
+                                },
+                            )
+                        )
+        except Exception:
+            pass  # find_tables not available or failed
+
         if not text and settings.ocr_enabled:
             ocr_pages_needed.append(page_num)
         elif text:
@@ -239,10 +284,36 @@ def _has_page_break(paragraph) -> bool:
     return False
 
 
+def _docx_table_to_markdown(table) -> str:
+    """Convert a python-docx table to markdown table format.
+
+    First row is used as header. Merged cells are handled by python-docx
+    which returns the merged value for each cell in the range.
+    """
+    rows = []
+    for row in table.rows:
+        cells = [cell.text.strip().replace("|", "\\|") for cell in row.cells]
+        rows.append(cells)
+    if not rows:
+        return ""
+
+    # Normalize column count
+    max_cols = max(len(r) for r in rows)
+    for r in rows:
+        while len(r) < max_cols:
+            r.append("")
+
+    header = "| " + " | ".join(rows[0]) + " |"
+    separator = "|" + "|".join(["---"] * max_cols) + "|"
+    body = ["| " + " | ".join(row) + " |" for row in rows[1:]]
+    return "\n".join([header, separator] + body) if body else header
+
+
 def _parse_docx(file_path: Path) -> tuple[str, dict]:
     """Parse DOCX and return (text, metadata).
 
     Detects page breaks via <w:br w:type="page"/> to provide page metadata.
+    Tables are serialized as markdown tables.
     """
     doc = docx.Document(str(file_path))
     parts = []
@@ -258,10 +329,10 @@ def _parse_docx(file_path: Path) -> tuple[str, dict]:
         parts.append(p.text)
 
     for table in doc.tables:
-        parts.append("")  # blank line before table
-        for row in table.rows:
-            cells = [cell.text.strip() for cell in row.cells]
-            parts.append(" | ".join(cells))
+        md_table = _docx_table_to_markdown(table)
+        if md_table:
+            parts.append("")  # blank line before table
+            parts.append(md_table)
 
     metadata: dict = {}
     if page_numbers:
@@ -349,11 +420,11 @@ def parse_docx_sections(file_path: Path) -> list[tuple[str | None, str]]:
 
     table_lines = []
     for table in doc.tables:
-        for row in table.rows:
-            cells = [cell.text.strip() for cell in row.cells]
-            table_lines.append(" | ".join(cells))
+        md_table = _docx_table_to_markdown(table)
+        if md_table:
+            table_lines.append(md_table)
     if table_lines:
-        sections.append((None, "\n".join(table_lines)))
+        sections.append((None, "\n\n".join(table_lines)))
 
     if not sections:
         text, _meta = _parse_docx(file_path)

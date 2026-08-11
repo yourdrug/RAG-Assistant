@@ -71,6 +71,27 @@ RAG_NOT_FOUND_TOTAL = Counter(
     "Number of answers indicating info not found in documents",
 )
 
+RAG_DECOMPOSED_TOTAL = Counter(
+    "rag_decomposed_queries_total",
+    "Number of queries that were decomposed into sub-queries",
+)
+
+RAG_RELEVANCE_GATE_TOTAL = Counter(
+    "rag_relevance_gate_total",
+    "Relevance gate check results",
+    ["result"],  # "passed" | "rejected"
+)
+
+RAG_CACHE_HITS_TOTAL = Counter(
+    "rag_cache_hit_total",
+    "Semantic answer cache hits",
+)
+
+RAG_CACHE_MISSES_TOTAL = Counter(
+    "rag_cache_miss_total",
+    "Semantic answer cache misses",
+)
+
 # ---------------------------------------------------------------------------
 # Ingestion metrics
 # ---------------------------------------------------------------------------

@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 import infrastructure.ml.rag as rag  # noqa: E402
 from infrastructure.ml.rag import classify_question_breadth  # noqa: E402
+from langchain_core.language_models import FakeListChatModel  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -344,3 +345,204 @@ class TestClassifyQuestionBreadth:
 
     def test_kakoy_srok_deystviya_is_narrow(self):
         assert classify_question_breadth("Какой срок действия пароля?") == "narrow"
+
+
+# ---------------------------------------------------------------------------
+# needs_decomposition
+# ---------------------------------------------------------------------------
+
+
+class TestNeedsDecomposition:
+    def test_simple_question_no_decomposition(self):
+        from domain.services.rag_policy import needs_decomposition
+
+        assert needs_decomposition("Что такое ЭТТН?") is False
+
+    def test_compound_with_and(self):
+        from domain.services.rag_policy import needs_decomposition
+
+        assert needs_decomposition("Расскажи про ЭТТН и про маркировку") is True
+
+    def test_compare_question(self):
+        from domain.services.rag_policy import needs_decomposition
+
+        assert needs_decomposition("Сравни тарифы А и Б") is True
+
+    def test_how_and_what(self):
+        from domain.services.rag_policy import needs_decomposition
+
+        assert needs_decomposition("Как оформить заказ и что для этого нужно?") is True
+
+    def test_empty_string(self):
+        from domain.services.rag_policy import needs_decomposition
+
+        assert needs_decomposition("") is False
+
+    def test_single_topic_no_decomposition(self):
+        from domain.services.rag_policy import needs_decomposition
+
+        assert needs_decomposition("Подробно расскажи про безопасность") is False
+
+
+# ---------------------------------------------------------------------------
+# check_relevance (mocked LLM)
+# ---------------------------------------------------------------------------
+
+
+class TestCheckRelevance:
+    def test_empty_docs_returns_false(self):
+        result = asyncio.run(rag.check_relevance(None, "question", []))
+        assert result == (False, "Нет документов для проверки")
+
+    def test_relevant_answer_detected(self):
+        llm = FakeListChatModel(responses=["ДА — контекста достаточно"])
+        result = asyncio.run(rag.check_relevance(llm, "question", [_doc("some context")]))
+        assert result[0] is True
+
+    def test_irrelevant_answer_detected(self):
+        llm = FakeListChatModel(responses=["НЕТ — в документах нет информации про это"])
+        result = asyncio.run(rag.check_relevance(llm, "question", [_doc("some context")]))
+        assert result[0] is False
+
+
+# ---------------------------------------------------------------------------
+# decompose_question (mocked LLM)
+# ---------------------------------------------------------------------------
+
+
+class TestDecomposeQuestion:
+    def test_single_line_returns_original(self):
+        llm = FakeListChatModel(responses=["Один подвопрос"])
+        result = asyncio.run(rag.decompose_question(llm, "complex question"))
+        assert result == ["complex question"]
+
+    def test_multi_line_returns_list(self):
+        llm = FakeListChatModel(responses=["Подвопрос 1\nПодвопрос 2\nПодвопрос 3"])
+        result = asyncio.run(rag.decompose_question(llm, "complex question"))
+        assert len(result) == 3
+        assert "Подвопрос 1" in result
+
+
+# ---------------------------------------------------------------------------
+# _docx_table_to_markdown
+# ---------------------------------------------------------------------------
+
+
+class TestDocxTableToMarkdown:
+    def test_simple_table(self):
+        from infrastructure.ml.ingestion import _docx_table_to_markdown
+
+        class MockCell:
+            def __init__(self, text):
+                self.text = text
+
+        class MockRow:
+            def __init__(self, cells):
+                self.cells = [MockCell(c) for c in cells]
+
+        class MockTable:
+            def __init__(self, rows):
+                self.rows = [MockRow(r) for r in rows]
+
+        table = MockTable([["Name", "Value"], ["A", "1"], ["B", "2"]])
+        result = _docx_table_to_markdown(table)
+        assert "| Name | Value |" in result
+        assert "|---|---|" in result
+        assert "| A | 1 |" in result
+        assert "| B | 2 |" in result
+
+    def test_empty_table(self):
+        from infrastructure.ml.ingestion import _docx_table_to_markdown
+
+        class MockTable:
+            rows = []
+
+        assert _docx_table_to_markdown(MockTable()) == ""
+
+    def test_pipes_in_cells_escaped(self):
+        from infrastructure.ml.ingestion import _docx_table_to_markdown
+
+        class MockCell:
+            def __init__(self, text):
+                self.text = text
+
+        class MockRow:
+            def __init__(self, cells):
+                self.cells = [MockCell(c) for c in cells]
+
+        class MockTable:
+            def __init__(self, rows):
+                self.rows = [MockRow(r) for r in rows]
+
+        table = MockTable([["Header"], ["value|with|pipes"]])
+        result = _docx_table_to_markdown(table)
+        assert "value\\|with\\|pipes" in result
+
+
+# ---------------------------------------------------------------------------
+# _pymupdf_table_to_markdown
+# ---------------------------------------------------------------------------
+
+
+class TestPyMuPDFTableToMarkdown:
+    def test_simple_table(self):
+        from infrastructure.ml.ingestion import _pymupdf_table_to_markdown
+
+        class MockTable:
+            def extract(self):
+                return [["Name", "Value"], ["A", "1"], ["B", "2"]]
+
+        result = _pymupdf_table_to_markdown(MockTable())
+        assert "| Name | Value |" in result
+        assert "|---|---|" in result
+
+    def test_extract_failure_returns_empty(self):
+        from infrastructure.ml.ingestion import _pymupdf_table_to_markdown
+
+        class MockTable:
+            def extract(self):
+                raise Exception("not supported")
+
+        assert _pymupdf_table_to_markdown(MockTable()) == ""
+
+
+# ---------------------------------------------------------------------------
+# answer_cache helpers
+# ---------------------------------------------------------------------------
+
+
+class TestAnswerCacheHelpers:
+    def test_same_scope_same_hash(self):
+        from infrastructure.ml.answer_cache import compute_visibility_scope_hash
+
+        h1 = compute_visibility_scope_hash("internal", [1, 2], [3])
+        h2 = compute_visibility_scope_hash("internal", [1, 2], [3])
+        assert h1 == h2
+
+    def test_different_scope_different_hash(self):
+        from infrastructure.ml.answer_cache import compute_visibility_scope_hash
+
+        h1 = compute_visibility_scope_hash("internal", [1], [])
+        h2 = compute_visibility_scope_hash("client", [1], [])
+        assert h1 != h2
+
+    def test_different_groups_different_hash(self):
+        from infrastructure.ml.answer_cache import compute_visibility_scope_hash
+
+        h1 = compute_visibility_scope_hash("internal", [1, 2], [])
+        h2 = compute_visibility_scope_hash("internal", [1, 3], [])
+        assert h1 != h2
+
+    def test_question_hash_deterministic(self):
+        from infrastructure.ml.answer_cache import compute_question_hash
+
+        h1 = compute_question_hash("Что такое ЭТТН?")
+        h2 = compute_question_hash("Что такое ЭТТН?")
+        assert h1 == h2
+
+    def test_question_hash_case_insensitive(self):
+        from infrastructure.ml.answer_cache import compute_question_hash
+
+        h1 = compute_question_hash("ЧТО ТАКОЕ ЭТТН?")
+        h2 = compute_question_hash("что такое Эттн?")
+        assert h1 == h2

@@ -26,6 +26,9 @@ class RagSettings:
     rerank_score_gap_ratio: float | None
     source_min_score: float
     citation_filter_enabled: bool
+    relevance_gate_enabled: bool
+    decomposition_enabled: bool
+    cache_enabled: bool
 
     @classmethod
     def from_settings(cls) -> RagSettings:
@@ -43,4 +46,7 @@ class RagSettings:
             rerank_score_gap_ratio=settings.rerank_score_gap_ratio,
             source_min_score=settings.source_min_score,
             citation_filter_enabled=settings.citation_filter_enabled,
+            relevance_gate_enabled=settings.relevance_gate_enabled,
+            decomposition_enabled=settings.decomposition_enabled,
+            cache_enabled=settings.cache_enabled,
         )

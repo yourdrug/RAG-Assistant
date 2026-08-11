@@ -43,6 +43,7 @@ class ConversationModel(BaseModel):
     __table_args__ = (Index("idx_conversations_user", "user_id"),)
 
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     messages = relationship("MessageModel", back_populates="conversation", cascade="all, delete-orphan")
 
@@ -198,3 +199,25 @@ class ChunkModel(BaseModel):
     visibility: Mapped[str] = mapped_column(String(20), nullable=False)
     owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     group_id: Mapped[int | None] = mapped_column(ForeignKey("groups.id", ondelete="SET NULL"))
+
+
+class AnswerCacheModel(BaseModel):
+    """Semantic answer cache — stores question-answer pairs for repeated queries.
+
+    Cache key is based on question embedding hash + visibility scope hash.
+    Ensures no cross-tenant data leakage via mandatory visibility_scope_hash.
+    """
+
+    __tablename__ = "answer_cache"
+    __table_args__ = (
+        Index("idx_answer_cache_embedding_hash", "question_embedding_hash"),
+        Index("idx_answer_cache_visibility", "visibility_scope_hash"),
+    )
+
+    question_text: Mapped[str] = mapped_column(Text, nullable=False)
+    question_embedding_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    answer: Mapped[str] = mapped_column(Text, nullable=False)
+    sources: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    visibility_scope_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    document_ids: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    hit_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

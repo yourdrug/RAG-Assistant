@@ -43,6 +43,12 @@ _DYNAMIC_FIELDS: dict[str, tuple[str, type]] = {
     "sparse_weight": ("sparse_weight", float),
     # --- Ingestion ---
     "embed_batch_size": ("embed_batch_size", int),
+    # --- Relevance gate ---
+    "relevance_gate_enabled": ("relevance_gate_enabled", bool),
+    # --- Decomposition ---
+    "decomposition_enabled": ("decomposition_enabled", bool),
+    # --- Cache ---
+    "cache_enabled": ("cache_enabled", bool),
     # --- LLM ---
     "llm_model": ("llm_model", str),
     "llm_temperature": ("llm_temperature", float),

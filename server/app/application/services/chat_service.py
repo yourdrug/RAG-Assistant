@@ -7,6 +7,7 @@ method opens its own async UnitOfWork via the injected UnitOfWorkFactory.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 
@@ -69,6 +70,7 @@ class ChatService:
 
         full_answer = ""
         sources: list[dict] = []
+        confidence: float | None = None
         user_msg_saved = False
 
         async for event in self._rag_service.stream(
@@ -78,6 +80,7 @@ class ChatService:
         ):
             if isinstance(event, SourcesEvent):
                 sources = event.sources
+                confidence = event.confidence
             elif isinstance(event, TextChunk):
                 if not user_msg_saved:
                     user_msg_saved = True
@@ -93,15 +96,44 @@ class ChatService:
                 yield event
 
         async with self._uow_factory.create() as uow:
+            msg_sources = list(sources) if sources else None
+            if confidence is not None and msg_sources is not None:
+                msg_sources = list(msg_sources)
+                msg_sources.append({"_confidence": confidence})
             assistant_msg = Message(
                 conversation_id=conv.id,
                 role=MessageRole.ASSISTANT,
                 content=full_answer,
-                sources=sources,
+                sources=msg_sources,
             )
             await uow.messages.save(assistant_msg)
 
-        yield MetaEvent(conversation_id=conv.id, sources=sources)
+        # Rolling summary: fire-and-forget when history exceeds window
+        if len(history) >= self._history_window:
+            recent_turns = [
+                {"role": "user", "content": question},
+                {"role": "assistant", "content": full_answer},
+            ]
+            conv_id = conv.id
+
+            async def _bg_update_summary() -> None:
+                try:
+                    from infrastructure.clients import get_llm
+                    from infrastructure.ml.rag import update_rolling_summary
+
+                    async with self._uow_factory.create() as uow:
+                        conv_model = await uow.conversations.get(conv_id)
+                        if conv_model is not None:
+                            existing = getattr(conv_model, "summary", None)
+                            new_summary = await update_rolling_summary(get_llm(), existing, recent_turns)
+                            conv_model.summary = new_summary
+                            await uow.conversations.save(conv_model)
+                except Exception:
+                    log.exception("Failed to update rolling summary for conv %d", conv_id)
+
+            asyncio.create_task(_bg_update_summary())
+
+        yield MetaEvent(conversation_id=conv.id, sources=sources, confidence=confidence)
 
     async def sync_chat(
         self,

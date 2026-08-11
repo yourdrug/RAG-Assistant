@@ -61,6 +61,9 @@ def assess_pdf_extraction_quality(pdf_path: Path, extracted_docs: list) -> PdfQu
 
     n_missing = max(total_pages - len(by_page), 0)
     n_garbled = sum(1 for text in by_page.values() if is_garbled(text))
+    # Pages with table content (pipe-separated) should not count as garbled
+    n_table = sum(1 for text in by_page.values() if "|" in text and "---" in text)
+    n_garbled = max(0, n_garbled - n_table)
     bad = n_missing + n_garbled
     bad_ratio = bad / total_pages if total_pages else 0.0
 
@@ -77,24 +80,45 @@ def is_garbled(text: str) -> bool:
     """Эвристика: если >15% символов — нечитаемый мусор, это скан без OCR."""
     if not text:
         return False
+    # Table content (pipes, dashes, numbers) is not garbled
+    if "|" in text and "---" in text:
+        return False
     total = len(text)
     normal = sum(1 for c in text if c.isalnum() or c in " .,;:!?-—\n\t()[]«»\"'")
     return (normal / total) < 0.6
 
 
-def classify_page(text: str, chars: int) -> tuple[str, str]:
+def _page_has_tables(page) -> bool:
+    """Check if a PDF page contains table structures."""
+    try:
+        tables = page.find_tables()
+        return bool(tables and tables.tables)
+    except Exception:
+        return False
+
+
+def classify_page(text: str, chars: int, page=None) -> tuple[str, str]:
     """
     Возвращает (тип, описание):
       text     — нормальный текстовый слой
       scan     — отсканированная страница без OCR (мало текста)
       garbled  — есть текст но нечитаемый (кривая кодировка / шрифт)
       empty    — пустая страница
+      table    — страница содержит преимущественно таблицу
     """
     if chars == 0:
+        # Check if page has tables (tables may have no extracted text layer)
+        if page is not None and _page_has_tables(page):
+            return "table", "таблица (без текстового слоя)"
         return "empty", "пустая"
     if chars < 50:
+        if page is not None and _page_has_tables(page):
+            return "table", "таблица"
         return "scan", f"скан/изображение ({chars} симв)"
     if is_garbled(text):
+        # Check if it's actually a table (pipes + dashes)
+        if page is not None and _page_has_tables(page):
+            return "table", "таблица"
         return "garbled", f"мусорный текст ({chars} симв)"
     return "text", f"текст ({chars} симв)"
 
@@ -112,7 +136,7 @@ def check_pdf(pdf_path: Path, dump: bool = False, chunk_size: int = 512, chunk_o
     for i, page in enumerate(doc):
         text = page.get_text("text")
         chars = len(text.strip())
-        ptype, desc = classify_page(text, chars)
+        ptype, desc = classify_page(text, chars, page=page)
         page_stats.append(
             {
                 "num": i + 1,
@@ -137,6 +161,7 @@ def check_pdf(pdf_path: Path, dump: bool = False, chunk_size: int = 512, chunk_o
     n_scan = types.count("scan")
     n_garbled = types.count("garbled")
     n_empty = types.count("empty")
+    n_table = types.count("table")
 
     total_chars = sum(p["chars"] for p in page_stats)
     avg_chars = total_chars // max(n_text, 1)
@@ -148,6 +173,8 @@ def check_pdf(pdf_path: Path, dump: bool = False, chunk_size: int = 512, chunk_o
         logger.warning("  Сканов:       %d  ← нужен OCR", n_scan)
     if n_garbled:
         logger.warning("  Мусорных:     %d  ← проблема кодировки/шрифта", n_garbled)
+    if n_table:
+        logger.info("  Таблиц:       %d", n_table)
     if n_empty:
         logger.info("  Пустых:       %d", n_empty)
     logger.info("  Всего символов: %s", f"{total_chars:,}")
