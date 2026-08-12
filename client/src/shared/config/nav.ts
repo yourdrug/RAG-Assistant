@@ -1,7 +1,7 @@
 import {
   MessageSquare, FileText, Search, User, LayoutDashboard, Users, UserCog,
   FolderOpen, Upload, Cpu, Database, Clock, BarChart3,
-  ScrollText, Server, Key,
+  ScrollText, Server, Key, MessageCircle,
 } from "lucide-react";
 
 export const userNavItems = [
@@ -31,5 +31,6 @@ export const adminNavItems: AdminNavItem[] = [
   { title: "Settings", href: "/admin/settings", icon: Server },
   { title: "Jobs", href: "/admin/jobs", icon: Clock },
   { title: "Monitoring", href: "/admin/monitoring", icon: BarChart3 },
+  { title: "Chat Logs", href: "/admin/chat-logs", icon: MessageCircle },
   { title: "Actions", href: "/admin/logs", icon: ScrollText },
 ];

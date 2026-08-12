@@ -28,13 +28,14 @@ export function useDocument(id: number) {
 export function useUploadDocument() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ file, visibility, groupId, clientId, renameOnConflict }: { file: File; visibility: string; groupId?: number | null; clientId?: number | null; renameOnConflict?: boolean }) => {
+    mutationFn: async ({ file, visibility, groupId, clientId, renameOnConflict, docDomain }: { file: File; visibility: string; groupId?: number | null; clientId?: number | null; renameOnConflict?: boolean; docDomain?: string | null }) => {
       const fd = new FormData();
       fd.append("file", file);
       fd.append("visibility", visibility);
       if (groupId != null) fd.append("group_id", String(groupId));
       if (clientId != null) fd.append("client_id", String(clientId));
       if (renameOnConflict) fd.append("rename_on_conflict", "true");
+      if (docDomain) fd.append("doc_domain", docDomain);
       return (await apiClient.post<UploadStatusResponse>("/documents", fd, {
         headers: { "Content-Type": "multipart/form-data" },
       })).data;

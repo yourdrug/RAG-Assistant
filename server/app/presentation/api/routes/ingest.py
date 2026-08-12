@@ -28,6 +28,7 @@ async def ingest_documents(
     background_tasks: BackgroundTasks,
     docs_dir: str = "/code/project/data/docs_sample",
     reset: bool = False,
+    domain: str = "auto",
     admin: dict = Depends(require_admin),
 ):
     service = create_ingest_service()
@@ -38,7 +39,11 @@ async def ingest_documents(
 
     job_id = await create_background_job(get_uow_factory(), "ingest")
 
-    log_action("ingest.full", user_id=admin["id"], details={"docs_dir": resolved_dir, "reset": reset})
+    log_action(
+        "ingest.full",
+        user_id=admin["id"],
+        details={"docs_dir": resolved_dir, "reset": reset, "domain": domain},
+    )
 
     async def _tracked_ingest():
         """Async — runs on the event loop after the response is sent."""
@@ -47,7 +52,7 @@ async def ingest_documents(
         try:
             async with uow_factory.create(master=True) as uow:
                 await uow.background_jobs.mark_running(job_id)
-            await service.run_full(resolved_dir, reset)
+            await service.run_full(resolved_dir, reset, domain=domain)
             async with uow_factory.create(master=True) as uow:
                 await uow.background_jobs.mark_done(job_id)
         except Exception as e:
@@ -68,6 +73,7 @@ async def ingest_single_file(
     background_tasks: BackgroundTasks,
     file_path: str,
     force: bool = False,
+    domain: str = "auto",
     admin: dict = Depends(require_admin),
 ):
     service = create_ingest_service()
@@ -83,7 +89,9 @@ async def ingest_single_file(
 
     job_id = await create_background_job(get_uow_factory(), "ingest", related_id=None)
 
-    log_action("ingest.file", user_id=admin["id"], details={"file": resolved, "force": force})
+    log_action(
+        "ingest.file", user_id=admin["id"], details={"file": resolved, "force": force, "domain": domain}
+    )
 
     async def _tracked_single():
         """Async — runs on the event loop after the response is sent."""
@@ -92,7 +100,7 @@ async def ingest_single_file(
         try:
             async with uow_factory.create(master=True) as uow:
                 await uow.background_jobs.mark_running(job_id)
-            await service.run_single(resolved)
+            await service.run_single(resolved, domain=domain)
             async with uow_factory.create(master=True) as uow:
                 await uow.background_jobs.mark_done(job_id)
         except Exception as e:

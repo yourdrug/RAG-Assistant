@@ -25,6 +25,7 @@ class DocumentDTO:
     replace_id: int | None = None
     owner_id: int | None = None
     group_id: int | None = None
+    doc_domain: str = "general"
 
 
 @dataclass(frozen=True)
@@ -36,3 +37,4 @@ class UploadDocumentCommand:
     user_id: int | None = None
     user_kind: str = UserKind.INTERNAL
     user_role: str = UserRole.USER
+    doc_domain: str | None = None

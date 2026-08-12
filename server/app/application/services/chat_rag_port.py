@@ -13,6 +13,8 @@ from typing import Protocol
 from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.stream_events import StreamEvent
 
+from application.dto.chat_dto import RagResult
+
 
 class ChatRAGPort(Protocol):
     async def stream(
@@ -27,4 +29,4 @@ class ChatRAGPort(Protocol):
         question: str,
         history: list,
         ctx: ChatContext,
-    ) -> tuple[str, list[dict]]: ...
+    ) -> RagResult: ...

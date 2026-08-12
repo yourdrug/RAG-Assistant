@@ -18,11 +18,18 @@ from config import settings
 from domain.entities.chunk import Chunk
 from domain.entities.document import Document as DocEntity
 from domain.repositories.vector_store_repository import VectorStoreRepository
+from domain.services.document_domain_classifier import classify_document_domain
 from domain.value_objects.visibility import DocumentVisibility
 from langchain.schema import Document
 
 from infrastructure.ml.hybrid import BM25Index, load_bm25_index, save_bm25_index
-from infrastructure.ml.ingestion import PARSERS, merge_pdf_pages, parse_pdf, split_documents
+from infrastructure.ml.ingestion import (
+    PARSERS,
+    merge_pdf_pages,
+    parse_pdf,
+    split_documents,
+    split_documents_legal,
+)
 from infrastructure.ml.metrics import INGEST_FILES_TOTAL
 from infrastructure.registry import file_hash, is_already_indexed, load_registry, save_registry
 from infrastructure.storage import FileItem, FileStorage
@@ -34,6 +41,11 @@ log = logging.getLogger("default")
 def _tag_internal_public(chunks: list) -> None:
     for c in chunks:
         c.metadata.update({"visibility": "internal_public", "owner_id": None, "group_id": None})
+
+
+def _tag_domain(chunks: list, doc_domain: str) -> None:
+    for c in chunks:
+        c.metadata["doc_domain"] = doc_domain
 
 
 def _register_file(
@@ -60,7 +72,9 @@ class IngestionService:
         self._file_storage = file_storage
         self._uow_factory = uow_factory
 
-    async def run_full_ingestion(self, docs_dir: str, reset: bool = False, prefix: str | None = None) -> None:
+    async def run_full_ingestion(
+        self, docs_dir: str, reset: bool = False, prefix: str | None = None, domain: str = "auto"
+    ) -> None:
         t_start = time.monotonic()
         data_dir = settings.data_dir
         log.info("=" * 55)
@@ -91,6 +105,22 @@ class IngestionService:
 
         chunks = split_documents(merge_pdf_pages(docs))
         _tag_internal_public(chunks)
+
+        # Per-file domain classification
+        source_domain: dict[str, str] = {}
+        for doc in docs:
+            src = doc.metadata.get("source", "")
+            if src not in source_domain:
+                if domain == "auto":
+                    source_domain[src] = classify_document_domain(doc.page_content)
+                else:
+                    source_domain[src] = domain
+                log.info("doc_domain=%s for source=%s", source_domain[src], src)
+
+        for chunk in chunks:
+            src = chunk.metadata.get("source", "")
+            _tag_domain([chunk], source_domain.get(src, "general"))
+
         await self._upload_chunks_to_vector_store(chunks)
 
         source_chars: dict[str, int] = {}
@@ -156,6 +186,9 @@ class IngestionService:
                     )
                     owner = first_chunk.metadata.get("owner_id") if first_chunk else None
                     group = first_chunk.metadata.get("group_id") if first_chunk else None
+                    chunk_domain = (
+                        first_chunk.metadata.get("doc_domain", "general") if first_chunk else "general"
+                    )
                     await uow.chunks.bulk_insert(
                         document_id=doc_id,
                         filename=fname,
@@ -163,6 +196,7 @@ class IngestionService:
                         chunks=file_chunk_texts,
                         owner_id=owner,
                         group_id=group,
+                        doc_domain=chunk_domain,
                     )
             log.info("Synced %d documents to database", len(registry))
 
@@ -193,7 +227,7 @@ class IngestionService:
 
             get_bm25_index.cache_clear()
 
-    async def run_single_file(self, file_path: str) -> None:
+    async def run_single_file(self, file_path: str, domain: str = "auto") -> None:
         t_start = time.monotonic()
         data_dir = settings.data_dir
 
@@ -228,7 +262,14 @@ class IngestionService:
                 total_chars = sum(len(d.page_content) for d in docs)
                 log.info("OK  %s  —  %s chars, %d pages", file_info.filename, f"{total_chars:,}", len(docs))
 
-                chunks = await self._index_docs(docs)
+                if domain == "auto":
+                    full_text = "\n".join(d.page_content for d in docs)
+                    file_domain = classify_document_domain(full_text)
+                else:
+                    file_domain = domain
+                log.info("doc_domain=%s for %s", file_domain, file_info.filename)
+
+                chunks = await self._index_docs(docs, domain=file_domain)
                 _register_file(
                     registry,
                     file_info.filename,
@@ -268,7 +309,14 @@ class IngestionService:
             total_chars = sum(len(d.page_content) for d in docs)
             log.info("OK  %s  —  %s chars, %d pages", path.name, f"{total_chars:,}", len(docs))
 
-            chunks = await self._index_docs(docs)
+            if domain == "auto":
+                full_text = "\n".join(d.page_content for d in docs)
+                file_domain = classify_document_domain(full_text)
+            else:
+                file_domain = domain
+            log.info("doc_domain=%s for %s", file_domain, path.name)
+
+            chunks = await self._index_docs(docs, domain=file_domain)
             _register_file(
                 registry,
                 path.name,
@@ -284,13 +332,17 @@ class IngestionService:
         log.info("DONE  |  %d chunks  |  %.1fs", len(chunks), time.monotonic() - t_start)
         log.info("=" * 55)
 
-    async def _index_docs(self, docs: list) -> list:
+    async def _index_docs(self, docs: list, domain: str = "general") -> list:
         vector_size = len(await self._vector_store.generate_embeddings("test"))
         await self._vector_store.ensure_collection(vector_size, reset=False)
 
         merged = merge_pdf_pages(docs)
-        chunks = split_documents(merged)
+        if domain == "legal":
+            chunks = split_documents_legal(merged)
+        else:
+            chunks = split_documents(merged)
         _tag_internal_public(chunks)
+        _tag_domain(chunks, domain)
         await self._upload_chunks_to_vector_store(chunks)
         return chunks
 

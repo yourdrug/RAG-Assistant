@@ -8,8 +8,10 @@ method opens its own async UnitOfWork via the injected UnitOfWorkFactory.
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import AsyncIterator
 
+from domain.entities.chat_log import ChatLog
 from domain.entities.message import Message
 from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.message_role import MessageRole
@@ -42,6 +44,39 @@ class ChatService:
             assigned_ids = await uow.client_assignments.get_assigned_client_ids(user_id)
             return group_ids or [], assigned_ids or []
 
+    async def _save_chat_log(
+        self,
+        user_id: int,
+        conversation_id: int,
+        question: str,
+        answer: str,
+        sources: list[dict],
+        latency_ms: int,
+        breadth: str,
+        domain: str,
+        retrieval_count: int,
+        reranker_score: float | None,
+        model_used: str | None,
+    ) -> None:
+        try:
+            chat_log = ChatLog(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                question=question,
+                answer=answer,
+                sources=sources,
+                latency_ms=latency_ms,
+                model_used=model_used,
+                breadth=breadth,
+                domain=domain,
+                retrieval_count=retrieval_count,
+                reranker_score=reranker_score,
+            )
+            async with self._uow_factory.create(master=True) as uow:
+                await uow.chat_logs.save(chat_log)
+        except Exception:
+            log.exception("Failed to save chat log")
+
     async def stream_chat(
         self,
         question: str,
@@ -70,6 +105,7 @@ class ChatService:
         full_answer = ""
         sources: list[dict] = []
         user_msg_saved = False
+        t_start = time.monotonic()
 
         async for event in self._rag_service.stream(
             question=question,
@@ -92,6 +128,8 @@ class ChatService:
                 full_answer += event.text
                 yield event
 
+        latency_ms = int((time.monotonic() - t_start) * 1000)
+
         async with self._uow_factory.create() as uow:
             assistant_msg = Message(
                 conversation_id=conv.id,
@@ -100,6 +138,27 @@ class ChatService:
                 sources=sources,
             )
             await uow.messages.save(assistant_msg)
+
+        # Save chat log for quality tracking
+        retrieval_count = len(sources)
+        reranker_score = None
+        if sources:
+            scores = [s.get("max_score", 0) for s in sources if isinstance(s, dict)]
+            reranker_score = max(scores) if scores else None
+
+        await self._save_chat_log(
+            user_id=user_id,
+            conversation_id=conv.id,
+            question=question,
+            answer=full_answer,
+            sources=sources,
+            latency_ms=latency_ms,
+            breadth=depth or "narrow",
+            domain="general",
+            retrieval_count=retrieval_count,
+            reranker_score=reranker_score,
+            model_used=None,
+        )
 
         yield MetaEvent(conversation_id=conv.id, sources=sources)
 
@@ -136,19 +195,36 @@ class ChatService:
             if history and history[-1].role == MessageRole.USER:
                 history = history[:-1]
 
-        answer, sources = await self._rag_service.invoke(
+        t_start = time.monotonic()
+        rag_result = await self._rag_service.invoke(
             question=question,
             history=history,
             ctx=ctx,
         )
+        latency_ms = int((time.monotonic() - t_start) * 1000)
 
         async with self._uow_factory.create() as uow:
             assistant_msg = Message(
                 conversation_id=conv.id,
                 role=MessageRole.ASSISTANT,
-                content=answer,
-                sources=sources,
+                content=rag_result.answer,
+                sources=rag_result.sources,
             )
             await uow.messages.save(assistant_msg)
 
-        return ChatResult(answer=answer, conversation_id=conv.id, sources=sources)
+        # Save chat log for quality tracking
+        await self._save_chat_log(
+            user_id=user_id,
+            conversation_id=conv.id,
+            question=question,
+            answer=rag_result.answer,
+            sources=rag_result.sources,
+            latency_ms=latency_ms,
+            breadth=rag_result.breadth,
+            domain=rag_result.domain,
+            retrieval_count=rag_result.retrieval_count,
+            reranker_score=rag_result.reranker_score,
+            model_used=rag_result.model_used,
+        )
+
+        return ChatResult(answer=rag_result.answer, conversation_id=conv.id, sources=rag_result.sources)

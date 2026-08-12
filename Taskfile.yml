@@ -60,15 +60,15 @@ tasks:
     desc: "Собрать образы (task build -- [gpu] [prod])"
     cmds:
       - >
-        {{.COMPOSE}}
-        {{if not (has "prod" .CLI_ARGS)}}-f docker-compose.dev.yml{{end}}
-        {{if has "gpu" .CLI_ARGS}}-f docker-compose.gpu.yml{{end}}
+        {{.COMPOSE}} -f docker-compose.yml
+        {{if not (contains "prod" .CLI_ARGS)}}-f docker-compose.dev.yml{{end}}
+        {{if contains "gpu" .CLI_ARGS}}-f docker-compose.gpu.yml{{end}}
         build server client
     env:
-      BUILD_TARGET: '{{if has "gpu" .CLI_ARGS}}gpu{{else}}cpu{{end}}'
-      DEVICE: '{{if has "gpu" .CLI_ARGS}}cuda{{else}}cpu{{end}}'
-      GPU_COUNT: '{{if has "gpu" .CLI_ARGS}}all{{else}}0{{end}}'
-      STAGE: '{{if has "prod" .CLI_ARGS}}prod{{else}}development{{end}}'
+      BUILD_TARGET: '{{if contains "gpu" .CLI_ARGS}}gpu{{else}}cpu{{end}}'
+      DEVICE: '{{if contains "gpu" .CLI_ARGS}}cuda{{else}}cpu{{end}}'
+      GPU_COUNT: '{{if contains "gpu" .CLI_ARGS}}all{{else}}0{{end}}'
+      STAGE: '{{if contains "prod" .CLI_ARGS}}prod{{else}}development{{end}}'
       VERSION: "{{.VERSION}}"
       VITE_API_URL: ${VITE_API_URL}
 
@@ -77,17 +77,17 @@ tasks:
     cmds:
       - task: data:create
       - >
-        {{.COMPOSE}}
-        {{if not (has "prod" .CLI_ARGS)}}-f docker-compose.dev.yml{{end}}
-        {{if has "gpu" .CLI_ARGS}}-f docker-compose.gpu.yml{{end}}
-        {{if has "public" .CLI_ARGS}}--profile domain{{end}}
+        {{.COMPOSE}} -f docker-compose.yml
+        {{if not (contains "prod" .CLI_ARGS)}}-f docker-compose.dev.yml{{end}}
+        {{if contains "gpu" .CLI_ARGS}}-f docker-compose.gpu.yml{{end}}
+        {{if contains "public" .CLI_ARGS}}--profile domain{{end}}
         up -d
       - task: ps
     env:
-      BUILD_TARGET: '{{if has "gpu" .CLI_ARGS}}gpu{{else}}cpu{{end}}'
-      DEVICE: '{{if has "gpu" .CLI_ARGS}}cuda{{else}}cpu{{end}}'
-      GPU_COUNT: '{{if has "gpu" .CLI_ARGS}}all{{else}}0{{end}}'
-      STAGE: '{{if has "prod" .CLI_ARGS}}prod{{else}}development{{end}}'
+      BUILD_TARGET: '{{if contains "gpu" .CLI_ARGS}}gpu{{else}}cpu{{end}}'
+      DEVICE: '{{if contains "gpu" .CLI_ARGS}}cuda{{else}}cpu{{end}}'
+      GPU_COUNT: '{{if contains "gpu" .CLI_ARGS}}all{{else}}0{{end}}'
+      STAGE: '{{if contains "prod" .CLI_ARGS}}prod{{else}}development{{end}}'
       VERSION: "{{.VERSION}}"
       VITE_API_URL: ${VITE_API_URL}
 

@@ -13,8 +13,8 @@ export function useIngestRegistry() {
 export function useIngestAll() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ docsDir, reset }: { docsDir: string; reset?: boolean }) =>
-      (await apiClient.post<IngestStatusResponse>("/ingest", null, { params: { docs_dir: docsDir, reset: reset ?? false } })).data,
+    mutationFn: async ({ docsDir, reset, domain }: { docsDir: string; reset?: boolean; domain?: string }) =>
+      (await apiClient.post<IngestStatusResponse>("/ingest", null, { params: { docs_dir: docsDir, reset: reset ?? false, domain: domain ?? "auto" } })).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.ingest.all }),
   });
 }
@@ -22,8 +22,8 @@ export function useIngestAll() {
 export function useIngestFile() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ filePath, force }: { filePath: string; force?: boolean }) =>
-      (await apiClient.post<IngestStatusResponse>("/ingest/file", null, { params: { file_path: filePath, force: force ?? false } })).data,
+    mutationFn: async ({ filePath, force, domain }: { filePath: string; force?: boolean; domain?: string }) =>
+      (await apiClient.post<IngestStatusResponse>("/ingest/file", null, { params: { file_path: filePath, force: force ?? false, domain: domain ?? "auto" } })).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.ingest.all }),
   });
 }

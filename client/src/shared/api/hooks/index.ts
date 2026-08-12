@@ -10,4 +10,5 @@ export { useClientApiKeys, useCreateClientApiKey, useRevokeClientApiKey } from "
 export { useJobs, useJobStats } from "./use-jobs";
 export { useMetrics } from "./use-metrics";
 export { useLogs } from "./use-logs";
+export { useChatLogs } from "./use-chat-logs";
 export { useAdminConfig, useUpdateAdminConfig, useAdminModels, useAdminVectorDB } from "./use-admin";

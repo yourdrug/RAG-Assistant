@@ -96,11 +96,10 @@ services:
       - path: server/.env
         required: true
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: raguser
+      POSTGRES_PASSWORD: ragpassword
+      POSTGRES_DB: ragdb
       POSTGRES_HOST_AUTH_METHOD: scram-sha-256
-    # App user (raguser) and database (ragdb) are created by init.sql.
     volumes:
       - type: bind
         source: ./data/db/postgres/postgresql.conf
@@ -164,7 +163,7 @@ services:
     hostname: rag-server
     container_name: rag-server
     ports:
-      - "127.0.0.1:8001:8001"
+      - "0.0.0.0:8001:8001"
     env_file:
       - path: server/.env
         required: true
@@ -258,14 +257,14 @@ services:
     ports:
       - name: rag-client
         target: 80
-        published: 3000
-        host_ip: 127.0.0.1
+        published: 3001
+        host_ip: 0.0.0.0
         protocol: tcp
         mode: host
     environment:
       VITE_API_URL: ${VITE_API_URL}
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:80"]
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:80" ]
       interval: 30s
       timeout: 5s
       retries: 5

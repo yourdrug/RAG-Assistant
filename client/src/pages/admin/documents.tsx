@@ -26,6 +26,7 @@ export function AdminDocumentsPage() {
     { accessorKey: "id", header: "ID", cell: ({ row }) => <span className="text-muted-foreground">#{row.original.id}</span> },
     { accessorKey: "filename", header: "Filename", cell: ({ row }) => <div className="flex items-center gap-2 max-w-xs"><FileText className="h-4 w-4 shrink-0 text-muted-foreground" /><span className="font-medium truncate">{row.original.filename}</span></div> },
     { accessorKey: "visibility", header: "Visibility", cell: ({ row }) => <Badge variant="secondary">{row.original.visibility.replace(/_/g, " ")}</Badge> },
+    { accessorKey: "doc_domain", header: "Domain", cell: ({ row }) => <Badge variant={row.original.doc_domain === "legal" ? "default" : "secondary"}>{row.original.doc_domain}</Badge> },
     { accessorKey: "status", header: "Status", cell: ({ row }) => <Badge variant={row.original.status === "done" ? "success" : row.original.status === "failed" ? "destructive" : "secondary"}>{row.original.status}</Badge> },
     { accessorKey: "chunks", header: "Chunks", cell: ({ row }) => row.original.chunks ?? "—" },
     { accessorKey: "chars", header: "Chars", cell: ({ row }) => row.original.chars?.toLocaleString() ?? "—" },

@@ -99,10 +99,15 @@ class DocumentModel(BaseModel):
             "status IN ('pending', 'processing', 'done', 'failed')",
             name="documents_status_check",
         ),
+        CheckConstraint(
+            "doc_domain IN ('legal', 'general')",
+            name="documents_doc_domain_check",
+        ),
         Index("idx_documents_owner", "owner_id"),
         Index("idx_documents_group", "group_id"),
         Index("idx_documents_visibility", "visibility"),
         Index("idx_documents_status", "status"),
+        Index("idx_documents_doc_domain", "doc_domain"),
         Index(
             "ux_documents_active_slot",
             "owner_id",
@@ -118,6 +123,7 @@ class DocumentModel(BaseModel):
     owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     group_id: Mapped[int | None] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"))
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    doc_domain: Mapped[str] = mapped_column(String(16), nullable=False, default="general")
     error_message: Mapped[str | None] = mapped_column(Text)
     warning_message: Mapped[str | None] = mapped_column(Text)
     chunks: Mapped[int | None] = mapped_column(Integer)
@@ -188,6 +194,12 @@ class ChunkModel(BaseModel):
     """
 
     __tablename__ = "chunks"
+    __table_args__ = (
+        CheckConstraint(
+            "doc_domain IN ('legal', 'general')",
+            name="chunks_doc_domain_check",
+        ),
+    )
 
     document_id: Mapped[int] = mapped_column(
         ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True
@@ -196,5 +208,31 @@ class ChunkModel(BaseModel):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     filename: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     visibility: Mapped[str] = mapped_column(String(20), nullable=False)
+    doc_domain: Mapped[str] = mapped_column(String(16), nullable=False, default="general")
     owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     group_id: Mapped[int | None] = mapped_column(ForeignKey("groups.id", ondelete="SET NULL"))
+
+
+class ChatLogModel(BaseModel):
+    """Persistent Q&A log for quality tracking."""
+
+    __tablename__ = "chat_logs"
+    __table_args__ = (
+        Index("idx_chat_logs_user_id", "user_id"),
+        Index("idx_chat_logs_creation_date", "creation_date"),
+        Index("idx_chat_logs_domain", "domain"),
+    )
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    conversation_id: Mapped[int | None] = mapped_column(
+        ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True
+    )
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    answer: Mapped[str] = mapped_column(Text, nullable=False)
+    sources: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    model_used: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    breadth: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    domain: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    retrieval_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reranker_score: Mapped[float | None] = mapped_column(nullable=True)

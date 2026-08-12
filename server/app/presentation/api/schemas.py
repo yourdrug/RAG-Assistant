@@ -161,7 +161,7 @@ class GroupCreateRequest(BaseModel):
 class GroupResponse(BaseModel):
     id: int
     name: str
-    creation_date: datetime | None
+    creation_date: datetime | None = None
 
 
 class GroupMemberResponse(BaseModel):
@@ -394,6 +394,32 @@ class LogEntry(BaseModel):
 
 class LogsResponse(BaseModel):
     logs: list[LogEntry]
+    total: int
+
+
+# ---------------------------------------------------------------------------
+# Chat Logs (Q&A quality tracking)
+# ---------------------------------------------------------------------------
+
+
+class ChatLogEntry(BaseModel):
+    id: int
+    creation_date: str
+    user_id: int | None = None
+    conversation_id: int | None = None
+    question: str
+    answer: str
+    sources: list | None = None
+    latency_ms: int | None = None
+    model_used: str | None = None
+    breadth: str | None = None
+    domain: str | None = None
+    retrieval_count: int | None = None
+    reranker_score: float | None = None
+
+
+class ChatLogsResponse(BaseModel):
+    logs: list[ChatLogEntry]
     total: int
 
 

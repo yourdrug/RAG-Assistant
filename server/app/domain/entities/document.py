@@ -24,6 +24,7 @@ class Document:
     owner_id: int | None = None
     group_id: int | None = None
     status: DocumentStatus = DocumentStatus.PENDING
+    doc_domain: str = "general"
     error_message: str | None = None
     warning_message: str | None = None
     chunks: int | None = None

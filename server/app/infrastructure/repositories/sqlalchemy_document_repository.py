@@ -26,6 +26,7 @@ class SQLAlchemyDocumentRepository:
             visibility=document.visibility,
             owner_id=document.owner_id,
             group_id=document.group_id,
+            doc_domain=document.doc_domain,
         )
         self._db.add(orm)
         await self._db.flush()
@@ -78,6 +79,13 @@ class SQLAlchemyDocumentRepository:
         orm = result.scalar_one_or_none()
         if orm:
             orm.source_path = source_path
+            await self._db.flush()
+
+    async def set_domain(self, document_id: int, doc_domain: str) -> None:
+        result = await self._db.execute(select(DocumentModel).where(DocumentModel.id == document_id))
+        orm = result.scalar_one_or_none()
+        if orm:
+            orm.doc_domain = doc_domain
             await self._db.flush()
 
     async def find_active_slot(
@@ -145,6 +153,7 @@ class SQLAlchemyDocumentRepository:
             owner_id=orm.owner_id,
             group_id=orm.group_id,
             status=DocumentStatus(orm.status),
+            doc_domain=orm.doc_domain,
             error_message=orm.error_message,
             warning_message=orm.warning_message,
             chunks=orm.chunks,

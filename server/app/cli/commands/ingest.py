@@ -41,6 +41,7 @@ def ingest_run(
     reset: bool = typer.Option(False, "--reset", help="Reset collection and registry, reindex everything"),
     s3: bool = typer.Option(False, "--s3", help="Index from S3 (instead of local folder)"),
     prefix: str = typer.Option("docs/", "--prefix", "-p", help="S3 prefix (default: docs/)"),
+    domain: str = typer.Option("auto", "--domain", help="Document domain: auto, legal, general"),
 ) -> None:
     """Full indexing of document folder."""
     try:
@@ -48,7 +49,7 @@ def ingest_run(
             settings.file_backend = "s3"
 
         service = _create_service()
-        asyncio.run(service.run_full_ingestion(docs_dir, reset=reset, prefix=prefix))
+        asyncio.run(service.run_full_ingestion(docs_dir, reset=reset, prefix=prefix, domain=domain))
     except Exception as exc:
         logger.error("Indexing error", exc_info=exc)
         sys.exit(1)
@@ -59,6 +60,7 @@ def ingest_file(
     file_path: str = typer.Argument(..., help="File path (local) or S3 key (docs/report.pdf)"),
     force: bool = typer.Option(False, "--force", help="Reindex even if file is already in registry"),
     s3: bool = typer.Option(False, "--s3", help="Treat path as S3 key"),
+    domain: str = typer.Option("auto", "--domain", help="Document domain: auto, legal, general"),
 ) -> None:
     """Add a single file to existing collection."""
     try:
@@ -70,7 +72,7 @@ def ingest_file(
         if force:
             service.force_reindex(Path(file_path).name)
 
-        asyncio.run(service.run_single_file(file_path))
+        asyncio.run(service.run_single_file(file_path, domain=domain))
     except Exception as exc:
         logger.error("File indexing error", exc_info=exc)
         sys.exit(1)

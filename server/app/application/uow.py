@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from domain.repositories import ApiKeyRepository
 from domain.repositories.background_job_repository import BackgroundJobRepository
+from domain.repositories.chat_log_repository import ChatLogRepository
 from domain.repositories.chunk_repository import ChunkRepository
 from domain.repositories.client_assignment_repository import ClientAssignmentRepository
 from domain.repositories.config_parameter_repository import ConfigParameterRepository
@@ -41,6 +42,7 @@ class UnitOfWork(BaseUnitOfWork):
     api_keys: ApiKeyRepository
     config_parameters: ConfigParameterRepository
     background_jobs: BackgroundJobRepository
+    chat_logs: ChatLogRepository
 
     def __init__(
         self,
@@ -55,6 +57,7 @@ class UnitOfWork(BaseUnitOfWork):
         api_keys: ApiKeyRepository,
         config_parameters: ConfigParameterRepository,
         background_jobs: BackgroundJobRepository,
+        chat_logs: ChatLogRepository,
     ) -> None:
         super().__init__(session)
         self.users = users
@@ -67,3 +70,4 @@ class UnitOfWork(BaseUnitOfWork):
         self.api_keys = api_keys
         self.config_parameters = config_parameters
         self.background_jobs = background_jobs
+        self.chat_logs = chat_logs

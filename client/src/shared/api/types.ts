@@ -44,6 +44,7 @@ export interface ChatResponse {
 export interface Source {
   source: string;
   pages: number[];
+  articles?: string[];
 }
 
 // ─── Conversations ───────────────────────────────────────────────────────────
@@ -84,6 +85,8 @@ export type DocumentVisibility =
 
 export type DocumentStatus = "pending" | "processing" | "done" | "failed";
 
+export type DocumentDomain = "legal" | "general";
+
 export interface DocumentResponse {
   id: number;
   filename: string;
@@ -92,6 +95,7 @@ export interface DocumentResponse {
   owner_id?: number | null;
   group_id?: number | null;
   status: DocumentStatus;
+  doc_domain: DocumentDomain;
   error_message?: string | null;
   warning_message?: string | null;
   chunks?: number | null;
@@ -274,6 +278,29 @@ export interface LogEntry {
 
 export interface LogsResponse {
   logs: LogEntry[];
+  total: number;
+}
+
+// ─── Chat Logs (Q&A quality tracking) ────────────────────────────────────────
+
+export interface ChatLogEntry {
+  id: number;
+  creation_date: string;
+  user_id?: number | null;
+  conversation_id?: number | null;
+  question: string;
+  answer: string;
+  sources?: { source: string; pages?: number[]; articles?: string[]; max_score?: number }[] | null;
+  latency_ms?: number | null;
+  model_used?: string | null;
+  breadth?: string | null;
+  domain?: string | null;
+  retrieval_count?: number | null;
+  reranker_score?: number | null;
+}
+
+export interface ChatLogsResponse {
+  logs: ChatLogEntry[];
   total: number;
 }
 

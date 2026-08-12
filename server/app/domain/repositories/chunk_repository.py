@@ -29,6 +29,7 @@ class ChunkRepository(ABC):
         chunks: list[str],
         owner_id: int | None = None,
         group_id: int | None = None,
+        doc_domain: str = "general",
     ) -> None:
         """Insert chunks for a document. Replaces existing chunks for this document."""
 

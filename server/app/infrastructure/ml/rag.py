@@ -76,8 +76,8 @@ async def condense_question(llm, question: str, history_messages: list) -> str:
 # ---------------------------------------------------------------------------
 
 
-def build_prompt(breadth: str = "narrow") -> ChatPromptTemplate:
-    system_text = build_system_prompt(breadth)
+def build_prompt(breadth: str = "narrow", has_legal_context: bool = False) -> ChatPromptTemplate:
+    system_text = build_system_prompt(breadth, has_legal_context=has_legal_context)
     return ChatPromptTemplate.from_messages(
         [
             ("system", system_text),
@@ -175,14 +175,16 @@ def format_docs(docs, max_context_tokens: int = 6000) -> str:
         page_start = doc.metadata.get("page_start")
         page_end = doc.metadata.get("page_end")
         doc_date = doc.metadata.get("doc_date")
+        article_number = doc.metadata.get("article_number")
         header = f"[{i}] {source_name}"
 
         if doc_date:
             header += f" от {doc_date}"
 
-        if page_start is not None and page_end is not None and page_start != page_end:
+        if article_number:
+            header += f", ст. {article_number}"
+        elif page_start is not None and page_end is not None and page_start != page_end:
             header += f" (стр. {page_start}-{page_end})"
-
         elif page is not None:
             header += f" (стр. {page})"
 
@@ -236,6 +238,7 @@ def extract_sources(docs, min_score: float | None = None) -> list[dict]:
     """
     pages_by_source: dict[str, set[str]] = {}
     scores_by_source: dict[str, float] = {}
+    articles_by_source: dict[str, list[str]] = {}
     for item in docs:
         doc = item[0] if isinstance(item, tuple) else item
         score = item[1] if isinstance(item, tuple) else None
@@ -245,6 +248,7 @@ def extract_sources(docs, min_score: float | None = None) -> list[dict]:
         page_start = doc.metadata.get("page_start")
         page_end = doc.metadata.get("page_end")
         pages_list = doc.metadata.get("pages")
+        article_number = doc.metadata.get("article_number")
         if clean_name not in pages_by_source:
             pages_by_source[clean_name] = set()
         if pages_list:
@@ -257,6 +261,10 @@ def extract_sources(docs, min_score: float | None = None) -> list[dict]:
             prev = scores_by_source.get(clean_name, float("-inf"))
             if score > prev:
                 scores_by_source[clean_name] = score
+        if article_number:
+            articles_by_source.setdefault(clean_name, [])
+            if article_number not in articles_by_source[clean_name]:
+                articles_by_source[clean_name].append(article_number)
 
     sources = []
     for src, pages in pages_by_source.items():
@@ -265,6 +273,8 @@ def extract_sources(docs, min_score: float | None = None) -> list[dict]:
             "source": src,
             "pages": sorted_pages,
         }
+        if src in articles_by_source:
+            entry["articles"] = articles_by_source[src]
         if scores_by_source:
             entry["max_score"] = round(float(scores_by_source.get(src, 0.0)), 4)
         sources.append(entry)

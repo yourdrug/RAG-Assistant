@@ -44,3 +44,18 @@ def build_qdrant_filter(
         should.append(Filter(must=must) if len(must) > 1 else must[0])
 
     return Filter(should=should)
+
+
+def with_domain_filter(access_filter: Filter, doc_domain: str) -> Filter:
+    """Add a doc_domain condition to an existing ACL filter.
+
+    Returns a new Filter that requires both the original ACL conditions AND
+    the domain match.
+    """
+    domain_condition = FieldCondition(
+        key="metadata.doc_domain",
+        match=MatchValue(value=doc_domain),
+    )
+    if access_filter and access_filter.should:
+        return Filter(must=[access_filter, domain_condition])
+    return Filter(must=[domain_condition])

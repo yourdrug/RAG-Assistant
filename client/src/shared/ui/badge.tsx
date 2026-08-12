@@ -20,3 +20,6 @@ const Badge = React.forwardRef<
 Badge.displayName = "Badge";
 
 export { Badge };
+export type BadgeProps = React.HTMLAttributes<HTMLDivElement> & {
+  variant?: "default" | "secondary" | "destructive" | "outline" | "success" | "warning";
+};

@@ -61,6 +61,7 @@ async def _process_document_in_background(
     group_id: int | None,
     replace_id: int | None,
     job_id: int,
+    doc_domain: str | None = None,
 ):
     """Async — runs on the event loop after the response is sent."""
     uow_factory = get_uow_factory()
@@ -86,6 +87,7 @@ async def _process_document_in_background(
             owner_id=owner_id,
             group_id=group_id,
             replace_id=replace_id,
+            doc_domain=doc_domain,
         )
         logger.info("Background upload completed: %s (doc %d, job %d)", filename, document_id, job_id)
         async with uow_factory.create(master=True) as uow:
@@ -121,10 +123,14 @@ async def upload_document(
     group_id: int | None = Form(None),
     client_id: int | None = Form(None),
     rename_on_conflict: bool = Form(False),
+    doc_domain: str | None = Form(None),
     document_service: DocumentService = Depends(create_document_service),
 ):
     filename = file.filename or "unnamed"
     ext = Path(filename).suffix.lower()
+
+    if doc_domain is not None and doc_domain not in ("legal", "general"):
+        raise HTTPException(status_code=400, detail="doc_domain must be 'legal' or 'general'")
 
     max_bytes = settings.max_upload_size_mb * 1024 * 1024
     data = await file.read()
@@ -146,6 +152,7 @@ async def upload_document(
         user_kind=current_user["kind"],
         user_role=current_user["role"],
         rename_on_conflict=rename_on_conflict,
+        doc_domain=doc_domain,
     )
 
     log_action(
@@ -165,6 +172,7 @@ async def upload_document(
         owner_id=result.owner_id,
         group_id=group_id,
         replace_id=result.replace_id,
+        doc_domain=doc_domain,
         job_id=job_id,
     )
 

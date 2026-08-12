@@ -49,6 +49,10 @@ export const queryKeys = {
     list: (params?: { limit?: number; level?: string; search?: string }) =>
       [...queryKeys.logs.all, "list", params] as const,
   },
+  chatLogs: {
+    all: ["chatLogs"] as const,
+    list: (params?: Record<string, unknown>) => [...queryKeys.chatLogs.all, "list", params] as const,
+  },
   admin: {
     all: ["admin"] as const,
     config: () => [...queryKeys.admin.all, "config"] as const,

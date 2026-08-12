@@ -106,8 +106,8 @@ class Settings(BaseSettings):
     history_window: int = 8
 
     # --- Reranker score filters ---
-    rerank_min_score: float | None = None
-    rerank_score_gap_ratio: float | None = None
+    rerank_min_score: float | None = 0.15
+    rerank_score_gap_ratio: float | None = 0.1
 
     # --- Source display filter ---
     source_min_score: float = 0.3
@@ -124,6 +124,16 @@ class Settings(BaseSettings):
     rrf_k: int = 30
     dense_weight: float = 1.5
     sparse_weight: float = 0.5
+
+    # --- Legal document chunking ---
+    legal_chunk_size: int = 1000
+    legal_chunk_overlap: int = 250
+
+    # --- Exact reference sparse boost ---
+    exact_ref_sparse_boost: float = 2.5
+
+    # --- Document domain classifier ---
+    document_domain_marker_threshold: float = 2.0
 
     # --- Авторизация ---
     jwt_secret_key: str = "change-me-in-production"

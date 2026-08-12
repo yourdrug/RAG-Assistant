@@ -14,8 +14,9 @@ from pathlib import Path
 
 from domain.entities.chunk import Chunk
 from domain.repositories.vector_store_repository import VectorStoreRepository
+from domain.services.document_domain_classifier import classify_document_domain
 from domain.services.document_parser import DocumentParser, DocumentSplitter
-from infrastructure.ml.ingestion import extract_date_from_filename
+from infrastructure.ml.ingestion import extract_article_number, extract_date_from_filename
 from infrastructure.ml.metrics import (
     INGEST_CHUNKS_TOTAL,
     INGEST_DOCUMENT_DURATION,
@@ -54,6 +55,7 @@ class DocumentProcessor:
         owner_id: int | None,
         group_id: int | None,
         replace_id: int | None,
+        doc_domain: str | None = None,
     ) -> None:
         t_start = time.monotonic()
         temp_path: Path | None = None
@@ -94,6 +96,13 @@ class DocumentProcessor:
                     INGEST_PDF_PAGES_TOTAL.labels(quality="garbled").inc(quality.n_garbled)
                     INGEST_PDF_BAD_RATIO.observe(quality.bad_ratio)
 
+                # Determine document domain: explicit override > heuristic > default
+                if doc_domain is None:
+                    full_text = "\n".join(d.page_content for d in docs)
+                    doc_domain = classify_document_domain(full_text)
+                    log.info("Auto-detected doc_domain=%s for doc %d", doc_domain, document_id)
+                await uow.documents.set_domain(document_id, doc_domain)
+
                 doc_date = extract_date_from_filename(original_filename)
 
                 for doc in docs:
@@ -109,11 +118,16 @@ class DocumentProcessor:
                             "visibility": visibility,
                             "owner_id": owner_id,
                             "group_id": group_id,
+                            "doc_domain": doc_domain,
                         }
                     )
                     section = rc.metadata.get("section")
                     if section:
                         rc.page_content = f"[Раздел: {section}]\n{rc.page_content}"
+                    if doc_domain == "legal":
+                        article = extract_article_number(rc.page_content)
+                        if article:
+                            rc.metadata["article_number"] = article
 
                 domain_chunks = [Chunk(content=rc.page_content, metadata=rc.metadata) for rc in raw_chunks]
 
@@ -129,6 +143,7 @@ class DocumentProcessor:
                     chunks=[rc.page_content for rc in raw_chunks],
                     owner_id=owner_id,
                     group_id=group_id,
+                    doc_domain=doc_domain,
                 )
 
                 if replace_id is not None:

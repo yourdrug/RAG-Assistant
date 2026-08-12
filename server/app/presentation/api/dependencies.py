@@ -33,6 +33,7 @@ from infrastructure.ml.config_subscribers import (
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
 from infrastructure.ml.rag_service import RagService
 from infrastructure.repositories.qdrant_vector_store_repository import QdrantVectorStoreRepository
+from infrastructure.repositories.sqlalchemy_chunk_repository import SQLAlchemyChunkRepository
 from infrastructure.services.benchmark_service import BenchmarkService
 from infrastructure.services.ingestion_service import IngestionService
 from infrastructure.storage import LazyStorage
@@ -62,6 +63,36 @@ _document_parser = LangchainDocumentParser()
 _document_splitter = LangchainDocumentSplitter()
 _config_broadcaster = PostgresConfigBroadcaster(database=database)
 
+
+class _ChunkSearchAdapter:
+    """Adapter that provides ChunkSearchPort using UoW factory for exact-search."""
+
+    def __init__(self, uow_factory: UnitOfWorkFactory) -> None:
+        self._uow_factory = uow_factory
+
+    async def search_substring(
+        self,
+        query: str,
+        user: dict,
+        group_ids: list[int],
+        assigned_client_ids: list[int],
+        limit: int = 20,
+        mode: str = "exact",
+    ):
+        async with self._uow_factory.create() as uow:
+            repo = SQLAlchemyChunkRepository(uow._session)
+            return await repo.search_substring(
+                query=query,
+                user=user,
+                group_ids=group_ids,
+                assigned_client_ids=assigned_client_ids,
+                limit=limit,
+                mode=mode,
+            )
+
+
+_chunk_search = _ChunkSearchAdapter(uow_factory=_uow_factory)
+
 _ingestion_service = IngestionService(
     vector_store_repo=_vector_store_repo,
     file_storage=_file_storage,
@@ -76,7 +107,7 @@ _document_service = DocumentService(
 
 _chat_service = ChatService(
     uow_factory=_uow_factory,
-    rag_service=RagService(),
+    rag_service=RagService(chunk_search=_chunk_search),
     history_window=settings.history_window,
 )
 

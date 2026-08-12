@@ -67,8 +67,8 @@ SYSTEM_PROMPT = """Ты — корпоративный ассистент. Ст�
 """
 
 
-def build_system_prompt(breadth: str = "narrow") -> str:
-    """Build the system prompt text based on question breadth.
+def build_system_prompt(breadth: str = "narrow", has_legal_context: bool = False) -> str:
+    """Build the system prompt text based on question breadth and context composition.
 
     Returns the raw system prompt string. The LangChain ChatPromptTemplate
     construction is handled in infrastructure/ml/rag.py.
@@ -90,7 +90,45 @@ def build_system_prompt(breadth: str = "narrow") -> str:
             "   Не расширяй тему: если спросили про X — не рассказывайте про Y, даже если он связан."
         )
 
-    return SYSTEM_PROMPT.replace(
+    prompt = SYSTEM_PROMPT.replace(
         "3. Отвечай на том же языке, на котором задан вопрос.",
         rule3,
     )
+
+    if has_legal_context:
+        legal_rules = (
+            "\nДОПОЛНИТЕЛЬНЫЕ ПРАВИЛА ДЛЯ ЮРИДИЧЕСКОГО КОНТЕКСТА:\n"
+            "10. ОБЯЗАТЕЛЬНО указывай номер статьи/пункта, если он есть в контексте "
+            "(например: «Согласно ст. 15 ФЗ-XXX» или «п. 3.2 Договора»).\n"
+            "11. НЕ ПЕРЕФРАЗИРУЙ формулировки нормативных актов — цитируй максимально близко к тексту.\n"
+            "12. При противоречии между источниками — ЯВНО укажи расхождение, "
+            "не выбирай одну версию молча.\n"
+        )
+        prompt = prompt.rstrip() + "\n" + legal_rules
+
+    return prompt
+
+
+def classify_query_domain(question: str) -> str:
+    """Classify query as 'legal' or 'general' based on question patterns."""
+    q = question.lower()
+    legal_patterns = [
+        r"вправе\s+ли",
+        r"обязан\s+ли",
+        r"подлежит\s+ли",
+        r"несёт\s+ли\s+ответственность",
+        r"стать[юяе]\s+\d+",
+        r"пункт[ае]?\s+\d+",
+        r"в\s+соответствии\s+с",
+        r"согласно\s+(закону|договору|статье)",
+        r"нарушени[ея]\s+(условий|закона)",
+    ]
+    return "legal" if any(re.search(p, q) for p in legal_patterns) else "general"
+
+
+_EXACT_REF_RE = re.compile(r"(статья|пункт|раздел|глава|параграф|п\.|ст\.)\s*\d+", re.IGNORECASE)
+
+
+def has_exact_reference(question: str) -> bool:
+    """Check if question contains an exact structural reference (article, paragraph, etc.)."""
+    return bool(_EXACT_REF_RE.search(question))

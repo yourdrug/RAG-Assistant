@@ -27,6 +27,7 @@ const AdminSettingsPage = lazy(() => import("@/pages/admin/settings").then(m => 
 const JobsPage = lazy(() => import("@/pages/admin/jobs").then(m => ({ default: m.JobsPage })));
 const MonitoringPage = lazy(() => import("@/pages/admin/monitoring").then(m => ({ default: m.MonitoringPage })));
 const LogsPage = lazy(() => import("@/pages/admin/logs").then(m => ({ default: m.LogsPage })));
+const ChatLogsPage = lazy(() => import("@/pages/admin/chat-logs").then(m => ({ default: m.AdminChatLogsPage })));
 
 function AdminFallback() {
   return (
@@ -67,6 +68,7 @@ export default function App() {
                   <Route path="jobs" element={<Suspense fallback={<AdminFallback />}><JobsPage /></Suspense>} />
                   <Route path="monitoring" element={<Suspense fallback={<AdminFallback />}><MonitoringPage /></Suspense>} />
                   <Route path="logs" element={<Suspense fallback={<AdminFallback />}><LogsPage /></Suspense>} />
+                  <Route path="chat-logs" element={<Suspense fallback={<AdminFallback />}><ChatLogsPage /></Suspense>} />
                   <Route path="settings" element={<Suspense fallback={<AdminFallback />}><AdminSettingsPage /></Suspense>} />
                 </Route>
 

@@ -223,6 +223,46 @@ def split_documents(docs: list[Document]) -> list[Document]:
     return chunks
 
 
+LEGAL_SEPARATORS = [
+    "\nГлава ",
+    "\nРаздел ",
+    "\nЧасть ",
+    "\nСтатья ",
+    "\n§ ",
+    "\nПункт ",
+    "\n\n",
+    "\n",
+    " ",
+    "",
+]
+
+
+def split_documents_legal(docs: list[Document]) -> list[Document]:
+    """Split legal documents into chunks with larger size and legal-aware separators.
+
+    Uses legal_chunk_size (default 1000) and legal_chunk_overlap (default 250)
+    to keep articles/clauses intact.
+    """
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=settings.legal_chunk_size,
+        chunk_overlap=settings.legal_chunk_overlap,
+        length_function=len,
+        separators=LEGAL_SEPARATORS,
+    )
+    chunks = splitter.split_documents(docs)
+    log.info("Split %d legal documents into %d chunks", len(docs), len(chunks))
+    return chunks
+
+
+_ARTICLE_RE = re.compile(r"Статья\s+(\d+[\.\d]*)")
+
+
+def extract_article_number(chunk_text: str) -> str | None:
+    """Extract article number from chunk text if present."""
+    m = _ARTICLE_RE.search(chunk_text)
+    return m.group(1) if m else None
+
+
 # ---------------------------------------------------------------------------
 # Parsers for non-PDF formats
 # ---------------------------------------------------------------------------

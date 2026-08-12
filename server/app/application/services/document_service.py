@@ -52,6 +52,7 @@ class DocumentService:
         user_role: str,
         client_id: int | None = None,
         rename_on_conflict: bool = False,
+        doc_domain: str | None = None,
     ) -> DocumentDTO:
         vis = DocumentVisibility.validate(visibility)
         user_kind_enum = UserKind(user_kind)
@@ -107,6 +108,7 @@ class DocumentService:
                 visibility=vis,
                 owner_id=owner_id,
                 group_id=effective_group_id,
+                doc_domain=doc_domain or "general",
             )
 
             try:
@@ -136,6 +138,7 @@ class DocumentService:
                 replace_id=replace_id,
                 owner_id=owner_id,
                 group_id=effective_group_id,
+                doc_domain=final_doc.doc_domain,
             )
 
     async def list_uploadable_clients(self, user_id: int, user_kind: str, user_role: str) -> list[dict]:

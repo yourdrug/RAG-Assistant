@@ -13,14 +13,16 @@ import logging
 import time
 from collections.abc import AsyncIterator
 
+from application.dto.chat_dto import RagResult
 from config import settings
+from domain.services.rag_policy import classify_query_domain, has_exact_reference
 from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.rag_settings import RagSettings
 from domain.value_objects.stream_events import SourcesEvent, StreamEvent, TextChunk
 from langchain.schema import Document as LCDocument
 from qdrant_client.models import FieldCondition, Filter, MatchValue
 
-from infrastructure.acl import build_qdrant_filter
+from infrastructure.acl import build_qdrant_filter, with_domain_filter
 from infrastructure.clients import (
     get_bm25_index,
     get_embeddings,
@@ -109,7 +111,73 @@ async def _qdrant_dense_search(query: str, k: int, access_filter) -> list[tuple[
     return docs
 
 
+async def _run_hybrid_search(
+    query: str,
+    fetch_k: int,
+    access_filter,
+    rag: RagSettings,
+    dense_weight: float | None = None,
+    sparse_weight: float | None = None,
+) -> list[LCDocument]:
+    """Run hybrid dense+BM25 search and return deduplicated candidates."""
+    bm25_index = get_bm25_index()
+
+    if rag.hybrid_enabled and bm25_index is not None:
+        t0 = time.monotonic()
+        dense_coro = _qdrant_dense_search(query, fetch_k, access_filter)
+        sparse_coro = asyncio.to_thread(bm25_index.search_with_hashes, query, fetch_k)
+        dense_results, sparse_results = await asyncio.gather(dense_coro, sparse_coro)
+        elapsed = time.monotonic() - t0
+        RAG_STAGE_DURATION.labels("dense_search").observe(elapsed)
+        RAG_STAGE_DURATION.labels("sparse_search").observe(elapsed)
+        dense_by_hash = {h: (score, doc) for h, score, doc in dense_results}
+
+        effective_dense = dense_weight if dense_weight is not None else rag.dense_weight
+        effective_sparse = sparse_weight if sparse_weight is not None else rag.sparse_weight
+
+        merged_hashes = rrf_merge(
+            [(h, s) for h, s, _ in dense_results],
+            sparse_results,
+            k=rag.rrf_k,
+            dense_weight=effective_dense,
+            sparse_weight=effective_sparse,
+        )
+
+        candidates = []
+        seen_hashes = set()
+        for h in merged_hashes:
+            if h in seen_hashes:
+                continue
+            seen_hashes.add(h)
+            if h in dense_by_hash:
+                candidates.append(dense_by_hash[h][1])
+            else:
+                doc = await _resolve_hash_to_doc(h, access_filter)
+                if doc is not None:
+                    candidates.append(doc)
+
+        log.info(
+            "Hybrid: dense=%d, sparse=%d, merged=%d candidates",
+            len(dense_results),
+            len(sparse_results),
+            len(candidates),
+        )
+    else:
+        t0 = time.monotonic()
+        retriever = get_vector_store().as_retriever(
+            search_type="similarity",
+            search_kwargs={"k": fetch_k, "filter": access_filter},
+        )
+        candidates = await asyncio.to_thread(retriever.invoke, query)
+        RAG_STAGE_DURATION.labels("dense_search").observe(time.monotonic() - t0)
+
+    return deduplicate_docs(candidates)
+
+
 class RagService:
+    def __init__(self, chunk_search=None) -> None:
+        self._chunk_search = chunk_search
+
     async def stream(
         self,
         question: str,
@@ -155,58 +223,81 @@ class RagService:
         fetch_k = rag.retriever_fetch_k_broad if breadth == "broad" else rag.retriever_fetch_k
         top_k = rag.retriever_top_k_broad if breadth == "broad" else rag.retriever_top_k
 
-        prompt = build_prompt(breadth)
+        # --- Dense/sparse weight boost for exact references ---
+        use_exact_ref_boost = has_exact_reference(query_for_search)
+        effective_dense_weight = rag.dense_weight
+        effective_sparse_weight = rag.sparse_weight
+        if use_exact_ref_boost:
+            effective_sparse_weight = rag.sparse_weight * settings.exact_ref_sparse_boost
 
-        bm25_index = get_bm25_index()
+        # --- Query-time domain classification + soft-priority retrieval ---
+        query_domain = classify_query_domain(query_for_search)
+        candidates: list[LCDocument] = []
 
-        if rag.hybrid_enabled and bm25_index is not None:
-            t0 = time.monotonic()
-            dense_coro = _qdrant_dense_search(query_for_search, fetch_k, access_filter)
-            sparse_coro = asyncio.to_thread(bm25_index.search_with_hashes, query_for_search, fetch_k)
-            dense_results, sparse_results = await asyncio.gather(dense_coro, sparse_coro)
-            elapsed = time.monotonic() - t0
-            RAG_STAGE_DURATION.labels("dense_search").observe(elapsed)
-            RAG_STAGE_DURATION.labels("sparse_search").observe(elapsed)
-            dense_by_hash = {h: (score, doc) for h, score, doc in dense_results}
-
-            merged_hashes = rrf_merge(
-                [(h, s) for h, s, _ in dense_results],
-                sparse_results,
-                k=rag.rrf_k,
-                dense_weight=rag.dense_weight,
-                sparse_weight=rag.sparse_weight,
+        if query_domain == "legal":
+            legal_filter = with_domain_filter(access_filter, "legal")
+            candidates = await _run_hybrid_search(
+                query_for_search,
+                fetch_k,
+                legal_filter,
+                rag,
+                dense_weight=effective_dense_weight,
+                sparse_weight=effective_sparse_weight,
             )
 
-            candidates = []
-            seen_hashes = set()
-            for h in merged_hashes:
-                if h in seen_hashes:
-                    continue
-                seen_hashes.add(h)
-                if h in dense_by_hash:
-                    candidates.append(dense_by_hash[h][1])
-                else:
-                    doc = await _resolve_hash_to_doc(h, access_filter)
-                    if doc is not None:
-                        candidates.append(doc)
-
-            log.info(
-                "Hybrid: dense=%d, sparse=%d, merged=%d candidates",
-                len(dense_results),
-                len(sparse_results),
-                len(candidates),
-            )
+            # Fallback check: if legal-filtered search returned nothing or very weak results
+            fallback_needed = not candidates
+            if fallback_needed:
+                log.info("Legal-filtered retrieval returned 0 candidates — fallback on entire corpus")
+                candidates = await _run_hybrid_search(
+                    query_for_search,
+                    fetch_k,
+                    access_filter,
+                    rag,
+                    dense_weight=effective_dense_weight,
+                    sparse_weight=effective_sparse_weight,
+                )
         else:
-            t0 = time.monotonic()
-            retriever = get_vector_store().as_retriever(
-                search_type="similarity",
-                search_kwargs={"k": rag.retriever_fetch_k, "filter": access_filter},
+            candidates = await _run_hybrid_search(
+                query_for_search,
+                fetch_k,
+                access_filter,
+                rag,
+                dense_weight=effective_dense_weight,
+                sparse_weight=effective_sparse_weight,
             )
-            candidates = await asyncio.to_thread(retriever.invoke, query_for_search)
-            RAG_STAGE_DURATION.labels("dense_search").observe(time.monotonic() - t0)
 
-        candidates = deduplicate_docs(candidates)
+        # --- Exact-search integration (pg_trgm) for queries with structural references ---
+        if use_exact_ref_boost and self._chunk_search is not None:
+            try:
+                exact_results = await self._chunk_search.search_substring(
+                    query=query_for_search,
+                    user=user,
+                    group_ids=ctx.user_group_ids,
+                    assigned_client_ids=ctx.assigned_client_ids,
+                    limit=5,
+                    mode="exact",
+                )
+                if exact_results:
+                    existing_hashes = {content_hash(d.page_content) for d in candidates}
+                    for r in exact_results:
+                        h = content_hash(r.content)
+                        if h not in existing_hashes:
+                            candidates.append(
+                                LCDocument(
+                                    page_content=r.content,
+                                    metadata={
+                                        "source": r.filename,
+                                        "document_id": r.document_id,
+                                    },
+                                )
+                            )
+                            existing_hashes.add(h)
+                    log.info("Exact-search added %d additional candidates", len(exact_results))
+            except Exception as e:
+                log.warning("Exact-search failed: %s", e)
 
+        # --- Reranking ---
         t0 = time.monotonic()
         docs = await rerank_documents(
             query_for_search,
@@ -218,7 +309,29 @@ class RagService:
         )
         RAG_STAGE_DURATION.labels("rerank").observe(time.monotonic() - t0)
 
-        context = format_docs(docs)
+        # --- Post-rerank fallback: if legal query got nothing useful after rerank ---
+        if query_domain == "legal" and not docs:
+            log.info("Legal query got no docs after rerank — fallback on entire corpus with rerank")
+            fallback_candidates = await _run_hybrid_search(query_for_search, fetch_k, access_filter, rag)
+            docs = await rerank_documents(
+                query_for_search,
+                fallback_candidates,
+                top_n=top_k,
+                reranker=get_reranker(),
+                min_score=rag.rerank_min_score,
+                score_gap_ratio=rag.rerank_score_gap_ratio,
+            )
+
+        # --- Prompt adaptation based on actual context composition ---
+        has_legal_context = any((doc.metadata.get("doc_domain") == "legal") for doc, _ in docs)
+        prompt = build_prompt(breadth, has_legal_context=has_legal_context)
+
+        # --- Dynamic context budget ---
+        num_ctx = settings.llm_num_ctx_broad if breadth == "broad" else settings.llm_num_ctx_narrow
+        reserved_for_system_and_history = 2000
+        max_context_tokens = max(num_ctx - reserved_for_system_and_history, 1000)
+
+        context = format_docs(docs, max_context_tokens=max_context_tokens)
         sources = extract_sources(docs, min_score=rag.source_min_score)
 
         messages = prompt.format_messages(
@@ -257,9 +370,13 @@ class RagService:
         question: str,
         history: list,
         ctx: ChatContext,
-    ) -> tuple[str, list[dict]]:
+    ) -> RagResult:
         answer_parts: list[str] = []
         sources: list[dict] = []
+        breadth = "narrow"
+        domain = "general"
+        retrieval_count = 0
+        reranker_score: float | None = None
 
         async for event in self.stream(question, history, ctx):
             if isinstance(event, SourcesEvent):
@@ -267,4 +384,24 @@ class RagService:
             elif isinstance(event, TextChunk):
                 answer_parts.append(event.text)
 
-        return "".join(answer_parts), sources
+        # Extract metadata from the last stream call for logging
+        query_for_search = question
+        try:
+            breadth = classify_question_breadth(query_for_search)
+        except Exception:
+            pass
+        domain = classify_query_domain(query_for_search)
+        retrieval_count = len(sources)
+        if sources:
+            scores = [s.get("max_score", 0) for s in sources if isinstance(s, dict)]
+            reranker_score = max(scores) if scores else None
+
+        return RagResult(
+            answer="".join(answer_parts),
+            sources=sources,
+            breadth=breadth,
+            domain=domain,
+            retrieval_count=retrieval_count,
+            reranker_score=reranker_score,
+            model_used=settings.llm_model,
+        )

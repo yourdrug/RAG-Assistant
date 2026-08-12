@@ -14,7 +14,7 @@ import { Trash2, FileText, CloudUpload } from "lucide-react";
 import { type ColumnDef } from "@tanstack/react-table";
 import toast from "react-hot-toast";
 import { useAuthStore } from "@/stores/auth-store";
-import type { DocumentResponse, DocumentVisibility } from "@/shared/api/types";
+import type { DocumentResponse, DocumentVisibility, DocumentDomain } from "@/shared/api/types";
 
 export function DocumentsPage() {
   const { data: documents } = useDocuments();
@@ -29,6 +29,7 @@ export function DocumentsPage() {
   const [vis, setVis] = useState<DocumentVisibility>("internal_private");
   const [groupId, setGroupId] = useState<number | null>(null);
   const [clientId, setClientId] = useState<number | null>(null);
+  const [docDomain, setDocDomain] = useState<DocumentDomain | "auto">("auto");
   const [progress, setProgress] = useState(0);
   const { data: groups } = useGroups();
   const { data: uploadableClients } = useUploadableClients();
@@ -61,6 +62,7 @@ export function DocumentsPage() {
       groupId: vis === "internal_group" ? groupId : undefined,
       clientId: vis === "client_private" ? clientId : undefined,
       renameOnConflict,
+      docDomain: docDomain === "auto" ? undefined : docDomain,
     });
   };
 
@@ -139,6 +141,10 @@ export function DocumentsPage() {
           {isClientDoc && <Badge variant="outline" className="text-xs text-muted-foreground">not in your search</Badge>}
         </div>
       );
+    }},
+    { accessorKey: "doc_domain", header: "Domain", cell: ({ row }) => {
+      const domain = row.original.doc_domain;
+      return <Badge variant={domain === "legal" ? "default" : "secondary"}>{domain}</Badge>;
     }},
     { accessorKey: "owner_id", header: "Owner", cell: ({ row }) => {
       const owner = uploadableClients?.find((c) => c.id === row.original.owner_id);
@@ -222,6 +228,18 @@ export function DocumentsPage() {
                 )}
               </div>
             )}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Document Domain</label>
+              <Select value={docDomain} onValueChange={(v) => setDocDomain(v as DocumentDomain | "auto")}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">Auto-detect</SelectItem>
+                  <SelectItem value="general">General</SelectItem>
+                  <SelectItem value="legal">Legal</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Legal documents get article-aware chunking and retrieval</p>
+            </div>
             {files.length > 0 && <div className="space-y-1 max-h-40 overflow-y-auto">{files.map((f, i) => <div key={i} className="flex items-center gap-2 text-sm min-w-0 overflow-hidden"><FileText className="h-4 w-4 shrink-0 text-muted-foreground" /><span className="truncate min-w-0 flex-1">{f.name}</span><span className="shrink-0 text-muted-foreground">{(f.size / 1024).toFixed(1)} KB</span></div>)}</div>}
             {progress > 0 && <Progress value={progress} />}
           </div>

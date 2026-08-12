@@ -27,6 +27,7 @@ class SQLAlchemyChunkRepository(ChunkRepository):
         chunks: list[str],
         owner_id: int | None = None,
         group_id: int | None = None,
+        doc_domain: str = "general",
     ) -> None:
         # Delete existing chunks for this document (re-index)
         await self._session.execute(delete(ChunkModel).where(ChunkModel.document_id == document_id))
@@ -41,6 +42,7 @@ class SQLAlchemyChunkRepository(ChunkRepository):
                 content=content,
                 filename=filename,
                 visibility=visibility,
+                doc_domain=doc_domain,
                 owner_id=owner_id,
                 group_id=group_id,
             )

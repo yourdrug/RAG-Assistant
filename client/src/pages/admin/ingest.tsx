@@ -6,6 +6,7 @@ import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
 import { Badge } from "@/shared/ui/badge";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/shared/ui/select";
 import { DataTable } from "@/shared/ui/data-table";
 import { type ColumnDef } from "@tanstack/react-table";
 import { Upload, RefreshCw, RotateCcw } from "lucide-react";
@@ -18,16 +19,17 @@ export function AdminIngestPage() {
   const fileMut = useIngestFile();
   const [docsDir, setDocsDir] = useState("data/docs_sample");
   const [filePath, setFilePath] = useState("");
+  const [domain, setDomain] = useState("auto");
 
   const [resetAll, setResetAll] = useState(false);
 
   const handleAll = async () => {
-    try { await allMut.mutateAsync({ docsDir, reset: resetAll }); toast.success("Ingestion started" + (resetAll ? " (reset mode)" : "")); } catch { toast.error("Failed"); }
+    try { await allMut.mutateAsync({ docsDir, reset: resetAll, domain }); toast.success("Ingestion started" + (resetAll ? " (reset mode)" : "")); } catch { toast.error("Failed"); }
   };
 
   const handleFile = async () => {
     if (!filePath.trim()) return;
-    try { await fileMut.mutateAsync({ filePath, force: false }); toast.success("File ingestion started"); } catch { toast.error("Failed"); }
+    try { await fileMut.mutateAsync({ filePath, force: false, domain }); toast.success("File ingestion started"); } catch { toast.error("Failed"); }
   };
 
   const columns: ColumnDef<IngestRegistryItem>[] = [
@@ -50,6 +52,16 @@ export function AdminIngestPage() {
         <CardContent className="space-y-4">
           <div className="flex gap-2">
             <div className="flex-1"><Label>Directory Path</Label><Input value={docsDir} onChange={(e) => setDocsDir(e.target.value)} placeholder="data/docs_sample" /></div>
+            <div className="w-40"><Label>Domain</Label>
+              <Select value={domain} onValueChange={setDomain}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">Auto-detect</SelectItem>
+                  <SelectItem value="general">General</SelectItem>
+                  <SelectItem value="legal">Legal</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <Button onClick={handleAll} disabled={allMut.isPending} className="mt-6"><Upload className="h-4 w-4 mr-2" />{allMut.isPending ? "Starting..." : "Ingest All"}</Button>
           </div>
           <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer select-none">
@@ -70,6 +82,16 @@ export function AdminIngestPage() {
         <CardContent className="space-y-4">
           <div className="flex gap-2">
             <div className="flex-1"><Label>File Path</Label><Input value={filePath} onChange={(e) => setFilePath(e.target.value)} placeholder="data/docs_sample/example.pdf" /></div>
+            <div className="w-40"><Label>Domain</Label>
+              <Select value={domain} onValueChange={setDomain}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">Auto-detect</SelectItem>
+                  <SelectItem value="general">General</SelectItem>
+                  <SelectItem value="legal">Legal</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <Button onClick={handleFile} disabled={!filePath.trim() || fileMut.isPending} className="mt-6">{fileMut.isPending ? "Starting..." : "Ingest File"}</Button>
           </div>
         </CardContent>
