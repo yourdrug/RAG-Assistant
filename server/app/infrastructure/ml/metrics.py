@@ -280,15 +280,15 @@ async def collect_infra_metrics() -> None:
     # Ollama GPU/RAM usage
     try:
         async with httpx.AsyncClient(timeout=3) as http:
-            r = await http.get(f"{settings.ollama_base_url}/api/ps")
+            r = await http.get(f"{settings.ollama_base_url}/api/tags")
             if r.status_code == 200:
                 data = r.json()
-                for proc in data.get("models", []):
-                    model_name = proc.get("name", "unknown")
-                    vram = proc.get("size_vram", 0)
-                    ram = proc.get("size", 0)
-                    OLLAMA_GPU_MEMORY_BYTES.labels(model=model_name).set(vram)
-                    OLLAMA_RAM_MEMORY_BYTES.labels(model=model_name).set(ram)
+                for model in data.get("models", []):
+                    model_name = model.get("name", "unknown")
+                    # size is total model size in bytes
+                    model_size = model.get("size", 0)
+                    OLLAMA_GPU_MEMORY_BYTES.labels(model=model_name).set(model_size)
+                    OLLAMA_RAM_MEMORY_BYTES.labels(model=model_name).set(model_size)
     except Exception as e:
         log.warning("Failed to collect Ollama metrics: [%s] %s", type(e).__name__, e)
 
