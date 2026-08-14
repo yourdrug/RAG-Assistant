@@ -4,6 +4,14 @@ Provides module-level singleton accessors for the embedding model, LLM,
 reranker, Qdrant vector store, BM25 index, and Ollama chat clients.
 No globals, no classes, no DI container -- each getter returns a cached
 instance created on first call.
+
+NOTE: These are process-local caches by design.  Each server/worker
+instance must load its own copy of the model weights into memory (models
+cannot be shared between processes via Redis).  Cache invalidation on
+config changes is handled separately via Postgres LISTEN/NOTIFY
+(``infrastructure/events/postgres_config_listener.py``) plus periodic
+resync (``Scheduler._periodic_config_resync``), which broadcasts to all
+instances simultaneously.  Do NOT replace these with Redis-backed caches.
 """
 
 import functools
@@ -14,6 +22,7 @@ from config import settings
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_ollama import ChatOllama
 from langchain_qdrant import QdrantVectorStore
+from qdrant_client import QdrantClient
 from sentence_transformers import CrossEncoder
 
 log = logging.getLogger("default")
@@ -78,15 +87,13 @@ def get_reranker() -> CrossEncoder:
 
 @functools.lru_cache(maxsize=1)
 def get_qdrant_client():
-    from qdrant_client import QdrantClient
-
     return QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key)
 
 
 @functools.lru_cache(maxsize=1)
 def get_bm25_index():
     """Lazy-load BM25 index from disk. Returns None if not found."""
-    from infrastructure.ml.hybrid import load_bm25_index
+    from infrastructure.ml.hybrid import load_bm25_index  # nested to avoid circular import
 
     bm25_path = Path(settings.data_dir) / "bm25_index.json"
     index = load_bm25_index(bm25_path)

@@ -1,13 +1,25 @@
 "use client";
+import { Check, Copy, Key, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
-import { useUsers, useClientApiKeys, useCreateClientApiKey, useRevokeClientApiKey } from "@/shared/api/hooks";
+import toast from "react-hot-toast";
+import {
+  useClientApiKeys,
+  useCreateClientApiKey,
+  useRevokeClientApiKey,
+  useUsers,
+} from "@/shared/api/hooks";
+import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
-import { Badge } from "@/shared/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/shared/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/shared/ui/dialog";
-import { Plus, Trash2, Key, Copy, Check } from "lucide-react";
-import toast from "react-hot-toast";
 
 export function AdminApiKeysPage() {
   const { data: users } = useUsers();
@@ -97,7 +109,8 @@ export function AdminApiKeysPage() {
                   className="flex-1 px-3 py-2 border rounded-md"
                 />
                 <Button onClick={handleCreateKey} disabled={createMut.isPending || !selClient}>
-                  <Plus className="h-4 w-4 mr-1" />Create
+                  <Plus className="h-4 w-4 mr-1" />
+                  Create
                 </Button>
               </div>
             </CardContent>
@@ -106,9 +119,14 @@ export function AdminApiKeysPage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Key className="h-5 w-5" /> API Keys for {clientUserId > 0 ? clientUsers.find(u => u.id === clientUserId)?.email : "Selected Client"}
+                <Key className="h-5 w-5" /> API Keys for{" "}
+                {clientUserId > 0
+                  ? clientUsers.find((u) => u.id === clientUserId)?.email
+                  : "Selected Client"}
               </CardTitle>
-              <CardDescription>Client API keys for authentication in their applications</CardDescription>
+              <CardDescription>
+                Client API keys for authentication in their applications
+              </CardDescription>
             </CardHeader>
             <CardContent>
               {isLoading ? (
@@ -123,13 +141,14 @@ export function AdminApiKeysPage() {
               ) : apiKeys && apiKeys.length > 0 ? (
                 <div className="space-y-3">
                   {apiKeys.map((key) => (
-                    <div key={key.id} className="flex items-center justify-between rounded-md border p-4">
+                    <div
+                      key={key.id}
+                      className="flex items-center justify-between rounded-md border p-4"
+                    >
                       <div className="flex items-center gap-3">
                         <Key className="h-5 w-5 text-muted-foreground" />
                         <div>
-                          <p className="font-medium">
-                            {key.name || "Unnamed key"}
-                          </p>
+                          <p className="font-medium">{key.name || "Unnamed key"}</p>
                           <div className="flex items-center gap-2 mt-1">
                             <Badge variant="outline" className="text-xs">
                               Prefix: {key.key_prefix}
@@ -137,7 +156,10 @@ export function AdminApiKeysPage() {
                             <Badge variant="outline" className="text-xs">
                               Created: {new Date(key.created_at).toLocaleDateString()}
                             </Badge>
-                            <Badge variant={key.is_active ? "success" : "destructive"} className="text-xs">
+                            <Badge
+                              variant={key.is_active ? "success" : "destructive"}
+                              className="text-xs"
+                            >
                               {key.is_active ? "Active" : "Revoked"}
                             </Badge>
                           </div>
@@ -163,13 +185,19 @@ export function AdminApiKeysPage() {
         </>
       )}
 
-      <Dialog open={!!createdKey} onOpenChange={(open) => { if (!open) { setCreatedKey(null); setCopied(false); } }}>
+      <Dialog
+        open={!!createdKey}
+        onOpenChange={(open) => {
+          if (!open) {
+            setCreatedKey(null);
+            setCopied(false);
+          }
+        }}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>API Key Created</DialogTitle>
-            <DialogDescription>
-              Copy this key now. It will not be shown again.
-            </DialogDescription>
+            <DialogDescription>Copy this key now. It will not be shown again.</DialogDescription>
           </DialogHeader>
           <div className="relative">
             <input
@@ -182,11 +210,22 @@ export function AdminApiKeysPage() {
               onClick={handleCopyKey}
               className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-accent"
             >
-              {copied ? <Check className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4" />}
+              {copied ? (
+                <Check className="h-4 w-4 text-emerald-500" />
+              ) : (
+                <Copy className="h-4 w-4" />
+              )}
             </button>
           </div>
           <DialogFooter>
-            <Button onClick={() => { setCreatedKey(null); setCopied(false); }}>Done</Button>
+            <Button
+              onClick={() => {
+                setCreatedKey(null);
+                setCopied(false);
+              }}
+            >
+              Done
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

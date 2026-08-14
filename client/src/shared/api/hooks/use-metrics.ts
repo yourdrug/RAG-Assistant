@@ -6,8 +6,7 @@ import type { MetricsResponse } from "../types";
 export function useMetrics() {
   return useQuery({
     queryKey: queryKeys.metrics.all,
-    queryFn: async () =>
-      (await apiClient.get<MetricsResponse>("/admin/metrics")).data,
+    queryFn: async () => (await apiClient.get<MetricsResponse>("/admin/metrics")).data,
     refetchInterval: 15000,
   });
 }

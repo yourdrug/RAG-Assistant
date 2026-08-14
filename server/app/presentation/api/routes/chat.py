@@ -12,12 +12,13 @@ from infrastructure.logging.actions import log_action
 
 from presentation.api.auth_dependencies import get_current_user
 from presentation.api.dependencies import create_chat_service
+from presentation.api.rate_limits import chat_rate_limit
 from presentation.api.schemas import ChatRequest, ChatResponse
 
 router = APIRouter(tags=["chat"])
 
 
-@router.post("/chat")
+@router.post("/chat", dependencies=[Depends(chat_rate_limit)])
 async def chat_stream(
     req: ChatRequest,
     current_user: dict = Depends(get_current_user),
@@ -30,6 +31,8 @@ async def chat_stream(
 
     async def event_generator():
         try:
+            # Send heartbeat immediately to keep connection alive during embedding
+            yield ": heartbeat\n\n"
             async for event in chat_service.stream_chat(
                 req.question,
                 req.conversation_id,
@@ -53,7 +56,7 @@ async def chat_stream(
     )
 
 
-@router.post("/chat/sync", response_model=ChatResponse)
+@router.post("/chat/sync", response_model=ChatResponse, dependencies=[Depends(chat_rate_limit)])
 async def chat_sync(
     req: ChatRequest,
     current_user: dict = Depends(get_current_user),

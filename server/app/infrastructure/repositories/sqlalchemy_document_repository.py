@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC
+from datetime import UTC, datetime
 
 from domain.entities.document import Document
 from domain.services.access_control import get_visibility_conditions
@@ -69,8 +69,6 @@ class SQLAlchemyDocumentRepository:
         if chars is not None:
             orm.chars = chars
         if status == "done":
-            from datetime import datetime
-
             orm.indexed_at = datetime.now(tz=UTC)
         await self._db.flush()
 

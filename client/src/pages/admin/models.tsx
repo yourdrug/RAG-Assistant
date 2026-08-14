@@ -1,10 +1,10 @@
 "use client";
 import { useQuery } from "@tanstack/react-query";
+import { Brain, Cpu, FileText, ScanText } from "lucide-react";
 import { apiClient } from "@/shared/api/client";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Badge } from "@/shared/ui/badge";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Skeleton } from "@/shared/ui/skeleton";
-import { Cpu, Brain, ScanText, FileText } from "lucide-react";
 
 interface ModelsInfo {
   llm_model: string;
@@ -46,10 +46,30 @@ export function AdminModelsPage() {
   }
 
   const models = [
-    { title: "LLM Model", value: data?.llm_model, icon: Brain, description: "Main language model (Ollama)" },
-    { title: "Embedding Model", value: data?.embed_model, icon: FileText, description: "Vector embeddings" },
-    { title: "Reranker Model", value: data?.rerank_model, icon: Cpu, description: "Cross-encoder for reranking" },
-    { title: "OCR Engine", value: data?.ocr_engine, icon: ScanText, description: data?.ocr_enabled ? "Enabled" : "Disabled" },
+    {
+      title: "LLM Model",
+      value: data?.llm_model,
+      icon: Brain,
+      description: "Main language model (Ollama)",
+    },
+    {
+      title: "Embedding Model",
+      value: data?.embed_model,
+      icon: FileText,
+      description: "Vector embeddings",
+    },
+    {
+      title: "Reranker Model",
+      value: data?.rerank_model,
+      icon: Cpu,
+      description: "Cross-encoder for reranking",
+    },
+    {
+      title: "OCR Engine",
+      value: data?.ocr_engine,
+      icon: ScanText,
+      description: data?.ocr_enabled ? "Enabled" : "Disabled",
+    },
   ];
 
   return (

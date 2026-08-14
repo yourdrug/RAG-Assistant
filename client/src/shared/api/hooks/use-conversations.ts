@@ -1,7 +1,12 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiClient } from "../client";
 import { queryKeys } from "../query-keys";
-import type { ChatResponse, NewConversationResponse, ConversationHistoryResponse, ConversationListResponse } from "../types";
+import type {
+  ChatResponse,
+  ConversationHistoryResponse,
+  ConversationListResponse,
+  NewConversationResponse,
+} from "../types";
 
 export function useSyncChat() {
   return useMutation({
@@ -19,7 +24,8 @@ export function useCreateConversation() {
 export function useConversationHistory(id: number) {
   return useQuery({
     queryKey: queryKeys.conversations.history(id),
-    queryFn: async () => (await apiClient.get<ConversationHistoryResponse>(`/conversations/${id}`)).data,
+    queryFn: async () =>
+      (await apiClient.get<ConversationHistoryResponse>(`/conversations/${id}`)).data,
     enabled: !!id,
   });
 }

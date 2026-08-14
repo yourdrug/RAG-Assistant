@@ -24,6 +24,7 @@ from infrastructure.ml.metrics import (
     INGEST_PDF_BAD_RATIO,
     INGEST_PDF_PAGES_TOTAL,
 )
+from infrastructure.ml.pdf_diag import assess_pdf_extraction_quality
 from infrastructure.storage import FileStorage
 
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
@@ -74,8 +75,6 @@ class DocumentProcessor:
 
                 warning_message = None
                 if Path(original_filename).suffix.lower() == ".pdf":
-                    from infrastructure.ml.pdf_diag import assess_pdf_extraction_quality
-
                     quality = assess_pdf_extraction_quality(temp_path, docs)
                     if quality.is_low_quality:
                         warning_message = (

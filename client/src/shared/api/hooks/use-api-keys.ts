@@ -1,12 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "../client";
 import { queryKeys } from "../query-keys";
-import type { ApiKeyResponse, ApiKeyCreateRequest, ApiKeyCreatedResponse } from "../types";
+import type { ApiKeyCreatedResponse, ApiKeyCreateRequest, ApiKeyResponse } from "../types";
 
 export function useClientApiKeys(clientUserId: number) {
   return useQuery({
     queryKey: queryKeys.apiKeys.clientKeys(clientUserId),
-    queryFn: async () => (await apiClient.get<ApiKeyResponse[]>(`/clients/${clientUserId}/api-keys`)).data,
+    queryFn: async () =>
+      (await apiClient.get<ApiKeyResponse[]>(`/clients/${clientUserId}/api-keys`)).data,
     enabled: !!clientUserId,
   });
 }

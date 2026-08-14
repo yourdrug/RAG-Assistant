@@ -12,7 +12,7 @@ import uuid
 from config import settings
 from langchain.schema import Document
 from langchain_huggingface import HuggingFaceEmbeddings
-from qdrant_client.models import Distance, PayloadSchemaType, VectorParams
+from qdrant_client.models import Distance, PayloadSchemaType, PointStruct, VectorParams
 
 from infrastructure.clients import get_qdrant_client
 from infrastructure.ml.hybrid import content_hash
@@ -92,8 +92,6 @@ def upload_to_qdrant(chunks: list[Document], embeddings: HuggingFaceEmbeddings) 
     hashes = [content_hash(t) for t in texts]
     for doc, h in zip(chunks, hashes):
         doc.metadata["content_hash"] = h
-
-    from qdrant_client.models import PointStruct
 
     client = get_qdrant_client()
 

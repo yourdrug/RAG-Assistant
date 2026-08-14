@@ -51,7 +51,8 @@ export const queryKeys = {
   },
   chatLogs: {
     all: ["chatLogs"] as const,
-    list: (params?: Record<string, unknown>) => [...queryKeys.chatLogs.all, "list", params] as const,
+    list: (params?: Record<string, unknown>) =>
+      [...queryKeys.chatLogs.all, "list", params] as const,
   },
   admin: {
     all: ["admin"] as const,

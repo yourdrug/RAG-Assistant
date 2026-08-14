@@ -1,14 +1,36 @@
-export { useLogin, useCurrentUser, useUsers, useCreateUser, useToggleUserActive } from "./use-auth";
-export { useDocuments, useDocument, useUploadDocument, useDeleteDocument, useUploadableClients } from "./use-documents";
-export { useSyncChat, useCreateConversation, useConversationHistory, useConversations } from "./use-conversations";
-export { useGroups, useCreateGroup, useGroupMembers, useAddGroupMember, useRemoveGroupMember } from "./use-groups";
-export { useClientAssignments, useAssignClient, useUnassignClient } from "./use-clients";
-export { useIngestRegistry, useIngestAll, useIngestFile, useUploadFiles } from "./use-ingest";
-export { useHealth } from "./use-health";
-export { useBenchmark } from "./use-benchmark";
+export {
+  useAdminConfig,
+  useAdminModels,
+  useAdminVectorDB,
+  useUpdateAdminConfig,
+} from "./use-admin";
 export { useClientApiKeys, useCreateClientApiKey, useRevokeClientApiKey } from "./use-api-keys";
-export { useJobs, useJobStats } from "./use-jobs";
-export { useMetrics } from "./use-metrics";
-export { useLogs } from "./use-logs";
+export { useCreateUser, useCurrentUser, useLogin, useToggleUserActive, useUsers } from "./use-auth";
+export { useBenchmark } from "./use-benchmark";
 export { useChatLogs } from "./use-chat-logs";
-export { useAdminConfig, useUpdateAdminConfig, useAdminModels, useAdminVectorDB } from "./use-admin";
+export { useAssignClient, useClientAssignments, useUnassignClient } from "./use-clients";
+export {
+  useConversationHistory,
+  useConversations,
+  useCreateConversation,
+  useSyncChat,
+} from "./use-conversations";
+export {
+  useDeleteDocument,
+  useDocument,
+  useDocuments,
+  useUploadableClients,
+  useUploadDocument,
+} from "./use-documents";
+export {
+  useAddGroupMember,
+  useCreateGroup,
+  useGroupMembers,
+  useGroups,
+  useRemoveGroupMember,
+} from "./use-groups";
+export { useHealth } from "./use-health";
+export { useIngestAll, useIngestFile, useIngestRegistry, useUploadFiles } from "./use-ingest";
+export { useJobStats, useJobs } from "./use-jobs";
+export { useLogs } from "./use-logs";
+export { useMetrics } from "./use-metrics";

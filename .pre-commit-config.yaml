@@ -1,6 +1,7 @@
 repos:
   - repo: local
     hooks:
+      # --- Python (server) ---
       - id: ruff-check
         name: ruff check
         entry: bash -c 'cd server && uv run ruff check app tests'
@@ -20,4 +21,26 @@ repos:
         entry: bash -c 'cd server && DATA_DIR=/tmp/rag_test uv run pytest -x -q'
         language: system
         types: [python]
+        pass_filenames: false
+
+      # --- Frontend ---
+      - id: biome-check
+        name: biome check
+        entry: bash -c 'cd client && npx biome check --staged --no-errors-on-unmatched'
+        language: system
+        types: [javascript, tsx, jsx]
+        pass_filenames: false
+
+      - id: biome-format
+        name: biome format
+        entry: bash -c 'cd client && npx biome format --write --staged --no-errors-on-unmatched'
+        language: system
+        types: [javascript, tsx, jsx]
+        pass_filenames: false
+
+      - id: typecheck
+        name: typescript typecheck
+        entry: bash -c 'cd client && npx tsc -b --noEmit'
+        language: system
+        types: [typescript, tsx, jsx]
         pass_filenames: false

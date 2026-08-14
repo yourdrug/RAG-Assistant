@@ -22,6 +22,7 @@ from domain.services.document_domain_classifier import classify_document_domain
 from domain.value_objects.visibility import DocumentVisibility
 from langchain.schema import Document
 
+from infrastructure.clients import get_bm25_index
 from infrastructure.ml.hybrid import BM25Index, load_bm25_index, save_bm25_index
 from infrastructure.ml.ingestion import (
     PARSERS,
@@ -223,8 +224,6 @@ class IngestionService:
             bm25_index = BM25Index(all_texts)
             save_bm25_index(bm25_index, bm25_path)
             # Clear the cached index so next query picks up the new one
-            from infrastructure.clients import get_bm25_index
-
             get_bm25_index.cache_clear()
 
     async def run_single_file(self, file_path: str, domain: str = "auto") -> None:

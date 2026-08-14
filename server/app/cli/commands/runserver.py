@@ -33,6 +33,7 @@ def runserver(
             reload=reload,
             proxy_headers=proxy_headers,
             forwarded_allow_ips=forwarded_allow_ips,
+            factory=True,
         )
     except Exception as exception:
         logger.error("Ошибка при запуске uvicorn server", exc_info=exception)

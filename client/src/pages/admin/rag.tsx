@@ -1,15 +1,15 @@
 "use client";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { RotateCcw, Save } from "lucide-react";
 import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import toast from "react-hot-toast";
 import { apiClient } from "@/shared/api/client";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Input } from "@/shared/ui/input";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/shared/ui/table";
-import { Save, RotateCcw } from "lucide-react";
-import toast from "react-hot-toast";
 
 interface ConfigParam {
   key: string;
@@ -114,7 +114,12 @@ export function AdminRAGPage() {
       <div className="flex items-center gap-1">
         {isEdited && (
           <>
-            <Button size="sm" variant="ghost" onClick={() => handleSave(param.key)} disabled={updateMutation.isPending}>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => handleSave(param.key)}
+              disabled={updateMutation.isPending}
+            >
               <Save className="h-4 w-4" />
             </Button>
             <Button size="sm" variant="ghost" onClick={() => handleReset(param.key)}>
@@ -147,7 +152,9 @@ export function AdminRAGPage() {
     <div className="p-6 space-y-6">
       <div>
         <h1 className="text-2xl font-bold">RAG Settings</h1>
-        <p className="text-muted-foreground">Configure RAG pipeline parameters (changes apply instantly)</p>
+        <p className="text-muted-foreground">
+          Configure RAG pipeline parameters (changes apply instantly)
+        </p>
       </div>
 
       <Card>

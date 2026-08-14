@@ -12,10 +12,15 @@ from domain.exceptions import ClientException, ServerException
 from fastapi import FastAPI
 from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi_limiter import FastAPILimiter
+from infrastructure.auth.api_key_provider import api_key_provider
 from infrastructure.database.database import database
 from infrastructure.initialization import initialize_app
 from infrastructure.logging import logging_config
+from infrastructure.logging.log_buffer import attach_log_buffer
+from infrastructure.ml.metrics import collect_infra_metrics
 from infrastructure.ml.metrics_middleware import add_metrics_middleware
+from infrastructure.persistence.redis_client import redis_client
 from infrastructure.scheduler import scheduler
 from infrastructure.utils import Singleton
 from presentation.api.dependencies import _uow_factory, get_config_listener
@@ -26,7 +31,7 @@ from presentation.api.exception_handlers import (
     handle_unexpected_exception,
     handle_validation_exception,
 )
-from presentation.api.middleware.rate_limit import RateLimitMiddleware
+from presentation.api.middleware.metrics import MetricsMiddleware
 from presentation.api.middleware.request_id import RequestIDMiddleware
 from presentation.api.routes.admin_chat_logs import router as admin_chat_logs_router
 from presentation.api.routes.admin_config import router as admin_config_router
@@ -55,20 +60,25 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     logging.config.dictConfig(logging_config)
 
     # Attach in-memory log buffer for /admin/logs endpoint
-    from infrastructure.logging.log_buffer import attach_log_buffer
-
     attach_log_buffer()
+
+    # Initialize Redis (mandatory component)
+    await redis_client.init()
+
+    # Initialize rate limiter (backed by the same Redis connection)
+    await FastAPILimiter.init(redis_client.async_redis)
 
     await database.connect()
     await initialize_app(_uow_factory)
     await get_config_listener().start()
 
+    # Start Pub/Sub listener for API key revocation (Redis mode)
+    await api_key_provider.start_pubsub_listener()
+
     # Startup scheduler (periodic jobs)
     await scheduler.startup()
 
     # Initial infra metrics snapshot
-    from infrastructure.ml.metrics import collect_infra_metrics
-
     await collect_infra_metrics()
 
     yield
@@ -77,6 +87,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     await get_config_listener().stop()
     await scheduler.shutdown()
     await database.disconnect()
+    await FastAPILimiter.close()
+    await redis_client.aclose()
 
 
 # ---------------------------------------------------------------------------
@@ -122,7 +134,7 @@ class Application:
             allow_headers=["*"],
         )
         self.app.add_middleware(RequestIDMiddleware)
-        self.app.add_middleware(RateLimitMiddleware)
+        self.app.add_middleware(MetricsMiddleware)
 
     def add_routers(self) -> None:
         routers = (

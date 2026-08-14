@@ -154,6 +154,76 @@ services:
     networks:
       - backend
 
+  redis:
+    image: redis:7-alpine
+    hostname: redis
+    container_name: rag-redis
+    user: root
+    entrypoint: [ "/usr/local/bin/docker-entrypoint.sh" ]
+    command:
+      [
+        "redis-server",
+        "/etc/redis/redis.conf",
+        "--user redis on >password ~* &* +@all",
+        "--user default off nopass -@all",
+        "--requirepass password",
+      ]
+    expose:
+      - "6379/tcp"
+    volumes:
+      - type: bind
+        source: ./data/redis/redis.conf
+        target: /etc/redis/redis.conf
+        read_only: true
+        bind:
+          propagation: rprivate
+          create_host_path: true
+          selinux: Z
+      - type: bind
+        source: ./data/redis
+        target: /data
+        read_only: false
+        bind:
+          propagation: rprivate
+          create_host_path: true
+          selinux: Z
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "redis-cli",
+          "--no-auth-warning",
+          "-h",
+          "redis",
+          "-p",
+          "6379",
+          "--user",
+          "redis",
+          "--pass",
+          "password",
+          "ping",
+        ]
+      interval: 30s
+      timeout: 30s
+      retries: 10
+      start_period: 30s
+      start_interval: 10s
+    logging:
+      driver: json-file
+      options:
+        labels-regex: "^.+"
+    deploy:
+      resources:
+        limits:
+          cpus: 0.75
+          memory: 4G
+        reservations:
+          cpus: 0.5
+          memory: 500M
+    restart: always
+    networks:
+      - backend
+
   server:
     image: rag-server:${STAGE}-${BUILD_TARGET}-${VERSION}
     build:
@@ -194,10 +264,47 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - default
       - backend
+
+  worker:
+    image: rag-server:${STAGE}-${BUILD_TARGET}-${VERSION}
+    hostname: rag-worker
+    container_name: rag-worker
+    env_file:
+      - path: server/.env
+        required: true
+    environment:
+      DEVICE: ${DEVICE}
+    volumes:
+      - type: volume
+        source: huggingface_cache
+        target: /root/.cache/huggingface
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 8G
+        reservations:
+          cpus: "1"
+          memory: 2G
+    restart: unless-stopped
+    networks:
+      - backend
+    command: [ "python", "main.py", "worker" ]
 
   minio:
     image: minio/minio:RELEASE.2024-09-22T00-33-43Z

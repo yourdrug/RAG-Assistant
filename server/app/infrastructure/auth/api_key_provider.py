@@ -1,46 +1,48 @@
-"""Static API key provider -- generation, hashing, and in-memory cache verification.
+"""Static API key provider -- generation, hashing, and Redis-backed cache.
 
 Static API keys are an authentication method for external (kind='client')
 users only. Unlike JWT, the key is verified against the database (via a
 short-TTL cache) and can be revoked instantly without cryptography -- similar
 to Stripe/OpenAI key schemes.
+
+Cache is backed by Redis with TTL-based expiry and a ``Pub/Sub`` channel
+(``api_key_revoked``) for instant cross-instance invalidation on key
+revocation.  Redis is a mandatory component.
 """
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import json
+import logging
 import secrets
-import time
-from dataclasses import dataclass
-from threading import Lock
+
+from infrastructure.persistence.redis_client import redis_client
+
+logger = logging.getLogger("default")
 
 _KEY_PREFIX = "rg_sys_"
 _CACHE_TTL_SECONDS = 30.0  # намеренно короткий TTL: отзыв ключа должен применяться быстро
+_REDIS_CACHE_PREFIX = "api_key:"
+_REDIS_ID_INDEX_PREFIX = "api_key_id:"
+_REDIS_REVOKED_CHANNEL = "api_key_revoked"
 
+MISS = object()
 
-@dataclass
-class _CacheEntry:
-    value: dict | None
-    expires_at: float
+_pubsub_started = False
 
 
 class ApiKeyProvider:
     """Кэширует sha256(ключ) -> данные пользователя на несколько секунд,
     чтобы не бить в Postgres на каждый запрос от одного и того же клиента.
 
-    invalidate_by_id() сбрасывает запись немедленно при отзыве ключа (в рамках
-    одного инстанса сервера); при нескольких инстансах отзыв применится у
-    остальных не позже, чем через _CACHE_TTL_SECONDS — это компромисс
-    in-memory кэша без внешнего Redis.
+    Cache is stored in Redis with TTL (SETEX/GET).
+    ``invalidate_by_id`` publishes to ``api_key_revoked`` Pub/Sub channel
+    so ALL instances drop the entry immediately (not within TTL).
     """
 
-    MISS = object()
-
-    def __init__(self, ttl_seconds: float = _CACHE_TTL_SECONDS) -> None:
-        self._ttl = ttl_seconds
-        self._cache: dict[str, _CacheEntry] = {}
-        self._hash_by_id: dict[int, str] = {}
-        self._lock = Lock()
+    MISS = MISS
 
     @staticmethod
     def generate_key() -> str:
@@ -49,37 +51,111 @@ class ApiKeyProvider:
 
     @staticmethod
     def hash_key(raw_key: str) -> str:
-        """Детерминированный sha256-хеш для хранения/поиска.
-
-        В отличие от паролей, API-ключи уже высокоэнтропийны, поэтому быстрый
-        детерминированный хеш (а не bcrypt) — стандартная практика (так делают
-        GitHub, Stripe): он позволяет искать по индексу в БД.
-        """
+        """Детерминированный sha256-хеш для хранения/поиска."""
         return hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
 
     @staticmethod
     def key_prefix_for_display(raw_key: str) -> str:
         return raw_key[: len(_KEY_PREFIX) + 6]
 
-    def get_cached(self, key_hash: str):
-        with self._lock:
-            entry = self._cache.get(key_hash)
-            if entry is None or entry.expires_at < time.monotonic():
-                self._cache.pop(key_hash, None)
-                return self.MISS
-            return entry.value
+    # ------------------------------------------------------------------
+    # Public cache API
+    # ------------------------------------------------------------------
 
-    def set_cached(self, key_hash: str, value: dict | None) -> None:
-        with self._lock:
-            self._cache[key_hash] = _CacheEntry(value=value, expires_at=time.monotonic() + self._ttl)
-            if value is not None:
-                self._hash_by_id[value["api_key_id"]] = key_hash
+    async def get_cached(self, key_hash: str):
+        """Return cached value or ``MISS``."""
+        try:
+            raw = await redis_client.async_redis.get(f"{_REDIS_CACHE_PREFIX}{key_hash}")
+            if raw is None:
+                return MISS
+            return json.loads(raw)
+        except Exception:
+            logger.warning("Redis GET failed for api_key cache, treating as MISS")
+            return MISS
 
-    def invalidate_by_id(self, api_key_id: int) -> None:
-        with self._lock:
-            key_hash = self._hash_by_id.pop(api_key_id, None)
+    async def set_cached(self, key_hash: str, value: dict | None) -> None:
+        """Store value in cache with TTL."""
+        try:
+            if value is None:
+                await redis_client.async_redis.setex(
+                    f"{_REDIS_CACHE_PREFIX}{key_hash}",
+                    int(_CACHE_TTL_SECONDS),
+                    json.dumps(None),
+                )
+            else:
+                await redis_client.async_redis.setex(
+                    f"{_REDIS_CACHE_PREFIX}{key_hash}",
+                    int(_CACHE_TTL_SECONDS),
+                    json.dumps(value),
+                )
+                # Maintain id -> key_hash index for invalidation
+                await redis_client.async_redis.setex(
+                    f"{_REDIS_ID_INDEX_PREFIX}{value['api_key_id']}",
+                    int(_CACHE_TTL_SECONDS),
+                    key_hash,
+                )
+        except Exception:
+            logger.warning("Redis SETEX failed for api_key cache")
+
+    async def invalidate_by_id(self, api_key_id: int) -> None:
+        """Instantly invalidate cache for a specific API key.
+
+        Deletes the cache entry AND publishes to ``api_key_revoked`` channel
+        so all instances drop their local references immediately.
+        """
+        try:
+            # Look up key_hash from id index
+            key_hash = await redis_client.async_redis.get(f"{_REDIS_ID_INDEX_PREFIX}{api_key_id}")
             if key_hash is not None:
-                self._cache.pop(key_hash, None)
+                await redis_client.async_redis.delete(f"{_REDIS_CACHE_PREFIX}{key_hash}")
+                await redis_client.async_redis.delete(f"{_REDIS_ID_INDEX_PREFIX}{api_key_id}")
+
+            # Publish revocation event to all instances
+            await redis_client.async_redis.publish(
+                _REDIS_REVOKED_CHANNEL,
+                json.dumps({"api_key_id": api_key_id}),
+            )
+            logger.info("ApiKeyProvider: revoked key id=%d, published to %s", api_key_id, _REDIS_REVOKED_CHANNEL)
+        except Exception:
+            logger.warning("Redis invalidation failed for api_key id=%d", api_key_id)
+
+    # ------------------------------------------------------------------
+    # Pub/Sub listener — call from lifespan startup
+    # ------------------------------------------------------------------
+
+    async def start_pubsub_listener(self) -> None:
+        """Subscribe to ``api_key_revoked`` channel for cross-instance invalidation."""
+        global _pubsub_started
+
+        if _pubsub_started:
+            return
+
+        try:
+            pubsub = redis_client.async_redis.pubsub()
+            await pubsub.subscribe(_REDIS_REVOKED_CHANNEL)
+            _pubsub_started = True
+            asyncio.create_task(self._pubsub_listen(pubsub))
+            logger.info("ApiKeyProvider: Pub/Sub listener started on channel %s", _REDIS_REVOKED_CHANNEL)
+        except Exception:
+            logger.exception("Failed to start Pub/Sub listener")
+
+    async def _pubsub_listen(self, pubsub) -> None:
+        """Background task that processes revocation messages."""
+        try:
+            async for message in pubsub.listen():
+                if message["type"] != "message":
+                    continue
+                try:
+                    data = json.loads(message["data"])
+                    api_key_id = data.get("api_key_id")
+                    if api_key_id is not None:
+                        logger.debug("ApiKeyProvider: Pub/Sub revocation for id=%d", api_key_id)
+                except Exception:
+                    logger.warning("Failed to process Pub/Sub message: %s", message)
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            logger.exception("Pub/Sub listener crashed")
 
 
 api_key_provider = ApiKeyProvider()

@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from domain.entities.raw_document import RawDocument
+from langchain.schema import Document
 
 from infrastructure.ml.ingestion import (
     PARSERS,
@@ -26,8 +27,6 @@ def _lc_to_raw(docs) -> list[RawDocument]:
 
 
 def _raw_to_lc(docs: list[RawDocument]):
-    from langchain.schema import Document
-
     return [Document(page_content=d.page_content, metadata=d.metadata) for d in docs]
 
 

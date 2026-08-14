@@ -1,32 +1,49 @@
 "use client";
-import { useEffect } from "react";
-import { useNavigate } from "react-router-dom";
-import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useEffect } from "react";
+import { useForm } from "react-hook-form";
+import toast from "react-hot-toast";
+import { useNavigate } from "react-router-dom";
 import { z } from "zod";
 import { useLogin } from "@/shared/api/hooks";
-import { useAuthStore } from "@/stores/auth-store";
 import { Button } from "@/shared/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
-import toast from "react-hot-toast";
+import { useAuthStore } from "@/stores/auth-store";
 
-const schema = z.object({ email: z.string().min(1, "Login required"), password: z.string().min(1, "Password required") });
+const schema = z.object({
+  email: z.string().min(1, "Login required"),
+  password: z.string().min(1, "Password required"),
+});
 type LoginForm = z.infer<typeof schema>;
 
 export function LoginPage() {
   const navigate = useNavigate();
   const login = useLogin();
   const { isAuthenticated } = useAuthStore();
-  const { register, handleSubmit, formState: { errors } } = useForm<LoginForm>({ resolver: zodResolver(schema) });
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<LoginForm>({ resolver: zodResolver(schema) });
 
-  useEffect(() => { if (isAuthenticated) navigate("/chat"); }, [isAuthenticated, navigate]);
+  useEffect(() => {
+    if (isAuthenticated) navigate("/chat");
+  }, [isAuthenticated, navigate]);
 
   const onSubmit = (data: LoginForm) => {
     login.mutate(data, {
-      onSuccess: () => { toast.success("Logged in"); navigate("/chat"); },
-      onError: (e) => { toast.error((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Login failed"); },
+      onSuccess: () => {
+        toast.success("Logged in");
+        navigate("/chat");
+      },
+      onError: (e) => {
+        toast.error(
+          (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+            "Login failed",
+        );
+      },
     });
   };
 
@@ -46,8 +63,15 @@ export function LoginPage() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
-              <Input id="password" type="password" placeholder="••••••••" {...register("password")} />
-              {errors.password && <p className="text-sm text-destructive">{errors.password.message}</p>}
+              <Input
+                id="password"
+                type="password"
+                placeholder="••••••••"
+                {...register("password")}
+              />
+              {errors.password && (
+                <p className="text-sm text-destructive">{errors.password.message}</p>
+              )}
             </div>
             <Button type="submit" className="w-full" disabled={login.isPending}>
               {login.isPending ? "Signing in..." : "Sign in"}

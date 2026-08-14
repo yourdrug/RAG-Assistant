@@ -13,6 +13,7 @@ from functools import wraps
 from typing import Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from sqlalchemy import text
 
 logger = logging.getLogger("default")
 
@@ -75,14 +76,21 @@ class Scheduler:
             seconds=300,
         )
 
+        # Recovery orphaned jobs (every 5 min)
+        self.add_interval_job(
+            job_id="recover_orphaned_jobs",
+            func=self._periodic_recover_orphaned_jobs,
+            seconds=300,
+        )
+
     @staticmethod
     @handle_exceptions
     async def _periodic_job_cleanup() -> None:
         """Periodically delete old background job records."""
-        from presentation.api.dependencies import _uow_factory
+        from presentation.api.dependencies import _uow_factory  # nested to avoid circular import
 
         async with _uow_factory.create(master=True) as uow:
-            from config import settings
+            from config import settings  # nested to avoid circular import
 
             deleted = await uow.background_jobs.delete_old(days=settings.job_cleanup_days)
             if deleted:
@@ -92,7 +100,7 @@ class Scheduler:
     @handle_exceptions
     async def _periodic_infra_collector() -> None:
         """Periodically update infrastructure Prometheus gauges."""
-        from infrastructure.ml.metrics import collect_infra_metrics
+        from infrastructure.ml.metrics import collect_infra_metrics  # nested to avoid circular import
 
         await collect_infra_metrics()
 
@@ -104,11 +112,49 @@ class Scheduler:
         Не заменяет LISTEN/NOTIFY (тот даёт near-real-time применение), а закрывает
         редкое окно потери NOTIFY между network blip и переустановкой listener.
         """
-        from presentation.api.dependencies import get_config_listener
+        from presentation.api.dependencies import get_config_listener  # nested to avoid circular import
 
         listener = get_config_listener()
         if listener.is_connected:
             await listener.resync(trigger="periodic")
+
+    @staticmethod
+    @handle_exceptions
+    async def _periodic_recover_orphaned_jobs() -> None:
+        """Recover background jobs stuck in 'running' state.
+
+        When a worker dies (OOM, deploy, crash), its jobs stay in 'running'
+        forever.  This job marks them as 'failed' after a configurable timeout.
+        """
+        from presentation.api.dependencies import _uow_factory  # nested to avoid circular import
+
+        # Jobs stuck in 'running' for more than 15 minutes are considered orphaned
+        orphan_timeout_minutes = 15
+
+        async with _uow_factory.create(master=True) as uow:
+
+            result = await uow._session.execute(
+                text(
+                    """
+                    UPDATE background_jobs
+                    SET status = 'failed',
+                        error_message = 'Worker died or restarted — task orphaned',
+                        finished_at = NOW()
+                    WHERE status = 'running'
+                      AND started_at < NOW() - make_interval(mins => :timeout)
+                    RETURNING id
+                    """
+                ),
+                {"timeout": f"{orphan_timeout_minutes} minutes"},
+            )
+            orphaned_ids = [row[0] for row in result.fetchall()]
+            if orphaned_ids:
+                logger.warning(
+                    "Recovered %d orphaned jobs: %s", len(orphaned_ids), orphaned_ids
+                )
+            orphaned_ids = [row[0] for row in result.fetchall()]
+            if orphaned_ids:
+                logger.warning("Recovered %d orphaned jobs: %s", len(orphaned_ids), orphaned_ids)
 
     async def startup(self) -> None:
         """Configure and start the scheduler."""

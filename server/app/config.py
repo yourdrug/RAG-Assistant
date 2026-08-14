@@ -1,3 +1,4 @@
+import logging
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -85,6 +86,28 @@ class Settings(BaseSettings):
     ocr_lang_paddle: str = "ru"  # ru | en | ...
     ocr_lang_surya: list = ["ru", "en"]
     ocr_dpi: int = 300
+
+    # --- Redis (очередь задач, rate limiting, кэш API-ключей) — обязательный компонент ---
+    redis_host: str = "redis"
+    redis_port: int = 6379
+    redis_user: str = ""
+    redis_password: str = ""
+    redis_db: int = 0
+    # Worker: максимальное количество одновременных задач
+    worker_max_concurrent: int = 4
+
+    @property
+    def redis_url(self) -> str:
+        """Build Redis URL from individual components."""
+        auth = ""
+        if self.redis_user:
+            auth = self.redis_user
+            if self.redis_password:
+                auth = f"{auth}:{self.redis_password}"
+            auth = f"{auth}@"
+        elif self.redis_password:
+            auth = f":{self.redis_password}@"
+        return f"redis://{auth}{self.redis_host}:{self.redis_port}/{self.redis_db}"
 
     # --- Файловое хранилище ---
     file_backend: str = "local"  # "local" | "s3"
@@ -226,8 +249,6 @@ class Settings(BaseSettings):
                 print(msg, file=sys.stderr)
                 sys.exit(1)
             else:
-                import logging
-
                 logging.getLogger("default").warning(msg)
 
         if is_prod and "*" in self.allowed_origins_list:

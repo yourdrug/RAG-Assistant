@@ -1,6 +1,6 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
+import { BarChart3, CheckCircle2, XCircle } from "lucide-react";
 import { Badge } from "@/shared/ui/badge";
-import { CheckCircle2, XCircle, BarChart3 } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
 
 export function formatUptime(seconds: number): string {
   const d = Math.floor(seconds / 86400);
@@ -14,7 +14,9 @@ export function formatUptime(seconds: number): string {
 export function StatusIndicator({ status }: { status: string }) {
   const isOk = status === "ok";
   return (
-    <span className={`inline-flex items-center gap-1.5 ${isOk ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
+    <span
+      className={`inline-flex items-center gap-1.5 ${isOk ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}
+    >
       {isOk ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
       <span className="text-sm font-medium">{isOk ? "Healthy" : "Error"}</span>
     </span>
@@ -22,10 +24,17 @@ export function StatusIndicator({ status }: { status: string }) {
 }
 
 export function ServiceCard({
-  title, icon, status, latency, details
+  title,
+  icon,
+  status,
+  latency,
+  details,
 }: {
-  title: string; icon: React.ReactNode; status: string;
-  latency?: number | null; details?: string[];
+  title: string;
+  icon: React.ReactNode;
+  status: string;
+  latency?: number | null;
+  details?: string[];
 }) {
   const isOk = status === "ok";
   return (
@@ -51,7 +60,9 @@ export function ServiceCard({
         <CardContent className="pt-0">
           <div className="flex flex-wrap gap-1.5">
             {details.map((d, i) => (
-              <Badge key={i} variant="secondary" className="text-xs font-mono">{d}</Badge>
+              <Badge key={i} variant="secondary" className="text-xs font-mono">
+                {d}
+              </Badge>
             ))}
           </div>
         </CardContent>
@@ -60,7 +71,17 @@ export function ServiceCard({
   );
 }
 
-export function StatCard({ label, value, icon: Icon, color }: { label: string; value: string | number; icon: typeof BarChart3; color: string }) {
+export function StatCard({
+  label,
+  value,
+  icon: Icon,
+  color,
+}: {
+  label: string;
+  value: string | number;
+  icon: typeof BarChart3;
+  color: string;
+}) {
   return (
     <Card>
       <CardContent className="py-4">

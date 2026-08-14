@@ -42,7 +42,8 @@ tasks:
   data:create:
     desc: Создать все data-директории, необходимые для Docker-сервисов
     cmds:
-      - mkdir -p data/qdrant_storage data/ollama_models data/postgres data/minio data/caddy_certs data/caddy_data data/caddy_config data/db/postgres
+      - mkdir -p data/qdrant_storage data/ollama_models data/postgres data/minio data/caddy_certs data/caddy_data data/caddy_config data/db/postgres data/redis
+      - test -f data/redis/redis.conf || echo '# See data/redis/redis.conf in repo' > data/redis/redis.conf
       - 'echo "Data-директории созданы"'
 
   data:perms:
@@ -157,11 +158,11 @@ tasks:
       VERSION: "{{.VERSION}}"
 
   clean:
-    desc: Остановить стек и удалить data/postgres, data/qdrant_storage, data/ollama_models, data/caddy_* — ОПАСНО
-    prompt: Удалить все локальные данные (Postgres/Qdrant/Ollama/Caddy)?
+    desc: Остановить стек и удалить data/postgres, data/qdrant_storage, data/ollama_models, data/caddy_*, data/redis — ОПАСНО
+    prompt: Удалить все локальные данные (Postgres/Qdrant/Ollama/Caddy/Redis)?
     cmds:
       - "{{.COMPOSE}} --profile domain down -v"
-      - rm -rf data/postgres data/qdrant_storage data/ollama_models data/caddy_data data/caddy_config
+      - rm -rf data/postgres data/qdrant_storage data/ollama_models data/caddy_data data/caddy_config data/redis
     env:
       STAGE: development
       BUILD_TARGET: cpu

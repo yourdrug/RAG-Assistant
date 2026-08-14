@@ -9,6 +9,11 @@ from __future__ import annotations
 
 import logging
 
+from bootstrap import bootstrap_admin
+from domain.events.config_events import ConfigParameterChanged
+
+from infrastructure.events.in_process_event_bus import event_bus
+
 logger = logging.getLogger("default")
 
 
@@ -20,8 +25,6 @@ async def initialize_app(uow_factory) -> None:
 
 async def _bootstrap_admin(uow_factory) -> None:
     """Ensure default admin user exists."""
-    from bootstrap import bootstrap_admin
-
     try:
         await bootstrap_admin(uow_factory)
     except Exception as e:
@@ -32,12 +35,8 @@ async def _load_config_from_db(uow_factory) -> None:
     """При старте — прогнать все сохранённые параметры через событийную шину.
 
     Единый путь применения конфига: и runtime-обновления, и startup идут
-    через ConfigParameterChanged → EventBus → подписчики.
+    via ConfigParameterChanged → EventBus → подписчики.
     """
-    from domain.events.config_events import ConfigParameterChanged
-
-    from infrastructure.events.in_process_event_bus import event_bus
-
     try:
         async with uow_factory.create(master=True) as uow:
             rows = await uow.config_parameters.get_all()
