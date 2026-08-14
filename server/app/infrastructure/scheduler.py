@@ -132,7 +132,6 @@ class Scheduler:
         orphan_timeout_minutes = 15
 
         async with _uow_factory.create(master=True) as uow:
-
             result = await uow._session.execute(
                 text(
                     """
@@ -149,9 +148,7 @@ class Scheduler:
             )
             orphaned_ids = [row[0] for row in result.fetchall()]
             if orphaned_ids:
-                logger.warning(
-                    "Recovered %d orphaned jobs: %s", len(orphaned_ids), orphaned_ids
-                )
+                logger.warning("Recovered %d orphaned jobs: %s", len(orphaned_ids), orphaned_ids)
             orphaned_ids = [row[0] for row in result.fetchall()]
             if orphaned_ids:
                 logger.warning("Recovered %d orphaned jobs: %s", len(orphaned_ids), orphaned_ids)

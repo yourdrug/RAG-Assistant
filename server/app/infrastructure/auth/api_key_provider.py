@@ -115,7 +115,9 @@ class ApiKeyProvider:
                 _REDIS_REVOKED_CHANNEL,
                 json.dumps({"api_key_id": api_key_id}),
             )
-            logger.info("ApiKeyProvider: revoked key id=%d, published to %s", api_key_id, _REDIS_REVOKED_CHANNEL)
+            logger.info(
+                "ApiKeyProvider: revoked key id=%d, published to %s", api_key_id, _REDIS_REVOKED_CHANNEL
+            )
         except Exception:
             logger.warning("Redis invalidation failed for api_key id=%d", api_key_id)
 
