@@ -7,6 +7,7 @@ export function useIngestRegistry() {
   return useQuery({
     queryKey: queryKeys.ingest.registry(),
     queryFn: async () => (await apiClient.get<IngestRegistryResponse>("/ingest/registry")).data,
+    refetchInterval: 15000,
   });
 }
 
