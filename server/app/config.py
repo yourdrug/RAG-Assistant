@@ -147,6 +147,15 @@ class Settings(BaseSettings):
     chunk_overlap: int = 200
     embed_batch_size: int = 32
 
+    # --- Relevance gate (Self-RAG-lite) ---
+    relevance_gate_enabled: bool = False
+
+    # --- Query decomposition ---
+    decomposition_enabled: bool = False
+
+    # --- Semantic answer cache ---
+    cache_enabled: bool = False
+
     # --- Hybrid search (BM25 + dense RRF) ---
     hybrid_enabled: bool = True
     bm25_fetch_k: int = 25
