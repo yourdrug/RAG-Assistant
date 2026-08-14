@@ -190,7 +190,7 @@ class SQLAlchemyChunkRepository(ChunkRepository):
                     ChunkModel.manual,
                     ChunkModel.creation_date,
                 )
-                .where(text(f"chunks.content ~* :word_pattern"))
+                .where(text("chunks.content ~* :word_pattern"))
                 .where(or_(*acl_clauses) if acl_clauses else text("true"))
                 .order_by(ChunkModel.id)
                 .limit(limit)

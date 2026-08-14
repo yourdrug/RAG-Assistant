@@ -160,14 +160,13 @@ class TestCanViewDocument:
         assert can_view_document("client_private", 51, None, "client", 50, [], []) is False
 
     def test_admin_views_client_doc(self):
-        assert can_view_document(
-            "client_private", 50, None, "internal", 1, [], [], user_role="admin"
-        ) is True
+        assert can_view_document("client_private", 50, None, "internal", 1, [], [], user_role="admin") is True
 
     def test_non_admin_rejected_from_client_doc(self):
-        assert can_view_document(
-            "client_private", 50, None, "internal", 1, [], [50, 51], user_role="user"
-        ) is False
+        assert (
+            can_view_document("client_private", 50, None, "internal", 1, [], [50, 51], user_role="user")
+            is False
+        )
 
     def test_unknown_visibility_raises(self):
         with pytest.raises(ValueError):

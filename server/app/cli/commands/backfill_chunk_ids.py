@@ -46,7 +46,7 @@ async def _get_documents_with_chunks(document_id: int | None = None) -> list[dic
         result = []
         for doc in doc_rows:
             chunk_rows = await database.fetch_all(
-                "SELECT id, content, chunk_index FROM chunks " "WHERE document_id = $1 ORDER BY chunk_index",
+                "SELECT id, content, chunk_index FROM chunks WHERE document_id = $1 ORDER BY chunk_index",
                 doc["id"],
             )
             result.append(

@@ -225,19 +225,15 @@ class TestCanViewDocument:
         assert can_view_document("client_private", 10, None, "client", 20, [], []) is False
 
     def test_admin_can_view_client_private(self):
-        assert can_view_document(
-            "client_private", 10, None, "internal", 1, [], [], user_role="admin"
-        ) is True
+        assert can_view_document("client_private", 10, None, "internal", 1, [], [], user_role="admin") is True
 
     def test_non_admin_internal_cannot_view_client_private(self):
-        assert can_view_document(
-            "client_private", 10, None, "internal", 1, [], [10], user_role="user"
-        ) is False
+        assert (
+            can_view_document("client_private", 10, None, "internal", 1, [], [10], user_role="user") is False
+        )
 
     def test_non_admin_internal_no_assignments_cannot_view_client_private(self):
-        assert can_view_document(
-            "client_private", 10, None, "internal", 1, [], [], user_role="user"
-        ) is False
+        assert can_view_document("client_private", 10, None, "internal", 1, [], [], user_role="user") is False
 
     # --- Edge cases ---
 
@@ -341,9 +337,7 @@ class TestGetVisibilityConditions:
 
     def test_internal_with_assigned_clients(self):
         # Admin sees all client docs in list mode (no assignment needed)
-        conds = get_visibility_conditions(
-            UserKind.INTERNAL, 1, [], [100, 200], user_role=UserRole.ADMIN
-        )
+        conds = get_visibility_conditions(UserKind.INTERNAL, 1, [], [100, 200], user_role=UserRole.ADMIN)
         client_conds = [c for c in conds if c.visibility == DocumentVisibility.CLIENT_PRIVATE]
         assert len(client_conds) == 1
         # No owner_match needed - admin sees ALL client docs
@@ -357,9 +351,7 @@ class TestGetVisibilityConditions:
 
     def test_internal_full_conditions_count(self):
         # Admin sees all client docs
-        conds = get_visibility_conditions(
-            UserKind.INTERNAL, 1, [5], [100], user_role=UserRole.ADMIN
-        )
+        conds = get_visibility_conditions(UserKind.INTERNAL, 1, [5], [100], user_role=UserRole.ADMIN)
         assert len(conds) == 4  # public + private + group + client
 
     def test_conditions_are_frozen_dataclass(self):

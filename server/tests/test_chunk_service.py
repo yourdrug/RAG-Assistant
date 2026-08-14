@@ -1,13 +1,11 @@
 """Tests for ChunkService business logic."""
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import UTC, datetime
+from unittest.mock import AsyncMock
 
+import pytest
 from application.services.chunk_service import ChunkService
 from domain.entities.document import Document
-from domain.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
-from domain.value_objects.document_status import DocumentStatus
+from domain.exceptions import ValidationError
 from domain.value_objects.roles import UserRole
 from domain.value_objects.visibility import DocumentVisibility
 
@@ -66,23 +64,17 @@ class TestChunkService:
     def test_compute_owner_and_group(self):
         """Test owner and group computation based on visibility."""
         # Internal public
-        owner, group = ChunkService._compute_owner_and_group(
-            DocumentVisibility.INTERNAL_PUBLIC, None, 1
-        )
+        owner, group = ChunkService._compute_owner_and_group(DocumentVisibility.INTERNAL_PUBLIC, None, 1)
         assert owner is None
         assert group is None
 
         # Internal group
-        owner, group = ChunkService._compute_owner_and_group(
-            DocumentVisibility.INTERNAL_GROUP, 42, 1
-        )
+        owner, group = ChunkService._compute_owner_and_group(DocumentVisibility.INTERNAL_GROUP, 42, 1)
         assert owner is None
         assert group == 42
 
         # Internal private
-        owner, group = ChunkService._compute_owner_and_group(
-            DocumentVisibility.INTERNAL_PRIVATE, None, 1
-        )
+        owner, group = ChunkService._compute_owner_and_group(DocumentVisibility.INTERNAL_PRIVATE, None, 1)
         assert owner == 1
         assert group is None
 
