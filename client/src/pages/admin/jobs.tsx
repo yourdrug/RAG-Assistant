@@ -1,14 +1,17 @@
 "use client";
-import { useState } from "react";
-import { useJobs, useJobStats } from "@/shared/api/hooks";
-import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
-import { Badge } from "@/shared/ui/badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/shared/ui/table";
-import { Skeleton } from "@/shared/ui/skeleton";
-import { Button } from "@/shared/ui/button";
 import { Clock, RefreshCw } from "lucide-react";
+import { useState } from "react";
+import { useJobStats, useJobs } from "@/shared/api/hooks";
+import { Badge } from "@/shared/ui/badge";
+import { Button } from "@/shared/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
+import { Skeleton } from "@/shared/ui/skeleton";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/shared/ui/table";
 
-const statusVariant: Record<string, "default" | "secondary" | "destructive" | "success" | "warning"> = {
+const statusVariant: Record<
+  string,
+  "default" | "secondary" | "destructive" | "success" | "warning"
+> = {
   pending: "warning",
   running: "default",
   done: "success",
@@ -28,7 +31,11 @@ function formatDuration(start: string | null, end: string | null) {
 export function JobsPage() {
   const [page, setPage] = useState(0);
   const pageSize = 50;
-  const { data: jobsData, isLoading: jobsLoading, refetch } = useJobs({ limit: pageSize, offset: page * pageSize });
+  const {
+    data: jobsData,
+    isLoading: jobsLoading,
+    refetch,
+  } = useJobs({ limit: pageSize, offset: page * pageSize });
   const { data: statsData } = useJobStats();
 
   return (
@@ -124,8 +131,8 @@ export function JobsPage() {
               </Table>
               <div className="flex justify-between items-center mt-4">
                 <span className="text-sm text-muted-foreground">
-                  Showing {page * pageSize + 1}-{Math.min((page + 1) * pageSize, jobsData?.total ?? 0)} of{" "}
-                  {jobsData?.total ?? 0}
+                  Showing {page * pageSize + 1}-
+                  {Math.min((page + 1) * pageSize, jobsData?.total ?? 0)} of {jobsData?.total ?? 0}
                 </span>
                 <div className="flex gap-2">
                   <Button

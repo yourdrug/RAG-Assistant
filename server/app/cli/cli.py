@@ -15,6 +15,7 @@ from cli.commands.ingest import ingest_app
 from cli.commands.pdf_diag import pdf_diag_app
 from cli.commands.reconcile import reconcile_app
 from cli.commands.runserver import runserver
+from cli.commands.worker import worker
 
 
 class CLI:
@@ -37,6 +38,9 @@ class CLI:
         """Зарегистрировать все команды."""
         # Сервер
         self._register("runserver", runserver, help="Запустить uvicorn-сервер")
+
+        # Arq worker
+        self._register("worker", worker, help="Запустить Arq worker для фоновых задач")
 
         # Индексация документов
         self.cli.add_typer(ingest_app, name="ingest")

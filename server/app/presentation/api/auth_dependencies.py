@@ -43,11 +43,11 @@ async def _authenticate_via_jwt(token: str, uow: UnitOfWork) -> dict:
 
 async def _authenticate_via_api_key(raw_key: str, uow: UnitOfWork) -> dict:
     key_hash = api_key_provider.hash_key(raw_key)
-    cached = api_key_provider.get_cached(key_hash)
+    cached = await api_key_provider.get_cached(key_hash)
 
     if cached is api_key_provider.MISS:
         result = await uow.api_keys.get_active_client_by_hash(key_hash)
-        api_key_provider.set_cached(key_hash, result)
+        await api_key_provider.set_cached(key_hash, result)
         if result is not None:
             await uow.api_keys.touch_last_used(result["api_key_id"])
     else:

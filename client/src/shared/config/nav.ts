@@ -1,7 +1,21 @@
 import {
-  MessageSquare, FileText, Search, User, LayoutDashboard, Users, UserCog,
-  FolderOpen, Upload, Cpu, Database, Clock, BarChart3,
-  ScrollText, Server, Key, MessageCircle,
+  BarChart3,
+  Clock,
+  Cpu,
+  Database,
+  FileText,
+  FolderOpen,
+  Key,
+  LayoutDashboard,
+  MessageCircle,
+  MessageSquare,
+  ScrollText,
+  Search,
+  Server,
+  Upload,
+  User,
+  UserCog,
+  Users,
 } from "lucide-react";
 
 export const userNavItems = [

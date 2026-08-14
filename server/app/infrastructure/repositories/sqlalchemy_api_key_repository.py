@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC
+from datetime import UTC, datetime
 
 from domain.entities.api_key import ApiKey
 from domain.value_objects.roles import UserKind
@@ -49,8 +49,6 @@ class SQLAlchemyApiKeyRepository:
         if orm is None:
             return False
 
-        from datetime import datetime
-
         orm.revoked_at = datetime.now(tz=UTC)
         await self._db.flush()
         return True
@@ -85,8 +83,6 @@ class SQLAlchemyApiKeyRepository:
         result = await self._db.execute(select(ApiKeyModel).where(ApiKeyModel.id == api_key_id))
         orm = result.scalar_one_or_none()
         if orm:
-            from datetime import datetime
-
             orm.last_used_at = datetime.now(tz=UTC)
             await self._db.flush()
 

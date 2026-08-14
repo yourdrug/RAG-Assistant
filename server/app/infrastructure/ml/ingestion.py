@@ -18,7 +18,6 @@ import numpy as np
 from config import settings
 from langchain.schema import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from paddleocr import PaddleOCR
 from PIL import Image
 from striprtf.striprtf import rtf_to_text
 
@@ -62,6 +61,8 @@ def setup_logger() -> logging.Logger:
 
 @functools.lru_cache(maxsize=1)
 def _get_paddle_ocr():
+    from paddleocr import PaddleOCR
+
     log.info("Loading PaddleOCR (lang=%s) ...", settings.ocr_lang_paddle)
     return PaddleOCR(
         use_angle_cls=True,

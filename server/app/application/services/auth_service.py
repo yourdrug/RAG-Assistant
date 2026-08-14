@@ -138,5 +138,5 @@ class AuthService:
             if not revoked:
                 raise EntityNotFound("ApiKey", api_key_id)
 
-        api_key_provider.invalidate_by_id(api_key_id)
+        await api_key_provider.invalidate_by_id(api_key_id)
         return {"id": api_key_id, "revoked": True}

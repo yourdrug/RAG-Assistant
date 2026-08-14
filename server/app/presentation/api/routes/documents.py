@@ -5,21 +5,18 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from application.services.document_processor import DocumentProcessor
 from application.services.document_service import DocumentService
 from config import settings
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from infrastructure.logging.actions import log_action
+from infrastructure.worker.queue import enqueue_document_processing
 
 from presentation.api.auth_dependencies import get_current_user
 from presentation.api.dependencies import (
     create_document_service,
-    get_document_parser,
-    get_document_splitter,
-    get_file_storage,
     get_uow_factory,
-    get_vector_store_repo,
 )
+from presentation.api.rate_limits import upload_rate_limit
 from presentation.api.routes.common import create_background_job
 from presentation.api.schemas import DocumentResponse, UploadStatusResponse
 
@@ -52,57 +49,6 @@ def _validate_mime(file_data: bytes, extension: str) -> None:
         )
 
 
-async def _process_document_in_background(
-    document_id: int,
-    storage_key: str,
-    filename: str,
-    visibility: str,
-    owner_id: int | None,
-    group_id: int | None,
-    replace_id: int | None,
-    job_id: int,
-    doc_domain: str | None = None,
-):
-    """Async — runs on the event loop after the response is sent."""
-    uow_factory = get_uow_factory()
-
-    try:
-        async with uow_factory.create(master=True) as uow:
-            await uow.background_jobs.mark_running(job_id)
-
-        processor = DocumentProcessor(
-            uow_factory=uow_factory,
-            vector_store_repo=get_vector_store_repo(),
-            file_storage=get_file_storage(),
-            document_parser=get_document_parser(),
-            document_splitter=get_document_splitter(),
-        )
-
-        logger.info("Background upload started: %s (doc %d, job %d)", filename, document_id, job_id)
-        await processor.process(
-            document_id=document_id,
-            storage_key=storage_key,
-            original_filename=filename,
-            visibility=visibility,
-            owner_id=owner_id,
-            group_id=group_id,
-            replace_id=replace_id,
-            doc_domain=doc_domain,
-        )
-        logger.info("Background upload completed: %s (doc %d, job %d)", filename, document_id, job_id)
-        async with uow_factory.create(master=True) as uow:
-            await uow.background_jobs.mark_done(job_id)
-    except Exception as e:
-        logger.exception(
-            "Background document processing failed for %s (doc %d, job %d)", filename, document_id, job_id
-        )
-        try:
-            async with uow_factory.create(master=True) as uow:
-                await uow.background_jobs.mark_failed(job_id, str(e)[:500])
-        except Exception:
-            logger.exception("Failed to mark job %d as failed", job_id)
-
-
 @router.get("/documents/clients")
 async def list_uploadable_clients(
     current_user: dict = Depends(get_current_user),
@@ -114,9 +60,8 @@ async def list_uploadable_clients(
     )
 
 
-@router.post("/documents", response_model=UploadStatusResponse)
+@router.post("/documents", response_model=UploadStatusResponse, dependencies=[Depends(upload_rate_limit)])
 async def upload_document(
-    background_tasks: BackgroundTasks,
     current_user: dict = Depends(get_current_user),
     file: UploadFile = File(...),
     visibility: str = Form(...),
@@ -163,8 +108,7 @@ async def upload_document(
 
     job_id = await create_background_job(get_uow_factory(), "document_processing", related_id=result.id)
 
-    background_tasks.add_task(
-        _process_document_in_background,
+    await enqueue_document_processing(
         document_id=result.id,
         storage_key=result.storage_key,
         filename=result.filename,

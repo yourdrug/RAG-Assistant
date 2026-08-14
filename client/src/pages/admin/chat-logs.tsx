@@ -1,16 +1,16 @@
 "use client";
+import { type ColumnDef } from "@tanstack/react-table";
+import { Clock, MessageSquare, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { useChatLogs } from "@/shared/api/hooks";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
+import type { ChatLogEntry } from "@/shared/api/types";
 import { Badge } from "@/shared/ui/badge";
+import { Button } from "@/shared/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
+import { DataTable } from "@/shared/ui/data-table";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/shared/ui/select";
-import { DataTable } from "@/shared/ui/data-table";
-import { type ColumnDef } from "@tanstack/react-table";
-import { RefreshCw, MessageSquare, Clock } from "lucide-react";
-import { Button } from "@/shared/ui/button";
-import type { ChatLogEntry } from "@/shared/api/types";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
 
 export function AdminChatLogsPage() {
   const [search, setSearch] = useState("");
@@ -31,22 +31,50 @@ export function AdminChatLogsPage() {
       header: "Time",
       cell: ({ row }) => {
         const d = new Date(row.original.creation_date);
-        return <span className="text-xs text-muted-foreground whitespace-nowrap">{d.toLocaleString()}</span>;
+        return (
+          <span className="text-xs text-muted-foreground whitespace-nowrap">
+            {d.toLocaleString()}
+          </span>
+        );
       },
     },
-    { accessorKey: "user_id", header: "User", cell: ({ row }) => <span className="text-muted-foreground">#{row.original.user_id ?? "—"}</span> },
+    {
+      accessorKey: "user_id",
+      header: "User",
+      cell: ({ row }) => (
+        <span className="text-muted-foreground">#{row.original.user_id ?? "—"}</span>
+      ),
+    },
     {
       accessorKey: "question",
       header: "Question",
-      cell: ({ row }) => <span className="text-sm line-clamp-2 max-w-md">{row.original.question}</span>,
+      cell: ({ row }) => (
+        <span className="text-sm line-clamp-2 max-w-md">{row.original.question}</span>
+      ),
     },
     {
       accessorKey: "answer",
       header: "Answer",
-      cell: ({ row }) => <span className="text-sm text-muted-foreground line-clamp-2 max-w-lg">{row.original.answer}</span>,
+      cell: ({ row }) => (
+        <span className="text-sm text-muted-foreground line-clamp-2 max-w-lg">
+          {row.original.answer}
+        </span>
+      ),
     },
-    { accessorKey: "domain", header: "Domain", cell: ({ row }) => <Badge variant={row.original.domain === "legal" ? "default" : "secondary"}>{row.original.domain ?? "—"}</Badge> },
-    { accessorKey: "breadth", header: "Breadth", cell: ({ row }) => <Badge variant="outline">{row.original.breadth ?? "—"}</Badge> },
+    {
+      accessorKey: "domain",
+      header: "Domain",
+      cell: ({ row }) => (
+        <Badge variant={row.original.domain === "legal" ? "default" : "secondary"}>
+          {row.original.domain ?? "—"}
+        </Badge>
+      ),
+    },
+    {
+      accessorKey: "breadth",
+      header: "Breadth",
+      cell: ({ row }) => <Badge variant="outline">{row.original.breadth ?? "—"}</Badge>,
+    },
     {
       accessorKey: "latency_ms",
       header: "Latency",
@@ -56,7 +84,11 @@ export function AdminChatLogsPage() {
         return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
       },
     },
-    { accessorKey: "retrieval_count", header: "Chunks", cell: ({ row }) => row.original.retrieval_count ?? "—" },
+    {
+      accessorKey: "retrieval_count",
+      header: "Chunks",
+      cell: ({ row }) => row.original.retrieval_count ?? "—",
+    },
     {
       accessorKey: "reranker_score",
       header: "Score",
@@ -79,7 +111,8 @@ export function AdminChatLogsPage() {
           <p className="text-muted-foreground">Q&A history for quality tracking</p>
         </div>
         <Button variant="outline" onClick={() => refetch()} disabled={isFetching}>
-          <RefreshCw className={`h-4 w-4 mr-2 ${isFetching ? "animate-spin" : ""}`} />Refresh
+          <RefreshCw className={`h-4 w-4 mr-2 ${isFetching ? "animate-spin" : ""}`} />
+          Refresh
         </Button>
       </div>
 
@@ -93,14 +126,25 @@ export function AdminChatLogsPage() {
               <Label>Search</Label>
               <Input
                 value={search}
-                onChange={(e) => { setSearch(e.target.value); setPage(0); }}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setPage(0);
+                }}
                 placeholder="Search questions or answers..."
               />
             </div>
             <div className="w-40">
               <Label>Domain</Label>
-              <Select value={domain} onValueChange={(v) => { setDomain(v); setPage(0); }}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+              <Select
+                value={domain}
+                onValueChange={(v) => {
+                  setDomain(v);
+                  setPage(0);
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All</SelectItem>
                   <SelectItem value="general">General</SelectItem>
@@ -120,15 +164,34 @@ export function AdminChatLogsPage() {
           <CardDescription>{data?.total ?? 0} total entries</CardDescription>
         </CardHeader>
         <CardContent>
-          <DataTable columns={columns} data={data?.logs || []} searchKey="question" searchPlaceholder="Filter..." />
+          <DataTable
+            columns={columns}
+            data={data?.logs || []}
+            searchKey="question"
+            searchPlaceholder="Filter..."
+          />
           {totalPages > 1 && (
             <div className="flex justify-between items-center mt-4">
               <span className="text-sm text-muted-foreground">
                 Page {page + 1} of {totalPages}
               </span>
               <div className="flex gap-2">
-                <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(page - 1)}>Previous</Button>
-                <Button variant="outline" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage(page + 1)}>Next</Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page === 0}
+                  onClick={() => setPage(page - 1)}
+                >
+                  Previous
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page >= totalPages - 1}
+                  onClick={() => setPage(page + 1)}
+                >
+                  Next
+                </Button>
               </div>
             </div>
           )}

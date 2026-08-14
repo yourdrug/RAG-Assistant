@@ -23,6 +23,10 @@ from config import settings
 from domain.events.config_events import ConfigParameterChanged
 from domain.utils import parse_bool
 
+from infrastructure.clients import get_bm25_index, get_llm
+from infrastructure.ml.ingestion import _get_paddle_ocr
+from infrastructure.storage import get_storage
+
 log = logging.getLogger("default")
 
 _DYNAMIC_FIELDS: dict[str, tuple[str, type]] = {
@@ -98,7 +102,6 @@ def invalidate_bm25_cache_on_hybrid_toggle(event: ConfigParameterChanged) -> Non
     """Если переключили hybrid_enabled — сбросить lru_cache BM25-индекса."""
     if event.key != "hybrid_enabled":
         return
-    from infrastructure.clients import get_bm25_index
 
     get_bm25_index.cache_clear()
     log.info("BM25 index cache invalidated (hybrid_enabled -> %s)", event.new_value)
@@ -108,7 +111,6 @@ def invalidate_llm_cache(event: ConfigParameterChanged) -> None:
     """Сбросить кэш LLM при изменении модели или параметров генерации."""
     if event.key not in ("llm_model", "llm_temperature", "llm_top_p", "llm_num_ctx_narrow"):
         return
-    from infrastructure.clients import get_llm
 
     get_llm.cache_clear()
     log.info("LLM cache invalidated (%s -> %s)", event.key, event.new_value)
@@ -118,7 +120,6 @@ def invalidate_paddle_ocr_cache(event: ConfigParameterChanged) -> None:
     """Сбросить кэш PaddleOCR при смене языка (модель перезагрузится лениво)."""
     if event.key != "ocr_lang_paddle":
         return
-    from infrastructure.ml.ingestion import _get_paddle_ocr
 
     _get_paddle_ocr.cache_clear()
     log.info("PaddleOCR cache invalidated (ocr_lang_paddle -> %s)", event.new_value)
@@ -129,7 +130,6 @@ def invalidate_storage_cache(event: ConfigParameterChanged) -> None:
     storage_keys = {"file_backend", "s3_endpoint", "s3_bucket", "s3_access_key", "s3_secret_key", "s3_region"}
     if event.key not in storage_keys:
         return
-    from infrastructure.storage import get_storage
 
     get_storage.cache_clear()
     log.info("Storage cache invalidated (%s -> %s)", event.key, event.new_value)

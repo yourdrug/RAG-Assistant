@@ -172,6 +172,16 @@ CONFIG_NOTIFY_RECEIVED_TOTAL = Counter(
     "Number of config_changed NOTIFY payloads received",
 )
 
+# ---------------------------------------------------------------------------
+# HTTP request metrics (used by MetricsMiddleware)
+# ---------------------------------------------------------------------------
+
+HTTP_REQUESTS_TOTAL = Counter(
+    "http_requests_total",
+    "Total HTTP requests",
+    ["handler", "method", "status"],
+)
+
 
 # ---------------------------------------------------------------------------
 # Helper: record RAG pipeline answer metrics (called after generation)

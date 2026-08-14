@@ -6,7 +6,9 @@ import type { ClientAssignmentResponse } from "../types";
 export function useClientAssignments(clientUserId: number) {
   return useQuery({
     queryKey: queryKeys.clients.assignments(clientUserId),
-    queryFn: async () => (await apiClient.get<ClientAssignmentResponse[]>(`/clients/${clientUserId}/assignments`)).data,
+    queryFn: async () =>
+      (await apiClient.get<ClientAssignmentResponse[]>(`/clients/${clientUserId}/assignments`))
+        .data,
     enabled: !!clientUserId,
   });
 }
@@ -14,17 +16,34 @@ export function useClientAssignments(clientUserId: number) {
 export function useAssignClient() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ clientUserId, internalUserId }: { clientUserId: number; internalUserId: number }) =>
-      (await apiClient.post(`/clients/${clientUserId}/assignments`, { internal_user_id: internalUserId })).data,
-    onSuccess: (_, v) => qc.invalidateQueries({ queryKey: queryKeys.clients.assignments(v.clientUserId) }),
+    mutationFn: async ({
+      clientUserId,
+      internalUserId,
+    }: {
+      clientUserId: number;
+      internalUserId: number;
+    }) =>
+      (
+        await apiClient.post(`/clients/${clientUserId}/assignments`, {
+          internal_user_id: internalUserId,
+        })
+      ).data,
+    onSuccess: (_, v) =>
+      qc.invalidateQueries({ queryKey: queryKeys.clients.assignments(v.clientUserId) }),
   });
 }
 
 export function useUnassignClient() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ clientUserId, internalUserId }: { clientUserId: number; internalUserId: number }) =>
-      (await apiClient.delete(`/clients/${clientUserId}/assignments/${internalUserId}`)).data,
-    onSuccess: (_, v) => qc.invalidateQueries({ queryKey: queryKeys.clients.assignments(v.clientUserId) }),
+    mutationFn: async ({
+      clientUserId,
+      internalUserId,
+    }: {
+      clientUserId: number;
+      internalUserId: number;
+    }) => (await apiClient.delete(`/clients/${clientUserId}/assignments/${internalUserId}`)).data,
+    onSuccess: (_, v) =>
+      qc.invalidateQueries({ queryKey: queryKeys.clients.assignments(v.clientUserId) }),
   });
 }

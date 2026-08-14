@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "../client";
 import { queryKeys } from "../query-keys";
-import type { GroupResponse, CreateGroupRequest, GroupMemberResponse } from "../types";
+import type { CreateGroupRequest, GroupMemberResponse, GroupResponse } from "../types";
 
 export function useGroups() {
   return useQuery({
@@ -13,7 +13,8 @@ export function useGroups() {
 export function useCreateGroup() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (data: CreateGroupRequest) => (await apiClient.post<GroupResponse>("/groups", data)).data,
+    mutationFn: async (data: CreateGroupRequest) =>
+      (await apiClient.post<GroupResponse>("/groups", data)).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.groups.all }),
   });
 }
@@ -21,7 +22,8 @@ export function useCreateGroup() {
 export function useGroupMembers(groupId: number) {
   return useQuery({
     queryKey: queryKeys.groups.members(groupId),
-    queryFn: async () => (await apiClient.get<GroupMemberResponse[]>(`/groups/${groupId}/members`)).data,
+    queryFn: async () =>
+      (await apiClient.get<GroupMemberResponse[]>(`/groups/${groupId}/members`)).data,
     enabled: !!groupId,
   });
 }

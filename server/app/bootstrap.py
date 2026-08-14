@@ -6,6 +6,8 @@ import logging
 
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
 from config import settings
+from domain.entities.user import User
+from domain.value_objects.roles import UserKind, UserRole
 from infrastructure.auth.password_hasher import BCryptPasswordHasher
 
 logger = logging.getLogger("default")
@@ -24,9 +26,6 @@ async def bootstrap_admin(uow_factory: UnitOfWorkFactory) -> None:
             return
 
         hasher = BCryptPasswordHasher()
-        from domain.entities.user import User
-        from domain.value_objects.roles import UserKind, UserRole
-
         user = User(
             email=settings.admin_email,
             hashed_password=hasher.hash(settings.admin_password),

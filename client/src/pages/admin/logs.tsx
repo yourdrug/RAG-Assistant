@@ -1,24 +1,61 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+import {
+  AlertCircle,
+  AlertTriangle,
+  ChevronDown,
+  ChevronRight,
+  Clock,
+  FileText,
+  Info,
+  RefreshCw,
+  ScrollText,
+  Search,
+  User,
+  XCircle,
+} from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { useLogs } from "@/shared/api/hooks";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { ScrollArea } from "@/shared/ui/scroll-area";
 import { Skeleton } from "@/shared/ui/skeleton";
-import { ScrollText, RefreshCw, Search, ChevronDown, ChevronRight, Clock, User, FileText, AlertCircle, Info, AlertTriangle, XCircle } from "lucide-react";
 
 const levelConfig: Record<string, { color: string; icon: React.ReactNode; bg: string }> = {
-  INFO: { color: "text-blue-600 dark:text-blue-400", icon: <Info className="h-3.5 w-3.5" />, bg: "bg-blue-500/10" },
-  WARNING: { color: "text-amber-600 dark:text-amber-400", icon: <AlertTriangle className="h-3.5 w-3.5" />, bg: "bg-amber-500/10" },
-  ERROR: { color: "text-red-600 dark:text-red-400", icon: <XCircle className="h-3.5 w-3.5" />, bg: "bg-red-500/10" },
-  CRITICAL: { color: "text-red-700 dark:text-red-300", icon: <AlertCircle className="h-3.5 w-3.5" />, bg: "bg-red-600/10" },
-  DEBUG: { color: "text-gray-500 dark:text-gray-400", icon: <FileText className="h-3.5 w-3.5" />, bg: "bg-gray-500/10" },
+  INFO: {
+    color: "text-blue-600 dark:text-blue-400",
+    icon: <Info className="h-3.5 w-3.5" />,
+    bg: "bg-blue-500/10",
+  },
+  WARNING: {
+    color: "text-amber-600 dark:text-amber-400",
+    icon: <AlertTriangle className="h-3.5 w-3.5" />,
+    bg: "bg-amber-500/10",
+  },
+  ERROR: {
+    color: "text-red-600 dark:text-red-400",
+    icon: <XCircle className="h-3.5 w-3.5" />,
+    bg: "bg-red-500/10",
+  },
+  CRITICAL: {
+    color: "text-red-700 dark:text-red-300",
+    icon: <AlertCircle className="h-3.5 w-3.5" />,
+    bg: "bg-red-600/10",
+  },
+  DEBUG: {
+    color: "text-gray-500 dark:text-gray-400",
+    icon: <FileText className="h-3.5 w-3.5" />,
+    bg: "bg-gray-500/10",
+  },
 };
 
 function formatTimestamp(ts: string) {
   try {
     const d = new Date(ts);
-    const time = d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    const time = d.toLocaleTimeString("ru-RU", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
     const date = d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" });
     return { time, date };
   } catch {
@@ -42,13 +79,15 @@ function LogEntryRow({ log }: { log: any }) {
       >
         {/* Expand icon */}
         <span className="mt-0.5 shrink-0 text-muted-foreground">
-          {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+          {expanded ? (
+            <ChevronDown className="h-3.5 w-3.5" />
+          ) : (
+            <ChevronRight className="h-3.5 w-3.5" />
+          )}
         </span>
 
         {/* Level badge */}
-        <span className={`shrink-0 mt-0.5 ${config.color}`}>
-          {config.icon}
-        </span>
+        <span className={`shrink-0 mt-0.5 ${config.color}`}>{config.icon}</span>
 
         {/* Timestamp */}
         <span className="shrink-0 text-xs text-muted-foreground font-mono w-[70px]">{time}</span>
@@ -60,7 +99,10 @@ function LogEntryRow({ log }: { log: any }) {
 
         {/* Request ID */}
         {log.request_id && log.request_id !== "-" && (
-          <span className="shrink-0 text-[10px] text-muted-foreground/60 font-mono max-w-[80px] truncate" title={log.request_id}>
+          <span
+            className="shrink-0 text-[10px] text-muted-foreground/60 font-mono max-w-[80px] truncate"
+            title={log.request_id}
+          >
             {log.request_id.slice(0, 8)}
           </span>
         )}
@@ -76,16 +118,23 @@ function LogEntryRow({ log }: { log: any }) {
             </div>
             <div className="flex items-center gap-1.5 text-muted-foreground">
               <AlertCircle className="h-3 w-3" />
-              <span>Level: <span className={config.color}>{level}</span></span>
+              <span>
+                Level: <span className={config.color}>{level}</span>
+              </span>
             </div>
             <div className="flex items-center gap-1.5 text-muted-foreground">
               <User className="h-3 w-3" />
-              <span>Logger: <span className="text-foreground">{log.logger}</span></span>
+              <span>
+                Logger: <span className="text-foreground">{log.logger}</span>
+              </span>
             </div>
             {log.request_id && log.request_id !== "-" && (
               <div className="flex items-center gap-1.5 text-muted-foreground">
                 <FileText className="h-3 w-3" />
-                <span>Request: <span className="text-foreground font-mono text-[10px]">{log.request_id}</span></span>
+                <span>
+                  Request:{" "}
+                  <span className="text-foreground font-mono text-[10px]">{log.request_id}</span>
+                </span>
               </div>
             )}
           </div>
@@ -95,7 +144,8 @@ function LogEntryRow({ log }: { log: any }) {
           {log.filename && (
             <div className="text-xs text-muted-foreground">
               <FileText className="h-3 w-3 inline mr-1" />
-              {log.filename}{log.lineno ? `:${log.lineno}` : ""}
+              {log.filename}
+              {log.lineno ? `:${log.lineno}` : ""}
             </div>
           )}
         </div>
@@ -111,7 +161,11 @@ export function LogsPage() {
   const [autoRefresh, setAutoRefresh] = useState(true);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const { data: logsData, isLoading, refetch } = useLogs({
+  const {
+    data: logsData,
+    isLoading,
+    refetch,
+  } = useLogs({
     limit: 200,
     search: search || undefined,
     level: levelFilter || undefined,
@@ -121,7 +175,9 @@ export function LogsPage() {
     if (autoRefresh) {
       intervalRef.current = setInterval(() => refetch(), 5000);
     }
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
   }, [autoRefresh, refetch]);
 
   const handleSearch = () => {
@@ -141,7 +197,9 @@ export function LogsPage() {
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
             {logsData?.total ?? 0} entries
-            {autoRefresh && <span className="ml-2 text-green-600 dark:text-green-400">• auto-refreshing</span>}
+            {autoRefresh && (
+              <span className="ml-2 text-green-600 dark:text-green-400">• auto-refreshing</span>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2">

@@ -403,6 +403,8 @@ class LogsResponse(BaseModel):
 
 
 class ChatLogEntry(BaseModel):
+    model_config = {"protected_namespaces": ()}
+
     id: int
     creation_date: str
     user_id: int | None = None

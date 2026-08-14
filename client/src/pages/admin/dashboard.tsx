@@ -1,13 +1,33 @@
 "use client";
-import { useHealth, useUsers, useGroups, useDocuments, useMetrics, useIngestRegistry } from "@/shared/api/hooks";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
-import { Badge } from "@/shared/ui/badge";
-import { Skeleton } from "@/shared/ui/skeleton";
 import {
-  Activity, FileText, Server, Database, Cpu, Clock, Zap, HardDrive,
-  AlertCircle, CheckCircle2, XCircle, BarChart3, Search, TrendingUp,
-  Users, FolderOpen,
+  Activity,
+  AlertCircle,
+  BarChart3,
+  CheckCircle2,
+  Clock,
+  Cpu,
+  Database,
+  FileText,
+  FolderOpen,
+  HardDrive,
+  Search,
+  Server,
+  TrendingUp,
+  Users,
+  XCircle,
+  Zap,
 } from "lucide-react";
+import {
+  useDocuments,
+  useGroups,
+  useHealth,
+  useIngestRegistry,
+  useMetrics,
+  useUsers,
+} from "@/shared/api/hooks";
+import { Badge } from "@/shared/ui/badge";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
+import { Skeleton } from "@/shared/ui/skeleton";
 
 function formatUptime(seconds: number): string {
   const d = Math.floor(seconds / 86400);
@@ -21,7 +41,9 @@ function formatUptime(seconds: number): string {
 function StatusIndicator({ status }: { status: string }) {
   const isOk = status === "ok";
   return (
-    <span className={`inline-flex items-center gap-1.5 ${isOk ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
+    <span
+      className={`inline-flex items-center gap-1.5 ${isOk ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}
+    >
       {isOk ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
       <span className="text-sm font-medium">{isOk ? "Healthy" : "Error"}</span>
     </span>
@@ -29,10 +51,17 @@ function StatusIndicator({ status }: { status: string }) {
 }
 
 function ServiceCard({
-  title, icon, status, latency, details
+  title,
+  icon,
+  status,
+  latency,
+  details,
 }: {
-  title: string; icon: React.ReactNode; status: string;
-  latency?: number | null; details?: string[];
+  title: string;
+  icon: React.ReactNode;
+  status: string;
+  latency?: number | null;
+  details?: string[];
 }) {
   const isOk = status === "ok";
   return (
@@ -58,7 +87,9 @@ function ServiceCard({
         <CardContent className="pt-0">
           <div className="flex flex-wrap gap-1.5">
             {details.map((d, i) => (
-              <Badge key={i} variant="secondary" className="text-xs font-mono">{d}</Badge>
+              <Badge key={i} variant="secondary" className="text-xs font-mono">
+                {d}
+              </Badge>
             ))}
           </div>
         </CardContent>
@@ -67,7 +98,17 @@ function ServiceCard({
   );
 }
 
-function StatCard({ label, value, icon: Icon, color }: { label: string; value: string | number; icon: typeof BarChart3; color: string }) {
+function StatCard({
+  label,
+  value,
+  icon: Icon,
+  color,
+}: {
+  label: string;
+  value: string | number;
+  icon: typeof BarChart3;
+  color: string;
+}) {
   return (
     <Card>
       <CardContent className="py-4">
@@ -133,11 +174,15 @@ export function AdminDashboardPage() {
 
       {/* Overall Status */}
       {health && (
-        <Card className={`border-2 ${health.status === "healthy" ? "border-green-200 dark:border-green-800" : "border-amber-200 dark:border-amber-800"}`}>
+        <Card
+          className={`border-2 ${health.status === "healthy" ? "border-green-200 dark:border-green-800" : "border-amber-200 dark:border-amber-800"}`}
+        >
           <CardContent className="py-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className={`p-3 rounded-full ${health.status === "healthy" ? "bg-green-500/10" : "bg-amber-500/10"}`}>
+                <div
+                  className={`p-3 rounded-full ${health.status === "healthy" ? "bg-green-500/10" : "bg-amber-500/10"}`}
+                >
                   {health.status === "healthy" ? (
                     <CheckCircle2 className="h-6 w-6 text-green-600 dark:text-green-400" />
                   ) : (
@@ -155,7 +200,10 @@ export function AdminDashboardPage() {
                   </p>
                 </div>
               </div>
-              <Badge variant={health.status === "healthy" ? "success" : "destructive"} className="text-sm px-3 py-1">
+              <Badge
+                variant={health.status === "healthy" ? "success" : "destructive"}
+                className="text-sm px-3 py-1"
+              >
                 {health.status.toUpperCase()}
               </Badge>
             </div>
@@ -169,30 +217,83 @@ export function AdminDashboardPage() {
           {[1, 2, 3, 4].map((i) => (
             <Card key={i}>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <Skeleton className="h-4 w-24" /><Skeleton className="h-4 w-4" />
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-4 w-4" />
               </CardHeader>
-              <CardContent><Skeleton className="h-7 w-20" /></CardContent>
+              <CardContent>
+                <Skeleton className="h-7 w-20" />
+              </CardContent>
             </Card>
           ))}
         </div>
       ) : health ? (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <ServiceCard title="API Server" icon={<Server className="h-5 w-5 text-blue-600 dark:text-blue-400" />} status={apiStatus} />
-          <ServiceCard title="PostgreSQL" icon={<Database className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />} status={postgresStatus} latency={health.checks?.postgres?.latency_ms} />
-          <ServiceCard title="Qdrant" icon={<HardDrive className="h-5 w-5 text-cyan-600 dark:text-cyan-400" />} status={qdrantStatus} latency={health.checks?.qdrant?.latency_ms} />
-          <ServiceCard title="Ollama" icon={<Cpu className="h-5 w-5 text-orange-600 dark:text-orange-400" />} status={ollamaStatus} latency={health.checks?.ollama?.latency_ms} details={health.checks?.ollama?.models || undefined} />
+          <ServiceCard
+            title="API Server"
+            icon={<Server className="h-5 w-5 text-blue-600 dark:text-blue-400" />}
+            status={apiStatus}
+          />
+          <ServiceCard
+            title="PostgreSQL"
+            icon={<Database className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />}
+            status={postgresStatus}
+            latency={health.checks?.postgres?.latency_ms}
+          />
+          <ServiceCard
+            title="Qdrant"
+            icon={<HardDrive className="h-5 w-5 text-cyan-600 dark:text-cyan-400" />}
+            status={qdrantStatus}
+            latency={health.checks?.qdrant?.latency_ms}
+          />
+          <ServiceCard
+            title="Ollama"
+            icon={<Cpu className="h-5 w-5 text-orange-600 dark:text-orange-400" />}
+            status={ollamaStatus}
+            latency={health.checks?.ollama?.latency_ms}
+            details={health.checks?.ollama?.models || undefined}
+          />
         </div>
       ) : null}
 
       {/* Quick Stats */}
       {metrics && (
         <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
-          <StatCard label="Users" value={users?.length || 0} icon={Users} color="bg-violet-500/10 text-violet-600 dark:text-violet-400" />
-          <StatCard label="Groups" value={groups?.length || 0} icon={FolderOpen} color="bg-pink-500/10 text-pink-600 dark:text-pink-400" />
-          <StatCard label="Documents" value={documents?.length || 0} icon={FileText} color="bg-blue-500/10 text-blue-600 dark:text-blue-400" />
-          <StatCard label="Vector Points" value={Number(metrics.qdrant?.points || 0).toLocaleString()} icon={BarChart3} color="bg-cyan-500/10 text-cyan-600 dark:text-cyan-400" />
-          <StatCard label="BM25 Index" value={Number(metrics.bm25?.index_size || 0).toLocaleString()} icon={Search} color="bg-purple-500/10 text-purple-600 dark:text-purple-400" />
-          <StatCard label="Total Chunks" value={totalChunks.toLocaleString()} icon={TrendingUp} color="bg-green-500/10 text-green-600 dark:text-green-400" />
+          <StatCard
+            label="Users"
+            value={users?.length || 0}
+            icon={Users}
+            color="bg-violet-500/10 text-violet-600 dark:text-violet-400"
+          />
+          <StatCard
+            label="Groups"
+            value={groups?.length || 0}
+            icon={FolderOpen}
+            color="bg-pink-500/10 text-pink-600 dark:text-pink-400"
+          />
+          <StatCard
+            label="Documents"
+            value={documents?.length || 0}
+            icon={FileText}
+            color="bg-blue-500/10 text-blue-600 dark:text-blue-400"
+          />
+          <StatCard
+            label="Vector Points"
+            value={Number(metrics.qdrant?.points || 0).toLocaleString()}
+            icon={BarChart3}
+            color="bg-cyan-500/10 text-cyan-600 dark:text-cyan-400"
+          />
+          <StatCard
+            label="BM25 Index"
+            value={Number(metrics.bm25?.index_size || 0).toLocaleString()}
+            icon={Search}
+            color="bg-purple-500/10 text-purple-600 dark:text-purple-400"
+          />
+          <StatCard
+            label="Total Chunks"
+            value={totalChunks.toLocaleString()}
+            icon={TrendingUp}
+            color="bg-green-500/10 text-green-600 dark:text-green-400"
+          />
         </div>
       )}
 
@@ -201,36 +302,62 @@ export function AdminDashboardPage() {
         {/* Documents */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2"><FileText className="h-5 w-5" />Documents</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5" />
+              Documents
+            </CardTitle>
             <CardDescription>Indexed document status</CardDescription>
           </CardHeader>
           <CardContent>
             {dl ? (
-              <div className="space-y-3">{[1, 2].map((i) => <Skeleton key={i} className="h-10 w-full" />)}</div>
+              <div className="space-y-3">
+                {[1, 2].map((i) => (
+                  <Skeleton key={i} className="h-10 w-full" />
+                ))}
+              </div>
             ) : documents && documents.length > 0 ? (
               <div className="space-y-4">
                 <div className="grid grid-cols-3 gap-3">
                   <div className="text-center p-3 rounded-lg bg-green-500/5">
-                    <div className="text-2xl font-bold text-green-600 dark:text-green-400">{docsDone}</div>
+                    <div className="text-2xl font-bold text-green-600 dark:text-green-400">
+                      {docsDone}
+                    </div>
                     <div className="text-xs text-muted-foreground">Done</div>
                   </div>
                   <div className="text-center p-3 rounded-lg bg-amber-500/5">
-                    <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">{docsProcessing}</div>
+                    <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">
+                      {docsProcessing}
+                    </div>
                     <div className="text-xs text-muted-foreground">Processing</div>
                   </div>
                   <div className="text-center p-3 rounded-lg bg-red-500/5">
-                    <div className="text-2xl font-bold text-red-600 dark:text-red-400">{docsFailed}</div>
+                    <div className="text-2xl font-bold text-red-600 dark:text-red-400">
+                      {docsFailed}
+                    </div>
                     <div className="text-xs text-muted-foreground">Failed</div>
                   </div>
                 </div>
                 <div className="space-y-2">
                   {documents.slice(0, 5).map((d) => (
-                    <div key={d.id} className="flex items-center justify-between rounded-md border p-2.5 hover:bg-muted/50 transition-colors">
+                    <div
+                      key={d.id}
+                      className="flex items-center justify-between rounded-md border p-2.5 hover:bg-muted/50 transition-colors"
+                    >
                       <div className="flex items-center gap-2 min-w-0">
                         <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
                         <span className="text-sm font-medium truncate">{d.filename}</span>
                       </div>
-                      <Badge variant={d.status === "done" ? "success" : d.status === "failed" ? "destructive" : "secondary"}>{d.status}</Badge>
+                      <Badge
+                        variant={
+                          d.status === "done"
+                            ? "success"
+                            : d.status === "failed"
+                              ? "destructive"
+                              : "secondary"
+                        }
+                      >
+                        {d.status}
+                      </Badge>
                     </div>
                   ))}
                 </div>
@@ -244,7 +371,10 @@ export function AdminDashboardPage() {
         {/* RAG Pipeline */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2"><Activity className="h-5 w-5" />RAG Pipeline</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <Activity className="h-5 w-5" />
+              RAG Pipeline
+            </CardTitle>
             <CardDescription>Query statistics and performance</CardDescription>
           </CardHeader>
           <CardContent>
@@ -252,30 +382,41 @@ export function AdminDashboardPage() {
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-3">
                   <div className="text-center p-3 rounded-lg bg-blue-500/5">
-                    <div className="text-2xl font-bold">{Number(metrics.rag?.queries_total) || 0}</div>
+                    <div className="text-2xl font-bold">
+                      {Number(metrics.rag?.queries_total) || 0}
+                    </div>
                     <div className="text-xs text-muted-foreground">Total Queries</div>
                   </div>
                   <div className="text-center p-3 rounded-lg bg-amber-500/5">
-                    <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">{Number(metrics.rag?.not_found_total) || 0}</div>
+                    <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">
+                      {Number(metrics.rag?.not_found_total) || 0}
+                    </div>
                     <div className="text-xs text-muted-foreground">Not Found</div>
                   </div>
                 </div>
-                {metrics.rag?.stage_latency && typeof metrics.rag.stage_latency === "object" && "count" in metrics.rag.stage_latency && (
-                  <div className="pt-3 border-t">
-                    <div className="flex justify-between text-sm mb-1">
-                      <span className="text-muted-foreground">Avg Latency</span>
-                      <span className="font-mono font-bold">
-                        {Number((metrics.rag.stage_latency as Record<string, number>).count) > 0
-                          ? `${(Number((metrics.rag.stage_latency as Record<string, number>).sum) / Number((metrics.rag.stage_latency as Record<string, number>).count)).toFixed(1)}s`
-                          : "—"}
-                      </span>
+                {metrics.rag?.stage_latency &&
+                  typeof metrics.rag.stage_latency === "object" &&
+                  "count" in metrics.rag.stage_latency && (
+                    <div className="pt-3 border-t">
+                      <div className="flex justify-between text-sm mb-1">
+                        <span className="text-muted-foreground">Avg Latency</span>
+                        <span className="font-mono font-bold">
+                          {Number((metrics.rag.stage_latency as Record<string, number>).count) > 0
+                            ? `${(Number((metrics.rag.stage_latency as Record<string, number>).sum) / Number((metrics.rag.stage_latency as Record<string, number>).count)).toFixed(1)}s`
+                            : "—"}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Total Time</span>
+                        <span className="font-mono">
+                          {Number(
+                            (metrics.rag.stage_latency as Record<string, number>).sum || 0,
+                          ).toFixed(1)}
+                          s
+                        </span>
+                      </div>
                     </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Total Time</span>
-                      <span className="font-mono">{Number((metrics.rag.stage_latency as Record<string, number>).sum || 0).toFixed(1)}s</span>
-                    </div>
-                  </div>
-                )}
+                  )}
                 {Number(metrics.rag?.queries_total) === 0 && (
                   <p className="text-sm text-muted-foreground text-center py-2">No queries yet</p>
                 )}
@@ -293,18 +434,34 @@ export function AdminDashboardPage() {
           {/* DB Pool */}
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2"><Database className="h-5 w-5" />Database Connection Pool</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                <Database className="h-5 w-5" />
+                Database Connection Pool
+              </CardTitle>
               <CardDescription>PostgreSQL connection utilization</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
                 {[
-                  { label: "In Use", value: metrics.db_pool?.connections_in_use ?? metrics.db_pool?.in_use ?? 0, color: "bg-blue-500" },
-                  { label: "Idle", value: metrics.db_pool?.connections_idle ?? metrics.db_pool?.idle ?? 0, color: "bg-green-500" },
-                  { label: "Overflow", value: metrics.db_pool?.overflow ?? 0, color: "bg-amber-500" },
+                  {
+                    label: "In Use",
+                    value: metrics.db_pool?.connections_in_use ?? metrics.db_pool?.in_use ?? 0,
+                    color: "bg-blue-500",
+                  },
+                  {
+                    label: "Idle",
+                    value: metrics.db_pool?.connections_idle ?? metrics.db_pool?.idle ?? 0,
+                    color: "bg-green-500",
+                  },
+                  {
+                    label: "Overflow",
+                    value: metrics.db_pool?.overflow ?? 0,
+                    color: "bg-amber-500",
+                  },
                 ].map(({ label, value, color }) => {
-                  const total = Number(metrics.db_pool?.connections_in_use ?? metrics.db_pool?.in_use ?? 0) +
-                    Number(metrics.db_pool?.connections_idle ?? metrics.db_pool?.idle ?? 0) || 1;
+                  const total =
+                    Number(metrics.db_pool?.connections_in_use ?? metrics.db_pool?.in_use ?? 0) +
+                      Number(metrics.db_pool?.connections_idle ?? metrics.db_pool?.idle ?? 0) || 1;
                   const pct = (Number(value) / total) * 100;
                   return (
                     <div key={label}>
@@ -313,7 +470,10 @@ export function AdminDashboardPage() {
                         <span className="font-mono font-bold">{Number(value)}</span>
                       </div>
                       <div className="h-2 rounded-full bg-muted overflow-hidden">
-                        <div className={`h-full rounded-full ${color} transition-all`} style={{ width: `${Math.min(pct, 100)}%` }} />
+                        <div
+                          className={`h-full rounded-full ${color} transition-all`}
+                          style={{ width: `${Math.min(pct, 100)}%` }}
+                        />
                       </div>
                     </div>
                   );
@@ -325,7 +485,10 @@ export function AdminDashboardPage() {
           {/* Ingestion */}
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2"><TrendingUp className="h-5 w-5" />Ingestion Stats</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                <TrendingUp className="h-5 w-5" />
+                Ingestion Stats
+              </CardTitle>
               <CardDescription>Document processing totals</CardDescription>
             </CardHeader>
             <CardContent>
@@ -336,32 +499,49 @@ export function AdminDashboardPage() {
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Total Chunks</span>
-                  <span className="font-mono font-bold">{registry?.total_chunks?.toLocaleString() || 0}</span>
+                  <span className="font-mono font-bold">
+                    {registry?.total_chunks?.toLocaleString() || 0}
+                  </span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Documents Ingested</span>
-                  <span className="font-mono font-bold">{Number(metrics.ingestion?.documents_total) || 0}</span>
+                  <span className="font-mono font-bold">
+                    {Number(metrics.ingestion?.documents_total) || 0}
+                  </span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Files Processed</span>
-                  <span className="font-mono font-bold">{Number(metrics.ingestion?.files_total) || 0}</span>
+                  <span className="font-mono font-bold">
+                    {Number(metrics.ingestion?.files_total) || 0}
+                  </span>
                 </div>
-                {metrics.ingestion?.duration && typeof metrics.ingestion.duration === "object" && "sum" in (metrics.ingestion.duration as Record<string, unknown>) && (
-                  <div className="pt-3 border-t">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Total Processing Time</span>
-                      <span className="font-mono">{Number((metrics.ingestion.duration as Record<string, number>).sum || 0).toFixed(1)}s</span>
-                    </div>
-                    {(metrics.ingestion.duration as Record<string, number>).count > 0 && (
+                {metrics.ingestion?.duration &&
+                  typeof metrics.ingestion.duration === "object" &&
+                  "sum" in (metrics.ingestion.duration as Record<string, unknown>) && (
+                    <div className="pt-3 border-t">
                       <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Avg per Document</span>
+                        <span className="text-muted-foreground">Total Processing Time</span>
                         <span className="font-mono">
-                          {(Number((metrics.ingestion.duration as Record<string, number>).sum) / Number((metrics.ingestion.duration as Record<string, number>).count)).toFixed(1)}s
+                          {Number(
+                            (metrics.ingestion.duration as Record<string, number>).sum || 0,
+                          ).toFixed(1)}
+                          s
                         </span>
                       </div>
-                    )}
-                  </div>
-                )}
+                      {(metrics.ingestion.duration as Record<string, number>).count > 0 && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">Avg per Document</span>
+                          <span className="font-mono">
+                            {(
+                              Number((metrics.ingestion.duration as Record<string, number>).sum) /
+                              Number((metrics.ingestion.duration as Record<string, number>).count)
+                            ).toFixed(1)}
+                            s
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
               </div>
             </CardContent>
           </Card>

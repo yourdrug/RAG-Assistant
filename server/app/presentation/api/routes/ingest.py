@@ -5,11 +5,13 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from infrastructure.logging.actions import log_action
+from infrastructure.worker.queue import enqueue_ingest, enqueue_ingest_file
 
 from presentation.api.auth_dependencies import require_admin
 from presentation.api.dependencies import create_ingest_service, create_ingestion_service, get_uow_factory
+from presentation.api.rate_limits import ingest_rate_limit
 from presentation.api.routes.common import create_background_job
 from presentation.api.schemas import (
     IngestRegistryItem,
@@ -23,9 +25,8 @@ logger = logging.getLogger("default")
 router = APIRouter(tags=["ingest"])
 
 
-@router.post("/ingest", response_model=IngestStatusResponse)
+@router.post("/ingest", response_model=IngestStatusResponse, dependencies=[Depends(ingest_rate_limit)])
 async def ingest_documents(
-    background_tasks: BackgroundTasks,
     docs_dir: str = "/code/project/data/docs_sample",
     reset: bool = False,
     domain: str = "auto",
@@ -45,32 +46,18 @@ async def ingest_documents(
         details={"docs_dir": resolved_dir, "reset": reset, "domain": domain},
     )
 
-    async def _tracked_ingest():
-        """Async — runs on the event loop after the response is sent."""
-        uow_factory = get_uow_factory()
-
-        try:
-            async with uow_factory.create(master=True) as uow:
-                await uow.background_jobs.mark_running(job_id)
-            await service.run_full(resolved_dir, reset, domain=domain)
-            async with uow_factory.create(master=True) as uow:
-                await uow.background_jobs.mark_done(job_id)
-        except Exception as e:
-            logger.exception("Background ingest failed (job %d)", job_id)
-            try:
-                async with uow_factory.create(master=True) as uow:
-                    await uow.background_jobs.mark_failed(job_id, str(e)[:500])
-            except Exception:
-                logger.exception("Failed to mark job %d as failed", job_id)
-
-    background_tasks.add_task(_tracked_ingest)
+    await enqueue_ingest(
+        resolved_dir=resolved_dir,
+        reset=reset,
+        domain=domain,
+        job_id=job_id,
+    )
     mode = "RESET + full reindex" if reset else "APPEND (new files only)"
     return IngestStatusResponse(status="started", mode=mode, docs_dir=resolved_dir)
 
 
-@router.post("/ingest/file", response_model=IngestStatusResponse)
+@router.post("/ingest/file", response_model=IngestStatusResponse, dependencies=[Depends(ingest_rate_limit)])
 async def ingest_single_file(
-    background_tasks: BackgroundTasks,
     file_path: str,
     force: bool = False,
     domain: str = "auto",
@@ -93,25 +80,11 @@ async def ingest_single_file(
         "ingest.file", user_id=admin["id"], details={"file": resolved, "force": force, "domain": domain}
     )
 
-    async def _tracked_single():
-        """Async — runs on the event loop after the response is sent."""
-        uow_factory = get_uow_factory()
-
-        try:
-            async with uow_factory.create(master=True) as uow:
-                await uow.background_jobs.mark_running(job_id)
-            await service.run_single(resolved, domain=domain)
-            async with uow_factory.create(master=True) as uow:
-                await uow.background_jobs.mark_done(job_id)
-        except Exception as e:
-            logger.exception("Background single-file ingest failed (job %d)", job_id)
-            try:
-                async with uow_factory.create(master=True) as uow:
-                    await uow.background_jobs.mark_failed(job_id, str(e)[:500])
-            except Exception:
-                logger.exception("Failed to mark job %d as failed", job_id)
-
-    background_tasks.add_task(_tracked_single)
+    await enqueue_ingest_file(
+        resolved=resolved,
+        domain=domain,
+        job_id=job_id,
+    )
     return IngestStatusResponse(status="started", file=resolved, force=force)
 
 
@@ -135,7 +108,7 @@ async def get_ingest_registry(admin: dict = Depends(require_admin)):
     )
 
 
-@router.post("/upload", response_model=UploadResponse)
+@router.post("/upload", response_model=UploadResponse, dependencies=[Depends(ingest_rate_limit)])
 async def upload_files(
     files: list[UploadFile] = File(...),
     admin: dict = Depends(require_admin),

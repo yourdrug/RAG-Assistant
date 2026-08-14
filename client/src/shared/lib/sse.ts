@@ -31,7 +31,11 @@ export async function streamChat({
   const response = await fetch(`${API_BASE_URL}/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ question, conversation_id: conversationId ?? null, depth: depth ?? null }),
+    body: JSON.stringify({
+      question,
+      conversation_id: conversationId ?? null,
+      depth: depth ?? null,
+    }),
     signal,
   });
 
@@ -41,7 +45,10 @@ export async function streamChat({
   }
 
   const reader = response.body?.getReader();
-  if (!reader) { onError("No response body"); return; }
+  if (!reader) {
+    onError("No response body");
+    return;
+  }
 
   const decoder = new TextDecoder();
   let buffer = "";
@@ -63,7 +70,9 @@ export async function streamChat({
             if (currentEvent === "done") onDone(parsed as SSEDone);
             else if (currentEvent === "error") onError(parsed.error);
             else onChunk(parsed.text || "");
-          } catch { /* non-JSON */ }
+          } catch {
+            /* non-JSON */
+          }
           currentEvent = "";
         }
       }

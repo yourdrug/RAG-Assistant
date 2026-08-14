@@ -6,7 +6,8 @@ import type { DocumentResponse, UploadStatusResponse } from "../types";
 export function useUploadableClients() {
   return useQuery({
     queryKey: queryKeys.documents.clients(),
-    queryFn: async () => (await apiClient.get<{ id: number; email: string }[]>("/documents/clients")).data,
+    queryFn: async () =>
+      (await apiClient.get<{ id: number; email: string }[]>("/documents/clients")).data,
   });
 }
 
@@ -28,7 +29,21 @@ export function useDocument(id: number) {
 export function useUploadDocument() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ file, visibility, groupId, clientId, renameOnConflict, docDomain }: { file: File; visibility: string; groupId?: number | null; clientId?: number | null; renameOnConflict?: boolean; docDomain?: string | null }) => {
+    mutationFn: async ({
+      file,
+      visibility,
+      groupId,
+      clientId,
+      renameOnConflict,
+      docDomain,
+    }: {
+      file: File;
+      visibility: string;
+      groupId?: number | null;
+      clientId?: number | null;
+      renameOnConflict?: boolean;
+      docDomain?: string | null;
+    }) => {
       const fd = new FormData();
       fd.append("file", file);
       fd.append("visibility", visibility);
@@ -36,9 +51,11 @@ export function useUploadDocument() {
       if (clientId != null) fd.append("client_id", String(clientId));
       if (renameOnConflict) fd.append("rename_on_conflict", "true");
       if (docDomain) fd.append("doc_domain", docDomain);
-      return (await apiClient.post<UploadStatusResponse>("/documents", fd, {
-        headers: { "Content-Type": "multipart/form-data" },
-      })).data;
+      return (
+        await apiClient.post<UploadStatusResponse>("/documents", fd, {
+          headers: { "Content-Type": "multipart/form-data" },
+        })
+      ).data;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.documents.all }),
   });

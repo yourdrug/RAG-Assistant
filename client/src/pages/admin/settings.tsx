@@ -1,14 +1,14 @@
 "use client";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { RotateCcw, Save } from "lucide-react";
 import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import toast from "react-hot-toast";
 import { apiClient } from "@/shared/api/client";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Button } from "@/shared/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Input } from "@/shared/ui/input";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/shared/ui/table";
-import { Save, RotateCcw } from "lucide-react";
-import toast from "react-hot-toast";
 
 interface ConfigParam {
   key: string;
@@ -42,7 +42,8 @@ export function AdminSettingsPage() {
 
   const { data: modelsInfo } = useQuery({
     queryKey: ["admin", "models"],
-    queryFn: async () => (await apiClient.get<{ ollama_models: string[] | null }>("/admin/models/info")).data,
+    queryFn: async () =>
+      (await apiClient.get<{ ollama_models: string[] | null }>("/admin/models/info")).data,
   });
 
   const updateMutation = useMutation({
@@ -171,7 +172,9 @@ export function AdminSettingsPage() {
     <div className="p-6 space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Settings</h1>
-        <p className="text-muted-foreground">All dynamic configuration parameters (changes apply instantly)</p>
+        <p className="text-muted-foreground">
+          All dynamic configuration parameters (changes apply instantly)
+        </p>
       </div>
 
       {categories.map((cat) => {
@@ -201,7 +204,9 @@ export function AdminSettingsPage() {
                       <TableRow key={p.key}>
                         <TableCell className="font-mono text-sm">{p.key}</TableCell>
                         <TableCell>{renderValue(p)}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground">{p.description}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {p.description}
+                        </TableCell>
                         <TableCell>
                           {isEdited && (
                             <div className="flex items-center gap-1">

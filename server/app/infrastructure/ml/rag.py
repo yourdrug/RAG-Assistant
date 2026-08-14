@@ -14,6 +14,8 @@ from domain.services.rag_policy import build_system_prompt, classify_question_br
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import AIMessage, HumanMessage
 
+from infrastructure.ml.hybrid import content_hash
+
 log = logging.getLogger("default")
 
 # Approximate tokens per character for Russian text (~4 chars per token)
@@ -144,8 +146,6 @@ def deduplicate_docs(docs: list) -> list:
     the retriever may return 2-3 nearly identical chunks.
     This function keeps only unique chunks by their content hash.
     """
-    from infrastructure.ml.hybrid import content_hash
-
     seen_hashes = set()
     unique_docs = []
     for doc in docs:
@@ -222,8 +222,6 @@ def history_to_messages(history: list[dict]):
 
 def _clean_source_name(source: str) -> str:
     """Extract clean filename from full path, strip directory."""
-    from pathlib import Path
-
     return Path(source).name if source else "unknown"
 
 

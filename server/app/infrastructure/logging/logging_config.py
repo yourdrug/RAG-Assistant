@@ -13,6 +13,7 @@ import os
 from typing import Any
 
 from presentation.api.middleware.request_id import request_id_ctx
+from pythonjsonlogger.json import JsonFormatter
 
 
 class ExceptionFilter(logging.Filter):
@@ -71,8 +72,6 @@ _formatters: dict[str, Any] = {
 
 if LOG_FORMAT == "json":
     try:
-        from pythonjsonlogger.json import JsonFormatter
-
         _json_formatter: dict[str, Any] = {
             "()": JsonFormatter,
             "format": "%(asctime)s %(levelname)s %(name)s %(request_id)s %(message)s",

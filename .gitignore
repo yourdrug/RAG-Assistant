@@ -5,6 +5,7 @@ server/.env
 # Данные сервисов (создаются docker-compose автоматически)
 data/
 !data/docs_sample/.gitkeep
+!data/redis/redis.conf
 .data/
 
 # Python / uv
