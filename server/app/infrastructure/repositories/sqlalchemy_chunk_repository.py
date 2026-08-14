@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime
 
 from domain.repositories.chunk_repository import ChunkRepository, ChunkSearchResult
@@ -168,13 +169,11 @@ class SQLAlchemyChunkRepository(ChunkRepository):
 
             acl_clauses.append(or_(*parts))
 
-        search_clause = ChunkModel.content.ilike(f"%{query}%")
-
-        # Add document_id filter if specified
         if document_id is not None:
             acl_clauses.append(ChunkModel.document_id == document_id)
 
         if mode == "exact":
+            escaped_query = re.escape(query)
             stmt = (
                 select(
                     ChunkModel.id,
@@ -190,12 +189,12 @@ class SQLAlchemyChunkRepository(ChunkRepository):
                     ChunkModel.edited_by,
                     ChunkModel.manual,
                     ChunkModel.creation_date,
-                    func.similarity(ChunkModel.content, query).label("score"),
                 )
-                .where(search_clause)
+                .where(text(f"chunks.content ~* :word_pattern"))
                 .where(or_(*acl_clauses) if acl_clauses else text("true"))
-                .order_by(text("score DESC"))
+                .order_by(ChunkModel.id)
                 .limit(limit)
+                .params(word_pattern=rf"\y{escaped_query}\y")
             )
         else:
             stmt = (
@@ -214,7 +213,7 @@ class SQLAlchemyChunkRepository(ChunkRepository):
                     ChunkModel.manual,
                     ChunkModel.creation_date,
                 )
-                .where(search_clause)
+                .where(ChunkModel.content.ilike(f"%{query}%"))
                 .where(or_(*acl_clauses) if acl_clauses else text("true"))
                 .order_by(ChunkModel.id)
                 .limit(limit)

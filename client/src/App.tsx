@@ -42,9 +42,6 @@ const AdminSettingsPage = lazy(() =>
   import("@/pages/admin/settings").then((m) => ({ default: m.AdminSettingsPage })),
 );
 const JobsPage = lazy(() => import("@/pages/admin/jobs").then((m) => ({ default: m.JobsPage })));
-const MonitoringPage = lazy(() =>
-  import("@/pages/admin/monitoring").then((m) => ({ default: m.MonitoringPage })),
-);
 const LogsPage = lazy(() => import("@/pages/admin/logs").then((m) => ({ default: m.LogsPage })));
 const ChatLogsPage = lazy(() =>
   import("@/pages/admin/chat-logs").then((m) => ({ default: m.AdminChatLogsPage })),
@@ -146,14 +143,6 @@ export default function App() {
                     element={
                       <Suspense fallback={<AdminFallback />}>
                         <JobsPage />
-                      </Suspense>
-                    }
-                  />
-                  <Route
-                    path="monitoring"
-                    element={
-                      <Suspense fallback={<AdminFallback />}>
-                        <MonitoringPage />
                       </Suspense>
                     }
                   />

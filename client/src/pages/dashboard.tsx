@@ -442,42 +442,50 @@ export function DashboardPage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                {[
-                  {
-                    label: "In Use",
-                    value: metrics.db_pool?.connections_in_use ?? metrics.db_pool?.in_use ?? 0,
-                    color: "bg-blue-500",
-                  },
-                  {
-                    label: "Idle",
-                    value: metrics.db_pool?.connections_idle ?? metrics.db_pool?.idle ?? 0,
-                    color: "bg-green-500",
-                  },
-                  {
-                    label: "Overflow",
-                    value: metrics.db_pool?.overflow ?? 0,
-                    color: "bg-amber-500",
-                  },
-                ].map(({ label, value, color }) => {
-                  const total =
-                    Number(metrics.db_pool?.connections_in_use ?? metrics.db_pool?.in_use ?? 0) +
-                      Number(metrics.db_pool?.connections_idle ?? metrics.db_pool?.idle ?? 0) || 1;
-                  const pct = (Number(value) / total) * 100;
-                  return (
-                    <div key={label}>
-                      <div className="flex justify-between text-sm mb-1">
-                        <span className="text-muted-foreground">{label}</span>
-                        <span className="font-mono font-bold">{Number(value)}</span>
-                      </div>
-                      <div className="h-2 rounded-full bg-muted overflow-hidden">
-                        <div
-                          className={`h-full rounded-full ${color} transition-all`}
-                          style={{ width: `${Math.min(pct, 100)}%` }}
-                        />
-                      </div>
-                    </div>
+                {(() => {
+                  const inUse = Number(
+                    metrics.db_pool?.connections_in_use ?? metrics.db_pool?.in_use ?? 0,
                   );
-                })}
+                  const idle = Number(
+                    metrics.db_pool?.connections_idle ?? metrics.db_pool?.idle ?? 0,
+                  );
+                  const poolSize = 100;
+                  const available = Math.max(0, poolSize - inUse - idle);
+                  return [
+                    {
+                      label: "In Use",
+                      value: inUse,
+                      color: "bg-blue-500",
+                    },
+                    {
+                      label: "Idle",
+                      value: idle,
+                      color: "bg-green-500",
+                    },
+                    {
+                      label: "Available",
+                      value: available,
+                      color: "bg-emerald-500",
+                    },
+                  ].map(({ label, value, color }) => {
+                    const total = inUse + idle + available || 1;
+                    const pct = (value / total) * 100;
+                    return (
+                      <div key={label}>
+                        <div className="flex justify-between text-sm mb-1">
+                          <span className="text-muted-foreground">{label}</span>
+                          <span className="font-mono font-bold">{value}</span>
+                        </div>
+                        <div className="h-2 rounded-full bg-muted overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${color} transition-all`}
+                            style={{ width: `${Math.min(pct, 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
               </div>
             </CardContent>
           </Card>

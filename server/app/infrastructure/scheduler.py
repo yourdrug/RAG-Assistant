@@ -25,8 +25,13 @@ def handle_exceptions(func: Callable) -> Callable:
     async def wrapper(*args: Any, **kwargs: Any) -> Any:
         try:
             return await func(*args, **kwargs)
-        except Exception:
-            logger.exception("Scheduler job %s failed", func.__name__)
+        except Exception as e:
+            logger.exception(
+                "Scheduler job %s failed: [%s] %s",
+                func.__name__,
+                type(e).__name__,
+                e,
+            )
 
     return wrapper
 
@@ -171,11 +176,8 @@ class Scheduler:
                     RETURNING id
                     """
                 ),
-                {"timeout": f"{orphan_timeout_minutes} minutes"},
+                {"timeout": orphan_timeout_minutes},
             )
-            orphaned_ids = [row[0] for row in result.fetchall()]
-            if orphaned_ids:
-                logger.warning("Recovered %d orphaned jobs: %s", len(orphaned_ids), orphaned_ids)
             orphaned_ids = [row[0] for row in result.fetchall()]
             if orphaned_ids:
                 logger.warning("Recovered %d orphaned jobs: %s", len(orphaned_ids), orphaned_ids)

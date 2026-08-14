@@ -32,9 +32,7 @@ async def _enqueue_arq(queue_name: str, func_name: str, **kwargs: Any) -> None:
 # Public helpers — one per task type
 # ---------------------------------------------------------------------------
 
-_DOCUMENT_QUEUE = "document_processing"
-_INGEST_QUEUE = "ingest"
-_BENCHMARK_QUEUE = "benchmark"
+_QUEUE_NAME = "document_processing"
 
 
 async def enqueue_document_processing(
@@ -51,7 +49,7 @@ async def enqueue_document_processing(
 ) -> None:
     """Enqueue document processing via Arq."""
     await _enqueue_arq(
-        _DOCUMENT_QUEUE,
+        _QUEUE_NAME,
         "process_document",
         document_id=document_id,
         storage_key=storage_key,
@@ -74,7 +72,7 @@ async def enqueue_ingest(
 ) -> None:
     """Enqueue full ingestion via Arq."""
     await _enqueue_arq(
-        _INGEST_QUEUE,
+        _QUEUE_NAME,
         "run_full_ingest",
         resolved_dir=resolved_dir,
         reset=reset,
@@ -91,7 +89,7 @@ async def enqueue_ingest_file(
 ) -> None:
     """Enqueue single-file ingestion via Arq."""
     await _enqueue_arq(
-        _INGEST_QUEUE,
+        _QUEUE_NAME,
         "run_single_ingest",
         resolved=resolved,
         domain=domain,
@@ -109,7 +107,7 @@ async def enqueue_benchmark(
 ) -> None:
     """Enqueue benchmark run via Arq."""
     await _enqueue_arq(
-        _BENCHMARK_QUEUE,
+        _QUEUE_NAME,
         "run_benchmark",
         questions_path=questions_path,
         out_dir=out_dir,

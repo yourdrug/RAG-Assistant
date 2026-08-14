@@ -83,11 +83,11 @@ async def get_metrics(admin: dict = Depends(require_admin)):
         )
 
     # RAG metrics
-    rag_queries = _collect_counter("rag_queries_total")
+    rag_queries = _collect_counter("rag_queries")
     rag_latency = _collect_histogram("rag_stage_duration_seconds")
     rag_answer_len = _collect_histogram("rag_answer_length_chars")
     rag_chunks = _collect_histogram("rag_retrieved_chunks")
-    rag_not_found = _collect_counter("rag_not_found_total")
+    rag_not_found = _collect_counter("rag_not_found")
     rag = {
         "queries_total": sum(rag_queries.values()) if rag_queries else 0.0,
         "not_found_total": sum(rag_not_found.values()) if rag_not_found else 0.0,
@@ -97,9 +97,9 @@ async def get_metrics(admin: dict = Depends(require_admin)):
     }
 
     # Ingestion metrics (total + by status)
-    ingest_docs = _collect_counter("ingest_documents_total")
-    ingest_chunks = _collect_counter("ingest_chunks_total")
-    ingest_files = _collect_counter("ingest_files_total")
+    ingest_docs = _collect_counter("ingest_documents")
+    ingest_chunks = _collect_counter("ingest_chunks")
+    ingest_files = _collect_counter("ingest_files")
     ingest_duration = _collect_histogram("ingest_document_duration_seconds")
     ingestion = {
         "documents_total": sum(ingest_docs.values()) if ingest_docs else 0.0,
@@ -110,7 +110,7 @@ async def get_metrics(admin: dict = Depends(require_admin)):
     # Per-status breakdown from labels
     ingest_by_status: dict[str, float] = {}
     for metric in REGISTRY.collect():
-        if metric.name == "ingest_documents_total":
+        if metric.name == "ingest_documents":
             for sample in metric.samples:
                 if sample.name.endswith("_total") or sample.name == "ingest_documents_total":
                     status = sample.labels.get("status", "unknown") if sample.labels else "unknown"
@@ -118,7 +118,7 @@ async def get_metrics(admin: dict = Depends(require_admin)):
     ingestion["by_status"] = ingest_by_status
 
     # HTTP requests
-    http_requests_raw = _collect_counter("http_requests_total")
+    http_requests_raw = _collect_counter("http_requests")
     # Aggregate by handler
     by_handler: dict[str, float] = {}
     total_requests = 0.0

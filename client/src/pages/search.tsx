@@ -1,9 +1,8 @@
 "use client";
 import { FileText, Search as SearchIcon } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { type SearchMode, useExactSearch } from "@/shared/api/hooks/use-search";
 import type { ExactSearchResult } from "@/shared/api/types";
-import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 
 function highlightMatch(text: string, query: string): ReactNode[] {
@@ -28,17 +27,36 @@ export function SearchPage() {
   const [results, setResults] = useState<ExactSearchResult[]>([]);
   const [hasSearched, setHasSearched] = useState(false);
   const exactSearch = useExactSearch();
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const queryRef = useRef(query);
+  const modeRef = useRef(mode);
+  queryRef.current = query;
+  modeRef.current = mode;
 
-  const handleSearch = async () => {
-    if (!query.trim() || query.length < 3) return;
-    setHasSearched(true);
-    try {
-      const res = await exactSearch.mutateAsync({ query, mode, limit: 50 });
-      setResults(res.results);
-    } catch {
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (query.trim().length < 3) {
       setResults([]);
+      setHasSearched(false);
+      return;
     }
-  };
+    debounceRef.current = setTimeout(async () => {
+      setHasSearched(true);
+      try {
+        const res = await exactSearch.mutateAsync({
+          query: queryRef.current,
+          mode: modeRef.current,
+          limit: 50,
+        });
+        setResults(res.results);
+      } catch {
+        setResults([]);
+      }
+    }, 400);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [query, mode]);
 
   return (
     <div className="flex flex-col h-full">
@@ -53,22 +71,19 @@ export function SearchPage() {
           </div>
 
           {/* Search bar */}
-          <div className="flex items-center gap-2">
-            <div className="relative flex-1">
+          <div className="space-y-2">
+            <div className="relative">
               <SearchIcon className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="Enter search query (min 3 characters)..."
+                placeholder="Search documents..."
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleSearch();
-                }}
                 className="pl-9"
               />
             </div>
-            <Button onClick={handleSearch} disabled={query.length < 3 || exactSearch.isPending}>
-              {exactSearch.isPending ? "Searching..." : "Find"}
-            </Button>
+            {query.length > 0 && query.length < 3 && (
+              <p className="text-xs text-muted-foreground">Minimum 3 characters to search</p>
+            )}
           </div>
 
           {/* Mode toggle */}
@@ -144,7 +159,7 @@ export function SearchPage() {
             <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
               <SearchIcon className="h-12 w-12 mb-4 opacity-50" />
               <p className="text-lg">Search your documents</p>
-              <p className="text-sm mt-1">Type a query and press Enter or click Find</p>
+              <p className="text-sm mt-1">Type at least 3 characters to start searching</p>
             </div>
           )}
         </div>

@@ -127,9 +127,7 @@ export function AdminDocumentsPage() {
               <Button
                 variant={selectedDocId === doc.id ? "default" : "outline"}
                 size="sm"
-                onClick={() =>
-                  setSelectedDocId(selectedDocId === doc.id ? null : doc.id)
-                }
+                onClick={() => setSelectedDocId(selectedDocId === doc.id ? null : doc.id)}
               >
                 {selectedDocId === doc.id ? "Hide" : "Chunks"}
               </Button>
