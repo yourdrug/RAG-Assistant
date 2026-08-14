@@ -54,8 +54,6 @@ dependencies = [
     "redis>=5.0.0",
     # --- Rate limiting (Redis-backed) ---
     "fastapi-limiter==0.1.6",
-    # --- OpenRouter (optional LLM backend — cloud API, no GPU needed) ---
-    "langchain-openrouter>=0.1.0",
 ]
 
 [project.optional-dependencies]
