@@ -43,6 +43,7 @@ class ConversationModel(BaseModel):
     __table_args__ = (Index("idx_conversations_user", "user_id"),)
 
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     messages = relationship("MessageModel", back_populates="conversation", cascade="all, delete-orphan")
 

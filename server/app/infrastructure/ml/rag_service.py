@@ -33,21 +33,34 @@ from infrastructure.clients import (
     get_reranker,
     get_vector_store,
 )
+from infrastructure.ml.answer_cache import (
+    compute_question_hash,
+    compute_visibility_scope_hash,
+    find_cached_answer,
+    store_cached_answer,
+)
 from infrastructure.ml.hybrid import content_hash, rrf_merge
 from infrastructure.ml.metrics import (
     RAG_BREADTH_TOTAL,
+    RAG_CACHE_HITS_TOTAL,
+    RAG_CACHE_MISSES_TOTAL,
+    RAG_DECOMPOSED_TOTAL,
+    RAG_RELEVANCE_GATE_TOTAL,
     RAG_STAGE_DURATION,
     record_rag_answer,
 )
 from infrastructure.ml.rag import (
     build_prompt,
+    check_relevance,
     classify_question_breadth,
     condense_question,
+    decompose_question,
     deduplicate_docs,
     extract_sources,
     filter_cited_sources,
     format_docs,
     history_to_messages,
+    needs_decomposition,
     rerank_documents,
 )
 
@@ -212,6 +225,32 @@ class RagService:
         query_for_search = await condense_question(get_llm(), question, history_messages)
         RAG_STAGE_DURATION.labels("condense").observe(time.monotonic() - t0)
 
+        # --- Semantic answer cache ---
+        vis_hash = compute_visibility_scope_hash(ctx.user_kind, ctx.user_group_ids, ctx.assigned_client_ids)
+        q_hash = compute_question_hash(query_for_search)
+        if rag.cache_enabled:
+            t0 = time.monotonic()
+            cached = await find_cached_answer(q_hash, vis_hash)
+            RAG_STAGE_DURATION.labels("cache_lookup").observe(time.monotonic() - t0)
+            if cached is not None:
+                RAG_CACHE_HITS_TOTAL.inc()
+                log.info("Cache hit for question hash=%s", q_hash[:12])
+                answer_text = cached["answer"]
+                yield TextChunk(text=answer_text)
+                record_rag_answer(breadth="narrow", answer=answer_text, retrieved_count=0, avg_similarity=0.0)
+                RAG_STAGE_DURATION.labels("total").observe(time.monotonic() - t_pipeline_start)
+                yield SourcesEvent(sources=cached["sources"], confidence=None)
+                return
+            RAG_CACHE_MISSES_TOTAL.inc()
+
+        # --- Query decomposition ---
+        sub_queries = [query_for_search]
+        if rag.decomposition_enabled and needs_decomposition(query_for_search):
+            t0 = time.monotonic()
+            sub_queries = await decompose_question(get_llm(), query_for_search)
+            RAG_STAGE_DURATION.labels("decompose").observe(time.monotonic() - t0)
+            RAG_DECOMPOSED_TOTAL.inc()
+
         breadth = ctx.depth if ctx.depth in BREADTH_ALIASES else classify_question_breadth(query_for_search)
         breadth = BREADTH_ALIASES.get(breadth, Breadth(breadth))
         RAG_BREADTH_TOTAL.labels(breadth=breadth).inc()
@@ -297,7 +336,7 @@ class RagService:
         t0 = time.monotonic()
         docs = await rerank_documents(
             query_for_search,
-            candidates,
+            all_candidates,
             top_n=top_k,
             reranker=get_reranker(),
             min_score=rag.rerank_min_score,
@@ -317,6 +356,30 @@ class RagService:
                 min_score=rag.rerank_min_score,
                 score_gap_ratio=rag.rerank_score_gap_ratio,
             )
+
+        avg_sim = sum(s for _, s in docs) / len(docs) if docs else 0.0
+
+        # --- Relevance gate ---
+        if rag.relevance_gate_enabled:
+            t0 = time.monotonic()
+            is_relevant, reason = await check_relevance(get_llm(), query_for_search, docs)
+            RAG_STAGE_DURATION.labels("relevance_gate").observe(time.monotonic() - t0)
+
+            if not is_relevant:
+                RAG_RELEVANCE_GATE_TOTAL.labels(result="rejected").inc()
+                log.info("Relevance gate: rejected (%s)", reason)
+                not_found_text = "Информация не найдена в документах."
+                yield TextChunk(text=not_found_text)
+                record_rag_answer(
+                    breadth=breadth,
+                    answer=not_found_text,
+                    retrieved_count=len(docs),
+                    avg_similarity=avg_sim,
+                )
+                RAG_STAGE_DURATION.labels("total").observe(time.monotonic() - t_pipeline_start)
+                yield SourcesEvent(sources=[], confidence=0.0)
+                return
+            RAG_RELEVANCE_GATE_TOTAL.labels(result="passed").inc()
 
         # --- Prompt adaptation based on actual context composition ---
         has_legal_context = any((doc.metadata.get("doc_domain") == "legal") for doc, _ in docs)
@@ -350,7 +413,6 @@ class RagService:
         if rag.citation_filter_enabled and sources:
             sources = filter_cited_sources(full_answer, sources)
 
-        avg_sim = sum(s for _, s in docs) / len(docs) if docs else 0.0
         record_rag_answer(
             breadth=breadth,
             answer=full_answer,
@@ -359,7 +421,25 @@ class RagService:
         )
         RAG_STAGE_DURATION.labels("total").observe(time.monotonic() - t_pipeline_start)
 
-        yield SourcesEvent(sources=sources)
+        confidence = min(1.0, max(0.0, avg_sim))
+
+        # --- Store in cache ---
+        if rag.cache_enabled:
+            doc_ids = []
+            for _, d in docs:
+                did = d.metadata.get("document_id")
+                if did is not None:
+                    doc_ids.append(did)
+            await store_cached_answer(
+                question_text=query_for_search,
+                question_hash=q_hash,
+                answer=full_answer,
+                sources=sources,
+                visibility_scope_hash=vis_hash,
+                document_ids=doc_ids,
+            )
+
+        yield SourcesEvent(sources=sources, confidence=confidence)
 
     async def invoke(
         self,

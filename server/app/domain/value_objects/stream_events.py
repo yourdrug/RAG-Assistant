@@ -21,6 +21,7 @@ class SourcesEvent:
     """Source metadata extracted from retrieved documents."""
 
     sources: list[dict]
+    confidence: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,6 +30,7 @@ class MetaEvent:
 
     conversation_id: int
     sources: list[dict]
+    confidence: float | None = None
 
 
 StreamEvent = TextChunk | SourcesEvent | MetaEvent

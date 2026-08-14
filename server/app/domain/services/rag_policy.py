@@ -48,6 +48,28 @@ def classify_question_breadth(question: str) -> str:
     return "broad" if any(re.search(p, q) for p in broad_patterns) else "narrow"
 
 
+COMPOUND_PATTERNS = [
+    r"сравни\s+.+\s+и\s+",
+    r"расскажи\s+про\s+.*\s+и\s+",
+    r"как\w*\s+.*\s+и\s+",
+    r"что\s+.*\s+и\s+что\s+",
+    r"какие\s+.*\s+и\s+какие\s+",
+    r"опиши\s+.*\s+а\s+также\s+",
+    r"объясни\s+.*\s+и\s+",
+]
+
+
+def needs_decomposition(question: str) -> bool:
+    """Heuristic: does the question contain multiple independent sub-topics?
+
+    Uses regex patterns to detect compound structures ("X и Y", "сравни X и Y").
+    Returns True if the question likely benefits from decomposition into
+    separate retrieval queries.
+    """
+    q = question.lower()
+    return any(re.search(p, q) for p in COMPOUND_PATTERNS)
+
+
 SYSTEM_PROMPT = """Ты — корпоративный ассистент. Строгие правила:
 
 1. Отвечай ТОЛЬКО на основе предоставленного контекста. Контекст — единственный источник правды.

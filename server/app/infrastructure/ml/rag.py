@@ -10,7 +10,11 @@ import logging
 import re
 from pathlib import Path
 
-from domain.services.rag_policy import build_system_prompt, classify_question_breadth  # noqa: F401
+from domain.services.rag_policy import (  # noqa: F401
+    build_system_prompt,
+    classify_question_breadth,
+    needs_decomposition,
+)
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import AIMessage, HumanMessage
 
@@ -71,6 +75,81 @@ async def condense_question(llm, question: str, history_messages: list) -> str:
 
     log.info("Condensed query: %r -> %r (ratio=%.2f)", question, condensed, len_ratio)
     return condensed
+
+
+# ---------------------------------------------------------------------------
+# Query decomposition for compound questions
+# ---------------------------------------------------------------------------
+
+DECOMPOSE_SYSTEM = (
+    "Разбей составной вопрос на 2-4 независимых подвопроса. "
+    "Каждый подвопрос должен быть самодостаточным для поиска по документам. "
+    "Верни ТОЛЬКО список подвопросов, каждый на новой строке, без нумерации и маркеров."
+)
+
+DECOMPOSE_PROMPT = ChatPromptTemplate.from_messages(
+    [
+        ("system", DECOMPOSE_SYSTEM),
+        ("human", "{question}"),
+    ]
+)
+
+
+async def decompose_question(llm, question: str) -> list[str]:
+    """Split a compound question into independent sub-queries.
+
+    Returns a list of 2-4 sub-questions.  If decomposition fails or produces
+    a single line, returns the original question as the only element.
+    """
+    chain = DECOMPOSE_PROMPT | llm
+    result = await chain.ainvoke({"question": question})
+    lines = [line.strip() for line in result.content.strip().split("\n") if line.strip()]
+
+    if len(lines) < 2:
+        log.warning("Decomposition returned %d lines, using original question", len(lines))
+        return [question]
+
+    log.info("Decomposed %r into %d sub-questions: %s", question, len(lines), lines)
+    return lines[:4]
+
+
+# ---------------------------------------------------------------------------
+# Rolling summary for long dialogs
+# ---------------------------------------------------------------------------
+
+SUMMARY_SYSTEM = (
+    "Составь краткое резюме диалога (3-5 предложений). "
+    "Фиксируй ключевые факты, решения и контекст. "
+    "Пиши на русском языке. Не начинай с «Резюме» — просто изложи суть."
+)
+
+SUMMARY_PROMPT = ChatPromptTemplate.from_messages(
+    [
+        ("system", SUMMARY_SYSTEM),
+        ("human", "{prompt}"),
+    ]
+)
+
+
+async def update_rolling_summary(llm, existing_summary: str | None, new_turns: list[dict]) -> str:
+    """Produce an updated rolling summary from existing summary + new dialog turns.
+
+    Called fire-and-forget after saving the assistant response.  New turns are
+    truncated to 200 chars each to keep the summary prompt compact.
+    """
+    turns_text = "\n".join(
+        f"{'Пользователь' if t['role'] == 'user' else 'Ассистент'}: {t['content'][:200]}" for t in new_turns
+    )
+    if existing_summary:
+        prompt = f"Предыдущее резюме:\n{existing_summary}\n\nНовые сообщения:\n{turns_text}"
+    else:
+        prompt = f"Сообщения диалога:\n{turns_text}"
+
+    chain = SUMMARY_PROMPT | llm
+    result = await chain.ainvoke({"prompt": prompt})
+    summary = result.content.strip()
+    log.info("Rolling summary updated (%d chars)", len(summary))
+    return summary
 
 
 # ---------------------------------------------------------------------------
@@ -177,6 +256,10 @@ def format_docs(docs, max_context_tokens: int = 6000) -> str:
         doc_date = doc.metadata.get("doc_date")
         article_number = doc.metadata.get("article_number")
         header = f"[{i}] {source_name}"
+
+        content_type = doc.metadata.get("content_type")
+        if content_type == "table":
+            header += " (таблица)"
 
         if doc_date:
             header += f" от {doc_date}"
@@ -310,6 +393,43 @@ def extract_sources(docs, min_score: float | None = None) -> list[dict]:
         sources = [s for s in sources if s.get("max_score", 0.0) >= min_score]
 
     return sources
+
+
+# ---------------------------------------------------------------------------
+# Relevance gate (Self-RAG-lite)
+# ---------------------------------------------------------------------------
+
+RELEVANCE_SYSTEM = (
+    "Оцени, достаточно ли предоставленного контекста для ответа на вопрос пользователя.\n"
+    "Отвечай СТРОКОЙ в формате: ДА или НЕТ\n"
+    "Если НЕТ — кратко укажи причину (1 предложение).\n"
+    "Не отвечай на сам вопрос — только оцени достаточность контекста."
+)
+
+RELEVANCE_PROMPT = ChatPromptTemplate.from_messages(
+    [
+        ("system", RELEVANCE_SYSTEM),
+        ("human", "Вопрос: {question}\n\nКонтекст из документов:\n{context}"),
+    ]
+)
+
+
+async def check_relevance(llm, question: str, docs: list) -> tuple[bool, str]:
+    """Semantic check: is the retrieved context sufficient to answer the question?
+
+    Returns (is_relevant, reason).  If docs is empty, returns (False, ...).
+    """
+    if not docs:
+        return False, "Нет документов для проверки"
+
+    context = format_docs(docs, max_context_tokens=2000)
+    chain = RELEVANCE_PROMPT | llm
+    result = await chain.ainvoke({"question": question, "context": context})
+    text = result.content.strip()
+
+    is_relevant = text.upper().startswith("ДА")
+    reason = "" if is_relevant else text
+    return is_relevant, reason
 
 
 def filter_cited_sources(answer: str, sources: list[dict]) -> list[dict]:

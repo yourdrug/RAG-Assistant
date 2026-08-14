@@ -149,6 +149,7 @@ class ChatResponse(BaseModel):
     answer: str
     conversation_id: int
     sources: list[dict] | None = None
+    confidence: float | None = Field(None, description="Answer confidence score (0.0-1.0)")
 
 
 # ---------------------------------------------------------------------------
