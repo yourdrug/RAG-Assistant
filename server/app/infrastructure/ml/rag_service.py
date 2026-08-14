@@ -267,77 +267,70 @@ class RagService:
 
         # --- Query-time domain classification + soft-priority retrieval ---
         query_domain = classify_query_domain(query_for_search)
-        all_candidates: list[LCDocument] = []
+        candidates: list[LCDocument] = []
 
-        for sq in sub_queries:
-            candidates: list[LCDocument] = []
+        if query_domain == "legal":
+            legal_filter = with_domain_filter(access_filter, "legal")
+            candidates = await _run_hybrid_search(
+                query_for_search,
+                fetch_k,
+                legal_filter,
+                rag,
+                dense_weight=effective_dense_weight,
+                sparse_weight=effective_sparse_weight,
+            )
 
-            if query_domain == "legal":
-                legal_filter = with_domain_filter(access_filter, "legal")
+            # Fallback check: if legal-filtered search returned nothing or very weak results
+            fallback_needed = not candidates
+            if fallback_needed:
+                log.info("Legal-filtered retrieval returned 0 candidates — fallback on entire corpus")
                 candidates = await _run_hybrid_search(
-                    sq,
-                    fetch_k,
-                    legal_filter,
-                    rag,
-                    dense_weight=effective_dense_weight,
-                    sparse_weight=effective_sparse_weight,
-                )
-
-                # Fallback check: if legal-filtered search returned nothing or very weak results
-                fallback_needed = not candidates
-                if fallback_needed:
-                    log.info("Legal-filtered retrieval returned 0 candidates — fallback on entire corpus")
-                    candidates = await _run_hybrid_search(
-                        sq,
-                        fetch_k,
-                        access_filter,
-                        rag,
-                        dense_weight=effective_dense_weight,
-                        sparse_weight=effective_sparse_weight,
-                    )
-            else:
-                candidates = await _run_hybrid_search(
-                    sq,
+                    query_for_search,
                     fetch_k,
                     access_filter,
                     rag,
                     dense_weight=effective_dense_weight,
                     sparse_weight=effective_sparse_weight,
                 )
+        else:
+            candidates = await _run_hybrid_search(
+                query_for_search,
+                fetch_k,
+                access_filter,
+                rag,
+                dense_weight=effective_dense_weight,
+                sparse_weight=effective_sparse_weight,
+            )
 
-            # --- Exact-search integration (pg_trgm) for queries with structural references ---
-            if use_exact_ref_boost and self._chunk_search is not None:
-                try:
-                    exact_results = await self._chunk_search.search_substring(
-                        query=sq,
-                        user=user,
-                        group_ids=ctx.user_group_ids,
-                        assigned_client_ids=ctx.assigned_client_ids,
-                        limit=5,
-                        mode="exact",
-                    )
-                    if exact_results:
-                        existing_hashes = {content_hash(d.page_content) for d in candidates}
-                        for r in exact_results:
-                            h = content_hash(r.content)
-                            if h not in existing_hashes:
-                                candidates.append(
-                                    LCDocument(
-                                        page_content=r.content,
-                                        metadata={
-                                            "source": r.filename,
-                                            "document_id": r.document_id,
-                                        },
-                                    )
+        # --- Exact-search integration (pg_trgm) for queries with structural references ---
+        if use_exact_ref_boost and self._chunk_search is not None:
+            try:
+                exact_results = await self._chunk_search.search_substring(
+                    query=query_for_search,
+                    user=user,
+                    group_ids=ctx.user_group_ids,
+                    assigned_client_ids=ctx.assigned_client_ids,
+                    limit=5,
+                    mode="exact",
+                )
+                if exact_results:
+                    existing_hashes = {content_hash(d.page_content) for d in candidates}
+                    for r in exact_results:
+                        h = content_hash(r.content)
+                        if h not in existing_hashes:
+                            candidates.append(
+                                LCDocument(
+                                    page_content=r.content,
+                                    metadata={
+                                        "source": r.filename,
+                                        "document_id": r.document_id,
+                                    },
                                 )
-                                existing_hashes.add(h)
-                        log.info("Exact-search added %d additional candidates", len(exact_results))
-                except Exception as e:
-                    log.warning("Exact-search failed: %s", e)
-
-            all_candidates.extend(candidates)
-
-        all_candidates = deduplicate_docs(all_candidates)
+                            )
+                            existing_hashes.add(h)
+                    log.info("Exact-search added %d additional candidates", len(exact_results))
+            except Exception as e:
+                log.warning("Exact-search failed: %s", e)
 
         # --- Reranking ---
         t0 = time.monotonic()
