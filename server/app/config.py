@@ -72,6 +72,7 @@ class Settings(BaseSettings):
     rerank_model: str = "BAAI/bge-reranker-v2-m3"
 
     # --- LLM ---
+    llm_provider: str = "ollama"  # "ollama" | "openrouter"
     llm_model: str = "qwen2.5:7b"
     llm_temperature: float = 0.1
     llm_top_p: float = 0.9
@@ -79,6 +80,11 @@ class Settings(BaseSettings):
     llm_num_predict_broad: int = 2048
     llm_num_ctx_narrow: int = 8192
     llm_num_ctx_broad: int = 16384
+
+    # --- OpenRouter (cloud LLM API) ---
+    openrouter_api_key: str = ""
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    openrouter_model: str = "qwen/qwen-2.5-7b-instruct"
 
     # --- OCR (для сканов внутри PDF) ---
     ocr_engine: str = "paddleocr"

@@ -56,12 +56,12 @@ def benchmark_run(
         settings.llm_model,
         "--judge-model",
         "-j",
-        help="Модель Ollama для роли судьи",
+        help="Model for LLM judge (Ollama or OpenRouter)",
     ),
     async_mode: bool = typer.Option(
         False,
         "--async",
-        help="Запускать вопросы параллельно (requires OLLAMA_NUM_PARALLEL > 1)",
+        help="Run questions in parallel (requires OLLAMA_NUM_PARALLEL > 1)",
     ),
     max_concurrent: int = typer.Option(
         4,
@@ -127,7 +127,7 @@ def benchmark_grid_search(
         settings.llm_model,
         "--judge-model",
         "-j",
-        help="Модель Ollama для роли судьи",
+        help="Model for LLM judge (Ollama or OpenRouter)",
     ),
     top_n_llm: int = typer.Option(
         3,
@@ -389,7 +389,7 @@ def benchmark_regression(
         settings.llm_model,
         "--judge-model",
         "-j",
-        help="Модель Ollama для роли судьи",
+        help="Model for LLM judge (Ollama or OpenRouter)",
     ),
 ) -> None:
     """Run benchmark and compare with baseline. Exit code 1 if regression detected."""

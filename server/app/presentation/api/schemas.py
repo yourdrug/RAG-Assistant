@@ -297,6 +297,7 @@ class ConfigParamUpdateRequest(BaseModel):
 
 
 class ModelsInfoResponse(BaseModel):
+    llm_provider: str
     llm_model: str
     embed_model: str
     rerank_model: str
@@ -306,6 +307,19 @@ class ModelsInfoResponse(BaseModel):
     ocr_engine: str
     ocr_enabled: bool
     ollama_models: list[str]
+    openrouter_model: str | None = None
+
+
+class OpenRouterModelInfo(BaseModel):
+    id: str
+    name: str
+    context_length: int
+    pricing: dict[str, float]
+
+
+class OpenRouterModelsResponse(BaseModel):
+    models: list[OpenRouterModelInfo]
+    active_model: str
 
 
 class VectorDBCollectionInfo(BaseModel):

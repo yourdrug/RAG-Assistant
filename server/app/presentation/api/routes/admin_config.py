@@ -7,6 +7,7 @@ import logging
 from application.services.config_service import ConfigService
 from config import settings
 from fastapi import APIRouter, Depends
+from infrastructure.clients import get_openrouter_models
 from infrastructure.logging.actions import log_action
 from qdrant_client import QdrantClient
 
@@ -17,6 +18,8 @@ from presentation.api.schemas import (
     ConfigParamResponse,
     ConfigParamUpdateRequest,
     ModelsInfoResponse,
+    OpenRouterModelInfo,
+    OpenRouterModelsResponse,
     VectorDBCollectionInfo,
     VectorDBInfoResponse,
 )
@@ -76,6 +79,7 @@ async def models_info(admin: dict = Depends(require_admin)):
     ollama_models = await get_ollama_models()
 
     return ModelsInfoResponse(
+        llm_provider=settings.llm_provider,
         llm_model=settings.llm_model,
         embed_model=settings.embed_model,
         rerank_model=settings.rerank_model,
@@ -85,6 +89,17 @@ async def models_info(admin: dict = Depends(require_admin)):
         ocr_engine=settings.ocr_engine,
         ocr_enabled=settings.ocr_enabled,
         ollama_models=ollama_models,
+        openrouter_model=settings.openrouter_model if settings.llm_provider == "openrouter" else None,
+    )
+
+
+@router.get("/admin/models/openrouter", response_model=OpenRouterModelsResponse)
+async def openrouter_models(admin: dict = Depends(require_admin)):
+    """Fetch available models from OpenRouter API."""
+    models = await get_openrouter_models()
+    return OpenRouterModelsResponse(
+        models=[OpenRouterModelInfo(**m) for m in models],
+        active_model=settings.openrouter_model,
     )
 
 

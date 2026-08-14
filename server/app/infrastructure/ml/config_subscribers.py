@@ -48,6 +48,7 @@ _DYNAMIC_FIELDS: dict[str, tuple[str, type]] = {
     # --- Ingestion ---
     "embed_batch_size": ("embed_batch_size", int),
     # --- LLM ---
+    "llm_provider": ("llm_provider", str),
     "llm_model": ("llm_model", str),
     "llm_temperature": ("llm_temperature", float),
     "llm_top_p": ("llm_top_p", float),
@@ -55,6 +56,8 @@ _DYNAMIC_FIELDS: dict[str, tuple[str, type]] = {
     "llm_num_ctx_broad": ("llm_num_ctx_broad", int),
     "llm_num_predict_narrow": ("llm_num_predict_narrow", int),
     "llm_num_predict_broad": ("llm_num_predict_broad", int),
+    # --- OpenRouter ---
+    "openrouter_model": ("openrouter_model", str),
     # --- OCR ---
     "ocr_enabled": ("ocr_enabled", bool),
     "ocr_engine": ("ocr_engine", str),
@@ -108,8 +111,17 @@ def invalidate_bm25_cache_on_hybrid_toggle(event: ConfigParameterChanged) -> Non
 
 
 def invalidate_llm_cache(event: ConfigParameterChanged) -> None:
-    """Сбросить кэш LLM при изменении модели или параметров генерации."""
-    if event.key not in ("llm_model", "llm_temperature", "llm_top_p", "llm_num_ctx_narrow"):
+    """Сбросить кэш LLM при изменении модели, параметров генерации или провайдера."""
+    llm_keys = {
+        "llm_provider",
+        "llm_model",
+        "llm_temperature",
+        "llm_top_p",
+        "llm_num_ctx_narrow",
+        "llm_num_predict_narrow",
+        "openrouter_model",
+    }
+    if event.key not in llm_keys:
         return
 
     get_llm.cache_clear()

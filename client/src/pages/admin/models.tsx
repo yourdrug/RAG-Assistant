@@ -1,12 +1,13 @@
 "use client";
 import { useQuery } from "@tanstack/react-query";
-import { Brain, Cpu, FileText, ScanText } from "lucide-react";
+import { Brain, Cloud, Cpu, FileText, ScanText } from "lucide-react";
 import { apiClient } from "@/shared/api/client";
 import { Badge } from "@/shared/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Skeleton } from "@/shared/ui/skeleton";
 
 interface ModelsInfo {
+  llm_provider: string;
   llm_model: string;
   embed_model: string;
   rerank_model: string;
@@ -14,6 +15,7 @@ interface ModelsInfo {
   ocr_engine: string;
   ocr_enabled: boolean;
   ollama_models: string[] | null;
+  openrouter_model: string | null;
 }
 
 export function AdminModelsPage() {
@@ -47,10 +49,16 @@ export function AdminModelsPage() {
 
   const models = [
     {
+      title: "LLM Provider",
+      value: data?.llm_provider === "openrouter" ? "OpenRouter (Cloud)" : "Ollama (Local)",
+      icon: data?.llm_provider === "openrouter" ? Cloud : Brain,
+      description: "Active LLM provider",
+    },
+    {
       title: "LLM Model",
-      value: data?.llm_model,
+      value: data?.llm_provider === "openrouter" ? data?.openrouter_model : data?.llm_model,
       icon: Brain,
-      description: "Main language model (Ollama)",
+      description: data?.llm_provider === "openrouter" ? "Cloud model via OpenRouter" : "Local model via Ollama",
     },
     {
       title: "Embedding Model",
@@ -97,7 +105,7 @@ export function AdminModelsPage() {
         })}
       </div>
 
-      {data?.ollama_models && data.ollama_models.length > 0 && (
+      {data?.llm_provider === "ollama" && data?.ollama_models && data.ollama_models.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle>Available Ollama Models</CardTitle>
@@ -111,6 +119,31 @@ export function AdminModelsPage() {
                   {model === data?.llm_model && " (active)"}
                 </Badge>
               ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {data?.llm_provider === "openrouter" && (
+        <Card>
+          <CardHeader>
+            <CardTitle>OpenRouter Configuration</CardTitle>
+            <CardDescription>Cloud LLM API settings</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              <div className="flex justify-between border-b pb-2">
+                <span className="text-sm text-muted-foreground">Active Model</span>
+                <span className="text-sm font-medium">{data?.openrouter_model}</span>
+              </div>
+              <div className="flex justify-between border-b pb-2">
+                <span className="text-sm text-muted-foreground">API Endpoint</span>
+                <span className="text-sm font-medium">https://openrouter.ai/api/v1</span>
+              </div>
+              <div className="flex justify-between border-b pb-2">
+                <span className="text-sm text-muted-foreground">Status</span>
+                <Badge variant="success">Connected</Badge>
+              </div>
             </div>
           </CardContent>
         </Card>

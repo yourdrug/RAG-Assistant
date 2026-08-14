@@ -17,6 +17,7 @@ from application.dto.chat_dto import RagResult
 from config import settings
 from domain.services.rag_policy import classify_query_domain, has_exact_reference
 from domain.value_objects.chat_context import ChatContext
+from domain.value_objects.llm_provider import BREADTH_ALIASES, Breadth
 from domain.value_objects.rag_settings import RagSettings
 from domain.value_objects.stream_events import SourcesEvent, StreamEvent, TextChunk
 from langchain.schema import Document as LCDocument
@@ -211,17 +212,12 @@ class RagService:
         query_for_search = await condense_question(get_llm(), question, history_messages)
         RAG_STAGE_DURATION.labels("condense").observe(time.monotonic() - t0)
 
-        breadth = (
-            ctx.depth if ctx.depth in ("short", "detailed") else classify_question_breadth(query_for_search)
-        )
-        if breadth == "detailed":
-            breadth = "broad"
-        elif breadth == "short":
-            breadth = "narrow"
+        breadth = ctx.depth if ctx.depth in BREADTH_ALIASES else classify_question_breadth(query_for_search)
+        breadth = BREADTH_ALIASES.get(breadth, Breadth(breadth))
         RAG_BREADTH_TOTAL.labels(breadth=breadth).inc()
 
-        fetch_k = rag.retriever_fetch_k_broad if breadth == "broad" else rag.retriever_fetch_k
-        top_k = rag.retriever_top_k_broad if breadth == "broad" else rag.retriever_top_k
+        fetch_k = rag.retriever_fetch_k_broad if breadth == Breadth.BROAD else rag.retriever_fetch_k
+        top_k = rag.retriever_top_k_broad if breadth == Breadth.BROAD else rag.retriever_top_k
 
         # --- Dense/sparse weight boost for exact references ---
         use_exact_ref_boost = has_exact_reference(query_for_search)
@@ -327,7 +323,7 @@ class RagService:
         prompt = build_prompt(breadth, has_legal_context=has_legal_context)
 
         # --- Dynamic context budget ---
-        num_ctx = settings.llm_num_ctx_broad if breadth == "broad" else settings.llm_num_ctx_narrow
+        num_ctx = settings.llm_num_ctx_broad if breadth == Breadth.BROAD else settings.llm_num_ctx_narrow
         reserved_for_system_and_history = 2000
         max_context_tokens = max(num_ctx - reserved_for_system_and_history, 1000)
 
@@ -373,7 +369,7 @@ class RagService:
     ) -> RagResult:
         answer_parts: list[str] = []
         sources: list[dict] = []
-        breadth = "narrow"
+        breadth = Breadth.NARROW
         domain = "general"
         retrieval_count = 0
         reranker_score: float | None = None

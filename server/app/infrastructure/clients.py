@@ -18,9 +18,12 @@ import functools
 import logging
 from pathlib import Path
 
+import httpx
 from config import settings
+from domain.value_objects.llm_provider import Breadth, LLMProvider
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_ollama import ChatOllama
+from langchain_openai import ChatOpenAI
 from langchain_qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
 from sentence_transformers import CrossEncoder
@@ -49,7 +52,15 @@ def get_vector_store() -> QdrantVectorStore:
 
 
 @functools.lru_cache(maxsize=1)
-def get_llm() -> ChatOllama:
+def get_llm():
+    """Return LLM based on configured provider (ollama or openrouter)."""
+    if settings.llm_provider == LLMProvider.OPENROUTER:
+        return _get_openrouter_llm()
+    return _get_ollama_llm()
+
+
+def _get_ollama_llm() -> ChatOllama:
+    """Create Ollama LLM instance."""
     return ChatOllama(
         model=settings.llm_model,
         base_url=settings.ollama_base_url,
@@ -59,10 +70,30 @@ def get_llm() -> ChatOllama:
     )
 
 
-def get_llm_for_breadth(breadth: str) -> ChatOllama:
-    """Return LLM with num_predict and num_ctx matching breadth mode."""
-    num_predict = settings.llm_num_predict_broad if breadth == "broad" else settings.llm_num_predict_narrow
-    num_ctx = settings.llm_num_ctx_broad if breadth == "broad" else settings.llm_num_ctx_narrow
+def _get_openrouter_llm() -> ChatOpenAI:
+    """Create OpenRouter LLM instance (OpenAI-compatible API)."""
+    return ChatOpenAI(
+        model=settings.openrouter_model,
+        api_key=settings.openrouter_api_key,
+        base_url=settings.openrouter_base_url,
+        temperature=settings.llm_temperature,
+        max_tokens=settings.llm_num_predict_narrow,
+    )
+
+
+def get_llm_for_breadth(breadth: str):
+    """Return LLM with parameters matching breadth mode."""
+    if settings.llm_provider == LLMProvider.OPENROUTER:
+        return _get_openrouter_llm_for_breadth(breadth)
+    return _get_ollama_llm_for_breadth(breadth)
+
+
+def _get_ollama_llm_for_breadth(breadth: str) -> ChatOllama:
+    """Return Ollama LLM with num_predict and num_ctx matching breadth mode."""
+    num_predict = (
+        settings.llm_num_predict_broad if breadth == Breadth.BROAD else settings.llm_num_predict_narrow
+    )
+    num_ctx = settings.llm_num_ctx_broad if breadth == Breadth.BROAD else settings.llm_num_ctx_narrow
     return ChatOllama(
         model=settings.llm_model,
         base_url=settings.ollama_base_url,
@@ -70,6 +101,20 @@ def get_llm_for_breadth(breadth: str) -> ChatOllama:
         top_p=settings.llm_top_p,
         num_predict=num_predict,
         num_ctx=num_ctx,
+    )
+
+
+def _get_openrouter_llm_for_breadth(breadth: str) -> ChatOpenAI:
+    """Return OpenRouter LLM with max_tokens matching breadth mode."""
+    max_tokens = (
+        settings.llm_num_predict_broad if breadth == Breadth.BROAD else settings.llm_num_predict_narrow
+    )
+    return ChatOpenAI(
+        model=settings.openrouter_model,
+        api_key=settings.openrouter_api_key,
+        base_url=settings.openrouter_base_url,
+        temperature=settings.llm_temperature,
+        max_tokens=max_tokens,
     )
 
 
@@ -100,3 +145,52 @@ def get_bm25_index():
     if index is None:
         log.info("No BM25 index found at %s — hybrid search disabled for this run", bm25_path)
     return index
+
+
+async def get_openrouter_models() -> list[dict]:
+    """Fetch available models from OpenRouter API.
+
+    Returns list of dicts with keys: id, name, context_length, pricing.
+    Filters to chat-capable models only.
+    """
+    if not settings.openrouter_api_key:
+        return []
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(
+                f"{settings.openrouter_base_url}/models",
+                headers={"Authorization": f"Bearer {settings.openrouter_api_key}"},
+            )
+            r.raise_for_status()
+            data = r.json()
+
+            models = []
+            for m in data.get("data", []):
+                model_id = m.get("id", "")
+                # Skip embedding/vision-only models
+                if any(skip in model_id.lower() for skip in ["embedding", "vision", "tts", "whisper"]):
+                    continue
+
+                pricing = m.get("pricing", {})
+                prompt_price = float(pricing.get("prompt", "0") or "0") * 1_000_000
+                completion_price = float(pricing.get("completion", "0") or "0") * 1_000_000
+
+                models.append(
+                    {
+                        "id": model_id,
+                        "name": m.get("name", model_id),
+                        "context_length": m.get("context_length", 0),
+                        "pricing": {
+                            "prompt": round(prompt_price, 4),
+                            "completion": round(completion_price, 4),
+                        },
+                    }
+                )
+
+            # Sort by name for easier selection
+            models.sort(key=lambda x: x["name"].lower())
+            return models
+    except Exception as e:
+        log.warning("Failed to fetch OpenRouter models: %s", e)
+        return []
