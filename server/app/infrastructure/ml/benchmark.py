@@ -22,13 +22,13 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from config import settings
+from domain.value_objects.llm_provider import LLMProvider
 from langchain.schema import Document
 from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
 from langchain_qdrant import QdrantVectorStore
 
-from config import settings
-from domain.value_objects.llm_provider import LLMProvider
 from infrastructure.clients import get_vector_store
 from infrastructure.ml.benchmark_history import save_summary_to_history
 from infrastructure.ml.hybrid import rrf_merge
@@ -217,11 +217,11 @@ def parse_judge_response(raw: str, metric: str) -> tuple[float, str]:
 
 
 async def judge_answer_async(
-        judge_llm: ChatOllama,
-        question: str,
-        answer: str,
-        context: str,
-        expected_answer: str | None = None,
+    judge_llm: ChatOllama,
+    question: str,
+    answer: str,
+    context: str,
+    expected_answer: str | None = None,
 ) -> dict:
     """Judge answer quality with 3 parallel LLM calls (faithfulness, relevancy, correctness)."""
 
@@ -271,11 +271,11 @@ async def judge_answer_async(
 
 
 def judge_answer(
-        judge_llm: ChatOllama,
-        question: str,
-        answer: str,
-        context: str,
-        expected_answer: str | None = None,
+    judge_llm: ChatOllama,
+    question: str,
+    answer: str,
+    context: str,
+    expected_answer: str | None = None,
 ) -> dict:
     """Run judge LLM synchronously with retry on transient Ollama errors."""
     scores = {}
@@ -331,8 +331,8 @@ def _invoke_with_retry(llm: ChatOllama, prompt: str, label: str, max_retries: in
 
 
 def compute_retriever_metrics(
-        docs_with_scores: list[tuple[Document, float]],
-        source_hint: str | None,
+    docs_with_scores: list[tuple[Document, float]],
+    source_hint: str | None,
 ) -> dict:
     scores_list = [s for _, s in docs_with_scores]
     avg_sim = sum(scores_list) / len(scores_list) if scores_list else 0.0
@@ -547,14 +547,14 @@ def save_results(results: list[dict], out_dir: str, model_name: str = "", run_id
 
 
 def compute_retrieval_metrics_grid(
-        dense_by_hash: dict,
-        sparse_results: list[tuple[str, float]],
-        questions: list[dict],
-        candidates_by_hash: dict,
-        top_k: int,
-        rrf_k: int,
-        dense_weight: float,
-        sparse_weight: float,
+    dense_by_hash: dict,
+    sparse_results: list[tuple[str, float]],
+    questions: list[dict],
+    candidates_by_hash: dict,
+    top_k: int,
+    rrf_k: int,
+    dense_weight: float,
+    sparse_weight: float,
 ) -> dict:
     """Compute retrieval metrics for a single RRF config in-memory (no LLM/Qdrant calls)."""
     merged_hashes = rrf_merge(
@@ -615,12 +615,12 @@ def compute_retrieval_metrics_grid(
 
 
 def run_benchmark(
-        questions_path: str,
-        out_dir: str,
-        top_k: int,
-        judge_model: str,
-        seed: int | None = None,
-        n_runs: int = 1,
+    questions_path: str,
+    out_dir: str,
+    top_k: int,
+    judge_model: str,
+    seed: int | None = None,
+    n_runs: int = 1,
 ):
     logger.info("RAG Benchmark")
     logger.info("  questions : %s", questions_path)
@@ -756,13 +756,13 @@ def _safe_avg(vals) -> float:
 
 
 async def run_benchmark_async(
-        questions_path: str,
-        out_dir: str,
-        top_k: int,
-        judge_model: str,
-        max_concurrent: int = 4,
-        seed: int | None = None,
-        n_runs: int = 1,
+    questions_path: str,
+    out_dir: str,
+    top_k: int,
+    judge_model: str,
+    max_concurrent: int = 4,
+    seed: int | None = None,
+    n_runs: int = 1,
 ):
     """Async benchmark with parallel question processing and parallel judge calls."""
     logger.info("RAG Benchmark (async, max_concurrent=%d)", max_concurrent)

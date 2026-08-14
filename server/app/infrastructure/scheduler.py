@@ -54,6 +54,25 @@ class Scheduler:
             **kwargs,
         )
 
+    def add_cron_job(
+        self,
+        job_id: str,
+        func: Callable,
+        hour: int,
+        minute: int = 0,
+        **kwargs: Any,
+    ) -> None:
+        self.scheduler.add_job(
+            id=job_id,
+            func=func,
+            replace_existing=True,
+            trigger="cron",
+            max_instances=1,
+            hour=hour,
+            minute=minute,
+            **kwargs,
+        )
+
     def _configure(self) -> None:
         # Periodic job cleanup (every hour)
         self.add_interval_job(
@@ -81,6 +100,14 @@ class Scheduler:
             job_id="recover_orphaned_jobs",
             func=self._periodic_recover_orphaned_jobs,
             seconds=300,
+        )
+
+        # BM25 index full rebuild (daily at 3:00 AM UTC)
+        self.add_cron_job(
+            job_id="bm25_daily_rebuild",
+            func=self._periodic_bm25_rebuild,
+            hour=3,
+            minute=0,
         )
 
     @staticmethod
@@ -152,6 +179,56 @@ class Scheduler:
             orphaned_ids = [row[0] for row in result.fetchall()]
             if orphaned_ids:
                 logger.warning("Recovered %d orphaned jobs: %s", len(orphaned_ids), orphaned_ids)
+
+    @staticmethod
+    @handle_exceptions
+    async def _periodic_bm25_rebuild() -> None:
+        """Rebuild BM25 index from scratch daily.
+
+        Corrects drift in doc_freq/idf/avgdl statistics that accumulates
+        during incremental add_text/replace_text operations.
+        """
+        import time
+        from pathlib import Path
+
+        from config import settings  # nested to avoid circular import
+        from presentation.api.dependencies import _uow_factory  # nested to avoid circular import
+
+        from infrastructure.ml.hybrid import BM25Index, save_bm25_index
+
+        if not settings.hybrid_enabled:
+            logger.debug("BM25 rebuild skipped: hybrid search disabled")
+            return
+
+        t0 = time.monotonic()
+
+        async with _uow_factory.create(master=True) as uow:
+            from sqlalchemy import text as sql_text
+
+            result = await uow._session.execute(
+                sql_text("SELECT content FROM chunks ORDER BY document_id, chunk_index")
+            )
+            all_texts = [row[0] for row in result.fetchall()]
+
+        if not all_texts:
+            logger.info("BM25 rebuild: no chunks found, skipping")
+            return
+
+        bm25_index = BM25Index(all_texts)
+        bm25_path = Path(settings.data_dir) / "bm25_index.json"
+        save_bm25_index(bm25_index, bm25_path)
+
+        # Clear the cached index so next query picks up the new one
+        from infrastructure.clients import get_bm25_index
+
+        get_bm25_index.cache_clear()
+
+        elapsed = time.monotonic() - t0
+        logger.info(
+            "BM25 daily rebuild completed: %d chunks indexed in %.1fs",
+            len(all_texts),
+            elapsed,
+        )
 
     async def startup(self) -> None:
         """Configure and start the scheduler."""

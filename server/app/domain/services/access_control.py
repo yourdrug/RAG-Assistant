@@ -45,6 +45,7 @@ def get_visibility_conditions(
     group_ids: list[int],
     assigned_client_ids: list[int],
     for_list: bool = True,
+    user_role: UserRole | None = None,
 ) -> list[VisibilityCondition]:
     """Return canonical filter conditions for documents visible to this user.
 
@@ -52,8 +53,9 @@ def get_visibility_conditions(
     This is the single source of truth — SQL and Qdrant adapters translate these.
 
     Args:
-        for_list: True for document list (admin sees assigned client docs),
+        for_list: True for document list (admin sees all client docs),
                   False for RAG queries (admin should not search client docs).
+        user_role: Required for list mode to distinguish admin from regular users.
     """
     if user_kind == UserKind.CLIENT:
         return [
@@ -85,16 +87,11 @@ def get_visibility_conditions(
             )
         )
 
-    # Internal users can view client_private docs of their assigned clients
-    # (not in ALLOWED_VISIBILITY_FOR_KIND because they can't CREATE with this visibility,
-    #  but can_view_document() allows viewing)
-    # For_list=True: admin sees these in document list
-    # For_list=False: admin does NOT search these in RAG queries
-    if for_list and assigned_client_ids:
+    # Admin can view ALL client_private docs in list mode (not search mode)
+    if for_list and user_role == UserRole.ADMIN:
         conditions.append(
             VisibilityCondition(
                 visibility=DocumentVisibility.CLIENT_PRIVATE,
-                owner_match="assigned",
             )
         )
 
@@ -151,6 +148,7 @@ def can_view_document(
     user_id: int,
     user_group_ids: list[int],
     assigned_client_ids: list[int],
+    user_role: str | None = None,
 ) -> bool:
     """Business rule: can this user view this document?"""
     vis = DocumentVisibility(doc_visibility)
@@ -168,6 +166,10 @@ def can_view_document(
     if vis == DocumentVisibility.CLIENT_PRIVATE:
         if kind == UserKind.CLIENT:
             return doc_owner_id == user_id
-        return doc_owner_id in assigned_client_ids
+        # Admin can view any client_private document
+        if user_role == UserRole.ADMIN:
+            return True
+        # Regular internal user can view if they own the doc
+        return doc_owner_id == user_id
 
     return False

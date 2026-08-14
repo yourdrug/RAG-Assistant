@@ -9,6 +9,7 @@ from typing import Any
 
 from typer import Typer
 
+from cli.commands.backfill_chunk_ids import backfill_app
 from cli.commands.benchmark import benchmark_app
 from cli.commands.config import config_app
 from cli.commands.ingest import ingest_app
@@ -53,6 +54,9 @@ class CLI:
 
         # Reconcile Qdrant/Postgres
         self.cli.add_typer(reconcile_app, name="reconcile")
+
+        # Backfill chunk IDs
+        self.cli.add_typer(backfill_app, name="backfill-chunk-ids")
 
         # Конфигурация
         self.cli.add_typer(config_app, name="config")

@@ -42,6 +42,7 @@ from presentation.api.routes.api_keys import router as api_keys_router
 from presentation.api.routes.auth import router as auth_router
 from presentation.api.routes.benchmark import router as benchmark_router
 from presentation.api.routes.chat import router as chat_router
+from presentation.api.routes.chunks import router as chunks_router
 from presentation.api.routes.clients import router as clients_router
 from presentation.api.routes.conversations import router as conversations_router
 from presentation.api.routes.documents import router as documents_router
@@ -144,6 +145,7 @@ class Application:
             ingest_router,
             search_router,
             documents_router,
+            chunks_router,
             groups_router,
             clients_router,
             health_router,

@@ -23,9 +23,6 @@ const AdminUsersPage = lazy(() =>
 const AdminGroupsPage = lazy(() =>
   import("@/pages/admin/groups").then((m) => ({ default: m.AdminGroupsPage })),
 );
-const AdminClientsPage = lazy(() =>
-  import("@/pages/admin/clients").then((m) => ({ default: m.AdminClientsPage })),
-);
 const AdminApiKeysPage = lazy(() =>
   import("@/pages/admin/api-keys").then((m) => ({ default: m.AdminApiKeysPage })),
 );
@@ -101,14 +98,6 @@ export default function App() {
                     element={
                       <Suspense fallback={<AdminFallback />}>
                         <AdminGroupsPage />
-                      </Suspense>
-                    }
-                  />
-                  <Route
-                    path="clients"
-                    element={
-                      <Suspense fallback={<AdminFallback />}>
-                        <AdminClientsPage />
                       </Suspense>
                     }
                   />

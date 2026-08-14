@@ -159,11 +159,15 @@ class TestCanViewDocument:
     def test_client_rejected_from_other_client_doc(self):
         assert can_view_document("client_private", 51, None, "client", 50, [], []) is False
 
-    def test_internal_views_assigned_client_doc(self):
-        assert can_view_document("client_private", 50, None, "internal", 1, [], [50, 51]) is True
+    def test_admin_views_client_doc(self):
+        assert can_view_document(
+            "client_private", 50, None, "internal", 1, [], [], user_role="admin"
+        ) is True
 
-    def test_internal_rejected_from_unassigned_client_doc(self):
-        assert can_view_document("client_private", 50, None, "internal", 1, [], [99]) is False
+    def test_non_admin_rejected_from_client_doc(self):
+        assert can_view_document(
+            "client_private", 50, None, "internal", 1, [], [50, 51], user_role="user"
+        ) is False
 
     def test_unknown_visibility_raises(self):
         with pytest.raises(ValueError):

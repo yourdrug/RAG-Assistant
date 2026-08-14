@@ -8,7 +8,13 @@ export { useClientApiKeys, useCreateClientApiKey, useRevokeClientApiKey } from "
 export { useCreateUser, useCurrentUser, useLogin, useToggleUserActive, useUsers } from "./use-auth";
 export { useBenchmark } from "./use-benchmark";
 export { useChatLogs } from "./use-chat-logs";
-export { useAssignClient, useClientAssignments, useUnassignClient } from "./use-clients";
+export {
+  useAddChunk,
+  useChunks,
+  useCreateManualDocument,
+  useDeleteChunk,
+  useUpdateChunk,
+} from "./use-chunks";
 export {
   useConversationHistory,
   useConversations,

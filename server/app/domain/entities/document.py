@@ -25,6 +25,8 @@ class Document:
     group_id: int | None = None
     status: DocumentStatus = DocumentStatus.PENDING
     doc_domain: str = "general"
+    source_type: str = "file"
+    has_manual_edits: bool = False
     error_message: str | None = None
     warning_message: str | None = None
     chunks: int | None = None
@@ -67,3 +69,16 @@ class Document:
         ):
             return True
         return False
+
+    def can_edit_chunks(self, user_id: int, user_role: UserRole) -> bool:
+        """Check if user can edit/add/delete chunks for this document.
+
+        Admin can edit any document. Owner can edit their own documents.
+        Group documents (internal_group) can only be edited by admin since
+        there is no single owner.
+        """
+        if user_role == UserRole.ADMIN:
+            return True
+        if self.visibility == DocumentVisibility.INTERNAL_GROUP:
+            return False
+        return self.owner_id == user_id

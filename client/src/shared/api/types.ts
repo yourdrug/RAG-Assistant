@@ -96,6 +96,8 @@ export interface DocumentResponse {
   group_id?: number | null;
   status: DocumentStatus;
   doc_domain: DocumentDomain;
+  source_type?: "file" | "manual";
+  has_manual_edits?: boolean;
   error_message?: string | null;
   warning_message?: string | null;
   chunks?: number | null;
@@ -108,6 +110,47 @@ export interface UploadStatusResponse {
   status: string;
   document_id: number;
   filename: string;
+}
+
+// ─── Chunks ──────────────────────────────────────────────────────────────────
+
+export interface ChunkResponse {
+  id: number;
+  document_id: number;
+  chunk_index: number;
+  content: string;
+  filename?: string;
+  visibility?: string;
+  doc_domain?: string;
+  owner_id?: number | null;
+  group_id?: number | null;
+  edited_at?: string | null;
+  edited_by?: number | null;
+  manual?: boolean;
+  creation_date?: string | null;
+  warning?: string | null;
+}
+
+export interface ChunkCreateRequest {
+  content: string;
+  page?: number | null;
+  section?: string | null;
+}
+
+export interface ChunkEditRequest {
+  content: string;
+}
+
+export interface ChunkListResponse {
+  chunks: ChunkResponse[];
+  total: number;
+  document_id: number;
+}
+
+export interface ManualDocumentRequest {
+  title: string;
+  visibility: string;
+  group_id?: number | null;
 }
 
 // ─── Ingest ──────────────────────────────────────────────────────────────────

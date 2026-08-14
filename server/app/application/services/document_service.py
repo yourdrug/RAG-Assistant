@@ -139,6 +139,8 @@ class DocumentService:
                 owner_id=owner_id,
                 group_id=effective_group_id,
                 doc_domain=final_doc.doc_domain,
+                source_type=final_doc.source_type,
+                has_manual_edits=final_doc.has_manual_edits,
             )
 
     async def list_uploadable_clients(self, user_id: int, user_kind: str, user_role: str) -> list[dict]:
@@ -194,6 +196,10 @@ class DocumentService:
                     chunks=d.chunks,
                     chars=d.chars,
                     owner_id=d.owner_id,
+                    group_id=d.group_id,
+                    doc_domain=d.doc_domain,
+                    source_type=d.source_type,
+                    has_manual_edits=d.has_manual_edits,
                 )
                 for d in docs
             ]
@@ -223,6 +229,7 @@ class DocumentService:
                 user_id=user_id,
                 user_group_ids=user_group_ids,
                 assigned_client_ids=assigned_ids,
+                user_role=user_role,
             ):
                 raise BusinessRuleViolation("No access to this document")
 
@@ -237,6 +244,11 @@ class DocumentService:
                 error_message=doc.error_message,
                 chunks=doc.chunks,
                 chars=doc.chars,
+                owner_id=doc.owner_id,
+                group_id=doc.group_id,
+                doc_domain=doc.doc_domain,
+                source_type=doc.source_type,
+                has_manual_edits=doc.has_manual_edits,
             )
 
     async def delete_document(self, document_id: int, user_id: int, user_role: str) -> None:

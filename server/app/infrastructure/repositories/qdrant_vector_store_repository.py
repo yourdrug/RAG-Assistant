@@ -9,7 +9,7 @@ from config import settings
 from domain.entities.chunk import Chunk
 from langchain.schema import Document as LCDocument
 from langchain_qdrant import QdrantVectorStore
-from qdrant_client.models import FieldCondition, Filter, MatchValue
+from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
 
 from infrastructure.clients import get_embeddings, get_qdrant_client, get_vector_store
 from infrastructure.qdrant_ops import ensure_collection, upload_to_qdrant
@@ -54,3 +54,27 @@ class QdrantVectorStoreRepository:
     async def similarity_search_with_score(self, query: str, k: int) -> list[tuple[Chunk, float]]:
         results = await asyncio.to_thread(self._get_store().similarity_search_with_score, query, k=k)
         return [(Chunk(content=doc.page_content, metadata=doc.metadata), score) for doc, score in results]
+
+    async def upsert_point(self, point_id: int, vector: list[float], payload: dict) -> None:
+        """Upsert a single point with deterministic ID (chunk.id)."""
+
+        def _upsert() -> None:
+            client = get_qdrant_client()
+            point = PointStruct(id=point_id, vector=vector, payload=payload)
+            client.upsert(collection_name=settings.collection_name, points=[point])
+
+        await asyncio.to_thread(_upsert)
+
+    async def delete_by_ids(self, ids: list[int]) -> None:
+        """Delete points by their IDs."""
+
+        def _delete() -> None:
+            if not ids:
+                return
+            client = get_qdrant_client()
+            client.delete(
+                collection_name=settings.collection_name,
+                points_selector=ids,
+            )
+
+        await asyncio.to_thread(_delete)

@@ -10,6 +10,11 @@ export const queryKeys = {
     detail: (id: number) => [...queryKeys.documents.all, "detail", id] as const,
     clients: () => [...queryKeys.documents.all, "clients"] as const,
   },
+  chunks: {
+    all: (documentId: number) => ["chunks", documentId] as const,
+    list: (documentId: number, limit?: number, offset?: number) =>
+      [...queryKeys.chunks.all(documentId), "list", { limit, offset }] as const,
+  },
   conversations: {
     all: ["conversations"] as const,
     list: () => [...queryKeys.conversations.all, "list"] as const,
@@ -19,10 +24,6 @@ export const queryKeys = {
     all: ["groups"] as const,
     list: () => [...queryKeys.groups.all, "list"] as const,
     members: (id: number) => [...queryKeys.groups.all, "members", id] as const,
-  },
-  clients: {
-    all: ["clients"] as const,
-    assignments: (id: number) => [...queryKeys.clients.all, "assignments", id] as const,
   },
   apiKeys: {
     all: ["apiKeys"] as const,
