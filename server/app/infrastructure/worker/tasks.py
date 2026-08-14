@@ -177,7 +177,7 @@ async def run_benchmark(
         async with uow_factory.create(master=True) as uow:
             await uow.background_jobs.mark_done(job_id)
     except Exception as e:
-        logger.error("Worker: benchmark failed: %s", e)
+        logger.exception("Worker: benchmark failed (job %d)", job_id)
         try:
             async with uow_factory.create(master=True) as uow:
                 await uow.background_jobs.mark_failed(job_id, str(e)[:500])

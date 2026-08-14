@@ -58,7 +58,10 @@ export function AdminModelsPage() {
       title: "LLM Model",
       value: data?.llm_provider === "openrouter" ? data?.openrouter_model : data?.llm_model,
       icon: Brain,
-      description: data?.llm_provider === "openrouter" ? "Cloud model via OpenRouter" : "Local model via Ollama",
+      description:
+        data?.llm_provider === "openrouter"
+          ? "Cloud model via OpenRouter"
+          : "Local model via Ollama",
     },
     {
       title: "Embedding Model",

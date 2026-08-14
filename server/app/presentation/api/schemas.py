@@ -66,6 +66,8 @@ class DocumentResponse(BaseModel):
     chars: int | None
     creation_date: datetime | None
     indexed_at: datetime | None
+    source_type: str = "file"
+    has_manual_edits: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -450,6 +452,7 @@ class ExactSearchRequest(BaseModel):
         "exact", pattern="^(exact|icontains)$", description="exact=pg_trgm ranked, icontains=plain ILIKE"
     )
     limit: int = Field(20, ge=1, le=100)
+    document_id: int | None = Field(None, description="Filter by document ID (optional)")
 
 
 class ExactSearchResult(BaseModel):
@@ -464,3 +467,47 @@ class ExactSearchResponse(BaseModel):
     query: str
     results: list[ExactSearchResult]
     total: int
+
+
+# ---------------------------------------------------------------------------
+# Chunk Management
+# ---------------------------------------------------------------------------
+
+
+class ChunkResponse(BaseModel):
+    id: int
+    document_id: int
+    chunk_index: int
+    content: str
+    filename: str = ""
+    visibility: str = ""
+    doc_domain: str = "general"
+    owner_id: int | None = None
+    group_id: int | None = None
+    edited_at: str | None = None
+    edited_by: int | None = None
+    manual: bool = False
+    creation_date: str | None = None
+    warning: str | None = None
+
+
+class ChunkCreateRequest(BaseModel):
+    content: str = Field(..., min_length=1, max_length=10000)
+    page: int | None = Field(None, description="Page number (optional)")
+    section: str | None = Field(None, description="Section name (optional)")
+
+
+class ChunkEditRequest(BaseModel):
+    content: str = Field(..., min_length=1, max_length=10000)
+
+
+class ChunkListResponse(BaseModel):
+    chunks: list[ChunkResponse]
+    total: int
+    document_id: int
+
+
+class ManualDocumentRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=255)
+    visibility: str
+    group_id: int | None = None

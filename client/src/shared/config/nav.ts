@@ -1,10 +1,8 @@
 import {
-  BarChart3,
   Clock,
   Cpu,
   Database,
   FileText,
-  FolderOpen,
   Key,
   LayoutDashboard,
   MessageCircle,
@@ -36,7 +34,6 @@ export const adminNavItems: AdminNavItem[] = [
   { title: "Dashboard", href: "/admin", icon: LayoutDashboard },
   { title: "Users", href: "/admin/users", icon: Users },
   { title: "Groups", href: "/admin/groups", icon: UserCog },
-  { title: "Clients", href: "/admin/clients", icon: FolderOpen },
   { title: "API Keys", href: "/admin/api-keys", icon: Key },
   { title: "Documents", href: "/admin/documents", icon: FileText },
   { title: "Ingest", href: "/admin/ingest", icon: Upload },
@@ -44,7 +41,6 @@ export const adminNavItems: AdminNavItem[] = [
   { title: "Vector DB", href: "/admin/vectordb", icon: Database },
   { title: "Settings", href: "/admin/settings", icon: Server },
   { title: "Jobs", href: "/admin/jobs", icon: Clock },
-  { title: "Monitoring", href: "/admin/monitoring", icon: BarChart3 },
   { title: "Chat Logs", href: "/admin/chat-logs", icon: MessageCircle },
   { title: "Actions", href: "/admin/logs", icon: ScrollText },
 ];

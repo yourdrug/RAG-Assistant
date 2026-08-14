@@ -124,6 +124,8 @@ class DocumentModel(BaseModel):
     group_id: Mapped[int | None] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"))
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
     doc_domain: Mapped[str] = mapped_column(String(16), nullable=False, default="general")
+    source_type: Mapped[str] = mapped_column(String(16), nullable=False, server_default="file")
+    has_manual_edits: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     error_message: Mapped[str | None] = mapped_column(Text)
     warning_message: Mapped[str | None] = mapped_column(Text)
     chunks: Mapped[int | None] = mapped_column(Integer)
@@ -211,6 +213,9 @@ class ChunkModel(BaseModel):
     doc_domain: Mapped[str] = mapped_column(String(16), nullable=False, default="general")
     owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     group_id: Mapped[int | None] = mapped_column(ForeignKey("groups.id", ondelete="SET NULL"))
+    edited_at: Mapped[DateTime | None] = mapped_column(DateTime, nullable=True)
+    edited_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    manual: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
 
 
 class ChatLogModel(BaseModel):

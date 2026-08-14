@@ -26,6 +26,8 @@ class DocumentDTO:
     owner_id: int | None = None
     group_id: int | None = None
     doc_domain: str = "general"
+    source_type: str = "file"
+    has_manual_edits: bool = False
 
 
 @dataclass(frozen=True)

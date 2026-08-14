@@ -9,6 +9,7 @@ from collections.abc import AsyncGenerator
 
 from application.services.auth_service import AuthService
 from application.services.chat_service import ChatService
+from application.services.chunk_service import ChunkService
 from application.services.config_service import ConfigService
 from application.services.document_service import DocumentService
 from application.services.ingest_service import IngestAppService
@@ -105,6 +106,11 @@ _document_service = DocumentService(
     file_storage=_file_storage,
 )
 
+_chunk_service = ChunkService(
+    uow_factory=_uow_factory,
+    vector_store_repo=_vector_store_repo,
+)
+
 _chat_service = ChatService(
     uow_factory=_uow_factory,
     rag_service=RagService(chunk_search=_chunk_search),
@@ -158,6 +164,10 @@ def create_ingestion_service() -> IngestionService:
 
 def create_document_service() -> DocumentService:
     return _document_service
+
+
+def create_chunk_service() -> ChunkService:
+    return _chunk_service
 
 
 def get_document_parser() -> LangchainDocumentParser:

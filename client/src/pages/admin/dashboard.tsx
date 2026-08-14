@@ -9,6 +9,7 @@ import {
   Database,
   FileText,
   FolderOpen,
+  Globe,
   HardDrive,
   Search,
   Server,
@@ -442,42 +443,50 @@ export function AdminDashboardPage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                {[
-                  {
-                    label: "In Use",
-                    value: metrics.db_pool?.connections_in_use ?? metrics.db_pool?.in_use ?? 0,
-                    color: "bg-blue-500",
-                  },
-                  {
-                    label: "Idle",
-                    value: metrics.db_pool?.connections_idle ?? metrics.db_pool?.idle ?? 0,
-                    color: "bg-green-500",
-                  },
-                  {
-                    label: "Overflow",
-                    value: metrics.db_pool?.overflow ?? 0,
-                    color: "bg-amber-500",
-                  },
-                ].map(({ label, value, color }) => {
-                  const total =
-                    Number(metrics.db_pool?.connections_in_use ?? metrics.db_pool?.in_use ?? 0) +
-                      Number(metrics.db_pool?.connections_idle ?? metrics.db_pool?.idle ?? 0) || 1;
-                  const pct = (Number(value) / total) * 100;
-                  return (
-                    <div key={label}>
-                      <div className="flex justify-between text-sm mb-1">
-                        <span className="text-muted-foreground">{label}</span>
-                        <span className="font-mono font-bold">{Number(value)}</span>
-                      </div>
-                      <div className="h-2 rounded-full bg-muted overflow-hidden">
-                        <div
-                          className={`h-full rounded-full ${color} transition-all`}
-                          style={{ width: `${Math.min(pct, 100)}%` }}
-                        />
-                      </div>
-                    </div>
+                {(() => {
+                  const inUse = Number(
+                    metrics.db_pool?.connections_in_use ?? metrics.db_pool?.in_use ?? 0,
                   );
-                })}
+                  const idle = Number(
+                    metrics.db_pool?.connections_idle ?? metrics.db_pool?.idle ?? 0,
+                  );
+                  const poolSize = 100;
+                  const available = Math.max(0, poolSize - inUse - idle);
+                  const total = inUse + idle + available || 1;
+                  return [
+                    {
+                      label: "In Use",
+                      value: inUse,
+                      color: "bg-blue-500",
+                    },
+                    {
+                      label: "Idle",
+                      value: idle,
+                      color: "bg-green-500",
+                    },
+                    {
+                      label: "Available",
+                      value: available,
+                      color: "bg-emerald-500",
+                    },
+                  ].map(({ label, value, color }) => {
+                    const pct = (value / total) * 100;
+                    return (
+                      <div key={label}>
+                        <div className="flex justify-between text-sm mb-1">
+                          <span className="text-muted-foreground">{label}</span>
+                          <span className="font-mono font-bold">{value}</span>
+                        </div>
+                        <div className="h-2 rounded-full bg-muted overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${color} transition-all`}
+                            style={{ width: `${Math.min(pct, 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
               </div>
             </CardContent>
           </Card>
@@ -543,6 +552,123 @@ export function AdminDashboardPage() {
                     </div>
                   )}
               </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Ollama + HTTP Requests + Ingestion by Status */}
+      {metrics && (
+        <div className="grid gap-4 md:grid-cols-3">
+          {/* Ollama Models */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Cpu className="h-5 w-5" />
+                Ollama LLM
+              </CardTitle>
+              <CardDescription>Loaded models</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {metrics.ollama && metrics.ollama.length > 0 ? (
+                <div className="space-y-3">
+                  {metrics.ollama.map((m) => (
+                    <div key={m.model} className="space-y-1">
+                      <Badge variant="secondary" className="text-xs">
+                        {m.model}
+                      </Badge>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-muted-foreground">GPU</span>
+                        <span className="font-mono">
+                          {(m.gpu_bytes / 1024 / 1024).toFixed(1)} MB
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-muted-foreground">RAM</span>
+                        <span className="font-mono">
+                          {(m.ram_bytes / 1024 / 1024).toFixed(1)} MB
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">No models loaded</p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* HTTP Requests */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Globe className="h-5 w-5" />
+                HTTP Requests
+              </CardTitle>
+              <CardDescription>Total: {Number(metrics.http_requests?.total) || 0}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {(() => {
+                const byEndpoint = (metrics.http_requests?.by_endpoint || {}) as Record<
+                  string,
+                  number
+                >;
+                const topEndpoints = Object.entries(byEndpoint)
+                  .sort(([, a], [, b]) => b - a)
+                  .slice(0, 6);
+                return topEndpoints.length > 0 ? (
+                  <div className="space-y-2">
+                    {topEndpoints.map(([endpoint, count]) => {
+                      const parts = endpoint.split("_");
+                      const method = parts.length >= 2 ? parts[parts.length - 2] : "";
+                      const path = parts.slice(0, -2).join("_") || endpoint;
+                      return (
+                        <div key={endpoint} className="flex items-center justify-between text-xs">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <Badge variant="outline" className="text-[10px] px-1 py-0 shrink-0">
+                              {method.toUpperCase()}
+                            </Badge>
+                            <span className="truncate font-mono text-muted-foreground">{path}</span>
+                          </div>
+                          <span className="font-mono font-bold shrink-0">{Number(count)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No requests recorded</p>
+                );
+              })()}
+            </CardContent>
+          </Card>
+
+          {/* Ingestion by Status */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <TrendingUp className="h-5 w-5" />
+                Ingestion by Status
+              </CardTitle>
+              <CardDescription>Document processing breakdown</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {(() => {
+                const ingestion = metrics.ingestion || {};
+                const byStatus = (ingestion.by_status || {}) as Record<string, number>;
+                const statusEntries = Object.entries(byStatus);
+                return statusEntries.length > 0 ? (
+                  <div className="space-y-2">
+                    {statusEntries.map(([status, count]) => (
+                      <div key={status} className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">{status}</span>
+                        <span className="font-mono font-bold">{Number(count)}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No ingestion data</p>
+                );
+              })()}
             </CardContent>
           </Card>
         </div>

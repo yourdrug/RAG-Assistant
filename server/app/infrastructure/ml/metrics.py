@@ -230,27 +230,31 @@ async def collect_infra_metrics() -> None:
     try:
         engine = database.master_node.async_engine  # type: ignore[union-attr]
         pool = engine.pool
-        DB_POOL_IN_USE.set(pool.checked_out())
-        DB_POOL_IDLE.set(pool.checked_in())
-        DB_POOL_OVERFLOW.set(pool.overflow())
-    except Exception:
-        pass
+        in_use = pool.checkedout()
+        idle = pool.checkedin()
+        overflow = pool.overflow()
+        DB_POOL_IN_USE.set(in_use)
+        DB_POOL_IDLE.set(idle)
+        DB_POOL_OVERFLOW.set(overflow)
+        log.debug("DB pool metrics: in_use=%s, idle=%s, overflow=%s", in_use, idle, overflow)
+    except Exception as e:
+        log.warning("Failed to collect DB pool metrics: %s", e)
 
     # Qdrant collection size
     try:
         client = get_qdrant_client()
         info = client.get_collection(settings.collection_name)
         QDRANT_POINTS.set(info.points_count or 0)
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning("Failed to collect Qdrant metrics: [%s] %s", type(e).__name__, e)
 
     # BM25 index size
     try:
         bm25 = get_bm25_index()
         if bm25 is not None:
             BM25_INDEX_SIZE.set(len(bm25.hashes))
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning("Failed to collect BM25 metrics: [%s] %s", type(e).__name__, e)
 
     # Ollama GPU/RAM usage
     try:
@@ -264,8 +268,8 @@ async def collect_infra_metrics() -> None:
                     ram = proc.get("size", 0)
                     OLLAMA_GPU_MEMORY_BYTES.labels(model=model_name).set(vram)
                     OLLAMA_RAM_MEMORY_BYTES.labels(model=model_name).set(ram)
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning("Failed to collect Ollama metrics: [%s] %s", type(e).__name__, e)
 
 
 async def _periodic_infra_collector(interval: float = 30.0) -> None:

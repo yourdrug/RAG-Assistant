@@ -45,7 +45,7 @@ def worker(
             redis_settings=redis_settings,
             max_jobs=max_jobs,
             health_check_interval=health_check_interval,
-            queue_names=["document_processing", "ingest", "benchmark"],
+            queue_name="document_processing",
             on_startup=_on_startup,
             on_shutdown=_on_shutdown,
         )

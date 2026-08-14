@@ -237,6 +237,10 @@ def extract_sources(docs, min_score: float | None = None) -> list[dict]:
     pages_by_source: dict[str, set[str]] = {}
     scores_by_source: dict[str, float] = {}
     articles_by_source: dict[str, list[str]] = {}
+    edited_by_source: dict[str, bool] = {}
+    manual_by_source: dict[str, bool] = {}
+    edited_at_by_source: dict[str, str | None] = {}
+
     for item in docs:
         doc = item[0] if isinstance(item, tuple) else item
         score = item[1] if isinstance(item, tuple) else None
@@ -247,6 +251,10 @@ def extract_sources(docs, min_score: float | None = None) -> list[dict]:
         page_end = doc.metadata.get("page_end")
         pages_list = doc.metadata.get("pages")
         article_number = doc.metadata.get("article_number")
+        is_edited = doc.metadata.get("edited", False)
+        is_manual = doc.metadata.get("manual", False)
+        edited_at = doc.metadata.get("edited_at")
+
         if clean_name not in pages_by_source:
             pages_by_source[clean_name] = set()
         if pages_list:
@@ -264,6 +272,17 @@ def extract_sources(docs, min_score: float | None = None) -> list[dict]:
             if article_number not in articles_by_source[clean_name]:
                 articles_by_source[clean_name].append(article_number)
 
+        # Track edited/manual flags per source (OR logic)
+        if is_edited:
+            edited_by_source[clean_name] = True
+        if is_manual:
+            manual_by_source[clean_name] = True
+        # Keep the latest edited_at
+        if edited_at:
+            prev_edited_at = edited_at_by_source.get(clean_name)
+            if prev_edited_at is None or edited_at > prev_edited_at:
+                edited_at_by_source[clean_name] = edited_at
+
     sources = []
     for src, pages in pages_by_source.items():
         sorted_pages = sorted(pages) if pages else []
@@ -275,6 +294,13 @@ def extract_sources(docs, min_score: float | None = None) -> list[dict]:
             entry["articles"] = articles_by_source[src]
         if scores_by_source:
             entry["max_score"] = round(float(scores_by_source.get(src, 0.0)), 4)
+        # Add edited/manual flags if any chunk for this source has them
+        if edited_by_source.get(src):
+            entry["edited"] = True
+        if manual_by_source.get(src):
+            entry["manual"] = True
+        if edited_at_by_source.get(src):
+            entry["edited_at"] = edited_at_by_source[src]
         sources.append(entry)
 
     if scores_by_source:

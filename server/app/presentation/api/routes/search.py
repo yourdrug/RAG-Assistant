@@ -45,6 +45,7 @@ async def exact_search(
             assigned_client_ids=assigned_client_ids,
             limit=req.limit,
             mode=req.mode,
+            document_id=req.document_id,
         )
 
     return ExactSearchResponse(

@@ -237,6 +237,136 @@ class BM25Index:
             b=data.get("b", 0.75),
         )
 
+    def add_text(self, text: str, text_hash: str | None = None) -> int:
+        """Add a new text to the index. Returns the index of the new text.
+
+        Note: doc_freq and avgdl are approximated during incremental updates.
+        Consider periodic full rebuild for optimal ranking.
+        """
+        idx = self.n_docs
+        self.texts.append(text)
+        h = text_hash or content_hash(text)
+        self.hashes.append(h)
+
+        tokens = tokenize(text)
+        doc_len = len(tokens)
+        self.doc_lens.append(doc_len)
+
+        tf: dict[str, int] = {}
+        for t in tokens:
+            tf[t] = tf.get(t, 0) + 1
+            # Update doc_freq: increment only if this is the first occurrence in this doc
+            if tf[t] == 1:
+                self.doc_freq[t] = self.doc_freq.get(t, 0) + 1
+            # Update inverted_index
+            self.inverted_index.setdefault(t, set()).add(idx)
+        self.token_freqs.append(tf)
+
+        # Update avgdl incrementally
+        total_len = self.avgdl * self.n_docs + doc_len
+        self.n_docs += 1
+        self.avgdl = total_len / self.n_docs if self.n_docs > 0 else 1.0
+
+        return idx
+
+    def replace_text(self, index: int, new_text: str, new_hash: str | None = None) -> None:
+        """Replace text at given index. Updates all BM25 statistics.
+
+        Note: doc_freq and avgdl are approximated during incremental updates.
+        Consider periodic full rebuild for optimal ranking.
+        """
+        if index < 0 or index >= self.n_docs:
+            raise IndexError(f"Index {index} out of range [0, {self.n_docs})")
+
+        old_text = self.texts[index]
+        old_tokens = tokenize(old_text)
+        new_tokens = tokenize(new_text)
+
+        # Remove old tokens from doc_freq and inverted_index
+        old_tf = self.token_freqs[index]
+        for t in old_tokens:
+            if old_tf.get(t, 0) > 0:
+                # Decrement doc_freq if this was the only occurrence
+                if old_tf[t] == 1 and t in self.doc_freq:
+                    self.doc_freq[t] -= 1
+                    if self.doc_freq[t] <= 0:
+                        del self.doc_freq[t]
+                # Remove from inverted_index
+                if t in self.inverted_index:
+                    self.inverted_index[t].discard(index)
+                    if not self.inverted_index[t]:
+                        del self.inverted_index[t]
+
+        # Update texts and hashes
+        self.texts[index] = new_text
+        self.hashes[index] = new_hash or content_hash(new_text)
+
+        # Add new tokens to doc_freq and inverted_index
+        new_tf: dict[str, int] = {}
+        for t in new_tokens:
+            new_tf[t] = new_tf.get(t, 0) + 1
+            if new_tf[t] == 1:
+                self.doc_freq[t] = self.doc_freq.get(t, 0) + 1
+            self.inverted_index.setdefault(t, set()).add(index)
+        self.token_freqs[index] = new_tf
+
+        # Update doc_lens and avgdl
+        old_len = len(old_tokens)
+        new_len = len(new_tokens)
+        self.doc_lens[index] = new_len
+        total_len = self.avgdl * self.n_docs - old_len + new_len
+        self.avgdl = total_len / self.n_docs if self.n_docs > 0 else 1.0
+
+    def remove_text(self, index: int) -> None:
+        """Remove text at given index. Updates all BM25 statistics.
+
+        Note: doc_freq and avgdl are approximated during incremental updates.
+        Consider periodic full rebuild for optimal ranking.
+        """
+        if index < 0 or index >= self.n_docs:
+            raise IndexError(f"Index {index} out of range [0, {self.n_docs})")
+
+        old_tokens = tokenize(self.texts[index])
+        old_tf = self.token_freqs[index]
+
+        # Remove tokens from doc_freq and inverted_index
+        for t in old_tokens:
+            if old_tf.get(t, 0) > 0:
+                if old_tf[t] == 1 and t in self.doc_freq:
+                    self.doc_freq[t] -= 1
+                    if self.doc_freq[t] <= 0:
+                        del self.doc_freq[t]
+                if t in self.inverted_index:
+                    self.inverted_index[t].discard(index)
+                    if not self.inverted_index[t]:
+                        del self.inverted_index[t]
+
+        # Remove from lists
+        removed_len = self.doc_lens[index]
+        del self.texts[index]
+        del self.hashes[index]
+        del self.doc_lens[index]
+        del self.token_freqs[index]
+
+        self.n_docs -= 1
+
+        # Update avgdl
+        total_len = self.avgdl * (self.n_docs + 1) - removed_len
+        self.avgdl = total_len / self.n_docs if self.n_docs > 0 else 1.0
+
+        # Rebuild inverted_index indices (shift down indices > removed)
+        new_inverted: dict[str, set[int]] = {}
+        for t, posting in self.inverted_index.items():
+            new_posting = set()
+            for old_idx in posting:
+                if old_idx < index:
+                    new_posting.add(old_idx)
+                elif old_idx > index:
+                    new_posting.add(old_idx - 1)
+            if new_posting:
+                new_inverted[t] = new_posting
+        self.inverted_index = new_inverted
+
 
 # ---------------------------------------------------------------------------
 # Persistence

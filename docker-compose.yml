@@ -284,6 +284,12 @@ services:
       - type: volume
         source: huggingface_cache
         target: /root/.cache/huggingface
+      - type: bind
+        source: ./data
+        target: /code/project/data
+        bind:
+          propagation: rprivate
+          create_host_path: true
     depends_on:
       postgres:
         condition: service_healthy

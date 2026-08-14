@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from domain.entities.document import Document
 from domain.services.access_control import get_visibility_conditions
 from domain.value_objects.document_status import DocumentStatus
-from domain.value_objects.roles import UserKind
+from domain.value_objects.roles import UserKind, UserRole
 from domain.value_objects.visibility import DocumentVisibility
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,6 +27,7 @@ class SQLAlchemyDocumentRepository:
             owner_id=document.owner_id,
             group_id=document.group_id,
             doc_domain=document.doc_domain,
+            source_type=document.source_type,
         )
         self._db.add(orm)
         await self._db.flush()
@@ -112,8 +113,15 @@ class SQLAlchemyDocumentRepository:
         user_id: int,
         group_ids: list[int],
         assigned_client_ids: list[int],
+        user_role: str | None = None,
     ) -> list[Document]:
-        conditions = get_visibility_conditions(UserKind(user_kind), user_id, group_ids, assigned_client_ids)
+        conditions = get_visibility_conditions(
+            UserKind(user_kind),
+            user_id,
+            group_ids,
+            assigned_client_ids,
+            user_role=UserRole(user_role) if user_role else None,
+        )
 
         or_clauses = []
         for cond in conditions:
@@ -152,6 +160,8 @@ class SQLAlchemyDocumentRepository:
             group_id=orm.group_id,
             status=DocumentStatus(orm.status),
             doc_domain=orm.doc_domain,
+            source_type=orm.source_type,
+            has_manual_edits=orm.has_manual_edits,
             error_message=orm.error_message,
             warning_message=orm.warning_message,
             chunks=orm.chunks,

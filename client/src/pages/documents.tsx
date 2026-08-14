@@ -284,12 +284,12 @@ export function DocumentsPage() {
 
       {/* Upload settings dialog */}
       <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
-        <DialogContent className="overflow-hidden">
+        <DialogContent className="overflow-hidden w-full max-w-lg">
           <DialogHeader>
             <DialogTitle>Upload Documents</DialogTitle>
             <DialogDescription>{files.length} file(s) selected</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="space-y-4 min-w-0">
             <div className="space-y-2">
               <label className="text-sm font-medium">Visibility</label>
               <Select
@@ -419,7 +419,7 @@ export function DocumentsPage() {
 
       {/* Conflict resolution dialog */}
       <Dialog open={conflictOpen} onOpenChange={setConflictOpen}>
-        <DialogContent className="overflow-hidden">
+        <DialogContent className="overflow-hidden w-full max-w-lg">
           <DialogHeader>
             <DialogTitle>File Already Exists</DialogTitle>
             <DialogDescription className="break-all">
