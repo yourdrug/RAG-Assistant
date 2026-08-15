@@ -61,4 +61,9 @@ export const queryKeys = {
     models: () => [...queryKeys.admin.all, "models"] as const,
     vectordb: () => [...queryKeys.admin.all, "vectordb"] as const,
   },
+  benchmark: {
+    all: ["benchmark"] as const,
+    results: () => [...queryKeys.benchmark.all, "results"] as const,
+    detail: (filename: string) => [...queryKeys.benchmark.all, "detail", filename] as const,
+  },
 } as const;

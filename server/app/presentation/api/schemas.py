@@ -22,6 +22,7 @@ class HealthResponse(BaseModel):
     version: str
     uptime_seconds: float
     checks: dict[str, HealthCheck]
+    llm_provider: str
     background_jobs: dict[str, int]
 
 
@@ -39,6 +40,30 @@ class BenchmarkRequest(BaseModel):
 
 class BenchmarkResponse(BaseModel):
     status: str
+
+
+class BenchmarkResultSummary(BaseModel):
+    filename: str
+    model: str | None = None
+    total_questions: int
+    total_time_sec: float
+    hit_rate: float | None = None
+    avg_mrr: float | None = None
+    avg_faithfulness: float | None = None
+    avg_relevancy: float | None = None
+    avg_correctness: float | None = None
+    avg_similarity: float | None = None
+
+
+class BenchmarkResultDetail(BaseModel):
+    filename: str
+    summary: BenchmarkResultSummary
+    results: list[dict]
+
+
+class BenchmarkResultsListResponse(BaseModel):
+    results: list[BenchmarkResultSummary]
+    total: int
 
 
 # ---------------------------------------------------------------------------

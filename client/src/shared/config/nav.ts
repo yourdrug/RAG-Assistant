@@ -1,4 +1,5 @@
 import {
+  BarChart3,
   Clock,
   Cpu,
   Database,
@@ -42,5 +43,6 @@ export const adminNavItems: AdminNavItem[] = [
   { title: "Settings", href: "/admin/settings", icon: Server },
   { title: "Jobs", href: "/admin/jobs", icon: Clock },
   { title: "Chat Logs", href: "/admin/chat-logs", icon: MessageCircle },
+  { title: "Benchmark", href: "/admin/benchmark", icon: BarChart3 },
   { title: "Actions", href: "/admin/logs", icon: ScrollText },
 ];

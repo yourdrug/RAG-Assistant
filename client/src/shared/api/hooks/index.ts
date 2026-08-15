@@ -6,7 +6,7 @@ export {
 } from "./use-admin";
 export { useClientApiKeys, useCreateClientApiKey, useRevokeClientApiKey } from "./use-api-keys";
 export { useCreateUser, useCurrentUser, useLogin, useToggleUserActive, useUsers } from "./use-auth";
-export { useBenchmark } from "./use-benchmark";
+export { useBenchmark, useBenchmarkResult, useBenchmarkResults } from "./use-benchmark";
 export { useChatLogs } from "./use-chat-logs";
 export {
   useAddChunk,

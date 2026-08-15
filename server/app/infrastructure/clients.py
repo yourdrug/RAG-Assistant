@@ -48,6 +48,8 @@ def get_vector_store() -> QdrantVectorStore:
         url=settings.qdrant_url,
         api_key=settings.qdrant_api_key,
         collection_name=settings.collection_name,
+        content_payload_key="page_content",
+        metadata_payload_key="metadata",
     )
 
 
@@ -78,11 +80,14 @@ def _get_openrouter_llm() -> ChatOpenAI:
         base_url=settings.openrouter_base_url,
         temperature=settings.llm_temperature,
         max_tokens=settings.llm_num_predict_narrow,
+        timeout=120,
+        max_retries=2,
     )
 
 
+@functools.lru_cache(maxsize=4)
 def get_llm_for_breadth(breadth: str):
-    """Return LLM with parameters matching breadth mode."""
+    """Return LLM with parameters matching breadth mode (cached by breadth)."""
     if settings.llm_provider == LLMProvider.OPENROUTER:
         return _get_openrouter_llm_for_breadth(breadth)
     return _get_ollama_llm_for_breadth(breadth)
@@ -115,6 +120,8 @@ def _get_openrouter_llm_for_breadth(breadth: str) -> ChatOpenAI:
         base_url=settings.openrouter_base_url,
         temperature=settings.llm_temperature,
         max_tokens=max_tokens,
+        timeout=120,
+        max_retries=2,
     )
 
 

@@ -46,6 +46,9 @@ const LogsPage = lazy(() => import("@/pages/admin/logs").then((m) => ({ default:
 const ChatLogsPage = lazy(() =>
   import("@/pages/admin/chat-logs").then((m) => ({ default: m.AdminChatLogsPage })),
 );
+const AdminBenchmarkPage = lazy(() =>
+  import("@/pages/admin/benchmark").then((m) => ({ default: m.AdminBenchmarkPage })),
+);
 
 function AdminFallback() {
   return (
@@ -159,6 +162,14 @@ export default function App() {
                     element={
                       <Suspense fallback={<AdminFallback />}>
                         <ChatLogsPage />
+                      </Suspense>
+                    }
+                  />
+                  <Route
+                    path="benchmark"
+                    element={
+                      <Suspense fallback={<AdminFallback />}>
+                        <AdminBenchmarkPage />
                       </Suspense>
                     }
                   />

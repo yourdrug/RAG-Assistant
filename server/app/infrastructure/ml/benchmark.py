@@ -23,15 +23,16 @@ from datetime import datetime
 from pathlib import Path
 
 from config import settings
+from domain.services.rag_policy import build_system_prompt
 from domain.value_objects.llm_provider import LLMProvider
 from langchain.schema import Document
 from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
-from langchain_qdrant import QdrantVectorStore
 
-from infrastructure.clients import get_vector_store
+from infrastructure.clients import get_bm25_index, get_embeddings, get_qdrant_client, get_reranker
 from infrastructure.ml.benchmark_history import save_summary_to_history
-from infrastructure.ml.hybrid import rrf_merge
+from infrastructure.ml.hybrid import content_hash, rrf_merge
+from infrastructure.ml.rag import deduplicate_docs
 
 logger = logging.getLogger("default")
 
@@ -77,18 +78,93 @@ def load_questions(path: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-def build_retriever(top_k: int):
-    logger.info("Using cached embedding model %s ...", settings.embed_model)
-    vs = get_vector_store()
-    return vs.as_retriever(
-        search_type="similarity_score_threshold",
-        search_kwargs={"k": top_k, "score_threshold": 0.0},
-    ), vs
+def retrieve_with_scores_hybrid(question: str, top_k: int, fetch_k: int) -> list[tuple[Document, float]]:
+    """Retrieve using the production hybrid pipeline: dense + BM25 + RRF + reranker.
 
+    Mirrors rag_service._run_hybrid_search + rerank_documents to produce
+    the same quality results as the live system.
+    """
+    client = get_qdrant_client()
+    embeddings = get_embeddings()
+    reranker = get_reranker()
 
-def retrieve_with_scores(vs: QdrantVectorStore, question: str, top_k: int) -> list[tuple[Document, float]]:
-    results = vs.similarity_search_with_score(question, k=top_k)
-    return results
+    # --- Dense search via raw Qdrant client (preserves metadata correctly) ---
+    query_vector = embeddings.embed_query(question)
+    dense_results = client.search(
+        collection_name=settings.collection_name,
+        query_vector=query_vector,
+        limit=fetch_k,
+    )
+
+    dense_docs: list[tuple[Document, float]] = []
+    dense_by_hash: dict[str, tuple[float, Document]] = {}
+    for point in dense_results:
+        payload = point.payload or {}
+        page_content = payload.get("page_content", "")
+        metadata = payload.get("metadata", {})
+        h = metadata.get("content_hash") or content_hash(page_content)
+        doc = Document(page_content=page_content, metadata=metadata)
+        dense_docs.append((doc, point.score))
+        dense_by_hash[h] = (point.score, doc)
+
+    # --- BM25 sparse search ---
+    bm25_index = get_bm25_index()
+    sparse_results: list[tuple[str, float]] = []
+    if bm25_index is not None:
+        sparse_results = bm25_index.search_with_hashes(question, fetch_k)
+
+    # --- RRF merge ---
+    if sparse_results:
+        merged_hashes = rrf_merge(
+            [(h, s) for h, s in [(k, v[0]) for k, v in dense_by_hash.items()]],
+            sparse_results,
+            k=settings.rrf_k,
+            dense_weight=settings.dense_weight,
+            sparse_weight=settings.sparse_weight,
+        )
+    else:
+        merged_hashes = [h for h, _ in [(k, v[0]) for k, v in dense_by_hash.items()]]
+
+    # Deduplicate and take fetch_k candidates
+    seen = set()
+    candidate_docs: list[Document] = []
+    for h in merged_hashes:
+        if h in seen:
+            continue
+        seen.add(h)
+        if h in dense_by_hash:
+            candidate_docs.append(dense_by_hash[h][1])
+        if len(candidate_docs) >= fetch_k:
+            break
+
+    candidate_docs = deduplicate_docs(candidate_docs)
+
+    # --- Rerank with cross-encoder (synchronous, fast for small candidate sets) ---
+    if not candidate_docs:
+        return []
+
+    pairs = []
+    for doc in candidate_docs:
+        source = doc.metadata.get("source", "")
+        filename = doc.metadata.get("filename", "")
+        doc_name = filename or (Path(source).name if source else "")
+        content_with_prefix = f"[{doc_name}] {doc.page_content}" if doc_name else doc.page_content
+        pairs.append((question, content_with_prefix))
+
+    scores = reranker.predict(pairs)
+    ranked = sorted(zip(candidate_docs, scores), key=lambda x: x[1], reverse=True)[:top_k]
+
+    # Apply min_score filter
+    if settings.rerank_min_score is not None:
+        ranked = [(d, s) for d, s in ranked if s >= settings.rerank_min_score]
+
+    # Apply score_gap_ratio filter
+    if settings.rerank_score_gap_ratio is not None and ranked:
+        top_score = ranked[0][1]
+        cutoff = top_score * settings.rerank_score_gap_ratio
+        ranked = [(d, s) for d, s in ranked if s >= cutoff]
+
+    return ranked
 
 
 def build_llm(model: str, base_url: str, provider: str = LLMProvider.OLLAMA):
@@ -111,27 +187,30 @@ def build_llm(model: str, base_url: str, provider: str = LLMProvider.OLLAMA):
 # RAG: получить ответ
 # ---------------------------------------------------------------------------
 
-ANSWER_PROMPT = """\
-Ты — корпоративный ассистент. Отвечай только на основе предоставленного контекста.
-Если ответа в контексте нет — напиши ровно: "Информация в документах не найдена."
-Не придумывай факты.
-
-Контекст:
-{context}
+ANSWER_PROMPT_TEMPLATE = """\
+{system_prompt}
 
 Вопрос: {question}
 """
 
 
 def get_rag_answer(llm: ChatOllama, docs_with_scores: list[tuple[Document, float]], question: str) -> str:
-    context = "\n\n---\n\n".join(
-        f"[Источник: {d.metadata.get('filename', 'unknown')}]\n{d.page_content}" for d, _ in docs_with_scores
+    """Generate answer using the production system prompt and formatted context."""
+    system_prompt = build_system_prompt(breadth="narrow")
+
+    from infrastructure.ml.rag import format_docs
+
+    context = format_docs(docs_with_scores, max_context_tokens=4000)
+    prompt_text = ANSWER_PROMPT_TEMPLATE.format(system_prompt=system_prompt, question=question)
+    # Append context manually to avoid template conflicts
+    full_prompt = (
+        f"{prompt_text}\n\nКонтекст из документов:\n<<DOCUMENT_CONTEXT>>\n{context}\n<<END_DOCUMENT_CONTEXT>>"
     )
-    prompt = ANSWER_PROMPT.format(context=context, question=question)
+
     last_exc: Exception | None = None
     for attempt in range(1, JUDGE_MAX_RETRIES + 1):
         try:
-            response = llm.invoke(prompt)
+            response = llm.invoke(full_prompt)
             return response.content.strip()
         except Exception as exc:
             last_exc = exc
@@ -179,7 +258,14 @@ RELEVANCY_PROMPT = """\
 Ответ ассистента: {answer}
 
 Задача: оцени RELEVANCY (релевантность) — насколько ответ отвечает на поставленный вопрос.
-Точный полный ответ = 10. Ответ не по теме = 0.
+
+ВАЖНО: Если ответ — «Информация не найдена в документах» или «Информация в документах не найдена»,
+это означает, что ассистент корректно определил отсутствие информации.
+В этом случае:
+- Если информация действительно отсутствует в документах — оцени как 7-10 (ассистент корректноresponded).
+- Если информация ЕСТЬ в документах, но ассистент её не нашёл — оцени как 0-3 (ретривер не справился).
+
+Точный полный ответ = 10. Ответ не по теме = 0. «Не найдена» при отсутствии информации = 7-10.
 
 Ответь СТРОГО в формате JSON (только JSON, без пояснений):
 {{"score": <число от 0 до 10>, "reason": "<одно предложение>"}}
@@ -330,6 +416,17 @@ def _invoke_with_retry(llm: ChatOllama, prompt: str, label: str, max_retries: in
 # ---------------------------------------------------------------------------
 
 
+def _extract_source_name(doc: Document) -> str:
+    """Extract clean source name from document metadata."""
+    filename = doc.metadata.get("filename", "")
+    if filename:
+        return filename
+    source = doc.metadata.get("source", "")
+    if source:
+        return Path(source).name
+    return "?"
+
+
 def compute_retriever_metrics(
     docs_with_scores: list[tuple[Document, float]],
     source_hint: str | None,
@@ -342,7 +439,7 @@ def compute_retriever_metrics(
             "hit_rate": None,
             "mrr": None,
             "avg_similarity": round(avg_sim, 4),
-            "retrieved_sources": [d.metadata.get("filename", "?") for d, _ in docs_with_scores],
+            "retrieved_sources": [_extract_source_name(d) for d, _ in docs_with_scores],
         }
 
     hit_rate = 0
@@ -359,7 +456,7 @@ def compute_retriever_metrics(
         "hit_rate": hit_rate,
         "mrr": round(mrr, 4),
         "avg_similarity": round(avg_sim, 4),
-        "retrieved_sources": [d.metadata.get("filename", "?") for d, _ in docs_with_scores],
+        "retrieved_sources": [_extract_source_name(d) for d, _ in docs_with_scores],
     }
 
 
@@ -634,7 +731,7 @@ def run_benchmark(
 
     questions = load_questions(questions_path)
 
-    retriever, vs = build_retriever(top_k)
+    fetch_k = settings.retriever_fetch_k
 
     logger.info("Подключаюсь к RAG LLM (%s) ...", settings.llm_model)
     rag_llm = build_llm(settings.llm_model, settings.ollama_base_url, provider=settings.llm_provider)
@@ -664,7 +761,7 @@ def run_benchmark(
         for idx, q in enumerate(questions, 1):
             t_start = time.time()
 
-            docs_with_scores = retrieve_with_scores(vs, q["question"], top_k)
+            docs_with_scores = retrieve_with_scores_hybrid(q["question"], top_k, fetch_k)
             answer = get_rag_answer(rag_llm, docs_with_scores, q["question"])
             retriever_metrics = compute_retriever_metrics(docs_with_scores, q.get("source_hint"))
 
@@ -775,7 +872,7 @@ async def run_benchmark_async(
     logger.info("  n_runs    : %d", n_runs)
 
     questions = load_questions(questions_path)
-    retriever, vs = build_retriever(top_k)
+    fetch_k = settings.retriever_fetch_k
 
     rag_llm = build_llm(settings.llm_model, settings.ollama_base_url, provider=settings.llm_provider)
     if seed is not None:
@@ -802,7 +899,9 @@ async def run_benchmark_async(
             async with semaphore:
                 t_start = time.time()
 
-                docs_with_scores = await asyncio.to_thread(retrieve_with_scores, vs, q["question"], top_k)
+                docs_with_scores = await asyncio.to_thread(
+                    retrieve_with_scores_hybrid, q["question"], top_k, fetch_k
+                )
                 answer = await asyncio.to_thread(get_rag_answer, rag_llm, docs_with_scores, q["question"])
                 retriever_metrics = compute_retriever_metrics(docs_with_scores, q.get("source_hint"))
 

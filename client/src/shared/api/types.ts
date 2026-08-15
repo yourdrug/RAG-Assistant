@@ -271,6 +271,51 @@ export interface BenchmarkResponse {
   status: string;
 }
 
+export interface BenchmarkResultSummary {
+  filename: string;
+  model: string | null;
+  total_questions: number;
+  total_time_sec: number;
+  hit_rate: number | null;
+  avg_mrr: number | null;
+  avg_faithfulness: number | null;
+  avg_relevancy: number | null;
+  avg_correctness: number | null;
+  avg_similarity: number | null;
+}
+
+export interface BenchmarkResultsListResponse {
+  results: BenchmarkResultSummary[];
+  total: number;
+}
+
+export interface BenchmarkResultDetail {
+  filename: string;
+  summary: BenchmarkResultSummary;
+  results: Array<{
+    id: string;
+    question: string;
+    answer: string;
+    expected_answer: string | null;
+    source_hint: string | null;
+    retriever_metrics: {
+      hit_rate: number | null;
+      mrr: number | null;
+      avg_similarity: number;
+      retrieved_sources: string[];
+    };
+    generator_metrics: {
+      faithfulness: number;
+      faithfulness_reason: string;
+      relevancy: number;
+      relevancy_reason: string;
+      correctness: number | null;
+      correctness_reason: string;
+    };
+    latency_sec: number;
+  }>;
+}
+
 // ─── Background Jobs ───────────────────────────────────────────────────────
 
 export interface JobResponse {
