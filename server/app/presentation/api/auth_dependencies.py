@@ -47,9 +47,22 @@ async def _authenticate_via_api_key(raw_key: str, uow: UnitOfWork) -> dict:
 
     if cached is api_key_provider.MISS:
         result = await uow.api_keys.get_active_client_by_hash(key_hash)
-        await api_key_provider.set_cached(key_hash, result)
+        # Cache as dict for Redis serialization; repository returns typed value object
+        cache_value = (
+            {
+                "api_key_id": result.api_key_id,
+                "id": result.id,
+                "email": result.email,
+                "role": result.role,
+                "kind": result.kind,
+                "is_active": result.is_active,
+            }
+            if result is not None
+            else None
+        )
+        await api_key_provider.set_cached(key_hash, cache_value)
         if result is not None:
-            await uow.api_keys.touch_last_used(result["api_key_id"])
+            await uow.api_keys.touch_last_used(result.api_key_id)
     else:
         result = cached
 

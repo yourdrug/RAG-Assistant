@@ -7,6 +7,8 @@ Created by the ``UnitOfWorkFactory`` port and consumed by application services.
 
 from __future__ import annotations
 
+from collections.abc import Any, Callable, Coroutine
+
 from domain.repositories import ApiKeyRepository
 from domain.repositories.background_job_repository import BackgroundJobRepository
 from domain.repositories.benchmark_question_repository import BenchmarkQuestionRepository
@@ -21,8 +23,9 @@ from domain.repositories.document_repository import DocumentRepository
 from domain.repositories.group_repository import GroupRepository
 from domain.repositories.message_repository import MessageRepository
 from domain.repositories.user_repository import UserRepository
-from infrastructure.database.base_uow import BaseUnitOfWork
-from infrastructure.database.session_protocol import SessionProtocol
+
+from application.ports.base_uow import BaseUnitOfWork
+from application.ports.session_protocol import SessionProtocol
 
 
 class UnitOfWork(BaseUnitOfWork):
@@ -83,3 +86,13 @@ class UnitOfWork(BaseUnitOfWork):
         self.benchmark_questions = benchmark_questions
         self.benchmark_sweeps = benchmark_sweeps
         self.benchmark_runs = benchmark_runs
+        self._event_handlers: list[Callable[[object], Coroutine[Any, Any, None]]] = []
+
+    def on_event(self, handler: Callable[[object], Coroutine[Any, Any, None]]) -> None:
+        """Register an async handler to be called on publish_event()."""
+        self._event_handlers.append(handler)
+
+    async def publish_event(self, event: object) -> None:
+        """Publish a domain event to registered handlers within the current transaction."""
+        for handler in self._event_handlers:
+            await handler(event)

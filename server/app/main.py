@@ -23,7 +23,7 @@ from infrastructure.ml.metrics_middleware import add_metrics_middleware
 from infrastructure.persistence.redis_client import redis_client
 from infrastructure.scheduler import scheduler
 from infrastructure.utils import Singleton
-from presentation.api.dependencies import _uow_factory, get_config_listener
+from presentation.api.dependencies import _config_listener, _uow_factory
 from presentation.api.exception_handlers import (
     handle_client_exception,
     handle_http_exception,
@@ -73,13 +73,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
 
     await database.connect()
     await initialize_app(_uow_factory)
-    await get_config_listener().start()
+    await _config_listener.start()
 
     # Start Pub/Sub listener for API key revocation (Redis mode)
     await api_key_provider.start_pubsub_listener()
 
     # Startup scheduler (periodic jobs)
-    await scheduler.startup()
+    await scheduler.startup(uow_factory=_uow_factory, config_listener=_config_listener)
 
     # Initial infra metrics snapshot
     await collect_infra_metrics()
@@ -87,7 +87,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     yield
 
     # Shutdown
-    await get_config_listener().stop()
+    await _config_listener.stop()
     await scheduler.shutdown()
     await database.disconnect()
     await FastAPILimiter.close()

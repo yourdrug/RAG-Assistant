@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
+from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.roles import UserKind, UserRole
 
 
@@ -26,7 +27,7 @@ class DocumentDTO:
     replace_id: int | None = None
     owner_id: int | None = None
     group_id: int | None = None
-    doc_domain: str = "general"
+    doc_domain: str = DocDomain.GENERAL.value
     source_type: str = "file"
     has_manual_edits: bool = False
 

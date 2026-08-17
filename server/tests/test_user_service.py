@@ -39,6 +39,7 @@ def auth_service():
         uow_factory=uow_factory,
         password_hasher=hasher,
         token_provider=token_provider,
+        api_key_provider=MagicMock(),
     ), uow
 
 

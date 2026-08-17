@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from domain.entities.api_key import ApiKey
+from domain.value_objects.query_results import ApiKeyClientInfo
 
 
 class ApiKeyRepository(Protocol):
@@ -16,7 +17,7 @@ class ApiKeyRepository(Protocol):
 
     async def revoke(self, api_key_id: int, user_id: int | None = None) -> bool: ...
 
-    async def get_active_client_by_hash(self, key_hash: str) -> dict | None:
+    async def get_active_client_by_hash(self, key_hash: str) -> ApiKeyClientInfo | None:
         """Вернуть данные пользователя для активного ключа, ТОЛЬКО если владелец kind='client'."""
         ...
 

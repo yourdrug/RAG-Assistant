@@ -8,6 +8,9 @@ from __future__ import annotations
 
 import re
 
+from domain.value_objects.doc_domain import DocDomain
+from domain.value_objects.llm_provider import Breadth
+
 
 def classify_question_breadth(question: str) -> str:
     """Classify question as 'narrow' or 'broad' based on heuristics."""
@@ -25,7 +28,7 @@ def classify_question_breadth(question: str) -> str:
         r"можно\s+ли\s+",
     ]
     if any(re.search(p, q) for p in narrow_overrides):
-        return "narrow"
+        return Breadth.NARROW
 
     broad_patterns = [
         r"подробно",
@@ -45,7 +48,7 @@ def classify_question_breadth(question: str) -> str:
         r"список\s+\w+",
         r"какие\s+\w+\s+нужн",
     ]
-    return "broad" if any(re.search(p, q) for p in broad_patterns) else "narrow"
+    return Breadth.BROAD if any(re.search(p, q) for p in broad_patterns) else Breadth.NARROW
 
 
 COMPOUND_PATTERNS = [
@@ -89,13 +92,13 @@ SYSTEM_PROMPT = """Ты — корпоративный ассистент. Ст�
 """
 
 
-def build_system_prompt(breadth: str = "narrow", has_legal_context: bool = False) -> str:
+def build_system_prompt(breadth: str = Breadth.NARROW, has_legal_context: bool = False) -> str:
     """Build the system prompt text based on question breadth and context composition.
 
     Returns the raw system prompt string. The LangChain ChatPromptTemplate
     construction is handled in infrastructure/ml/rag.py.
     """
-    if breadth == "broad":
+    if breadth == Breadth.BROAD:
         rule3 = (
             "3. Отвечай РАЗВЁРНУТО по структуре:\n"
             "   - Начни с краткого прямого ответа (1 предложение)\n"
@@ -145,7 +148,7 @@ def classify_query_domain(question: str) -> str:
         r"согласно\s+(закону|договору|статье)",
         r"нарушени[ея]\s+(условий|закона)",
     ]
-    return "legal" if any(re.search(p, q) for p in legal_patterns) else "general"
+    return DocDomain.LEGAL if any(re.search(p, q) for p in legal_patterns) else DocDomain.GENERAL
 
 
 _EXACT_REF_RE = re.compile(r"(статья|пункт|раздел|глава|параграф|п\.|ст\.)\s*\d+", re.IGNORECASE)

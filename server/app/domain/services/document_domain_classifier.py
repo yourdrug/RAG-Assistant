@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 
-from config import settings
+from domain.value_objects.doc_domain import DocDomain
 
 _MARKERS = [
     r"\nСтатья\s+\d+",
@@ -25,13 +25,13 @@ _MARKERS = [
 ]
 
 
-def classify_document_domain(text: str) -> str:
+def classify_document_domain(text: str, threshold: float = 1.0) -> str:
     """Classify document domain by density of legal markers per 1000 chars.
 
-    Returns "legal" if marker density >= threshold, else "general".
+    Returns DocDomain.LEGAL if marker density >= threshold, else DocDomain.GENERAL.
     Safe default is "general" — worst case a legal document doesn't get a boost.
     """
     hits = sum(len(re.findall(p, text)) for p in _MARKERS)
     text_len_kb = max(len(text) / 1000, 1)
     density = hits / text_len_kb
-    return "legal" if density >= settings.document_domain_marker_threshold else "general"
+    return DocDomain.LEGAL if density >= threshold else DocDomain.GENERAL

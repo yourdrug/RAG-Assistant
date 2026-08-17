@@ -12,6 +12,7 @@ import logging
 from typing import Any
 
 from config import settings
+from domain.value_objects.sweep_status import BenchmarkSweepStatus
 
 logger = logging.getLogger("default")
 
@@ -30,14 +31,14 @@ async def process_document(
     doc_domain: str | None = None,
 ) -> None:
     """Process an uploaded document (parse → split → vectorize → store)."""
-    from application.services.document_processor import DocumentProcessor  # nested to avoid circular import
-    from presentation.api.dependencies import (  # nested to avoid circular import
-        get_document_parser,
-        get_document_splitter,
-        get_file_storage,
-        get_uow_factory,
-        get_vector_store_repo,
-    )
+    from application.ports.dependencies import get_uow_factory
+    from application.services.document_processor import DocumentProcessor
+
+    from infrastructure.ml.extraction_adapter import MLContentExtractor, MLPDFQualityAssessor
+    from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
+    from infrastructure.ml.metrics_adapter import PrometheusMetricsCollector
+    from infrastructure.repositories.qdrant_vector_store_repository import QdrantVectorStoreRepository
+    from infrastructure.storage import LazyStorage
 
     uow_factory = get_uow_factory()
 
@@ -47,10 +48,14 @@ async def process_document(
 
         processor = DocumentProcessor(
             uow_factory=uow_factory,
-            vector_store_repo=get_vector_store_repo(),
-            file_storage=get_file_storage(),
-            document_parser=get_document_parser(),
-            document_splitter=get_document_splitter(),
+            vector_store_repo=QdrantVectorStoreRepository(),
+            file_storage=LazyStorage(),
+            document_parser=LangchainDocumentParser(),
+            document_splitter=LangchainDocumentSplitter(),
+            content_extractor=MLContentExtractor(),
+            pdf_quality_assessor=MLPDFQualityAssessor(),
+            metrics=PrometheusMetricsCollector(),
+            domain_marker_threshold=settings.document_domain_marker_threshold,
         )
 
         logger.info(
@@ -100,11 +105,20 @@ async def run_full_ingest(
     job_id: int,
 ) -> None:
     """Full document ingestion from a directory."""
-    from presentation.api.dependencies import get_uow_factory  # nested to avoid circular import
-    from presentation.api.routes.ingest import create_ingest_service  # nested to avoid circular import
+    from application.ports.dependencies import get_uow_factory
+    from application.services.ingest_service import IngestAppService
+
+    from infrastructure.repositories.qdrant_vector_store_repository import QdrantVectorStoreRepository
+    from infrastructure.services.ingestion_service import IngestionService
+    from infrastructure.storage import LazyStorage
 
     uow_factory = get_uow_factory()
-    service = create_ingest_service()
+    ingestion_svc = IngestionService(
+        vector_store_repo=QdrantVectorStoreRepository(),
+        file_storage=LazyStorage(),
+        uow_factory=uow_factory,
+    )
+    service = IngestAppService(uow_factory=uow_factory, ingestion_service=ingestion_svc)
 
     try:
         async with uow_factory.create(master=True) as uow:
@@ -129,11 +143,20 @@ async def run_single_ingest(
     job_id: int,
 ) -> None:
     """Ingest a single file."""
-    from presentation.api.dependencies import get_uow_factory  # nested to avoid circular import
-    from presentation.api.routes.ingest import create_ingest_service  # nested to avoid circular import
+    from application.ports.dependencies import get_uow_factory
+    from application.services.ingest_service import IngestAppService
+
+    from infrastructure.repositories.qdrant_vector_store_repository import QdrantVectorStoreRepository
+    from infrastructure.services.ingestion_service import IngestionService
+    from infrastructure.storage import LazyStorage
 
     uow_factory = get_uow_factory()
-    service = create_ingest_service()
+    ingestion_svc = IngestionService(
+        vector_store_repo=QdrantVectorStoreRepository(),
+        file_storage=LazyStorage(),
+        uow_factory=uow_factory,
+    )
+    service = IngestAppService(uow_factory=uow_factory, ingestion_service=ingestion_svc)
 
     try:
         async with uow_factory.create(master=True) as uow:
@@ -160,13 +183,12 @@ async def run_benchmark(
     job_id: int,
 ) -> None:
     """Run RAG quality benchmark."""
-    from presentation.api.dependencies import (  # nested to avoid circular import
-        create_benchmark_service,
-        get_uow_factory,
-    )
+    from application.ports.dependencies import get_uow_factory
+
+    from infrastructure.services.benchmark_service import BenchmarkService
 
     uow_factory = get_uow_factory()
-    service = create_benchmark_service()
+    service = BenchmarkService()
 
     try:
         async with uow_factory.create(master=True) as uow:
@@ -197,13 +219,11 @@ async def run_sweep(
     """Run a parameter sweep as a background job."""
     import json
 
+    from application.ports.dependencies import get_uow_factory
     from domain.entities.benchmark_run import BenchmarkRun
-    from presentation.api.dependencies import (  # nested to avoid circular import
-        create_benchmark_service,
-        get_uow_factory,
-    )
 
     from infrastructure.ml.sweep_engine import SweepEngine
+    from infrastructure.services.benchmark_service import BenchmarkService
 
     uow_factory = get_uow_factory()
 
@@ -214,7 +234,7 @@ async def run_sweep(
             if sweep is None:
                 logger.error("Sweep %d not found", sweep_id)
                 return
-            await uow.benchmark_sweeps.update_status(sweep_id, "running")
+            await uow.benchmark_sweeps.update_status(sweep_id, BenchmarkSweepStatus.RUNNING.value)
 
         # Build progress callback that publishes to Redis
         async def _publish_progress(evaluated: int, total: int, latest: dict | None) -> None:
@@ -241,7 +261,7 @@ async def run_sweep(
 
         engine = SweepEngine(
             uow_factory=uow_factory,
-            benchmark_service=create_benchmark_service(),
+            benchmark_service=BenchmarkService(),
         )
 
         results = await engine.run_sweep(
@@ -273,7 +293,7 @@ async def run_sweep(
                 run_entity = await uow.benchmark_runs.create(run_entity)
                 best_run_id = run_entity.id
                 await uow.benchmark_sweeps.set_best_run(sweep_id, best_run_id)
-                await uow.benchmark_sweeps.update_status(sweep_id, "done")
+                await uow.benchmark_sweeps.update_status(sweep_id, BenchmarkSweepStatus.DONE.value)
 
         # Publish final done event
         try:
@@ -301,7 +321,7 @@ async def run_sweep(
         logger.exception("Worker: sweep failed (sweep=%d, job=%d)", sweep_id, job_id)
         try:
             async with uow_factory.create(master=True) as uow:
-                await uow.benchmark_sweeps.update_status(sweep_id, "failed")
+                await uow.benchmark_sweeps.update_status(sweep_id, BenchmarkSweepStatus.FAILED.value)
                 await uow.background_jobs.mark_failed(job_id, str(e)[:500])
         except Exception:
             logger.exception("Worker: failed to mark sweep/job as failed")

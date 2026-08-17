@@ -4,6 +4,9 @@ Defines the ``FileStorage`` protocol and concrete implementations
 (``LocalStorage``, ``S3Storage``).  ``LazyStorage`` defers backend
 initialisation until first use.  ``get_storage`` returns the configured
 backend based on ``settings.file_backend``.
+
+The ``FileStorage`` protocol and ``FileItem`` dataclass are re-exported
+from ``application.ports.file_storage`` for backward compatibility.
 """
 
 from __future__ import annotations
@@ -11,35 +14,15 @@ from __future__ import annotations
 import functools
 import logging
 import tempfile
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol, runtime_checkable
 
 import boto3
+
+# Re-export from application layer for backward compatibility
+from application.ports.file_storage import FileItem, FileStorage  # noqa: F401, E402
 from config import settings
 
 log = logging.getLogger("default")
-
-
-@dataclass
-class FileItem:
-    key: str
-    filename: str
-    size_bytes: int
-    last_modified: str
-    extension: str
-
-
-@runtime_checkable
-class FileStorage(Protocol):
-    def list_files(self, prefix: str) -> list[FileItem]: ...
-    def download_to_temp(self, key: str) -> Path: ...
-    def upload_file(self, key: str, data: bytes) -> None: ...
-    def get_file_info(self, key: str) -> FileItem | None: ...
-    def delete_file(self, key: str) -> None: ...
-
-    @property
-    def supported_extensions(self) -> tuple[str, ...]: ...
 
 
 class LocalStorage:

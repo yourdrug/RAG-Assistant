@@ -105,11 +105,7 @@ class SQLAlchemyBenchmarkQuestionRepository:
         return len(orms)
 
     async def get_datasets(self) -> list[str]:
-        stmt = (
-            select(BenchmarkQuestionModel.dataset)
-            .distinct()
-            .order_by(BenchmarkQuestionModel.dataset)
-        )
+        stmt = select(BenchmarkQuestionModel.dataset).distinct().order_by(BenchmarkQuestionModel.dataset)
         result = await self._db.execute(stmt)
         return [row[0] for row in result.all()]
 

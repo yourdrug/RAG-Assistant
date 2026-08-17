@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from domain.value_objects.query_results import ClientAssignmentInfo
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -41,7 +42,7 @@ class SQLAlchemyClientAssignmentRepository:
         )
         return [row[0] for row in result.all()]
 
-    async def list_for_client(self, client_user_id: int) -> list[dict]:
+    async def list_for_client(self, client_user_id: int) -> list[ClientAssignmentInfo]:
         result = await self._db.execute(
             select(
                 UserModel.id.label("internal_user_id"),
@@ -53,10 +54,10 @@ class SQLAlchemyClientAssignmentRepository:
             .order_by(ClientAssignmentModel.assigned_at)
         )
         return [
-            {
-                "internal_user_id": row.internal_user_id,
-                "email": row.email,
-                "assigned_at": row.assigned_at,
-            }
+            ClientAssignmentInfo(
+                internal_user_id=row.internal_user_id,
+                email=row.email,
+                assigned_at=row.assigned_at,
+            )
             for row in result.all()
         ]

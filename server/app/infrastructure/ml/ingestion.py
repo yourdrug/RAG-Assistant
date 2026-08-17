@@ -16,6 +16,8 @@ import docx
 import fitz
 import numpy as np
 from config import settings
+from domain.value_objects.doc_domain import DocDomain
+from domain.value_objects.page_content_type import PageContentType
 from langchain.schema import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from PIL import Image
@@ -180,7 +182,7 @@ def parse_pdf(file_path: Path) -> list[Document]:
                                 metadata={
                                     "page": page_num,
                                     "source": str(file_path),
-                                    "content_type": "table",
+                                    "content_type": PageContentType.TABLE.value,
                                 },
                             )
                         )
@@ -295,14 +297,14 @@ def split_documents(docs: list[Document], domain: str = "general") -> list[Docum
 
     Table chunks (content_type=table) are kept atomic — not split further.
     """
-    if domain == "legal":
+    if domain == DocDomain.LEGAL.value:
         return split_documents_legal(docs)
 
     separators = GENERAL_SEPARATORS
 
     # Separate table chunks (atomic) from text chunks
-    tables = [d for d in docs if d.metadata.get("content_type") == "table"]
-    text_docs = [d for d in docs if d.metadata.get("content_type") != "table"]
+    tables = [d for d in docs if d.metadata.get("content_type") == PageContentType.TABLE.value]
+    text_docs = [d for d in docs if d.metadata.get("content_type") != PageContentType.TABLE.value]
 
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=settings.chunk_size,
@@ -527,14 +529,14 @@ def _split_markdown_tables(content: str) -> list[tuple[str, str]]:
         if current_text:
             text = "\n".join(current_text).strip()
             if text:
-                segments.append(("text", text))
+                segments.append((PageContentType.TEXT.value, text))
             current_text.clear()
 
     def _flush_table():
         if current_table:
             table_text = "\n".join(current_table).strip()
             if table_text:
-                segments.append(("table", table_text))
+                segments.append((PageContentType.TABLE.value, table_text))
             current_table.clear()
 
     in_table = False
@@ -556,7 +558,7 @@ def _split_markdown_tables(content: str) -> list[tuple[str, str]]:
     else:
         _flush_text()
 
-    return segments if segments else [("text", content)]
+    return segments if segments else [(PageContentType.TEXT.value, content)]
 
 
 def parse_markdown_sections(file_path: Path) -> list[tuple[str | None, str]]:
@@ -575,7 +577,7 @@ def parse_markdown_sections(file_path: Path) -> list[tuple[str | None, str]]:
         segments = _split_markdown_tables(_clean_markdown_text(raw))
         sections: list[tuple[str | None, str]] = []
         for ctype, text in segments:
-            prefix = "\x00TABLE:" if ctype == "table" else ""
+            prefix = "\x00TABLE:" if ctype == PageContentType.TABLE.value else ""
             sections.append((None, prefix + text))
         return sections
 
@@ -584,7 +586,7 @@ def parse_markdown_sections(file_path: Path) -> list[tuple[str | None, str]]:
         lead = _clean_markdown_text(raw[: matches[0].start()])
         if lead:
             for ctype, text in _split_markdown_tables(lead):
-                prefix = "\x00TABLE:" if ctype == "table" else ""
+                prefix = "\x00TABLE:" if ctype == PageContentType.TABLE.value else ""
                 result.append((None, prefix + text))
 
     for i, m in enumerate(matches):
@@ -594,7 +596,7 @@ def parse_markdown_sections(file_path: Path) -> list[tuple[str | None, str]]:
         content = _clean_markdown_text(raw[start:end])
         if content:
             for ctype, text in _split_markdown_tables(content):
-                prefix = "\x00TABLE:" if ctype == "table" else ""
+                prefix = "\x00TABLE:" if ctype == PageContentType.TABLE.value else ""
                 result.append((heading, prefix + text))
 
     return result

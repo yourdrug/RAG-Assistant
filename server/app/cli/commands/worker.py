@@ -66,16 +66,21 @@ def worker(
 
 async def _on_startup(ctx: dict) -> None:
     """Initialize database and infrastructure on worker startup."""
+    from application.ports.dependencies import register_config_listener, register_uow_factory
     from infrastructure.database.database import database  # nested to avoid circular import
-    from presentation.api.dependencies import get_config_listener, get_uow_factory
+    from presentation.api.dependencies import _config_listener, _uow_factory
 
     await database.connect()
     logger.info("Worker: database connected")
 
+    # Register dependencies for worker tasks (Service Locator for separate process)
+    register_uow_factory(_uow_factory)
+    register_config_listener(_config_listener)
+
     # Sync dynamic config from DB BEFORE starting the listener (and before
     # processing any tasks). This ensures ocr_enabled, chunk_size, etc.
     # are current even if the config was changed while the worker was down.
-    listener = get_config_listener()
+    listener = _config_listener
     await listener.resync(trigger="worker_startup")
     logger.info("Worker: config synced from database")
 

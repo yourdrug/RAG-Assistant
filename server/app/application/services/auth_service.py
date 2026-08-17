@@ -12,9 +12,9 @@ from domain.exceptions import BusinessRuleViolation, EntityNotFound, ValidationE
 from domain.services.password_hasher import IPasswordHasher
 from domain.services.token_provider import ITokenProvider
 from domain.value_objects.roles import UserKind, UserRole
-from infrastructure.auth.api_key_provider import api_key_provider
 
 from application.dto.auth_dto import CreateUserCommand, LoginCommand, LoginResult, UserDTO
+from application.ports.api_key_provider import ApiKeyProviderPort
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
 
 
@@ -24,10 +24,12 @@ class AuthService:
         uow_factory: UnitOfWorkFactory,
         password_hasher: IPasswordHasher,
         token_provider: ITokenProvider,
+        api_key_provider: ApiKeyProviderPort,
     ) -> None:
         self._uow_factory = uow_factory
         self._hasher = password_hasher
         self._tokens = token_provider
+        self._api_key_provider = api_key_provider
 
     async def authenticate(self, command: LoginCommand) -> LoginResult:
         async with self._uow_factory.create() as uow:
@@ -100,9 +102,9 @@ class AuthService:
             if user.kind != UserKind.CLIENT:
                 raise BusinessRuleViolation("API keys can only be issued to external (client) users")
 
-            raw_key = api_key_provider.generate_key()
-            key_hash = api_key_provider.hash_key(raw_key)
-            prefix = api_key_provider.key_prefix_for_display(raw_key)
+            raw_key = self._api_key_provider.generate_key()
+            key_hash = self._api_key_provider.hash_key(raw_key)
+            prefix = self._api_key_provider.key_prefix_for_display(raw_key)
 
             saved = await uow.api_keys.create(
                 user_id=client_user_id, key_hash=key_hash, key_prefix=prefix, name=name
@@ -138,5 +140,5 @@ class AuthService:
             if not revoked:
                 raise EntityNotFound("ApiKey", api_key_id)
 
-        await api_key_provider.invalidate_by_id(api_key_id)
+        await self._api_key_provider.invalidate_by_id(api_key_id)
         return {"id": api_key_id, "revoked": True}

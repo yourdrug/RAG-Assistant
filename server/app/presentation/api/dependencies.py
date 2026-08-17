@@ -6,23 +6,42 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncGenerator
+from pathlib import Path
 
+from application.ports.unit_of_work_factory import UnitOfWorkFactory
 from application.services.auth_service import AuthService
+from application.services.benchmark_result_service import BenchmarkResultService
+from application.services.benchmark_services import (
+    BenchmarkQuestionService,
+    BenchmarkRunService,
+    BenchmarkSweepService,
+)
 from application.services.chat_service import ChatService
 from application.services.chunk_service import ChunkService
+from application.services.config_admin_service import ConfigAdminService
 from application.services.config_service import ConfigService
+from application.services.conversation_service import ConversationService
 from application.services.document_service import DocumentService
+from application.services.group_service import GroupService
+from application.services.health_service import HealthService
 from application.services.ingest_service import IngestAppService
+from application.services.metrics_service import MetricsService
+from application.services.pdf_diagnostic_service import PDFDiagnosticService
+from application.services.quality_service import QualityService
+from application.services.search_service import SearchService
 from application.uow import UnitOfWork
 from config import settings
 from domain.events.config_events import ConfigParameterChanged
 from fastapi.security import APIKeyHeader
+from infrastructure.admin.config_admin_adapter import OllamaProbe, QdrantInfo, fetch_openrouter_models
+from infrastructure.auth.api_key_provider import api_key_provider
 from infrastructure.auth.jwt_provider import JWTProvider
 from infrastructure.auth.password_hasher import BCryptPasswordHasher
 from infrastructure.database.database import database
 from infrastructure.events.in_process_event_bus import event_bus
 from infrastructure.events.postgres_config_broadcaster import PostgresConfigBroadcaster
 from infrastructure.events.postgres_config_listener import PostgresConfigListener
+from infrastructure.health.system_health_probe import SystemHealthProbe
 from infrastructure.ml.config_subscribers import (
     apply_to_settings,
     audit_log_config_change,
@@ -32,13 +51,15 @@ from infrastructure.ml.config_subscribers import (
     invalidate_storage_cache,
 )
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
+from infrastructure.ml.pdf_adapter import FitzPDFDocument, MLOcrRunner, MLPageClassifier, MLTextCleaner
+from infrastructure.ml.prometheus_adapter import PrometheusMetricsRegistry
 from infrastructure.ml.rag_service import RagService
+from infrastructure.ml.summary_adapter import RollingSummaryUpdater
 from infrastructure.repositories.qdrant_vector_store_repository import QdrantVectorStoreRepository
-from infrastructure.repositories.sqlalchemy_chunk_repository import SQLAlchemyChunkRepository
 from infrastructure.services.benchmark_service import BenchmarkService
 from infrastructure.services.ingestion_service import IngestionService
 from infrastructure.storage import LazyStorage
-from infrastructure.uow_factory import UnitOfWorkFactory
+from infrastructure.uow_factory import UnitOfWorkFactory as ConcreteUnitOfWorkFactory
 
 log = logging.getLogger("default")
 
@@ -59,10 +80,10 @@ event_bus.subscribe(ConfigParameterChanged, audit_log_config_change)
 
 _vector_store_repo = QdrantVectorStoreRepository()
 _file_storage = LazyStorage()  # resolves lazily on first access; re-resolves after cache_clear()
-_uow_factory = UnitOfWorkFactory(database=database)
+_config_broadcaster = PostgresConfigBroadcaster(database=database)
+_uow_factory = ConcreteUnitOfWorkFactory(database=database, config_broadcaster=_config_broadcaster)
 _document_parser = LangchainDocumentParser()
 _document_splitter = LangchainDocumentSplitter()
-_config_broadcaster = PostgresConfigBroadcaster(database=database)
 
 
 class _ChunkSearchAdapter:
@@ -81,8 +102,7 @@ class _ChunkSearchAdapter:
         mode: str = "exact",
     ):
         async with self._uow_factory.create() as uow:
-            repo = SQLAlchemyChunkRepository(uow._session)
-            return await repo.search_substring(
+            return await uow.chunks.search_substring(
                 query=query,
                 user=user,
                 group_ids=group_ids,
@@ -115,16 +135,19 @@ _chat_service = ChatService(
     uow_factory=_uow_factory,
     rag_service=RagService(chunk_search=_chunk_search),
     history_window=settings.history_window,
+    rolling_summary_enabled=settings.rolling_summary_enabled,
+    summary_updater=RollingSummaryUpdater(),
 )
 
 _auth_service = AuthService(
     uow_factory=_uow_factory,
     password_hasher=BCryptPasswordHasher(),
     token_provider=JWTProvider(),
+    api_key_provider=api_key_provider,
 )
 
 _config_service = ConfigService(
-    uow_factory=_uow_factory, event_bus=event_bus, broadcaster=_config_broadcaster
+    uow_factory=_uow_factory, event_bus=event_bus
 )
 
 _config_listener = PostgresConfigListener(event_bus, _uow_factory)
@@ -204,3 +227,113 @@ def create_config_service() -> ConfigService:
 
 def get_config_listener() -> PostgresConfigListener:
     return _config_listener
+
+
+# ---------------------------------------------------------------------------
+# Health, Metrics, Benchmark, Config Admin, PDF Diagnostic services
+# ---------------------------------------------------------------------------
+
+_health_service = HealthService(
+    uow_factory=_uow_factory,
+    probe=SystemHealthProbe(),
+    config_listener_provider=_config_listener,
+    version=settings.version,
+    uptime_seconds=settings.uptime_seconds,
+    llm_provider=settings.llm_provider,
+)
+
+
+def get_health_service() -> HealthService:
+    return _health_service
+
+
+_metrics_service = MetricsService(registry=PrometheusMetricsRegistry())
+
+
+def create_metrics_service() -> MetricsService:
+    return _metrics_service
+
+
+def create_benchmark_result_service() -> BenchmarkResultService:
+    return BenchmarkResultService(results_dir=Path(settings.data_dir) / "benchmark_results")
+
+
+_config_admin_service = ConfigAdminService(
+    ollama_probe=OllamaProbe(),
+    vectordb_info=QdrantInfo(),
+    openrouter_models_fetcher=fetch_openrouter_models,
+    llm_provider=settings.llm_provider,
+    llm_model=settings.llm_model,
+    embed_model=settings.embed_model,
+    rerank_model=settings.rerank_model,
+    device=settings.resolved_device,
+    embed_device=settings.embed_resolved_device,
+    rerank_device=settings.embed_resolved_device,
+    ocr_engine=settings.ocr_engine,
+    ocr_enabled=settings.ocr_enabled,
+    openrouter_model=settings.openrouter_model,
+    active_collection=settings.collection_name,
+)
+
+
+def create_config_admin_service() -> ConfigAdminService:
+    return _config_admin_service
+
+
+_pdf_diagnostic_service = PDFDiagnosticService(
+    classifier=MLPageClassifier(),
+    text_cleaner=MLTextCleaner(),
+    ocr=MLOcrRunner(),
+    pdf_doc=FitzPDFDocument(),
+    storage=LazyStorage(),
+)
+
+
+def create_pdf_diagnostic_service() -> PDFDiagnosticService:
+    return _pdf_diagnostic_service
+
+
+# ---------------------------------------------------------------------------
+# Domain Services — thin wrappers for presentation routes
+# ---------------------------------------------------------------------------
+
+_search_service = SearchService(uow_factory=_uow_factory)
+_conversation_service = ConversationService(uow_factory=_uow_factory)
+_group_service = GroupService(uow_factory=_uow_factory)
+_quality_service = QualityService(uow_factory=_uow_factory)
+_benchmark_question_service = BenchmarkQuestionService(uow_factory=_uow_factory)
+_benchmark_sweep_service = BenchmarkSweepService(uow_factory=_uow_factory)
+_benchmark_run_service = BenchmarkRunService(uow_factory=_uow_factory)
+
+
+def get_search_service() -> SearchService:
+    return _search_service
+
+
+def get_conversation_service() -> ConversationService:
+    return _conversation_service
+
+
+def get_group_service() -> GroupService:
+    return _group_service
+
+
+def get_quality_service() -> QualityService:
+    return _quality_service
+
+
+def get_benchmark_question_service() -> BenchmarkQuestionService:
+    return _benchmark_question_service
+
+
+def get_benchmark_sweep_service() -> BenchmarkSweepService:
+    return _benchmark_sweep_service
+
+
+def get_benchmark_run_service() -> BenchmarkRunService:
+    return _benchmark_run_service
+
+
+def get_ingestion_port() -> IngestionService:
+    return _ingestion_service
+

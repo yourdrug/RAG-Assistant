@@ -15,6 +15,8 @@ from domain.services.rag_policy import (  # noqa: F401
     classify_question_breadth,
     needs_decomposition,
 )
+from domain.value_objects.message_role import MessageRole
+from domain.value_objects.page_content_type import PageContentType
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import AIMessage, HumanMessage
 
@@ -258,7 +260,7 @@ def format_docs(docs, max_context_tokens: int = 6000) -> str:
         header = f"[{i}] {source_name}"
 
         content_type = doc.metadata.get("content_type")
-        if content_type == "table":
+        if content_type == PageContentType.TABLE.value:
             header += " (таблица)"
 
         if doc_date:
@@ -296,7 +298,7 @@ def history_to_messages(history: list[dict]):
     """Конвертирует историю из БД в LangChain-сообщения."""
     messages = []
     for msg in history:
-        if msg["role"] == "user":
+        if msg["role"] == MessageRole.USER.value:
             messages.append(HumanMessage(content=msg["content"]))
         else:
             messages.append(AIMessage(content=msg["content"]))

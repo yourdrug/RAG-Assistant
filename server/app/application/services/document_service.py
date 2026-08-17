@@ -19,12 +19,13 @@ from domain.services.access_control import (
     compute_owner_and_group,
     validate_document_visibility,
 )
+from domain.value_objects.doc_domain import DocDomain
+from domain.value_objects.document_status import DocumentStatus
 from domain.value_objects.roles import UserKind, UserRole
 from domain.value_objects.visibility import DocumentVisibility
-from infrastructure.storage import FileStorage
-from sqlalchemy.exc import IntegrityError
 
 from application.dto.document_dto import DocumentDTO
+from application.ports.file_storage import FileStorage
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
 
 log = logging.getLogger(__name__)
@@ -87,9 +88,9 @@ class DocumentService:
             )
             replace_id = None
             if existing:
-                if existing.status in ("pending", "processing"):
+                if existing.status in (DocumentStatus.PENDING, DocumentStatus.PROCESSING):
                     raise BusinessRuleViolation("This document is already being processed")
-                if existing.status in ("done", "failed"):
+                if existing.status in (DocumentStatus.DONE, DocumentStatus.FAILED):
                     if rename_on_conflict:
                         filename = await self._unique_filename(uow, owner_id, effective_group_id, filename)
                     else:
@@ -108,15 +109,17 @@ class DocumentService:
                 visibility=vis,
                 owner_id=owner_id,
                 group_id=effective_group_id,
-                doc_domain=doc_domain or "general",
+                doc_domain=doc_domain or DocDomain.GENERAL.value,
             )
 
             try:
                 saved_doc = await uow.documents.save(doc)
-            except IntegrityError as exc:
-                raise BusinessRuleViolation(
-                    "This document is already being uploaded by a concurrent request"
-                ) from exc
+            except Exception as exc:
+                if "unique" in str(exc).lower() or "integrity" in str(exc).lower():
+                    raise BusinessRuleViolation(
+                        "This document is already being uploaded by a concurrent request"
+                    ) from exc
+                raise
 
             key = self._storage_key(owner_id, effective_group_id, saved_doc.id, filename)
             self._file_storage.upload_file(key, file_data)

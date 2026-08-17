@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from domain.exceptions import BusinessRuleViolation, ValidationError
+from domain.value_objects.owner_match import OwnerMatch
 from domain.value_objects.roles import UserKind, UserRole
 from domain.value_objects.visibility import DocumentVisibility
 
@@ -35,7 +36,7 @@ class VisibilityCondition:
     """
 
     visibility: DocumentVisibility
-    owner_match: str | None = None  # "self" = user_id, "assigned" = assigned_client_ids
+    owner_match: str | None = None  # OwnerMatch.SELF = user_id, OwnerMatch.ASSIGNED = assigned_client_ids
     group_match: bool = False  # True = group_id IN user_group_ids
 
 
@@ -61,7 +62,7 @@ def get_visibility_conditions(
         return [
             VisibilityCondition(
                 visibility=DocumentVisibility.CLIENT_PRIVATE,
-                owner_match="self",
+                owner_match=OwnerMatch.SELF,
             )
         ]
 
@@ -75,7 +76,7 @@ def get_visibility_conditions(
         conditions.append(
             VisibilityCondition(
                 visibility=DocumentVisibility.INTERNAL_PRIVATE,
-                owner_match="self",
+                owner_match=OwnerMatch.SELF,
             )
         )
 

@@ -16,17 +16,15 @@ from domain.entities.chunk import Chunk
 from domain.repositories.vector_store_repository import VectorStoreRepository
 from domain.services.document_domain_classifier import classify_document_domain
 from domain.services.document_parser import DocumentParser, DocumentSplitter
-from infrastructure.ml.ingestion import extract_article_number, extract_date_from_filename
-from infrastructure.ml.metrics import (
-    INGEST_CHUNKS_TOTAL,
-    INGEST_DOCUMENT_DURATION,
-    INGEST_DOCUMENTS_TOTAL,
-    INGEST_PDF_BAD_RATIO,
-    INGEST_PDF_PAGES_TOTAL,
-)
-from infrastructure.ml.pdf_diag import assess_pdf_extraction_quality
-from infrastructure.storage import FileStorage
+from domain.value_objects.doc_domain import DocDomain
+from domain.value_objects.document_status import DocumentStatus
 
+from application.ports.document_processing import (
+    ContentExtractorPort,
+    MetricsCollectorPort,
+    PDFQualityAssessorPort,
+)
+from application.ports.file_storage import FileStorage
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
 
 log = logging.getLogger("default")
@@ -40,12 +38,20 @@ class DocumentProcessor:
         file_storage: FileStorage,
         document_parser: DocumentParser,
         document_splitter: DocumentSplitter,
+        content_extractor: ContentExtractorPort,
+        pdf_quality_assessor: PDFQualityAssessorPort,
+        metrics: MetricsCollectorPort,
+        domain_marker_threshold: float = 1.0,
     ) -> None:
         self._uow_factory = uow_factory
         self._vector_store = vector_store_repo
         self._file_storage = file_storage
         self._parser = document_parser
         self._splitter = document_splitter
+        self._extractor = content_extractor
+        self._pdf_assessor = pdf_quality_assessor
+        self._metrics = metrics
+        self._domain_marker_threshold = domain_marker_threshold
 
     async def process(
         self,
@@ -60,10 +66,10 @@ class DocumentProcessor:
     ) -> None:
         t_start = time.monotonic()
         temp_path: Path | None = None
-        status = "failed"
+        status = DocumentStatus.FAILED.value
         try:
             async with self._uow_factory.create() as uow:
-                await uow.documents.update_status(document_id, "processing")
+                await uow.documents.update_status(document_id, DocumentStatus.PROCESSING.value)
 
                 temp_path = self._file_storage.download_to_temp(storage_key)
                 docs = self._parser.parse(temp_path)
@@ -75,7 +81,7 @@ class DocumentProcessor:
 
                 warning_message = None
                 if Path(original_filename).suffix.lower() == ".pdf":
-                    quality = assess_pdf_extraction_quality(temp_path, docs)
+                    quality = self._pdf_assessor.assess(temp_path, docs)
                     if quality.is_low_quality:
                         warning_message = (
                             f"Низкое качество распознавания: {quality.n_missing} стр. без текста, "
@@ -90,19 +96,18 @@ class DocumentProcessor:
                             quality.bad_ratio,
                         )
 
-                    INGEST_PDF_PAGES_TOTAL.labels(quality="ok").inc(quality.n_ok)
-                    INGEST_PDF_PAGES_TOTAL.labels(quality="missing").inc(quality.n_missing)
-                    INGEST_PDF_PAGES_TOTAL.labels(quality="garbled").inc(quality.n_garbled)
-                    INGEST_PDF_BAD_RATIO.observe(quality.bad_ratio)
+                    self._metrics.observe_pdf_pages("ok", quality.n_ok)
+                    self._metrics.observe_pdf_pages("missing", quality.n_missing)
+                    self._metrics.observe_pdf_pages("garbled", quality.n_garbled)
+                    self._metrics.observe_pdf_bad_ratio(quality.bad_ratio)
 
-                # Determine document domain: explicit override > heuristic > default
                 if doc_domain is None:
                     full_text = "\n".join(d.page_content for d in docs)
-                    doc_domain = classify_document_domain(full_text)
+                    doc_domain = classify_document_domain(full_text, threshold=self._domain_marker_threshold)
                     log.info("Auto-detected doc_domain=%s for doc %d", doc_domain, document_id)
                 await uow.documents.set_domain(document_id, doc_domain)
 
-                doc_date = extract_date_from_filename(original_filename)
+                doc_date = self._extractor.extract_date_from_filename(original_filename)
 
                 for doc in docs:
                     doc.metadata["source"] = original_filename
@@ -123,8 +128,8 @@ class DocumentProcessor:
                     section = rc.metadata.get("section")
                     if section:
                         rc.page_content = f"[Раздел: {section}]\n{rc.page_content}"
-                    if doc_domain == "legal":
-                        article = extract_article_number(rc.page_content)
+                    if doc_domain == DocDomain.LEGAL:
+                        article = self._extractor.extract_article_number(rc.page_content)
                         if article:
                             rc.metadata["article_number"] = article
 
@@ -134,7 +139,6 @@ class DocumentProcessor:
                 await self._vector_store.ensure_collection(vector_size, reset=False)
                 await self._vector_store.upload_documents(domain_chunks)
 
-                # Write chunk text to Postgres for Ctrl+F substring search
                 await uow.chunks.bulk_insert(
                     document_id=document_id,
                     filename=original_filename,
@@ -154,22 +158,26 @@ class DocumentProcessor:
 
                 total_chars = sum(len(d.page_content) for d in docs)
                 await uow.documents.update_status(
-                    document_id, "done", chunks=len(raw_chunks), chars=total_chars,
-                    warning=warning_message, quality_score=quality.bad_ratio if quality else None,
+                    document_id,
+                    DocumentStatus.DONE.value,
+                    chunks=len(raw_chunks),
+                    chars=total_chars,
+                    warning=warning_message,
+                    quality_score=quality.bad_ratio if quality else None,
                 )
 
-            status = "done"
-            INGEST_CHUNKS_TOTAL.inc(len(raw_chunks))
+            status = DocumentStatus.DONE.value
+            self._metrics.inc_chunks(len(raw_chunks))
 
         except Exception as e:
             log.exception("Document processing failed for doc %d: %s", document_id, e)
             try:
                 async with self._uow_factory.create() as uow:
-                    await uow.documents.update_status(document_id, "failed", error=str(e))
+                    await uow.documents.update_status(document_id, DocumentStatus.FAILED.value, error=str(e))
             except Exception:
                 log.exception("Failed to mark document as failed")
         finally:
-            INGEST_DOCUMENTS_TOTAL.labels(status=status).inc()
-            INGEST_DOCUMENT_DURATION.labels(status=status).observe(time.monotonic() - t_start)
+            self._metrics.inc_documents(status)
+            self._metrics.observe_duration(status, time.monotonic() - t_start)
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)

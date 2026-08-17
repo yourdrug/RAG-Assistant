@@ -6,9 +6,12 @@ import logging
 import re
 from datetime import datetime
 
-from domain.repositories.chunk_repository import ChunkRepository, ChunkSearchResult
+from domain.repositories.chunk_repository import ChunkSearchResult, ChunkStats
 from domain.services.access_control import get_visibility_conditions
+from domain.value_objects.doc_domain import DocDomain
+from domain.value_objects.owner_match import OwnerMatch
 from domain.value_objects.roles import UserKind, UserRole
+from domain.value_objects.search_mode import SearchMode
 from sqlalchemy import delete, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,7 +20,7 @@ from infrastructure.database.models import ChunkModel
 log = logging.getLogger("default")
 
 
-class SQLAlchemyChunkRepository(ChunkRepository):
+class SQLAlchemyChunkRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
@@ -29,7 +32,7 @@ class SQLAlchemyChunkRepository(ChunkRepository):
         chunks: list[str],
         owner_id: int | None = None,
         group_id: int | None = None,
-        doc_domain: str = "general",
+        doc_domain: str = DocDomain.GENERAL.value,
     ) -> None:
         # Delete existing chunks for this document (re-index)
         await self._session.execute(delete(ChunkModel).where(ChunkModel.document_id == document_id))
@@ -159,9 +162,9 @@ class SQLAlchemyChunkRepository(ChunkRepository):
         for cond in conditions:
             parts = [ChunkModel.visibility == cond.visibility.value]
 
-            if cond.owner_match == "self":
+            if cond.owner_match == OwnerMatch.SELF.value:
                 parts.append(ChunkModel.owner_id == user["id"])
-            elif cond.owner_match == "assigned":
+            elif cond.owner_match == OwnerMatch.ASSIGNED.value:
                 parts.append(ChunkModel.owner_id.in_(assigned_client_ids))
 
             if cond.group_match:
@@ -172,7 +175,7 @@ class SQLAlchemyChunkRepository(ChunkRepository):
         if document_id is not None:
             acl_clauses.append(ChunkModel.document_id == document_id)
 
-        if mode == "exact":
+        if mode == SearchMode.EXACT.value:
             escaped_query = re.escape(query)
             stmt = (
                 select(
@@ -241,3 +244,85 @@ class SQLAlchemyChunkRepository(ChunkRepository):
 
     async def delete_by_document_id(self, document_id: int) -> None:
         await self._session.execute(delete(ChunkModel).where(ChunkModel.document_id == document_id))
+
+    async def list_for_document(
+        self, document_id: int, limit: int = 50, offset: int = 0
+    ) -> tuple[list[ChunkSearchResult], int]:
+        count_stmt = select(func.count()).select_from(ChunkModel).where(ChunkModel.document_id == document_id)
+        total_result = await self._session.execute(count_stmt)
+        total = total_result.scalar() or 0
+
+        stmt = (
+            select(ChunkModel)
+            .where(ChunkModel.document_id == document_id)
+            .order_by(ChunkModel.chunk_index)
+            .limit(limit)
+            .offset(offset)
+        )
+        result = await self._session.execute(stmt)
+        chunks = result.scalars().all()
+        return [
+            ChunkSearchResult(
+                chunk_id=c.id,
+                document_id=c.document_id,
+                filename=c.filename,
+                content=c.content,
+                chunk_index=c.chunk_index,
+                visibility=c.visibility,
+                doc_domain=c.doc_domain,
+                owner_id=c.owner_id,
+                group_id=c.group_id,
+                edited_at=c.edited_at,
+                edited_by=c.edited_by,
+                manual=c.manual,
+                creation_date=c.creation_date,
+            )
+            for c in chunks
+        ], total
+
+    async def find_duplicate_by_hash(
+        self, document_id: int, content_hash: str, exclude_chunk_id: int | None = None
+    ) -> ChunkSearchResult | None:
+        conditions = [ChunkModel.document_id == document_id]
+        if exclude_chunk_id is not None:
+            conditions.append(ChunkModel.id != exclude_chunk_id)
+
+        stmt = select(ChunkModel).where(*conditions)
+        result = await self._session.execute(stmt)
+        existing_chunks = result.scalars().all()
+
+        import hashlib
+
+        for chunk in existing_chunks:
+            chunk_hash = hashlib.sha256(chunk.content.encode("utf-8")).hexdigest()[:16]
+            if chunk_hash == content_hash:
+                return ChunkSearchResult(
+                    chunk_id=chunk.id,
+                    document_id=chunk.document_id,
+                    filename=chunk.filename,
+                    content=chunk.content,
+                    chunk_index=chunk.chunk_index,
+                    visibility=chunk.visibility,
+                    doc_domain=chunk.doc_domain,
+                    owner_id=chunk.owner_id,
+                    group_id=chunk.group_id,
+                    edited_at=chunk.edited_at,
+                    edited_by=chunk.edited_by,
+                    manual=chunk.manual,
+                    creation_date=chunk.creation_date,
+                )
+        return None
+
+    async def get_document_stats(self, document_id: int) -> ChunkStats:
+        stmt = select(
+            func.count().label("chunks"),
+            func.coalesce(func.sum(func.length(ChunkModel.content)), 0).label("chars"),
+        ).where(ChunkModel.document_id == document_id)
+        result = await self._session.execute(stmt)
+        row = result.one()
+        return ChunkStats(total_chunks=row.chunks, total_chars=row.chars)
+
+    async def get_all_contents(self) -> list[str]:
+        stmt = select(ChunkModel.content).order_by(ChunkModel.document_id, ChunkModel.chunk_index)
+        result = await self._session.execute(stmt)
+        return [row[0] for row in result.all()]

@@ -10,10 +10,12 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from functools import wraps
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from sqlalchemy import text
+
+if TYPE_CHECKING:
+    from application.ports.unit_of_work_factory import UnitOfWorkFactory
 
 logger = logging.getLogger("default")
 
@@ -41,6 +43,8 @@ class Scheduler:
 
     def __init__(self) -> None:
         self.scheduler = AsyncIOScheduler(timezone="UTC")
+        self._uow_factory: UnitOfWorkFactory | None = None
+        self._config_listener: Any = None
 
     def add_interval_job(
         self,
@@ -115,15 +119,12 @@ class Scheduler:
             minute=0,
         )
 
-    @staticmethod
     @handle_exceptions
-    async def _periodic_job_cleanup() -> None:
+    async def _periodic_job_cleanup(self) -> None:
         """Periodically delete old background job records."""
-        from presentation.api.dependencies import _uow_factory  # nested to avoid circular import
+        from config import settings
 
-        async with _uow_factory.create(master=True) as uow:
-            from config import settings  # nested to avoid circular import
-
+        async with self._uow_factory.create(master=True) as uow:
             deleted = await uow.background_jobs.delete_old(days=settings.job_cleanup_days)
             if deleted:
                 logger.info("Cleaned up %d old background jobs", deleted)
@@ -132,70 +133,37 @@ class Scheduler:
     @handle_exceptions
     async def _periodic_infra_collector() -> None:
         """Periodically update infrastructure Prometheus gauges."""
-        from infrastructure.ml.metrics import collect_infra_metrics  # nested to avoid circular import
+        from infrastructure.ml.metrics import collect_infra_metrics
 
         await collect_infra_metrics()
 
-    @staticmethod
     @handle_exceptions
-    async def _periodic_config_resync() -> None:
+    async def _periodic_config_resync(self) -> None:
         """Страховочная полная сверка config_parameters -> settings.
 
         Не заменяет LISTEN/NOTIFY (тот даёт near-real-time применение), а закрывает
         редкое окно потери NOTIFY между network blip и переустановкой listener.
         """
-        from presentation.api.dependencies import get_config_listener  # nested to avoid circular import
+        if self._config_listener is not None and self._config_listener.is_connected:
+            await self._config_listener.resync(trigger="periodic")
 
-        listener = get_config_listener()
-        if listener.is_connected:
-            await listener.resync(trigger="periodic")
-
-    @staticmethod
     @handle_exceptions
-    async def _periodic_recover_orphaned_jobs() -> None:
-        """Recover background jobs stuck in 'running' state.
-
-        When a worker dies (OOM, deploy, crash), its jobs stay in 'running'
-        forever.  This job marks them as 'failed' after a configurable timeout.
-        """
-        from presentation.api.dependencies import _uow_factory  # nested to avoid circular import
-
-        # Jobs stuck in 'running' for more than 15 minutes are considered orphaned
-        orphan_timeout_minutes = 15
-
-        async with _uow_factory.create(master=True) as uow:
-            result = await uow._session.execute(
-                text(
-                    """
-                    UPDATE background_jobs
-                    SET status = 'failed',
-                        error_message = 'Worker died or restarted — task orphaned',
-                        finished_at = NOW()
-                    WHERE status = 'running'
-                      AND started_at < NOW() - make_interval(mins => :timeout)
-                    RETURNING id
-                    """
-                ),
-                {"timeout": orphan_timeout_minutes},
-            )
-            orphaned_ids = [row[0] for row in result.fetchall()]
+    async def _periodic_recover_orphaned_jobs(self) -> None:
+        """Recover background jobs stuck in 'running' state."""
+        async with self._uow_factory.create(master=True) as uow:
+            orphaned_ids = await uow.background_jobs.recover_orphaned(timeout_minutes=15)
             if orphaned_ids:
                 logger.warning("Recovered %d orphaned jobs: %s", len(orphaned_ids), orphaned_ids)
 
-    @staticmethod
     @handle_exceptions
-    async def _periodic_bm25_rebuild() -> None:
-        """Rebuild BM25 index from scratch daily.
-
-        Corrects drift in doc_freq/idf/avgdl statistics that accumulates
-        during incremental add_text/replace_text operations.
-        """
+    async def _periodic_bm25_rebuild(self) -> None:
+        """Rebuild BM25 index from scratch daily."""
         import time
         from pathlib import Path
 
-        from config import settings  # nested to avoid circular import
-        from presentation.api.dependencies import _uow_factory  # nested to avoid circular import
+        from config import settings
 
+        from infrastructure.clients import get_bm25_index
         from infrastructure.ml.hybrid import BM25Index, save_bm25_index
 
         if not settings.hybrid_enabled:
@@ -204,13 +172,8 @@ class Scheduler:
 
         t0 = time.monotonic()
 
-        async with _uow_factory.create(master=True) as uow:
-            from sqlalchemy import text as sql_text
-
-            result = await uow._session.execute(
-                sql_text("SELECT content FROM chunks ORDER BY document_id, chunk_index")
-            )
-            all_texts = [row[0] for row in result.fetchall()]
+        async with self._uow_factory.create(master=True) as uow:
+            all_texts = await uow.chunks.get_all_contents()
 
         if not all_texts:
             logger.info("BM25 rebuild: no chunks found, skipping")
@@ -219,9 +182,6 @@ class Scheduler:
         bm25_index = BM25Index(all_texts)
         bm25_path = Path(settings.data_dir) / "bm25_index.json"
         save_bm25_index(bm25_index, bm25_path)
-
-        # Clear the cached index so next query picks up the new one
-        from infrastructure.clients import get_bm25_index
 
         get_bm25_index.cache_clear()
 
@@ -232,8 +192,10 @@ class Scheduler:
             elapsed,
         )
 
-    async def startup(self) -> None:
-        """Configure and start the scheduler."""
+    async def startup(self, uow_factory: UnitOfWorkFactory, config_listener: Any = None) -> None:
+        """Configure and start the scheduler with required dependencies."""
+        self._uow_factory = uow_factory
+        self._config_listener = config_listener
         self._configure()
         self.scheduler.start()
         logger.info("Scheduler started.")

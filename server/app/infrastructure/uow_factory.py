@@ -43,8 +43,9 @@ class UnitOfWorkFactory:
     Each call to create() yields a new UoW with a fresh async session.
     """
 
-    def __init__(self, database: DatabaseManager) -> None:
+    def __init__(self, database: DatabaseManager, config_broadcaster=None) -> None:
         self._database = database
+        self._config_broadcaster = config_broadcaster
 
     @asynccontextmanager
     async def create(self, master: bool = False) -> AsyncGenerator[UnitOfWork, None]:
@@ -66,5 +67,15 @@ class UnitOfWorkFactory:
             benchmark_sweeps=SQLAlchemyBenchmarkSweepRepository(session),
             benchmark_runs=SQLAlchemyBenchmarkRunRepository(session),
         )
+        if self._config_broadcaster is not None:
+            broadcaster = self._config_broadcaster
+
+            async def _publish_to_broadcaster(event: object) -> None:
+                from domain.events.config_events import ConfigParameterChanged
+
+                if isinstance(event, ConfigParameterChanged):
+                    await broadcaster.broadcast_within_session(session, event)
+
+            uow.on_event(_publish_to_broadcaster)
         async with uow:
             yield uow

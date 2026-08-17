@@ -4,16 +4,13 @@ from __future__ import annotations
 
 import logging
 
+from application.services.config_admin_service import ConfigAdminService
 from application.services.config_service import ConfigService
-from config import settings
 from fastapi import APIRouter, Depends
-from infrastructure.clients import get_openrouter_models
 from infrastructure.logging.actions import log_action
-from qdrant_client import QdrantClient
 
 from presentation.api.auth_dependencies import require_admin
-from presentation.api.dependencies import create_config_service
-from presentation.api.routes.health import get_ollama_models, get_qdrant_status
+from presentation.api.dependencies import create_config_admin_service, create_config_service
 from presentation.api.schemas import (
     ConfigParamResponse,
     ConfigParamUpdateRequest,
@@ -27,11 +24,6 @@ from presentation.api.schemas import (
 logger = logging.getLogger("default")
 
 router = APIRouter(tags=["admin-config"])
-
-
-# ---------------------------------------------------------------------------
-# Routes
-# ---------------------------------------------------------------------------
 
 
 @router.get("/admin/config", response_model=list[ConfigParamResponse])
@@ -75,82 +67,62 @@ async def update_config(
 
 
 @router.get("/admin/models/info", response_model=ModelsInfoResponse)
-async def models_info(admin: dict = Depends(require_admin)):
-    ollama_models = await get_ollama_models()
-
+async def models_info(
+    admin: dict = Depends(require_admin),
+    admin_service: ConfigAdminService = Depends(create_config_admin_service),
+):
+    info = await admin_service.get_models_info()
     return ModelsInfoResponse(
-        llm_provider=settings.llm_provider,
-        llm_model=settings.llm_model,
-        embed_model=settings.embed_model,
-        rerank_model=settings.rerank_model,
-        device=settings.resolved_device,
-        embed_device=settings.embed_resolved_device,
-        rerank_device=settings.rerank_resolved_device,
-        ocr_engine=settings.ocr_engine,
-        ocr_enabled=settings.ocr_enabled,
-        ollama_models=ollama_models,
-        openrouter_model=settings.openrouter_model if settings.llm_provider == "openrouter" else None,
+        llm_provider=info.llm_provider,
+        llm_model=info.llm_model,
+        embed_model=info.embed_model,
+        rerank_model=info.rerank_model,
+        device=info.device,
+        embed_device=info.embed_device,
+        rerank_device=info.rerank_device,
+        ocr_engine=info.ocr_engine,
+        ocr_enabled=info.ocr_enabled,
+        ollama_models=info.ollama_models,
+        openrouter_model=info.openrouter_model,
     )
 
 
 @router.get("/admin/models/openrouter", response_model=OpenRouterModelsResponse)
-async def openrouter_models(admin: dict = Depends(require_admin)):
-    """Fetch available models from OpenRouter API."""
-    models = await get_openrouter_models()
+async def openrouter_models(
+    admin: dict = Depends(require_admin),
+    admin_service: ConfigAdminService = Depends(create_config_admin_service),
+):
+    info = await admin_service.get_openrouter_models()
     return OpenRouterModelsResponse(
-        models=[OpenRouterModelInfo(**m) for m in models],
-        active_model=settings.openrouter_model,
+        models=[OpenRouterModelInfo(**m) for m in info.models],
+        active_model=info.active_model,
     )
 
 
 @router.get("/admin/vectordb/info", response_model=VectorDBInfoResponse)
-async def vectordb_info(admin: dict = Depends(require_admin)):
-    collections: list[VectorDBCollectionInfo] = []
-
-    qdrant_status = get_qdrant_status(timeout=5)
-
-    if qdrant_status == "ok":
-        try:
-            client = QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key, timeout=5)
-            col_list = client.get_collections()
-
-            for col in col_list.collections:
-                info = client.get_collection(col.name)
-
-                vectors_cfg = info.config.params.vectors if info.config.params.vectors else None
-                hnsw_cfg = info.config.hnsw_config
-
-                collections.append(
-                    VectorDBCollectionInfo(
-                        name=col.name,
-                        points_count=info.points_count or 0,
-                        vectors_count=info.vectors_count or 0,
-                        indexed_vectors_count=info.indexed_vectors_count or 0,
-                        segments_count=info.segments_count or 0,
-                        status=str(info.status.value) if hasattr(info.status, "value") else str(info.status),
-                        optimizer_status=(
-                            str(info.optimizer_status.value)
-                            if hasattr(info.optimizer_status, "value")
-                            else str(info.optimizer_status)
-                        ),
-                        hnsw_m=hnsw_cfg.m if hnsw_cfg else None,
-                        hnsw_ef_construct=hnsw_cfg.ef_construct if hnsw_cfg else None,
-                        on_disk_payload=info.config.params.on_disk_payload if info.config.params else None,
-                        vector_size=vectors_cfg.size if vectors_cfg else None,
-                        distance=(
-                            str(vectors_cfg.distance.value)
-                            if vectors_cfg and hasattr(vectors_cfg.distance, "value")
-                            else str(vectors_cfg.distance)
-                            if vectors_cfg
-                            else None
-                        ),
-                    )
-                )
-        except Exception as e:
-            qdrant_status = f"error: {e}"
-
+async def vectordb_info(
+    admin: dict = Depends(require_admin),
+    admin_service: ConfigAdminService = Depends(create_config_admin_service),
+):
+    info = admin_service.get_vectordb_info()
     return VectorDBInfoResponse(
-        collections=collections,
-        active_collection=settings.collection_name,
-        qdrant_status=qdrant_status,
+        collections=[
+            VectorDBCollectionInfo(
+                name=c.name,
+                points_count=c.points_count,
+                vectors_count=c.vectors_count,
+                indexed_vectors_count=c.indexed_vectors_count,
+                segments_count=c.segments_count,
+                status=c.status,
+                optimizer_status=c.optimizer_status,
+                hnsw_m=c.hnsw_m,
+                hnsw_ef_construct=c.hnsw_ef_construct,
+                on_disk_payload=c.on_disk_payload,
+                vector_size=c.vector_size,
+                distance=c.distance,
+            )
+            for c in info.collections
+        ],
+        active_collection=info.active_collection,
+        qdrant_status=info.qdrant_status,
     )

@@ -5,7 +5,8 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from domain.repositories.background_job_repository import BackgroundJob
-from sqlalchemy import delete, func, select
+from domain.value_objects.job_status import BackgroundJobStatus
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.database.models import BackgroundJobModel
@@ -33,7 +34,7 @@ class SQLAlchemyBackgroundJobRepository:
         result = await self._db.execute(select(BackgroundJobModel).where(BackgroundJobModel.id == job_id))
         orm = result.scalar_one_or_none()
         if orm:
-            orm.status = "running"
+            orm.status = BackgroundJobStatus.RUNNING.value
             orm.started_at = datetime.now(tz=UTC)
             await self._db.flush()
 
@@ -41,7 +42,7 @@ class SQLAlchemyBackgroundJobRepository:
         result = await self._db.execute(select(BackgroundJobModel).where(BackgroundJobModel.id == job_id))
         orm = result.scalar_one_or_none()
         if orm:
-            orm.status = "done"
+            orm.status = BackgroundJobStatus.DONE.value
             orm.finished_at = datetime.now(tz=UTC)
             await self._db.flush()
 
@@ -49,7 +50,7 @@ class SQLAlchemyBackgroundJobRepository:
         result = await self._db.execute(select(BackgroundJobModel).where(BackgroundJobModel.id == job_id))
         orm = result.scalar_one_or_none()
         if orm:
-            orm.status = "failed"
+            orm.status = BackgroundJobStatus.FAILED.value
             orm.finished_at = datetime.now(tz=UTC)
             orm.error_message = error
             await self._db.flush()
@@ -58,7 +59,14 @@ class SQLAlchemyBackgroundJobRepository:
         result = await self._db.execute(
             select(func.count())
             .select_from(BackgroundJobModel)
-            .where(BackgroundJobModel.status.in_(["pending", "running"]))
+            .where(
+                BackgroundJobModel.status.in_(
+                    [
+                        BackgroundJobStatus.PENDING.value,
+                        BackgroundJobStatus.RUNNING.value,
+                    ]
+                )
+            )
         )
         return result.scalar_one() or 0
 
@@ -115,3 +123,20 @@ class SQLAlchemyBackgroundJobRepository:
             select(BackgroundJobModel.status, func.count()).group_by(BackgroundJobModel.status)
         )
         return {row[0]: row[1] for row in result.all()}
+
+    async def recover_orphaned(self, timeout_minutes: int = 15) -> list[int]:
+        result = await self._db.execute(
+            text(
+                """
+                UPDATE background_jobs
+                SET status = 'failed',
+                    error_message = 'Worker died or restarted — task orphaned',
+                    finished_at = NOW()
+                WHERE status = 'running'
+                  AND started_at < NOW() - make_interval(mins => :timeout)
+                RETURNING id
+                """
+            ),
+            {"timeout": timeout_minutes},
+        )
+        return [row[0] for row in result.fetchall()]

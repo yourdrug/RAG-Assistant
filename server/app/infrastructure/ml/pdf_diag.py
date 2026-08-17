@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import fitz
+from domain.value_objects.page_content_type import PageContentType
 
 logger = logging.getLogger("default")
 
@@ -109,18 +110,18 @@ def classify_page(text: str, chars: int, page=None) -> tuple[str, str]:
     if chars == 0:
         # Check if page has tables (tables may have no extracted text layer)
         if page is not None and _page_has_tables(page):
-            return "table", "таблица (без текстового слоя)"
-        return "empty", "пустая"
+            return PageContentType.TABLE.value, "таблица (без текстового слоя)"
+        return PageContentType.EMPTY.value, "пустая"
     if chars < 50:
         if page is not None and _page_has_tables(page):
-            return "table", "таблица"
-        return "scan", f"скан/изображение ({chars} симв)"
+            return PageContentType.TABLE.value, "таблица"
+        return PageContentType.SCAN.value, f"скан/изображение ({chars} симв)"
     if is_garbled(text):
         # Check if it's actually a table (pipes + dashes)
         if page is not None and _page_has_tables(page):
-            return "table", "таблица"
-        return "garbled", f"мусорный текст ({chars} симв)"
-    return "text", f"текст ({chars} симв)"
+            return PageContentType.TABLE.value, "таблица"
+        return PageContentType.GARBLED.value, f"мусорный текст ({chars} симв)"
+    return PageContentType.TEXT.value, f"текст ({chars} симв)"
 
 
 def check_pdf(pdf_path: Path, dump: bool = False, chunk_size: int = 512, chunk_overlap: int = 128) -> dict:
@@ -145,10 +146,10 @@ def check_pdf(pdf_path: Path, dump: bool = False, chunk_size: int = 512, chunk_o
                 "text": text,
             }
         )
-        if ptype != "text" or i < 3:
+        if ptype != PageContentType.TEXT.value or i < 3:
             logger.info("  стр.%d: %s", i + 1, desc)
-        elif i == 3 and all(p["type"] == "text" for p in page_stats):
-            remaining_text = sum(1 for p in page_stats[3:] if p["type"] == "text")
+        elif i == 3 and all(p["type"] == PageContentType.TEXT.value for p in page_stats):
+            remaining_text = sum(1 for p in page_stats[3:] if p["type"] == PageContentType.TEXT.value)
             logger.info(
                 "  стр.4-%d: текст (%d страниц OK)", total_pages, remaining_text + len(page_stats) - 3
             )
@@ -157,11 +158,11 @@ def check_pdf(pdf_path: Path, dump: bool = False, chunk_size: int = 512, chunk_o
     doc.close()
 
     types = [p["type"] for p in page_stats]
-    n_text = types.count("text")
-    n_scan = types.count("scan")
-    n_garbled = types.count("garbled")
-    n_empty = types.count("empty")
-    n_table = types.count("table")
+    n_text = types.count(PageContentType.TEXT.value)
+    n_scan = types.count(PageContentType.SCAN.value)
+    n_garbled = types.count(PageContentType.GARBLED.value)
+    n_empty = types.count(PageContentType.EMPTY.value)
+    n_table = types.count(PageContentType.TABLE.value)
 
     total_chars = sum(p["chars"] for p in page_stats)
     avg_chars = total_chars // max(n_text, 1)
@@ -201,7 +202,9 @@ def check_pdf(pdf_path: Path, dump: bool = False, chunk_size: int = 512, chunk_o
     else:
         logger.info("  PDF читается нормально, проблем не обнаружено")
 
-    full_text = "\n\n".join(p["text"] for p in page_stats if p["type"] == "text" and p["text"].strip())
+    full_text = "\n\n".join(
+        p["text"] for p in page_stats if p["type"] == PageContentType.TEXT.value and p["text"].strip()
+    )
     if full_text:
         chunks = simple_chunk(full_text, chunk_size, chunk_overlap)
         logger.info("")

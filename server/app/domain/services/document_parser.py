@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Protocol
 
 from domain.entities.raw_document import RawDocument
+from domain.value_objects.doc_domain import DocDomain
 
 
 class DocumentParser(Protocol):
@@ -22,4 +23,4 @@ class DocumentParser(Protocol):
 class DocumentSplitter(Protocol):
     """Splits documents into chunks for embedding."""
 
-    def split(self, documents: list[RawDocument], domain: str = "general") -> list[RawDocument]: ...
+    def split(self, documents: list[RawDocument], domain: str = DocDomain.GENERAL.value) -> list[RawDocument]: ...

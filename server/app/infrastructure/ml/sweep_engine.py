@@ -18,6 +18,7 @@ from collections.abc import Callable
 
 from config import settings
 from domain.entities.benchmark_sweep import BenchmarkSweep
+from domain.value_objects.benchmark_strategy import BenchmarkStrategy
 from langchain.schema import Document as LCDocument
 
 from infrastructure.clients import get_bm25_index, get_embeddings, get_qdrant_client
@@ -177,12 +178,12 @@ class SweepEngine:
         eval_questions = [q for q in questions_data if q.get("source_hint") is not None]
 
         # Generate parameter points based on strategy
-        if strategy == "grid":
+        if strategy == BenchmarkStrategy.GRID.value:
             all_points = generate_grid_points(search_space)
-        elif strategy == "random":
+        elif strategy == BenchmarkStrategy.RANDOM.value:
             n_random = search_space.get("_n_random", 50)
             all_points = generate_random_points(search_space, n_random)
-        elif strategy == "successive_halving":
+        elif strategy == BenchmarkStrategy.SUCCESSIVE_HALVING.value:
             all_points = generate_grid_points(search_space)
         else:
             raise ValueError(f"Unknown strategy: {strategy}")

@@ -5,7 +5,6 @@ is written from scratch with zero external dependencies beyond stdlib.  Includes
 a lightweight Russian suffix stemmer for better sparse recall on Cyrillic text.
 """
 
-import hashlib
 import json
 import logging
 import math
@@ -15,10 +14,8 @@ from pathlib import Path
 log = logging.getLogger("default")
 
 
-def content_hash(text: str) -> str:
-    """Deterministic short hash for merge key between dense and sparse results."""
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
-
+# Re-export from domain for backward compatibility — canonical implementation lives in domain/utils.py
+from domain.utils import content_hash  # noqa: E402, F401
 
 # ---------------------------------------------------------------------------
 # Lightweight Russian stemmer (suffix stripping)

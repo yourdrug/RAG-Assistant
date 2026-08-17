@@ -45,6 +45,11 @@ _DYNAMIC_FIELDS: dict[str, tuple[str, type]] = {
     "rrf_k": ("rrf_k", int),
     "dense_weight": ("dense_weight", float),
     "sparse_weight": ("sparse_weight", float),
+    # --- Reranker / query-time filters ---
+    "rerank_min_score": ("rerank_min_score", float),
+    "rerank_score_gap_ratio": ("rerank_score_gap_ratio", float),
+    "citation_filter_enabled": ("citation_filter_enabled", bool),
+    "exact_ref_sparse_boost": ("exact_ref_sparse_boost", float),
     # --- Ingestion ---
     "embed_batch_size": ("embed_batch_size", int),
     # --- Relevance gate ---

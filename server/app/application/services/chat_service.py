@@ -12,17 +12,19 @@ import logging
 import time
 from collections.abc import AsyncIterator
 
-from config import settings
 from domain.entities.chat_log import ChatLog
 from domain.entities.message import Message
 from domain.value_objects.chat_context import ChatContext
+from domain.value_objects.doc_domain import DocDomain
+from domain.value_objects.llm_provider import Breadth
 from domain.value_objects.message_role import MessageRole
 from domain.value_objects.roles import UserKind
 from domain.value_objects.stream_events import MetaEvent, SourcesEvent, StreamEvent, TextChunk
 
 from application.dto.chat_dto import ChatResult
+from application.ports.chat_rag_port import ChatRAGPort
+from application.ports.chat_support import RollingSummaryUpdaterPort
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
-from application.services.chat_rag_port import ChatRAGPort
 
 log = logging.getLogger(__name__)
 
@@ -33,10 +35,14 @@ class ChatService:
         uow_factory: UnitOfWorkFactory,
         rag_service: ChatRAGPort,
         history_window: int = 8,
+        rolling_summary_enabled: bool = False,
+        summary_updater: RollingSummaryUpdaterPort | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._rag_service = rag_service
         self._history_window = history_window
+        self._rolling_summary_enabled = rolling_summary_enabled
+        self._summary_updater = summary_updater
 
     async def _get_user_context(self, user_id: int, user_kind: str) -> tuple[list[int], list[int]]:
         async with self._uow_factory.create() as uow:
@@ -161,31 +167,29 @@ class ChatService:
             answer=full_answer,
             sources=sources,
             latency_ms=latency_ms,
-            breadth=depth or "narrow",
-            domain="general",
+            breadth=depth or Breadth.NARROW.value,
+            domain=DocDomain.GENERAL.value,
             retrieval_count=retrieval_count,
             reranker_score=reranker_score,
             model_used=None,
         )
 
         # Rolling summary: fire-and-forget when history exceeds window
-        if settings.rolling_summary_enabled and len(history) >= self._history_window:
+        if self._rolling_summary_enabled and len(history) >= self._history_window:
             recent_turns = [
                 {"role": "user", "content": question},
                 {"role": "assistant", "content": full_answer},
             ]
             conv_id = conv.id
+            updater = self._summary_updater
 
             async def _bg_update_summary() -> None:
                 try:
-                    from infrastructure.clients import get_llm
-                    from infrastructure.ml.rag import update_rolling_summary
-
                     async with self._uow_factory.create() as uow:
                         conv_model = await uow.conversations.get(conv_id)
-                        if conv_model is not None:
+                        if conv_model is not None and updater is not None:
                             existing = getattr(conv_model, "summary", None)
-                            new_summary = await update_rolling_summary(get_llm(), existing, recent_turns)
+                            new_summary = await updater.update(existing, recent_turns)
                             conv_model.summary = new_summary
                             await uow.conversations.save(conv_model)
                 except Exception:

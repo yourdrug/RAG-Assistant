@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from domain.value_objects.benchmark_strategy import BenchmarkStrategy
+from domain.value_objects.doc_domain import DocDomain
+from domain.value_objects.search_mode import SearchMode
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------
@@ -476,7 +479,7 @@ class ChatLogsResponse(BaseModel):
 class ExactSearchRequest(BaseModel):
     query: str = Field(..., min_length=3, max_length=200, description="Search query (min 3 chars)")
     mode: str = Field(
-        "exact", pattern="^(exact|icontains)$", description="exact=pg_trgm ranked, icontains=plain ILIKE"
+        SearchMode.EXACT.value, pattern="^(exact|icontains)$", description="exact=pg_trgm ranked, icontains=plain ILIKE"
     )
     limit: int = Field(20, ge=1, le=100)
     document_id: int | None = Field(None, description="Filter by document ID (optional)")
@@ -508,7 +511,7 @@ class ChunkResponse(BaseModel):
     content: str
     filename: str = ""
     visibility: str = ""
-    doc_domain: str = "general"
+    doc_domain: str = DocDomain.GENERAL.value
     owner_id: int | None = None
     group_id: int | None = None
     edited_at: str | None = None
@@ -596,7 +599,7 @@ class BenchmarkQuestionsImportResponse(BaseModel):
 
 
 class SweepCreateRequest(BaseModel):
-    strategy: str = Field("grid", pattern="^(grid|random|successive_halving)$")
+    strategy: str = Field(BenchmarkStrategy.GRID.value, pattern="^(grid|random|successive_halving)$")
     search_space: dict
     objective_weights: dict = Field(
         default_factory=lambda: {"hit_rate": 0.4, "faithfulness": 0.3, "relevancy": 0.3}

@@ -12,7 +12,7 @@ import logging
 import os
 from typing import Any
 
-from presentation.api.middleware.request_id import request_id_ctx
+from cross_cutting import request_id_ctx
 from pythonjsonlogger.json import JsonFormatter
 
 

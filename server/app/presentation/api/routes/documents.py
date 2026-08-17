@@ -7,8 +7,11 @@ from pathlib import Path
 
 from application.services.document_service import DocumentService
 from config import settings
+from domain.value_objects.doc_domain import DocDomain
+from domain.value_objects.document_status import DocumentStatus
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from infrastructure.logging.actions import log_action
+from infrastructure.uow_factory import UnitOfWorkFactory
 from infrastructure.worker.queue import enqueue_document_processing
 
 from presentation.api.auth_dependencies import get_current_user
@@ -70,11 +73,12 @@ async def upload_document(
     rename_on_conflict: bool = Form(False),
     doc_domain: str | None = Form(None),
     document_service: DocumentService = Depends(create_document_service),
+    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
 ):
     filename = file.filename or "unnamed"
     ext = Path(filename).suffix.lower()
 
-    if doc_domain is not None and doc_domain not in ("legal", "general"):
+    if doc_domain is not None and doc_domain not in [d.value for d in DocDomain]:
         raise HTTPException(status_code=400, detail="doc_domain must be 'legal' or 'general'")
 
     max_bytes = settings.max_upload_size_mb * 1024 * 1024
@@ -106,7 +110,7 @@ async def upload_document(
         details={"filename": filename, "visibility": visibility},
     )
 
-    job_id = await create_background_job(get_uow_factory(), "document_processing", related_id=result.id)
+    job_id = await create_background_job(uow_factory, "document_processing", related_id=result.id)
 
     await enqueue_document_processing(
         document_id=result.id,
@@ -120,7 +124,7 @@ async def upload_document(
         job_id=job_id,
     )
 
-    return UploadStatusResponse(status="processing", document_id=result.id, filename=filename)
+    return UploadStatusResponse(status=DocumentStatus.PROCESSING.value, document_id=result.id, filename=filename)
 
 
 @router.get("/documents", response_model=list[DocumentResponse])

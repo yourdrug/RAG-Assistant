@@ -17,11 +17,38 @@ from application.dto.chat_dto import RagResult
 from config import settings
 from domain.services.rag_policy import classify_query_domain, has_exact_reference
 from domain.value_objects.chat_context import ChatContext
+from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.llm_provider import BREADTH_ALIASES, Breadth
 from domain.value_objects.rag_settings import RagSettings
+from domain.value_objects.search_mode import SearchMode
 from domain.value_objects.stream_events import SourcesEvent, StreamEvent, TextChunk
 from langchain.schema import Document as LCDocument
 from qdrant_client.models import FieldCondition, Filter, MatchValue
+
+
+def _build_rag_settings() -> RagSettings:
+    """Build RagSettings from the global config (infrastructure concern)."""
+    return RagSettings(
+        retriever_fetch_k=settings.retriever_fetch_k,
+        retriever_top_k=settings.retriever_top_k,
+        retriever_fetch_k_broad=settings.retriever_fetch_k_broad,
+        retriever_top_k_broad=settings.retriever_top_k_broad,
+        hybrid_enabled=settings.hybrid_enabled,
+        bm25_fetch_k=settings.bm25_fetch_k,
+        rrf_k=settings.rrf_k,
+        dense_weight=settings.dense_weight,
+        sparse_weight=settings.sparse_weight,
+        rerank_min_score=settings.rerank_min_score,
+        rerank_score_gap_ratio=settings.rerank_score_gap_ratio,
+        source_min_score=settings.source_min_score,
+        citation_filter_enabled=settings.citation_filter_enabled,
+        relevance_gate_enabled=settings.relevance_gate_enabled,
+        condense_enabled=settings.condense_enabled,
+        decomposition_enabled=settings.decomposition_enabled,
+        rolling_summary_enabled=settings.rolling_summary_enabled,
+        cache_enabled=settings.cache_enabled,
+    )
+
 
 from infrastructure.acl import build_qdrant_filter, with_domain_filter
 from infrastructure.clients import (
@@ -198,7 +225,7 @@ class RagService:
         history: list,
         ctx: ChatContext,
     ) -> AsyncIterator[StreamEvent]:
-        rag = RagSettings.from_settings()
+        rag = _build_rag_settings()
         t_pipeline_start = time.monotonic()
 
         user = {"id": ctx.user_id, "kind": ctx.user_kind}
@@ -240,7 +267,9 @@ class RagService:
                 log.info("Cache hit for question hash=%s", q_hash[:12])
                 answer_text = cached["answer"]
                 yield TextChunk(text=answer_text)
-                record_rag_answer(breadth="narrow", answer=answer_text, retrieved_count=0, avg_similarity=0.0)
+                record_rag_answer(
+                    breadth=Breadth.NARROW.value, answer=answer_text, retrieved_count=0, avg_similarity=0.0
+                )
                 RAG_STAGE_DURATION.labels("total").observe(time.monotonic() - t_pipeline_start)
                 yield SourcesEvent(sources=cached["sources"], confidence=None)
                 return
@@ -272,8 +301,8 @@ class RagService:
         query_domain = classify_query_domain(query_for_search)
         candidates: list[LCDocument] = []
 
-        if query_domain == "legal":
-            legal_filter = with_domain_filter(access_filter, "legal")
+        if query_domain == DocDomain.LEGAL.value:
+            legal_filter = with_domain_filter(access_filter, DocDomain.LEGAL.value)
             candidates = await _run_hybrid_search(
                 query_for_search,
                 fetch_k,
@@ -314,7 +343,7 @@ class RagService:
                     group_ids=ctx.user_group_ids,
                     assigned_client_ids=ctx.assigned_client_ids,
                     limit=5,
-                    mode="exact",
+                    mode=SearchMode.EXACT.value,
                 )
                 if exact_results:
                     existing_hashes = {content_hash(d.page_content) for d in candidates}
@@ -385,7 +414,7 @@ class RagService:
             RAG_RELEVANCE_GATE_TOTAL.labels(result="passed").inc()
 
         # --- Prompt adaptation based on actual context composition ---
-        has_legal_context = any((doc.metadata.get("doc_domain") == "legal") for doc, _ in docs)
+        has_legal_context = any((doc.metadata.get("doc_domain") == DocDomain.LEGAL.value) for doc, _ in docs)
         prompt = build_prompt(breadth, has_legal_context=has_legal_context)
 
         # --- Dynamic context budget ---
@@ -453,7 +482,7 @@ class RagService:
         answer_parts: list[str] = []
         sources: list[dict] = []
         breadth = Breadth.NARROW
-        domain = "general"
+        domain = DocDomain.GENERAL.value
         retrieval_count = 0
         reranker_score: float | None = None
 

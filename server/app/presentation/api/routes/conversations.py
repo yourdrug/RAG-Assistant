@@ -1,13 +1,12 @@
-"""Conversation endpoints — thin wrappers around ConversationRepository."""
+"""Conversation endpoints — thin wrappers around ConversationService."""
 
 from __future__ import annotations
 
-from application.uow import UnitOfWork
-from domain.value_objects.roles import UserRole
+from application.services.conversation_service import ConversationService
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from presentation.api.auth_dependencies import get_current_user
-from presentation.api.dependencies import get_uow
+from presentation.api.dependencies import get_conversation_service
 from presentation.api.schemas import (
     ConversationHistoryResponse,
     ConversationListItem,
@@ -22,11 +21,11 @@ router = APIRouter(prefix="/conversations", tags=["conversations"])
 @router.get("", response_model=ConversationListResponse)
 async def list_conversations(
     current_user: dict = Depends(get_current_user),
-    uow: UnitOfWork = Depends(get_uow),
+    service: ConversationService = Depends(get_conversation_service),
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
 ):
-    items = await uow.conversations.list_by_user(current_user["id"], limit=limit, offset=offset)
+    items = await service.list_by_user(current_user["id"], limit=limit, offset=offset)
     return ConversationListResponse(
         conversations=[
             ConversationListItem(
@@ -43,9 +42,9 @@ async def list_conversations(
 @router.post("", response_model=NewConversationResponse)
 async def new_conversation(
     current_user: dict = Depends(get_current_user),
-    uow: UnitOfWork = Depends(get_uow),
+    service: ConversationService = Depends(get_conversation_service),
 ):
-    conv = await uow.conversations.create(current_user["id"])
+    conv = await service.create(current_user["id"])
     return NewConversationResponse(conversation_id=conv.id)
 
 
@@ -53,15 +52,21 @@ async def new_conversation(
 async def get_conversation_history(
     conversation_id: int,
     current_user: dict = Depends(get_current_user),
-    uow: UnitOfWork = Depends(get_uow),
+    service: ConversationService = Depends(get_conversation_service),
 ):
-    owner_id = await uow.conversations.get_owner_id(conversation_id)
-    if owner_id is None:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-    if owner_id != current_user["id"] and current_user["role"] != UserRole.ADMIN:
-        raise HTTPException(status_code=403, detail="Not your conversation")
+    try:
+        messages = await service.get_history(
+            conversation_id, current_user["id"], current_user["role"]
+        )
+    except Exception as e:
+        from domain.exceptions import EntityNotFound, PermissionDeniedError
 
-    messages = await uow.messages.get_history(conversation_id, window=100)
+        if isinstance(e, EntityNotFound):
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        if isinstance(e, PermissionDeniedError):
+            raise HTTPException(status_code=403, detail="Not your conversation")
+        raise
+
     msg_responses = [
         MessageResponse(
             id=m.id,

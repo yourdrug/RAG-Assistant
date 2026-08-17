@@ -24,7 +24,7 @@ from pathlib import Path
 
 from config import settings
 from domain.services.rag_policy import build_system_prompt
-from domain.value_objects.llm_provider import LLMProvider
+from domain.value_objects.llm_provider import Breadth, LLMProvider
 from langchain.schema import Document
 from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
@@ -196,7 +196,7 @@ ANSWER_PROMPT_TEMPLATE = """\
 
 def get_rag_answer(llm: ChatOllama, docs_with_scores: list[tuple[Document, float]], question: str) -> str:
     """Generate answer using the production system prompt and formatted context."""
-    system_prompt = build_system_prompt(breadth="narrow")
+    system_prompt = build_system_prompt(breadth=Breadth.NARROW.value)
 
     from infrastructure.ml.rag import format_docs
 

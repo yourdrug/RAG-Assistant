@@ -19,6 +19,8 @@ from domain.entities.chunk import Chunk
 from domain.entities.document import Document as DocEntity
 from domain.repositories.vector_store_repository import VectorStoreRepository
 from domain.services.document_domain_classifier import classify_document_domain
+from domain.value_objects.doc_domain import DocDomain
+from domain.value_objects.file_backend import FileBackend
 from domain.value_objects.visibility import DocumentVisibility
 from langchain.schema import Document
 
@@ -41,7 +43,9 @@ log = logging.getLogger("default")
 
 def _tag_internal_public(chunks: list) -> None:
     for c in chunks:
-        c.metadata.update({"visibility": "internal_public", "owner_id": None, "group_id": None})
+        c.metadata.update(
+            {"visibility": DocumentVisibility.INTERNAL_PUBLIC.value, "owner_id": None, "group_id": None}
+        )
 
 
 def _tag_domain(chunks: list, doc_domain: str) -> None:
@@ -81,7 +85,7 @@ class IngestionService:
         log.info("=" * 55)
         log.info("RAG Ingestion  |  mode: %s", "RESET" if reset else "APPEND")
         log.info("backend  : %s", settings.file_backend)
-        if settings.file_backend == "s3":
+        if settings.file_backend == FileBackend.S3.value:
             log.info("prefix   : %s (bucket: %s)", prefix or "docs/", settings.s3_bucket)
         else:
             log.info("docs_dir : %s", docs_dir)
@@ -113,14 +117,16 @@ class IngestionService:
             src = doc.metadata.get("source", "")
             if src not in source_domain:
                 if domain == "auto":
-                    source_domain[src] = classify_document_domain(doc.page_content)
+                    source_domain[src] = classify_document_domain(
+                        doc.page_content, threshold=settings.document_domain_marker_threshold
+                    )
                 else:
                     source_domain[src] = domain
                 log.info("doc_domain=%s for source=%s", source_domain[src], src)
 
         for chunk in chunks:
             src = chunk.metadata.get("source", "")
-            _tag_domain([chunk], source_domain.get(src, "general"))
+            _tag_domain([chunk], source_domain.get(src, DocDomain.GENERAL.value))
 
         await self._upload_chunks_to_vector_store(chunks)
 
@@ -132,7 +138,7 @@ class IngestionService:
             if src.startswith("s3://"):
                 fname = Path(src).name
                 file_info = None
-                if settings.file_backend == "s3":
+                if settings.file_backend == FileBackend.S3.value:
                     key = "/".join(src.split("/")[3:])
                     file_info = self._file_storage.get_file_info(key)
                 if file_info:
@@ -188,7 +194,9 @@ class IngestionService:
                     owner = first_chunk.metadata.get("owner_id") if first_chunk else None
                     group = first_chunk.metadata.get("group_id") if first_chunk else None
                     chunk_domain = (
-                        first_chunk.metadata.get("doc_domain", "general") if first_chunk else "general"
+                        first_chunk.metadata.get("doc_domain", DocDomain.GENERAL.value)
+                        if first_chunk
+                        else DocDomain.GENERAL.value
                     )
                     await uow.chunks.bulk_insert(
                         document_id=doc_id,
@@ -238,7 +246,7 @@ class IngestionService:
 
         registry = load_registry(data_dir)
 
-        if settings.file_backend == "s3":
+        if settings.file_backend == FileBackend.S3.value:
             key = file_path
             file_info = self._file_storage.get_file_info(key)
             if file_info is None:
@@ -263,7 +271,9 @@ class IngestionService:
 
                 if domain == "auto":
                     full_text = "\n".join(d.page_content for d in docs)
-                    file_domain = classify_document_domain(full_text)
+                    file_domain = classify_document_domain(
+                        full_text, threshold=settings.document_domain_marker_threshold
+                    )
                 else:
                     file_domain = domain
                 log.info("doc_domain=%s for %s", file_domain, file_info.filename)
@@ -310,7 +320,9 @@ class IngestionService:
 
             if domain == "auto":
                 full_text = "\n".join(d.page_content for d in docs)
-                file_domain = classify_document_domain(full_text)
+                file_domain = classify_document_domain(
+                    full_text, threshold=settings.document_domain_marker_threshold
+                )
             else:
                 file_domain = domain
             log.info("doc_domain=%s for %s", file_domain, path.name)
@@ -336,7 +348,7 @@ class IngestionService:
         await self._vector_store.ensure_collection(vector_size, reset=False)
 
         merged = merge_pdf_pages(docs)
-        if domain == "legal":
+        if domain == DocDomain.LEGAL.value:
             chunks = split_documents_legal(merged)
         else:
             chunks = split_documents(merged)
@@ -374,7 +386,7 @@ class IngestionService:
         return resolved
 
     def resolve_ingest_target(self, file_path: str) -> str:
-        if settings.file_backend == "s3":
+        if settings.file_backend == FileBackend.S3.value:
             if file_path.startswith("/") or ".." in Path(file_path).parts:
                 raise ValueError("file_path must not contain '..' or be absolute (S3 key)")
             return file_path
@@ -386,7 +398,7 @@ class IngestionService:
         return str(resolved)
 
     def resolve_docs_dir(self, docs_dir: str) -> str:
-        if settings.file_backend == "s3":
+        if settings.file_backend == FileBackend.S3.value:
             return docs_dir
 
         base = Path(settings.data_dir).resolve()
@@ -463,7 +475,7 @@ class IngestionService:
         force: bool = False,
         prefix: str | None = None,
     ) -> tuple[list, int]:
-        if settings.file_backend == "s3":
+        if settings.file_backend == FileBackend.S3.value:
             s3_prefix = prefix or "docs/"
             items = self._file_storage.list_files(s3_prefix)
             log.info("Found %d files in s3://%s/%s", len(items), settings.s3_bucket, s3_prefix)
@@ -482,7 +494,7 @@ class IngestionService:
 
         documents, skipped_cached, ok, errors = [], 0, 0, 0
 
-        if settings.file_backend == "s3":
+        if settings.file_backend == FileBackend.S3.value:
             for i, file_item in enumerate(items, 1):
                 tag = f"[{i:>3}/{len(items)}]"
                 if not force and is_already_indexed(file_item, registry):
