@@ -12,6 +12,7 @@ import logging
 import time
 from collections.abc import AsyncIterator
 
+from config import settings
 from domain.entities.chat_log import ChatLog
 from domain.entities.message import Message
 from domain.value_objects.chat_context import ChatContext
@@ -168,7 +169,7 @@ class ChatService:
         )
 
         # Rolling summary: fire-and-forget when history exceeds window
-        if len(history) >= self._history_window:
+        if settings.rolling_summary_enabled and len(history) >= self._history_window:
             recent_turns = [
                 {"role": "user", "content": question},
                 {"role": "assistant", "content": full_answer},

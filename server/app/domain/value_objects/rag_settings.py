@@ -27,7 +27,9 @@ class RagSettings:
     source_min_score: float
     citation_filter_enabled: bool
     relevance_gate_enabled: bool
+    condense_enabled: bool
     decomposition_enabled: bool
+    rolling_summary_enabled: bool
     cache_enabled: bool
 
     @classmethod
@@ -47,6 +49,8 @@ class RagSettings:
             source_min_score=settings.source_min_score,
             citation_filter_enabled=settings.citation_filter_enabled,
             relevance_gate_enabled=settings.relevance_gate_enabled,
+            condense_enabled=settings.condense_enabled,
             decomposition_enabled=settings.decomposition_enabled,
+            rolling_summary_enabled=settings.rolling_summary_enabled,
             cache_enabled=settings.cache_enabled,
         )

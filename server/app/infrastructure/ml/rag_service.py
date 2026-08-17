@@ -222,7 +222,10 @@ class RagService:
         history_messages = history_to_messages(history_dicts)
 
         t0 = time.monotonic()
-        query_for_search = await condense_question(get_llm(), question, history_messages)
+        if rag.condense_enabled:
+            query_for_search = await condense_question(get_llm(), question, history_messages)
+        else:
+            query_for_search = question
         RAG_STAGE_DURATION.labels("condense").observe(time.monotonic() - t0)
 
         # --- Semantic answer cache ---

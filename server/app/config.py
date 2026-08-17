@@ -150,8 +150,14 @@ class Settings(BaseSettings):
     # --- Relevance gate (Self-RAG-lite) ---
     relevance_gate_enabled: bool = False
 
+    # --- Query condensation (rewrite follow-up questions) ---
+    condense_enabled: bool = True
+
     # --- Query decomposition ---
     decomposition_enabled: bool = False
+
+    # --- Rolling summary for long dialogs ---
+    rolling_summary_enabled: bool = True
 
     # --- Semantic answer cache ---
     cache_enabled: bool = False

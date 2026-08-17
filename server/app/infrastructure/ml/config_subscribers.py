@@ -49,8 +49,12 @@ _DYNAMIC_FIELDS: dict[str, tuple[str, type]] = {
     "embed_batch_size": ("embed_batch_size", int),
     # --- Relevance gate ---
     "relevance_gate_enabled": ("relevance_gate_enabled", bool),
+    # --- Condense (rewrite follow-up questions) ---
+    "condense_enabled": ("condense_enabled", bool),
     # --- Decomposition ---
     "decomposition_enabled": ("decomposition_enabled", bool),
+    # --- Rolling summary ---
+    "rolling_summary_enabled": ("rolling_summary_enabled", bool),
     # --- Cache ---
     "cache_enabled": ("cache_enabled", bool),
     # --- LLM ---
