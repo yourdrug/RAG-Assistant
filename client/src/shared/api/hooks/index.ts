@@ -6,7 +6,27 @@ export {
 } from "./use-admin";
 export { useClientApiKeys, useCreateClientApiKey, useRevokeClientApiKey } from "./use-api-keys";
 export { useCreateUser, useCurrentUser, useLogin, useToggleUserActive, useUsers } from "./use-auth";
-export { useBenchmark, useBenchmarkResult, useBenchmarkResults } from "./use-benchmark";
+export {
+  useApplyRunConfig,
+  useBenchmark,
+  useBenchmarkHistory,
+  useBenchmarkQuestions,
+  useBenchmarkResult,
+  useBenchmarkResults,
+  useBenchmarkRun,
+  useBenchmarkRuns,
+  useCancelSweep,
+  useCompareRuns,
+  useCreateBenchmarkQuestion,
+  useCreateSweep,
+  useDeleteBenchmarkQuestion,
+  useExportBenchmarkQuestions,
+  useImportBenchmarkQuestions,
+  useSourceFiles,
+  useSweep,
+  useSweeps,
+  useUpdateBenchmarkQuestion,
+} from "./use-benchmark";
 export { useChatLogs } from "./use-chat-logs";
 export {
   useAddChunk,

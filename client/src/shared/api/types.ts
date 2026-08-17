@@ -407,3 +407,119 @@ export interface ExactSearchResponse {
   results: ExactSearchResult[];
   total: number;
 }
+
+// ─── Benchmark Lab ────────────────────────────────────────────────────────
+
+export interface BenchmarkQuestion {
+  id: number;
+  question: string;
+  expected_answer?: string | null;
+  source_hint?: string | null;
+  tags?: string[] | null;
+  dataset: string;
+  is_active: boolean;
+  created_by?: number | null;
+  notes?: string | null;
+  creation_date?: string | null;
+}
+
+export interface BenchmarkQuestionsListResponse {
+  questions: BenchmarkQuestion[];
+  total: number;
+}
+
+export interface BenchmarkQuestionCreate {
+  question: string;
+  expected_answer?: string | null;
+  source_hint?: string | null;
+  tags?: string[] | null;
+  dataset?: string;
+  notes?: string | null;
+}
+
+export interface BenchmarkQuestionUpdate {
+  question?: string | null;
+  expected_answer?: string | null;
+  source_hint?: string | null;
+  tags?: string[] | null;
+  dataset?: string | null;
+  is_active?: boolean | null;
+  notes?: string | null;
+}
+
+export interface SweepCreateRequest {
+  strategy: "grid" | "random" | "successive_halving";
+  search_space: Record<string, { values?: number[]; min?: number; max?: number; step?: number }>;
+  objective_weights?: Record<string, number>;
+  dataset?: string;
+  top_n_llm?: number;
+}
+
+export interface SweepResponse {
+  id: number;
+  status: "pending" | "running" | "done" | "failed" | "cancelled";
+  strategy: string;
+  search_space: Record<string, any>;
+  objective_weights: Record<string, number>;
+  dataset: string;
+  top_n_llm: number;
+  total_configs: number;
+  evaluated_configs: number;
+  best_run_id?: number | null;
+  job_id?: number | null;
+  creation_date?: string | null;
+}
+
+export interface SweepsListResponse {
+  sweeps: SweepResponse[];
+  total: number;
+}
+
+export interface BenchmarkRun {
+  id: number;
+  sweep_id?: number | null;
+  config_json: Record<string, any>;
+  summary_metrics: Record<string, any>;
+  duration_sec: number;
+  llm_evaluated: boolean;
+  dataset: string;
+  filename?: string | null;
+  creation_date?: string | null;
+}
+
+export interface BenchmarkRunsListResponse {
+  runs: BenchmarkRun[];
+  total: number;
+}
+
+export interface RunCompareResponse {
+  runs: BenchmarkRun[];
+  diff: Record<string, Array<{ run_id: number; value: any }>>;
+}
+
+export interface BenchmarkHistoryPoint {
+  run_id: number;
+  creation_date?: string | null;
+  metrics: Record<string, any>;
+  config_summary: Record<string, any>;
+  dataset: string;
+  llm_evaluated: boolean;
+}
+
+export interface BenchmarkHistoryResponse {
+  points: BenchmarkHistoryPoint[];
+  total: number;
+}
+
+export interface SweepProgressEvent {
+  evaluated: number;
+  total: number;
+  latest?: {
+    config: Record<string, any>;
+    avg_hit_rate?: number;
+    avg_mrr?: number;
+    composite_score?: number;
+  } | null;
+  done?: boolean;
+  best_run_id?: number | null;
+}

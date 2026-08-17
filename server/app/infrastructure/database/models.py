@@ -10,6 +10,7 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -242,3 +243,69 @@ class ChatLogModel(BaseModel):
     domain: Mapped[str | None] = mapped_column(String(20), nullable=True)
     retrieval_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     reranker_score: Mapped[float | None] = mapped_column(nullable=True)
+
+
+class BenchmarkQuestionModel(BaseModel):
+    """Benchmark test question — source of truth replaces test_questions.json."""
+
+    __tablename__ = "benchmark_questions"
+    __table_args__ = (
+        Index("idx_benchmark_questions_dataset", "dataset"),
+        Index("idx_benchmark_questions_is_active", "is_active"),
+    )
+
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    expected_answer: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_hint: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tags: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    dataset: Mapped[str] = mapped_column(String(100), nullable=False, server_default="main")
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class BenchmarkSweepModel(BaseModel):
+    """Parameter sweep — multi-config automated search."""
+
+    __tablename__ = "benchmark_sweeps"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'running', 'done', 'failed', 'cancelled')",
+            name="benchmark_sweeps_status_check",
+        ),
+        Index("idx_benchmark_sweeps_status", "status"),
+    )
+
+    status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="pending")
+    strategy: Mapped[str] = mapped_column(String(50), nullable=False)
+    search_space: Mapped[dict] = mapped_column(JSON, nullable=False)
+    objective_weights: Mapped[dict] = mapped_column(JSON, nullable=False)
+    dataset: Mapped[str] = mapped_column(String(100), nullable=False, server_default="main")
+    top_n_llm: Mapped[int] = mapped_column(Integer, nullable=False, server_default="3")
+    job_id: Mapped[int | None] = mapped_column(
+        ForeignKey("background_jobs.id", ondelete="SET NULL"), nullable=True
+    )
+    total_configs: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    evaluated_configs: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    best_run_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class BenchmarkRunModel(BaseModel):
+    """Single benchmark run — config snapshot + aggregated metrics."""
+
+    __tablename__ = "benchmark_runs"
+    __table_args__ = (
+        Index("idx_benchmark_runs_sweep_id", "sweep_id"),
+        Index("idx_benchmark_runs_dataset", "dataset"),
+    )
+
+    sweep_id: Mapped[int | None] = mapped_column(
+        ForeignKey("benchmark_sweeps.id", ondelete="SET NULL"), nullable=True
+    )
+    config_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    summary_metrics: Mapped[dict] = mapped_column(JSON, nullable=False)
+    duration_sec: Mapped[float] = mapped_column(Float, nullable=False, server_default="0")
+    llm_evaluated: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    dataset: Mapped[str] = mapped_column(String(100), nullable=False, server_default="main")
+    per_question_results: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    filename: Mapped[str | None] = mapped_column(String(255), nullable=True)

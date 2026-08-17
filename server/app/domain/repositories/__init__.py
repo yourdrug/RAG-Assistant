@@ -1,7 +1,10 @@
 """Repository interfaces -- abstract ports for persistence and external storage."""
 
 from domain.repositories.api_key_repository import ApiKeyRepository
+from domain.repositories.benchmark_question_repository import BenchmarkQuestionRepository
+from domain.repositories.benchmark_run_repository import BenchmarkRunRepository
 from domain.repositories.benchmark_settings_repository import BenchmarkSettingsProtocol
+from domain.repositories.benchmark_sweep_repository import BenchmarkSweepRepository
 from domain.repositories.client_assignment_repository import ClientAssignmentRepository
 from domain.repositories.conversation_repository import ConversationRepository
 from domain.repositories.document_repository import DocumentRepository
@@ -22,4 +25,7 @@ __all__ = [
     "IngestionRegistryRepository",
     "BenchmarkSettingsProtocol",
     "ApiKeyRepository",
+    "BenchmarkQuestionRepository",
+    "BenchmarkSweepRepository",
+    "BenchmarkRunRepository",
 ]

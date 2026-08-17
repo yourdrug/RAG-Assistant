@@ -82,6 +82,7 @@ async def health():
         status=overall,
         version=settings.version,
         uptime_seconds=settings.uptime_seconds,
+        llm_provider=settings.llm_provider,
         checks={
             "api": HealthCheck(status="ok"),
             "qdrant": qdrant,

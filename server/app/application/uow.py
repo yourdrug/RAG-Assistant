@@ -9,6 +9,9 @@ from __future__ import annotations
 
 from domain.repositories import ApiKeyRepository
 from domain.repositories.background_job_repository import BackgroundJobRepository
+from domain.repositories.benchmark_question_repository import BenchmarkQuestionRepository
+from domain.repositories.benchmark_run_repository import BenchmarkRunRepository
+from domain.repositories.benchmark_sweep_repository import BenchmarkSweepRepository
 from domain.repositories.chat_log_repository import ChatLogRepository
 from domain.repositories.chunk_repository import ChunkRepository
 from domain.repositories.client_assignment_repository import ClientAssignmentRepository
@@ -43,6 +46,9 @@ class UnitOfWork(BaseUnitOfWork):
     config_parameters: ConfigParameterRepository
     background_jobs: BackgroundJobRepository
     chat_logs: ChatLogRepository
+    benchmark_questions: BenchmarkQuestionRepository
+    benchmark_sweeps: BenchmarkSweepRepository
+    benchmark_runs: BenchmarkRunRepository
 
     def __init__(
         self,
@@ -58,6 +64,9 @@ class UnitOfWork(BaseUnitOfWork):
         config_parameters: ConfigParameterRepository,
         background_jobs: BackgroundJobRepository,
         chat_logs: ChatLogRepository,
+        benchmark_questions: BenchmarkQuestionRepository,
+        benchmark_sweeps: BenchmarkSweepRepository,
+        benchmark_runs: BenchmarkRunRepository,
     ) -> None:
         super().__init__(session)
         self.users = users
@@ -71,3 +80,6 @@ class UnitOfWork(BaseUnitOfWork):
         self.config_parameters = config_parameters
         self.background_jobs = background_jobs
         self.chat_logs = chat_logs
+        self.benchmark_questions = benchmark_questions
+        self.benchmark_sweeps = benchmark_sweeps
+        self.benchmark_runs = benchmark_runs

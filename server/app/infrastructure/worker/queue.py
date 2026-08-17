@@ -115,3 +115,17 @@ async def enqueue_benchmark(
         judge_model=judge_model,
         job_id=job_id,
     )
+
+
+async def enqueue_sweep(
+    *,
+    sweep_id: int,
+    job_id: int,
+) -> None:
+    """Enqueue parameter sweep via Arq."""
+    await _enqueue_arq(
+        _QUEUE_NAME,
+        "run_sweep",
+        sweep_id=sweep_id,
+        job_id=job_id,
+    )

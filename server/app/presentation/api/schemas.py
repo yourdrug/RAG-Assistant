@@ -537,3 +537,139 @@ class ManualDocumentRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=255)
     visibility: str
     group_id: int | None = None
+
+
+# ---------------------------------------------------------------------------
+# Benchmark Lab — Questions
+# ---------------------------------------------------------------------------
+
+
+class BenchmarkQuestionCreate(BaseModel):
+    question: str = Field(..., min_length=1, max_length=5000)
+    expected_answer: str | None = None
+    source_hint: str | None = None
+    tags: list[str] | None = None
+    dataset: str = "main"
+    notes: str | None = None
+
+
+class BenchmarkQuestionUpdate(BaseModel):
+    question: str | None = None
+    expected_answer: str | None = None
+    source_hint: str | None = None
+    tags: list[str] | None = None
+    dataset: str | None = None
+    is_active: bool | None = None
+    notes: str | None = None
+
+
+class BenchmarkQuestionResponse(BaseModel):
+    id: int
+    question: str
+    expected_answer: str | None = None
+    source_hint: str | None = None
+    tags: list[str] | None = None
+    dataset: str
+    is_active: bool
+    created_by: int | None = None
+    notes: str | None = None
+    creation_date: datetime | None = None
+
+
+class BenchmarkQuestionsListResponse(BaseModel):
+    questions: list[BenchmarkQuestionResponse]
+    total: int
+
+
+class BenchmarkQuestionsImportRequest(BaseModel):
+    questions: list[BenchmarkQuestionCreate]
+
+
+class BenchmarkQuestionsImportResponse(BaseModel):
+    imported: int
+
+
+# ---------------------------------------------------------------------------
+# Benchmark Lab — Sweeps
+# ---------------------------------------------------------------------------
+
+
+class SweepCreateRequest(BaseModel):
+    strategy: str = Field("grid", pattern="^(grid|random|successive_halving)$")
+    search_space: dict
+    objective_weights: dict = Field(
+        default_factory=lambda: {"hit_rate": 0.4, "faithfulness": 0.3, "relevancy": 0.3}
+    )
+    dataset: str = "main"
+    top_n_llm: int = Field(3, ge=0, le=20)
+
+
+class SweepResponse(BaseModel):
+    id: int
+    status: str
+    strategy: str
+    search_space: dict
+    objective_weights: dict
+    dataset: str
+    top_n_llm: int
+    total_configs: int
+    evaluated_configs: int
+    best_run_id: int | None = None
+    job_id: int | None = None
+    creation_date: datetime | None = None
+
+
+class SweepsListResponse(BaseModel):
+    sweeps: list[SweepResponse]
+    total: int
+
+
+# ---------------------------------------------------------------------------
+# Benchmark Lab — Runs
+# ---------------------------------------------------------------------------
+
+
+class BenchmarkRunResponse(BaseModel):
+    id: int
+    sweep_id: int | None = None
+    config_json: dict
+    summary_metrics: dict
+    duration_sec: float
+    llm_evaluated: bool
+    dataset: str
+    filename: str | None = None
+    creation_date: datetime | None = None
+
+
+class BenchmarkRunsListResponse(BaseModel):
+    runs: list[BenchmarkRunResponse]
+    total: int
+
+
+class RunApplyResponse(BaseModel):
+    applied: int
+    keys: list[str]
+
+
+class RunCompareResponse(BaseModel):
+    runs: list[BenchmarkRunResponse]
+    diff: dict
+
+
+# ---------------------------------------------------------------------------
+# Benchmark Lab — History / Trends
+# ---------------------------------------------------------------------------
+
+
+class BenchmarkHistoryPoint(BaseModel):
+    run_id: int
+    creation_date: datetime | None = None
+    metrics: dict
+    config_summary: dict
+    dataset: str
+    llm_evaluated: bool
+
+
+class BenchmarkHistoryResponse(BaseModel):
+    points: list[BenchmarkHistoryPoint]
+    total: int
