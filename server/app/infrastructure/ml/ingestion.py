@@ -155,14 +155,22 @@ def parse_pdf(file_path: Path) -> list[Document]:
     pages = []
 
     ocr_pages_needed = []
+    text_to_compare: dict[int, str] = {}
+
     for page_num in range(1, len(doc) + 1):
         page = doc.load_page(page_num - 1)
-        text = page.get_text("text").strip()
 
-        # Check for tables on this page
+        # --- Extract text via blocks for better multi-column ordering ---
+        blocks = page.get_text("blocks")
+        blocks.sort(key=lambda b: (round(b[1] / 10) * 10, b[0]))
+        text = "\n".join(b[4] for b in blocks if len(b) > 4 and b[4].strip())
+
+        # --- Table detection ---
+        tables_found = False
         try:
             tables = page.find_tables()
             if tables and tables.tables:
+                tables_found = True
                 for table in tables.tables:
                     md_table = _pymupdf_table_to_markdown(table)
                     if md_table:
@@ -177,21 +185,30 @@ def parse_pdf(file_path: Path) -> list[Document]:
                             )
                         )
         except Exception:
-            pass  # find_tables not available or failed
+            pass
 
+        # --- Heuristic: tabular lines that find_tables() missed ---
+        if text and not tables_found:
+            lines = text.split("\n")
+            tabular_lines = sum(
+                1 for line in lines if line.count("\t") >= 2 or (len(re.findall(r"  {3,}", line)) > 0)
+            )
+            if tabular_lines > 3:
+                log.warning(
+                    "Page %d: %d tabular-looking lines but find_tables() found nothing",
+                    page_num,
+                    tabular_lines,
+                )
+
+        # --- OCR threshold heuristic ---
+        min_chars = settings.ocr_min_chars
         if not text and settings.ocr_enabled:
             ocr_pages_needed.append(page_num)
+        elif text and len(text.strip()) < min_chars and settings.ocr_enabled:
+            ocr_pages_needed.append(page_num)
+            text_to_compare[page_num] = text
         elif text:
-            pages.append(
-                Document(
-                    page_content=text,
-                    metadata={"page": page_num, "source": str(file_path)},
-                )
-            )
-
-    if ocr_pages_needed:
-        ocr_results = ocr_pdf_pages(doc, ocr_pages_needed, file_path.name)
-        for page_num, text in ocr_results.items():
+            text = clean_pdf_text(text)
             if text:
                 pages.append(
                     Document(
@@ -199,6 +216,33 @@ def parse_pdf(file_path: Path) -> list[Document]:
                         metadata={"page": page_num, "source": str(file_path)},
                     )
                 )
+
+    # --- Batch OCR ---
+    if ocr_pages_needed:
+        ocr_results = ocr_pdf_pages(doc, ocr_pages_needed, file_path.name)
+        for page_num, ocr_text in ocr_results.items():
+            if not ocr_text:
+                continue
+            ocr_text = clean_pdf_text(ocr_text)
+            if not ocr_text:
+                continue
+
+            existing_text = text_to_compare.get(page_num)
+            if existing_text:
+                # Page had a short text layer — keep whichever is longer
+                if len(ocr_text) > len(existing_text) * 1.5:
+                    final_text = ocr_text
+                else:
+                    final_text = clean_pdf_text(existing_text) or ocr_text
+            else:
+                final_text = ocr_text
+
+            pages.append(
+                Document(
+                    page_content=final_text,
+                    metadata={"page": page_num, "source": str(file_path)},
+                )
+            )
 
     doc.close()
     return pages
@@ -242,31 +286,47 @@ def merge_pdf_pages(pages: list[Document]) -> list[Document]:
     return merged
 
 
-def split_documents(docs: list[Document]) -> list[Document]:
+def split_documents(docs: list[Document], domain: str = "general") -> list[Document]:
     """Split documents into chunks using structure-aware separators.
 
-    Separators are ordered by priority: articles/sections first, then paragraphs,
-    lines, words, characters. This prevents the splitter from breaking inside
-    numbered articles, legal clauses, or structured content.
+    Separators are chosen based on document domain:
+    - legal: articles, sections, clauses (larger chunks)
+    - general: markdown headers, paragraphs (standard chunks)
+
+    Table chunks (content_type=table) are kept atomic — not split further.
     """
-    separators = [
-        "\nСтатья ",
-        "\nРаздел ",
-        "\nПункт ",
-        "\n\n",
-        "\n",
-        " ",
-        "",
-    ]
+    if domain == "legal":
+        return split_documents_legal(docs)
+
+    separators = GENERAL_SEPARATORS
+
+    # Separate table chunks (atomic) from text chunks
+    tables = [d for d in docs if d.metadata.get("content_type") == "table"]
+    text_docs = [d for d in docs if d.metadata.get("content_type") != "table"]
+
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=settings.chunk_size,
         chunk_overlap=settings.chunk_overlap,
         length_function=len,
         separators=separators,
     )
-    chunks = splitter.split_documents(docs)
-    log.info("Split %d documents into %d chunks", len(docs), len(chunks))
+    chunks = splitter.split_documents(text_docs)
+    # Tables pass through unsplit
+    chunks.extend(tables)
+    log.info("Split %d documents into %d chunks (domain=%s)", len(docs), len(chunks), domain)
     return chunks
+
+
+GENERAL_SEPARATORS = [
+    "\n# ",
+    "\n## ",
+    "\n### ",
+    "\n#### ",
+    "\n\n",
+    "\n",
+    " ",
+    "",
+]
 
 
 LEGAL_SEPARATORS = [
@@ -325,6 +385,42 @@ def _has_page_break(paragraph) -> bool:
     return False
 
 
+def _paragraph_list_prefix(paragraph) -> str | None:
+    """Detect if paragraph is a list item and return indent prefix.
+
+    Checks <w:numPr> in paragraph properties XML. Returns a prefix like
+    "- " for level 0, "  - " for level 1, etc. Returns None if not a list item.
+    """
+    from docx.oxml.ns import qn
+
+    pPr = paragraph._element.find(qn("w:pPr"))
+    if pPr is None:
+        return None
+    numPr = pPr.find(qn("w:numPr"))
+    if numPr is None:
+        return None
+    ilvl = numPr.find(qn("w:ilvl"))
+    level = int(ilvl.get(qn("w:val"), "0")) if ilvl is not None else 0
+    return "  " * level + "- "
+
+
+def _extract_image_captions(doc) -> list[str]:
+    """Extract alt text/descriptions from inline images in DOCX.
+
+    Scans <w:drawing> elements for <wp:docPr descr="..."> attributes.
+    """
+    from docx.oxml.ns import qn
+
+    captions = []
+    for p in doc.paragraphs:
+        for drawing in p._element.findall(f".//{qn('w:drawing')}"):
+            for docPr in drawing.findall(f".//{qn('wp:docPr')}"):
+                descr = docPr.get(qn("wp:descr")) or docPr.get("descr", "")
+                if descr and descr.strip():
+                    captions.append(f"[image: {descr.strip()}]")
+    return captions
+
+
 def _docx_table_to_markdown(table) -> str:
     """Convert a python-docx table to markdown table format.
 
@@ -355,6 +451,8 @@ def _parse_docx(file_path: Path) -> tuple[str, dict]:
 
     Detects page breaks via <w:br w:type="page"/> to provide page metadata.
     Tables are serialized as markdown tables.
+    List items get restored prefixes (- ,   - ).
+    Image alt text is extracted from inline drawings.
     """
     doc = docx.Document(str(file_path))
     parts = []
@@ -367,13 +465,23 @@ def _parse_docx(file_path: Path) -> tuple[str, dict]:
         if not p.text.strip():
             continue
         page_numbers.append(current_page)
-        parts.append(p.text)
+
+        prefix = _paragraph_list_prefix(p)
+        if prefix:
+            parts.append(prefix + p.text)
+        else:
+            parts.append(p.text)
 
     for table in doc.tables:
         md_table = _docx_table_to_markdown(table)
         if md_table:
             parts.append("")  # blank line before table
             parts.append(md_table)
+
+    # Extract image captions
+    captions = _extract_image_captions(doc)
+    for cap in captions:
+        parts.append(cap)
 
     metadata: dict = {}
     if page_numbers:
@@ -389,6 +497,7 @@ def _parse_rtf(file_path: Path) -> tuple[str, dict]:
 
 
 _MD_HEADER_RE = re.compile(r"^(#{1,6})\s+(.*)$", re.MULTILINE)
+_MD_TABLE_RE = re.compile(r"^(\|.+\|)\s*$", re.MULTILINE)
 _DATE_IN_FILENAME_RE = re.compile(r"(\d{4}-\d{2}-\d{2})")
 
 
@@ -402,23 +511,81 @@ def _clean_markdown_text(text: str) -> str:
     return text.strip()
 
 
+def _split_markdown_tables(content: str) -> list[tuple[str, str]]:
+    """Split content into (content_type, text) segments.
+
+    Detects markdown table blocks (lines starting and ending with |)
+    and separates them from regular text. Returns list of (type, text)
+    where type is 'text' or 'table'.
+    """
+    lines = content.split("\n")
+    segments: list[tuple[str, str]] = []
+    current_text: list[str] = []
+    current_table: list[str] = []
+
+    def _flush_text():
+        if current_text:
+            text = "\n".join(current_text).strip()
+            if text:
+                segments.append(("text", text))
+            current_text.clear()
+
+    def _flush_table():
+        if current_table:
+            table_text = "\n".join(current_table).strip()
+            if table_text:
+                segments.append(("table", table_text))
+            current_table.clear()
+
+    in_table = False
+    for line in lines:
+        is_table_line = bool(_MD_TABLE_RE.match(line.strip()))
+        if is_table_line:
+            if not in_table:
+                _flush_text()
+                in_table = True
+            current_table.append(line)
+        else:
+            if in_table:
+                _flush_table()
+                in_table = False
+            current_text.append(line)
+
+    if in_table:
+        _flush_table()
+    else:
+        _flush_text()
+
+    return segments if segments else [("text", content)]
+
+
 def parse_markdown_sections(file_path: Path) -> list[tuple[str | None, str]]:
     """Разбивает markdown на (заголовок, контент) по структуре заголовков.
 
     Контент между двумя заголовками относится к предыдущему заголовку. Текст до
     первого заголовка (если есть) получает heading=None.
+
+    Table blocks within sections are yielded as separate (heading, content) tuples
+    with a special prefix '\x00TABLE:' to signal content_type: table downstream.
     """
     raw = file_path.read_text(encoding="utf-8", errors="replace")
     matches = list(_MD_HEADER_RE.finditer(raw))
 
     if not matches:
-        return [(None, _clean_markdown_text(raw))]
+        segments = _split_markdown_tables(_clean_markdown_text(raw))
+        sections: list[tuple[str | None, str]] = []
+        for ctype, text in segments:
+            prefix = "\x00TABLE:" if ctype == "table" else ""
+            sections.append((None, prefix + text))
+        return sections
 
-    sections: list[tuple[str | None, str]] = []
+    result: list[tuple[str | None, str]] = []
     if matches[0].start() > 0:
         lead = _clean_markdown_text(raw[: matches[0].start()])
         if lead:
-            sections.append((None, lead))
+            for ctype, text in _split_markdown_tables(lead):
+                prefix = "\x00TABLE:" if ctype == "table" else ""
+                result.append((None, prefix + text))
 
     for i, m in enumerate(matches):
         heading = m.group(2).strip()
@@ -426,9 +593,11 @@ def parse_markdown_sections(file_path: Path) -> list[tuple[str | None, str]]:
         end = matches[i + 1].start() if i + 1 < len(matches) else len(raw)
         content = _clean_markdown_text(raw[start:end])
         if content:
-            sections.append((heading, content))
+            for ctype, text in _split_markdown_tables(content):
+                prefix = "\x00TABLE:" if ctype == "table" else ""
+                result.append((heading, prefix + text))
 
-    return sections
+    return result
 
 
 def parse_docx_sections(file_path: Path) -> list[tuple[str | None, str]]:

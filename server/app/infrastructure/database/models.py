@@ -130,6 +130,7 @@ class DocumentModel(BaseModel):
     has_manual_edits: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     error_message: Mapped[str | None] = mapped_column(Text)
     warning_message: Mapped[str | None] = mapped_column(Text)
+    quality_score: Mapped[float | None] = mapped_column(Float)
     chunks: Mapped[int | None] = mapped_column(Integer)
     chars: Mapped[int | None] = mapped_column(Integer)
     indexed_at: Mapped[DateTime | None] = mapped_column(DateTime)

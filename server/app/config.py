@@ -92,6 +92,7 @@ class Settings(BaseSettings):
     ocr_lang_paddle: str = "ru"  # ru | en | ...
     ocr_lang_surya: list = ["ru", "en"]
     ocr_dpi: int = 300
+    ocr_min_chars: int = 40  # pages with fewer chars also get OCR
 
     # --- Redis (очередь задач, rate limiting, кэш API-ключей) — обязательный компонент ---
     redis_host: str = "redis"

@@ -89,7 +89,7 @@ class DocumentService:
             if existing:
                 if existing.status in ("pending", "processing"):
                     raise BusinessRuleViolation("This document is already being processed")
-                if existing.status == "done":
+                if existing.status in ("done", "failed"):
                     if rename_on_conflict:
                         filename = await self._unique_filename(uow, owner_id, effective_group_id, filename)
                     else:
@@ -132,6 +132,8 @@ class DocumentService:
                 creation_date=final_doc.creation_date,
                 indexed_at=final_doc.indexed_at,
                 error_message=final_doc.error_message,
+                warning_message=final_doc.warning_message,
+                quality_score=final_doc.quality_score,
                 chunks=final_doc.chunks,
                 chars=final_doc.chars,
                 storage_key=key,
@@ -193,6 +195,8 @@ class DocumentService:
                     creation_date=d.creation_date,
                     indexed_at=d.indexed_at,
                     error_message=d.error_message,
+                    warning_message=d.warning_message,
+                    quality_score=d.quality_score,
                     chunks=d.chunks,
                     chars=d.chars,
                     owner_id=d.owner_id,
@@ -242,6 +246,8 @@ class DocumentService:
                 creation_date=doc.creation_date,
                 indexed_at=doc.indexed_at,
                 error_message=doc.error_message,
+                warning_message=doc.warning_message,
+                quality_score=doc.quality_score,
                 chunks=doc.chunks,
                 chars=doc.chars,
                 owner_id=doc.owner_id,

@@ -152,6 +152,7 @@ async def create_manual_document(
         status=result.status,
         error_message=result.error_message,
         warning_message=result.warning_message,
+        quality_score=result.quality_score,
         chunks=result.chunks,
         chars=result.chars,
         creation_date=result.creation_date,

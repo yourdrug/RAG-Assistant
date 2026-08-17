@@ -2,7 +2,6 @@
 import {
   BarChart3,
   CheckCircle2,
-  Copy,
   Download,
   Filter,
   GitCompare,
@@ -18,7 +17,7 @@ import {
   X,
   XCircle,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import {
   useApplyRunConfig,
@@ -30,10 +29,8 @@ import {
   useCreateBenchmarkQuestion,
   useCreateSweep,
   useDeleteBenchmarkQuestion,
-  useExportBenchmarkQuestions,
   useImportBenchmarkQuestions,
   useSourceFiles,
-  useSweep,
   useSweeps,
   useUpdateBenchmarkQuestion,
 } from "@/shared/api/hooks";
@@ -41,7 +38,6 @@ import type {
   BenchmarkQuestion,
   BenchmarkQuestionCreate,
   BenchmarkRun,
-  SweepCreateRequest,
 } from "@/shared/api/types";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
@@ -620,7 +616,7 @@ function SweepBuilderTab({ onSweepCreated }: { onSweepCreated: (id: number) => v
 
   const estimatedConfigs = useMemo(() => {
     let total = 1;
-    for (const [key, cfg] of Object.entries(params)) {
+    for (const [, cfg] of Object.entries(params)) {
       if (!cfg.enabled) continue;
       if (strategy === "random") return 50; // fixed for random
       const values = cfg.values.split(",").map((s) => s.trim()).filter(Boolean);

@@ -87,6 +87,7 @@ class DocumentResponse(BaseModel):
     status: str
     error_message: str | None
     warning_message: str | None
+    quality_score: float | None = None
     chunks: int | None
     chars: int | None
     creation_date: datetime | None
@@ -673,3 +674,58 @@ class BenchmarkHistoryPoint(BaseModel):
 class BenchmarkHistoryResponse(BaseModel):
     points: list[BenchmarkHistoryPoint]
     total: int
+
+
+# ---------------------------------------------------------------------------
+# Admin Quality / Diagnostics
+# ---------------------------------------------------------------------------
+
+
+class DocumentQualityItem(BaseModel):
+    id: int
+    filename: str
+    status: str
+    quality_score: float | None = None
+    warning_message: str | None = None
+    chunks: int | None = None
+    chars: int | None = None
+    indexed_at: datetime | None = None
+
+
+class DocumentQualityListResponse(BaseModel):
+    documents: list[DocumentQualityItem]
+    total: int
+
+
+class PageDiagnostic(BaseModel):
+    page: int
+    type: str  # text, scan, garbled, empty, table
+    chars: int
+    description: str
+
+
+class DocumentDiagnoseResponse(BaseModel):
+    document_id: int
+    filename: str
+    total_pages: int
+    pages: list[PageDiagnostic]
+    summary: dict
+
+
+class DryRunPageResult(BaseModel):
+    page: int
+    type: str  # text, scan, garbled, empty, table
+    content_type: str  # text, table, ocr
+    chars: int
+    preview: str  # first 200 chars
+
+
+class DryRunResponse(BaseModel):
+    filename: str
+    total_pages: int
+    pages: list[DryRunPageResult]
+    total_chars: int
+    quality_score: float
+    warning: str | None = None
+    full_text_preview: str  # first 2000 chars
+    summary: dict  # {text: N, scan: N, garbled: N, empty: N, table: N}

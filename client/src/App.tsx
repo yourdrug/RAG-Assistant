@@ -49,6 +49,9 @@ const ChatLogsPage = lazy(() =>
 const AdminBenchmarkPage = lazy(() =>
   import("@/pages/admin/benchmark").then((m) => ({ default: m.AdminBenchmarkPage })),
 );
+const AdminQualityPage = lazy(() =>
+  import("@/pages/admin/quality").then((m) => ({ default: m.AdminQualityPage })),
+);
 
 function AdminFallback() {
   return (
@@ -114,6 +117,14 @@ export default function App() {
                     element={
                       <Suspense fallback={<AdminFallback />}>
                         <AdminDocumentsPage />
+                      </Suspense>
+                    }
+                  />
+                  <Route
+                    path="quality"
+                    element={
+                      <Suspense fallback={<AdminFallback />}>
+                        <AdminQualityPage />
                       </Suspense>
                     }
                   />

@@ -60,3 +60,4 @@ export { useIngestAll, useIngestFile, useIngestRegistry, useUploadFiles } from "
 export { useJobStats, useJobs } from "./use-jobs";
 export { useLogs } from "./use-logs";
 export { useMetrics } from "./use-metrics";
+export { useDocumentDiagnosis, useDryRun, useDryRunOcr, useQualityDocuments } from "./use-admin-quality";

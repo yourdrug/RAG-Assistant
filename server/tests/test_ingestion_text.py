@@ -12,6 +12,7 @@ from infrastructure.ml.ingestion import (  # noqa: E402
     PARSERS,
     _parse_markdown,
     _parse_txt,
+    _split_markdown_tables,
     clean_pdf_text,
     merge_pdf_pages,
     split_documents,
@@ -314,7 +315,7 @@ class TestSplitDocuments:
 
         text = "Intro text.\n\nСтатья 123. Article content here."
         docs = [Document(page_content=text, metadata={"source": "t.txt"})]
-        chunks = split_documents(docs)
+        chunks = split_documents(docs, domain="legal")
         # Should split at "Статья" boundary, keeping article intact
         texts = [c.page_content for c in chunks]
         assert any("Статья 123" in t for t in texts)
@@ -326,3 +327,83 @@ class TestSplitDocuments:
         chunks = split_documents(docs)
         assert chunks[0].metadata["source"] == "x.pdf"
         assert chunks[0].metadata["page"] == 5
+
+
+# ---------------------------------------------------------------------------
+# split_documents — domain-aware separators
+# ---------------------------------------------------------------------------
+
+
+class TestSplitDocumentsDomainAware:
+    def test_general_uses_markdown_headers(self):
+        from langchain.schema import Document
+
+        text = "Intro\n\n## Section One\n\nContent one.\n\n## Section Two\n\nContent two."
+        docs = [Document(page_content=text, metadata={"source": "t.md"})]
+        chunks = split_documents(docs, domain="general")
+        texts = [c.page_content for c in chunks]
+        assert any("Section One" in t for t in texts)
+
+    def test_table_chunks_not_split(self):
+        from langchain.schema import Document
+
+        table = "| A | B |\n|---|---|\n| 1 | 2 |"
+        docs = [
+            Document(page_content="Some text", metadata={"source": "t.md"}),
+            Document(page_content=table, metadata={"source": "t.md", "content_type": "table"}),
+        ]
+        chunks = split_documents(docs, domain="general")
+        table_chunks = [c for c in chunks if c.metadata.get("content_type") == "table"]
+        assert len(table_chunks) == 1
+        assert table_chunks[0].page_content == table
+
+
+# ---------------------------------------------------------------------------
+# _split_markdown_tables
+# ---------------------------------------------------------------------------
+
+
+class TestSplitMarkdownTables:
+    def test_text_only(self):
+        result = _split_markdown_tables("Just plain text")
+        assert len(result) == 1
+        assert result[0] == ("text", "Just plain text")
+
+    def test_table_only(self):
+        content = "| A | B |\n|---|---|\n| 1 | 2 |"
+        result = _split_markdown_tables(content)
+        assert len(result) == 1
+        assert result[0][0] == "table"
+
+    def test_text_table_text(self):
+        content = "Before\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\nAfter"
+        result = _split_markdown_tables(content)
+        types = [r[0] for r in result]
+        assert types == ["text", "table", "text"]
+
+    def test_multiple_tables(self):
+        content = "Text1\n| A | B |\n|---|---|\n| 1 | 2 |\nMiddle\n| C | D |\n|---|---|\n| 3 | 4 |\nText2"
+        result = _split_markdown_tables(content)
+        types = [r[0] for r in result]
+        assert types == ["text", "table", "text", "table", "text"]
+
+
+# ---------------------------------------------------------------------------
+# split_documents — table atomic
+# ---------------------------------------------------------------------------
+
+
+class TestSplitDocumentsTableAtomic:
+    def test_tables_preserved_unsplit(self):
+        from langchain.schema import Document
+
+        table = "| Col1 | Col2 | Col3 |\n|------|------|------|\n| a | b | c |\n| d | e | f |"
+        text = "A" * 600  # Exceeds default chunk_size
+        docs = [
+            Document(page_content=text, metadata={"source": "t.pdf"}),
+            Document(page_content=table, metadata={"source": "t.pdf", "content_type": "table"}),
+        ]
+        chunks = split_documents(docs, domain="general")
+        table_chunks = [c for c in chunks if c.metadata.get("content_type") == "table"]
+        assert len(table_chunks) == 1
+        assert table_chunks[0].page_content == table

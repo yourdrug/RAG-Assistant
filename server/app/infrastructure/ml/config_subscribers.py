@@ -72,6 +72,7 @@ _DYNAMIC_FIELDS: dict[str, tuple[str, type]] = {
     "ocr_enabled": ("ocr_enabled", bool),
     "ocr_engine": ("ocr_engine", str),
     "ocr_dpi": ("ocr_dpi", int),
+    "ocr_min_chars": ("ocr_min_chars", int),
     "ocr_lang_surya": ("ocr_lang_surya", list),
     "ocr_lang_paddle": ("ocr_lang_paddle", str),
     # --- Storage ---

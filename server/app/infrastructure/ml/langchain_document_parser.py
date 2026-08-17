@@ -73,11 +73,20 @@ class LangchainDocumentParser:
         for heading, content in sections:
             if not content.strip():
                 continue
+
             metadata: dict = {"source": file_path.name}
             if heading:
                 metadata["section"] = heading
             if page_meta:
                 metadata.update(page_meta)
+
+            # Handle table blocks tagged by parse_markdown_sections
+            if content.startswith("\x00TABLE:"):
+                metadata["content_type"] = "table"
+                content = content[len("\x00TABLE:"):]
+
+            if not content.strip():
+                continue
             docs.append(RawDocument(page_content=content, metadata=metadata))
 
         if not docs:
@@ -88,5 +97,5 @@ class LangchainDocumentParser:
 class LangchainDocumentSplitter:
     """Splits domain RawDocuments into chunks using LangChain text splitters."""
 
-    def split(self, documents: list[RawDocument]) -> list[RawDocument]:
-        return _lc_to_raw(_split_documents(_raw_to_lc(documents)))
+    def split(self, documents: list[RawDocument], domain: str = "general") -> list[RawDocument]:
+        return _lc_to_raw(_split_documents(_raw_to_lc(documents), domain=domain))

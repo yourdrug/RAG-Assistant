@@ -100,6 +100,7 @@ export interface DocumentResponse {
   has_manual_edits?: boolean;
   error_message?: string | null;
   warning_message?: string | null;
+  quality_score?: number | null;
   chunks?: number | null;
   chars?: number | null;
   creation_date?: string | null;
@@ -522,4 +523,68 @@ export interface SweepProgressEvent {
   } | null;
   done?: boolean;
   best_run_id?: number | null;
+}
+
+// ─── Admin Quality ────────────────────────────────────────────────────────────
+
+export interface DocumentQualityItem {
+  id: number;
+  filename: string;
+  status: string;
+  quality_score?: number | null;
+  warning_message?: string | null;
+  chunks?: number | null;
+  chars?: number | null;
+  indexed_at?: string | null;
+}
+
+export interface DocumentQualityListResponse {
+  documents: DocumentQualityItem[];
+  total: number;
+}
+
+export interface PageDiagnostic {
+  page: number;
+  type: "text" | "scan" | "garbled" | "empty" | "table";
+  chars: number;
+  description: string;
+}
+
+export interface DocumentDiagnoseResponse {
+  document_id: number;
+  filename: string;
+  total_pages: number;
+  pages: PageDiagnostic[];
+  summary: {
+    text: number;
+    scan: number;
+    garbled: number;
+    empty: number;
+    table: number;
+  };
+}
+
+export interface DryRunPageResult {
+  page: number;
+  type: "text" | "scan" | "garbled" | "empty" | "table";
+  content_type: string;
+  chars: number;
+  preview: string;
+}
+
+export interface DryRunResponse {
+  filename: string;
+  total_pages: number;
+  pages: DryRunPageResult[];
+  total_chars: number;
+  quality_score: number;
+  warning?: string | null;
+  full_text_preview: string;
+  summary: {
+    text: number;
+    scan: number;
+    garbled: number;
+    empty: number;
+    table: number;
+  };
 }

@@ -1,4 +1,5 @@
 import {
+  Activity,
   BarChart3,
   Clock,
   Cpu,
@@ -37,6 +38,7 @@ export const adminNavItems: AdminNavItem[] = [
   { title: "Groups", href: "/admin/groups", icon: UserCog },
   { title: "API Keys", href: "/admin/api-keys", icon: Key },
   { title: "Documents", href: "/admin/documents", icon: FileText },
+  { title: "Quality", href: "/admin/quality", icon: Activity },
   { title: "Ingest", href: "/admin/ingest", icon: Upload },
   { title: "Models", href: "/admin/models", icon: Cpu },
   { title: "Vector DB", href: "/admin/vectordb", icon: Database },

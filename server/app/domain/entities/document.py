@@ -29,6 +29,7 @@ class Document:
     has_manual_edits: bool = False
     error_message: str | None = None
     warning_message: str | None = None
+    quality_score: float | None = None
     chunks: int | None = None
     chars: int | None = None
     creation_date: datetime = field(default_factory=lambda: datetime.now(UTC))
@@ -43,12 +44,15 @@ class Document:
     def mark_processing(self) -> None:
         self.status = DocumentStatus.PROCESSING
 
-    def mark_done(self, chunks: int, chars: int, warning_message: str | None = None) -> None:
+    def mark_done(
+        self, chunks: int, chars: int, warning_message: str | None = None, quality_score: float | None = None
+    ) -> None:
         self.status = DocumentStatus.DONE
         self.chunks = chunks
         self.chars = chars
         self.indexed_at = datetime.now(UTC)
         self.warning_message = warning_message
+        self.quality_score = quality_score
 
     def mark_failed(self, error: str) -> None:
         self.status = DocumentStatus.FAILED

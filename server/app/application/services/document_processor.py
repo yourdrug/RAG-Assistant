@@ -109,7 +109,7 @@ class DocumentProcessor:
                     if doc_date:
                         doc.metadata["doc_date"] = doc_date
 
-                raw_chunks = self._splitter.split(docs)
+                raw_chunks = self._splitter.split(docs, domain=doc_domain)
                 for rc in raw_chunks:
                     rc.metadata.update(
                         {
@@ -154,7 +154,8 @@ class DocumentProcessor:
 
                 total_chars = sum(len(d.page_content) for d in docs)
                 await uow.documents.update_status(
-                    document_id, "done", chunks=len(raw_chunks), chars=total_chars, warning=warning_message
+                    document_id, "done", chunks=len(raw_chunks), chars=total_chars,
+                    warning=warning_message, quality_score=quality.bad_ratio if quality else None,
                 )
 
             status = "done"

@@ -19,6 +19,7 @@ class DocumentDTO:
     indexed_at: datetime | None = None
     error_message: str | None = None
     warning_message: str | None = None
+    quality_score: float | None = None
     chunks: int | None = None
     chars: int | None = None
     storage_key: str | None = None

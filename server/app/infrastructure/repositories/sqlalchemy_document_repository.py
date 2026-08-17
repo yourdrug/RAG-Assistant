@@ -55,6 +55,7 @@ class SQLAlchemyDocumentRepository:
         chunks: int | None = None,
         chars: int | None = None,
         warning: str | None = None,
+        quality_score: float | None = None,
     ) -> None:
         result = await self._db.execute(select(DocumentModel).where(DocumentModel.id == document_id))
         orm = result.scalar_one_or_none()
@@ -65,6 +66,8 @@ class SQLAlchemyDocumentRepository:
         orm.error_message = error
         if status == "done":
             orm.warning_message = warning
+        if quality_score is not None:
+            orm.quality_score = quality_score
         if chunks is not None:
             orm.chunks = chunks
         if chars is not None:
@@ -96,7 +99,7 @@ class SQLAlchemyDocumentRepository:
                 DocumentModel.filename == filename,
                 DocumentModel.owner_id == owner_id,
                 DocumentModel.group_id == group_id,
-                DocumentModel.status.in_(["pending", "processing", "done"]),
+                DocumentModel.status.in_(["pending", "processing", "done", "failed"]),
             )
             .order_by(DocumentModel.creation_date.desc())
             .limit(1)
@@ -164,6 +167,7 @@ class SQLAlchemyDocumentRepository:
             has_manual_edits=orm.has_manual_edits,
             error_message=orm.error_message,
             warning_message=orm.warning_message,
+            quality_score=orm.quality_score,
             chunks=orm.chunks,
             chars=orm.chars,
             creation_date=orm.creation_date,

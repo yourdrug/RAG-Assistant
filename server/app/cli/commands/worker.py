@@ -67,14 +67,33 @@ def worker(
 async def _on_startup(ctx: dict) -> None:
     """Initialize database and infrastructure on worker startup."""
     from infrastructure.database.database import database  # nested to avoid circular import
+    from presentation.api.dependencies import get_config_listener, get_uow_factory
 
     await database.connect()
     logger.info("Worker: database connected")
+
+    # Sync dynamic config from DB BEFORE starting the listener (and before
+    # processing any tasks). This ensures ocr_enabled, chunk_size, etc.
+    # are current even if the config was changed while the worker was down.
+    listener = get_config_listener()
+    await listener.resync(trigger="worker_startup")
+    logger.info("Worker: config synced from database")
+
+    # Now start the listener for future changes
+    await listener.start()
+    ctx["config_listener"] = listener
+    logger.info("Worker: config listener started")
 
 
 async def _on_shutdown(ctx: dict) -> None:
     """Cleanup on worker shutdown."""
     from infrastructure.database.database import database  # nested to avoid circular import
+
+    # Stop config listener
+    listener = ctx.get("config_listener")
+    if listener:
+        await listener.stop()
+        logger.info("Worker: config listener stopped")
 
     await database.disconnect()
     logger.info("Worker: database disconnected")

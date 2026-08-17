@@ -66,4 +66,9 @@ export const queryKeys = {
     results: () => [...queryKeys.benchmark.all, "results"] as const,
     detail: (filename: string) => [...queryKeys.benchmark.all, "detail", filename] as const,
   },
+  quality: {
+    all: ["quality"] as const,
+    list: () => [...queryKeys.quality.all, "list"] as const,
+    diagnose: (id: number) => [...queryKeys.quality.all, "diagnose", id] as const,
+  },
 } as const;

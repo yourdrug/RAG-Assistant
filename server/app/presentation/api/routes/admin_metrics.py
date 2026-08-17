@@ -101,11 +101,18 @@ async def get_metrics(admin: dict = Depends(require_admin)):
     ingest_chunks = _collect_counter("ingest_chunks")
     ingest_files = _collect_counter("ingest_files")
     ingest_duration = _collect_histogram("ingest_document_duration_seconds")
+
+    # PDF quality metrics
+    ingest_pdf_pages = _collect_counter("ingest_pdf_pages")
+    ingest_pdf_bad_ratio = _collect_histogram("ingest_pdf_bad_ratio")
+
     ingestion = {
         "documents_total": sum(ingest_docs.values()) if ingest_docs else 0.0,
         "chunks_total": sum(ingest_chunks.values()) if ingest_chunks else 0.0,
         "files_total": sum(ingest_files.values()) if ingest_files else 0.0,
         "duration": ingest_duration,
+        "pdf_pages": ingest_pdf_pages,
+        "pdf_bad_ratio": ingest_pdf_bad_ratio,
     }
     # Per-status breakdown from labels
     ingest_by_status: dict[str, float] = {}

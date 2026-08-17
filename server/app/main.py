@@ -38,6 +38,7 @@ from presentation.api.routes.admin_config import router as admin_config_router
 from presentation.api.routes.admin_jobs import router as admin_jobs_router
 from presentation.api.routes.admin_logs import router as admin_logs_router
 from presentation.api.routes.admin_metrics import router as admin_metrics_router
+from presentation.api.routes.admin_quality import router as admin_quality_router
 from presentation.api.routes.api_keys import router as api_keys_router
 from presentation.api.routes.auth import router as auth_router
 from presentation.api.routes.benchmark import router as benchmark_router
@@ -157,6 +158,7 @@ class Application:
             admin_chat_logs_router,
             admin_jobs_router,
             admin_metrics_router,
+            admin_quality_router,
             admin_logs_router,
         )
         for router in routers:
