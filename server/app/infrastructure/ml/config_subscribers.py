@@ -23,7 +23,6 @@ from config import settings
 from domain.events.config_events import ConfigParameterChanged
 from domain.utils import parse_bool
 
-from infrastructure.clients import get_bm25_index, get_llm
 from infrastructure.ml.ingestion import _get_paddle_ocr
 from infrastructure.storage import get_storage
 
@@ -115,33 +114,6 @@ def apply_to_settings(event: ConfigParameterChanged) -> None:
 # ---------------------------------------------------------------------------
 # Cache invalidation subscribers
 # ---------------------------------------------------------------------------
-
-
-def invalidate_bm25_cache_on_hybrid_toggle(event: ConfigParameterChanged) -> None:
-    """Если переключили hybrid_enabled — сбросить lru_cache BM25-индекса."""
-    if event.key != "hybrid_enabled":
-        return
-
-    get_bm25_index.cache_clear()
-    log.info("BM25 index cache invalidated (hybrid_enabled -> %s)", event.new_value)
-
-
-def invalidate_llm_cache(event: ConfigParameterChanged) -> None:
-    """Сбросить кэш LLM при изменении модели, параметров генерации или провайдера."""
-    llm_keys = {
-        "llm_provider",
-        "llm_model",
-        "llm_temperature",
-        "llm_top_p",
-        "llm_num_ctx_narrow",
-        "llm_num_predict_narrow",
-        "openrouter_model",
-    }
-    if event.key not in llm_keys:
-        return
-
-    get_llm.cache_clear()
-    log.info("LLM cache invalidated (%s -> %s)", event.key, event.new_value)
 
 
 def invalidate_paddle_ocr_cache(event: ConfigParameterChanged) -> None:

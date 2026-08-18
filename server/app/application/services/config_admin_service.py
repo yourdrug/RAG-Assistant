@@ -3,21 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Protocol, runtime_checkable
 
 from domain.value_objects.health_status import HealthStatus
 from domain.value_objects.llm_provider import LLMProvider
 
-
-@runtime_checkable
-class OllamaProbePort(Protocol):
-    async def get_models(self) -> list[str]: ...
-
-
-@runtime_checkable
-class VectorDBInfoPort(Protocol):
-    def get_status(self) -> str: ...
-    def get_collections(self) -> list[dict]: ...
+from application.ports.config_admin import OllamaProbePort, VectorDBInfoPort
 
 
 @dataclass(frozen=True)

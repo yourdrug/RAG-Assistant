@@ -3,16 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Protocol, runtime_checkable
 
-
-@runtime_checkable
-class MetricsRegistryPort(Protocol):
-    """Abstract interface for collecting Prometheus metrics."""
-
-    def collect_gauge(self, name: str) -> dict[str, float]: ...
-    def collect_counter(self, name: str) -> dict[str, float]: ...
-    def collect_histogram(self, name: str) -> dict[str, object]: ...
+from application.ports.metrics_registry import MetricsRegistryPort
 
 
 @dataclass(frozen=True)

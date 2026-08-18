@@ -14,9 +14,6 @@ import time
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING
 
-from langchain.schema import Document as LCDocument
-from qdrant_client.models import FieldCondition, Filter, MatchValue
-
 from application.dto.chat_dto import RagResult
 from config import settings
 from domain.services.rag_policy import classify_query_domain, has_exact_reference
@@ -26,6 +23,8 @@ from domain.value_objects.llm_provider import BREADTH_ALIASES, Breadth
 from domain.value_objects.rag_settings import RagSettings
 from domain.value_objects.search_mode import SearchMode
 from domain.value_objects.stream_events import SourcesEvent, StreamEvent, TextChunk
+from langchain.schema import Document as LCDocument
+from qdrant_client.models import FieldCondition, Filter, MatchValue
 
 if TYPE_CHECKING:
     from infrastructure.ml.client_registry import MLClientRegistry
@@ -120,7 +119,7 @@ async def _resolve_hash_to_doc(h: str, access_filter, ml_clients: MLClientRegist
 
 
 async def _qdrant_dense_search(
-        query: str, k: int, access_filter, ml_clients: MLClientRegistry
+    query: str, k: int, access_filter, ml_clients: MLClientRegistry
 ) -> list[tuple[str, float, LCDocument]]:
     """Search Qdrant directly, returning (content_hash, score, Document) tuples."""
     client = ml_clients.qdrant_client()
@@ -151,13 +150,13 @@ async def _qdrant_dense_search(
 
 
 async def _run_hybrid_search(
-        query: str,
-        fetch_k: int,
-        access_filter,
-        rag: RagSettings,
-        ml_clients: MLClientRegistry,
-        dense_weight: float | None = None,
-        sparse_weight: float | None = None,
+    query: str,
+    fetch_k: int,
+    access_filter,
+    rag: RagSettings,
+    ml_clients: MLClientRegistry,
+    dense_weight: float | None = None,
+    sparse_weight: float | None = None,
 ) -> list[LCDocument]:
     """Run hybrid dense+BM25 search and return deduplicated candidates."""
     bm25_index = ml_clients.bm25_index()
@@ -220,10 +219,10 @@ class RagService:
         self._chunk_search = chunk_search
 
     async def stream(
-            self,
-            question: str,
-            history: list,
-            ctx: ChatContext,
+        self,
+        question: str,
+        history: list,
+        ctx: ChatContext,
     ) -> AsyncIterator[StreamEvent]:
         rag = _build_rag_settings()
         t_pipeline_start = time.monotonic()
@@ -479,10 +478,10 @@ class RagService:
         yield SourcesEvent(sources=sources, confidence=confidence)
 
     async def invoke(
-            self,
-            question: str,
-            history: list,
-            ctx: ChatContext,
+        self,
+        question: str,
+        history: list,
+        ctx: ChatContext,
     ) -> RagResult:
         answer_parts: list[str] = []
         sources: list[dict] = []

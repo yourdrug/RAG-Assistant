@@ -5,40 +5,18 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Protocol, runtime_checkable
 
 from domain.value_objects.page_content_type import PageContentType
 
+from application.ports.pdf_diagnostics import (
+    PDFDocumentPort,
+    PDFOcrPort,
+    PDFPageClassifierPort,
+    PDFStoragePort,
+    PDFTextCleanerPort,
+)
+
 logger = logging.getLogger("default")
-
-
-@runtime_checkable
-class PDFPageClassifierPort(Protocol):
-    def classify_page(self, text: str, chars: int, page=None) -> tuple[str, str]: ...
-
-
-@runtime_checkable
-class PDFTextCleanerPort(Protocol):
-    def clean(self, text: str) -> str: ...
-
-
-@runtime_checkable
-class PDFOcrPort(Protocol):
-    def ocr_pages(self, pdf, pages: list[int], filename: str) -> dict[int, str]: ...
-
-
-@runtime_checkable
-class PDFDocumentPort(Protocol):
-    def open(self, path: str): ...
-    def get_page_count(self, doc) -> int: ...
-    def get_page_text(self, doc, index: int) -> str: ...
-    def find_tables(self, page) -> bool: ...
-    def close(self, doc) -> None: ...
-
-
-@runtime_checkable
-class FileStoragePort(Protocol):
-    def download_to_temp(self, key: str) -> Path: ...
 
 
 @dataclass(frozen=True)
@@ -86,7 +64,7 @@ class PDFDiagnosticService:
         text_cleaner: PDFTextCleanerPort,
         ocr: PDFOcrPort,
         pdf_doc: PDFDocumentPort,
-        storage: FileStoragePort,
+        storage: PDFStoragePort,
         *,
         max_dry_run_bytes: int = 50 * 1024 * 1024,
     ) -> None:

@@ -128,6 +128,10 @@ class AuthService:
         async with self._uow_factory.create(master=True) as uow:
             await uow.api_keys.touch_last_used(api_key_id)
 
+    def decode_token(self, token: str) -> dict:
+        """Decode a JWT token.  Raises jwt exceptions on failure."""
+        return self._tokens.decode_token(token)
+
     async def issue_api_key(self, client_user_id: int, name: str | None = None) -> dict:
         async with self._uow_factory.create() as uow:
             user = await uow.users.get_by_id(client_user_id)

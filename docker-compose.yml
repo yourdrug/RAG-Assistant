@@ -29,11 +29,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "2"
-          memory: 4G
+          cpus: "1"
+          memory: 1.5G
         reservations:
-          cpus: "0.5"
-          memory: 1G
+          cpus: "0.25"
+          memory: 500M
     restart: unless-stopped
     networks:
       - backend
@@ -69,11 +69,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "8"
-          memory: 14G
+          cpus: "4"
+          memory: 5G
         reservations:
-          cpus: "2"
-          memory: 4G
+          cpus: "1"
+          memory: 2G
     healthcheck:
       test: [ "CMD-SHELL", "bash -c '</dev/tcp/localhost/11434' || exit 1" ]
       interval: 10s
@@ -144,11 +144,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: 0.75
-          memory: 4G
-        reservations:
           cpus: 0.5
-          memory: 500M
+          memory: 1.5G
+        reservations:
+          cpus: 0.25
+          memory: 256M
     pull_policy: missing
     restart: always
     networks:
@@ -215,11 +215,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: 0.75
-          memory: 4G
-        reservations:
           cpus: 0.5
-          memory: 500M
+          memory: 1.5G
+        reservations:
+          cpus: 0.25
+          memory: 256M
     restart: always
     networks:
       - backend
@@ -252,11 +252,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "6"
-          memory: 16G
+          cpus: "4"
+          memory: 6G
         reservations:
-          cpus: "1"
-          memory: 4G
+          cpus: "0.5"
+          memory: 2G
     depends_on:
       qdrant:
         condition: service_healthy
@@ -302,11 +302,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "4"
-          memory: 8G
+          cpus: "2"
+          memory: 3G
         reservations:
-          cpus: "1"
-          memory: 2G
+          cpus: "0.5"
+          memory: 1G
     restart: unless-stopped
     networks:
       - backend
@@ -352,11 +352,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "2"
-          memory: 2G
+          cpus: "1"
+          memory: 1G
         reservations:
-          cpus: "0.5"
-          memory: 512M
+          cpus: "0.25"
+          memory: 256M
     restart: unless-stopped
 
   client:
@@ -384,11 +384,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "1"
-          memory: 512M
+          cpus: "0.5"
+          memory: 256M
         reservations:
-          cpus: "0.25"
-          memory: 128M
+          cpus: "0.1"
+          memory: 64M
     restart: unless-stopped
 
   caddy:
@@ -449,11 +449,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "1"
-          memory: 256M
+          cpus: "0.5"
+          memory: 128M
         reservations:
-          cpus: "0.25"
-          memory: 64M
+          cpus: "0.1"
+          memory: 32M
     networks:
       - default
     restart: unless-stopped

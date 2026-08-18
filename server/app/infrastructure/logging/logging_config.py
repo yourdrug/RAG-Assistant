@@ -12,8 +12,8 @@ import logging
 import os
 from typing import Any
 
-from shared import request_id_ctx
 from pythonjsonlogger.json import JsonFormatter
+from shared import request_id_ctx
 
 
 class ExceptionFilter(logging.Filter):
@@ -74,14 +74,16 @@ if LOG_FORMAT == "json":
     try:
         _json_formatter: dict[str, Any] = {
             "()": JsonFormatter,
-            "format": "%(asctime)s %(levelname)s %(name)s %(request_id)s %(message)s",
+            "format": "%(asctime)s %(levelname)s %(name)s %(request_id)s %(message)s"
+            " %(action)s %(action_user_id)s %(action_details)s",
             "rename_fields": {"asctime": "timestamp", "levelname": "level", "name": "logger"},
             "datefmt": "%Y-%m-%dT%H:%M:%S",
         }
         _formatters["json"] = _json_formatter
         _formatters["json_detailed"] = {
             **_json_formatter,
-            "format": "%(asctime)s %(levelname)s %(name)s %(request_id)s %(filename)s %(lineno)d %(message)s",
+            "format": "%(asctime)s %(levelname)s %(name)s %(request_id)s %(filename)s %(lineno)d %(message)s"
+            " %(action)s %(action_user_id)s %(action_details)s",
         }
     except ImportError:
         LOG_FORMAT = "text"

@@ -228,9 +228,7 @@ class TestCanViewDocument:
         assert can_view_document("client_private", 10, None, "internal", 1, [], user_role="admin") is True
 
     def test_non_admin_internal_cannot_view_client_private(self):
-        assert (
-            can_view_document("client_private", 10, None, "internal", 1, [10], user_role="user") is False
-        )
+        assert can_view_document("client_private", 10, None, "internal", 1, [10], user_role="user") is False
 
     def test_non_admin_internal_no_assignments_cannot_view_client_private(self):
         assert can_view_document("client_private", 10, None, "internal", 1, [], user_role="user") is False

@@ -31,31 +31,14 @@ async def process_document(
     doc_domain: str | None = None,
 ) -> None:
     """Process an uploaded document (parse → split → vectorize → store)."""
-    from application.services.document_processor import DocumentProcessor
-
-    uow_factory = ctx["container"].infrastructure.uow_factory
-
-    from infrastructure.ml.extraction_adapter import MLContentExtractor, MLPDFQualityAssessor
-    from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
-    from infrastructure.ml.metrics_adapter import PrometheusMetricsCollector
-    from infrastructure.repositories.qdrant_vector_store_repository import QdrantVectorStoreRepository
-    from infrastructure.storage import LazyStorage
+    infra = ctx["container"].infrastructure
+    uow_factory = infra.uow_factory
 
     try:
         async with uow_factory.create(master=True) as uow:
             await uow.background_jobs.mark_running(job_id)
 
-        processor = DocumentProcessor(
-            uow_factory=uow_factory,
-            vector_store_repo=QdrantVectorStoreRepository(),
-            file_storage=LazyStorage(),
-            document_parser=LangchainDocumentParser(),
-            document_splitter=LangchainDocumentSplitter(),
-            content_extractor=MLContentExtractor(),
-            pdf_quality_assessor=MLPDFQualityAssessor(),
-            metrics=PrometheusMetricsCollector(),
-            domain_marker_threshold=settings.document_domain_marker_threshold,
-        )
+        processor = infra.create_document_processor(uow_factory=uow_factory)
 
         logger.info(
             "Worker: background upload started: %s (doc %d, job %d)",
@@ -106,17 +89,10 @@ async def run_full_ingest(
     """Full document ingestion from a directory."""
     from application.services.ingest_service import IngestAppService
 
-    uow_factory = ctx["container"].infrastructure.uow_factory
+    infra = ctx["container"].infrastructure
+    uow_factory = infra.uow_factory
 
-    from infrastructure.repositories.qdrant_vector_store_repository import QdrantVectorStoreRepository
-    from infrastructure.services.ingestion_service import IngestionService
-    from infrastructure.storage import LazyStorage
-
-    ingestion_svc = IngestionService(
-        vector_store_repo=QdrantVectorStoreRepository(),
-        file_storage=LazyStorage(),
-        uow_factory=uow_factory,
-    )
+    ingestion_svc = infra.create_ingestion_service(uow_factory=uow_factory)
     service = IngestAppService(uow_factory=uow_factory, ingestion_service=ingestion_svc)
 
     try:
@@ -144,17 +120,10 @@ async def run_single_ingest(
     """Ingest a single file."""
     from application.services.ingest_service import IngestAppService
 
-    uow_factory = ctx["container"].infrastructure.uow_factory
+    infra = ctx["container"].infrastructure
+    uow_factory = infra.uow_factory
 
-    from infrastructure.repositories.qdrant_vector_store_repository import QdrantVectorStoreRepository
-    from infrastructure.services.ingestion_service import IngestionService
-    from infrastructure.storage import LazyStorage
-
-    ingestion_svc = IngestionService(
-        vector_store_repo=QdrantVectorStoreRepository(),
-        file_storage=LazyStorage(),
-        uow_factory=uow_factory,
-    )
+    ingestion_svc = infra.create_ingestion_service(uow_factory=uow_factory)
     service = IngestAppService(uow_factory=uow_factory, ingestion_service=ingestion_svc)
 
     try:

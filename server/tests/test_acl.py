@@ -164,8 +164,7 @@ class TestCanViewDocument:
 
     def test_non_admin_rejected_from_client_doc(self):
         assert (
-            can_view_document("client_private", 50, None, "internal", 1, [50, 51], user_role="user")
-            is False
+            can_view_document("client_private", 50, None, "internal", 1, [50, 51], user_role="user") is False
         )
 
     def test_unknown_visibility_raises(self):

@@ -26,11 +26,8 @@ auth_key_header = APIKeyHeader(
 
 
 async def _authenticate_via_jwt(token: str, auth_service: AuthService) -> dict:
-    from infrastructure.auth.jwt_provider import JWTProvider
-
-    jwt_provider = JWTProvider()
     try:
-        payload = jwt_provider.decode_token(token)
+        payload = auth_service.decode_token(token)
     except _jwt.ExpiredSignatureError:
         raise AuthenticationError("Token expired") from None
     except _jwt.InvalidTokenError:
@@ -70,8 +67,8 @@ def _parse_auth_header_value(value: str) -> tuple[str, str] | None:
 
 
 async def get_current_user(
-        authorization: str | None = Depends(auth_key_header),
-        auth_service: AuthService = Depends(create_auth_service),
+    authorization: str | None = Depends(auth_key_header),
+    auth_service: AuthService = Depends(create_auth_service),
 ) -> dict:
     if authorization is None:
         raise AuthenticationError("Not authenticated")

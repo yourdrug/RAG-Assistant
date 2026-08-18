@@ -6,7 +6,6 @@ import logging.config
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from presentation.cli.cli import cli
 from composition.container import Container
 from config import settings
 from domain.exceptions import ClientException, ServerException
@@ -50,6 +49,7 @@ from presentation.api.routes.groups import router as groups_router
 from presentation.api.routes.health import router as health_router
 from presentation.api.routes.ingest import router as ingest_router
 from presentation.api.routes.search import router as search_router
+from presentation.cli.cli import cli
 
 # ---------------------------------------------------------------------------
 # Lifespan
@@ -106,14 +106,10 @@ class Application:
             lifespan=lifespan,
             servers=[{"url": "./", "description": "Relative server"}],
         )
-        self.configure_logging()
         self.add_exception_handlers()
         self.add_middlewares()
         self.add_routers()
         add_metrics_middleware(self.app)
-
-    def configure_logging(self) -> None:
-        logging.config.dictConfig(logging_config)
 
     def add_exception_handlers(self) -> None:
         self.app.add_exception_handler(ClientException, handle_client_exception)  # type: ignore[arg-type]

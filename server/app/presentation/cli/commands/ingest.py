@@ -12,7 +12,6 @@ from pathlib import Path
 import typer
 from config import settings
 from infrastructure.registry import load_registry
-from infrastructure.repositories.qdrant_vector_store_repository import QdrantVectorStoreRepository
 from infrastructure.services.ingestion_service import IngestionService
 from infrastructure.storage import get_storage
 
@@ -23,9 +22,12 @@ ingest_app = typer.Typer(help="Document indexing in Qdrant")
 
 def _create_service(uow_factory=None) -> IngestionService:
     """Create IngestionService with proper dependencies (no DB in CLI mode)."""
+    from infrastructure.repositories.qdrant_vector_store_repository import QdrantVectorStoreRepository
+    from infrastructure.storage import LazyStorage
+
     return IngestionService(
         vector_store_repo=QdrantVectorStoreRepository(),
-        file_storage=get_storage(),
+        file_storage=LazyStorage(),
         uow_factory=uow_factory,
     )
 

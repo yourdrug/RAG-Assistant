@@ -69,6 +69,9 @@ class TestInfrastructureContainer:
         assert infra.summary_updater is None
         assert infra.api_key_provider is None
         assert infra.config_broadcaster is None
+        assert infra.content_extractor is None
+        assert infra.pdf_quality_assessor is None
+        assert infra.metrics_collector is None
 
     @patch("composition.container.InfrastructureContainer.init")
     def test_init_sets_fields(self, mock_init, mock_database_manager):
@@ -101,6 +104,9 @@ class TestInfrastructureContainer:
         assert "uow_factory" in field_names
         assert "config_broadcaster" in field_names
         assert "api_key_provider" in field_names
+        assert "content_extractor" in field_names
+        assert "pdf_quality_assessor" in field_names
+        assert "metrics_collector" in field_names
 
 
 # ===========================================================================
@@ -136,7 +142,7 @@ class TestApplicationContainer:
     def test_init_requires_infra_initialized(self):
         app = ApplicationContainer()
         infra = InfrastructureContainer()
-        with pytest.raises(AssertionError, match="InfrastructureContainer.init\\(\\) must be called"):
+        with pytest.raises(RuntimeError, match="InfrastructureContainer.init\\(\\) must be called"):
             app.init(infra)
 
     @pytest.mark.asyncio
@@ -214,9 +220,12 @@ class TestContainer:
     def test_double_init_raises(self):
         c = Container()
         mock_db = MagicMock(spec=DatabaseManager)
-        with patch.object(InfrastructureContainer, "init"), patch.object(
-            ApplicationContainer, "init"
-        ), patch("composition.container._subscribe_config_events"):
+        with (
+            patch.object(InfrastructureContainer, "init"),
+            patch.object(ApplicationContainer, "init"),
+            patch("composition.container._subscribe_config_events"),
+            patch("composition.container._unsubscribe_config_events"),
+        ):
             c.init(mock_db)
             with pytest.raises(RuntimeError, match="exactly once"):
                 c.init(mock_db)
@@ -230,11 +239,14 @@ class TestContainer:
     async def test_dispose_resets_flag(self):
         c = Container()
         mock_db = MagicMock(spec=DatabaseManager)
-        with patch.object(InfrastructureContainer, "init"), patch.object(
-            ApplicationContainer, "init"
-        ), patch.object(ApplicationContainer, "dispose", new_callable=AsyncMock), patch.object(
-            InfrastructureContainer, "dispose", new_callable=AsyncMock
-        ), patch("composition.container._subscribe_config_events"):
+        with (
+            patch.object(InfrastructureContainer, "init"),
+            patch.object(ApplicationContainer, "init"),
+            patch.object(ApplicationContainer, "dispose", new_callable=AsyncMock),
+            patch.object(InfrastructureContainer, "dispose", new_callable=AsyncMock),
+            patch("composition.container._subscribe_config_events"),
+            patch("composition.container._unsubscribe_config_events"),
+        ):
             c.init(mock_db)
             assert c._initialized is True
             await c.dispose()
@@ -334,7 +346,7 @@ class TestSubscribeConfigEvents:
 
     def test_requires_ml_clients(self):
         infra = InfrastructureContainer()
-        with pytest.raises(AssertionError, match="InfrastructureContainer must be initialized"):
+        with pytest.raises(RuntimeError, match="InfrastructureContainer must be initialized"):
             _subscribe_config_events(infra)
 
     def test_invalidation_handlers_are_callable(self):
@@ -349,13 +361,17 @@ class TestSubscribeConfigEvents:
 
             handlers = [call[0][1] for call in mock_bus.subscribe.call_args_list]
 
-            llm_event = ConfigParameterChanged(key="llm_model", old_value="a", new_value="b", value_type="str")
+            llm_event = ConfigParameterChanged(
+                key="llm_model", old_value="a", new_value="b", value_type="str"
+            )
             for h in handlers:
                 h(llm_event)
             mock_ml.invalidate_llm.assert_called()
 
             mock_ml.reset_mock()
-            bm25_event = ConfigParameterChanged(key="hybrid_enabled", old_value="false", new_value="true", value_type="bool")
+            bm25_event = ConfigParameterChanged(
+                key="hybrid_enabled", old_value="false", new_value="true", value_type="bool"
+            )
             for h in handlers:
                 h(bm25_event)
             mock_ml.invalidate_bm25.assert_called()
@@ -370,11 +386,14 @@ class TestContainerIntegration:
     @pytest.mark.asyncio
     async def test_full_init_dispose_cycle(self, mock_database_manager):
         c = Container()
-        with patch.object(InfrastructureContainer, "init") as mock_infra_init, patch.object(
-            ApplicationContainer, "init"
-        ), patch.object(ApplicationContainer, "dispose", new_callable=AsyncMock), patch.object(
-            InfrastructureContainer, "dispose", new_callable=AsyncMock
-        ), patch("composition.container._subscribe_config_events"):
+        with (
+            patch.object(InfrastructureContainer, "init") as mock_infra_init,
+            patch.object(ApplicationContainer, "init"),
+            patch.object(ApplicationContainer, "dispose", new_callable=AsyncMock),
+            patch.object(InfrastructureContainer, "dispose", new_callable=AsyncMock),
+            patch("composition.container._subscribe_config_events"),
+            patch("composition.container._unsubscribe_config_events"),
+        ):
             c.init(mock_database_manager)
             mock_infra_init.assert_called_once_with(mock_database_manager)
             assert c._initialized is True

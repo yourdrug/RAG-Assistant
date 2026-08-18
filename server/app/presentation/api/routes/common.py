@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import logging
 
-from shared import request_id_ctx
 from domain.repositories.background_job_repository import BackgroundJob
 from domain.value_objects.job_status import BackgroundJobStatus
 from infrastructure.uow_factory import UnitOfWorkFactory  # noqa: F401
+from shared import request_id_ctx
 
 logger = logging.getLogger("default")
 

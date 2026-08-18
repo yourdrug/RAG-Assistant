@@ -26,6 +26,15 @@ class InProcessEventBus:
             getattr(handler, "__qualname__", handler),
         )
 
+    def unsubscribe_all(self) -> None:
+        """Remove all registered handlers.
+
+        Call during container dispose to avoid leaking handlers across
+        container re-creation cycles (the event bus is a process-level singleton).
+        """
+        self._handlers.clear()
+        log.debug("All event handlers removed")
+
     def publish(self, event: object) -> None:
         for handler in self._handlers.get(type(event), []):
             try:
