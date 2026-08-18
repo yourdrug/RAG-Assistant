@@ -5,14 +5,14 @@ from __future__ import annotations
 from application.services.health_service import HealthService
 from fastapi import APIRouter, Depends
 
-from presentation.api.dependencies import get_health_service
+from presentation.api.dependencies import create_health_service
 from presentation.api.schemas import HealthCheck, HealthResponse
 
 router = APIRouter(tags=["health"])
 
 
 @router.get("/health", response_model=HealthResponse)
-async def health(health_service: HealthService = Depends(get_health_service)):
+async def health(health_service: HealthService = Depends(create_health_service)):
     result = await health_service.check()
     return HealthResponse(
         status=result.status,

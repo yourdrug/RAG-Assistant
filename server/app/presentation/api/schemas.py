@@ -46,22 +46,20 @@ class BenchmarkResponse(BaseModel):
 
 
 class BenchmarkResultSummary(BaseModel):
-    filename: str
-    model: str | None = None
-    total_questions: int
-    total_time_sec: float
-    hit_rate: float | None = None
-    avg_mrr: float | None = None
-    avg_faithfulness: float | None = None
-    avg_relevancy: float | None = None
-    avg_correctness: float | None = None
-    avg_similarity: float | None = None
+    id: int
+    config_json: dict
+    summary_metrics: dict
+    duration_sec: float
+    llm_evaluated: bool
+    dataset: str
+    sweep_id: int | None = None
+    creation_date: datetime | None = None
 
 
 class BenchmarkResultDetail(BaseModel):
-    filename: str
+    id: int
     summary: BenchmarkResultSummary
-    results: list[dict]
+    per_question_results: dict | None = None
 
 
 class BenchmarkResultsListResponse(BaseModel):
@@ -204,21 +202,6 @@ class GroupMemberResponse(BaseModel):
 
 class AddMemberRequest(BaseModel):
     user_id: int
-
-
-# ---------------------------------------------------------------------------
-# Clients
-# ---------------------------------------------------------------------------
-
-
-class ClientAssignmentResponse(BaseModel):
-    internal_user_id: int
-    email: str
-    assigned_at: datetime | None
-
-
-class AssignClientRequest(BaseModel):
-    client_user_id: int
 
 
 # ---------------------------------------------------------------------------
@@ -479,7 +462,9 @@ class ChatLogsResponse(BaseModel):
 class ExactSearchRequest(BaseModel):
     query: str = Field(..., min_length=3, max_length=200, description="Search query (min 3 chars)")
     mode: str = Field(
-        SearchMode.EXACT.value, pattern="^(exact|icontains)$", description="exact=pg_trgm ranked, icontains=plain ILIKE"
+        SearchMode.EXACT.value,
+        pattern="^(exact|icontains)$",
+        description="exact=pg_trgm ranked, icontains=plain ILIKE",
     )
     limit: int = Field(20, ge=1, le=100)
     document_id: int | None = Field(None, description="Filter by document ID (optional)")

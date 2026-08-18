@@ -244,7 +244,6 @@ class TestUserDefaults:
         assert user.kind == UserKind.INTERNAL
         assert user.is_active is True
         assert user.group_ids == []
-        assert user.assigned_client_ids == []
 
 
 # ===========================================================================

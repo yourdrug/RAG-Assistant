@@ -57,11 +57,6 @@ class ChunkService:
             user_group_ids = (
                 await uow.groups.get_user_group_ids(user_id) if user_kind == UserKind.INTERNAL else []
             )
-            assigned_ids = (
-                await uow.client_assignments.get_assigned_client_ids(user_id)
-                if user_kind == UserKind.INTERNAL
-                else []
-            )
 
             if not can_view_document(
                 doc_visibility=doc.visibility,
@@ -70,7 +65,6 @@ class ChunkService:
                 user_kind=user_kind,
                 user_id=user_id,
                 user_group_ids=user_group_ids,
-                assigned_client_ids=assigned_ids,
                 user_role=user_role,
             ):
                 raise BusinessRuleViolation("No access to this document")

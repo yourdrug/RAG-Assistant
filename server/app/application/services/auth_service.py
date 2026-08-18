@@ -94,6 +94,40 @@ class AuthService:
             await uow.users.set_active(user_id, is_active)
             return {"id": user_id, "is_active": is_active}
 
+    async def get_user_by_id(self, user_id: int) -> dict | None:
+        """Return user as dict for auth lookups, or None if not found."""
+        async with self._uow_factory.create() as uow:
+            user = await uow.users.get_by_id(user_id)
+            if user is None:
+                return None
+            return {
+                "id": user.id,
+                "email": user.email,
+                "role": user.role,
+                "kind": user.kind,
+                "is_active": user.is_active,
+            }
+
+    async def get_user_by_api_key_hash(self, key_hash: str) -> dict | None:
+        """Return user as dict for API key auth lookups, or None if not found."""
+        async with self._uow_factory.create() as uow:
+            result = await uow.api_keys.get_active_client_by_hash(key_hash)
+            if result is None:
+                return None
+            return {
+                "api_key_id": result.api_key_id,
+                "id": result.id,
+                "email": result.email,
+                "role": result.role,
+                "kind": result.kind,
+                "is_active": result.is_active,
+            }
+
+    async def touch_api_key_last_used(self, api_key_id: int) -> None:
+        """Update last_used_at for an API key."""
+        async with self._uow_factory.create(master=True) as uow:
+            await uow.api_keys.touch_last_used(api_key_id)
+
     async def issue_api_key(self, client_user_id: int, name: str | None = None) -> dict:
         async with self._uow_factory.create() as uow:
             user = await uow.users.get_by_id(client_user_id)

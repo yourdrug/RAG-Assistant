@@ -31,16 +31,15 @@ async def process_document(
     doc_domain: str | None = None,
 ) -> None:
     """Process an uploaded document (parse → split → vectorize → store)."""
-    from application.ports.dependencies import get_uow_factory
     from application.services.document_processor import DocumentProcessor
+
+    uow_factory = ctx["container"].infrastructure.uow_factory
 
     from infrastructure.ml.extraction_adapter import MLContentExtractor, MLPDFQualityAssessor
     from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
     from infrastructure.ml.metrics_adapter import PrometheusMetricsCollector
     from infrastructure.repositories.qdrant_vector_store_repository import QdrantVectorStoreRepository
     from infrastructure.storage import LazyStorage
-
-    uow_factory = get_uow_factory()
 
     try:
         async with uow_factory.create(master=True) as uow:
@@ -105,14 +104,14 @@ async def run_full_ingest(
     job_id: int,
 ) -> None:
     """Full document ingestion from a directory."""
-    from application.ports.dependencies import get_uow_factory
     from application.services.ingest_service import IngestAppService
+
+    uow_factory = ctx["container"].infrastructure.uow_factory
 
     from infrastructure.repositories.qdrant_vector_store_repository import QdrantVectorStoreRepository
     from infrastructure.services.ingestion_service import IngestionService
     from infrastructure.storage import LazyStorage
 
-    uow_factory = get_uow_factory()
     ingestion_svc = IngestionService(
         vector_store_repo=QdrantVectorStoreRepository(),
         file_storage=LazyStorage(),
@@ -143,14 +142,14 @@ async def run_single_ingest(
     job_id: int,
 ) -> None:
     """Ingest a single file."""
-    from application.ports.dependencies import get_uow_factory
     from application.services.ingest_service import IngestAppService
+
+    uow_factory = ctx["container"].infrastructure.uow_factory
 
     from infrastructure.repositories.qdrant_vector_store_repository import QdrantVectorStoreRepository
     from infrastructure.services.ingestion_service import IngestionService
     from infrastructure.storage import LazyStorage
 
-    uow_factory = get_uow_factory()
     ingestion_svc = IngestionService(
         vector_store_repo=QdrantVectorStoreRepository(),
         file_storage=LazyStorage(),
@@ -183,11 +182,10 @@ async def run_benchmark(
     job_id: int,
 ) -> None:
     """Run RAG quality benchmark."""
-    from application.ports.dependencies import get_uow_factory
+    uow_factory = ctx["container"].infrastructure.uow_factory
 
     from infrastructure.services.benchmark_service import BenchmarkService
 
-    uow_factory = get_uow_factory()
     service = BenchmarkService()
 
     try:
@@ -219,13 +217,12 @@ async def run_sweep(
     """Run a parameter sweep as a background job."""
     import json
 
-    from application.ports.dependencies import get_uow_factory
     from domain.entities.benchmark_run import BenchmarkRun
+
+    uow_factory = ctx["container"].infrastructure.uow_factory
 
     from infrastructure.ml.sweep_engine import SweepEngine
     from infrastructure.services.benchmark_service import BenchmarkService
-
-    uow_factory = get_uow_factory()
 
     try:
         async with uow_factory.create(master=True) as uow:

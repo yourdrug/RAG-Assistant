@@ -7,15 +7,14 @@ from pathlib import Path
 
 from application.ports.ingestion_port import IngestionPort
 from application.services.ingest_service import IngestAppService
+from application.services.job_service import JobService
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from infrastructure.logging.actions import log_action
-from infrastructure.uow_factory import UnitOfWorkFactory
 from infrastructure.worker.queue import enqueue_ingest, enqueue_ingest_file
 
 from presentation.api.auth_dependencies import require_admin
-from presentation.api.dependencies import create_ingest_service, get_ingestion_port, get_uow_factory
+from presentation.api.dependencies import create_ingest_service, create_ingestion_port, create_job_service
 from presentation.api.rate_limits import ingest_rate_limit
-from presentation.api.routes.common import create_background_job
 from presentation.api.schemas import (
     IngestRegistryItem,
     IngestRegistryResponse,
@@ -35,14 +34,14 @@ async def ingest_documents(
     domain: str = "auto",
     admin: dict = Depends(require_admin),
     service: IngestAppService = Depends(create_ingest_service),
-    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
+    job_service: JobService = Depends(create_job_service),
 ):
     try:
         resolved_dir = service.resolve_docs_dir(docs_dir)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    job_id = await create_background_job(uow_factory, "ingest")
+    job_id = await job_service.create_job("ingest")
 
     log_action(
         "ingest.full",
@@ -67,7 +66,7 @@ async def ingest_single_file(
     domain: str = "auto",
     admin: dict = Depends(require_admin),
     service: IngestAppService = Depends(create_ingest_service),
-    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
+    job_service: JobService = Depends(create_job_service),
 ):
     try:
         resolved = service.resolve_ingest_target(file_path)
@@ -79,7 +78,7 @@ async def ingest_single_file(
     if force:
         service.force_reindex(Path(resolved).name)
 
-    job_id = await create_background_job(uow_factory, "ingest", related_id=None)
+    job_id = await job_service.create_job("ingest", related_id=None)
 
     log_action(
         "ingest.file", user_id=admin["id"], details={"file": resolved, "force": force, "domain": domain}
@@ -119,7 +118,7 @@ async def get_ingest_registry(
 async def upload_files(
     files: list[UploadFile] = File(...),
     admin: dict = Depends(require_admin),
-    ingestion_port: IngestionPort = Depends(get_ingestion_port),
+    ingestion_port: IngestionPort = Depends(create_ingestion_port),
 ):
     file_data = []
     for f in files:

@@ -8,7 +8,7 @@ orchestration (ACL context, depth) rather than pure domain concepts.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.stream_events import StreamEvent
@@ -16,6 +16,7 @@ from domain.value_objects.stream_events import StreamEvent
 from application.dto.chat_dto import RagResult
 
 
+@runtime_checkable
 class ChatRAGPort(Protocol):
     async def stream(
         self,

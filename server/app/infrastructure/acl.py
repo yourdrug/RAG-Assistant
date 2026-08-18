@@ -13,7 +13,6 @@ from qdrant_client.models import FieldCondition, Filter, MatchAny, MatchValue
 def build_qdrant_filter(
     user: dict,
     group_ids: list[int],
-    assigned_client_ids: list[int],
 ) -> Filter:
     """Build a Qdrant filter for documents visible to this user.
 
@@ -22,11 +21,8 @@ def build_qdrant_filter(
     Args:
         user: dict with "id" and "kind" keys
         group_ids: pre-fetched group IDs for this user
-        assigned_client_ids: pre-fetched assigned client IDs for this user
     """
-    conditions = get_visibility_conditions(
-        UserKind(user["kind"]), user["id"], group_ids, assigned_client_ids, for_list=False
-    )
+    conditions = get_visibility_conditions(UserKind(user["kind"]), user["id"], group_ids, for_list=False)
 
     should: list[FieldCondition | Filter] = []
 
@@ -35,8 +31,6 @@ def build_qdrant_filter(
 
         if cond.owner_match == "self":
             must.append(FieldCondition(key="metadata.owner_id", match=MatchValue(value=user["id"])))
-        elif cond.owner_match == "assigned":
-            must.append(FieldCondition(key="metadata.owner_id", match=MatchAny(any=assigned_client_ids)))
 
         if cond.group_match:
             must.append(FieldCondition(key="metadata.group_id", match=MatchAny(any=group_ids)))

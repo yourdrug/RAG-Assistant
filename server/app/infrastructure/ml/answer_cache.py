@@ -21,15 +21,13 @@ CACHE_TTL_SECONDS = 7 * 24 * 3600  # 7 days
 CACHE_PREFIX = "rag:cache:"
 
 
-def compute_visibility_scope_hash(
-    user_kind: str, group_ids: list[int], assigned_client_ids: list[int]
-) -> str:
+def compute_visibility_scope_hash(user_kind: str, group_ids: list[int]) -> str:
     """Deterministic hash of the user's ACL context.
 
-    Two users with different group_ids or assigned_client_ids will produce
-    different hashes, preventing cross-tenant cache hits.
+    Two users with different group_ids will produce different hashes,
+    preventing cross-tenant cache hits.
     """
-    scope = f"{user_kind}:{sorted(group_ids)}:{sorted(assigned_client_ids)}"
+    scope = f"{user_kind}:{sorted(group_ids)}"
     return content_hash(scope)
 
 

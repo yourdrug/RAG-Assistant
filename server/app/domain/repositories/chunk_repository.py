@@ -96,7 +96,6 @@ class ChunkRepository(Protocol):
         query: str,
         user: dict,
         group_ids: list[int],
-        assigned_client_ids: list[int],
         limit: int = 20,
         mode: str = SearchMode.EXACT.value,
         document_id: int | None = None,

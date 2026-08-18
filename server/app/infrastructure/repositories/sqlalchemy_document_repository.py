@@ -123,13 +123,11 @@ class SQLAlchemyDocumentRepository:
         user_kind: str,
         user_id: int,
         group_ids: list[int],
-        assigned_client_ids: list[int],
     ) -> list[Document]:
         conditions = get_visibility_conditions(
             UserKind(user_kind),
             user_id,
             group_ids,
-            assigned_client_ids,
         )
 
         or_clauses = []
@@ -138,8 +136,6 @@ class SQLAlchemyDocumentRepository:
 
             if cond.owner_match == OwnerMatch.SELF.value:
                 and_parts.append(DocumentModel.owner_id == user_id)
-            elif cond.owner_match == OwnerMatch.ASSIGNED.value:
-                and_parts.append(DocumentModel.owner_id.in_(assigned_client_ids))
 
             if cond.group_match:
                 and_parts.append(DocumentModel.group_id.in_(group_ids))

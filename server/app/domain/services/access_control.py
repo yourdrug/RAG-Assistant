@@ -36,7 +36,7 @@ class VisibilityCondition:
     """
 
     visibility: DocumentVisibility
-    owner_match: str | None = None  # OwnerMatch.SELF = user_id, OwnerMatch.ASSIGNED = assigned_client_ids
+    owner_match: str | None = None  # OwnerMatch.SELF = user_id
     group_match: bool = False  # True = group_id IN user_group_ids
 
 
@@ -44,7 +44,6 @@ def get_visibility_conditions(
     user_kind: UserKind,
     user_id: int,
     group_ids: list[int],
-    assigned_client_ids: list[int],
     for_list: bool = True,
     user_role: UserRole | None = None,
 ) -> list[VisibilityCondition]:
@@ -148,7 +147,6 @@ def can_view_document(
     user_kind: str,
     user_id: int,
     user_group_ids: list[int],
-    assigned_client_ids: list[int],
     user_role: str | None = None,
 ) -> bool:
     """Business rule: can this user view this document?"""

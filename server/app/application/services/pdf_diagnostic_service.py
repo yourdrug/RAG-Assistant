@@ -134,7 +134,13 @@ class PDFDiagnosticService:
     def analyze_text_layer(self, pdf_path: Path) -> tuple[list[DryRunPageResult], dict[str, int], int]:
         doc = self._pdf.open(str(pdf_path))
         page_results: list[DryRunPageResult] = []
-        types_count: dict[str, int] = {PageContentType.TEXT: 0, PageContentType.SCAN: 0, PageContentType.GARBLED: 0, PageContentType.EMPTY: 0, PageContentType.TABLE: 0}
+        types_count: dict[str, int] = {
+            PageContentType.TEXT: 0,
+            PageContentType.SCAN: 0,
+            PageContentType.GARBLED: 0,
+            PageContentType.EMPTY: 0,
+            PageContentType.TABLE: 0,
+        }
         total_chars = 0
 
         for i in range(self._pdf.get_page_count(doc)):
@@ -173,7 +179,9 @@ class PDFDiagnosticService:
     def ocr_problem_pages(
         self, pdf_path: Path, page_results: list[DryRunPageResult]
     ) -> tuple[list[DryRunPageResult], dict[str, int], int]:
-        problem_pages = [p.page for p in page_results if p.type in (PageContentType.SCAN, PageContentType.EMPTY)]
+        problem_pages = [
+            p.page for p in page_results if p.type in (PageContentType.SCAN, PageContentType.EMPTY)
+        ]
         if not problem_pages:
             return page_results, {}, 0
 
@@ -181,7 +189,13 @@ class PDFDiagnosticService:
         ocr_results = self._ocr.ocr_pages(doc, problem_pages, pdf_path.name)
         self._pdf.close(doc)
 
-        new_types: dict[str, int] = {PageContentType.TEXT: 0, PageContentType.SCAN: 0, PageContentType.GARBLED: 0, PageContentType.EMPTY: 0, PageContentType.TABLE: 0}
+        new_types: dict[str, int] = {
+            PageContentType.TEXT: 0,
+            PageContentType.SCAN: 0,
+            PageContentType.GARBLED: 0,
+            PageContentType.EMPTY: 0,
+            PageContentType.TABLE: 0,
+        }
         total_chars = 0
 
         for pr in page_results:
@@ -199,11 +213,19 @@ class PDFDiagnosticService:
                         )
                     else:
                         pr = DryRunPageResult(
-                            page=pr.page, type=PageContentType.SCAN, content_type=PageContentType.OCR, chars=pr.chars, preview=pr.preview
+                            page=pr.page,
+                            type=PageContentType.SCAN,
+                            content_type=PageContentType.OCR,
+                            chars=pr.chars,
+                            preview=pr.preview,
                         )
                 else:
                     pr = DryRunPageResult(
-                        page=pr.page, type=PageContentType.SCAN, content_type=PageContentType.OCR, chars=pr.chars, preview=pr.preview
+                        page=pr.page,
+                        type=PageContentType.SCAN,
+                        content_type=PageContentType.OCR,
+                        chars=pr.chars,
+                        preview=pr.preview,
                     )
 
             new_types[pr.type] = new_types.get(pr.type, 0) + 1

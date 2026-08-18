@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from domain.value_objects.query_results import GroupInfo, GroupMemberInfo
 
 
+@runtime_checkable
 class GroupRepository(Protocol):
     async def create(self, name: str) -> int: ...
     async def list_all(self) -> list[GroupInfo]: ...

@@ -23,4 +23,6 @@ class DocumentParser(Protocol):
 class DocumentSplitter(Protocol):
     """Splits documents into chunks for embedding."""
 
-    def split(self, documents: list[RawDocument], domain: str = DocDomain.GENERAL.value) -> list[RawDocument]: ...
+    def split(
+        self, documents: list[RawDocument], domain: str = DocDomain.GENERAL.value
+    ) -> list[RawDocument]: ...

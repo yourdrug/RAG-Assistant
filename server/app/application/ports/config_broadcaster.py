@@ -6,13 +6,14 @@ Application layer depends only on this protocol. Concrete implementation
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from domain.events.config_events import ConfigParameterChanged
 
 from application.ports.session_protocol import SessionProtocol
 
 
+@runtime_checkable
 class ConfigChangeBroadcaster(Protocol):
     async def broadcast(self, event: ConfigParameterChanged) -> None: ...
 

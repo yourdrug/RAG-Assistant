@@ -5,7 +5,6 @@ from domain.repositories.benchmark_question_repository import BenchmarkQuestionR
 from domain.repositories.benchmark_run_repository import BenchmarkRunRepository
 from domain.repositories.benchmark_settings_repository import BenchmarkSettingsProtocol
 from domain.repositories.benchmark_sweep_repository import BenchmarkSweepRepository
-from domain.repositories.client_assignment_repository import ClientAssignmentRepository
 from domain.repositories.conversation_repository import ConversationRepository
 from domain.repositories.document_repository import DocumentRepository
 from domain.repositories.group_repository import GroupRepository
@@ -20,7 +19,6 @@ __all__ = [
     "MessageRepository",
     "DocumentRepository",
     "GroupRepository",
-    "ClientAssignmentRepository",
     "VectorStoreRepository",
     "IngestionRegistryRepository",
     "BenchmarkSettingsProtocol",

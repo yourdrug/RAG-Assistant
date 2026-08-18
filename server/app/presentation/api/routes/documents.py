@@ -6,21 +6,20 @@ import logging
 from pathlib import Path
 
 from application.services.document_service import DocumentService
+from application.services.job_service import JobService
 from config import settings
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.document_status import DocumentStatus
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from infrastructure.logging.actions import log_action
-from infrastructure.uow_factory import UnitOfWorkFactory
 from infrastructure.worker.queue import enqueue_document_processing
 
 from presentation.api.auth_dependencies import get_current_user
 from presentation.api.dependencies import (
     create_document_service,
-    get_uow_factory,
+    create_job_service,
 )
 from presentation.api.rate_limits import upload_rate_limit
-from presentation.api.routes.common import create_background_job
 from presentation.api.schemas import DocumentResponse, UploadStatusResponse
 
 logger = logging.getLogger("default")
@@ -73,7 +72,7 @@ async def upload_document(
     rename_on_conflict: bool = Form(False),
     doc_domain: str | None = Form(None),
     document_service: DocumentService = Depends(create_document_service),
-    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
+    job_service: JobService = Depends(create_job_service),
 ):
     filename = file.filename or "unnamed"
     ext = Path(filename).suffix.lower()
@@ -110,7 +109,7 @@ async def upload_document(
         details={"filename": filename, "visibility": visibility},
     )
 
-    job_id = await create_background_job(uow_factory, "document_processing", related_id=result.id)
+    job_id = await job_service.create_job("document_processing", related_id=result.id)
 
     await enqueue_document_processing(
         document_id=result.id,
@@ -124,7 +123,9 @@ async def upload_document(
         job_id=job_id,
     )
 
-    return UploadStatusResponse(status=DocumentStatus.PROCESSING.value, document_id=result.id, filename=filename)
+    return UploadStatusResponse(
+        status=DocumentStatus.PROCESSING.value, document_id=result.id, filename=filename
+    )
 
 
 @router.get("/documents", response_model=list[DocumentResponse])

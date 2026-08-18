@@ -79,17 +79,6 @@ class UserGroupModel(LinkedBaseModel):
     group_id: Mapped[int] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"), primary_key=True)
 
 
-class ClientAssignmentModel(LinkedBaseModel):
-    __tablename__ = "client_assignments"
-
-    internal_user_id: Mapped[int] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
-    )
-    client_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
-    assigned_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
-    assigned_at: Mapped[DateTime | None] = mapped_column(DateTime)
-
-
 class DocumentModel(BaseModel):
     __tablename__ = "documents"
     __table_args__ = (

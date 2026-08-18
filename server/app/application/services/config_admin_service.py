@@ -111,7 +111,9 @@ class ConfigAdminService:
             ocr_engine=self._ocr_engine,
             ocr_enabled=self._ocr_enabled,
             ollama_models=ollama_models,
-            openrouter_model=self._openrouter_model if self._llm_provider == LLMProvider.OPENROUTER.value else None,
+            openrouter_model=self._openrouter_model
+            if self._llm_provider == LLMProvider.OPENROUTER.value
+            else None,
         )
 
     def get_vectordb_info(self) -> VectorDBInfo:

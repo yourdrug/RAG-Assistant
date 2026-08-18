@@ -141,7 +141,6 @@ class SQLAlchemyChunkRepository:
         query: str,
         user: dict,
         group_ids: list[int],
-        assigned_client_ids: list[int],
         limit: int = 20,
         mode: str = "exact",
         document_id: int | None = None,
@@ -153,7 +152,6 @@ class SQLAlchemyChunkRepository:
             UserKind(user["kind"]),
             user["id"],
             group_ids,
-            assigned_client_ids,
             for_list=False,
             user_role=UserRole(user.get("role", "user")),
         )
@@ -164,8 +162,6 @@ class SQLAlchemyChunkRepository:
 
             if cond.owner_match == OwnerMatch.SELF.value:
                 parts.append(ChunkModel.owner_id == user["id"])
-            elif cond.owner_match == OwnerMatch.ASSIGNED.value:
-                parts.append(ChunkModel.owner_id.in_(assigned_client_ids))
 
             if cond.group_match:
                 parts.append(ChunkModel.group_id.in_(group_ids))

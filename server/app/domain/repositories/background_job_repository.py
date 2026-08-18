@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from domain.entities.background_job import BackgroundJob
 
 
+@runtime_checkable
 class BackgroundJobRepository(Protocol):
     async def create(self, job: BackgroundJob) -> BackgroundJob: ...
     async def mark_running(self, job_id: int) -> None: ...

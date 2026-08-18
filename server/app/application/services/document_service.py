@@ -155,15 +155,7 @@ class DocumentService:
             if user_role == UserRole.ADMIN:
                 all_users = await uow.users.list_all()
                 return [{"id": u.id, "email": u.email} for u in all_users if u.kind == UserKind.CLIENT]
-            assigned_ids = await uow.client_assignments.get_assigned_client_ids(user_id)
-            if not assigned_ids:
-                return []
-            clients = []
-            for cid in assigned_ids:
-                u = await uow.users.get_by_id(cid)
-                if u and u.is_active:
-                    clients.append({"id": u.id, "email": u.email})
-            return clients
+            return []
 
     async def list_documents(
         self, user_id: int, user_kind: str, user_role: str | UserRole = UserRole.USER
@@ -176,16 +168,13 @@ class DocumentService:
                     user_kind=user_kind,
                     user_id=user_id,
                     group_ids=[],
-                    assigned_client_ids=[],
                 )
             else:
                 group_ids = await uow.groups.get_user_group_ids(user_id)
-                assigned_ids = await uow.client_assignments.get_assigned_client_ids(user_id)
                 docs = await uow.documents.list_visible(
                     user_kind=user_kind,
                     user_id=user_id,
                     group_ids=group_ids or [],
-                    assigned_client_ids=assigned_ids or [],
                 )
 
             return [
@@ -222,11 +211,6 @@ class DocumentService:
             user_group_ids = (
                 await uow.groups.get_user_group_ids(user_id) if user_kind == UserKind.INTERNAL else []
             )
-            assigned_ids = (
-                await uow.client_assignments.get_assigned_client_ids(user_id)
-                if user_kind == UserKind.INTERNAL
-                else []
-            )
 
             if not can_view_document(
                 doc_visibility=doc.visibility,
@@ -235,7 +219,6 @@ class DocumentService:
                 user_kind=user_kind,
                 user_id=user_id,
                 user_group_ids=user_group_ids,
-                assigned_client_ids=assigned_ids,
                 user_role=user_role,
             ):
                 raise BusinessRuleViolation("No access to this document")
@@ -277,6 +260,10 @@ class DocumentService:
                 self._file_storage.delete_file(doc.source_path)
 
             await uow.documents.delete(document_id)
+
+    async def list_source_files(self, search: str | None = None) -> list[str]:
+        async with self._uow_factory.create() as uow:
+            return await uow.documents.list_distinct_filenames(search=search, limit=100)
 
     @staticmethod
     async def _unique_filename(uow, owner_id, group_id, filename: str) -> str:

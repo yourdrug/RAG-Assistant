@@ -25,8 +25,10 @@ class QualityService:
             doc = await uow.documents.get_by_id(document_id)
             if doc is None:
                 from domain.exceptions import EntityNotFound
+
                 raise EntityNotFound("Document", document_id)
             if not doc.source_path:
                 from domain.exceptions import ValidationError
+
                 raise ValidationError(detail="Document has no source file", field="source_path")
             return doc.source_path

@@ -11,20 +11,21 @@ from application.services.benchmark_services import (
     BenchmarkSweepService,
 )
 from application.services.config_service import ConfigService
-from fastapi import APIRouter, Depends, HTTPException, Query
+from application.services.document_service import DocumentService
+from application.services.job_service import JobService
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
-from infrastructure.uow_factory import UnitOfWorkFactory
 from infrastructure.worker.queue import enqueue_sweep
 
 from presentation.api.auth_dependencies import require_admin
 from presentation.api.dependencies import (
+    create_benchmark_question_service,
+    create_benchmark_run_service,
+    create_benchmark_sweep_service,
     create_config_service,
-    get_benchmark_question_service,
-    get_benchmark_run_service,
-    get_benchmark_sweep_service,
-    get_uow_factory,
+    create_document_service,
+    create_job_service,
 )
-from presentation.api.routes.common import create_background_job
 from presentation.api.schemas import (
     BenchmarkHistoryPoint,
     BenchmarkHistoryResponse,
@@ -62,7 +63,7 @@ async def list_questions(
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     admin: dict = Depends(require_admin),
-    service: BenchmarkQuestionService = Depends(get_benchmark_question_service),
+    service: BenchmarkQuestionService = Depends(create_benchmark_question_service),
 ):
     questions, total = await service.list(
         dataset=dataset, tag=tag, search=search, is_active=is_active, limit=limit, offset=offset
@@ -91,7 +92,7 @@ async def list_questions(
 async def create_question(
     body: BenchmarkQuestionCreate,
     admin: dict = Depends(require_admin),
-    service: BenchmarkQuestionService = Depends(get_benchmark_question_service),
+    service: BenchmarkQuestionService = Depends(create_benchmark_question_service),
 ):
     created = await service.create(body, created_by=admin["id"])
     return BenchmarkQuestionResponse(
@@ -113,17 +114,10 @@ async def update_question(
     question_id: int,
     body: BenchmarkQuestionUpdate,
     admin: dict = Depends(require_admin),
-    service: BenchmarkQuestionService = Depends(get_benchmark_question_service),
+    service: BenchmarkQuestionService = Depends(create_benchmark_question_service),
 ):
     fields = body.model_dump(exclude_unset=True)
-    try:
-        updated = await service.update(question_id, fields)
-    except Exception as e:
-        from domain.exceptions import EntityNotFound
-
-        if isinstance(e, EntityNotFound):
-            raise HTTPException(status_code=404, detail="Question not found")
-        raise
+    updated = await service.update(question_id, fields)
     return BenchmarkQuestionResponse(
         id=updated.id,
         question=updated.question,
@@ -142,16 +136,9 @@ async def update_question(
 async def delete_question(
     question_id: int,
     admin: dict = Depends(require_admin),
-    service: BenchmarkQuestionService = Depends(get_benchmark_question_service),
+    service: BenchmarkQuestionService = Depends(create_benchmark_question_service),
 ):
-    try:
-        await service.delete(question_id)
-    except Exception as e:
-        from domain.exceptions import EntityNotFound
-
-        if isinstance(e, EntityNotFound):
-            raise HTTPException(status_code=404, detail="Question not found")
-        raise
+    await service.delete(question_id)
     return {"deleted": True}
 
 
@@ -159,7 +146,7 @@ async def delete_question(
 async def import_questions(
     body: BenchmarkQuestionsImportRequest,
     admin: dict = Depends(require_admin),
-    service: BenchmarkQuestionService = Depends(get_benchmark_question_service),
+    service: BenchmarkQuestionService = Depends(create_benchmark_question_service),
 ):
     count = await service.bulk_create(body.questions, created_by=admin["id"])
     return BenchmarkQuestionsImportResponse(imported=count)
@@ -169,7 +156,7 @@ async def import_questions(
 async def export_questions(
     dataset: str | None = None,
     admin: dict = Depends(require_admin),
-    service: BenchmarkQuestionService = Depends(get_benchmark_question_service),
+    service: BenchmarkQuestionService = Depends(create_benchmark_question_service),
 ):
     questions = await service.export(dataset=dataset)
     data = [
@@ -189,11 +176,10 @@ async def export_questions(
 async def list_source_files(
     search: str | None = None,
     admin: dict = Depends(require_admin),
-    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
+    document_service: DocumentService = Depends(create_document_service),
 ):
     """Return distinct indexed document filenames for source_hint picker."""
-    async with uow_factory.create() as uow:
-        filenames = await uow.documents.list_distinct_filenames(search=search, limit=100)
+    filenames = await document_service.list_source_files(search=search)
     return {"files": filenames}
 
 
@@ -206,12 +192,12 @@ async def list_source_files(
 async def create_sweep(
     body: SweepCreateRequest,
     admin: dict = Depends(require_admin),
-    service: BenchmarkSweepService = Depends(get_benchmark_sweep_service),
-    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
+    service: BenchmarkSweepService = Depends(create_benchmark_sweep_service),
+    job_service: JobService = Depends(create_job_service),
 ):
     sweep = await service.create(body)
 
-    job_id = await create_background_job(uow_factory, "sweep", related_id=sweep.id)
+    job_id = await job_service.create_job("sweep", related_id=sweep.id)
 
     await service.update_status(sweep.id, "pending")
 
@@ -237,16 +223,9 @@ async def create_sweep(
 async def get_sweep(
     sweep_id: int,
     admin: dict = Depends(require_admin),
-    service: BenchmarkSweepService = Depends(get_benchmark_sweep_service),
+    service: BenchmarkSweepService = Depends(create_benchmark_sweep_service),
 ):
-    try:
-        sweep = await service.get(sweep_id)
-    except Exception as e:
-        from domain.exceptions import EntityNotFound
-
-        if isinstance(e, EntityNotFound):
-            raise HTTPException(status_code=404, detail="Sweep not found")
-        raise
+    sweep = await service.get(sweep_id)
     return SweepResponse(
         id=sweep.id,
         status=sweep.status,
@@ -268,7 +247,7 @@ async def list_sweeps(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     admin: dict = Depends(require_admin),
-    service: BenchmarkSweepService = Depends(get_benchmark_sweep_service),
+    service: BenchmarkSweepService = Depends(create_benchmark_sweep_service),
 ):
     sweeps, total = await service.list(limit=limit, offset=offset)
     return SweepsListResponse(
@@ -345,18 +324,9 @@ async def sweep_progress_stream(
 async def cancel_sweep(
     sweep_id: int,
     admin: dict = Depends(require_admin),
-    service: BenchmarkSweepService = Depends(get_benchmark_sweep_service),
+    service: BenchmarkSweepService = Depends(create_benchmark_sweep_service),
 ):
-    try:
-        await service.cancel(sweep_id)
-    except Exception as e:
-        from domain.exceptions import EntityNotFound, ValidationError
-
-        if isinstance(e, EntityNotFound):
-            raise HTTPException(status_code=404, detail="Sweep not found")
-        if isinstance(e, ValidationError):
-            raise HTTPException(status_code=400, detail=str(e.detail))
-        raise
+    await service.cancel(sweep_id)
     return {"cancelled": True}
 
 
@@ -374,11 +344,15 @@ async def list_runs(
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     admin: dict = Depends(require_admin),
-    service: BenchmarkRunService = Depends(get_benchmark_run_service),
+    service: BenchmarkRunService = Depends(create_benchmark_run_service),
 ):
     runs, total = await service.list(
-        sweep_id=sweep_id, dataset=dataset, sort_by=sort_by, sort_order=sort_order,
-        limit=limit, offset=offset,
+        sweep_id=sweep_id,
+        dataset=dataset,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        limit=limit,
+        offset=offset,
     )
     return BenchmarkRunsListResponse(
         runs=[
@@ -403,16 +377,9 @@ async def list_runs(
 async def get_run(
     run_id: int,
     admin: dict = Depends(require_admin),
-    service: BenchmarkRunService = Depends(get_benchmark_run_service),
+    service: BenchmarkRunService = Depends(create_benchmark_run_service),
 ):
-    try:
-        run = await service.get(run_id)
-    except Exception as e:
-        from domain.exceptions import EntityNotFound
-
-        if isinstance(e, EntityNotFound):
-            raise HTTPException(status_code=404, detail="Run not found")
-        raise
+    run = await service.get(run_id)
     return BenchmarkRunResponse(
         id=run.id,
         sweep_id=run.sweep_id,
@@ -430,18 +397,11 @@ async def get_run(
 async def apply_run_config(
     run_id: int,
     admin: dict = Depends(require_admin),
-    service: BenchmarkRunService = Depends(get_benchmark_run_service),
+    service: BenchmarkRunService = Depends(create_benchmark_run_service),
     config_service: ConfigService = Depends(create_config_service),
 ):
     """Apply a run's config_json to the live system via ConfigService."""
-    try:
-        run = await service.get(run_id)
-    except Exception as e:
-        from domain.exceptions import EntityNotFound
-
-        if isinstance(e, EntityNotFound):
-            raise HTTPException(status_code=404, detail="Run not found")
-        raise
+    run = await service.get(run_id)
 
     config = run.config_json
     applied_keys = []
@@ -473,21 +433,12 @@ async def apply_run_config(
 async def compare_runs(
     ids: str = Query(..., description="Comma-separated run IDs"),
     admin: dict = Depends(require_admin),
-    service: BenchmarkRunService = Depends(get_benchmark_run_service),
+    service: BenchmarkRunService = Depends(create_benchmark_run_service),
 ):
     """Compare multiple benchmark runs side by side."""
     id_list = [int(x.strip()) for x in ids.split(",") if x.strip()]
 
-    try:
-        runs, diff = await service.compare(id_list)
-    except Exception as e:
-        from domain.exceptions import EntityNotFound, ValidationError
-
-        if isinstance(e, EntityNotFound):
-            raise HTTPException(status_code=404, detail=str(e.detail))
-        if isinstance(e, ValidationError):
-            raise HTTPException(status_code=400, detail=str(e.detail))
-        raise
+    runs, diff = await service.compare(id_list)
 
     return RunCompareResponse(
         runs=[
@@ -520,12 +471,10 @@ async def benchmark_history(
     days: int = Query(30, ge=1, le=365),
     limit: int = Query(100, ge=1, le=1000),
     admin: dict = Depends(require_admin),
-    service: BenchmarkRunService = Depends(get_benchmark_run_service),
+    service: BenchmarkRunService = Depends(create_benchmark_run_service),
 ):
     """Get benchmark history as time-series data for trend charts."""
-    runs, _total = await service.list(
-        dataset=dataset, sort_by="creation_date", sort_order="asc", limit=limit
-    )
+    runs, _total = await service.list(dataset=dataset, sort_by="creation_date", sort_order="asc", limit=limit)
 
     points = []
     for r in runs:

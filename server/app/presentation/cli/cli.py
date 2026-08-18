@@ -9,14 +9,14 @@ from typing import Any
 
 from typer import Typer
 
-from cli.commands.backfill_chunk_ids import backfill_app
-from cli.commands.benchmark import benchmark_app
-from cli.commands.config import config_app
-from cli.commands.ingest import ingest_app
-from cli.commands.pdf_diag import pdf_diag_app
-from cli.commands.reconcile import reconcile_app
-from cli.commands.runserver import runserver
-from cli.commands.worker import worker
+from presentation.cli.commands.backfill_chunk_ids import backfill_app
+from presentation.cli.commands.benchmark import benchmark_app
+from presentation.cli.commands.config import config_app
+from presentation.cli.commands.ingest import ingest_app
+from presentation.cli.commands.pdf_diag import pdf_diag_app
+from presentation.cli.commands.reconcile import reconcile_app
+from presentation.cli.commands.runserver import runserver
+from presentation.cli.commands.worker import worker
 
 
 class CLI:

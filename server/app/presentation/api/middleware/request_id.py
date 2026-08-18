@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 
-from cross_cutting import request_id_ctx
+from shared import request_id_ctx
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import Response

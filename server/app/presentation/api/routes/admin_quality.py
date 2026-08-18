@@ -11,7 +11,7 @@ from application.services.quality_service import QualityService
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from presentation.api.auth_dependencies import require_admin
-from presentation.api.dependencies import create_pdf_diagnostic_service, get_quality_service
+from presentation.api.dependencies import create_pdf_diagnostic_service, create_quality_service
 from presentation.api.schemas import (
     DocumentDiagnoseResponse,
     DocumentQualityItem,
@@ -29,7 +29,7 @@ router = APIRouter(tags=["admin-quality"])
 @router.get("/admin/documents/quality", response_model=DocumentQualityListResponse)
 async def list_quality_documents(
     admin: dict = Depends(require_admin),
-    quality_service: QualityService = Depends(get_quality_service),
+    quality_service: QualityService = Depends(create_quality_service),
 ):
     """List documents with quality warnings, sorted by quality_score descending."""
     warned = await quality_service.list_warned_documents()
@@ -57,19 +57,10 @@ async def diagnose_document(
     document_id: int,
     admin: dict = Depends(require_admin),
     diag_service: PDFDiagnosticService = Depends(create_pdf_diagnostic_service),
-    quality_service: QualityService = Depends(get_quality_service),
+    quality_service: QualityService = Depends(create_quality_service),
 ):
     """Run per-page PDF diagnosis on an already-indexed document."""
-    try:
-        source_path = await quality_service.get_document_source_path(document_id)
-    except Exception as e:
-        from domain.exceptions import EntityNotFound, ValidationError
-
-        if isinstance(e, EntityNotFound):
-            raise HTTPException(status_code=404, detail="Document not found")
-        if isinstance(e, ValidationError):
-            raise HTTPException(status_code=400, detail=str(e.detail))
-        raise
+    source_path = await quality_service.get_document_source_path(document_id)
 
     result = await diag_service.diagnose_document(document_id, source_path)
     if result is None:

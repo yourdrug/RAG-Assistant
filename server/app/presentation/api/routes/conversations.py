@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from application.services.conversation_service import ConversationService
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 
 from presentation.api.auth_dependencies import get_current_user
-from presentation.api.dependencies import get_conversation_service
+from presentation.api.dependencies import create_conversation_service
 from presentation.api.schemas import (
     ConversationHistoryResponse,
     ConversationListItem,
@@ -21,7 +21,7 @@ router = APIRouter(prefix="/conversations", tags=["conversations"])
 @router.get("", response_model=ConversationListResponse)
 async def list_conversations(
     current_user: dict = Depends(get_current_user),
-    service: ConversationService = Depends(get_conversation_service),
+    service: ConversationService = Depends(create_conversation_service),
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
 ):
@@ -42,7 +42,7 @@ async def list_conversations(
 @router.post("", response_model=NewConversationResponse)
 async def new_conversation(
     current_user: dict = Depends(get_current_user),
-    service: ConversationService = Depends(get_conversation_service),
+    service: ConversationService = Depends(create_conversation_service),
 ):
     conv = await service.create(current_user["id"])
     return NewConversationResponse(conversation_id=conv.id)
@@ -52,21 +52,9 @@ async def new_conversation(
 async def get_conversation_history(
     conversation_id: int,
     current_user: dict = Depends(get_current_user),
-    service: ConversationService = Depends(get_conversation_service),
+    service: ConversationService = Depends(create_conversation_service),
 ):
-    try:
-        messages = await service.get_history(
-            conversation_id, current_user["id"], current_user["role"]
-        )
-    except Exception as e:
-        from domain.exceptions import EntityNotFound, PermissionDeniedError
-
-        if isinstance(e, EntityNotFound):
-            raise HTTPException(status_code=404, detail="Conversation not found")
-        if isinstance(e, PermissionDeniedError):
-            raise HTTPException(status_code=403, detail="Not your conversation")
-        raise
-
+    messages = await service.get_history(conversation_id, current_user["id"], current_user["role"])
     msg_responses = [
         MessageResponse(
             id=m.id,

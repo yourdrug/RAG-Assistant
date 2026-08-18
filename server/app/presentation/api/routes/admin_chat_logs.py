@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from application.services.chat_log_service import ChatLogService
 from fastapi import APIRouter, Depends, Query
-from infrastructure.uow_factory import UnitOfWorkFactory
 
 from presentation.api.auth_dependencies import require_admin
-from presentation.api.dependencies import get_uow_factory
+from presentation.api.dependencies import create_chat_log_service
 from presentation.api.schemas import ChatLogEntry, ChatLogsResponse
 
 router = APIRouter(tags=["admin-chat-logs"])
@@ -24,25 +24,24 @@ async def list_chat_logs(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     admin: dict = Depends(require_admin),
-    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
+    service: ChatLogService = Depends(create_chat_log_service),
 ):
-    async with uow_factory.create() as uow:
-        total = await uow.chat_logs.count_logs(
-            user_id=user_id,
-            domain=domain,
-            date_from=date_from,
-            date_to=date_to,
-            search=search,
-        )
-        logs = await uow.chat_logs.list_logs(
-            user_id=user_id,
-            domain=domain,
-            date_from=date_from,
-            date_to=date_to,
-            search=search,
-            limit=limit,
-            offset=offset,
-        )
+    total = await service.count_logs(
+        user_id=user_id,
+        domain=domain,
+        date_from=date_from,
+        date_to=date_to,
+        search=search,
+    )
+    logs = await service.list_logs(
+        user_id=user_id,
+        domain=domain,
+        date_from=date_from,
+        date_to=date_to,
+        search=search,
+        limit=limit,
+        offset=offset,
+    )
 
     entries = [
         ChatLogEntry(

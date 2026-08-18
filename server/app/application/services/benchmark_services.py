@@ -124,13 +124,22 @@ class BenchmarkRunService:
         self._uow_factory = uow_factory
 
     async def list(
-        self, sweep_id=None, dataset=None, sort_by="creation_date",
-        sort_order="desc", limit=50, offset=0,
+        self,
+        sweep_id=None,
+        dataset=None,
+        sort_by="creation_date",
+        sort_order="desc",
+        limit=50,
+        offset=0,
     ):
         async with self._uow_factory.create() as uow:
             runs = await uow.benchmark_runs.list(
-                sweep_id=sweep_id, dataset=dataset, sort_by=sort_by, sort_order=sort_order,
-                limit=limit, offset=offset,
+                sweep_id=sweep_id,
+                dataset=dataset,
+                sort_by=sort_by,
+                sort_order=sort_order,
+                limit=limit,
+                offset=offset,
             )
             total = await uow.benchmark_runs.count(sweep_id=sweep_id, dataset=dataset)
             return runs, total

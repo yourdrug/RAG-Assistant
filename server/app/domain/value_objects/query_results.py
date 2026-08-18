@@ -6,7 +6,6 @@ Replaces untyped ``dict`` returns with typed, immutable data objects.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
 
 
 @dataclass(frozen=True)
@@ -35,12 +34,3 @@ class ApiKeyClientInfo:
     role: str
     kind: str
     is_active: bool
-
-
-@dataclass(frozen=True)
-class ClientAssignmentInfo:
-    """Assignment relationship returned by list_for_client."""
-
-    internal_user_id: int
-    email: str
-    assigned_at: datetime | None = None

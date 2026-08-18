@@ -24,9 +24,6 @@ from infrastructure.repositories.sqlalchemy_benchmark_sweep_repository import (
 )
 from infrastructure.repositories.sqlalchemy_chat_log_repository import SQLAlchemyChatLogRepository
 from infrastructure.repositories.sqlalchemy_chunk_repository import SQLAlchemyChunkRepository
-from infrastructure.repositories.sqlalchemy_client_assignment_repository import (
-    SQLAlchemyClientAssignmentRepository,
-)
 from infrastructure.repositories.sqlalchemy_config_parameter_repository import (
     SQLAlchemyConfigParameterRepository,
 )
@@ -58,7 +55,6 @@ class UnitOfWorkFactory:
             documents=SQLAlchemyDocumentRepository(session),
             chunks=SQLAlchemyChunkRepository(session),
             groups=SQLAlchemyGroupRepository(session),
-            client_assignments=SQLAlchemyClientAssignmentRepository(session),
             api_keys=SQLAlchemyApiKeyRepository(session),
             config_parameters=SQLAlchemyConfigParameterRepository(session),
             background_jobs=SQLAlchemyBackgroundJobRepository(session),

@@ -30,8 +30,6 @@ _REDIS_REVOKED_CHANNEL = "api_key_revoked"
 
 MISS = object()
 
-_pubsub_started = False
-
 
 class ApiKeyProvider:
     """Кэширует sha256(ключ) -> данные пользователя на несколько секунд,
@@ -43,6 +41,10 @@ class ApiKeyProvider:
     """
 
     MISS = MISS
+
+    def __init__(self) -> None:
+        self._pubsub_started = False
+        self._pubsub_task: asyncio.Task | None = None  # type: ignore[type-arg]
 
     @staticmethod
     def generate_key() -> str:
@@ -127,16 +129,14 @@ class ApiKeyProvider:
 
     async def start_pubsub_listener(self) -> None:
         """Subscribe to ``api_key_revoked`` channel for cross-instance invalidation."""
-        global _pubsub_started
-
-        if _pubsub_started:
+        if self._pubsub_started:
             return
 
         try:
             pubsub = redis_client.async_redis.pubsub()
             await pubsub.subscribe(_REDIS_REVOKED_CHANNEL)
-            _pubsub_started = True
-            asyncio.create_task(self._pubsub_listen(pubsub))
+            self._pubsub_started = True
+            self._pubsub_task = asyncio.create_task(self._pubsub_listen(pubsub))
             logger.info("ApiKeyProvider: Pub/Sub listener started on channel %s", _REDIS_REVOKED_CHANNEL)
         except Exception:
             logger.exception("Failed to start Pub/Sub listener")
@@ -158,6 +158,18 @@ class ApiKeyProvider:
             pass
         except Exception:
             logger.exception("Pub/Sub listener crashed")
+
+    async def stop_pubsub_listener(self) -> None:
+        """Cancel the Pub/Sub listener background task."""
+        if self._pubsub_task is not None:
+            self._pubsub_task.cancel()
+            try:
+                await self._pubsub_task
+            except asyncio.CancelledError:
+                pass
+            self._pubsub_task = None
+            self._pubsub_started = False
+            logger.info("ApiKeyProvider: Pub/Sub listener stopped")
 
 
 api_key_provider = ApiKeyProvider()

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from domain.entities.conversation import Conversation
 
@@ -18,6 +18,7 @@ class ConversationListItem:
         self.message_count = message_count
 
 
+@runtime_checkable
 class ConversationRepository(Protocol):
     async def create(self, user_id: int) -> Conversation: ...
     async def get_by_id(self, conversation_id: int) -> Conversation | None: ...

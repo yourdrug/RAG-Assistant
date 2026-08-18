@@ -7,7 +7,8 @@ Created by the ``UnitOfWorkFactory`` port and consumed by application services.
 
 from __future__ import annotations
 
-from collections.abc import Any, Callable, Coroutine
+from collections.abc import Callable, Coroutine
+from typing import Any
 
 from domain.repositories import ApiKeyRepository
 from domain.repositories.background_job_repository import BackgroundJobRepository
@@ -16,7 +17,6 @@ from domain.repositories.benchmark_run_repository import BenchmarkRunRepository
 from domain.repositories.benchmark_sweep_repository import BenchmarkSweepRepository
 from domain.repositories.chat_log_repository import ChatLogRepository
 from domain.repositories.chunk_repository import ChunkRepository
-from domain.repositories.client_assignment_repository import ClientAssignmentRepository
 from domain.repositories.config_parameter_repository import ConfigParameterRepository
 from domain.repositories.conversation_repository import ConversationRepository
 from domain.repositories.document_repository import DocumentRepository
@@ -44,7 +44,6 @@ class UnitOfWork(BaseUnitOfWork):
     documents: DocumentRepository
     chunks: ChunkRepository
     groups: GroupRepository
-    client_assignments: ClientAssignmentRepository
     api_keys: ApiKeyRepository
     config_parameters: ConfigParameterRepository
     background_jobs: BackgroundJobRepository
@@ -62,7 +61,6 @@ class UnitOfWork(BaseUnitOfWork):
         documents: DocumentRepository,
         chunks: ChunkRepository,
         groups: GroupRepository,
-        client_assignments: ClientAssignmentRepository,
         api_keys: ApiKeyRepository,
         config_parameters: ConfigParameterRepository,
         background_jobs: BackgroundJobRepository,
@@ -78,7 +76,6 @@ class UnitOfWork(BaseUnitOfWork):
         self.documents = documents
         self.chunks = chunks
         self.groups = groups
-        self.client_assignments = client_assignments
         self.api_keys = api_keys
         self.config_parameters = config_parameters
         self.background_jobs = background_jobs

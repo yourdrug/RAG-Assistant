@@ -8,7 +8,7 @@ from application.services.search_service import SearchService
 from fastapi import APIRouter, Depends
 
 from presentation.api.auth_dependencies import get_current_user
-from presentation.api.dependencies import get_search_service
+from presentation.api.dependencies import create_search_service
 from presentation.api.schemas import ExactSearchRequest, ExactSearchResponse, ExactSearchResult
 
 logger = logging.getLogger("default")
@@ -20,7 +20,7 @@ router = APIRouter(tags=["search"])
 async def exact_search(
     req: ExactSearchRequest,
     current_user: dict = Depends(get_current_user),
-    search_service: SearchService = Depends(get_search_service),
+    search_service: SearchService = Depends(create_search_service),
 ):
     """Exact substring search across all indexed chunks (Ctrl+F mode).
 

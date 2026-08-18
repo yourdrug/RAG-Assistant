@@ -22,5 +22,4 @@ class ChatContext:
     user_id: int
     user_kind: str
     user_group_ids: list[int] = field(default_factory=list)
-    assigned_client_ids: list[int] = field(default_factory=list)
     depth: str | None = None

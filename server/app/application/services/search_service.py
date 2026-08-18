@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 
 from domain.repositories.chunk_repository import ChunkSearchResult
-from domain.value_objects.roles import UserKind
 
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
 
@@ -26,16 +25,10 @@ class SearchService:
     ) -> list[ChunkSearchResult]:
         async with self._uow_factory.create() as uow:
             group_ids = await uow.groups.get_user_group_ids(user["id"])
-            assigned_client_ids = (
-                await uow.client_assignments.get_assigned_client_ids(user["id"])
-                if user["kind"] == UserKind.INTERNAL.value
-                else []
-            )
             return await uow.chunks.search_substring(
                 query=query,
                 user=user,
                 group_ids=group_ids,
-                assigned_client_ids=assigned_client_ids,
                 limit=limit,
                 mode=mode,
                 document_id=document_id,

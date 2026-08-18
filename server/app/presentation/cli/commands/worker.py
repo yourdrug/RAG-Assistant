@@ -66,25 +66,22 @@ def worker(
 
 async def _on_startup(ctx: dict) -> None:
     """Initialize database and infrastructure on worker startup."""
-    from application.ports.dependencies import register_config_listener, register_uow_factory
-    from infrastructure.database.database import database  # nested to avoid circular import
-    from presentation.api.dependencies import _config_listener, _uow_factory
+    from composition.container import Container
+    from infrastructure.database.database import database
 
     await database.connect()
     logger.info("Worker: database connected")
 
-    # Register dependencies for worker tasks (Service Locator for separate process)
-    register_uow_factory(_uow_factory)
-    register_config_listener(_config_listener)
+    # Build DI container (same as API process)
+    container = Container()
+    container.init(database)
+    ctx["container"] = container
 
-    # Sync dynamic config from DB BEFORE starting the listener (and before
-    # processing any tasks). This ensures ocr_enabled, chunk_size, etc.
-    # are current even if the config was changed while the worker was down.
-    listener = _config_listener
+    listener = container.infrastructure.config_listener
+
     await listener.resync(trigger="worker_startup")
     logger.info("Worker: config synced from database")
 
-    # Now start the listener for future changes
     await listener.start()
     ctx["config_listener"] = listener
     logger.info("Worker: config listener started")
@@ -92,9 +89,8 @@ async def _on_startup(ctx: dict) -> None:
 
 async def _on_shutdown(ctx: dict) -> None:
     """Cleanup on worker shutdown."""
-    from infrastructure.database.database import database  # nested to avoid circular import
+    from infrastructure.database.database import database
 
-    # Stop config listener
     listener = ctx.get("config_listener")
     if listener:
         await listener.stop()
