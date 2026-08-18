@@ -29,8 +29,13 @@ from langchain.schema import Document
 from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
 
-from infrastructure.clients import get_bm25_index, get_embeddings, get_qdrant_client, get_reranker
 from infrastructure.ml.benchmark_history import save_summary_to_history
+from infrastructure.ml.factories import (
+    create_embeddings,
+    create_qdrant_client,
+    create_reranker,
+    load_bm25_index,
+)
 from infrastructure.ml.hybrid import content_hash, rrf_merge
 from infrastructure.ml.rag import deduplicate_docs
 
@@ -84,9 +89,9 @@ def retrieve_with_scores_hybrid(question: str, top_k: int, fetch_k: int) -> list
     Mirrors rag_service._run_hybrid_search + rerank_documents to produce
     the same quality results as the live system.
     """
-    client = get_qdrant_client()
-    embeddings = get_embeddings()
-    reranker = get_reranker()
+    client = create_qdrant_client()
+    embeddings = create_embeddings()
+    reranker = create_reranker()
 
     # --- Dense search via raw Qdrant client (preserves metadata correctly) ---
     query_vector = embeddings.embed_query(question)
@@ -108,7 +113,7 @@ def retrieve_with_scores_hybrid(question: str, top_k: int, fetch_k: int) -> list
         dense_by_hash[h] = (point.score, doc)
 
     # --- BM25 sparse search ---
-    bm25_index = get_bm25_index()
+    bm25_index = load_bm25_index()
     sparse_results: list[tuple[str, float]] = []
     if bm25_index is not None:
         sparse_results = bm25_index.search_with_hashes(question, fetch_k)

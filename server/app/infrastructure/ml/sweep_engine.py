@@ -21,7 +21,6 @@ from domain.entities.benchmark_sweep import BenchmarkSweep
 from domain.value_objects.benchmark_strategy import BenchmarkStrategy
 from langchain.schema import Document as LCDocument
 
-from infrastructure.clients import get_bm25_index, get_embeddings, get_qdrant_client
 from infrastructure.ml.benchmark import load_questions
 from infrastructure.ml.hybrid import content_hash, rrf_merge
 
@@ -139,10 +138,12 @@ class SweepEngine:
         uow_factory,
         benchmark_service=None,
         config_service=None,
+        ml_clients=None,
     ):
         self._uow_factory = uow_factory
         self._benchmark_service = benchmark_service
         self._config_service = config_service
+        self._ml_clients = ml_clients
 
     async def run_sweep(
         self,
@@ -315,8 +316,16 @@ class SweepEngine:
         sparse_cache: dict[str, list] = {}
         all_candidates: dict[str, LCDocument] = {}
 
-        client = get_qdrant_client()
-        embeddings = get_embeddings()
+        if self._ml_clients is not None:
+            client = self._ml_clients.qdrant_client()
+            embeddings = self._ml_clients.embeddings()
+            bm25_index = self._ml_clients.bm25_index()
+        else:
+            from infrastructure.ml.factories import create_embeddings, create_qdrant_client, load_bm25_index
+
+            client = create_qdrant_client()
+            embeddings = create_embeddings()
+            bm25_index = load_bm25_index()
 
         for q in questions:
             qtext = q["question"]
@@ -338,9 +347,8 @@ class SweepEngine:
             dense_cache[qtext] = dense_results
 
             # Sparse search
-            bm25 = get_bm25_index()
-            if bm25:
-                sparse_results = bm25.search_with_hashes(qtext, max_fetch_k)
+            if bm25_index:
+                sparse_results = bm25_index.search_with_hashes(qtext, max_fetch_k)
             else:
                 sparse_results = []
             sparse_cache[qtext] = sparse_results

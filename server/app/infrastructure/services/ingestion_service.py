@@ -24,7 +24,6 @@ from domain.value_objects.file_backend import FileBackend
 from domain.value_objects.visibility import DocumentVisibility
 from langchain.schema import Document
 
-from infrastructure.clients import get_bm25_index
 from infrastructure.ml.hybrid import BM25Index, load_bm25_index, save_bm25_index
 from infrastructure.ml.ingestion import (
     PARSERS,
@@ -231,8 +230,7 @@ class IngestionService:
 
             bm25_index = BM25Index(all_texts)
             save_bm25_index(bm25_index, bm25_path)
-            # Clear the cached index so next query picks up the new one
-            get_bm25_index.cache_clear()
+            # BM25 cache is now managed by MLClientRegistry — no manual clear needed
 
     async def run_single_file(self, file_path: str, domain: str = "auto") -> None:
         t_start = time.monotonic()

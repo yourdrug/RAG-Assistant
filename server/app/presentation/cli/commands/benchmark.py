@@ -12,7 +12,6 @@ from pathlib import Path
 
 import typer
 from config import settings
-from infrastructure.clients import get_bm25_index, get_embeddings, get_qdrant_client
 from infrastructure.ml.benchmark import (
     load_questions,
     run_benchmark_async,
@@ -23,6 +22,7 @@ from infrastructure.ml.benchmark_history import (
     load_history,
     print_history,
 )
+from infrastructure.ml.factories import create_embeddings, create_qdrant_client, load_bm25_index
 from infrastructure.ml.hybrid import content_hash, rrf_merge
 from infrastructure.services.benchmark_service import BenchmarkService
 from langchain.schema import Document as LCDocument
@@ -171,7 +171,7 @@ def benchmark_grid_search(
     ),
 ) -> None:
     """Grid search: быстрый retrieval-scoring для всех комбинаций, LLM-судья + rerank для топ-N."""
-    from infrastructure.clients import get_reranker
+    from infrastructure.ml.factories import create_reranker
 
     top_k_list = [int(x.strip()) for x in top_k_values.split(",")]
     fetch_k_list = [int(x.strip()) for x in fetch_k_values.split(",")]
@@ -211,9 +211,9 @@ def benchmark_grid_search(
     for q in questions_data:
         qtext = q["question"]
         dense_results = []
-        for point in get_qdrant_client().search(
+        for point in create_qdrant_client().search(
             collection_name=settings.collection_name,
-            query_vector=get_embeddings().embed_query(qtext),
+            query_vector=create_embeddings().embed_query(qtext),
             limit=max_fetch_k,
         ):
             payload = point.payload or {}
@@ -225,7 +225,7 @@ def benchmark_grid_search(
             all_candidates_by_hash[h] = doc
         dense_cache[qtext] = dense_results
 
-        bm25 = get_bm25_index()
+        bm25 = load_bm25_index()
         sparse_results = await_if_needed(bm25.search_with_hashes, qtext, max_fetch_k) if bm25 else []
         sparse_cache[qtext] = sparse_results
 
@@ -325,7 +325,7 @@ def benchmark_grid_search(
     logger.info("Phase 3: LLM-судья + rerank для топ-%d конфигураций...", top_n_llm)
     top_configs = results_summary[:top_n_llm]
     service = BenchmarkService()
-    reranker = get_reranker()
+    reranker = create_reranker()
 
     # Save originals once, restore after each config
     orig = {

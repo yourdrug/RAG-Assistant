@@ -14,7 +14,7 @@ from langchain.schema import Document
 from langchain_huggingface import HuggingFaceEmbeddings
 from qdrant_client.models import Distance, PayloadSchemaType, PointStruct, VectorParams
 
-from infrastructure.clients import get_qdrant_client
+from infrastructure.ml.factories import create_qdrant_client
 from infrastructure.ml.hybrid import content_hash
 
 log = logging.getLogger("default")
@@ -93,7 +93,7 @@ def upload_to_qdrant(chunks: list[Document], embeddings: HuggingFaceEmbeddings) 
     for doc, h in zip(chunks, hashes):
         doc.metadata["content_hash"] = h
 
-    client = get_qdrant_client()
+    client = create_qdrant_client()
 
     # Embed + upsert in sub-batches to limit peak memory and give visible progress
     pending_points: list[PointStruct] = []

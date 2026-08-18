@@ -100,7 +100,7 @@ class InfrastructureContainer:
             database=database_manager,
             config_broadcaster=self.config_broadcaster,
         )
-        self.vector_store_repo = QdrantVectorStoreRepository()
+        self.vector_store_repo = QdrantVectorStoreRepository(ml_clients=self.ml_clients)
         self.file_storage = LazyStorage()
         self.document_parser = LangchainDocumentParser()
         self.document_splitter = LangchainDocumentSplitter()
@@ -110,7 +110,7 @@ class InfrastructureContainer:
         self.ollama_probe = OllamaProbe()
         self.qdrant_info = QdrantInfo()
         self.benchmark_service = BenchmarkService()
-        self.summary_updater = RollingSummaryUpdater()
+        self.summary_updater = RollingSummaryUpdater(ml_clients=self.ml_clients)
         self.content_extractor = MLContentExtractor()
         self.pdf_quality_assessor = MLPDFQualityAssessor()
         self.metrics_collector = PrometheusMetricsCollector()

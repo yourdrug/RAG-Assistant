@@ -14,8 +14,8 @@ import sys
 
 import typer
 from config import settings
-from infrastructure.clients import get_qdrant_client
 from infrastructure.database.database import database
+from infrastructure.ml.factories import create_qdrant_client
 from qdrant_client.models import FieldCondition, Filter, MatchValue
 
 logger = logging.getLogger("cli")
@@ -25,7 +25,7 @@ reconcile_app = typer.Typer(help="Reconcile Qdrant/Postgres document state")
 
 def _get_all_qdrant_doc_ids() -> set[int]:
     """Scroll through Qdrant collection and extract unique document_ids."""
-    client = get_qdrant_client()
+    client = create_qdrant_client()
     doc_ids: set[int] = set()
     offset = None
     while True:
@@ -57,7 +57,7 @@ async def _get_all_postgres_doc_ids() -> set[int]:
 
 def _delete_orphans_from_qdrant(doc_ids: set[int]) -> int:
     """Delete all Qdrant points whose document_id is in the given set."""
-    client = get_qdrant_client()
+    client = create_qdrant_client()
     total_deleted = 0
     for doc_id in doc_ids:
         client.delete(

@@ -228,6 +228,7 @@ async def run_sweep(
         engine = SweepEngine(
             uow_factory=uow_factory,
             benchmark_service=BenchmarkService(),
+            ml_clients=ctx["container"].infrastructure.ml_clients,
         )
 
         results = await engine.run_sweep(

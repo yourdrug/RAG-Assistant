@@ -17,8 +17,8 @@ import time
 
 import typer
 from config import settings
-from infrastructure.clients import get_embeddings, get_qdrant_client
 from infrastructure.database.database import database
+from infrastructure.ml.factories import create_embeddings, create_qdrant_client
 from infrastructure.ml.hybrid import content_hash
 from qdrant_client.models import PointStruct
 
@@ -74,7 +74,7 @@ async def _get_documents_with_chunks(document_id: int | None = None) -> list[dic
 
 def _delete_document_points(document_id: int) -> None:
     """Delete all Qdrant points for a document."""
-    client = get_qdrant_client()
+    client = create_qdrant_client()
     from qdrant_client.models import FieldCondition, Filter, MatchValue
 
     client.delete(
@@ -91,8 +91,8 @@ def _upsert_chunk(
     doc: dict,
 ) -> None:
     """Upsert a single chunk to Qdrant with deterministic ID."""
-    client = get_qdrant_client()
-    embeddings = get_embeddings()
+    client = create_qdrant_client()
+    embeddings = create_embeddings()
 
     # Generate embedding
     vector = embeddings.embed_query(content)

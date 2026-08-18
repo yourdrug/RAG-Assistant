@@ -77,7 +77,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
         uow_factory=container.infrastructure.uow_factory,
         config_listener=container.infrastructure.config_listener,
     )
-    await collect_infra_metrics()
+    await collect_infra_metrics(ml_clients=container.infrastructure.ml_clients)
 
     yield
 

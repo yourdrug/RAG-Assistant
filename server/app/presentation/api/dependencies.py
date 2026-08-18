@@ -38,6 +38,7 @@ if TYPE_CHECKING:
     from application.services.quality_service import QualityService
     from application.services.search_service import SearchService
     from composition.container import Container
+    from infrastructure.auth.api_key_provider import ApiKeyProvider
     from infrastructure.events.postgres_config_listener import PostgresConfigListener
     from infrastructure.ml.langchain_document_parser import (
         LangchainDocumentParser,
@@ -209,3 +210,9 @@ def create_job_service(request: Request) -> JobService:
 
 def create_chat_log_service(request: Request) -> ChatLogService:
     return _create_container(request).application.chat_log_service
+
+
+def create_api_key_provider(request: Request) -> ApiKeyProvider:
+    result = _create_container(request).infrastructure.api_key_provider
+    assert result is not None, "Container not initialized"
+    return result

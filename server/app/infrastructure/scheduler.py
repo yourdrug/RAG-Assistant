@@ -163,7 +163,6 @@ class Scheduler:
 
         from config import settings
 
-        from infrastructure.clients import get_bm25_index
         from infrastructure.ml.hybrid import BM25Index, save_bm25_index
 
         if not settings.hybrid_enabled:
@@ -183,7 +182,7 @@ class Scheduler:
         bm25_path = Path(settings.data_dir) / "bm25_index.json"
         save_bm25_index(bm25_index, bm25_path)
 
-        get_bm25_index.cache_clear()
+        # BM25 cache is now managed by MLClientRegistry — no manual clear needed
 
         elapsed = time.monotonic() - t0
         logger.info(

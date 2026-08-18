@@ -15,9 +15,8 @@ from domain.exceptions import AuthenticationError, PermissionDeniedError
 from domain.value_objects.roles import UserRole
 from fastapi import Depends
 from fastapi.security import APIKeyHeader
-from infrastructure.auth.api_key_provider import api_key_provider
 
-from presentation.api.dependencies import create_auth_service
+from presentation.api.dependencies import create_api_key_provider, create_auth_service
 
 auth_key_header = APIKeyHeader(
     name="Authorization",
@@ -40,7 +39,7 @@ async def _authenticate_via_jwt(token: str, auth_service: AuthService) -> dict:
     return user
 
 
-async def _authenticate_via_api_key(raw_key: str, auth_service: AuthService) -> dict:
+async def _authenticate_via_api_key(raw_key: str, auth_service: AuthService, api_key_provider) -> dict:
     key_hash = api_key_provider.hash_key(raw_key)
     cached = await api_key_provider.get_cached(key_hash)
 
@@ -69,6 +68,7 @@ def _parse_auth_header_value(value: str) -> tuple[str, str] | None:
 async def get_current_user(
     authorization: str | None = Depends(auth_key_header),
     auth_service: AuthService = Depends(create_auth_service),
+    api_key_provider=Depends(create_api_key_provider),
 ) -> dict:
     if authorization is None:
         raise AuthenticationError("Not authenticated")
@@ -83,7 +83,7 @@ async def get_current_user(
         return await _authenticate_via_jwt(credentials, auth_service)
 
     if scheme.lower() == "api-key":
-        return await _authenticate_via_api_key(credentials, auth_service)
+        return await _authenticate_via_api_key(credentials, auth_service, api_key_provider)
 
     raise AuthenticationError("Unsupported authorization scheme")
 

@@ -1,20 +1,11 @@
-"""Lazy-loaded ML and infrastructure clients via functools.lru_cache.
+"""Pure creation functions for ML clients — no cache, no state.
 
-Provides module-level singleton accessors for the embedding model, LLM,
-reranker, Qdrant vector store, BM25 index, and Ollama chat clients.
-No globals, no classes, no DI container -- each getter returns a cached
-instance created on first call.
-
-NOTE: These are process-local caches by design.  Each server/worker
-instance must load its own copy of the model weights into memory (models
-cannot be shared between processes via Redis).  Cache invalidation on
-config changes is handled separately via Postgres LISTEN/NOTIFY
-(``infrastructure/events/postgres_config_listener.py``) plus periodic
-resync (``Scheduler._periodic_config_resync``), which broadcasts to all
-instances simultaneously.  Do NOT replace these with Redis-backed caches.
+Every call creates a fresh instance.  Caching and lifecycle management
+is handled by ``MLClientRegistry`` (infrastructure.ml.client_registry).
 """
 
-import functools
+from __future__ import annotations
+
 import logging
 from pathlib import Path
 
@@ -31,8 +22,12 @@ from sentence_transformers import CrossEncoder
 log = logging.getLogger("default")
 
 
-@functools.lru_cache(maxsize=1)
-def get_embeddings() -> HuggingFaceEmbeddings:
+# ---------------------------------------------------------------------------
+# Embeddings
+# ---------------------------------------------------------------------------
+
+
+def create_embeddings() -> HuggingFaceEmbeddings:
     log.info("Loading embedding model %s on %s ...", settings.embed_model, settings.embed_resolved_device)
     return HuggingFaceEmbeddings(
         model_name=settings.embed_model,
@@ -41,10 +36,14 @@ def get_embeddings() -> HuggingFaceEmbeddings:
     )
 
 
-@functools.lru_cache(maxsize=1)
-def get_vector_store() -> QdrantVectorStore:
+# ---------------------------------------------------------------------------
+# Vector store
+# ---------------------------------------------------------------------------
+
+
+def create_vector_store(embeddings: HuggingFaceEmbeddings) -> QdrantVectorStore:
     return QdrantVectorStore.from_existing_collection(
-        embedding=get_embeddings(),
+        embedding=embeddings,
         url=settings.qdrant_url,
         api_key=settings.qdrant_api_key,
         collection_name=settings.collection_name,
@@ -53,16 +52,26 @@ def get_vector_store() -> QdrantVectorStore:
     )
 
 
-@functools.lru_cache(maxsize=1)
-def get_llm():
-    """Return LLM based on configured provider (ollama or openrouter)."""
+# ---------------------------------------------------------------------------
+# LLM
+# ---------------------------------------------------------------------------
+
+
+def create_llm():
+    """Create LLM based on configured provider (ollama or openrouter)."""
     if settings.llm_provider == LLMProvider.OPENROUTER:
-        return _get_openrouter_llm()
-    return _get_ollama_llm()
+        return _create_openrouter_llm()
+    return _create_ollama_llm()
 
 
-def _get_ollama_llm() -> ChatOllama:
-    """Create Ollama LLM instance."""
+def create_llm_for_breadth(breadth: str):
+    """Create LLM with parameters matching breadth mode."""
+    if settings.llm_provider == LLMProvider.OPENROUTER:
+        return _create_openrouter_llm_for_breadth(breadth)
+    return _create_ollama_llm_for_breadth(breadth)
+
+
+def _create_ollama_llm() -> ChatOllama:
     return ChatOllama(
         model=settings.llm_model,
         base_url=settings.ollama_base_url,
@@ -72,8 +81,7 @@ def _get_ollama_llm() -> ChatOllama:
     )
 
 
-def _get_openrouter_llm() -> ChatOpenAI:
-    """Create OpenRouter LLM instance (OpenAI-compatible API)."""
+def _create_openrouter_llm() -> ChatOpenAI:
     return ChatOpenAI(
         model=settings.openrouter_model,
         api_key=settings.openrouter_api_key,
@@ -85,16 +93,7 @@ def _get_openrouter_llm() -> ChatOpenAI:
     )
 
 
-@functools.lru_cache(maxsize=4)
-def get_llm_for_breadth(breadth: str):
-    """Return LLM with parameters matching breadth mode (cached by breadth)."""
-    if settings.llm_provider == LLMProvider.OPENROUTER:
-        return _get_openrouter_llm_for_breadth(breadth)
-    return _get_ollama_llm_for_breadth(breadth)
-
-
-def _get_ollama_llm_for_breadth(breadth: str) -> ChatOllama:
-    """Return Ollama LLM with num_predict and num_ctx matching breadth mode."""
+def _create_ollama_llm_for_breadth(breadth: str) -> ChatOllama:
     num_predict = (
         settings.llm_num_predict_broad if breadth == Breadth.BROAD else settings.llm_num_predict_narrow
     )
@@ -109,8 +108,7 @@ def _get_ollama_llm_for_breadth(breadth: str) -> ChatOllama:
     )
 
 
-def _get_openrouter_llm_for_breadth(breadth: str) -> ChatOpenAI:
-    """Return OpenRouter LLM with max_tokens matching breadth mode."""
+def _create_openrouter_llm_for_breadth(breadth: str) -> ChatOpenAI:
     max_tokens = (
         settings.llm_num_predict_broad if breadth == Breadth.BROAD else settings.llm_num_predict_narrow
     )
@@ -125,8 +123,12 @@ def _get_openrouter_llm_for_breadth(breadth: str) -> ChatOpenAI:
     )
 
 
-@functools.lru_cache(maxsize=1)
-def get_reranker() -> CrossEncoder:
+# ---------------------------------------------------------------------------
+# Reranker
+# ---------------------------------------------------------------------------
+
+
+def create_reranker() -> CrossEncoder:
     log.info("Loading reranker %s on %s ...", settings.rerank_model, settings.rerank_resolved_device)
     reranker = CrossEncoder(
         settings.rerank_model,
@@ -137,24 +139,37 @@ def get_reranker() -> CrossEncoder:
     return reranker
 
 
-@functools.lru_cache(maxsize=1)
-def get_qdrant_client():
+# ---------------------------------------------------------------------------
+# Qdrant client
+# ---------------------------------------------------------------------------
+
+
+def create_qdrant_client() -> QdrantClient:
     return QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key)
 
 
-@functools.lru_cache(maxsize=1)
-def get_bm25_index():
-    """Lazy-load BM25 index from disk. Returns None if not found."""
-    from infrastructure.ml.hybrid import load_bm25_index  # nested to avoid circular import
+# ---------------------------------------------------------------------------
+# BM25 index
+# ---------------------------------------------------------------------------
+
+
+def load_bm25_index():
+    """Load BM25 index from disk. Returns None if not found."""
+    from infrastructure.ml.hybrid import load_bm25_index as _load
 
     bm25_path = Path(settings.data_dir) / "bm25_index.json"
-    index = load_bm25_index(bm25_path)
+    index = _load(bm25_path)
     if index is None:
         log.info("No BM25 index found at %s — hybrid search disabled for this run", bm25_path)
     return index
 
 
-async def get_openrouter_models() -> list[dict]:
+# ---------------------------------------------------------------------------
+# OpenRouter models (async, not cached — called rarely)
+# ---------------------------------------------------------------------------
+
+
+async def fetch_openrouter_models() -> list[dict]:
     """Fetch available models from OpenRouter API.
 
     Returns list of dicts with keys: id, name, context_length, pricing.
@@ -175,7 +190,6 @@ async def get_openrouter_models() -> list[dict]:
             models = []
             for m in data.get("data", []):
                 model_id = m.get("id", "")
-                # Skip embedding/vision-only models
                 if any(skip in model_id.lower() for skip in ["embedding", "vision", "tts", "whisper"]):
                     continue
 
@@ -195,7 +209,6 @@ async def get_openrouter_models() -> list[dict]:
                     }
                 )
 
-            # Sort by name for easier selection
             models.sort(key=lambda x: x["name"].lower())
             return models
     except Exception as e:
