@@ -215,7 +215,6 @@ python_functions = "test_* *_test"
 
 [tool.coverage.run]
 branch = true
-concurrency = ["gevent"]
 omit = ["*/migrations/*", "*/tests/*"]
 
 [tool.coverage.report]
