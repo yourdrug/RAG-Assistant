@@ -76,6 +76,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     await scheduler.startup(
         uow_factory=container.infrastructure.uow_factory,
         config_listener=container.infrastructure.config_listener,
+        ml_clients=container.infrastructure.ml_clients,
     )
     await collect_infra_metrics(ml_clients=container.infrastructure.ml_clients)
 

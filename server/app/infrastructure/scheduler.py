@@ -45,6 +45,7 @@ class Scheduler:
         self.scheduler = AsyncIOScheduler(timezone="UTC")
         self._uow_factory: UnitOfWorkFactory | None = None
         self._config_listener: Any = None
+        self._ml_clients: Any = None
 
     def add_interval_job(
         self,
@@ -129,13 +130,12 @@ class Scheduler:
             if deleted:
                 logger.info("Cleaned up %d old background jobs", deleted)
 
-    @staticmethod
     @handle_exceptions
-    async def _periodic_infra_collector() -> None:
+    async def _periodic_infra_collector(self) -> None:
         """Periodically update infrastructure Prometheus gauges."""
         from infrastructure.ml.metrics import collect_infra_metrics
 
-        await collect_infra_metrics()
+        await collect_infra_metrics(ml_clients=self._ml_clients)
 
     @handle_exceptions
     async def _periodic_config_resync(self) -> None:
@@ -191,10 +191,16 @@ class Scheduler:
             elapsed,
         )
 
-    async def startup(self, uow_factory: UnitOfWorkFactory, config_listener: Any = None) -> None:
+    async def startup(
+        self,
+        uow_factory: UnitOfWorkFactory,
+        config_listener: Any = None,
+        ml_clients: Any = None,
+    ) -> None:
         """Configure and start the scheduler with required dependencies."""
         self._uow_factory = uow_factory
         self._config_listener = config_listener
+        self._ml_clients = ml_clients
         self._configure()
         self.scheduler.start()
         logger.info("Scheduler started.")

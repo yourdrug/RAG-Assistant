@@ -10,16 +10,12 @@ import {
   Upload,
   XCircle,
 } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
-import {
-  useDocumentDiagnosis,
-  useDocuments,
-  useDryRun,
-  useDryRunOcr,
-} from "@/shared/api/hooks";
+import { useDocumentDiagnosis, useDocuments, useDryRun, useDryRunOcr } from "@/shared/api/hooks";
 import type {
   DocumentQualityItem,
+  DryRunPageResult,
   DryRunResponse,
   PageDiagnostic,
 } from "@/shared/api/types";
@@ -36,9 +32,7 @@ export function AdminQualityPage() {
   const [showDryRun, setShowDryRun] = useState(false);
 
   const qualityDocs = (documents || []).filter(
-    (d) =>
-      d.warning_message ||
-      (d.quality_score != null && d.quality_score > 0.3),
+    (d) => d.warning_message || (d.quality_score != null && d.quality_score > 0.3),
   );
 
   const columns: ColumnDef<DocumentQualityItem>[] = [
@@ -64,13 +58,8 @@ export function AdminQualityPage() {
         const score = row.original.quality_score;
         if (score == null) return "—";
         const pct = Math.round(score * 100);
-        const variant =
-          pct <= 10 ? "success" : pct <= 30 ? "warning" : "destructive";
-        return (
-          <Badge variant={variant}>
-            {pct}% bad
-          </Badge>
-        );
+        const variant = pct <= 10 ? "success" : pct <= 30 ? "warning" : "destructive";
+        return <Badge variant={variant}>{pct}% bad</Badge>;
       },
     },
     {
@@ -96,9 +85,7 @@ export function AdminQualityPage() {
             variant={selectedDocId === row.original.id ? "default" : "outline"}
             size="sm"
             onClick={() =>
-              setSelectedDocId(
-                selectedDocId === row.original.id ? null : row.original.id,
-              )
+              setSelectedDocId(selectedDocId === row.original.id ? null : row.original.id)
             }
           >
             {selectedDocId === row.original.id ? "Hide" : "Diagnose"}
@@ -142,13 +129,9 @@ export function AdminQualityPage() {
         </CardContent>
       </Card>
 
-      {selectedDocId && (
-        <DiagnosisPanel documentId={selectedDocId} />
-      )}
+      {selectedDocId && <DiagnosisPanel documentId={selectedDocId} />}
 
-      {showDryRun && (
-        <DryRunDialog open={showDryRun} onClose={() => setShowDryRun(false)} />
-      )}
+      {showDryRun && <DryRunDialog open={showDryRun} onClose={() => setShowDryRun(false)} />}
     </div>
   );
 }
@@ -177,11 +160,31 @@ function DiagnosisPanel({ documentId }: { documentId: number }) {
       </CardHeader>
       <CardContent>
         <div className="grid grid-cols-5 gap-4 mb-4">
-          <SummaryCard label="Text" value={data.summary.text} icon={<CheckCircle2 className="h-4 w-4 text-green-500" />} />
-          <SummaryCard label="Scan" value={data.summary.scan} icon={<AlertTriangle className="h-4 w-4 text-yellow-500" />} />
-          <SummaryCard label="Garbled" value={data.summary.garbled} icon={<XCircle className="h-4 w-4 text-red-500" />} />
-          <SummaryCard label="Table" value={data.summary.table} icon={<Info className="h-4 w-4 text-blue-500" />} />
-          <SummaryCard label="Empty" value={data.summary.empty} icon={<Info className="h-4 w-4 text-gray-400" />} />
+          <SummaryCard
+            label="Text"
+            value={data.summary.text}
+            icon={<CheckCircle2 className="h-4 w-4 text-green-500" />}
+          />
+          <SummaryCard
+            label="Scan"
+            value={data.summary.scan}
+            icon={<AlertTriangle className="h-4 w-4 text-yellow-500" />}
+          />
+          <SummaryCard
+            label="Garbled"
+            value={data.summary.garbled}
+            icon={<XCircle className="h-4 w-4 text-red-500" />}
+          />
+          <SummaryCard
+            label="Table"
+            value={data.summary.table}
+            icon={<Info className="h-4 w-4 text-blue-500" />}
+          />
+          <SummaryCard
+            label="Empty"
+            value={data.summary.empty}
+            icon={<Info className="h-4 w-4 text-gray-400" />}
+          />
         </div>
 
         <ScrollArea className="h-80">
@@ -197,7 +200,15 @@ function DiagnosisPanel({ documentId }: { documentId: number }) {
   );
 }
 
-function SummaryCard({ label, value, icon }: { label: string; value: number; icon: React.ReactNode }) {
+function SummaryCard({
+  label,
+  value,
+  icon,
+}: {
+  label: string;
+  value: number;
+  icon: React.ReactNode;
+}) {
   return (
     <div className="flex items-center gap-2 p-3 rounded-lg border">
       {icon}
@@ -213,9 +224,7 @@ const pageColumns: ColumnDef<PageDiagnostic>[] = [
   {
     accessorKey: "page",
     header: "Page",
-    cell: ({ row }) => (
-      <span className="font-mono text-muted-foreground">{row.original.page}</span>
-    ),
+    cell: ({ row }) => <span className="font-mono text-muted-foreground">{row.original.page}</span>,
   },
   {
     accessorKey: "type",
@@ -302,7 +311,7 @@ function DryRunDialog({ open, onClose }: { open: boolean; onClose: () => void })
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-3xl max-h-[85vh]">
+      <DialogContent className="max-w-5xl max-h-[90vh] w-[95vw]">
         <DialogHeader>
           <DialogTitle>Dry-Run Preview</DialogTitle>
         </DialogHeader>
@@ -310,8 +319,8 @@ function DryRunDialog({ open, onClose }: { open: boolean; onClose: () => void })
         {!result ? (
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Drag and drop a PDF here, or click to browse. Preview extracted text
-              and quality assessment without indexing.
+              Drag and drop a PDF here, or click to browse. Preview extracted text and quality
+              assessment without indexing.
             </p>
             <label
               onDrop={handleDrop}
@@ -338,12 +347,7 @@ function DryRunDialog({ open, onClose }: { open: boolean; onClose: () => void })
                 </span>
                 <span className="text-xs text-muted-foreground">PDF files only, max 50 MB</span>
               </div>
-              <input
-                type="file"
-                accept=".pdf"
-                onChange={handleFileInput}
-                className="hidden"
-              />
+              <input type="file" accept=".pdf" onChange={handleFileInput} className="hidden" />
             </label>
           </div>
         ) : (
@@ -353,7 +357,10 @@ function DryRunDialog({ open, onClose }: { open: boolean; onClose: () => void })
             setResult={setResult}
             showDetails={showDetails}
             setShowDetails={setShowDetails}
-            onReset={() => { setResult(null); setFileRef(null); }}
+            onReset={() => {
+              setResult(null);
+              setFileRef(null);
+            }}
           />
         )}
       </DialogContent>
@@ -397,17 +404,25 @@ function DryRunResult({
   onReset: () => void;
 }) {
   const dryRunOcr = useDryRunOcr();
-  const { summary, pages, total_pages, total_chars } = result;
+  const [prevResult, setPrevResult] = useState<DryRunResponse | null>(null);
+  const [showFullText, setShowFullText] = useState(false);
+  const [selectedOcrPages, setSelectedOcrPages] = useState<number[]>([]);
+  const { summary, pages, total_pages, total_chars, quality_score } = result;
   const okCount = summary.text + summary.table;
   const okPct = total_pages > 0 ? Math.round((okCount / total_pages) * 100) : 0;
+  const avgChars = total_pages > 0 ? Math.round(total_chars / total_pages) : 0;
+  const estimatedChunks = Math.ceil(total_chars / 1500);
+  const badPct = Math.round(quality_score * 100);
 
-  // Problem pages for OCR: scan + empty
   const ocrTargetPages = useMemo(
     () => pages.filter((p) => p.type === "scan" || p.type === "empty").map((p) => p.page),
     [pages],
   );
 
-  // Detect anomalies: skip leading short pages (cover/titlepage)
+  useEffect(() => {
+    setSelectedOcrPages(ocrTargetPages);
+  }, [ocrTargetPages]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const anomalies = useMemo(() => {
     const leadingShortEnd = (() => {
       for (let i = 0; i < pages.length; i++) {
@@ -415,7 +430,6 @@ function DryRunResult({
       }
       return pages.length;
     })();
-
     return pages.filter((p, idx) => {
       if (p.type === "text" && p.chars >= 50) return false;
       if (p.type === "table") return false;
@@ -426,78 +440,115 @@ function DryRunResult({
 
   const problemCount = anomalies.length;
 
-  const handleRunOcr = useCallback(async () => {
-    if (!fileRef || ocrTargetPages.length === 0) return;
-    try {
-      const updated = await dryRunOcr.mutateAsync({
-        file: fileRef,
-        pages: ocrTargetPages,
+  const ocrDiff = useMemo(() => {
+    if (!prevResult) return [];
+    const oldMap = new Map(prevResult.pages.map((p) => [p.page, p]));
+    return result.pages
+      .filter((p) => {
+        const old = oldMap.get(p.page);
+        return old && old.type !== p.type;
+      })
+      .map((p) => {
+        const old = oldMap.get(p.page)!;
+        return { page: p.page, from: old.type, to: p.type, charsDelta: p.chars - old.chars };
       });
+  }, [result, prevResult]);
+
+  const toggleOcrPage = useCallback((page: number) => {
+    setSelectedOcrPages((prev) =>
+      prev.includes(page) ? prev.filter((p) => p !== page) : [...prev, page],
+    );
+  }, []);
+
+  const handleRunOcr = useCallback(async () => {
+    if (!fileRef || selectedOcrPages.length === 0) return;
+    try {
+      setPrevResult(result);
+      const updated = await dryRunOcr.mutateAsync({ file: fileRef, pages: selectedOcrPages });
       setResult(updated);
-      toast.success(`OCR completed on ${ocrTargetPages.length} pages`);
+      toast.success(`OCR completed on ${selectedOcrPages.length} pages`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "OCR failed";
       toast.error(msg);
     }
-  }, [fileRef, ocrTargetPages, dryRunOcr, setResult]);
+  }, [fileRef, selectedOcrPages, dryRunOcr, result, setResult]);
 
   return (
     <ScrollArea className="h-[65vh]">
       <div className="space-y-5">
         {/* ── 1. Summary ────────────────────────────────────────── */}
-        <div className="flex items-center gap-3">
-          <span className="text-2xl font-bold">
-            {okPct}% OK
-          </span>
-          <span className="text-muted-foreground">·</span>
-          <span className="text-sm">
-            {total_pages} pages · {total_chars.toLocaleString()} chars
-          </span>
-          {problemCount > 0 && (
-            <>
-              <span className="text-muted-foreground">·</span>
-              <Badge variant={okPct >= 90 ? "warning" : "destructive"}>
-                {problemCount} need attention
-              </Badge>
-            </>
-          )}
+        <div className="p-3 rounded-lg border space-y-2">
+          <div className="flex items-center gap-3">
+            <span
+              className={`text-2xl font-bold ${badPct <= 10 ? "text-green-600 dark:text-green-400" : badPct <= 30 ? "text-yellow-600 dark:text-yellow-400" : "text-red-600 dark:text-red-400"}`}
+            >
+              {okPct}%
+            </span>
+            <span className="text-sm text-muted-foreground">OK</span>
+            <span className="text-muted-foreground">·</span>
+            <span className="text-sm">
+              {total_pages} pages · {total_chars.toLocaleString()} chars
+            </span>
+            <span className="text-muted-foreground">·</span>
+            <span className="text-sm text-muted-foreground">
+              avg {avgChars.toLocaleString()} chars/page
+            </span>
+            <span className="text-muted-foreground">·</span>
+            <span className="text-sm text-muted-foreground">
+              ~{estimatedChunks.toLocaleString()} chunks est.
+            </span>
+            {badPct > 0 && (
+              <>
+                <span className="text-muted-foreground">·</span>
+                <Badge variant={badPct <= 10 ? "warning" : "destructive"}>
+                  bad: {(quality_score * 100).toFixed(1)}% · {problemCount} pages
+                </Badge>
+              </>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-1.5 text-xs">
+            {summary.text > 0 && (
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                {summary.text} text
+              </span>
+            )}
+            {summary.table > 0 && (
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                {summary.table} table{summary.table > 1 ? "s" : ""}
+              </span>
+            )}
+            {summary.scan > 0 && (
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-yellow-50 text-yellow-700 dark:bg-yellow-950 dark:text-yellow-300">
+                <span className="w-1.5 h-1.5 rounded-full bg-yellow-500" />
+                {summary.scan} scan
+              </span>
+            )}
+            {summary.garbled > 0 && (
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300">
+                <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                {summary.garbled} garbled
+              </span>
+            )}
+            {summary.empty > 0 && (
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
+                <span className="w-1.5 h-1.5 rounded-full bg-gray-400" />
+                {summary.empty} empty
+              </span>
+            )}
+          </div>
         </div>
 
-        {/* ── 2. Breakdown chips ───────────────────────────────── */}
-        <div className="flex flex-wrap gap-2 text-xs">
-          {summary.text > 0 && (
-            <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300">
-              <span className="w-2 h-2 rounded-full bg-green-500" />
-              {summary.text} text
-            </span>
-          )}
-          {summary.table > 0 && (
-            <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
-              <span className="w-2 h-2 rounded-full bg-blue-500" />
-              {summary.table} table{summary.table > 1 ? "s" : ""}
-            </span>
-          )}
-          {summary.scan > 0 && (
-            <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-yellow-50 text-yellow-700 dark:bg-yellow-950 dark:text-yellow-300">
-              <span className="w-2 h-2 rounded-full bg-yellow-500" />
-              {summary.scan} scan
-            </span>
-          )}
-          {summary.garbled > 0 && (
-            <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300">
-              <span className="w-2 h-2 rounded-full bg-red-500" />
-              {summary.garbled} garbled
-            </span>
-          )}
-          {summary.empty > 0 && (
-            <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
-              <span className="w-2 h-2 rounded-full bg-gray-400" />
-              {summary.empty} empty
-            </span>
-          )}
-        </div>
+        {/* ── 2. Warning ────────────────────────────────────────── */}
+        {result.warning && (
+          <div className="flex items-start gap-2 px-3 py-2 rounded-md bg-yellow-50 text-yellow-700 text-sm dark:bg-yellow-950/50 dark:text-yellow-400">
+            <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+            <span>{result.warning}</span>
+          </div>
+        )}
 
-        {/* ── 3. Heatmap strip ─────────────────────────────────── */}
+        {/* ── 3. Heatmap ────────────────────────────────────────── */}
         <div>
           <div className="flex items-center justify-between mb-1.5">
             <span className="text-xs font-medium text-muted-foreground">Page heatmap</span>
@@ -510,13 +561,43 @@ function DryRunResult({
           </div>
         </div>
 
-        {/* ── 4. Anomaly list ──────────────────────────────────── */}
-        {anomalies.length > 0 && (
+        {/* ── 4. OCR diff ──────────────────────────────────────── */}
+        {ocrDiff.length > 0 && (
+          <div className="rounded-md border p-3 bg-blue-50 dark:bg-blue-950/30 space-y-1.5">
+            <div className="flex items-center gap-2 text-sm font-medium text-blue-700 dark:text-blue-300">
+              <CheckCircle2 className="h-4 w-4" />
+              OCR improved {ocrDiff.length} page{ocrDiff.length > 1 ? "s" : ""}
+            </div>
+            {ocrDiff.map((d) => (
+              <div key={d.page} className="flex items-center gap-2 text-xs">
+                <span className="font-mono text-muted-foreground">p.{d.page}</span>
+                <Badge variant="secondary" className="text-[10px]">
+                  {d.from}
+                </Badge>
+                <span className="text-muted-foreground">→</span>
+                <Badge variant="success" className="text-[10px]">
+                  {d.to}
+                </Badge>
+                <span
+                  className={
+                    d.charsDelta > 0
+                      ? "text-green-600 dark:text-green-400"
+                      : "text-muted-foreground"
+                  }
+                >
+                  {d.charsDelta > 0 ? "+" : ""}
+                  {d.charsDelta.toLocaleString()} chars
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ── 5. Problem pages (grouped by type) ────────────────── */}
+        {anomalies.length > 0 ? (
           <div>
             <div className="flex items-center justify-between mb-2">
-              <h4 className="text-sm font-medium">
-                Pages needing attention ({anomalies.length})
-              </h4>
+              <h4 className="text-sm font-medium">Problem pages ({anomalies.length})</h4>
               <Button
                 variant="ghost"
                 size="sm"
@@ -526,56 +607,58 @@ function DryRunResult({
                 {showDetails ? "Hide details" : "Show all pages"}
               </Button>
             </div>
-            <div className="space-y-1">
-              {anomalies.map((p) => (
-                <div
-                  key={p.page}
-                  className="flex items-center gap-3 px-3 py-1.5 rounded-md bg-muted/50 text-sm"
-                >
-                  <span className="font-mono text-muted-foreground w-12">p.{p.page}</span>
-                  <Badge
-                    variant={
-                      p.type === "scan" || p.type === "garbled"
-                        ? "destructive"
-                        : p.type === "table"
-                          ? "default"
-                          : "secondary"
-                    }
-                    className="text-xs"
-                  >
-                    {p.type}
-                  </Badge>
-                  <span className="text-muted-foreground text-xs">
-                    {p.chars === 0
-                      ? "no text"
-                      : p.chars < 50
-                        ? `${p.chars} chars — likely cover/short`
-                        : `${p.chars.toLocaleString()} chars`}
-                  </span>
-                </div>
-              ))}
+            <div className="space-y-2">
+              {(["scan", "garbled", "empty"] as const).map((type) => {
+                const group = anomalies.filter((p) => p.type === type);
+                if (group.length === 0) return null;
+                return (
+                  <div key={type} className="rounded-md bg-muted/50 p-2.5">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <Badge
+                        variant={
+                          type === "scan" || type === "garbled" ? "destructive" : "secondary"
+                        }
+                        className="text-xs"
+                      >
+                        {type}
+                      </Badge>
+                      <span className="text-xs text-muted-foreground">
+                        {group.length} page{group.length > 1 ? "s" : ""}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {group.map((p) => (
+                        <span
+                          key={p.page}
+                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-mono bg-background border"
+                        >
+                          p.{p.page}
+                          <span className="text-muted-foreground">
+                            {p.chars === 0 ? "empty" : `${p.chars} chars`}
+                          </span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
-        )}
-
-        {anomalies.length === 0 && (
+        ) : (
           <div className="flex items-center gap-2 p-3 rounded-md bg-green-50 text-green-700 text-sm dark:bg-green-950 dark:text-green-300">
             <CheckCircle2 className="h-4 w-4" />
             All pages look good — no anomalies detected.
           </div>
         )}
 
-        {/* ── 5. Details toggle (full page list) ──────────────── */}
+        {/* ── 6. Full page list ─────────────────────────────────── */}
         {showDetails && (
           <div>
             <h4 className="text-sm font-medium mb-2">All pages</h4>
             <ScrollArea className="h-48">
               <div className="space-y-0.5">
                 {pages.map((p) => (
-                  <div
-                    key={p.page}
-                    className="flex items-center gap-3 px-3 py-1 text-xs"
-                  >
+                  <div key={p.page} className="flex items-center gap-3 px-3 py-1 text-xs">
                     <span className="font-mono text-muted-foreground w-12">p.{p.page}</span>
                     <Badge
                       variant={
@@ -591,9 +674,7 @@ function DryRunResult({
                     >
                       {p.type}
                     </Badge>
-                    <span className="text-muted-foreground">
-                      {p.chars.toLocaleString()} chars
-                    </span>
+                    <span className="text-muted-foreground">{p.chars.toLocaleString()} chars</span>
                   </div>
                 ))}
               </div>
@@ -601,24 +682,52 @@ function DryRunResult({
           </div>
         )}
 
-        {/* ── 6. Actions ──────────────────────────────────────── */}
-        <div className="flex items-center gap-2 pt-2 border-t">
-          {ocrTargetPages.length > 0 && (
-            <Button
-              onClick={handleRunOcr}
-              disabled={dryRunOcr.isPending}
-              size="sm"
-            >
-              {dryRunOcr.isPending ? (
-                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-              ) : null}
-              Run OCR on {ocrTargetPages.length} problem pages
+        {/* ── 7. Actions ────────────────────────────────────────── */}
+        <div className="flex items-center gap-2 pt-2 border-t flex-wrap">
+          {selectedOcrPages.length > 0 && (
+            <Button onClick={handleRunOcr} disabled={dryRunOcr.isPending} size="sm">
+              {dryRunOcr.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null}
+              Run OCR on {selectedOcrPages.length} page{selectedOcrPages.length > 1 ? "s" : ""}
             </Button>
           )}
+          <Button
+            onClick={() => setSelectedOcrPages(pages.map((p) => p.page))}
+            variant="outline"
+            size="sm"
+          >
+            Run OCR on all pages
+          </Button>
+          <Button onClick={() => setShowFullText(true)} variant="outline" size="sm">
+            <FileText className="h-4 w-4 mr-1" />
+            Preview
+          </Button>
           <Button onClick={onReset} variant="outline" size="sm">
             Upload Another
           </Button>
         </div>
+
+        {/* ── 8. Full text modal ────────────────────────────────── */}
+        <Dialog open={showFullText} onOpenChange={setShowFullText}>
+          <DialogContent className="max-w-2xl max-h-[80vh]">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <FileText className="h-4 w-4" />
+                Text Preview — {result.filename}
+              </DialogTitle>
+            </DialogHeader>
+            <ScrollArea className="h-[65vh]">
+              <pre className="text-xs whitespace-pre-wrap font-mono p-4 bg-muted/30 rounded-md">
+                {result.full_text_preview || "No text extracted."}
+              </pre>
+            </ScrollArea>
+            <div className="flex justify-between items-center text-xs text-muted-foreground pt-2 border-t">
+              <span>{result.full_text_preview.length.toLocaleString()} characters shown</span>
+              <Button variant="outline" size="sm" onClick={() => setShowFullText(false)}>
+                Close
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </ScrollArea>
   );

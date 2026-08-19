@@ -42,7 +42,7 @@ tasks:
   data:create:
     desc: Создать все data-директории, необходимые для Docker-сервисов
     cmds:
-      - mkdir -p data/qdrant_storage data/ollama_models data/postgres data/minio data/caddy_certs data/caddy_data data/caddy_config data/db/postgres data/redis
+      - mkdir -p data/qdrant_storage data/ollama_models data/postgres data/minio data/nginx_certs data/paddleocr_cache data/db/postgres data/redis
       - test -f data/redis/redis.conf || echo '# See data/redis/redis.conf in repo' > data/redis/redis.conf
       - 'echo "Data-директории созданы"'
 

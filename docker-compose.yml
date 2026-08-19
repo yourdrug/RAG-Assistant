@@ -243,6 +243,13 @@ services:
       - type: volume
         source: huggingface_cache
         target: /root/.cache/huggingface
+      - type: bind
+        source: ./data/paddleocr_cache
+        target: /root/.paddleocr
+        bind:
+          propagation: rprivate
+          create_host_path: true
+          selinux: Z
     healthcheck:
       test: [ "CMD", "curl", "--silent", "--fail", "http://localhost:8001/health" ]
       interval: 30s
