@@ -443,9 +443,7 @@ class RagService:
             return None
         return cached
 
-    def _apply_citation_filter(
-        self, rag: RagSettings, full_answer: str, sources: list[dict]
-    ) -> list[dict]:
+    def _apply_citation_filter(self, rag: RagSettings, full_answer: str, sources: list[dict]) -> list[dict]:
         """Filter sources to only those cited in the LLM answer."""
         if not rag.citation_filter_enabled:
             return sources

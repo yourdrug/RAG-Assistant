@@ -450,7 +450,7 @@ tasks:
     desc: "Установить зависимости локально через uv (основные + dev: pytest, ruff)"
     dir: server
     cmds:
-      - uv sync --frozen
+      - uv sync --frozen --dev
 
   install:surya:
     desc: Доустановить опциональный OCR-движок Surya (см. README → «Лицензии»)

@@ -17,8 +17,10 @@ from domain.entities.chunk import Chunk
 from domain.entities.conversation import Conversation
 from domain.entities.document import Document
 from domain.entities.message import Message
+from domain.entities.raw_document import RawDocument
 from domain.entities.user import User
 from domain.exceptions import BusinessRuleViolation
+from domain.utils import content_hash, parse_bool
 from domain.value_objects.document_status import DocumentStatus
 from domain.value_objects.message_role import MessageRole
 from domain.value_objects.roles import UserKind, UserRole
@@ -528,3 +530,85 @@ class TestChunk:
         chunk.metadata["key"] = "value"
         # Assert
         assert chunk.metadata == {"key": "value"}
+
+
+# ===========================================================================
+# RawDocument Entity Tests
+# ===========================================================================
+
+
+class TestRawDocument:
+    def test_defaults(self):
+        doc = RawDocument()
+        assert doc.page_content == ""
+        assert doc.metadata == {}
+
+    def test_with_values(self):
+        doc = RawDocument(page_content="hello", metadata={"source": "a.pdf"})
+        assert doc.page_content == "hello"
+        assert doc.metadata == {"source": "a.pdf"}
+
+    def test_metadata_mutable(self):
+        doc = RawDocument()
+        doc.metadata["key"] = "value"
+        assert doc.metadata == {"key": "value"}
+
+
+# ===========================================================================
+# parse_bool Tests
+# ===========================================================================
+
+
+class TestParseBool:
+    def test_true_values(self):
+        for v in ("true", "True", "TRUE", "1", "yes", "Yes", "on", "On"):
+            assert parse_bool(v) is True
+
+    def test_false_values(self):
+        for v in ("false", "False", "FALSE", "0", "no", "No", "off", "Off"):
+            assert parse_bool(v) is False
+
+    def test_invalid_value_raises(self):
+        with pytest.raises(ValueError, match="Cannot parse"):
+            parse_bool("maybe")
+
+
+# ===========================================================================
+# content_hash Tests
+# ===========================================================================
+
+
+class TestContentHash:
+    def test_deterministic(self):
+        assert content_hash("hello") == content_hash("hello")
+
+    def test_different_input_different_hash(self):
+        assert content_hash("hello") != content_hash("world")
+
+    def test_returns_16_char_hex(self):
+        h = content_hash("test")
+        assert len(h) == 16
+        assert all(c in "0123456789abcdef" for c in h)
+
+
+# ===========================================================================
+# Document can_edit_chunks Tests
+# ===========================================================================
+
+
+class TestDocumentCanEditChunks:
+    def test_admin_can_edit_any(self):
+        doc = _make_document(visibility=DocumentVisibility.INTERNAL_GROUP, owner_id=None)
+        assert doc.can_edit_chunks(99, UserRole.ADMIN) is True
+
+    def test_group_doc_non_admin_cannot_edit(self):
+        doc = _make_document(visibility=DocumentVisibility.INTERNAL_GROUP, owner_id=None)
+        assert doc.can_edit_chunks(10, UserRole.USER) is False
+
+    def test_owner_can_edit_own_doc(self):
+        doc = _make_document(visibility=DocumentVisibility.INTERNAL_PRIVATE, owner_id=10)
+        assert doc.can_edit_chunks(10, UserRole.USER) is True
+
+    def test_non_owner_cannot_edit_other_doc(self):
+        doc = _make_document(visibility=DocumentVisibility.INTERNAL_PRIVATE, owner_id=10)
+        assert doc.can_edit_chunks(20, UserRole.USER) is False

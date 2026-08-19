@@ -34,6 +34,7 @@ def create_access_token(user_id: int, role: str) -> str:
 def decode_access_token(token: str) -> dict:
     return _token_provider.decode_token(token)
 
+
 # ---------------------------------------------------------------------------
 # Password hashing
 # ---------------------------------------------------------------------------
