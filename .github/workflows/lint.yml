@@ -20,7 +20,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: server
-        run: uv sync --frozen --dev
+        run: uv sync --frozen --group development --group testing
 
       - name: Ruff check
         working-directory: server
@@ -46,7 +46,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: server
-        run: uv sync --frozen --dev
+        run: uv sync --frozen --group development --group testing
 
       - name: Run tests
         working-directory: server
