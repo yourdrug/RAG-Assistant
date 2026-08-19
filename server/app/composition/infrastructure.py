@@ -91,12 +91,12 @@ class InfrastructureContainer:
         )
         from infrastructure.services.benchmark_service import BenchmarkService
         from infrastructure.storage import LazyStorage
-        from infrastructure.uow_factory import UnitOfWorkFactory as ConcreteUoWFactory
+        from infrastructure.uow_factory import UnitOfWorkFactory
 
         self.database = database_manager
         self.api_key_provider = api_key_provider
         self.config_broadcaster = PostgresConfigBroadcaster(database=database_manager)
-        self.uow_factory = ConcreteUoWFactory(
+        self.uow_factory = UnitOfWorkFactory(
             database=database_manager,
             config_broadcaster=self.config_broadcaster,
         )

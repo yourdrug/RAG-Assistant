@@ -1,4 +1,4 @@
-"""Tests for infrastructure/auth.py -- password hashing and JWT tokens.
+"""Tests for infrastructure/auth — password hashing and JWT tokens.
 
 Uses real bcrypt/jwt (deterministic, no external services needed).
 """
@@ -12,12 +12,27 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 import jwt as _jwt  # noqa: E402
 import pytest  # noqa: E402
 from config import settings  # noqa: E402
-from infrastructure.auth import (  # noqa: E402
-    create_access_token,
-    decode_access_token,
-    hash_password,
-    verify_password,
-)
+from infrastructure.auth.jwt_provider import JWTProvider  # noqa: E402
+from infrastructure.auth.password_hasher import BCryptPasswordHasher  # noqa: E402
+
+_hasher = BCryptPasswordHasher()
+_token_provider = JWTProvider()
+
+
+def hash_password(password: str) -> str:
+    return _hasher.hash(password)
+
+
+def verify_password(password: str, hashed: str) -> bool:
+    return _hasher.verify(password, hashed)
+
+
+def create_access_token(user_id: int, role: str) -> str:
+    return _token_provider.create_token(user_id, role)
+
+
+def decode_access_token(token: str) -> dict:
+    return _token_provider.decode_token(token)
 
 # ---------------------------------------------------------------------------
 # Password hashing

@@ -3,6 +3,13 @@
 No external broker: handlers are registered in-process and called synchronously
 on publish(). An exception in one subscriber must not crash others, so each
 handler is wrapped in a try/except with logging.
+
+Lifecycle:
+  - Created at import time (module-level ``event_bus`` singleton)
+  - Handlers subscribed in ``composition/events.py::_subscribe_config_events()``
+  - Handlers unsubscribed in ``composition/events.py::_unsubscribe_config_events()``
+    (called during ``Container.dispose()``)
+  - Process-scoped: one instance per process, shared across all requests
 """
 
 from __future__ import annotations
