@@ -8,6 +8,7 @@ from domain.value_objects.health_status import HealthStatus
 from domain.value_objects.llm_provider import LLMProvider
 
 from application.ports.config_admin import OllamaProbePort, VectorDBInfoPort
+from application.ports.config_admin_settings import ConfigAdminSettingsPort
 
 
 @dataclass(frozen=True)
@@ -59,50 +60,29 @@ class ConfigAdminService:
         self,
         ollama_probe: OllamaProbePort,
         vectordb_info: VectorDBInfoPort,
+        admin_settings: ConfigAdminSettingsPort,
         openrouter_models_fetcher=None,
-        *,
-        llm_provider: str = "",
-        llm_model: str = "",
-        embed_model: str = "",
-        rerank_model: str = "",
-        device: str = "",
-        embed_device: str = "",
-        rerank_device: str = "",
-        ocr_engine: str = "",
-        ocr_enabled: bool = False,
-        openrouter_model: str | None = None,
-        active_collection: str = "",
     ) -> None:
         self._ollama = ollama_probe
         self._vectordb = vectordb_info
+        self._settings = admin_settings
         self._openrouter_fetcher = openrouter_models_fetcher
-        self._llm_provider = llm_provider
-        self._llm_model = llm_model
-        self._embed_model = embed_model
-        self._rerank_model = rerank_model
-        self._device = device
-        self._embed_device = embed_device
-        self._rerank_device = rerank_device
-        self._ocr_engine = ocr_engine
-        self._ocr_enabled = ocr_enabled
-        self._openrouter_model = openrouter_model
-        self._active_collection = active_collection
 
     async def get_models_info(self) -> ModelsInfo:
         ollama_models = await self._ollama.get_models()
         return ModelsInfo(
-            llm_provider=self._llm_provider,
-            llm_model=self._llm_model,
-            embed_model=self._embed_model,
-            rerank_model=self._rerank_model,
-            device=self._device,
-            embed_device=self._embed_device,
-            rerank_device=self._rerank_device,
-            ocr_engine=self._ocr_engine,
-            ocr_enabled=self._ocr_enabled,
+            llm_provider=self._settings.llm_provider,
+            llm_model=self._settings.llm_model,
+            embed_model=self._settings.embed_model,
+            rerank_model=self._settings.rerank_model,
+            device=self._settings.resolved_device,
+            embed_device=self._settings.embed_resolved_device,
+            rerank_device=self._settings.embed_resolved_device,
+            ocr_engine=self._settings.ocr_engine,
+            ocr_enabled=self._settings.ocr_enabled,
             ollama_models=ollama_models,
-            openrouter_model=self._openrouter_model
-            if self._llm_provider == LLMProvider.OPENROUTER.value
+            openrouter_model=self._settings.openrouter_model
+            if self._settings.llm_provider == LLMProvider.OPENROUTER.value
             else None,
         )
 
@@ -130,7 +110,7 @@ class ConfigAdminService:
 
         return VectorDBInfo(
             collections=collections,
-            active_collection=self._active_collection,
+            active_collection=self._settings.collection_name,
             qdrant_status=qdrant_status,
         )
 
@@ -138,4 +118,4 @@ class ConfigAdminService:
         if self._openrouter_fetcher is None:
             return OpenRouterModelsInfo(models=[], active_model=None)
         models = await self._openrouter_fetcher()
-        return OpenRouterModelsInfo(models=models, active_model=self._openrouter_model)
+        return OpenRouterModelsInfo(models=models, active_model=self._settings.openrouter_model)

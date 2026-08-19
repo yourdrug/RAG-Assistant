@@ -12,6 +12,11 @@ import logging
 import time
 from collections.abc import AsyncIterator
 
+from application.dto.chat_dto import ChatResult
+from application.ports.chat_rag_port import ChatRAGPort
+from application.ports.chat_settings import ChatSettingsPort
+from application.ports.chat_support import RollingSummaryUpdaterPort
+from application.ports.unit_of_work_factory import UnitOfWorkFactory
 from domain.entities.chat_log import ChatLog
 from domain.entities.message import Message
 from domain.value_objects.chat_context import ChatContext
@@ -21,27 +26,20 @@ from domain.value_objects.message_role import MessageRole
 from domain.value_objects.roles import UserKind
 from domain.value_objects.stream_events import MetaEvent, SourcesEvent, StreamEvent, TextChunk
 
-from application.dto.chat_dto import ChatResult
-from application.ports.chat_rag_port import ChatRAGPort
-from application.ports.chat_support import RollingSummaryUpdaterPort
-from application.ports.unit_of_work_factory import UnitOfWorkFactory
-
 log = logging.getLogger(__name__)
 
 
 class ChatService:
     def __init__(
-        self,
-        uow_factory: UnitOfWorkFactory,
-        rag_service: ChatRAGPort,
-        history_window: int = 8,
-        rolling_summary_enabled: bool = False,
-        summary_updater: RollingSummaryUpdaterPort | None = None,
+            self,
+            uow_factory: UnitOfWorkFactory,
+            rag_service: ChatRAGPort,
+            chat_settings: ChatSettingsPort,
+            summary_updater: RollingSummaryUpdaterPort | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._rag_service = rag_service
-        self._history_window = history_window
-        self._rolling_summary_enabled = rolling_summary_enabled
+        self._settings = chat_settings
         self._summary_updater = summary_updater
         self._background_tasks: set[asyncio.Task] = set()  # type: ignore[type-arg]
 
@@ -77,13 +75,13 @@ class ChatService:
     # ------------------------------------------------------------------
 
     async def stream_chat(
-        self,
-        question: str,
-        conversation_id: int | None,
-        user_id: int,
-        user_kind: str,
-        user_role: str,
-        depth: str | None = None,
+            self,
+            question: str,
+            conversation_id: int | None,
+            user_id: int,
+            user_kind: str,
+            user_role: str,
+            depth: str | None = None,
     ) -> AsyncIterator[StreamEvent]:
         group_ids = await self._get_user_context(user_id, user_kind)
         ctx = ChatContext(
@@ -96,7 +94,7 @@ class ChatService:
         # UoW 1: read-only — get/create conversation + history
         async with self._uow_factory.create() as uow:
             conv = await uow.conversations.get_or_create(conversation_id, user_id)
-            history = await uow.messages.get_history(conv.id, window=self._history_window)
+            history = await uow.messages.get_history(conv.id, window=self._settings.history_window)
             if history and history[-1].role == MessageRole.USER:
                 history = history[:-1]
 
@@ -107,9 +105,9 @@ class ChatService:
         t_start = time.monotonic()
 
         async for event in self._rag_service.stream(
-            question=question,
-            history=history,
-            ctx=ctx,
+                question=question,
+                history=history,
+                ctx=ctx,
         ):
             if isinstance(event, SourcesEvent):
                 sources = event.sources
@@ -167,7 +165,7 @@ class ChatService:
             await uow.chat_logs.save(chat_log)
 
         # Rolling summary: fire-and-forget (managed background task)
-        if self._rolling_summary_enabled and len(history) >= self._history_window:
+        if self._settings.rolling_summary_enabled and len(history) >= self._settings.history_window:
             recent_turns = [
                 {"role": "user", "content": question},
                 {"role": "assistant", "content": full_answer},
@@ -196,13 +194,13 @@ class ChatService:
     # ------------------------------------------------------------------
 
     async def sync_chat(
-        self,
-        question: str,
-        conversation_id: int | None,
-        user_id: int,
-        user_kind: str,
-        user_role: str,
-        depth: str | None = None,
+            self,
+            question: str,
+            conversation_id: int | None,
+            user_id: int,
+            user_kind: str,
+            user_role: str,
+            depth: str | None = None,
     ) -> ChatResult:
         group_ids = await self._get_user_context(user_id, user_kind)
         ctx = ChatContext(
@@ -215,7 +213,7 @@ class ChatService:
         # UoW 1: read-only — get/create conversation + history
         async with self._uow_factory.create() as uow:
             conv = await uow.conversations.get_or_create(conversation_id, user_id)
-            history = await uow.messages.get_history(conv.id, window=self._history_window)
+            history = await uow.messages.get_history(conv.id, window=self._settings.history_window)
             if history and history[-1].role == MessageRole.USER:
                 history = history[:-1]
 

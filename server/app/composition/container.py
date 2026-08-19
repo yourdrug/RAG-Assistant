@@ -52,7 +52,7 @@ class Container:
         """
         if self._initialized:
             raise RuntimeError(
-                "Container.init() must be called exactly once. " "Second call detected — this is a bug."
+                "Container.init() must be called exactly once. Second call detected — this is a bug."
             )
         self.infrastructure.init(database_manager)
         self.application.init(self.infrastructure)
@@ -74,4 +74,16 @@ class Container:
         await self.application.dispose()
         await self.infrastructure.dispose()
         _unsubscribe_config_events()
+        self._clear_global_caches()
         self._initialized = False
+
+    @staticmethod
+    def _clear_global_caches() -> None:
+        """Clear process-global lru_cache singletons so a fresh Container gets
+        clean state (avoids stale caches leaking across container re-creation)."""
+        from infrastructure.ml.ingestion import _get_paddle_ocr, _get_surya_predictors
+        from infrastructure.storage.file_storage import get_storage
+
+        get_storage.cache_clear()
+        _get_paddle_ocr.cache_clear()
+        _get_surya_predictors.cache_clear()

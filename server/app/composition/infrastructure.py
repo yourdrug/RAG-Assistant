@@ -100,11 +100,11 @@ class InfrastructureContainer:
             database=database_manager,
             config_broadcaster=self.config_broadcaster,
         )
+        self.ml_clients = MLClientRegistry()
         self.vector_store_repo = QdrantVectorStoreRepository(ml_clients=self.ml_clients)
         self.file_storage = LazyStorage()
         self.document_parser = LangchainDocumentParser()
         self.document_splitter = LangchainDocumentSplitter()
-        self.ml_clients = MLClientRegistry()
         self.health_probe = SystemHealthProbe()
         self.metrics_registry = PrometheusMetricsRegistry()
         self.ollama_probe = OllamaProbe()

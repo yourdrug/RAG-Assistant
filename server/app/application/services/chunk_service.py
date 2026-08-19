@@ -19,6 +19,7 @@ from domain.value_objects.roles import UserKind, UserRole
 from domain.value_objects.visibility import DocumentVisibility
 
 from application.dto.document_dto import DocumentDTO
+from application.ports.chunk_settings import ChunkSettingsPort
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
 
 log = logging.getLogger(__name__)
@@ -29,15 +30,15 @@ class ChunkService:
         self,
         uow_factory: UnitOfWorkFactory,
         vector_store_repo: VectorStoreRepository,
+        chunk_settings: ChunkSettingsPort,
         chunk_min_len_ratio: float = 0.3,
         chunk_max_len_ratio: float = 2.0,
-        default_chunk_size: int = 550,
     ) -> None:
         self._uow_factory = uow_factory
         self._vector_store = vector_store_repo
+        self._settings = chunk_settings
         self._chunk_min_len_ratio = chunk_min_len_ratio
         self._chunk_max_len_ratio = chunk_max_len_ratio
-        self._default_chunk_size = default_chunk_size
 
     async def list_chunks(
         self,
@@ -362,8 +363,9 @@ class ChunkService:
         if not content or not content.strip():
             raise ValidationError("Chunk content cannot be empty")
 
-        min_len = int(self._chunk_min_len_ratio * self._default_chunk_size)
-        max_len = int(self._chunk_max_len_ratio * self._default_chunk_size)
+        chunk_size = self._settings.chunk_size
+        min_len = int(self._chunk_min_len_ratio * chunk_size)
+        max_len = int(self._chunk_max_len_ratio * chunk_size)
 
         if len(content) < min_len:
             raise ValidationError(

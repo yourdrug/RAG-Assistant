@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from domain.value_objects.health_status import HealthStatus
 
 from application.ports.health import ConfigListenerProviderPort, HealthCheckResult, HealthProbePort
+from application.ports.health_settings import HealthSettingsPort
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
 
 
@@ -26,16 +27,12 @@ class HealthService:
         uow_factory: UnitOfWorkFactory,
         probe: HealthProbePort,
         config_listener_provider: ConfigListenerProviderPort,
-        version: str = "",
-        uptime_seconds: float = 0.0,
-        llm_provider: str = "",
+        health_settings: HealthSettingsPort,
     ) -> None:
         self._uow_factory = uow_factory
         self._probe = probe
         self._config_listener = config_listener_provider
-        self._version = version
-        self._uptime_seconds = uptime_seconds
-        self._llm_provider = llm_provider
+        self._settings = health_settings
 
     async def check(self) -> HealthResponse:
         qdrant = self._probe.check_qdrant()
@@ -53,9 +50,9 @@ class HealthService:
 
         return HealthResponse(
             status=overall,
-            version=self._version,
-            uptime_seconds=self._uptime_seconds,
-            llm_provider=self._llm_provider,
+            version=self._settings.version,
+            uptime_seconds=self._settings.uptime_seconds,
+            llm_provider=self._settings.llm_provider,
             checks={
                 "api": HealthCheckResult(status=HealthStatus.OK.value),
                 "qdrant": qdrant,

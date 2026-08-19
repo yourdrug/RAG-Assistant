@@ -25,11 +25,24 @@ def mock_vector_store():
 
 
 @pytest.fixture
-def chunk_service(mock_uow_factory, mock_vector_store):
+def mock_chunk_settings():
+    """Mock ChunkSettingsPort with default chunk_size."""
+    from dataclasses import dataclass
+
+    @dataclass
+    class FakeChunkSettings:
+        chunk_size: int = 550
+
+    return FakeChunkSettings()
+
+
+@pytest.fixture
+def chunk_service(mock_uow_factory, mock_vector_store, mock_chunk_settings):
     """Create ChunkService with mocked dependencies."""
     return ChunkService(
         uow_factory=mock_uow_factory,
         vector_store_repo=mock_vector_store,
+        chunk_settings=mock_chunk_settings,
     )
 
 

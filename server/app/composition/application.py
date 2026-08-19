@@ -117,10 +117,13 @@ class ApplicationContainer:
         from application.services.pdf_diagnostic_service import PDFDiagnosticService
         from application.services.quality_service import QualityService
         from application.services.search_service import SearchService
-        from config import settings
         from infrastructure.auth.jwt_provider import JWTProvider
         from infrastructure.auth.password_hasher import BCryptPasswordHasher
         from infrastructure.events.in_process_event_bus import event_bus
+        from infrastructure.ml.chat_settings_adapter import LiveChatSettings
+        from infrastructure.ml.chunk_settings_adapter import LiveChunkSettings
+        from infrastructure.ml.config_admin_settings_adapter import LiveConfigAdminSettings
+        from infrastructure.ml.health_settings_adapter import LiveHealthSettings
         from infrastructure.ml.pdf_adapter import (
             FitzPDFDocument,
             MLOcrRunner,
@@ -157,8 +160,7 @@ class ApplicationContainer:
         self.chat_service = ChatService(
             uow_factory=uow,
             rag_service=RagService(ml_clients=ml, chunk_search=chunk_search),
-            history_window=settings.history_window,
-            rolling_summary_enabled=settings.rolling_summary_enabled,
+            chat_settings=LiveChatSettings(),
             summary_updater=infra.summary_updater,
         )
         self.auth_service = AuthService(
@@ -172,7 +174,9 @@ class ApplicationContainer:
             vector_store_repo=vsr,
             file_storage=fs,
         )
-        self.chunk_service = ChunkService(uow_factory=uow, vector_store_repo=vsr)
+        self.chunk_service = ChunkService(
+            uow_factory=uow, vector_store_repo=vsr, chunk_settings=LiveChunkSettings()
+        )
         self.ingest_app_service = IngestAppService(
             uow_factory=uow,
             ingestion_service=self.ingestion_service,
@@ -182,26 +186,14 @@ class ApplicationContainer:
             uow_factory=uow,
             probe=infra.health_probe,
             config_listener_provider=infra.config_listener,
-            version=settings.version,
-            uptime_seconds=settings.uptime_seconds,
-            llm_provider=settings.llm_provider,
+            health_settings=LiveHealthSettings(),
         )
         self.metrics_service = MetricsService(registry=infra.metrics_registry)
         self.config_admin_service = ConfigAdminService(
             ollama_probe=infra.ollama_probe,
             vectordb_info=infra.qdrant_info,
+            admin_settings=LiveConfigAdminSettings(),
             openrouter_models_fetcher=_get_openrouter_fetcher(),
-            llm_provider=settings.llm_provider,
-            llm_model=settings.llm_model,
-            embed_model=settings.embed_model,
-            rerank_model=settings.rerank_model,
-            device=settings.resolved_device,
-            embed_device=settings.embed_resolved_device,
-            rerank_device=settings.embed_resolved_device,
-            ocr_engine=settings.ocr_engine,
-            ocr_enabled=settings.ocr_enabled,
-            openrouter_model=settings.openrouter_model,
-            active_collection=settings.collection_name,
         )
         self.pdf_diagnostic_service = PDFDiagnosticService(
             classifier=MLPageClassifier(),
