@@ -152,7 +152,7 @@ async def dry_run_ocr_phase2(
     try:
         page_nums = [int(p.strip()) for p in pages.split(",") if p.strip()]
     except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid page numbers")
+        raise HTTPException(status_code=400, detail="Invalid page numbers") from None
 
     if not page_nums:
         raise HTTPException(status_code=400, detail="No pages specified for OCR")

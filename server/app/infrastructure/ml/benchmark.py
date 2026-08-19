@@ -83,17 +83,12 @@ def load_questions(path: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-def retrieve_with_scores_hybrid(question: str, top_k: int, fetch_k: int) -> list[tuple[Document, float]]:
-    """Retrieve using the production hybrid pipeline: dense + BM25 + RRF + reranker.
-
-    Mirrors rag_service._run_hybrid_search + rerank_documents to produce
-    the same quality results as the live system.
-    """
+def _search_dense(
+    question: str, fetch_k: int
+) -> tuple[list[tuple[Document, float]], dict[str, tuple[float, Document]]]:
+    """Dense search via Qdrant client. Returns (dense_docs, dense_by_hash)."""
     client = create_qdrant_client()
     embeddings = create_embeddings()
-    reranker = create_reranker()
-
-    # --- Dense search via raw Qdrant client (preserves metadata correctly) ---
     query_vector = embeddings.embed_query(question)
     dense_results = client.search(
         collection_name=settings.collection_name,
@@ -111,17 +106,26 @@ def retrieve_with_scores_hybrid(question: str, top_k: int, fetch_k: int) -> list
         doc = Document(page_content=page_content, metadata=metadata)
         dense_docs.append((doc, point.score))
         dense_by_hash[h] = (point.score, doc)
+    return dense_docs, dense_by_hash
 
-    # --- BM25 sparse search ---
+
+def _search_sparse(question: str, fetch_k: int) -> list[tuple[str, float]]:
+    """BM25 sparse search via loaded index."""
     bm25_index = load_bm25_index()
-    sparse_results: list[tuple[str, float]] = []
     if bm25_index is not None:
-        sparse_results = bm25_index.search_with_hashes(question, fetch_k)
+        return bm25_index.search_with_hashes(question, fetch_k)
+    return []
 
-    # --- RRF merge ---
+
+def _merge_and_dedup(
+    dense_by_hash: dict[str, tuple[float, Document]],
+    sparse_results: list[tuple[str, float]],
+    fetch_k: int,
+) -> list[Document]:
+    """RRF merge + deduplication. Returns deduplicated candidate docs."""
     if sparse_results:
         merged_hashes = rrf_merge(
-            [(h, s) for h, s in [(k, v[0]) for k, v in dense_by_hash.items()]],
+            [(k, v[0]) for k, v in dense_by_hash.items()],
             sparse_results,
             k=settings.rrf_k,
             dense_weight=settings.dense_weight,
@@ -130,7 +134,6 @@ def retrieve_with_scores_hybrid(question: str, top_k: int, fetch_k: int) -> list
     else:
         merged_hashes = [h for h, _ in [(k, v[0]) for k, v in dense_by_hash.items()]]
 
-    # Deduplicate and take fetch_k candidates
     seen = set()
     candidate_docs: list[Document] = []
     for h in merged_hashes:
@@ -142,12 +145,38 @@ def retrieve_with_scores_hybrid(question: str, top_k: int, fetch_k: int) -> list
         if len(candidate_docs) >= fetch_k:
             break
 
-    candidate_docs = deduplicate_docs(candidate_docs)
+    return deduplicate_docs(candidate_docs)
 
-    # --- Rerank with cross-encoder (synchronous, fast for small candidate sets) ---
+
+def _apply_rerank_filters(
+    ranked: list[tuple[Document, float]],
+) -> list[tuple[Document, float]]:
+    """Apply min_score and score_gap_ratio filters to ranked results."""
+    if settings.rerank_min_score is not None:
+        ranked = [(d, s) for d, s in ranked if s >= settings.rerank_min_score]
+
+    if settings.rerank_score_gap_ratio is not None and ranked:
+        top_score = ranked[0][1]
+        cutoff = top_score * settings.rerank_score_gap_ratio
+        ranked = [(d, s) for d, s in ranked if s >= cutoff]
+
+    return ranked
+
+
+def retrieve_with_scores_hybrid(question: str, top_k: int, fetch_k: int) -> list[tuple[Document, float]]:
+    """Retrieve using the production hybrid pipeline: dense + BM25 + RRF + reranker.
+
+    Mirrors rag_service._run_hybrid_search + rerank_documents to produce
+    the same quality results as the live system.
+    """
+    _, dense_by_hash = _search_dense(question, fetch_k)
+    sparse_results = _search_sparse(question, fetch_k)
+    candidate_docs = _merge_and_dedup(dense_by_hash, sparse_results, fetch_k)
+
     if not candidate_docs:
         return []
 
+    reranker = create_reranker()
     pairs = []
     for doc in candidate_docs:
         source = doc.metadata.get("source", "")
@@ -157,19 +186,9 @@ def retrieve_with_scores_hybrid(question: str, top_k: int, fetch_k: int) -> list
         pairs.append((question, content_with_prefix))
 
     scores = reranker.predict(pairs)
-    ranked = sorted(zip(candidate_docs, scores), key=lambda x: x[1], reverse=True)[:top_k]
+    ranked = sorted(zip(candidate_docs, scores, strict=False), key=lambda x: x[1], reverse=True)[:top_k]
 
-    # Apply min_score filter
-    if settings.rerank_min_score is not None:
-        ranked = [(d, s) for d, s in ranked if s >= settings.rerank_min_score]
-
-    # Apply score_gap_ratio filter
-    if settings.rerank_score_gap_ratio is not None and ranked:
-        top_score = ranked[0][1]
-        cutoff = top_score * settings.rerank_score_gap_ratio
-        ranked = [(d, s) for d, s in ranked if s >= cutoff]
-
-    return ranked
+    return _apply_rerank_filters(ranked)
 
 
 def build_llm(model: str, base_url: str, provider: str = LLMProvider.OLLAMA):
@@ -349,7 +368,7 @@ async def judge_answer_async(
     raw_results = await asyncio.gather(*[_judge_one(prompts[k]) for k in keys])
 
     scores = {}
-    for key, raw in zip(keys, raw_results):
+    for key, raw in zip(keys, raw_results, strict=False):
         score, reason = parse_judge_response(raw, key)
         scores[key] = score
         scores[f"{key}_reason"] = reason
@@ -811,7 +830,7 @@ def run_benchmark(
         logger.info("AGGREGATE SUMMARY (%d runs)", n_runs)
         logger.info("=" * 60)
 
-        question_ids = list(set(r["id"] for r in all_results))
+        question_ids = {r["id"] for r in all_results}
         agg_results = []
         for qid in question_ids:
             q_runs = [r for r in all_results if r["id"] == qid]
@@ -900,7 +919,7 @@ async def run_benchmark_async(
         if n_runs > 1:
             logger.info("=== Run %d/%d ===", run_idx, n_runs)
 
-        async def _process_question(idx: int, q: dict) -> dict:
+        async def _process_question(idx: int, q: dict, _run_idx=run_idx) -> dict:
             async with semaphore:
                 t_start = time.time()
 
@@ -930,7 +949,7 @@ async def run_benchmark_async(
                     "retriever_metrics": retriever_metrics,
                     "generator_metrics": generator_metrics,
                     "latency_sec": round(latency, 2),
-                    "run": run_idx,
+                    "run": _run_idx,
                 }
                 log_question_result(idx, len(questions), q, result)
                 return result

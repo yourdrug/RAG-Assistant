@@ -1,5 +1,5 @@
-"""
-Tests for infrastructure/auth.py — password hashing and JWT tokens.
+"""Tests for infrastructure/auth.py -- password hashing and JWT tokens.
+
 Uses real bcrypt/jwt (deterministic, no external services needed).
 """
 

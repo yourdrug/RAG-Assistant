@@ -1,7 +1,6 @@
-"""Tests for domain value objects: UserRole, UserKind, DocumentVisibility,
-DocumentStatus, MessageRole.
+"""Tests for domain value objects: UserRole, UserKind, DocumentVisibility, etc.
 
-Pure unit tests — no infrastructure dependencies. All validation logic is tested.
+Pure unit tests -- no infrastructure dependencies. All validation logic is tested.
 """
 
 from __future__ import annotations

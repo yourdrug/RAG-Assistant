@@ -61,7 +61,7 @@ class PostgresConfigListener:
             try:
                 await self._connect_and_listen()
                 disconnect_event = asyncio.Event()
-                self._conn.add_termination_listener(lambda _c: disconnect_event.set())
+                self._conn.add_termination_listener(lambda _c, _de=disconnect_event: _de.set())
                 await disconnect_event.wait()
                 if not self._stopped:
                     log.warning(

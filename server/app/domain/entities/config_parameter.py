@@ -37,7 +37,7 @@ class ConfigParameter:
             try:
                 _parse_bool(raw_value)
             except ValueError:
-                raise ValidationError(f"Value for '{self.key}' must be boolean")
+                raise ValidationError(f"Value for '{self.key}' must be boolean") from None
             return
         if self.value_type == ConfigValueType.STR:
             if self.allowed_values is not None and raw_value not in self.allowed_values:

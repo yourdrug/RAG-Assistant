@@ -39,7 +39,7 @@ async def ingest_documents(
     try:
         resolved_dir = service.resolve_docs_dir(docs_dir)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
     job_id = await job_service.create_job("ingest")
 
@@ -71,9 +71,9 @@ async def ingest_single_file(
     try:
         resolved = service.resolve_ingest_target(file_path)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e)) from e
 
     if force:
         service.force_reindex(Path(resolved).name)

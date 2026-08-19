@@ -21,7 +21,7 @@ logger = logging.getLogger("default")
 
 
 def handle_exceptions(func: Callable) -> Callable:
-    """Decorator that logs exceptions without crashing the scheduler."""
+    """Log exceptions without crashing the scheduler."""
 
     @wraps(func)
     async def wrapper(*args: Any, **kwargs: Any) -> Any:

@@ -32,8 +32,7 @@ MISS = object()
 
 
 class ApiKeyProvider:
-    """Кэширует sha256(ключ) -> данные пользователя на несколько секунд,
-    чтобы не бить в Postgres на каждый запрос от одного и того же клиента.
+    """Кэширует sha256(ключ) -> данные пользователя на несколько секунд.
 
     Cache is stored in Redis with TTL (SETEX/GET).
     ``invalidate_by_id`` publishes to ``api_key_revoked`` Pub/Sub channel

@@ -32,17 +32,17 @@ class User:
             self.kind = UserKind.validate(self.kind)
 
     def can_be_created_by(self, creator_role: UserRole) -> None:
-        """Business rule: only admin can create users."""
+        """Enforce rule: only admin can create users."""
         if creator_role != UserRole.ADMIN:
             raise BusinessRuleViolation("Only admin can create users")
 
     def ensure_valid_for_creation(self) -> None:
-        """Business rule: client cannot be admin."""
+        """Enforce rule: client cannot be admin."""
         if self.kind == UserKind.CLIENT and self.role == UserRole.ADMIN:
             raise BusinessRuleViolation("Client cannot be admin")
 
     def deactivate_self_prohibited(self, requester_id: int) -> None:
-        """Business rule: admin cannot deactivate themselves."""
+        """Enforce rule: admin cannot deactivate themselves."""
         if self.id == requester_id:
             raise BusinessRuleViolation("Cannot deactivate yourself")
 

@@ -32,6 +32,406 @@ logger = logging.getLogger("cli")
 benchmark_app = typer.Typer(help="RAG quality benchmark (retriever + LLM-judge)")
 
 
+def _parse_comma_separated_ints(values: str) -> list[int]:
+    return [int(x.strip()) for x in values.split(",")]
+
+
+def _parse_comma_separated_floats(values: str) -> list[float]:
+    return [float(x.strip()) for x in values.split(",")]
+
+
+async def _cache_dense_sparse_candidates(
+    questions_data: list[dict],
+    max_fetch_k: int,
+) -> tuple[dict[str, list], dict[str, list], dict[str, LCDocument]]:
+    dense_cache: dict[str, list] = {}
+    sparse_cache: dict[str, list] = {}
+    all_candidates_by_hash: dict[str, LCDocument] = {}
+
+    for q in questions_data:
+        qtext = q["question"]
+        dense_results = []
+        for point in create_qdrant_client().search(
+            collection_name=settings.collection_name,
+            query_vector=create_embeddings().embed_query(qtext),
+            limit=max_fetch_k,
+        ):
+            payload = point.payload or {}
+            page_content = payload.get("page_content", "")
+            metadata = payload.get("metadata", {})
+            h = metadata.get("content_hash") or content_hash(page_content)
+            doc = LCDocument(page_content=page_content, metadata=metadata)
+            dense_results.append((h, point.score, doc))
+            all_candidates_by_hash[h] = doc
+        dense_cache[qtext] = dense_results
+
+        bm25 = load_bm25_index()
+        sparse_results = await_if_needed(bm25.search_with_hashes, qtext, max_fetch_k) if bm25 else []
+        sparse_cache[qtext] = sparse_results
+
+    logger.info(
+        "Phase 1 done: %d dense, %d sparse, %d unique hashes",
+        sum(len(v) for v in dense_cache.values()),
+        sum(len(v) for v in sparse_cache.values()),
+        len(all_candidates_by_hash),
+    )
+    return dense_cache, sparse_cache, all_candidates_by_hash
+
+
+def _score_single_question(
+    q: dict,
+    fetch_k: int,
+    top_k: int,
+    dw: float,
+    sw: float,
+    rrf_k: int,
+    dense_cache: dict[str, list],
+    sparse_cache: dict[str, list],
+    all_candidates_by_hash: dict[str, LCDocument],
+) -> tuple[int, float]:
+    qtext = q["question"]
+    source_hint = q.get("source_hint")
+    if source_hint is None:
+        return 0, 0.0
+
+    dense_trimmed = dense_cache.get(qtext, [])[:fetch_k]
+    sparse_trimmed = sparse_cache.get(qtext, [])[:fetch_k]
+
+    merged_hashes = rrf_merge(
+        [(h, score) for h, score, _doc in dense_trimmed],
+        sparse_trimmed,
+        k=rrf_k,
+        dense_weight=dw,
+        sparse_weight=sw,
+    )
+
+    seen = set()
+    top_hashes = []
+    for h in merged_hashes:
+        if h not in seen:
+            seen.add(h)
+            top_hashes.append(h)
+            if len(top_hashes) >= top_k:
+                break
+
+    hit = 0
+    mrr = 0.0
+    for rank, h in enumerate(top_hashes, 1):
+        doc = all_candidates_by_hash.get(h)
+        if doc is None:
+            continue
+        filename = doc.metadata.get("filename", "") or doc.metadata.get("source", "")
+        if source_hint.lower() in filename.lower():
+            hit = 1
+            if mrr == 0.0:
+                mrr = 1.0 / rank
+            break
+
+    return hit, mrr
+
+
+def _score_retrieval_combos(
+    retrieval_combos: list[tuple],
+    questions_data: list[dict],
+    dense_cache: dict[str, list],
+    sparse_cache: dict[str, list],
+    all_candidates_by_hash: dict[str, LCDocument],
+) -> list[dict]:
+    results_summary = []
+
+    for idx, (top_k, fetch_k, dw, sw, rrf_k) in enumerate(retrieval_combos, 1):
+        hit_rates_all = []
+        mrrs_all = []
+
+        for q in questions_data:
+            hit, mrr = _score_single_question(
+                q,
+                fetch_k,
+                top_k,
+                dw,
+                sw,
+                rrf_k,
+                dense_cache,
+                sparse_cache,
+                all_candidates_by_hash,
+            )
+            hit_rates_all.append(hit)
+            mrrs_all.append(mrr)
+
+        avg_hr = sum(hit_rates_all) / len(hit_rates_all) if hit_rates_all else 0
+        avg_mrr = sum(mrrs_all) / len(mrrs_all) if mrrs_all else 0
+
+        results_summary.append(
+            {
+                "top_k": top_k,
+                "fetch_k": fetch_k,
+                "dense_weight": dw,
+                "sparse_weight": sw,
+                "rrf_k": rrf_k,
+                "avg_hit_rate": round(avg_hr, 3),
+                "avg_mrr": round(avg_mrr, 4),
+            }
+        )
+
+        if (idx % 54) == 0:
+            logger.info("  %d/%d done", idx, len(retrieval_combos))
+
+    results_summary.sort(key=lambda x: (x["avg_hit_rate"], x["avg_mrr"]), reverse=True)
+    return results_summary
+
+
+def _apply_config_to_settings(cfg: dict) -> None:
+    settings.retriever_top_k = cfg["top_k"]
+    settings.retriever_fetch_k = cfg["fetch_k"]
+    settings.dense_weight = cfg["dense_weight"]
+    settings.sparse_weight = cfg["sparse_weight"]
+    settings.rrf_k = cfg["rrf_k"]
+
+
+def _restore_settings(orig: dict) -> None:
+    settings.retriever_top_k = orig["top_k"]
+    settings.retriever_fetch_k = orig["fetch_k"]
+    settings.dense_weight = orig["dense"]
+    settings.sparse_weight = orig["sparse"]
+    settings.rrf_k = orig["rrf"]
+    settings.rerank_min_score = orig["min_score"]
+    settings.rerank_score_gap_ratio = orig["gap_ratio"]
+
+
+def _collect_candidate_docs(
+    qtext: str,
+    fetch_k: int,
+    rrf_k: int,
+    dw: float,
+    sw: float,
+    dense_cache: dict[str, list],
+    sparse_cache: dict[str, list],
+    all_candidates_by_hash: dict[str, LCDocument],
+) -> list[LCDocument]:
+    dense_trimmed = dense_cache.get(qtext, [])[:fetch_k]
+    sparse_trimmed = sparse_cache.get(qtext, [])[:fetch_k]
+
+    merged_hashes = rrf_merge(
+        [(h, score) for h, score, _doc in dense_trimmed],
+        sparse_trimmed,
+        k=rrf_k,
+        dense_weight=dw,
+        sparse_weight=sw,
+    )
+
+    seen_h = set()
+    candidate_docs = []
+    for h in merged_hashes:
+        if h not in seen_h:
+            seen_h.add(h)
+            doc = all_candidates_by_hash.get(h)
+            if doc is not None:
+                candidate_docs.append(doc)
+            if len(candidate_docs) >= fetch_k:
+                break
+    return candidate_docs
+
+
+def _apply_rerank_filters(
+    ranked: list,
+    min_sc: float | None,
+    gap_rt: float | None,
+) -> list:
+    if min_sc is not None:
+        ranked = [(d, s) for d, s in ranked if s >= min_sc]
+    if gap_rt is not None and ranked:
+        top_score = ranked[0][1]
+        if top_score > 0:
+            ranked = [(d, s) for d, s in ranked if s >= top_score * gap_rt]
+    return ranked
+
+
+def _score_reranked_question(
+    q: dict,
+    cfg: dict,
+    min_sc: float | None,
+    gap_rt: float | None,
+    dense_cache: dict[str, list],
+    sparse_cache: dict[str, list],
+    all_candidates_by_hash: dict[str, LCDocument],
+    reranker,
+) -> tuple[int, float]:
+    qtext = q["question"]
+    source_hint = q["source_hint"]
+
+    candidate_docs = _collect_candidate_docs(
+        qtext,
+        cfg["fetch_k"],
+        cfg["rrf_k"],
+        cfg["dense_weight"],
+        cfg["sparse_weight"],
+        dense_cache,
+        sparse_cache,
+        all_candidates_by_hash,
+    )
+
+    pairs = []
+    for doc in candidate_docs:
+        fname = doc.metadata.get("filename", "") or doc.metadata.get("source", "")
+        prefix = f"[{fname}] " if fname else ""
+        pairs.append((qtext, prefix + doc.page_content))
+
+    if not pairs:
+        return 0, 0.0
+
+    scores = reranker.predict(pairs)
+    ranked = sorted(
+        zip(candidate_docs, scores, strict=False),
+        key=lambda x: x[1],
+        reverse=True,
+    )
+
+    ranked = _apply_rerank_filters(ranked, min_sc, gap_rt)
+    top_reranked = ranked[: cfg["top_k"]]
+
+    hit = 0
+    mrr = 0.0
+    for rank, (doc, _s) in enumerate(top_reranked, 1):
+        fname = doc.metadata.get("filename", "") or doc.metadata.get("source", "")
+        if source_hint.lower() in fname.lower():
+            hit = 1
+            if mrr == 0.0:
+                mrr = 1.0 / rank
+            break
+
+    return hit, mrr
+
+
+def _find_best_rerank_params(
+    eval_questions: list[dict],
+    cfg: dict,
+    avg_faith: float,
+    avg_rel: float,
+    rerank_min_list: list[float],
+    rerank_gap_list: list[float],
+    dense_cache: dict[str, list],
+    sparse_cache: dict[str, list],
+    all_candidates_by_hash: dict[str, LCDocument],
+    reranker,
+) -> tuple[float, dict]:
+    best_composite = 0.0
+    best_params = {"rerank_min_score": None, "rerank_score_gap_ratio": None}
+
+    for min_sc in rerank_min_list:
+        for gap_rt in rerank_gap_list:
+            rerank_hits = []
+            rerank_mrrs = []
+
+            for q in eval_questions:
+                hit, mrr = _score_reranked_question(
+                    q,
+                    cfg,
+                    min_sc,
+                    gap_rt,
+                    dense_cache,
+                    sparse_cache,
+                    all_candidates_by_hash,
+                    reranker,
+                )
+                rerank_hits.append(hit)
+                rerank_mrrs.append(mrr)
+
+            avg_rerank_hr = sum(rerank_hits) / len(rerank_hits) if rerank_hits else 0
+            composite = 0.4 * avg_rerank_hr + 0.3 * avg_faith / 10 + 0.3 * avg_rel / 10
+
+            if composite > best_composite:
+                best_composite = composite
+                best_params = {
+                    "rerank_min_score": min_sc,
+                    "rerank_score_gap_ratio": gap_rt,
+                }
+
+    return best_composite, best_params
+
+
+def _evaluate_top_configs(
+    top_configs: list[dict],
+    questions_data: list[dict],
+    dense_cache: dict[str, list],
+    sparse_cache: dict[str, list],
+    all_candidates_by_hash: dict[str, LCDocument],
+    rerank_min_list: list[float],
+    rerank_gap_list: list[float],
+    judge_model: str,
+    questions: str,
+    out: str,
+    service,
+    reranker,
+) -> None:
+    orig = {
+        "top_k": settings.retriever_top_k,
+        "fetch_k": settings.retriever_fetch_k,
+        "dense": settings.dense_weight,
+        "sparse": settings.sparse_weight,
+        "rrf": settings.rrf_k,
+        "min_score": settings.rerank_min_score,
+        "gap_ratio": settings.rerank_score_gap_ratio,
+    }
+
+    try:
+        for config_idx, cfg in enumerate(top_configs, 1):
+            logger.info(
+                "\n--- LLM evaluation #%d: top_k=%d fetch_k=%d dw=%.1f sw=%.1f rrf_k=%d ---",
+                config_idx,
+                cfg["top_k"],
+                cfg["fetch_k"],
+                cfg["dense_weight"],
+                cfg["sparse_weight"],
+                cfg["rrf_k"],
+            )
+
+            _apply_config_to_settings(cfg)
+
+            result = service.run(
+                questions_path=questions,
+                out_dir=out,
+                top_k=cfg["top_k"],
+                judge_model=judge_model,
+            )
+
+            avg_faith = result.get("avg_faithfulness", 0) or 0
+            avg_rel = result.get("avg_relevancy", 0) or 0
+
+            cfg["avg_faithfulness"] = round(avg_faith, 1)
+            cfg["avg_relevancy"] = round(avg_rel, 1)
+
+            eval_questions = [q for q in questions_data if q.get("source_hint") is not None]
+
+            best_composite, best_params = _find_best_rerank_params(
+                eval_questions,
+                cfg,
+                avg_faith,
+                avg_rel,
+                rerank_min_list,
+                rerank_gap_list,
+                dense_cache,
+                sparse_cache,
+                all_candidates_by_hash,
+                reranker,
+            )
+
+            cfg["rerank_min_score"] = best_params["rerank_min_score"]
+            cfg["rerank_score_gap_ratio"] = best_params["rerank_score_gap_ratio"]
+            cfg["composite_score"] = round(best_composite, 3)
+
+            logger.info(
+                "  HR=%.3f  Faith=%.1f  Rel=%.1f  min_sc=%.2f  gap=%.2f  Composite=%.3f",
+                cfg["avg_hit_rate"],
+                avg_faith,
+                avg_rel,
+                best_params["rerank_min_score"] or 0,
+                best_params["rerank_score_gap_ratio"] or 0,
+                best_composite,
+            )
+    finally:
+        _restore_settings(orig)
+
+
 @benchmark_app.command("run")
 def benchmark_run(
     questions: str = typer.Option(
@@ -173,13 +573,13 @@ def benchmark_grid_search(
     """Grid search: быстрый retrieval-scoring для всех комбинаций, LLM-судья + rerank для топ-N."""
     from infrastructure.ml.factories import create_reranker
 
-    top_k_list = [int(x.strip()) for x in top_k_values.split(",")]
-    fetch_k_list = [int(x.strip()) for x in fetch_k_values.split(",")]
-    dense_weight_list = [float(x.strip()) for x in dense_weight_values.split(",")]
-    sparse_weight_list = [float(x.strip()) for x in sparse_weight_values.split(",")]
-    rrf_k_list = [int(x.strip()) for x in rrf_k_values.split(",")]
-    rerank_min_list = [float(x.strip()) for x in rerank_min_score_values.split(",")]
-    rerank_gap_list = [float(x.strip()) for x in rerank_gap_ratio_values.split(",")]
+    top_k_list = _parse_comma_separated_ints(top_k_values)
+    fetch_k_list = _parse_comma_separated_ints(fetch_k_values)
+    dense_weight_list = _parse_comma_separated_floats(dense_weight_values)
+    sparse_weight_list = _parse_comma_separated_floats(sparse_weight_values)
+    rrf_k_list = _parse_comma_separated_ints(rrf_k_values)
+    rerank_min_list = _parse_comma_separated_floats(rerank_min_score_values)
+    rerank_gap_list = _parse_comma_separated_floats(rerank_gap_ratio_values)
 
     # Phase 2: retrieval-only combinations
     retrieval_combos = list(
@@ -204,108 +604,15 @@ def benchmark_grid_search(
         max_fetch_k,
         len(questions_data),
     )
-    dense_cache: dict[str, list] = {}
-    sparse_cache: dict[str, list] = {}
-    all_candidates_by_hash: dict[str, LCDocument] = {}
-
-    for q in questions_data:
-        qtext = q["question"]
-        dense_results = []
-        for point in create_qdrant_client().search(
-            collection_name=settings.collection_name,
-            query_vector=create_embeddings().embed_query(qtext),
-            limit=max_fetch_k,
-        ):
-            payload = point.payload or {}
-            page_content = payload.get("page_content", "")
-            metadata = payload.get("metadata", {})
-            h = metadata.get("content_hash") or content_hash(page_content)
-            doc = LCDocument(page_content=page_content, metadata=metadata)
-            dense_results.append((h, point.score, doc))
-            all_candidates_by_hash[h] = doc
-        dense_cache[qtext] = dense_results
-
-        bm25 = load_bm25_index()
-        sparse_results = await_if_needed(bm25.search_with_hashes, qtext, max_fetch_k) if bm25 else []
-        sparse_cache[qtext] = sparse_results
-
-    logger.info(
-        "Phase 1 done: %d dense, %d sparse, %d unique hashes",
-        sum(len(v) for v in dense_cache.values()),
-        sum(len(v) for v in sparse_cache.values()),
-        len(all_candidates_by_hash),
+    dense_cache, sparse_cache, all_candidates_by_hash = await _cache_dense_sparse_candidates(
+        questions_data, max_fetch_k
     )
 
     # Phase 2: fast retrieval-only scoring
     logger.info("Phase 2: Retrieval-scoring для %d комбинаций...", len(retrieval_combos))
-    results_summary = []
-
-    for idx, (top_k, fetch_k, dw, sw, rrf_k) in enumerate(retrieval_combos, 1):
-        hit_rates_all = []
-        mrrs_all = []
-
-        for q in questions_data:
-            qtext = q["question"]
-            source_hint = q.get("source_hint")
-            if source_hint is None:
-                continue
-
-            # Trim dense candidates to fetch_k (simulate smaller fetch window)
-            dense_trimmed = dense_cache.get(qtext, [])[:fetch_k]
-            sparse_trimmed = sparse_cache.get(qtext, [])[:fetch_k]
-
-            merged_hashes = rrf_merge(
-                [(h, score) for h, score, _doc in dense_trimmed],
-                sparse_trimmed,
-                k=rrf_k,
-                dense_weight=dw,
-                sparse_weight=sw,
-            )
-
-            seen = set()
-            top_hashes = []
-            for h in merged_hashes:
-                if h not in seen:
-                    seen.add(h)
-                    top_hashes.append(h)
-                    if len(top_hashes) >= top_k:
-                        break
-
-            hit = 0
-            mrr = 0.0
-            for rank, h in enumerate(top_hashes, 1):
-                doc = all_candidates_by_hash.get(h)
-                if doc is None:
-                    continue
-                filename = doc.metadata.get("filename", "") or doc.metadata.get("source", "")
-                if source_hint.lower() in filename.lower():
-                    hit = 1
-                    if mrr == 0.0:
-                        mrr = 1.0 / rank
-                    break
-
-            hit_rates_all.append(hit)
-            mrrs_all.append(mrr)
-
-        avg_hr = sum(hit_rates_all) / len(hit_rates_all) if hit_rates_all else 0
-        avg_mrr = sum(mrrs_all) / len(mrrs_all) if mrrs_all else 0
-
-        results_summary.append(
-            {
-                "top_k": top_k,
-                "fetch_k": fetch_k,
-                "dense_weight": dw,
-                "sparse_weight": sw,
-                "rrf_k": rrf_k,
-                "avg_hit_rate": round(avg_hr, 3),
-                "avg_mrr": round(avg_mrr, 4),
-            }
-        )
-
-        if (idx % 54) == 0:
-            logger.info("  %d/%d done", idx, len(retrieval_combos))
-
-    results_summary.sort(key=lambda x: (x["avg_hit_rate"], x["avg_mrr"]), reverse=True)
+    results_summary = _score_retrieval_combos(
+        retrieval_combos, questions_data, dense_cache, sparse_cache, all_candidates_by_hash
+    )
 
     logger.info("Phase 2 done. Top-5 by retrieval:")
     for i, r in enumerate(results_summary[:5], 1):
@@ -327,163 +634,20 @@ def benchmark_grid_search(
     service = BenchmarkService()
     reranker = create_reranker()
 
-    # Save originals once, restore after each config
-    orig = {
-        "top_k": settings.retriever_top_k,
-        "fetch_k": settings.retriever_fetch_k,
-        "dense": settings.dense_weight,
-        "sparse": settings.sparse_weight,
-        "rrf": settings.rrf_k,
-        "min_score": settings.rerank_min_score,
-        "gap_ratio": settings.rerank_score_gap_ratio,
-    }
-
-    try:
-        for config_idx, cfg in enumerate(top_configs, 1):
-            logger.info(
-                "\n--- LLM evaluation #%d: top_k=%d fetch_k=%d dw=%.1f sw=%.1f rrf_k=%d ---",
-                config_idx,
-                cfg["top_k"],
-                cfg["fetch_k"],
-                cfg["dense_weight"],
-                cfg["sparse_weight"],
-                cfg["rrf_k"],
-            )
-
-            # Apply retrieval params
-            settings.retriever_top_k = cfg["top_k"]
-            settings.retriever_fetch_k = cfg["fetch_k"]
-            settings.dense_weight = cfg["dense_weight"]
-            settings.sparse_weight = cfg["sparse_weight"]
-            settings.rrf_k = cfg["rrf_k"]
-
-            result = service.run(
-                questions_path=questions,
-                out_dir=out,
-                top_k=cfg["top_k"],
-                judge_model=judge_model,
-            )
-
-            avg_faith = result.get("avg_faithfulness", 0) or 0
-            avg_rel = result.get("avg_relevancy", 0) or 0
-
-            cfg["avg_faithfulness"] = round(avg_faith, 1)
-            cfg["avg_relevancy"] = round(avg_rel, 1)
-
-            # Now test reranker filter combos on this config
-            best_rerank_composite = 0.0
-            best_rerank_params = {"rerank_min_score": None, "rerank_score_gap_ratio": None}
-
-            # Collect questions with source_hint for rerank evaluation
-            eval_questions = [q for q in questions_data if q.get("source_hint") is not None]
-
-            for min_sc in rerank_min_list:
-                for gap_rt in rerank_gap_list:
-                    rerank_hits = []
-                    rerank_mrrs = []
-
-                    for q in eval_questions:
-                        qtext = q["question"]
-                        source_hint = q["source_hint"]
-
-                        # Rebuild merged candidates for this fetch_k
-                        dense_trimmed = dense_cache.get(qtext, [])[: cfg["fetch_k"]]
-                        sparse_trimmed = sparse_cache.get(qtext, [])[: cfg["fetch_k"]]
-
-                        merged_hashes = rrf_merge(
-                            [(h, score) for h, score, _ in dense_trimmed],
-                            sparse_trimmed,
-                            k=cfg["rrf_k"],
-                            dense_weight=cfg["dense_weight"],
-                            sparse_weight=cfg["sparse_weight"],
-                        )
-
-                        # Dedup and take top fetch_k
-                        seen_h = set()
-                        candidate_docs = []
-                        for h in merged_hashes:
-                            if h not in seen_h:
-                                seen_h.add(h)
-                                doc = all_candidates_by_hash.get(h)
-                                if doc is not None:
-                                    candidate_docs.append(doc)
-                                if len(candidate_docs) >= cfg["fetch_k"]:
-                                    break
-
-                        # Simulate rerank with the actual cross-encoder
-                        # (synchronous, but fast on CPU for small candidate sets)
-                        pairs = []
-                        for doc in candidate_docs:
-                            fname = doc.metadata.get("filename", "") or doc.metadata.get("source", "")
-                            prefix = f"[{fname}] " if fname else ""
-                            pairs.append((qtext, prefix + doc.page_content))
-
-                        if not pairs:
-                            rerank_hits.append(0)
-                            rerank_mrrs.append(0.0)
-                            continue
-
-                        scores = reranker.predict(pairs)
-                        ranked = sorted(zip(candidate_docs, scores), key=lambda x: x[1], reverse=True)
-
-                        # Apply min_score filter
-                        if min_sc is not None:
-                            ranked = [(d, s) for d, s in ranked if s >= min_sc]
-
-                        # Apply score_gap_ratio filter
-                        if gap_rt is not None and ranked:
-                            top_score = ranked[0][1]
-                            if top_score > 0:
-                                ranked = [(d, s) for d, s in ranked if s >= top_score * gap_rt]
-
-                        # Take top_k after filtering
-                        top_reranked = ranked[: cfg["top_k"]]
-
-                        hit = 0
-                        mrr = 0.0
-                        for rank, (doc, _s) in enumerate(top_reranked, 1):
-                            fname = doc.metadata.get("filename", "") or doc.metadata.get("source", "")
-                            if source_hint.lower() in fname.lower():
-                                hit = 1
-                                if mrr == 0.0:
-                                    mrr = 1.0 / rank
-                                break
-
-                        rerank_hits.append(hit)
-                        rerank_mrrs.append(mrr)
-
-                    avg_rerank_hr = sum(rerank_hits) / len(rerank_hits) if rerank_hits else 0
-                    composite = 0.4 * avg_rerank_hr + 0.3 * avg_faith / 10 + 0.3 * avg_rel / 10
-
-                    if composite > best_rerank_composite:
-                        best_rerank_composite = composite
-                        best_rerank_params = {
-                            "rerank_min_score": min_sc,
-                            "rerank_score_gap_ratio": gap_rt,
-                        }
-
-            cfg["rerank_min_score"] = best_rerank_params["rerank_min_score"]
-            cfg["rerank_score_gap_ratio"] = best_rerank_params["rerank_score_gap_ratio"]
-            cfg["composite_score"] = round(best_rerank_composite, 3)
-
-            logger.info(
-                "  HR=%.3f  Faith=%.1f  Rel=%.1f  min_sc=%.2f  gap=%.2f  Composite=%.3f",
-                cfg["avg_hit_rate"],
-                avg_faith,
-                avg_rel,
-                best_rerank_params["rerank_min_score"] or 0,
-                best_rerank_params["rerank_score_gap_ratio"] or 0,
-                best_rerank_composite,
-            )
-    finally:
-        # Restore all originals
-        settings.retriever_top_k = orig["top_k"]
-        settings.retriever_fetch_k = orig["fetch_k"]
-        settings.dense_weight = orig["dense"]
-        settings.sparse_weight = orig["sparse"]
-        settings.rrf_k = orig["rrf"]
-        settings.rerank_min_score = orig["min_score"]
-        settings.rerank_score_gap_ratio = orig["gap_ratio"]
+    _evaluate_top_configs(
+        top_configs,
+        questions_data,
+        dense_cache,
+        sparse_cache,
+        all_candidates_by_hash,
+        rerank_min_list,
+        rerank_gap_list,
+        judge_model,
+        questions,
+        out,
+        service,
+        reranker,
+    )
 
     # Sort by composite score (with rerank)
     top_configs.sort(key=lambda x: x.get("composite_score", 0), reverse=True)

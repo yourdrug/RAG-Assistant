@@ -12,11 +12,6 @@ import logging
 import time
 from collections.abc import AsyncIterator
 
-from application.dto.chat_dto import ChatResult
-from application.ports.chat_rag_port import ChatRAGPort
-from application.ports.chat_settings import ChatSettingsPort
-from application.ports.chat_support import RollingSummaryUpdaterPort
-from application.ports.unit_of_work_factory import UnitOfWorkFactory
 from domain.entities.chat_log import ChatLog
 from domain.entities.message import Message
 from domain.value_objects.chat_context import ChatContext
@@ -26,16 +21,22 @@ from domain.value_objects.message_role import MessageRole
 from domain.value_objects.roles import UserKind
 from domain.value_objects.stream_events import MetaEvent, SourcesEvent, StreamEvent, TextChunk
 
+from application.dto.chat_dto import ChatResult
+from application.ports.chat_rag_port import ChatRAGPort
+from application.ports.chat_settings import ChatSettingsPort
+from application.ports.chat_support import RollingSummaryUpdaterPort
+from application.ports.unit_of_work_factory import UnitOfWorkFactory
+
 log = logging.getLogger(__name__)
 
 
 class ChatService:
     def __init__(
-            self,
-            uow_factory: UnitOfWorkFactory,
-            rag_service: ChatRAGPort,
-            chat_settings: ChatSettingsPort,
-            summary_updater: RollingSummaryUpdaterPort | None = None,
+        self,
+        uow_factory: UnitOfWorkFactory,
+        rag_service: ChatRAGPort,
+        chat_settings: ChatSettingsPort,
+        summary_updater: RollingSummaryUpdaterPort | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._rag_service = rag_service
@@ -74,14 +75,82 @@ class ChatService:
     # Streaming chat
     # ------------------------------------------------------------------
 
+    async def _save_user_message(self, conv_id: int, question: str) -> None:
+        async with self._uow_factory.create(master=True) as uow:
+            user_msg = Message(
+                conversation_id=conv_id,
+                role=MessageRole.USER,
+                content=question,
+            )
+            await uow.messages.save(user_msg)
+
+    @staticmethod
+    def _compute_reranker_score(sources: list[dict]) -> float | None:
+        if not sources:
+            return None
+        scores = [s.get("max_score", 0) for s in sources if isinstance(s, dict)]
+        return max(scores) if scores else None
+
+    @staticmethod
+    def _build_chat_log(
+        *,
+        user_id: int,
+        conv_id: int,
+        question: str,
+        full_answer: str,
+        sources: list[dict],
+        latency_ms: int,
+        depth: str | None,
+        retrieval_count: int,
+        reranker_score: float | None,
+    ) -> ChatLog:
+        return ChatLog(
+            user_id=user_id,
+            conversation_id=conv_id,
+            question=question,
+            answer=full_answer,
+            sources=sources,
+            latency_ms=latency_ms,
+            model_used=None,
+            breadth=depth or Breadth.NARROW.value,
+            domain=DocDomain.GENERAL.value,
+            retrieval_count=retrieval_count,
+            reranker_score=reranker_score,
+        )
+
+    async def _handle_rolling_summary(
+        self, conv_id: int, question: str, full_answer: str, history: list
+    ) -> None:
+        if not (self._settings.rolling_summary_enabled and len(history) >= self._settings.history_window):
+            return
+        recent_turns = [
+            {"role": "user", "content": question},
+            {"role": "assistant", "content": full_answer},
+        ]
+        updater = self._summary_updater
+
+        async def _bg_update_summary() -> None:
+            try:
+                async with self._uow_factory.create() as uow:
+                    conv_model = await uow.conversations.get(conv_id)
+                    if conv_model is not None and updater is not None:
+                        existing = getattr(conv_model, "summary", None)
+                        new_summary = await updater.update(existing, recent_turns)
+                        conv_model.summary = new_summary
+                        await uow.conversations.save(conv_model)
+            except Exception:
+                log.exception("Failed to update rolling summary for conv %d", conv_id)
+
+        self._spawn_background(_bg_update_summary())
+
     async def stream_chat(
-            self,
-            question: str,
-            conversation_id: int | None,
-            user_id: int,
-            user_kind: str,
-            user_role: str,
-            depth: str | None = None,
+        self,
+        question: str,
+        conversation_id: int | None,
+        user_id: int,
+        user_kind: str,
+        user_role: str,
+        depth: str | None = None,
     ) -> AsyncIterator[StreamEvent]:
         group_ids = await self._get_user_context(user_id, user_kind)
         ctx = ChatContext(
@@ -105,24 +174,17 @@ class ChatService:
         t_start = time.monotonic()
 
         async for event in self._rag_service.stream(
-                question=question,
-                history=history,
-                ctx=ctx,
+            question=question,
+            history=history,
+            ctx=ctx,
         ):
             if isinstance(event, SourcesEvent):
                 sources = event.sources
                 confidence = event.confidence
             elif isinstance(event, TextChunk):
-                # Save user message before first assistant token (so other clients see it)
                 if not user_msg_saved:
                     user_msg_saved = True
-                    async with self._uow_factory.create(master=True) as uow:
-                        user_msg = Message(
-                            conversation_id=conv.id,
-                            role=MessageRole.USER,
-                            content=question,
-                        )
-                        await uow.messages.save(user_msg)
+                    await self._save_user_message(conv.id, question)
 
                 full_answer += event.text
                 yield event
@@ -131,10 +193,7 @@ class ChatService:
 
         # UoW 2: atomic — save assistant message + chat log together
         retrieval_count = len(sources)
-        reranker_score = None
-        if sources:
-            scores = [s.get("max_score", 0) for s in sources if isinstance(s, dict)]
-            reranker_score = max(scores) if scores else None
+        reranker_score = self._compute_reranker_score(sources)
 
         async with self._uow_factory.create(master=True) as uow:
             msg_sources = list(sources) if sources else None
@@ -149,43 +208,20 @@ class ChatService:
             )
             await uow.messages.save(assistant_msg)
 
-            chat_log = ChatLog(
+            chat_log = self._build_chat_log(
                 user_id=user_id,
-                conversation_id=conv.id,
+                conv_id=conv.id,
                 question=question,
-                answer=full_answer,
+                full_answer=full_answer,
                 sources=sources,
                 latency_ms=latency_ms,
-                model_used=None,
-                breadth=depth or Breadth.NARROW.value,
-                domain=DocDomain.GENERAL.value,
+                depth=depth,
                 retrieval_count=retrieval_count,
                 reranker_score=reranker_score,
             )
             await uow.chat_logs.save(chat_log)
 
-        # Rolling summary: fire-and-forget (managed background task)
-        if self._settings.rolling_summary_enabled and len(history) >= self._settings.history_window:
-            recent_turns = [
-                {"role": "user", "content": question},
-                {"role": "assistant", "content": full_answer},
-            ]
-            conv_id = conv.id
-            updater = self._summary_updater
-
-            async def _bg_update_summary() -> None:
-                try:
-                    async with self._uow_factory.create() as uow:
-                        conv_model = await uow.conversations.get(conv_id)
-                        if conv_model is not None and updater is not None:
-                            existing = getattr(conv_model, "summary", None)
-                            new_summary = await updater.update(existing, recent_turns)
-                            conv_model.summary = new_summary
-                            await uow.conversations.save(conv_model)
-                except Exception:
-                    log.exception("Failed to update rolling summary for conv %d", conv_id)
-
-            self._spawn_background(_bg_update_summary())
+        await self._handle_rolling_summary(conv.id, question, full_answer, history)
 
         yield MetaEvent(conversation_id=conv.id, sources=sources, confidence=confidence)
 
@@ -194,13 +230,13 @@ class ChatService:
     # ------------------------------------------------------------------
 
     async def sync_chat(
-            self,
-            question: str,
-            conversation_id: int | None,
-            user_id: int,
-            user_kind: str,
-            user_role: str,
-            depth: str | None = None,
+        self,
+        question: str,
+        conversation_id: int | None,
+        user_id: int,
+        user_kind: str,
+        user_role: str,
+        depth: str | None = None,
     ) -> ChatResult:
         group_ids = await self._get_user_context(user_id, user_kind)
         ctx = ChatContext(

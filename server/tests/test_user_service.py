@@ -1,5 +1,5 @@
-"""
-Tests for application/services/auth_service.py — authentication, user creation, toggle.
+"""Tests for application/services/auth_service.py -- authentication, user creation, toggle.
+
 Tests the application service with mocked UoW factory.
 """
 

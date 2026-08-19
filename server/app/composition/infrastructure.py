@@ -158,6 +158,7 @@ class InfrastructureContainer:
         )
 
     async def dispose(self) -> None:
-        """No infrastructure resources need explicit dispose — lifecycle is
-        managed by lifespan().  This method exists for symmetry and future use.
+        """No infrastructure resources need explicit dispose — lifecycle is managed by lifespan().
+
+        This method exists for symmetry and future use.
         """

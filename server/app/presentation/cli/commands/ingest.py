@@ -1,6 +1,4 @@
-"""
-CLI command: Document indexing in Qdrant.
-"""
+"""CLI command: Document indexing in Qdrant."""
 
 from __future__ import annotations
 

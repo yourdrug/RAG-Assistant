@@ -79,8 +79,10 @@ class Container:
 
     @staticmethod
     def _clear_global_caches() -> None:
-        """Clear process-global lru_cache singletons so a fresh Container gets
-        clean state (avoids stale caches leaking across container re-creation)."""
+        """Clear process-global lru_cache singletons so a fresh Container gets clean state.
+
+        Avoids stale caches leaking across container re-creation.
+        """
         from infrastructure.ml.ingestion import _get_paddle_ocr, _get_surya_predictors
         from infrastructure.storage.file_storage import get_storage
 

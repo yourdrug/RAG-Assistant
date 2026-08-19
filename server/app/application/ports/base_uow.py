@@ -16,7 +16,7 @@ from domain.exceptions import DatabaseError
 from application.ports.session_protocol import SessionProtocol
 
 
-class BaseUnitOfWork(ABC):
+class BaseUnitOfWork(ABC):  # noqa: B024
     """Abstract base class for Unit of Work pattern.
 
     Manages a single database transaction across multiple repositories.
@@ -54,7 +54,7 @@ class BaseUnitOfWork(ABC):
             with suppress(Exception):
                 await self._session.close()
 
-    async def publish_event(self, event: object) -> None:  # type: ignore[override]
+    async def publish_event(self, event: object) -> None:  # type: ignore[override]  # noqa: B027
         """Publish a domain event within the current transaction.
 
         Subclasses can override this to send notifications (e.g. pg_notify)

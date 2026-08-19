@@ -152,6 +152,92 @@ def _pymupdf_table_to_markdown(table) -> str:
     return "\n".join([header, separator] + body) if body else header
 
 
+def _extract_page_text(page) -> str:
+    """Extract text from page blocks for better multi-column ordering."""
+    blocks = page.get_text("blocks")
+    blocks.sort(key=lambda b: (round(b[1] / 10) * 10, b[0]))
+    return "\n".join(b[4] for b in blocks if len(b) > 4 and b[4].strip())
+
+
+def _extract_page_tables(page, file_path: Path, page_num: int) -> list[Document]:
+    """Detect and extract tables from a page. Returns list of table Documents."""
+    docs: list[Document] = []
+    try:
+        tables = page.find_tables()
+        if tables and tables.tables:
+            for table in tables.tables:
+                md_table = _pymupdf_table_to_markdown(table)
+                if md_table:
+                    docs.append(
+                        Document(
+                            page_content=md_table,
+                            metadata={
+                                "page": page_num,
+                                "source": str(file_path),
+                                "content_type": PageContentType.TABLE.value,
+                            },
+                        )
+                    )
+    except Exception:
+        pass
+    return docs
+
+
+def _detect_tabular_heuristic(text: str, page_num: int) -> None:
+    """Log warning if text has tabular-looking lines but find_tables() found nothing."""
+    lines = text.split("\n")
+    tabular_lines = sum(
+        1 for line in lines if line.count("\t") >= 2 or (len(re.findall(r"  {3,}", line)) > 0)
+    )
+    if tabular_lines > 3:
+        log.warning(
+            "Page %d: %d tabular-looking lines but find_tables() found nothing",
+            page_num,
+            tabular_lines,
+        )
+
+
+def _should_ocr(text: str, min_chars: int, ocr_enabled: bool) -> bool:
+    """Return True if OCR should be triggered based on text length and settings."""
+    if not text and ocr_enabled:
+        return True
+    if text and len(text.strip()) < min_chars and ocr_enabled:
+        return True
+    return False
+
+
+def _select_best_text(existing_text: str | None, ocr_text: str) -> str:
+    """Choose between OCR text and existing short text layer, preferring longer."""
+    if existing_text:
+        if len(ocr_text) > len(existing_text) * 1.5:
+            return ocr_text
+        return clean_pdf_text(existing_text) or ocr_text
+    return ocr_text
+
+
+def _process_page_text(text: str, tables_found: bool, page_num: int, file_path: Path) -> Document | None:
+    if text and not tables_found:
+        _detect_tabular_heuristic(text, page_num)
+    if not text or tables_found:
+        return None
+    cleaned = clean_pdf_text(text)
+    if not cleaned:
+        return None
+    return Document(page_content=cleaned, metadata={"page": page_num, "source": str(file_path)})
+
+
+def _process_ocr_result(
+    page_num: int, ocr_text: str, text_to_compare: dict, file_path: Path
+) -> Document | None:
+    if not ocr_text:
+        return None
+    ocr_text = clean_pdf_text(ocr_text)
+    if not ocr_text:
+        return None
+    final_text = _select_best_text(text_to_compare.get(page_num), ocr_text)
+    return Document(page_content=final_text, metadata={"page": page_num, "source": str(file_path)})
+
+
 def parse_pdf(file_path: Path) -> list[Document]:
     doc = fitz.open(str(file_path))
     pages = []
@@ -161,90 +247,28 @@ def parse_pdf(file_path: Path) -> list[Document]:
 
     for page_num in range(1, len(doc) + 1):
         page = doc.load_page(page_num - 1)
+        text = _extract_page_text(page)
 
-        # --- Extract text via blocks for better multi-column ordering ---
-        blocks = page.get_text("blocks")
-        blocks.sort(key=lambda b: (round(b[1] / 10) * 10, b[0]))
-        text = "\n".join(b[4] for b in blocks if len(b) > 4 and b[4].strip())
+        table_docs = _extract_page_tables(page, file_path, page_num)
+        pages.extend(table_docs)
 
-        # --- Table detection ---
-        tables_found = False
-        try:
-            tables = page.find_tables()
-            if tables and tables.tables:
-                tables_found = True
-                for table in tables.tables:
-                    md_table = _pymupdf_table_to_markdown(table)
-                    if md_table:
-                        pages.append(
-                            Document(
-                                page_content=md_table,
-                                metadata={
-                                    "page": page_num,
-                                    "source": str(file_path),
-                                    "content_type": PageContentType.TABLE.value,
-                                },
-                            )
-                        )
-        except Exception:
-            pass
-
-        # --- Heuristic: tabular lines that find_tables() missed ---
-        if text and not tables_found:
-            lines = text.split("\n")
-            tabular_lines = sum(
-                1 for line in lines if line.count("\t") >= 2 or (len(re.findall(r"  {3,}", line)) > 0)
-            )
-            if tabular_lines > 3:
-                log.warning(
-                    "Page %d: %d tabular-looking lines but find_tables() found nothing",
-                    page_num,
-                    tabular_lines,
-                )
-
-        # --- OCR threshold heuristic ---
         min_chars = settings.ocr_min_chars
-        if not text and settings.ocr_enabled:
+        if _should_ocr(text, min_chars, settings.ocr_enabled):
             ocr_pages_needed.append(page_num)
-        elif text and len(text.strip()) < min_chars and settings.ocr_enabled:
-            ocr_pages_needed.append(page_num)
-            text_to_compare[page_num] = text
-        elif text:
-            text = clean_pdf_text(text)
             if text:
-                pages.append(
-                    Document(
-                        page_content=text,
-                        metadata={"page": page_num, "source": str(file_path)},
-                    )
-                )
+                text_to_compare[page_num] = text
+        else:
+            text_doc = _process_page_text(text, bool(table_docs), page_num, file_path)
+            if text_doc:
+                pages.append(text_doc)
 
     # --- Batch OCR ---
     if ocr_pages_needed:
         ocr_results = ocr_pdf_pages(doc, ocr_pages_needed, file_path.name)
         for page_num, ocr_text in ocr_results.items():
-            if not ocr_text:
-                continue
-            ocr_text = clean_pdf_text(ocr_text)
-            if not ocr_text:
-                continue
-
-            existing_text = text_to_compare.get(page_num)
-            if existing_text:
-                # Page had a short text layer — keep whichever is longer
-                if len(ocr_text) > len(existing_text) * 1.5:
-                    final_text = ocr_text
-                else:
-                    final_text = clean_pdf_text(existing_text) or ocr_text
-            else:
-                final_text = ocr_text
-
-            pages.append(
-                Document(
-                    page_content=final_text,
-                    metadata={"page": page_num, "source": str(file_path)},
-                )
-            )
+            ocr_doc = _process_ocr_result(page_num, ocr_text, text_to_compare, file_path)
+            if ocr_doc:
+                pages.append(ocr_doc)
 
     doc.close()
     return pages
@@ -271,7 +295,7 @@ def merge_pdf_pages(pages: list[Document]) -> list[Document]:
         by_source.setdefault(src, []).append(p)
 
     merged = []
-    for src, group in by_source.items():
+    for _src, group in by_source.items():
         page_nums = sorted(p.metadata.get("page", i + 1) for i, p in enumerate(group))
         merged_text = "\n\n".join(p.page_content for p in group)
         merged.append(
@@ -513,6 +537,22 @@ def _clean_markdown_text(text: str) -> str:
     return text.strip()
 
 
+def _flush_text_segment(current_text: list[str], segments: list[tuple[str, str]]) -> None:
+    if current_text:
+        text = "\n".join(current_text).strip()
+        if text:
+            segments.append((PageContentType.TEXT.value, text))
+        current_text.clear()
+
+
+def _flush_table_segment(current_table: list[str], segments: list[tuple[str, str]]) -> None:
+    if current_table:
+        table_text = "\n".join(current_table).strip()
+        if table_text:
+            segments.append((PageContentType.TABLE.value, table_text))
+        current_table.clear()
+
+
 def _split_markdown_tables(content: str) -> list[tuple[str, str]]:
     """Split content into (content_type, text) segments.
 
@@ -524,45 +564,31 @@ def _split_markdown_tables(content: str) -> list[tuple[str, str]]:
     segments: list[tuple[str, str]] = []
     current_text: list[str] = []
     current_table: list[str] = []
-
-    def _flush_text():
-        if current_text:
-            text = "\n".join(current_text).strip()
-            if text:
-                segments.append((PageContentType.TEXT.value, text))
-            current_text.clear()
-
-    def _flush_table():
-        if current_table:
-            table_text = "\n".join(current_table).strip()
-            if table_text:
-                segments.append((PageContentType.TABLE.value, table_text))
-            current_table.clear()
-
     in_table = False
+
     for line in lines:
         is_table_line = bool(_MD_TABLE_RE.match(line.strip()))
         if is_table_line:
             if not in_table:
-                _flush_text()
+                _flush_text_segment(current_text, segments)
                 in_table = True
             current_table.append(line)
         else:
             if in_table:
-                _flush_table()
+                _flush_table_segment(current_table, segments)
                 in_table = False
             current_text.append(line)
 
     if in_table:
-        _flush_table()
+        _flush_table_segment(current_table, segments)
     else:
-        _flush_text()
+        _flush_text_segment(current_text, segments)
 
     return segments if segments else [(PageContentType.TEXT.value, content)]
 
 
 def parse_markdown_sections(file_path: Path) -> list[tuple[str | None, str]]:
-    """Разбивает markdown на (заголовок, контент) по структуре заголовков.
+    r"""Разбивает markdown на (заголовок, контент) по структуре заголовков.
 
     Контент между двумя заголовками относится к предыдущему заголовку. Текст до
     первого заголовка (если есть) получает heading=None.

@@ -21,6 +21,7 @@ def build_qdrant_filter(
     Args:
         user: dict with "id" and "kind" keys
         group_ids: pre-fetched group IDs for this user
+
     """
     conditions = get_visibility_conditions(UserKind(user["kind"]), user["id"], group_ids, for_list=False)
 

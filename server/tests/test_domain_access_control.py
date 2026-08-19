@@ -55,10 +55,11 @@ class TestAllowedVisibilityForKind:
 
 
 class TestValidateDocumentVisibility:
-    """Business rules:
+    """Enforce business rules for visibility validation.
+
     1. visibility must be in ALLOWED_VISIBILITY_FOR_KIND
     2. INTERNAL_PUBLIC requires admin role
-    3. INTERNAL_GROUP requires group_id in user's groups
+    3. INTERNAL_GROUP requires group_id in user's groups.
     """
 
     # --- Internal user happy paths ---
@@ -179,11 +180,12 @@ class TestComputeOwnerAndGroup:
 
 
 class TestCanViewDocument:
-    """Business rules for document viewing:
+    """Business rules for document viewing.
+
     - INTERNAL_PUBLIC: only internal users
     - INTERNAL_GROUP: internal users in the group
     - INTERNAL_PRIVATE: only the owner (internal)
-    - CLIENT_PRIVATE: clients see their own; internal see assigned clients'
+    - CLIENT_PRIVATE: clients see their own; internal see assigned clients'.
     """
 
     # --- INTERNAL_PUBLIC ---

@@ -1,6 +1,4 @@
-"""
-CLI-команда: запуск uvicorn-сервера.
-"""
+"""CLI-команда: запуск uvicorn-сервера."""
 
 from __future__ import annotations
 

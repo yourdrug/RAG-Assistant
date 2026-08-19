@@ -85,7 +85,10 @@ async def upload_document(
     if len(data) > max_bytes:
         raise HTTPException(
             status_code=413,
-            detail=f"File too large: {len(data) / 1024 / 1024:.1f} MB (limit {settings.max_upload_size_mb} MB)",
+            detail=(
+                f"File too large: {len(data) / 1024 / 1024:.1f} MB"
+                f" (limit {settings.max_upload_size_mb} MB)"
+            ),
         )
 
     _validate_mime(data, ext)

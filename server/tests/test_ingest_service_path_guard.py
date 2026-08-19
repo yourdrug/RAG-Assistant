@@ -1,7 +1,7 @@
-"""
-Тесты для IngestService._resolve_within_data_dir / resolve_ingest_target / resolve_docs_dir —
-защиты POST /ingest и POST /ingest/file от path traversal. Не трогают Qdrant/эмбеддинги/
-S3 — только разрешение путей на локальном FILE_BACKEND.
+"""Tests for IngestService path guard functions.
+
+Tests _resolve_within_data_dir / resolve_ingest_target / resolve_docs_dir --
+protections for POST /ingest and POST /ingest/file against path traversal.
 """
 
 import sys

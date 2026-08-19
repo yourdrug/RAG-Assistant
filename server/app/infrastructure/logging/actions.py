@@ -30,6 +30,7 @@ def log_action(action: str, user_id: int | None = None, details: dict[str, Any] 
         action: Short action name, e.g. "login", "chat", "document.upload"
         user_id: ID of the user performing the action
         details: Optional extra context (filename, question preview, etc.)
+
     """
     parts = [action]
     if user_id is not None:

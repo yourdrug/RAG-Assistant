@@ -90,7 +90,7 @@ def upload_to_qdrant(chunks: list[Document], embeddings: HuggingFaceEmbeddings) 
     # Pre-compute all content hashes (faster than per-doc)
     texts = [doc.page_content for doc in chunks]
     hashes = [content_hash(t) for t in texts]
-    for doc, h in zip(chunks, hashes):
+    for doc, h in zip(chunks, hashes, strict=False):
         doc.metadata["content_hash"] = h
 
     client = create_qdrant_client()
@@ -107,7 +107,7 @@ def upload_to_qdrant(chunks: list[Document], embeddings: HuggingFaceEmbeddings) 
         batch_vectors = embeddings.embed_documents(batch_texts)
         log.info("  Embedded in %.1fs", time.monotonic() - t_embed)
 
-        for doc, vector in zip(batch_chunks_slice, batch_vectors):
+        for doc, vector in zip(batch_chunks_slice, batch_vectors, strict=False):
             pending_points.append(
                 PointStruct(
                     id=uuid.uuid4().hex,

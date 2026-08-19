@@ -1,5 +1,5 @@
-"""
-Tests for domain/rag.py — pure RAG logic: formatting, sources, history, reranking.
+"""Tests for domain/rag.py -- pure RAG logic: formatting, sources, history, reranking.
+
 Complements test_rag_chain.py with additional edge cases.
 """
 

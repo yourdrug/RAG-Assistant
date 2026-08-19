@@ -30,33 +30,37 @@ from domain.value_objects.visibility import DocumentVisibility
 
 
 def _make_user(**overrides) -> User:
-    defaults = dict(
-        id=1, email="test@example.com", role=UserRole.USER, kind=UserKind.INTERNAL, is_active=True
-    )
+    defaults = {
+        "id": 1,
+        "email": "test@example.com",
+        "role": UserRole.USER,
+        "kind": UserKind.INTERNAL,
+        "is_active": True,
+    }
     defaults.update(overrides)
     return User(**defaults)
 
 
 def _make_document(**overrides) -> Document:
-    defaults = dict(
-        id=1,
-        filename="doc.pdf",
-        source_path="/tmp/doc.pdf",
-        visibility=DocumentVisibility.INTERNAL_PUBLIC,
-        owner_id=1,
-    )
+    defaults = {
+        "id": 1,
+        "filename": "doc.pdf",
+        "source_path": "/tmp/doc.pdf",
+        "visibility": DocumentVisibility.INTERNAL_PUBLIC,
+        "owner_id": 1,
+    }
     defaults.update(overrides)
     return Document(**defaults)
 
 
 def _make_conversation(**overrides) -> Conversation:
-    defaults = dict(id=1, user_id=10)
+    defaults = {"id": 1, "user_id": 10}
     defaults.update(overrides)
     return Conversation(**defaults)
 
 
 def _make_message(**overrides) -> Message:
-    defaults = dict(id=1, conversation_id=1, role=MessageRole.USER, content="hello")
+    defaults = {"id": 1, "conversation_id": 1, "role": MessageRole.USER, "content": "hello"}
     defaults.update(overrides)
     return Message(**defaults)
 
@@ -223,12 +227,12 @@ class TestUserPostInit:
 
     def test_invalid_role_string_raises(self):
         # Arrange & Act & Assert
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017
             User(role="superadmin")
 
     def test_invalid_kind_string_raises(self):
         # Arrange & Act & Assert
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017
             User(kind="external")
 
 
@@ -351,7 +355,7 @@ class TestDocumentPostInit:
 
     def test_invalid_visibility_string_raises(self):
         # Arrange & Act & Assert
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017
             Document(visibility="public")
 
 
@@ -462,7 +466,7 @@ class TestMessagePostInit:
 
     def test_invalid_role_string_raises(self):
         # Arrange & Act & Assert
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017
             Message(role="system")
 
 

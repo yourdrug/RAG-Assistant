@@ -1,7 +1,7 @@
-"""
-Tests for access control logic.
-- Domain rules: domain/services/access_control.py
-- Qdrant filter: infrastructure/acl.py
+"""Tests for access control logic.
+
+Domain rules: domain/services/access_control.py
+Qdrant filter: infrastructure/acl.py
 """
 
 import sys
@@ -67,7 +67,7 @@ class TestValidateVisibility:
 
     def test_internal_user_cannot_use_client_private(self):
         uid, kind, role = _internal_user()
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017
             validate_document_visibility(DocumentVisibility.CLIENT_PRIVATE, None, kind, role, [])
 
     def test_client_user_can_use_client_private(self):
@@ -76,12 +76,12 @@ class TestValidateVisibility:
 
     def test_client_user_cannot_use_internal_public(self):
         uid, kind, role = _client_user()
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017
             validate_document_visibility(DocumentVisibility.INTERNAL_PUBLIC, None, kind, role, [])
 
     def test_non_admin_cannot_publish_internal_public(self):
         uid, kind, role = _internal_user(role=UserRole.USER)
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017
             validate_document_visibility(DocumentVisibility.INTERNAL_PUBLIC, None, kind, role, [])
 
     def test_admin_can_publish_internal_public(self):
@@ -90,12 +90,12 @@ class TestValidateVisibility:
 
     def test_internal_group_requires_group_id(self):
         uid, kind, role = _internal_user()
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017
             validate_document_visibility(DocumentVisibility.INTERNAL_GROUP, None, kind, role, [])
 
     def test_internal_group_rejects_non_member(self):
         uid, kind, role = _internal_user()
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017
             validate_document_visibility(DocumentVisibility.INTERNAL_GROUP, 99, kind, role, [1, 2])
 
 

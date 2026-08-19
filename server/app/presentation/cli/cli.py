@@ -1,6 +1,4 @@
-"""
-cli.py: CLI-приложение проекта.
-"""
+"""CLI-приложение проекта."""
 
 from __future__ import annotations
 

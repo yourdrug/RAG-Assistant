@@ -65,7 +65,8 @@ _formatters: dict[str, Any] = {
     },
     "access": {
         "()": "uvicorn.logging.AccessFormatter",
-        "fmt": "[%(asctime)s] %(levelname)s [%(request_id)s]: %(client_addr)s %(request_line)s %(status_code)s",
+        "fmt": "[%(asctime)s] %(levelname)s [%(request_id)s]"  # noqa: E501
+        ": %(client_addr)s %(request_line)s %(status_code)s",
         "datefmt": "%Y-%m-%d %H:%M:%S",
     },
 }

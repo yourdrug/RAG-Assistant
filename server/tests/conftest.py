@@ -1,5 +1,5 @@
-"""
-conftest.py — Mock heavy optional dependencies that aren't installed in dev/test.
+"""conftest.py -- Mock heavy optional dependencies that aren't installed in dev/test.
+
 surya-ocr is optional (requires separate install), so we mock it at import time.
 """
 

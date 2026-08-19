@@ -183,11 +183,9 @@ async def rerank_documents(
     min_score: float | None = None,
     score_gap_ratio: float | None = None,
 ) -> list[tuple]:
-    """
-    Переранжирует кандидатов кросс-энкодером и возвращает top_n лучших
-    как список пар (doc, score).
+    """Переранжировать кандидатов кросс-энкодером и вернуть top_n лучших.
 
-    Фильтрация:
+    Возвращает список пар (doc, score).  Фильтрация:
       - min_score: отбросить чанки с score < min_score (абсолютный порог)
       - score_gap_ratio: отбросить чанки, чей score ниже top-1 более чем в N раз
         (например score_gap_ratio=0.1 означает «оставить всё ≥ 10% от лучшего»)
@@ -207,7 +205,7 @@ async def rerank_documents(
 
     scores = await asyncio.to_thread(reranker.predict, pairs)
 
-    ranked = sorted(zip(docs, scores), key=lambda x: x[1], reverse=True)[:top_n]
+    ranked = sorted(zip(docs, scores, strict=False), key=lambda x: x[1], reverse=True)[:top_n]
 
     if min_score is not None:
         ranked = [(d, s) for d, s in ranked if s >= min_score]
@@ -310,6 +308,120 @@ def _clean_source_name(source: str) -> str:
     return Path(source).name if source else "unknown"
 
 
+def _collect_source_metadata(
+    doc, score: float | None
+) -> tuple[str, set[str], float | None, str | None, bool, bool, str | None]:
+    """Extract pages, score, articles, flags from a single doc.
+
+    Returns (clean_name, pages_set, score, article_number, is_edited, is_manual, edited_at).
+    """
+    src = doc.metadata.get("source", "unknown")
+    clean_name = _clean_source_name(src)
+    page = doc.metadata.get("page")
+    page_start = doc.metadata.get("page_start")
+    page_end = doc.metadata.get("page_end")
+    pages_list = doc.metadata.get("pages")
+    article_number = doc.metadata.get("article_number")
+    is_edited = doc.metadata.get("edited", False)
+    is_manual = doc.metadata.get("manual", False)
+    edited_at = doc.metadata.get("edited_at")
+
+    pages_set: set[str] = set()
+    if pages_list:
+        pages_set.update(pages_list)
+    elif page_start is not None and page_end is not None:
+        pages_set.update(range(page_start, page_end + 1))
+    elif page is not None:
+        pages_set.add(page)
+
+    return clean_name, pages_set, score, article_number, is_edited, is_manual, edited_at
+
+
+def _build_source_entry(
+    src: str,
+    pages: set[str],
+    articles_by_source: dict[str, list[str]],
+    scores_by_source: dict[str, float],
+    edited_by_source: dict[str, bool],
+    manual_by_source: dict[str, bool],
+    edited_at_by_source: dict[str, str | None],
+) -> dict:
+    """Build the entry dict for a single source."""
+    sorted_pages = sorted(pages) if pages else []
+    entry: dict = {
+        "source": src,
+        "pages": sorted_pages,
+    }
+    if src in articles_by_source:
+        entry["articles"] = articles_by_source[src]
+    if scores_by_source:
+        entry["max_score"] = round(float(scores_by_source.get(src, 0.0)), 4)
+    if edited_by_source.get(src):
+        entry["edited"] = True
+    if manual_by_source.get(src):
+        entry["manual"] = True
+    if edited_at_by_source.get(src):
+        entry["edited_at"] = edited_at_by_source[src]
+    return entry
+
+
+def _update_article_list(
+    articles_by_source: dict[str, list[str]], clean_name: str, article_number: str
+) -> None:
+    articles_by_source.setdefault(clean_name, [])
+    if article_number not in articles_by_source[clean_name]:
+        articles_by_source[clean_name].append(article_number)
+
+
+def _update_edited_at(edited_at_by_source: dict[str, str | None], clean_name: str, edited_at: str) -> None:
+    prev_edited_at = edited_at_by_source.get(clean_name)
+    if prev_edited_at is None or edited_at > prev_edited_at:
+        edited_at_by_source[clean_name] = edited_at
+
+
+def _aggregate_source_metadata(
+    item,
+    pages_by_source: dict[str, set[str]],
+    scores_by_source: dict[str, float],
+    articles_by_source: dict[str, list[str]],
+    edited_by_source: dict[str, bool],
+    manual_by_source: dict[str, bool],
+    edited_at_by_source: dict[str, str | None],
+) -> None:
+    doc = item[0] if isinstance(item, tuple) else item
+    score = item[1] if isinstance(item, tuple) else None
+    clean_name, pages_set, doc_score, article_number, is_edited, is_manual, edited_at = (
+        _collect_source_metadata(doc, score)
+    )
+
+    if clean_name not in pages_by_source:
+        pages_by_source[clean_name] = set()
+    if pages_set:
+        pages_by_source[clean_name].update(pages_set)
+    if doc_score is not None:
+        prev = scores_by_source.get(clean_name, float("-inf"))
+        if doc_score > prev:
+            scores_by_source[clean_name] = doc_score
+    if article_number:
+        _update_article_list(articles_by_source, clean_name, article_number)
+    if is_edited:
+        edited_by_source[clean_name] = True
+    if is_manual:
+        manual_by_source[clean_name] = True
+    if edited_at:
+        _update_edited_at(edited_at_by_source, clean_name, edited_at)
+
+
+def _filter_sources_by_min_score(
+    sources: list[dict],
+    min_score: float | None,
+    scores_by_source: dict[str, float],
+) -> list[dict]:
+    if min_score is not None and sources and scores_by_source:
+        return [s for s in sources if s.get("max_score", 0.0) >= min_score]
+    return sources
+
+
 def extract_sources(docs, min_score: float | None = None) -> list[dict]:
     """Извлекает метаданные источников для сохранения в БД.
 
@@ -327,74 +439,33 @@ def extract_sources(docs, min_score: float | None = None) -> list[dict]:
     edited_at_by_source: dict[str, str | None] = {}
 
     for item in docs:
-        doc = item[0] if isinstance(item, tuple) else item
-        score = item[1] if isinstance(item, tuple) else None
-        src = doc.metadata.get("source", "unknown")
-        clean_name = _clean_source_name(src)
-        page = doc.metadata.get("page")
-        page_start = doc.metadata.get("page_start")
-        page_end = doc.metadata.get("page_end")
-        pages_list = doc.metadata.get("pages")
-        article_number = doc.metadata.get("article_number")
-        is_edited = doc.metadata.get("edited", False)
-        is_manual = doc.metadata.get("manual", False)
-        edited_at = doc.metadata.get("edited_at")
-
-        if clean_name not in pages_by_source:
-            pages_by_source[clean_name] = set()
-        if pages_list:
-            pages_by_source[clean_name].update(pages_list)
-        elif page_start is not None and page_end is not None:
-            pages_by_source[clean_name].update(range(page_start, page_end + 1))
-        elif page is not None:
-            pages_by_source[clean_name].add(page)
-        if score is not None:
-            prev = scores_by_source.get(clean_name, float("-inf"))
-            if score > prev:
-                scores_by_source[clean_name] = score
-        if article_number:
-            articles_by_source.setdefault(clean_name, [])
-            if article_number not in articles_by_source[clean_name]:
-                articles_by_source[clean_name].append(article_number)
-
-        # Track edited/manual flags per source (OR logic)
-        if is_edited:
-            edited_by_source[clean_name] = True
-        if is_manual:
-            manual_by_source[clean_name] = True
-        # Keep the latest edited_at
-        if edited_at:
-            prev_edited_at = edited_at_by_source.get(clean_name)
-            if prev_edited_at is None or edited_at > prev_edited_at:
-                edited_at_by_source[clean_name] = edited_at
+        _aggregate_source_metadata(
+            item,
+            pages_by_source,
+            scores_by_source,
+            articles_by_source,
+            edited_by_source,
+            manual_by_source,
+            edited_at_by_source,
+        )
 
     sources = []
     for src, pages in pages_by_source.items():
-        sorted_pages = sorted(pages) if pages else []
-        entry = {
-            "source": src,
-            "pages": sorted_pages,
-        }
-        if src in articles_by_source:
-            entry["articles"] = articles_by_source[src]
-        if scores_by_source:
-            entry["max_score"] = round(float(scores_by_source.get(src, 0.0)), 4)
-        # Add edited/manual flags if any chunk for this source has them
-        if edited_by_source.get(src):
-            entry["edited"] = True
-        if manual_by_source.get(src):
-            entry["manual"] = True
-        if edited_at_by_source.get(src):
-            entry["edited_at"] = edited_at_by_source[src]
+        entry = _build_source_entry(
+            src,
+            pages,
+            articles_by_source,
+            scores_by_source,
+            edited_by_source,
+            manual_by_source,
+            edited_at_by_source,
+        )
         sources.append(entry)
 
     if scores_by_source:
         sources.sort(key=lambda s: s.get("max_score", 0.0), reverse=True)
 
-    if min_score is not None and sources and scores_by_source:
-        sources = [s for s in sources if s.get("max_score", 0.0) >= min_score]
-
-    return sources
+    return _filter_sources_by_min_score(sources, min_score, scores_by_source)
 
 
 # ---------------------------------------------------------------------------
@@ -417,7 +488,7 @@ RELEVANCE_PROMPT = ChatPromptTemplate.from_messages(
 
 
 async def check_relevance(llm, question: str, docs: list) -> tuple[bool, str]:
-    """Semantic check: is the retrieved context sufficient to answer the question?
+    """Semantic check: check if the retrieved context is sufficient to answer the question.
 
     Returns (is_relevant, reason).  If docs is empty, returns (False, ...).
     """

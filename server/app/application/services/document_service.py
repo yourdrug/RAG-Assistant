@@ -42,6 +42,50 @@ class DocumentService:
         self._vector_store = vector_store_repo
         self._file_storage = file_storage
 
+    async def _resolve_effective_owner_id(
+        self,
+        uow,
+        vis: DocumentVisibility,
+        user_id: int,
+        user_kind: str,
+        client_id: int | None,
+    ) -> int:
+        if vis != DocumentVisibility.CLIENT_PRIVATE:
+            return user_id
+        if user_kind == UserKind.CLIENT:
+            return user_id
+        if client_id is None:
+            raise ValidationError("client_id required for client_private upload")
+        client_user = await uow.users.get_by_id(client_id)
+        if client_user is None or client_user.kind != UserKind.CLIENT:
+            raise ValidationError("client_id must be a user with kind='client'")
+        return client_id
+
+    async def _handle_existing_conflict(
+        self,
+        uow,
+        existing,
+        filename: str,
+        owner_id: int,
+        effective_group_id,
+        rename_on_conflict: bool,
+    ) -> tuple[str, int | None]:
+        replace_id = None
+        if not existing:
+            return filename, replace_id
+        if existing.status in (DocumentStatus.PENDING, DocumentStatus.PROCESSING):
+            raise BusinessRuleViolation("This document is already being processed")
+        if existing.status in (DocumentStatus.DONE, DocumentStatus.FAILED):
+            if rename_on_conflict:
+                filename = await self._unique_filename(uow, owner_id, effective_group_id, filename)
+            else:
+                replace_id = existing.id
+                await self._vector_store.delete_by_document_id(existing.id)
+                if existing.source_path:
+                    self._file_storage.delete_file(existing.source_path)
+                await uow.documents.delete(existing.id)
+        return filename, replace_id
+
     async def upload(
         self,
         filename: str,
@@ -68,37 +112,27 @@ class DocumentService:
                 if not groups:
                     raise EntityNotFound("Group", group_id)
 
-            if vis == DocumentVisibility.CLIENT_PRIVATE:
-                if user_kind == UserKind.CLIENT:
-                    effective_owner_id = user_id
-                else:
-                    if client_id is None:
-                        raise ValidationError("client_id required for client_private upload")
-                    client_user = await uow.users.get_by_id(client_id)
-                    if client_user is None or client_user.kind != UserKind.CLIENT:
-                        raise ValidationError("client_id must be a user with kind='client'")
-                    effective_owner_id = client_id
-            else:
-                effective_owner_id = user_id
+            effective_owner_id = await self._resolve_effective_owner_id(
+                uow,
+                vis,
+                user_id,
+                user_kind,
+                client_id,
+            )
 
             owner_id, effective_group_id = compute_owner_and_group(vis, group_id, effective_owner_id)
 
             existing = await uow.documents.find_active_slot(
                 owner_id, filename, effective_group_id, for_update=True
             )
-            replace_id = None
-            if existing:
-                if existing.status in (DocumentStatus.PENDING, DocumentStatus.PROCESSING):
-                    raise BusinessRuleViolation("This document is already being processed")
-                if existing.status in (DocumentStatus.DONE, DocumentStatus.FAILED):
-                    if rename_on_conflict:
-                        filename = await self._unique_filename(uow, owner_id, effective_group_id, filename)
-                    else:
-                        replace_id = existing.id
-                        await self._vector_store.delete_by_document_id(existing.id)
-                        if existing.source_path:
-                            self._file_storage.delete_file(existing.source_path)
-                        await uow.documents.delete(existing.id)
+            filename, replace_id = await self._handle_existing_conflict(
+                uow,
+                existing,
+                filename,
+                owner_id,
+                effective_group_id,
+                rename_on_conflict,
+            )
 
             ext = Path(filename).suffix.lower()
             if ext not in self._file_storage.supported_extensions:
