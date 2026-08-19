@@ -2,22 +2,22 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from dataclasses import dataclass
+from typing import Protocol, runtime_checkable
 
 from domain.entities.conversation import Conversation
 
 
+@dataclass(frozen=True)
 class ConversationListItem:
-    def __init__(
-        self, id: int, user_id: int, creation_date, title: str | None = None, message_count: int = 0
-    ):
-        self.id = id
-        self.user_id = user_id
-        self.creation_date = creation_date
-        self.title = title
-        self.message_count = message_count
+    id: int
+    user_id: int
+    creation_date: object
+    title: str | None = None
+    message_count: int = 0
 
 
+@runtime_checkable
 class ConversationRepository(Protocol):
     async def create(self, user_id: int) -> Conversation: ...
     async def get_by_id(self, conversation_id: int) -> Conversation | None: ...

@@ -1,5 +1,5 @@
-"""
-Tests for domain/ingestion.py — text cleaning, markdown parsing, merging, splitting.
+"""Tests for domain/ingestion.py -- text cleaning, markdown parsing, merging, splitting.
+
 Pure string transformations, no OCR/Qdrant/embeddings.
 """
 

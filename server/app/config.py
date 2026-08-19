@@ -1,3 +1,13 @@
+"""Application configuration — Pydantic BaseSettings with .env support.
+
+Lifecycle:
+  - Created at import time (module-level ``settings`` singleton)
+  - Read-only after initialization (except dynamic config updates via event bus)
+  - Process-scoped: one instance per process
+  - Dynamic config: ``ConfigParameterChanged`` events update runtime values
+    through settings adapters (``LiveChatSettings``, ``LiveChunkSettings``, etc.)
+"""
+
 import logging
 import sys
 from datetime import UTC, datetime

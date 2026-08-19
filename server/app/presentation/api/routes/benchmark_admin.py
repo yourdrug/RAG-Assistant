@@ -5,15 +5,27 @@ from __future__ import annotations
 import json
 import logging
 
-from config import settings
-from domain.entities.benchmark_question import BenchmarkQuestion
-from domain.entities.benchmark_sweep import BenchmarkSweep
-from fastapi import APIRouter, Depends, HTTPException, Query
+from application.services.benchmark_services import (
+    BenchmarkQuestionService,
+    BenchmarkRunService,
+    BenchmarkSweepService,
+)
+from application.services.config_service import ConfigService
+from application.services.document_service import DocumentService
+from application.services.job_service import JobService
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
+from infrastructure.worker.queue import enqueue_sweep
 
 from presentation.api.auth_dependencies import require_admin
-from presentation.api.dependencies import create_config_service, get_uow_factory
-from presentation.api.routes.common import create_background_job
+from presentation.api.dependencies import (
+    create_benchmark_question_service,
+    create_benchmark_run_service,
+    create_benchmark_sweep_service,
+    create_config_service,
+    create_document_service,
+    create_job_service,
+)
 from presentation.api.schemas import (
     BenchmarkHistoryPoint,
     BenchmarkHistoryResponse,
@@ -51,15 +63,11 @@ async def list_questions(
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     admin: dict = Depends(require_admin),
+    service: BenchmarkQuestionService = Depends(create_benchmark_question_service),
 ):
-    uow_factory = get_uow_factory()
-    async with uow_factory.create() as uow:
-        questions = await uow.benchmark_questions.list(
-            dataset=dataset, tag=tag, search=search, is_active=is_active, limit=limit, offset=offset
-        )
-        total = await uow.benchmark_questions.count(
-            dataset=dataset, tag=tag, search=search, is_active=is_active
-        )
+    questions, total = await service.list(
+        dataset=dataset, tag=tag, search=search, is_active=is_active, limit=limit, offset=offset
+    )
     return BenchmarkQuestionsListResponse(
         questions=[
             BenchmarkQuestionResponse(
@@ -84,19 +92,9 @@ async def list_questions(
 async def create_question(
     body: BenchmarkQuestionCreate,
     admin: dict = Depends(require_admin),
+    service: BenchmarkQuestionService = Depends(create_benchmark_question_service),
 ):
-    uow_factory = get_uow_factory()
-    entity = BenchmarkQuestion(
-        question=body.question,
-        expected_answer=body.expected_answer,
-        source_hint=body.source_hint,
-        tags=body.tags,
-        dataset=body.dataset,
-        notes=body.notes,
-        created_by=admin["id"],
-    )
-    async with uow_factory.create(master=True) as uow:
-        created = await uow.benchmark_questions.create(entity)
+    created = await service.create(body, created_by=admin["id"])
     return BenchmarkQuestionResponse(
         id=created.id,
         question=created.question,
@@ -116,13 +114,10 @@ async def update_question(
     question_id: int,
     body: BenchmarkQuestionUpdate,
     admin: dict = Depends(require_admin),
+    service: BenchmarkQuestionService = Depends(create_benchmark_question_service),
 ):
-    uow_factory = get_uow_factory()
     fields = body.model_dump(exclude_unset=True)
-    async with uow_factory.create(master=True) as uow:
-        updated = await uow.benchmark_questions.update(question_id, **fields)
-    if updated is None:
-        raise HTTPException(status_code=404, detail="Question not found")
+    updated = await service.update(question_id, fields)
     return BenchmarkQuestionResponse(
         id=updated.id,
         question=updated.question,
@@ -141,12 +136,9 @@ async def update_question(
 async def delete_question(
     question_id: int,
     admin: dict = Depends(require_admin),
+    service: BenchmarkQuestionService = Depends(create_benchmark_question_service),
 ):
-    uow_factory = get_uow_factory()
-    async with uow_factory.create(master=True) as uow:
-        deleted = await uow.benchmark_questions.delete(question_id)
-    if not deleted:
-        raise HTTPException(status_code=404, detail="Question not found")
+    await service.delete(question_id)
     return {"deleted": True}
 
 
@@ -154,21 +146,9 @@ async def delete_question(
 async def import_questions(
     body: BenchmarkQuestionsImportRequest,
     admin: dict = Depends(require_admin),
+    service: BenchmarkQuestionService = Depends(create_benchmark_question_service),
 ):
-    uow_factory = get_uow_factory()
-    entities = [
-        BenchmarkQuestion(
-            question=q.question,
-            expected_answer=q.expected_answer,
-            source_hint=q.source_hint,
-            tags=q.tags,
-            dataset=q.dataset,
-            created_by=admin["id"],
-        )
-        for q in body.questions
-    ]
-    async with uow_factory.create(master=True) as uow:
-        count = await uow.benchmark_questions.bulk_create(entities)
+    count = await service.bulk_create(body.questions, created_by=admin["id"])
     return BenchmarkQuestionsImportResponse(imported=count)
 
 
@@ -176,10 +156,9 @@ async def import_questions(
 async def export_questions(
     dataset: str | None = None,
     admin: dict = Depends(require_admin),
+    service: BenchmarkQuestionService = Depends(create_benchmark_question_service),
 ):
-    uow_factory = get_uow_factory()
-    async with uow_factory.create() as uow:
-        questions = await uow.benchmark_questions.list(dataset=dataset, limit=10000)
+    questions = await service.export(dataset=dataset)
     data = [
         {
             "question": q.question,
@@ -197,21 +176,10 @@ async def export_questions(
 async def list_source_files(
     search: str | None = None,
     admin: dict = Depends(require_admin),
+    document_service: DocumentService = Depends(create_document_service),
 ):
     """Return distinct indexed document filenames for source_hint picker."""
-    from infrastructure.database.models import DocumentModel
-    from sqlalchemy import distinct, select
-
-    uow_factory = get_uow_factory()
-    async with uow_factory.create() as uow:
-        stmt = select(distinct(DocumentModel.filename)).where(
-            DocumentModel.status == "done"
-        )
-        if search:
-            stmt = stmt.where(DocumentModel.filename.ilike(f"%{search}%"))
-        stmt = stmt.order_by(DocumentModel.filename).limit(100)
-        result = await uow._session.execute(stmt)
-        filenames = [row[0] for row in result.all() if row[0]]
+    filenames = await document_service.list_source_files(search=search)
     return {"files": filenames}
 
 
@@ -224,29 +192,14 @@ async def list_source_files(
 async def create_sweep(
     body: SweepCreateRequest,
     admin: dict = Depends(require_admin),
+    service: BenchmarkSweepService = Depends(create_benchmark_sweep_service),
+    job_service: JobService = Depends(create_job_service),
 ):
-    uow_factory = get_uow_factory()
+    sweep = await service.create(body)
 
-    # Create sweep record
-    sweep_entity = BenchmarkSweep(
-        strategy=body.strategy,
-        search_space=body.search_space,
-        objective_weights=body.objective_weights,
-        dataset=body.dataset,
-        top_n_llm=body.top_n_llm,
-        status="pending",
-    )
+    job_id = await job_service.create_job("sweep", related_id=sweep.id)
 
-    async with uow_factory.create(master=True) as uow:
-        sweep = await uow.benchmark_sweeps.create(sweep_entity)
-
-    # Create background job and enqueue
-    job_id = await create_background_job(uow_factory, "sweep", related_id=sweep.id)
-
-    async with uow_factory.create(master=True) as uow:
-        await uow.benchmark_sweeps.update_status(sweep.id, "pending")
-
-    from infrastructure.worker.queue import enqueue_sweep
+    await service.update_status(sweep.id, "pending")
 
     await enqueue_sweep(sweep_id=sweep.id, job_id=job_id)
 
@@ -270,12 +223,9 @@ async def create_sweep(
 async def get_sweep(
     sweep_id: int,
     admin: dict = Depends(require_admin),
+    service: BenchmarkSweepService = Depends(create_benchmark_sweep_service),
 ):
-    uow_factory = get_uow_factory()
-    async with uow_factory.create() as uow:
-        sweep = await uow.benchmark_sweeps.get_by_id(sweep_id)
-    if sweep is None:
-        raise HTTPException(status_code=404, detail="Sweep not found")
+    sweep = await service.get(sweep_id)
     return SweepResponse(
         id=sweep.id,
         status=sweep.status,
@@ -297,11 +247,9 @@ async def list_sweeps(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     admin: dict = Depends(require_admin),
+    service: BenchmarkSweepService = Depends(create_benchmark_sweep_service),
 ):
-    uow_factory = get_uow_factory()
-    async with uow_factory.create() as uow:
-        sweeps = await uow.benchmark_sweeps.list(limit=limit, offset=offset)
-        total = await uow.benchmark_sweeps.count()
+    sweeps, total = await service.list(limit=limit, offset=offset)
     return SweepsListResponse(
         sweeps=[
             SweepResponse(
@@ -332,6 +280,8 @@ async def sweep_progress_stream(
     """SSE stream: live progress + new results as they complete."""
     import asyncio
 
+    from config import settings
+
     async def event_generator():
         try:
             from arq import create_pool
@@ -351,7 +301,6 @@ async def sweep_progress_stream(
                     if message and message["type"] == "message":
                         data = message["data"].decode("utf-8")
                         yield f"data: {data}\n\n"
-                        # Check if it's the done event
                         parsed = json.loads(data)
                         if parsed.get("done"):
                             break
@@ -359,7 +308,6 @@ async def sweep_progress_stream(
                 await pubsub.unsubscribe(f"sweep:{sweep_id}")
                 await pool.close()
         except TimeoutError:
-            # Keep-alive comment
             yield ": heartbeat\n\n"
         except Exception as e:
             logger.warning("SSE stream error for sweep %d: %s", sweep_id, e)
@@ -376,15 +324,9 @@ async def sweep_progress_stream(
 async def cancel_sweep(
     sweep_id: int,
     admin: dict = Depends(require_admin),
+    service: BenchmarkSweepService = Depends(create_benchmark_sweep_service),
 ):
-    uow_factory = get_uow_factory()
-    async with uow_factory.create(master=True) as uow:
-        sweep = await uow.benchmark_sweeps.get_by_id(sweep_id)
-        if sweep is None:
-            raise HTTPException(status_code=404, detail="Sweep not found")
-        if sweep.status not in ("pending", "running"):
-            raise HTTPException(status_code=400, detail=f"Cannot cancel sweep in '{sweep.status}' status")
-        await uow.benchmark_sweeps.update_status(sweep_id, "cancelled")
+    await service.cancel(sweep_id)
     return {"cancelled": True}
 
 
@@ -402,18 +344,16 @@ async def list_runs(
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     admin: dict = Depends(require_admin),
+    service: BenchmarkRunService = Depends(create_benchmark_run_service),
 ):
-    uow_factory = get_uow_factory()
-    async with uow_factory.create() as uow:
-        runs = await uow.benchmark_runs.list(
-            sweep_id=sweep_id,
-            dataset=dataset,
-            sort_by=sort_by,
-            sort_order=sort_order,
-            limit=limit,
-            offset=offset,
-        )
-        total = await uow.benchmark_runs.count(sweep_id=sweep_id, dataset=dataset)
+    runs, total = await service.list(
+        sweep_id=sweep_id,
+        dataset=dataset,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        limit=limit,
+        offset=offset,
+    )
     return BenchmarkRunsListResponse(
         runs=[
             BenchmarkRunResponse(
@@ -437,12 +377,9 @@ async def list_runs(
 async def get_run(
     run_id: int,
     admin: dict = Depends(require_admin),
+    service: BenchmarkRunService = Depends(create_benchmark_run_service),
 ):
-    uow_factory = get_uow_factory()
-    async with uow_factory.create() as uow:
-        run = await uow.benchmark_runs.get_by_id(run_id)
-    if run is None:
-        raise HTTPException(status_code=404, detail="Run not found")
+    run = await service.get(run_id)
     return BenchmarkRunResponse(
         id=run.id,
         sweep_id=run.sweep_id,
@@ -460,20 +397,15 @@ async def get_run(
 async def apply_run_config(
     run_id: int,
     admin: dict = Depends(require_admin),
+    service: BenchmarkRunService = Depends(create_benchmark_run_service),
+    config_service: ConfigService = Depends(create_config_service),
 ):
     """Apply a run's config_json to the live system via ConfigService."""
-    uow_factory = get_uow_factory()
-    config_service = create_config_service()
-
-    async with uow_factory.create() as uow:
-        run = await uow.benchmark_runs.get_by_id(run_id)
-    if run is None:
-        raise HTTPException(status_code=404, detail="Run not found")
+    run = await service.get(run_id)
 
     config = run.config_json
     applied_keys = []
 
-    # Map sweep config keys to config_parameters keys
     key_mapping = {
         "top_k": "retriever_top_k",
         "fetch_k": "retriever_fetch_k",
@@ -501,32 +433,12 @@ async def apply_run_config(
 async def compare_runs(
     ids: str = Query(..., description="Comma-separated run IDs"),
     admin: dict = Depends(require_admin),
+    service: BenchmarkRunService = Depends(create_benchmark_run_service),
 ):
     """Compare multiple benchmark runs side by side."""
-    uow_factory = get_uow_factory()
     id_list = [int(x.strip()) for x in ids.split(",") if x.strip()]
 
-    if len(id_list) < 2:
-        raise HTTPException(status_code=400, detail="Provide at least 2 run IDs")
-
-    if len(id_list) > 10:
-        raise HTTPException(status_code=400, detail="Maximum 10 runs for comparison")
-
-    async with uow_factory.create() as uow:
-        runs = await uow.benchmark_runs.get_by_ids(id_list)
-
-    if len(runs) != len(id_list):
-        found_ids = {r.id for r in runs}
-        missing = [i for i in id_list if i not in found_ids]
-        raise HTTPException(status_code=404, detail=f"Runs not found: {missing}")
-
-    # Build diff: for each key, show values across runs
-    diff = {}
-    all_keys = set()
-    for r in runs:
-        all_keys.update(r.config_json.keys())
-    for key in sorted(all_keys):
-        diff[key] = [{"run_id": r.id, "value": r.config_json.get(key)} for r in runs]
+    runs, diff = await service.compare(id_list)
 
     return RunCompareResponse(
         runs=[
@@ -559,18 +471,13 @@ async def benchmark_history(
     days: int = Query(30, ge=1, le=365),
     limit: int = Query(100, ge=1, le=1000),
     admin: dict = Depends(require_admin),
+    service: BenchmarkRunService = Depends(create_benchmark_run_service),
 ):
     """Get benchmark history as time-series data for trend charts."""
-
-    uow_factory = get_uow_factory()
-    async with uow_factory.create() as uow:
-        runs = await uow.benchmark_runs.list(
-            dataset=dataset, sort_by="creation_date", sort_order="asc", limit=limit
-        )
+    runs, _total = await service.list(dataset=dataset, sort_by="creation_date", sort_order="asc", limit=limit)
 
     points = []
     for r in runs:
-        # Extract requested metric or all
         metrics = r.summary_metrics or {}
         config_summary = {
             k: r.config_json.get(k)

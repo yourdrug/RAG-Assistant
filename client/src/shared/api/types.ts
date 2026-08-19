@@ -202,18 +202,6 @@ export interface GroupMemberRequest {
   user_id: number;
 }
 
-// ─── Clients ─────────────────────────────────────────────────────────────────
-
-export interface AssignClientRequest {
-  internal_user_id: number;
-}
-
-export interface ClientAssignmentResponse {
-  internal_user_id: number;
-  email: string;
-  assigned_at: string;
-}
-
 // ─── API Keys ─────────────────────────────────────────────────────────────────
 
 export interface ApiKeyCreateRequest {

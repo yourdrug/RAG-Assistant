@@ -1,48 +1,17 @@
-"""Auth infrastructure -- password hashing, JWT tokens, and backward-compatible re-exports.
+"""Auth infrastructure — concrete implementations for password hashing and JWT tokens.
 
-New DDD consumers should import directly from:
+Import directly from submodules:
   - ``infrastructure.auth.password_hasher.BCryptPasswordHasher``
   - ``infrastructure.auth.jwt_provider.JWTProvider``
-  - ``presentation.api.auth_dependencies.get_current_user``, ``require_admin``
 
-Legacy code may continue importing convenience functions from this module
-(``hash_password``, ``verify_password``, ``create_access_token``,
-``decode_access_token``).
+Or use the re-exports from this module for convenience:
+  - ``from infrastructure.auth import BCryptPasswordHasher, JWTProvider``
 """
 
 from infrastructure.auth.jwt_provider import JWTProvider
 from infrastructure.auth.password_hasher import BCryptPasswordHasher
 
-# Backward-compatible convenience functions for legacy code
-_hasher = BCryptPasswordHasher()
-_token_provider = JWTProvider()
-
-
-def hash_password(password: str) -> str:
-    return _hasher.hash(password)
-
-
-def verify_password(password: str, hashed: str) -> bool:
-    return _hasher.verify(password, hashed)
-
-
-def create_access_token(user_id: int, role: str) -> str:
-    return _token_provider.create_token(user_id, role)
-
-
-def decode_access_token(token: str) -> dict:
-    """Decode JWT token. Raises jwt exceptions on failure.
-
-    HTTP mapping should be done in the presentation layer.
-    """
-    return _token_provider.decode_token(token)
-
-
 __all__ = [
     "BCryptPasswordHasher",
     "JWTProvider",
-    "hash_password",
-    "verify_password",
-    "create_access_token",
-    "decode_access_token",
 ]

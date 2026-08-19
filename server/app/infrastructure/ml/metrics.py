@@ -16,11 +16,10 @@ import httpx
 from config import settings
 from prometheus_client import Counter, Gauge, Histogram
 
-from infrastructure.clients import get_bm25_index, get_qdrant_client
 from infrastructure.database.database import database
 
 if TYPE_CHECKING:
-    pass
+    from infrastructure.ml.client_registry import MLClientRegistry
 
 log = logging.getLogger("default")
 
@@ -245,7 +244,7 @@ def record_rag_answer(
 # ---------------------------------------------------------------------------
 
 
-async def collect_infra_metrics() -> None:
+async def collect_infra_metrics(ml_clients: MLClientRegistry | None = None) -> None:
     """Update infrastructure gauges. Called periodically from lifespan."""
     # Postgres pool
     try:
@@ -263,7 +262,12 @@ async def collect_infra_metrics() -> None:
 
     # Qdrant collection size
     try:
-        client = get_qdrant_client()
+        if ml_clients is not None:
+            client = ml_clients.qdrant_client()
+        else:
+            from infrastructure.ml.factories import create_qdrant_client
+
+            client = create_qdrant_client()
         info = client.get_collection(settings.collection_name)
         QDRANT_POINTS.set(info.points_count or 0)
     except Exception as e:
@@ -271,7 +275,12 @@ async def collect_infra_metrics() -> None:
 
     # BM25 index size
     try:
-        bm25 = get_bm25_index()
+        if ml_clients is not None:
+            bm25 = ml_clients.bm25_index()
+        else:
+            from infrastructure.ml.factories import load_bm25_index
+
+            bm25 = load_bm25_index()
         if bm25 is not None:
             BM25_INDEX_SIZE.set(len(bm25.hashes))
     except Exception as e:

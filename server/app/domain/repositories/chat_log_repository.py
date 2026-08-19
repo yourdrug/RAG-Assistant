@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from domain.entities.chat_log import ChatLog
 
 
+@runtime_checkable
 class ChatLogRepository(Protocol):
     async def save(self, log: ChatLog) -> None: ...
 

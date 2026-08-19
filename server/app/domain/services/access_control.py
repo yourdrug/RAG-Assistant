@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from domain.exceptions import BusinessRuleViolation, ValidationError
+from domain.value_objects.owner_match import OwnerMatch
 from domain.value_objects.roles import UserKind, UserRole
 from domain.value_objects.visibility import DocumentVisibility
 
@@ -35,7 +36,7 @@ class VisibilityCondition:
     """
 
     visibility: DocumentVisibility
-    owner_match: str | None = None  # "self" = user_id, "assigned" = assigned_client_ids
+    owner_match: str | None = None  # OwnerMatch.SELF = user_id
     group_match: bool = False  # True = group_id IN user_group_ids
 
 
@@ -43,7 +44,6 @@ def get_visibility_conditions(
     user_kind: UserKind,
     user_id: int,
     group_ids: list[int],
-    assigned_client_ids: list[int],
     for_list: bool = True,
     user_role: UserRole | None = None,
 ) -> list[VisibilityCondition]:
@@ -53,15 +53,19 @@ def get_visibility_conditions(
     This is the single source of truth — SQL and Qdrant adapters translate these.
 
     Args:
+        user_kind: The kind of user (internal or client).
+        user_id: The ID of the user.
+        group_ids: List of group IDs the user belongs to.
         for_list: True for document list (admin sees all client docs),
                   False for RAG queries (admin should not search client docs).
         user_role: Required for list mode to distinguish admin from regular users.
+
     """
     if user_kind == UserKind.CLIENT:
         return [
             VisibilityCondition(
                 visibility=DocumentVisibility.CLIENT_PRIVATE,
-                owner_match="self",
+                owner_match=OwnerMatch.SELF,
             )
         ]
 
@@ -75,7 +79,7 @@ def get_visibility_conditions(
         conditions.append(
             VisibilityCondition(
                 visibility=DocumentVisibility.INTERNAL_PRIVATE,
-                owner_match="self",
+                owner_match=OwnerMatch.SELF,
             )
         )
 
@@ -105,7 +109,7 @@ def validate_document_visibility(
     user_role: UserRole,
     user_group_ids: list[int],
 ) -> None:
-    """Business rule: validate that a user can use the given visibility."""
+    """Validate that a user can use the given visibility."""
     allowed = ALLOWED_VISIBILITY_FOR_KIND.get(user_kind)
     if allowed is None or visibility not in allowed:
         raise ValidationError(f"visibility='{visibility}' not available for kind='{user_kind}'")
@@ -132,7 +136,7 @@ def compute_owner_and_group(
     group_id: int | None,
     user_id: int,
 ) -> tuple[int | None, int | None]:
-    """Business rule: determine owner_id and group_id for a document based on visibility."""
+    """Determine owner_id and group_id for a document based on visibility."""
     if visibility == DocumentVisibility.INTERNAL_PUBLIC:
         return None, None
     if visibility == DocumentVisibility.INTERNAL_GROUP:
@@ -147,10 +151,9 @@ def can_view_document(
     user_kind: str,
     user_id: int,
     user_group_ids: list[int],
-    assigned_client_ids: list[int],
     user_role: str | None = None,
 ) -> bool:
-    """Business rule: can this user view this document?"""
+    """Determine if the user can view the document."""
     vis = DocumentVisibility(doc_visibility)
     kind = UserKind(user_kind)
 

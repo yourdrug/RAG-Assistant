@@ -6,7 +6,10 @@ import logging
 from pathlib import Path
 
 from application.services.document_service import DocumentService
+from application.services.job_service import JobService
 from config import settings
+from domain.value_objects.doc_domain import DocDomain
+from domain.value_objects.document_status import DocumentStatus
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from infrastructure.logging.actions import log_action
 from infrastructure.worker.queue import enqueue_document_processing
@@ -14,10 +17,9 @@ from infrastructure.worker.queue import enqueue_document_processing
 from presentation.api.auth_dependencies import get_current_user
 from presentation.api.dependencies import (
     create_document_service,
-    get_uow_factory,
+    create_job_service,
 )
 from presentation.api.rate_limits import upload_rate_limit
-from presentation.api.routes.common import create_background_job
 from presentation.api.schemas import DocumentResponse, UploadStatusResponse
 
 logger = logging.getLogger("default")
@@ -70,11 +72,12 @@ async def upload_document(
     rename_on_conflict: bool = Form(False),
     doc_domain: str | None = Form(None),
     document_service: DocumentService = Depends(create_document_service),
+    job_service: JobService = Depends(create_job_service),
 ):
     filename = file.filename or "unnamed"
     ext = Path(filename).suffix.lower()
 
-    if doc_domain is not None and doc_domain not in ("legal", "general"):
+    if doc_domain is not None and doc_domain not in [d.value for d in DocDomain]:
         raise HTTPException(status_code=400, detail="doc_domain must be 'legal' or 'general'")
 
     max_bytes = settings.max_upload_size_mb * 1024 * 1024
@@ -82,7 +85,10 @@ async def upload_document(
     if len(data) > max_bytes:
         raise HTTPException(
             status_code=413,
-            detail=f"File too large: {len(data) / 1024 / 1024:.1f} MB (limit {settings.max_upload_size_mb} MB)",
+            detail=(
+                f"File too large: {len(data) / 1024 / 1024:.1f} MB"
+                f" (limit {settings.max_upload_size_mb} MB)"
+            ),
         )
 
     _validate_mime(data, ext)
@@ -106,7 +112,7 @@ async def upload_document(
         details={"filename": filename, "visibility": visibility},
     )
 
-    job_id = await create_background_job(get_uow_factory(), "document_processing", related_id=result.id)
+    job_id = await job_service.create_job("document_processing", related_id=result.id)
 
     await enqueue_document_processing(
         document_id=result.id,
@@ -120,7 +126,9 @@ async def upload_document(
         job_id=job_id,
     )
 
-    return UploadStatusResponse(status="processing", document_id=result.id, filename=filename)
+    return UploadStatusResponse(
+        status=DocumentStatus.PROCESSING.value, document_id=result.id, filename=filename
+    )
 
 
 @router.get("/documents", response_model=list[DocumentResponse])

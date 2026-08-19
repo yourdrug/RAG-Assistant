@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from domain.entities.api_key import ApiKey
+from domain.value_objects.query_results import ApiKeyClientInfo
 from domain.value_objects.roles import UserKind
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -53,7 +54,7 @@ class SQLAlchemyApiKeyRepository:
         await self._db.flush()
         return True
 
-    async def get_active_client_by_hash(self, key_hash: str) -> dict | None:
+    async def get_active_client_by_hash(self, key_hash: str) -> ApiKeyClientInfo | None:
         result = await self._db.execute(
             select(ApiKeyModel, UserModel)
             .join(UserModel, UserModel.id == ApiKeyModel.user_id)
@@ -70,14 +71,14 @@ class SQLAlchemyApiKeyRepository:
             return None
 
         api_key_orm, user_orm = row
-        return {
-            "api_key_id": api_key_orm.id,
-            "id": user_orm.id,
-            "email": user_orm.email,
-            "role": user_orm.role,
-            "kind": user_orm.kind,
-            "is_active": user_orm.is_active,
-        }
+        return ApiKeyClientInfo(
+            api_key_id=api_key_orm.id,
+            id=user_orm.id,
+            email=user_orm.email,
+            role=user_orm.role,
+            kind=user_orm.kind,
+            is_active=user_orm.is_active,
+        )
 
     async def touch_last_used(self, api_key_id: int) -> None:
         result = await self._db.execute(select(ApiKeyModel).where(ApiKeyModel.id == api_key_id))

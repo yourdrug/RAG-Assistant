@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from application.services.job_service import JobService
 from fastapi import APIRouter, Depends, Query
 
 from presentation.api.auth_dependencies import require_admin
-from presentation.api.dependencies import get_uow_factory
+from presentation.api.dependencies import create_job_service
 from presentation.api.schemas import JobResponse, JobsListResponse, JobsStatsResponse
 
 router = APIRouter(tags=["admin-jobs"])
@@ -16,12 +17,10 @@ async def list_jobs(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     admin: dict = Depends(require_admin),
-    uow_factory=Depends(get_uow_factory),
+    service: JobService = Depends(create_job_service),
 ):
-    async with uow_factory.create() as uow:
-        jobs = await uow.background_jobs.list_recent(limit=limit, offset=offset)
-        # Get total count via a separate query
-        stats = await uow.background_jobs.count_by_status()
+    jobs = await service.list_recent(limit=limit, offset=offset)
+    stats = await service.count_by_status()
     total = sum(stats.values())
     return JobsListResponse(
         total=total,
@@ -45,9 +44,8 @@ async def list_jobs(
 @router.get("/admin/jobs/stats", response_model=JobsStatsResponse)
 async def jobs_stats(
     admin: dict = Depends(require_admin),
-    uow_factory=Depends(get_uow_factory),
+    service: JobService = Depends(create_job_service),
 ):
-    async with uow_factory.create() as uow:
-        stats = await uow.background_jobs.count_by_status()
+    stats = await service.count_by_status()
     total = sum(stats.values())
     return JobsStatsResponse(total=total, by_status=stats)

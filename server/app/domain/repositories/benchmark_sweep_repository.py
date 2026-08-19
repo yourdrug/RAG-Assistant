@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from domain.entities.benchmark_sweep import BenchmarkSweep
 
 
+@runtime_checkable
 class BenchmarkSweepRepository(Protocol):
     async def get_by_id(self, sweep_id: int) -> BenchmarkSweep | None: ...
 

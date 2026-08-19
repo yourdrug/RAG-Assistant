@@ -43,7 +43,11 @@ async def chat_stream(
             ):
                 if isinstance(event, MetaEvent):
                     sources = event.sources
-                    yield f"event: done\ndata: {json.dumps({'conversation_id': event.conversation_id, 'sources': sources}, ensure_ascii=False)}\n\n"
+                    payload = {
+                        "conversation_id": event.conversation_id,
+                        "sources": sources,
+                    }
+                    yield f"event: done\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
                 elif isinstance(event, TextChunk):
                     yield f"data: {json.dumps({'text': event.text}, ensure_ascii=False)}\n\n"
         except Exception as e:

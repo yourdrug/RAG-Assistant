@@ -1,5 +1,5 @@
-"""
-Tests for infrastructure/registry.py — load/save, file_hash, is_already_indexed.
+"""Tests for infrastructure/registry.py -- load/save, file_hash, is_already_indexed.
+
 Uses tmp_path for filesystem operations.
 """
 

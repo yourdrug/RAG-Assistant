@@ -13,6 +13,12 @@ Usage::
 
     # In lifespan shutdown:
     await redis_client.aclose()
+
+Lifecycle:
+  - Created at import time (module-level ``redis_client`` singleton)
+  - ``init()`` called in FastAPI ``lifespan()``
+  - ``aclose()`` called in FastAPI ``lifespan()`` shutdown
+  - Application-scoped: one connection pool per process
 """
 
 from __future__ import annotations

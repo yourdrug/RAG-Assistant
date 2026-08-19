@@ -6,6 +6,7 @@ import pytest
 from application.services.chunk_service import ChunkService
 from domain.entities.document import Document
 from domain.exceptions import ValidationError
+from domain.services.access_control import compute_owner_and_group
 from domain.value_objects.roles import UserRole
 from domain.value_objects.visibility import DocumentVisibility
 
@@ -25,11 +26,24 @@ def mock_vector_store():
 
 
 @pytest.fixture
-def chunk_service(mock_uow_factory, mock_vector_store):
+def mock_chunk_settings():
+    """Mock ChunkSettingsPort with default chunk_size."""
+    from dataclasses import dataclass
+
+    @dataclass
+    class FakeChunkSettings:
+        chunk_size: int = 550
+
+    return FakeChunkSettings()
+
+
+@pytest.fixture
+def chunk_service(mock_uow_factory, mock_vector_store, mock_chunk_settings):
     """Create ChunkService with mocked dependencies."""
     return ChunkService(
         uow_factory=mock_uow_factory,
         vector_store_repo=mock_vector_store,
+        chunk_settings=mock_chunk_settings,
     )
 
 
@@ -64,17 +78,17 @@ class TestChunkService:
     def test_compute_owner_and_group(self):
         """Test owner and group computation based on visibility."""
         # Internal public
-        owner, group = ChunkService._compute_owner_and_group(DocumentVisibility.INTERNAL_PUBLIC, None, 1)
+        owner, group = compute_owner_and_group(DocumentVisibility.INTERNAL_PUBLIC, None, 1)
         assert owner is None
         assert group is None
 
         # Internal group
-        owner, group = ChunkService._compute_owner_and_group(DocumentVisibility.INTERNAL_GROUP, 42, 1)
+        owner, group = compute_owner_and_group(DocumentVisibility.INTERNAL_GROUP, 42, 1)
         assert owner is None
         assert group == 42
 
         # Internal private
-        owner, group = ChunkService._compute_owner_and_group(DocumentVisibility.INTERNAL_PRIVATE, None, 1)
+        owner, group = compute_owner_and_group(DocumentVisibility.INTERNAL_PRIVATE, None, 1)
         assert owner == 1
         assert group is None
 

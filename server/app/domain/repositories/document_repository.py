@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from domain.entities.document import Document
 
 
+@runtime_checkable
 class DocumentRepository(Protocol):
     async def save(self, document: Document) -> Document: ...
     async def get_by_id(self, document_id: int) -> Document | None: ...
@@ -32,6 +33,8 @@ class DocumentRepository(Protocol):
         user_kind: str,
         user_id: int,
         group_ids: list[int],
-        assigned_client_ids: list[int],
     ) -> list[Document]: ...
     async def list_all(self) -> list[Document]: ...
+    async def set_has_manual_edits(self, document_id: int, value: bool) -> None: ...
+    async def update_chunk_stats(self, document_id: int, chunks: int, chars: int) -> None: ...
+    async def list_distinct_filenames(self, search: str | None = None, limit: int = 100) -> list[str]: ...

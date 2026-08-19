@@ -12,27 +12,24 @@ import asyncio
 import logging
 import time
 from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING
 
 from application.dto.chat_dto import RagResult
 from config import settings
 from domain.services.rag_policy import classify_query_domain, has_exact_reference
 from domain.value_objects.chat_context import ChatContext
+from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.llm_provider import BREADTH_ALIASES, Breadth
 from domain.value_objects.rag_settings import RagSettings
+from domain.value_objects.search_mode import SearchMode
 from domain.value_objects.stream_events import SourcesEvent, StreamEvent, TextChunk
 from langchain.schema import Document as LCDocument
 from qdrant_client.models import FieldCondition, Filter, MatchValue
 
+if TYPE_CHECKING:
+    from infrastructure.ml.client_registry import MLClientRegistry
+
 from infrastructure.acl import build_qdrant_filter, with_domain_filter
-from infrastructure.clients import (
-    get_bm25_index,
-    get_embeddings,
-    get_llm,
-    get_llm_for_breadth,
-    get_qdrant_client,
-    get_reranker,
-    get_vector_store,
-)
 from infrastructure.ml.answer_cache import (
     compute_question_hash,
     compute_visibility_scope_hash,
@@ -64,12 +61,37 @@ from infrastructure.ml.rag import (
     rerank_documents,
 )
 
+
+def _build_rag_settings() -> RagSettings:
+    """Build RagSettings from the global config (infrastructure concern)."""
+    return RagSettings(
+        retriever_fetch_k=settings.retriever_fetch_k,
+        retriever_top_k=settings.retriever_top_k,
+        retriever_fetch_k_broad=settings.retriever_fetch_k_broad,
+        retriever_top_k_broad=settings.retriever_top_k_broad,
+        hybrid_enabled=settings.hybrid_enabled,
+        bm25_fetch_k=settings.bm25_fetch_k,
+        rrf_k=settings.rrf_k,
+        dense_weight=settings.dense_weight,
+        sparse_weight=settings.sparse_weight,
+        rerank_min_score=settings.rerank_min_score,
+        rerank_score_gap_ratio=settings.rerank_score_gap_ratio,
+        source_min_score=settings.source_min_score,
+        citation_filter_enabled=settings.citation_filter_enabled,
+        relevance_gate_enabled=settings.relevance_gate_enabled,
+        condense_enabled=settings.condense_enabled,
+        decomposition_enabled=settings.decomposition_enabled,
+        rolling_summary_enabled=settings.rolling_summary_enabled,
+        cache_enabled=settings.cache_enabled,
+    )
+
+
 log = logging.getLogger("default")
 
 
-async def _resolve_hash_to_doc(h: str, access_filter) -> LCDocument | None:
+async def _resolve_hash_to_doc(h: str, access_filter, ml_clients: MLClientRegistry) -> LCDocument | None:
     """Retrieve a document from Qdrant by its content_hash."""
-    client = get_qdrant_client()
+    client = ml_clients.qdrant_client()
 
     results = await asyncio.to_thread(
         client.scroll,
@@ -96,10 +118,12 @@ async def _resolve_hash_to_doc(h: str, access_filter) -> LCDocument | None:
     return LCDocument(page_content=page_content, metadata=metadata)
 
 
-async def _qdrant_dense_search(query: str, k: int, access_filter) -> list[tuple[str, float, LCDocument]]:
+async def _qdrant_dense_search(
+    query: str, k: int, access_filter, ml_clients: MLClientRegistry
+) -> list[tuple[str, float, LCDocument]]:
     """Search Qdrant directly, returning (content_hash, score, Document) tuples."""
-    client = get_qdrant_client()
-    embeddings = get_embeddings()
+    client = ml_clients.qdrant_client()
+    embeddings = ml_clients.embeddings()
 
     query_vector = await asyncio.to_thread(embeddings.embed_query, query)
     qdrant_filter = None
@@ -130,15 +154,16 @@ async def _run_hybrid_search(
     fetch_k: int,
     access_filter,
     rag: RagSettings,
+    ml_clients: MLClientRegistry,
     dense_weight: float | None = None,
     sparse_weight: float | None = None,
 ) -> list[LCDocument]:
     """Run hybrid dense+BM25 search and return deduplicated candidates."""
-    bm25_index = get_bm25_index()
+    bm25_index = ml_clients.bm25_index()
 
     if rag.hybrid_enabled and bm25_index is not None:
         t0 = time.monotonic()
-        dense_coro = _qdrant_dense_search(query, fetch_k, access_filter)
+        dense_coro = _qdrant_dense_search(query, fetch_k, access_filter, ml_clients)
         sparse_coro = asyncio.to_thread(bm25_index.search_with_hashes, query, fetch_k)
         dense_results, sparse_results = await asyncio.gather(dense_coro, sparse_coro)
         elapsed = time.monotonic() - t0
@@ -166,7 +191,7 @@ async def _run_hybrid_search(
             if h in dense_by_hash:
                 candidates.append(dense_by_hash[h][1])
             else:
-                doc = await _resolve_hash_to_doc(h, access_filter)
+                doc = await _resolve_hash_to_doc(h, access_filter, ml_clients)
                 if doc is not None:
                     candidates.append(doc)
 
@@ -178,7 +203,7 @@ async def _run_hybrid_search(
         )
     else:
         t0 = time.monotonic()
-        retriever = get_vector_store().as_retriever(
+        retriever = ml_clients.vector_store().as_retriever(
             search_type="similarity",
             search_kwargs={"k": fetch_k, "filter": access_filter},
         )
@@ -189,21 +214,12 @@ async def _run_hybrid_search(
 
 
 class RagService:
-    def __init__(self, chunk_search=None) -> None:
+    def __init__(self, ml_clients: MLClientRegistry, chunk_search=None) -> None:
+        self._ml = ml_clients
         self._chunk_search = chunk_search
 
-    async def stream(
-        self,
-        question: str,
-        history: list,
-        ctx: ChatContext,
-    ) -> AsyncIterator[StreamEvent]:
-        rag = RagSettings.from_settings()
-        t_pipeline_start = time.monotonic()
-
-        user = {"id": ctx.user_id, "kind": ctx.user_kind}
-        access_filter = build_qdrant_filter(user, ctx.user_group_ids, ctx.assigned_client_ids)
-
+    @staticmethod
+    def _prepare_history_dicts(history: list) -> list[dict]:
         history_dicts = []
         for msg in history:
             if hasattr(msg, "role") and hasattr(msg, "content"):
@@ -219,79 +235,51 @@ class RagService:
             elif isinstance(msg, dict):
                 if len(msg.get("content", "").strip()) >= 3:
                     history_dicts.append(msg)
-        history_messages = history_to_messages(history_dicts)
+        return history_dicts
 
-        t0 = time.monotonic()
-        if rag.condense_enabled:
-            query_for_search = await condense_question(get_llm(), question, history_messages)
-        else:
-            query_for_search = question
-        RAG_STAGE_DURATION.labels("condense").observe(time.monotonic() - t0)
+    async def _handle_cache_hit(
+        self, cached: dict, q_hash: str, t_pipeline_start: float
+    ) -> AsyncIterator[StreamEvent]:
+        RAG_CACHE_HITS_TOTAL.inc()
+        log.info("Cache hit for question hash=%s", q_hash[:12])
+        answer_text = cached["answer"]
+        yield TextChunk(text=answer_text)
+        record_rag_answer(
+            breadth=Breadth.NARROW.value, answer=answer_text, retrieved_count=0, avg_similarity=0.0
+        )
+        RAG_STAGE_DURATION.labels("total").observe(time.monotonic() - t_pipeline_start)
+        yield SourcesEvent(sources=cached["sources"], confidence=None)
 
-        # --- Semantic answer cache ---
-        vis_hash = compute_visibility_scope_hash(ctx.user_kind, ctx.user_group_ids, ctx.assigned_client_ids)
-        q_hash = compute_question_hash(query_for_search)
-        if rag.cache_enabled:
-            t0 = time.monotonic()
-            cached = await find_cached_answer(q_hash, vis_hash)
-            RAG_STAGE_DURATION.labels("cache_lookup").observe(time.monotonic() - t0)
-            if cached is not None:
-                RAG_CACHE_HITS_TOTAL.inc()
-                log.info("Cache hit for question hash=%s", q_hash[:12])
-                answer_text = cached["answer"]
-                yield TextChunk(text=answer_text)
-                record_rag_answer(breadth="narrow", answer=answer_text, retrieved_count=0, avg_similarity=0.0)
-                RAG_STAGE_DURATION.labels("total").observe(time.monotonic() - t_pipeline_start)
-                yield SourcesEvent(sources=cached["sources"], confidence=None)
-                return
-            RAG_CACHE_MISSES_TOTAL.inc()
-
-        # --- Query decomposition ---
-        sub_queries = [query_for_search]
-        if rag.decomposition_enabled and needs_decomposition(query_for_search):
-            t0 = time.monotonic()
-            sub_queries = await decompose_question(get_llm(), query_for_search)
-            RAG_STAGE_DURATION.labels("decompose").observe(time.monotonic() - t0)
-            RAG_DECOMPOSED_TOTAL.inc()
-
-        breadth = ctx.depth if ctx.depth in BREADTH_ALIASES else classify_question_breadth(query_for_search)
-        breadth = BREADTH_ALIASES.get(breadth, Breadth(breadth))
-        RAG_BREADTH_TOTAL.labels(breadth=breadth).inc()
-
-        fetch_k = rag.retriever_fetch_k_broad if breadth == Breadth.BROAD else rag.retriever_fetch_k
-        top_k = rag.retriever_top_k_broad if breadth == Breadth.BROAD else rag.retriever_top_k
-
-        # --- Dense/sparse weight boost for exact references ---
-        use_exact_ref_boost = has_exact_reference(query_for_search)
-        effective_dense_weight = rag.dense_weight
-        effective_sparse_weight = rag.sparse_weight
-        if use_exact_ref_boost:
-            effective_sparse_weight = rag.sparse_weight * settings.exact_ref_sparse_boost
-
-        # --- Query-time domain classification + soft-priority retrieval ---
-        query_domain = classify_query_domain(query_for_search)
-        candidates: list[LCDocument] = []
-
-        if query_domain == "legal":
-            legal_filter = with_domain_filter(access_filter, "legal")
+    async def _run_retrieval(
+        self,
+        query_for_search: str,
+        fetch_k: int,
+        access_filter,
+        rag: RagSettings,
+        breadth: Breadth,
+        query_domain: str,
+        effective_dense_weight: float,
+        effective_sparse_weight: float,
+    ) -> list[LCDocument]:
+        if query_domain == DocDomain.LEGAL.value:
+            legal_filter = with_domain_filter(access_filter, DocDomain.LEGAL.value)
             candidates = await _run_hybrid_search(
                 query_for_search,
                 fetch_k,
                 legal_filter,
                 rag,
+                ml_clients=self._ml,
                 dense_weight=effective_dense_weight,
                 sparse_weight=effective_sparse_weight,
             )
-
-            # Fallback check: if legal-filtered search returned nothing or very weak results
-            fallback_needed = not candidates
-            if fallback_needed:
+            if not candidates:
                 log.info("Legal-filtered retrieval returned 0 candidates — fallback on entire corpus")
                 candidates = await _run_hybrid_search(
                     query_for_search,
                     fetch_k,
                     access_filter,
                     rag,
+                    ml_clients=self._ml,
                     dense_weight=effective_dense_weight,
                     sparse_weight=effective_sparse_weight,
                 )
@@ -301,91 +289,306 @@ class RagService:
                 fetch_k,
                 access_filter,
                 rag,
+                ml_clients=self._ml,
                 dense_weight=effective_dense_weight,
                 sparse_weight=effective_sparse_weight,
             )
+        return candidates
+
+    async def _apply_exact_search(
+        self,
+        query_for_search: str,
+        candidates: list[LCDocument],
+        user: dict,
+        ctx: ChatContext,
+    ) -> None:
+        if self._chunk_search is None:
+            return
+        try:
+            exact_results = await self._chunk_search.search_substring(
+                query=query_for_search,
+                user=user,
+                group_ids=ctx.user_group_ids,
+                limit=5,
+                mode=SearchMode.EXACT.value,
+            )
+            if exact_results:
+                existing_hashes = {content_hash(d.page_content) for d in candidates}
+                for r in exact_results:
+                    h = content_hash(r.content)
+                    if h not in existing_hashes:
+                        candidates.append(
+                            LCDocument(
+                                page_content=r.content,
+                                metadata={
+                                    "source": r.filename,
+                                    "document_id": r.document_id,
+                                },
+                            )
+                        )
+                        existing_hashes.add(h)
+                log.info("Exact-search added %d additional candidates", len(exact_results))
+        except Exception as e:
+            log.warning("Exact-search failed: %s", e)
+
+    async def _handle_relevance_gate(
+        self,
+        query_for_search: str,
+        docs: list,
+        breadth: Breadth,
+        t_pipeline_start: float,
+        rag: RagSettings,
+    ) -> bool:
+        """Check relevance gate. Returns True if relevant, False if rejected."""
+        if not rag.relevance_gate_enabled:
+            return True
+        t0 = time.monotonic()
+        is_relevant, reason = await check_relevance(self._ml.llm(), query_for_search, docs)
+        RAG_STAGE_DURATION.labels("relevance_gate").observe(time.monotonic() - t0)
+        if not is_relevant:
+            RAG_RELEVANCE_GATE_TOTAL.labels(result="rejected").inc()
+            log.info("Relevance gate: rejected (%s)", reason)
+            return False
+        RAG_RELEVANCE_GATE_TOTAL.labels(result="passed").inc()
+        return True
+
+    async def _apply_legal_rerank_fallback(
+        self,
+        query_for_search: str,
+        access_filter,
+        rag: RagSettings,
+        top_k: int,
+        docs: list,
+    ) -> list:
+        if docs:
+            return docs
+        log.info("Legal query got no docs after rerank — fallback on entire corpus with rerank")
+        fallback_candidates = await _run_hybrid_search(
+            query_for_search, rag.retriever_fetch_k, access_filter, rag, ml_clients=self._ml
+        )
+        return await rerank_documents(
+            query_for_search,
+            fallback_candidates,
+            top_n=top_k,
+            reranker=self._ml.reranker(),
+            min_score=rag.rerank_min_score,
+            score_gap_ratio=rag.rerank_score_gap_ratio,
+        )
+
+    async def _store_answer_cache(
+        self,
+        docs: list,
+        query_for_search: str,
+        q_hash: str,
+        vis_hash: str,
+        full_answer: str,
+        sources: list[dict],
+    ) -> None:
+        doc_ids = []
+        for doc, _score in docs:
+            did = doc.metadata.get("document_id")
+            if did is not None:
+                doc_ids.append(did)
+        await store_cached_answer(
+            question_text=query_for_search,
+            question_hash=q_hash,
+            answer=full_answer,
+            sources=sources,
+            visibility_scope_hash=vis_hash,
+            document_ids=doc_ids,
+        )
+
+    async def _maybe_decompose(self, rag: RagSettings, query_for_search: str) -> None:
+        if rag.decomposition_enabled and needs_decomposition(query_for_search):
+            t0 = time.monotonic()
+            await decompose_question(self._ml.llm(), query_for_search)
+            RAG_STAGE_DURATION.labels("decompose").observe(time.monotonic() - t0)
+            RAG_DECOMPOSED_TOTAL.inc()
+
+    def _resolve_breadth(self, ctx: ChatContext, query_for_search: str) -> Breadth:
+        breadth = ctx.depth if ctx.depth in BREADTH_ALIASES else classify_question_breadth(query_for_search)
+        breadth = BREADTH_ALIASES.get(breadth) or breadth
+        RAG_BREADTH_TOTAL.labels(breadth=breadth).inc()
+        return breadth
+
+    def _compute_effective_weights(
+        self, rag: RagSettings, query_for_search: str
+    ) -> tuple[float, float, bool]:
+        use_exact_ref_boost = has_exact_reference(query_for_search)
+        effective_dense_weight = rag.dense_weight
+        effective_sparse_weight = rag.sparse_weight
+        if use_exact_ref_boost:
+            effective_sparse_weight = rag.sparse_weight * settings.exact_ref_sparse_boost
+        return effective_dense_weight, effective_sparse_weight, use_exact_ref_boost
+
+    def _resolve_fetch_top_k(self, rag: RagSettings, breadth: Breadth) -> tuple[int, int]:
+        fetch_k = rag.retriever_fetch_k_broad if breadth == Breadth.BROAD else rag.retriever_fetch_k
+        top_k = rag.retriever_top_k_broad if breadth == Breadth.BROAD else rag.retriever_top_k
+        return fetch_k, top_k
+
+    async def _check_cache(
+        self,
+        rag: RagSettings,
+        q_hash: str,
+        vis_hash: str,
+        t_pipeline_start: float,
+    ) -> dict | None:
+        if not rag.cache_enabled:
+            return None
+        t0 = time.monotonic()
+        cached = await find_cached_answer(q_hash, vis_hash)
+        RAG_STAGE_DURATION.labels("cache_lookup").observe(time.monotonic() - t0)
+        if cached is None:
+            RAG_CACHE_MISSES_TOTAL.inc()
+            return None
+        return cached
+
+    def _apply_citation_filter(
+        self, rag: RagSettings, full_answer: str, sources: list[dict]
+    ) -> list[dict]:
+        """Filter sources to only those cited in the LLM answer."""
+        if not rag.citation_filter_enabled:
+            return sources
+        return filter_cited_sources(full_answer, sources)
+
+    async def _reject_not_relevant(
+        self,
+        breadth: Breadth,
+        docs: list,
+        avg_sim: float,
+        t_pipeline_start: float,
+    ) -> AsyncIterator[StreamEvent]:
+        """Yield a rejection message when relevance gate fails."""
+        yield TextChunk(
+            text="К сожалению, я не нашёл релевантной информации "
+            "в загруженных документах для ответа на ваш вопрос."
+        )
+        record_rag_answer(
+            breadth=breadth.value,
+            answer="",
+            retrieved_count=len(docs),
+            avg_similarity=avg_sim,
+        )
+        RAG_STAGE_DURATION.labels("total").observe(time.monotonic() - t_pipeline_start)
+        yield SourcesEvent(sources=[], confidence=None)
+
+    async def _post_rerank_adjustments(
+        self,
+        docs: list,
+        query_domain: str,
+        query_for_search: str,
+        fetch_k: int,
+        top_k: int,
+        access_filter,
+        rag: RagSettings,
+    ) -> list:
+        if query_domain == "legal":
+            docs = await self._apply_legal_rerank_fallback(
+                query_for_search,
+                access_filter,
+                rag,
+                top_k,
+                docs,
+            )
+        return docs
+
+    async def stream(
+        self,
+        question: str,
+        history: list,
+        ctx: ChatContext,
+    ) -> AsyncIterator[StreamEvent]:
+        rag = _build_rag_settings()
+        t_pipeline_start = time.monotonic()
+
+        user = {"id": ctx.user_id, "kind": ctx.user_kind}
+        access_filter = build_qdrant_filter(user, ctx.user_group_ids)
+
+        history_dicts = self._prepare_history_dicts(history)
+        history_messages = history_to_messages(history_dicts)
+
+        t0 = time.monotonic()
+        if rag.condense_enabled:
+            query_for_search = await condense_question(self._ml.llm(), question, history_messages)
+        else:
+            query_for_search = question
+        RAG_STAGE_DURATION.labels("condense").observe(time.monotonic() - t0)
+
+        # --- Semantic answer cache ---
+        vis_hash = compute_visibility_scope_hash(ctx.user_kind, ctx.user_group_ids)
+        q_hash = compute_question_hash(query_for_search)
+        cached = await self._check_cache(rag, q_hash, vis_hash, t_pipeline_start)
+        if cached is not None:
+            async for event in self._handle_cache_hit(cached, q_hash, t_pipeline_start):
+                yield event
+            return
+
+        # --- Query decomposition ---
+        await self._maybe_decompose(rag, query_for_search)
+
+        breadth = self._resolve_breadth(ctx, query_for_search)
+
+        fetch_k, top_k = self._resolve_fetch_top_k(rag, breadth)
+
+        # --- Dense/sparse weight boost for exact references ---
+        effective_dense_weight, effective_sparse_weight, use_exact_ref_boost = (
+            self._compute_effective_weights(rag, query_for_search)
+        )
+
+        # --- Query-time domain classification + soft-priority retrieval ---
+        query_domain = classify_query_domain(query_for_search)
+
+        candidates = await self._run_retrieval(
+            query_for_search,
+            fetch_k,
+            access_filter,
+            rag,
+            breadth,
+            query_domain,
+            effective_dense_weight,
+            effective_sparse_weight,
+        )
 
         # --- Exact-search integration (pg_trgm) for queries with structural references ---
-        if use_exact_ref_boost and self._chunk_search is not None:
-            try:
-                exact_results = await self._chunk_search.search_substring(
-                    query=query_for_search,
-                    user=user,
-                    group_ids=ctx.user_group_ids,
-                    assigned_client_ids=ctx.assigned_client_ids,
-                    limit=5,
-                    mode="exact",
-                )
-                if exact_results:
-                    existing_hashes = {content_hash(d.page_content) for d in candidates}
-                    for r in exact_results:
-                        h = content_hash(r.content)
-                        if h not in existing_hashes:
-                            candidates.append(
-                                LCDocument(
-                                    page_content=r.content,
-                                    metadata={
-                                        "source": r.filename,
-                                        "document_id": r.document_id,
-                                    },
-                                )
-                            )
-                            existing_hashes.add(h)
-                    log.info("Exact-search added %d additional candidates", len(exact_results))
-            except Exception as e:
-                log.warning("Exact-search failed: %s", e)
+        if use_exact_ref_boost:
+            await self._apply_exact_search(query_for_search, candidates, user, ctx)
 
         # --- Reranking ---
         t0 = time.monotonic()
         docs = await rerank_documents(
             query_for_search,
-            all_candidates,
+            candidates,
             top_n=top_k,
-            reranker=get_reranker(),
+            reranker=self._ml.reranker(),
             min_score=rag.rerank_min_score,
             score_gap_ratio=rag.rerank_score_gap_ratio,
         )
         RAG_STAGE_DURATION.labels("rerank").observe(time.monotonic() - t0)
 
         # --- Post-rerank fallback: if legal query got nothing useful after rerank ---
-        if query_domain == "legal" and not docs:
-            log.info("Legal query got no docs after rerank — fallback on entire corpus with rerank")
-            fallback_candidates = await _run_hybrid_search(query_for_search, fetch_k, access_filter, rag)
-            docs = await rerank_documents(
-                query_for_search,
-                fallback_candidates,
-                top_n=top_k,
-                reranker=get_reranker(),
-                min_score=rag.rerank_min_score,
-                score_gap_ratio=rag.rerank_score_gap_ratio,
-            )
+        docs = await self._post_rerank_adjustments(
+            docs,
+            query_domain,
+            query_for_search,
+            fetch_k,
+            top_k,
+            access_filter,
+            rag,
+        )
 
         avg_sim = sum(s for _, s in docs) / len(docs) if docs else 0.0
 
         # --- Relevance gate ---
-        if rag.relevance_gate_enabled:
-            t0 = time.monotonic()
-            is_relevant, reason = await check_relevance(get_llm(), query_for_search, docs)
-            RAG_STAGE_DURATION.labels("relevance_gate").observe(time.monotonic() - t0)
-
-            if not is_relevant:
-                RAG_RELEVANCE_GATE_TOTAL.labels(result="rejected").inc()
-                log.info("Relevance gate: rejected (%s)", reason)
-                not_found_text = "Информация не найдена в документах."
-                yield TextChunk(text=not_found_text)
-                record_rag_answer(
-                    breadth=breadth,
-                    answer=not_found_text,
-                    retrieved_count=len(docs),
-                    avg_similarity=avg_sim,
-                )
-                RAG_STAGE_DURATION.labels("total").observe(time.monotonic() - t_pipeline_start)
-                yield SourcesEvent(sources=[], confidence=0.0)
-                return
-            RAG_RELEVANCE_GATE_TOTAL.labels(result="passed").inc()
+        is_relevant = await self._handle_relevance_gate(
+            query_for_search, docs, breadth, t_pipeline_start, rag
+        )
+        if not is_relevant:
+            async for event in self._reject_not_relevant(breadth, docs, avg_sim, t_pipeline_start):
+                yield event
+            return
 
         # --- Prompt adaptation based on actual context composition ---
-        has_legal_context = any((doc.metadata.get("doc_domain") == "legal") for doc, _ in docs)
+        has_legal_context = any((doc.metadata.get("doc_domain") == DocDomain.LEGAL.value) for doc, _ in docs)
         prompt = build_prompt(breadth, has_legal_context=has_legal_context)
 
         # --- Dynamic context budget ---
@@ -404,7 +607,7 @@ class RagService:
 
         t0 = time.monotonic()
         answer_parts: list[str] = []
-        async for chunk in get_llm_for_breadth(breadth).astream(messages):
+        async for chunk in self._ml.llm_for_breadth(breadth).astream(messages):
             text = chunk.content
             if text:
                 answer_parts.append(text)
@@ -413,11 +616,10 @@ class RagService:
 
         full_answer = "".join(answer_parts)
 
-        if rag.citation_filter_enabled and sources:
-            sources = filter_cited_sources(full_answer, sources)
+        sources = self._apply_citation_filter(rag, full_answer, sources)
 
         record_rag_answer(
-            breadth=breadth,
+            breadth=breadth.value,
             answer=full_answer,
             retrieved_count=len(docs),
             avg_similarity=avg_sim,
@@ -428,18 +630,13 @@ class RagService:
 
         # --- Store in cache ---
         if rag.cache_enabled:
-            doc_ids = []
-            for _, d in docs:
-                did = d.metadata.get("document_id")
-                if did is not None:
-                    doc_ids.append(did)
-            await store_cached_answer(
-                question_text=query_for_search,
-                question_hash=q_hash,
-                answer=full_answer,
-                sources=sources,
-                visibility_scope_hash=vis_hash,
-                document_ids=doc_ids,
+            await self._store_answer_cache(
+                docs,
+                query_for_search,
+                q_hash,
+                vis_hash,
+                full_answer,
+                sources,
             )
 
         yield SourcesEvent(sources=sources, confidence=confidence)
@@ -453,7 +650,7 @@ class RagService:
         answer_parts: list[str] = []
         sources: list[dict] = []
         breadth = Breadth.NARROW
-        domain = "general"
+        domain = DocDomain.GENERAL.value
         retrieval_count = 0
         reranker_score: float | None = None
 

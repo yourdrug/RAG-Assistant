@@ -7,7 +7,8 @@ from datetime import UTC, datetime
 from domain.entities.document import Document
 from domain.services.access_control import get_visibility_conditions
 from domain.value_objects.document_status import DocumentStatus
-from domain.value_objects.roles import UserKind, UserRole
+from domain.value_objects.owner_match import OwnerMatch
+from domain.value_objects.roles import UserKind
 from domain.value_objects.visibility import DocumentVisibility
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -64,7 +65,7 @@ class SQLAlchemyDocumentRepository:
 
         orm.status = status
         orm.error_message = error
-        if status == "done":
+        if status == DocumentStatus.DONE.value:
             orm.warning_message = warning
         if quality_score is not None:
             orm.quality_score = quality_score
@@ -72,7 +73,7 @@ class SQLAlchemyDocumentRepository:
             orm.chunks = chunks
         if chars is not None:
             orm.chars = chars
-        if status == "done":
+        if status == DocumentStatus.DONE.value:
             orm.indexed_at = datetime.now(tz=UTC)
         await self._db.flush()
 
@@ -99,7 +100,14 @@ class SQLAlchemyDocumentRepository:
                 DocumentModel.filename == filename,
                 DocumentModel.owner_id == owner_id,
                 DocumentModel.group_id == group_id,
-                DocumentModel.status.in_(["pending", "processing", "done", "failed"]),
+                DocumentModel.status.in_(
+                    [
+                        DocumentStatus.PENDING.value,
+                        DocumentStatus.PROCESSING.value,
+                        DocumentStatus.DONE.value,
+                        DocumentStatus.FAILED.value,
+                    ]
+                ),
             )
             .order_by(DocumentModel.creation_date.desc())
             .limit(1)
@@ -115,25 +123,19 @@ class SQLAlchemyDocumentRepository:
         user_kind: str,
         user_id: int,
         group_ids: list[int],
-        assigned_client_ids: list[int],
-        user_role: str | None = None,
     ) -> list[Document]:
         conditions = get_visibility_conditions(
             UserKind(user_kind),
             user_id,
             group_ids,
-            assigned_client_ids,
-            user_role=UserRole(user_role) if user_role else None,
         )
 
         or_clauses = []
         for cond in conditions:
             and_parts = [DocumentModel.visibility == cond.visibility.value]
 
-            if cond.owner_match == "self":
+            if cond.owner_match == OwnerMatch.SELF.value:
                 and_parts.append(DocumentModel.owner_id == user_id)
-            elif cond.owner_match == "assigned":
-                and_parts.append(DocumentModel.owner_id.in_(assigned_client_ids))
 
             if cond.group_match:
                 and_parts.append(DocumentModel.group_id.in_(group_ids))
@@ -151,6 +153,33 @@ class SQLAlchemyDocumentRepository:
     async def list_all(self) -> list[Document]:
         result = await self._db.execute(select(DocumentModel).order_by(DocumentModel.creation_date.desc()))
         return [self._to_entity(orm) for orm in result.scalars().all()]
+
+    async def set_has_manual_edits(self, document_id: int, value: bool) -> None:
+        result = await self._db.execute(select(DocumentModel).where(DocumentModel.id == document_id))
+        orm = result.scalar_one_or_none()
+        if orm:
+            orm.has_manual_edits = value
+            await self._db.flush()
+
+    async def update_chunk_stats(self, document_id: int, chunks: int, chars: int) -> None:
+        result = await self._db.execute(select(DocumentModel).where(DocumentModel.id == document_id))
+        orm = result.scalar_one_or_none()
+        if orm:
+            orm.chunks = chunks
+            orm.chars = chars
+            await self._db.flush()
+
+    async def list_distinct_filenames(self, search: str | None = None, limit: int = 100) -> list[str]:
+        from sqlalchemy import distinct
+
+        stmt = select(distinct(DocumentModel.filename)).where(
+            DocumentModel.status == DocumentStatus.DONE.value
+        )
+        if search:
+            stmt = stmt.where(DocumentModel.filename.ilike(f"%{search}%"))
+        stmt = stmt.order_by(DocumentModel.filename).limit(limit)
+        result = await self._db.execute(stmt)
+        return [row[0] for row in result.all() if row[0]]
 
     @staticmethod
     def _to_entity(orm: DocumentModel) -> Document:

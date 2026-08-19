@@ -1,7 +1,6 @@
-"""
-Тесты для чистой логики domain/rag.py: форматирование контекста, извлечение
-источников, конвертация истории и реранк (с замоканным CrossEncoder — без
-реальной загрузки bge-reranker-v2-m3).
+"""Tests for domain/rag.py pure logic: formatting, sources, history, reranking.
+
+Uses mocked CrossEncoder -- no real model loading.
 """
 
 import asyncio

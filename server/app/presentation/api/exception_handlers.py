@@ -1,7 +1,4 @@
-"""
-presentation/api/exception_handlers.py
-
-Unified exception handlers for FastAPI — KinTree-style with Client/Server split.
+"""Unified exception handlers for FastAPI — KinTree-style with Client/Server split.
 
 Principles:
 - Single mapping: exception_type → status_code, not scattered across functions.

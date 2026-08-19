@@ -12,17 +12,20 @@ import logging
 import time
 from collections.abc import AsyncIterator
 
-from config import settings
 from domain.entities.chat_log import ChatLog
 from domain.entities.message import Message
 from domain.value_objects.chat_context import ChatContext
+from domain.value_objects.doc_domain import DocDomain
+from domain.value_objects.llm_provider import Breadth
 from domain.value_objects.message_role import MessageRole
 from domain.value_objects.roles import UserKind
 from domain.value_objects.stream_events import MetaEvent, SourcesEvent, StreamEvent, TextChunk
 
 from application.dto.chat_dto import ChatResult
+from application.ports.chat_rag_port import ChatRAGPort
+from application.ports.chat_settings import ChatSettingsPort
+from application.ports.chat_support import RollingSummaryUpdaterPort
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
-from application.services.chat_rag_port import ChatRAGPort
 
 log = logging.getLogger(__name__)
 
@@ -32,52 +35,113 @@ class ChatService:
         self,
         uow_factory: UnitOfWorkFactory,
         rag_service: ChatRAGPort,
-        history_window: int = 8,
+        chat_settings: ChatSettingsPort,
+        summary_updater: RollingSummaryUpdaterPort | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._rag_service = rag_service
-        self._history_window = history_window
+        self._settings = chat_settings
+        self._summary_updater = summary_updater
+        self._background_tasks: set[asyncio.Task] = set()  # type: ignore[type-arg]
 
-    async def _get_user_context(self, user_id: int, user_kind: str) -> tuple[list[int], list[int]]:
+    # ------------------------------------------------------------------
+    # Managed background tasks
+    # ------------------------------------------------------------------
+
+    def _spawn_background(self, coro) -> None:
+        """Spawn a background task with proper lifecycle tracking."""
+        task = asyncio.create_task(coro)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+
+    async def shutdown(self) -> None:
+        """Cancel all background tasks and wait for completion."""
+        for t in self._background_tasks:
+            t.cancel()
+        await asyncio.gather(*self._background_tasks, return_exceptions=True)
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    async def _get_user_context(self, user_id: int, user_kind: str) -> list[int]:
         async with self._uow_factory.create() as uow:
             if user_kind == UserKind.CLIENT:
-                return [], []
+                return []
             group_ids = await uow.groups.get_user_group_ids(user_id)
-            assigned_ids = await uow.client_assignments.get_assigned_client_ids(user_id)
-            return group_ids or [], assigned_ids or []
+            return group_ids or []
 
-    async def _save_chat_log(
-        self,
+    # ------------------------------------------------------------------
+    # Streaming chat
+    # ------------------------------------------------------------------
+
+    async def _save_user_message(self, conv_id: int, question: str) -> None:
+        async with self._uow_factory.create(master=True) as uow:
+            user_msg = Message(
+                conversation_id=conv_id,
+                role=MessageRole.USER,
+                content=question,
+            )
+            await uow.messages.save(user_msg)
+
+    @staticmethod
+    def _compute_reranker_score(sources: list[dict]) -> float | None:
+        if not sources:
+            return None
+        scores = [s.get("max_score", 0) for s in sources if isinstance(s, dict)]
+        return max(scores) if scores else None
+
+    @staticmethod
+    def _build_chat_log(
+        *,
         user_id: int,
-        conversation_id: int,
+        conv_id: int,
         question: str,
-        answer: str,
+        full_answer: str,
         sources: list[dict],
         latency_ms: int,
-        breadth: str,
-        domain: str,
+        depth: str | None,
         retrieval_count: int,
         reranker_score: float | None,
-        model_used: str | None,
+    ) -> ChatLog:
+        return ChatLog(
+            user_id=user_id,
+            conversation_id=conv_id,
+            question=question,
+            answer=full_answer,
+            sources=sources,
+            latency_ms=latency_ms,
+            model_used=None,
+            breadth=depth or Breadth.NARROW.value,
+            domain=DocDomain.GENERAL.value,
+            retrieval_count=retrieval_count,
+            reranker_score=reranker_score,
+        )
+
+    async def _handle_rolling_summary(
+        self, conv_id: int, question: str, full_answer: str, history: list
     ) -> None:
-        try:
-            chat_log = ChatLog(
-                user_id=user_id,
-                conversation_id=conversation_id,
-                question=question,
-                answer=answer,
-                sources=sources,
-                latency_ms=latency_ms,
-                model_used=model_used,
-                breadth=breadth,
-                domain=domain,
-                retrieval_count=retrieval_count,
-                reranker_score=reranker_score,
-            )
-            async with self._uow_factory.create(master=True) as uow:
-                await uow.chat_logs.save(chat_log)
-        except Exception:
-            log.exception("Failed to save chat log")
+        if not (self._settings.rolling_summary_enabled and len(history) >= self._settings.history_window):
+            return
+        recent_turns = [
+            {"role": "user", "content": question},
+            {"role": "assistant", "content": full_answer},
+        ]
+        updater = self._summary_updater
+
+        async def _bg_update_summary() -> None:
+            try:
+                async with self._uow_factory.create(master=True) as uow:
+                    conv_model = await uow.conversations.get(conv_id)
+                    if conv_model is not None and updater is not None:
+                        existing = getattr(conv_model, "summary", None)
+                        new_summary = await updater.update(existing, recent_turns)
+                        conv_model.summary = new_summary
+                        await uow.conversations.save(conv_model)
+            except Exception:
+                log.exception("Failed to update rolling summary for conv %d", conv_id)
+
+        self._spawn_background(_bg_update_summary())
 
     async def stream_chat(
         self,
@@ -88,19 +152,18 @@ class ChatService:
         user_role: str,
         depth: str | None = None,
     ) -> AsyncIterator[StreamEvent]:
-        group_ids, assigned_ids = await self._get_user_context(user_id, user_kind)
+        group_ids = await self._get_user_context(user_id, user_kind)
         ctx = ChatContext(
             user_id=user_id,
             user_kind=user_kind,
             user_group_ids=group_ids,
-            assigned_client_ids=assigned_ids,
             depth=depth,
         )
 
-        async with self._uow_factory.create() as uow:
+        # UoW 1: get/create conversation + history (get_or_create may INSERT)
+        async with self._uow_factory.create(master=True) as uow:
             conv = await uow.conversations.get_or_create(conversation_id, user_id)
-
-            history = await uow.messages.get_history(conv.id, window=self._history_window)
+            history = await uow.messages.get_history(conv.id, window=self._settings.history_window)
             if history and history[-1].role == MessageRole.USER:
                 history = history[:-1]
 
@@ -121,20 +184,18 @@ class ChatService:
             elif isinstance(event, TextChunk):
                 if not user_msg_saved:
                     user_msg_saved = True
-                    async with self._uow_factory.create() as uow:
-                        user_msg = Message(
-                            conversation_id=conv.id,
-                            role=MessageRole.USER,
-                            content=question,
-                        )
-                        await uow.messages.save(user_msg)
+                    await self._save_user_message(conv.id, question)
 
                 full_answer += event.text
                 yield event
 
         latency_ms = int((time.monotonic() - t_start) * 1000)
 
-        async with self._uow_factory.create() as uow:
+        # UoW 2: atomic — save assistant message + chat log together
+        retrieval_count = len(sources)
+        reranker_score = self._compute_reranker_score(sources)
+
+        async with self._uow_factory.create(master=True) as uow:
             msg_sources = list(sources) if sources else None
             if confidence is not None and msg_sources is not None:
                 msg_sources = list(msg_sources)
@@ -147,53 +208,26 @@ class ChatService:
             )
             await uow.messages.save(assistant_msg)
 
-        # Save chat log for quality tracking
-        retrieval_count = len(sources)
-        reranker_score = None
-        if sources:
-            scores = [s.get("max_score", 0) for s in sources if isinstance(s, dict)]
-            reranker_score = max(scores) if scores else None
+            chat_log = self._build_chat_log(
+                user_id=user_id,
+                conv_id=conv.id,
+                question=question,
+                full_answer=full_answer,
+                sources=sources,
+                latency_ms=latency_ms,
+                depth=depth,
+                retrieval_count=retrieval_count,
+                reranker_score=reranker_score,
+            )
+            await uow.chat_logs.save(chat_log)
 
-        await self._save_chat_log(
-            user_id=user_id,
-            conversation_id=conv.id,
-            question=question,
-            answer=full_answer,
-            sources=sources,
-            latency_ms=latency_ms,
-            breadth=depth or "narrow",
-            domain="general",
-            retrieval_count=retrieval_count,
-            reranker_score=reranker_score,
-            model_used=None,
-        )
-
-        # Rolling summary: fire-and-forget when history exceeds window
-        if settings.rolling_summary_enabled and len(history) >= self._history_window:
-            recent_turns = [
-                {"role": "user", "content": question},
-                {"role": "assistant", "content": full_answer},
-            ]
-            conv_id = conv.id
-
-            async def _bg_update_summary() -> None:
-                try:
-                    from infrastructure.clients import get_llm
-                    from infrastructure.ml.rag import update_rolling_summary
-
-                    async with self._uow_factory.create() as uow:
-                        conv_model = await uow.conversations.get(conv_id)
-                        if conv_model is not None:
-                            existing = getattr(conv_model, "summary", None)
-                            new_summary = await update_rolling_summary(get_llm(), existing, recent_turns)
-                            conv_model.summary = new_summary
-                            await uow.conversations.save(conv_model)
-                except Exception:
-                    log.exception("Failed to update rolling summary for conv %d", conv_id)
-
-            asyncio.create_task(_bg_update_summary())
+        await self._handle_rolling_summary(conv.id, question, full_answer, history)
 
         yield MetaEvent(conversation_id=conv.id, sources=sources, confidence=confidence)
+
+    # ------------------------------------------------------------------
+    # Synchronous chat
+    # ------------------------------------------------------------------
 
     async def sync_chat(
         self,
@@ -204,30 +238,22 @@ class ChatService:
         user_role: str,
         depth: str | None = None,
     ) -> ChatResult:
-        group_ids, assigned_ids = await self._get_user_context(user_id, user_kind)
+        group_ids = await self._get_user_context(user_id, user_kind)
         ctx = ChatContext(
             user_id=user_id,
             user_kind=user_kind,
             user_group_ids=group_ids,
-            assigned_client_ids=assigned_ids,
             depth=depth,
         )
 
-        async with self._uow_factory.create() as uow:
+        # UoW 1: get/create conversation + history (get_or_create may INSERT)
+        async with self._uow_factory.create(master=True) as uow:
             conv = await uow.conversations.get_or_create(conversation_id, user_id)
-
-            if len(question.strip()) >= 3:
-                user_msg = Message(
-                    conversation_id=conv.id,
-                    role=MessageRole.USER,
-                    content=question,
-                )
-                await uow.messages.save(user_msg)
-
-            history = await uow.messages.get_history(conv.id, window=self._history_window)
+            history = await uow.messages.get_history(conv.id, window=self._settings.history_window)
             if history and history[-1].role == MessageRole.USER:
                 history = history[:-1]
 
+        # I/O: call LLM (no transaction needed)
         t_start = time.monotonic()
         rag_result = await self._rag_service.invoke(
             question=question,
@@ -236,7 +262,16 @@ class ChatService:
         )
         latency_ms = int((time.monotonic() - t_start) * 1000)
 
-        async with self._uow_factory.create() as uow:
+        # UoW 2: atomic — save user msg + assistant msg + chat log together
+        async with self._uow_factory.create(master=True) as uow:
+            if len(question.strip()) >= 3:
+                user_msg = Message(
+                    conversation_id=conv.id,
+                    role=MessageRole.USER,
+                    content=question,
+                )
+                await uow.messages.save(user_msg)
+
             assistant_msg = Message(
                 conversation_id=conv.id,
                 role=MessageRole.ASSISTANT,
@@ -245,19 +280,19 @@ class ChatService:
             )
             await uow.messages.save(assistant_msg)
 
-        # Save chat log for quality tracking
-        await self._save_chat_log(
-            user_id=user_id,
-            conversation_id=conv.id,
-            question=question,
-            answer=rag_result.answer,
-            sources=rag_result.sources,
-            latency_ms=latency_ms,
-            breadth=rag_result.breadth,
-            domain=rag_result.domain,
-            retrieval_count=rag_result.retrieval_count,
-            reranker_score=rag_result.reranker_score,
-            model_used=rag_result.model_used,
-        )
+            chat_log = ChatLog(
+                user_id=user_id,
+                conversation_id=conv.id,
+                question=question,
+                answer=rag_result.answer,
+                sources=rag_result.sources,
+                latency_ms=latency_ms,
+                model_used=rag_result.model_used,
+                breadth=rag_result.breadth,
+                domain=rag_result.domain,
+                retrieval_count=rag_result.retrieval_count,
+                reranker_score=rag_result.reranker_score,
+            )
+            await uow.chat_logs.save(chat_log)
 
         return ChatResult(answer=rag_result.answer, conversation_id=conv.id, sources=rag_result.sources)

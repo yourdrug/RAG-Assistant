@@ -4,6 +4,13 @@ Provides ``DatabaseManager`` with separate read/write async engines,
 session factories, and convenience helpers (``fetch_all``, ``fetch_one``,
 ``execute``).  The module-level ``database`` singleton is the primary
 entry point used throughout the application.
+
+Lifecycle:
+  - Created at import time (module-level assignment)
+  - ``connect()`` called in FastAPI ``lifespan()``
+  - ``disconnect()`` called in FastAPI ``lifespan()`` shutdown
+  - Application-scoped: one instance per process
+  - Sessions are per-request: ``get_session()`` creates a fresh ``AsyncSession``
 """
 
 from logging import (
@@ -323,7 +330,9 @@ class DatabaseManager:
         for slave_node in slaves_to_connect:
             await slave_node.connect()
             logger.info(
-                f"Connected to slave database. Role: {slave_node.get_role()}; Number: {slave_node.get_number()};"
+                "Connected to slave database. Role: %s; Number: %s;",
+                slave_node.get_role(),
+                slave_node.get_number(),
             )
 
         logger.info(f"Database environment: {'CLUSTER' if self.is_cluster else 'SINGLE NODE'}")
@@ -342,7 +351,9 @@ class DatabaseManager:
         for slave_node in slaves_to_disconnect:
             await slave_node.disconnect()
             logger.info(
-                f"Disconnected from slave database. Role: {slave_node.get_role()}; Number: {slave_node.get_number()};"
+                "Disconnected from slave database. Role: %s; Number: %s;",
+                slave_node.get_role(),
+                slave_node.get_number(),
             )
 
         if self.master_node:

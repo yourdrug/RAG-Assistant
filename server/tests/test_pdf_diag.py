@@ -1,5 +1,5 @@
-"""
-Tests for domain/pdf_diag.py — page classification, garbled detection, chunking.
+"""Tests for domain/pdf_diag.py -- page classification, garbled detection, chunking.
+
 Mock fitz at module level before importing.
 """
 

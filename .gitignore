@@ -27,3 +27,7 @@ server/app/results/
 
 # Mimocode
 .mimocode/
+
+# coverage
+server/.coverage
+server/.coverage_report

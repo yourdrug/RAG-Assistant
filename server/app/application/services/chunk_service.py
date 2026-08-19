@@ -9,17 +9,21 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 
-from config import settings
 from domain.entities.document import Document
 from domain.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
 from domain.repositories.vector_store_repository import VectorStoreRepository
-from domain.services.access_control import can_view_document, validate_document_visibility
+from domain.services.access_control import (
+    compute_owner_and_group,
+    validate_document_visibility,
+)
+from domain.utils import content_hash
 from domain.value_objects.document_status import DocumentStatus
 from domain.value_objects.roles import UserKind, UserRole
 from domain.value_objects.visibility import DocumentVisibility
-from infrastructure.ml.hybrid import content_hash
 
 from application.dto.document_dto import DocumentDTO
+from application.services.document_service import check_document_access, _to_document_dto
+from application.ports.chunk_settings import ChunkSettingsPort
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
 
 log = logging.getLogger(__name__)
@@ -30,9 +34,15 @@ class ChunkService:
         self,
         uow_factory: UnitOfWorkFactory,
         vector_store_repo: VectorStoreRepository,
+        chunk_settings: ChunkSettingsPort,
+        chunk_min_len_ratio: float = 0.3,
+        chunk_max_len_ratio: float = 2.0,
     ) -> None:
         self._uow_factory = uow_factory
         self._vector_store = vector_store_repo
+        self._settings = chunk_settings
+        self._chunk_min_len_ratio = chunk_min_len_ratio
+        self._chunk_max_len_ratio = chunk_max_len_ratio
 
     async def list_chunks(
         self,
@@ -49,51 +59,13 @@ class ChunkService:
             if doc is None:
                 raise EntityNotFound("Document", document_id)
 
-            user_group_ids = (
-                await uow.groups.get_user_group_ids(user_id) if user_kind == UserKind.INTERNAL else []
-            )
-            assigned_ids = (
-                await uow.client_assignments.get_assigned_client_ids(user_id)
-                if user_kind == UserKind.INTERNAL
-                else []
-            )
+            await check_document_access(uow, doc, user_id, user_kind, user_role)
 
-            if not can_view_document(
-                doc_visibility=doc.visibility,
-                doc_owner_id=doc.owner_id,
-                doc_group_id=doc.group_id,
-                user_kind=user_kind,
-                user_id=user_id,
-                user_group_ids=user_group_ids,
-                assigned_client_ids=assigned_ids,
-                user_role=user_role,
-            ):
-                raise BusinessRuleViolation("No access to this document")
-
-            from infrastructure.database.models import ChunkModel
-            from sqlalchemy import func, select
-
-            # Get total count
-            count_stmt = (
-                select(func.count()).select_from(ChunkModel).where(ChunkModel.document_id == document_id)
-            )
-            total_result = await uow._session.execute(count_stmt)
-            total = total_result.scalar() or 0
-
-            # Get chunks with pagination
-            stmt = (
-                select(ChunkModel)
-                .where(ChunkModel.document_id == document_id)
-                .order_by(ChunkModel.chunk_index)
-                .limit(limit)
-                .offset(offset)
-            )
-            result = await uow._session.execute(stmt)
-            chunks = result.scalars().all()
+            chunks, total = await uow.chunks.list_for_document(document_id, limit=limit, offset=offset)
 
             return [
                 {
-                    "id": c.id,
+                    "id": c.chunk_id,
                     "document_id": c.document_id,
                     "chunk_index": c.chunk_index,
                     "content": c.content,
@@ -121,7 +93,7 @@ class ChunkService:
         """Edit an existing chunk's content with automatic re-embedding."""
         role = UserRole(user_role)
 
-        async with self._uow_factory.create() as uow:
+        async with self._uow_factory.create(master=True) as uow:
             doc = await uow.documents.get_by_id(document_id)
             if doc is None:
                 raise EntityNotFound("Document", document_id)
@@ -136,16 +108,12 @@ class ChunkService:
             if chunk.document_id != document_id:
                 raise BusinessRuleViolation("Chunk does not belong to this document")
 
-            # Validate content length
             self._validate_chunk_content(content)
 
-            # Check for duplicate content
             warning = await self._check_duplicate_content(uow, content, document_id, chunk_id)
 
-            # Generate new embedding
             new_vector = await self._vector_store.generate_embeddings(content)
 
-            # Update Qdrant point (same point_id = chunk.id)
             new_hash = content_hash(content)
             payload = {
                 "page_content": content,
@@ -159,12 +127,8 @@ class ChunkService:
                     "source": doc.filename,
                     "content_hash": new_hash,
                     "doc_domain": doc.doc_domain,
-                    # Preserve page/section from existing chunk metadata if available
                 },
             }
-
-            # Try to get existing metadata from Qdrant to preserve page/section
-            # For now, we'll use the basic metadata
 
             await self._vector_store.upsert_point(
                 point_id=chunk_id,
@@ -172,7 +136,6 @@ class ChunkService:
                 payload=payload,
             )
 
-            # Update Postgres
             now = datetime.now(UTC)
             await uow.chunks.update_content(
                 chunk_id=chunk_id,
@@ -181,10 +144,7 @@ class ChunkService:
                 edited_by=user_id,
             )
 
-            # Update document has_manual_edits flag
-            await self._set_document_has_manual_edits(uow, document_id, True)
-
-            # Update document chars count
+            await uow.documents.set_has_manual_edits(document_id, True)
             await self._update_document_stats(uow, document_id)
 
             log.info(
@@ -219,7 +179,7 @@ class ChunkService:
         """Add a new chunk to an existing document."""
         role = UserRole(user_role)
 
-        async with self._uow_factory.create() as uow:
+        async with self._uow_factory.create(master=True) as uow:
             doc = await uow.documents.get_by_id(document_id)
             if doc is None:
                 raise EntityNotFound("Document", document_id)
@@ -230,17 +190,13 @@ class ChunkService:
             if not doc.can_edit_chunks(user_id, role):
                 raise BusinessRuleViolation("No permission to add chunks for this document")
 
-            # Validate content length
             self._validate_chunk_content(content)
 
-            # Check for duplicate content
             warning = await self._check_duplicate_content(uow, content, document_id)
 
-            # Get next chunk_index
             max_index = await uow.chunks.get_max_chunk_index(document_id)
             next_index = max_index + 1
 
-            # Insert into Postgres
             chunk_id = await uow.chunks.insert_one(
                 document_id=document_id,
                 chunk_index=next_index,
@@ -253,10 +209,8 @@ class ChunkService:
                 manual=True,
             )
 
-            # Generate embedding
             vector = await self._vector_store.generate_embeddings(content)
 
-            # Upsert to Qdrant with chunk.id as point_id
             new_hash = content_hash(content)
             metadata = {
                 "document_id": document_id,
@@ -279,8 +233,7 @@ class ChunkService:
                 payload={"page_content": content, "metadata": metadata},
             )
 
-            # Update document stats
-            await self._set_document_has_manual_edits(uow, document_id, True)
+            await uow.documents.set_has_manual_edits(document_id, True)
             await self._update_document_stats(uow, document_id)
 
             log.info(
@@ -311,7 +264,7 @@ class ChunkService:
         """Delete a single chunk."""
         role = UserRole(user_role)
 
-        async with self._uow_factory.create() as uow:
+        async with self._uow_factory.create(master=True) as uow:
             doc = await uow.documents.get_by_id(document_id)
             if doc is None:
                 raise EntityNotFound("Document", document_id)
@@ -326,13 +279,10 @@ class ChunkService:
             if chunk.document_id != document_id:
                 raise BusinessRuleViolation("Chunk does not belong to this document")
 
-            # Delete from Postgres
             await uow.chunks.delete_one(chunk_id)
 
-            # Delete from Qdrant
             await self._vector_store.delete_by_ids([chunk_id])
 
-            # Update document stats
             await self._update_document_stats(uow, document_id)
 
             log.info(
@@ -356,11 +306,11 @@ class ChunkService:
         user_kind_enum = UserKind(user_kind)
         user_role_enum = UserRole(user_role)
 
-        async with self._uow_factory.create() as uow:
+        async with self._uow_factory.create(master=True) as uow:
             user_group_ids = await uow.groups.get_user_group_ids(user_id)
             validate_document_visibility(vis, group_id, user_kind_enum, user_role_enum, user_group_ids)
 
-            owner_id, effective_group_id = self._compute_owner_and_group(vis, group_id, user_id)
+            owner_id, effective_group_id = compute_owner_and_group(vis, group_id, user_id)
 
             doc = Document(
                 filename=title,
@@ -383,31 +333,16 @@ class ChunkService:
                 title,
             )
 
-            return DocumentDTO(
-                id=saved_doc.id,
-                filename=saved_doc.filename,
-                visibility=saved_doc.visibility,
-                status=saved_doc.status,
-                source_path=saved_doc.source_path,
-                creation_date=saved_doc.creation_date,
-                indexed_at=saved_doc.indexed_at,
-                error_message=saved_doc.error_message,
-                chunks=0,
-                chars=0,
-                owner_id=owner_id,
-                group_id=effective_group_id,
-                source_type="manual",
-            )
+            return _to_document_dto(saved_doc, chunks=0, chars=0, source_type="manual")
 
     def _validate_chunk_content(self, content: str) -> None:
         """Validate chunk content length."""
         if not content or not content.strip():
             raise ValidationError("Chunk content cannot be empty")
 
-        # Get chunk_size from settings (default 550)
-        chunk_size = getattr(settings, "chunk_size", 550)
-        min_len = int(0.3 * chunk_size)
-        max_len = int(2.0 * chunk_size)
+        chunk_size = self._settings.chunk_size
+        min_len = int(self._chunk_min_len_ratio * chunk_size)
+        max_len = int(self._chunk_max_len_ratio * chunk_size)
 
         if len(content) < min_len:
             raise ValidationError(
@@ -431,71 +366,17 @@ class ChunkService:
         exclude_chunk_id: int | None = None,
     ) -> str | None:
         """Check for duplicate content hash. Returns warning message if duplicate found."""
-        from infrastructure.database.models import ChunkModel
-        from sqlalchemy import select
-
         new_hash = content_hash(content)
-
-        # Check within the same document
-        conditions = [ChunkModel.document_id == document_id]
-        if exclude_chunk_id is not None:
-            conditions.append(ChunkModel.id != exclude_chunk_id)
-
-        stmt = select(ChunkModel).where(*conditions)
-        result = await uow._session.execute(stmt)
-        existing_chunks = result.scalars().all()
-
-        for chunk in existing_chunks:
-            if content_hash(chunk.content) == new_hash:
-                return f"Text matches existing chunk #{chunk.id}"
-
+        duplicate = await uow.chunks.find_duplicate_by_hash(
+            document_id=document_id,
+            content_hash=new_hash,
+            exclude_chunk_id=exclude_chunk_id,
+        )
+        if duplicate is not None:
+            return f"Text matches existing chunk #{duplicate.chunk_id}"
         return None
-
-    async def _set_document_has_manual_edits(self, uow, document_id: int, value: bool) -> None:
-        """Set the has_manual_edits flag on a document."""
-        from infrastructure.database.models import DocumentModel
-        from sqlalchemy import select
-
-        stmt = select(DocumentModel).where(DocumentModel.id == document_id)
-        result = await uow._session.execute(stmt)
-        orm = result.scalar_one_or_none()
-        if orm:
-            orm.has_manual_edits = value
-            await uow._session.flush()
 
     async def _update_document_stats(self, uow, document_id: int) -> None:
         """Update document chunks and chars counts."""
-        from infrastructure.database.models import ChunkModel
-        from sqlalchemy import func, select
-
-        # Count chunks and sum chars
-        stmt = select(
-            func.count().label("chunks"),
-            func.coalesce(func.sum(func.length(ChunkModel.content)), 0).label("chars"),
-        ).where(ChunkModel.document_id == document_id)
-        result = await uow._session.execute(stmt)
-        row = result.one()
-
-        # Update document
-        from infrastructure.database.models import DocumentModel
-
-        doc_stmt = select(DocumentModel).where(DocumentModel.id == document_id)
-        doc_result = await uow._session.execute(doc_stmt)
-        doc_orm = doc_result.scalar_one_or_none()
-        if doc_orm:
-            doc_orm.chunks = row.chunks
-            doc_orm.chars = row.chars
-            await uow._session.flush()
-
-    @staticmethod
-    def _compute_owner_and_group(
-        visibility: DocumentVisibility,
-        group_id: int | None,
-        user_id: int,
-    ) -> tuple[int | None, int | None]:
-        """Compute owner_id and group_id based on visibility."""
-        if visibility == DocumentVisibility.INTERNAL_PUBLIC:
-            return None, None
-        if visibility == DocumentVisibility.INTERNAL_GROUP:
-            return None, group_id
-        return user_id, None
+        stats = await uow.chunks.get_document_stats(document_id)
+        await uow.documents.update_chunk_stats(document_id, stats.total_chunks, stats.total_chars)

@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import uuid
-from contextvars import ContextVar
 
+from shared import request_id_ctx
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import Response
-
-request_id_ctx: ContextVar[str] = ContextVar("request_id", default="-")
 
 
 class RequestIDMiddleware(BaseHTTPMiddleware):

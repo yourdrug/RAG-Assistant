@@ -1,14 +1,25 @@
-"""Value objects -- immutable, self-validating domain primitives."""
+"""All domain value objects — re-export for convenience."""
 
-from domain.value_objects.document_status import DocumentStatus
-from domain.value_objects.message_role import MessageRole
-from domain.value_objects.roles import UserKind, UserRole
-from domain.value_objects.visibility import DocumentVisibility
+from domain.value_objects.benchmark_strategy import BenchmarkStrategy
+from domain.value_objects.config_value_type import ConfigValueType
+from domain.value_objects.doc_domain import DocDomain
+from domain.value_objects.file_backend import FileBackend
+from domain.value_objects.health_status import HealthStatus
+from domain.value_objects.job_status import BackgroundJobStatus
+from domain.value_objects.owner_match import OwnerMatch
+from domain.value_objects.page_content_type import PageContentType
+from domain.value_objects.search_mode import SearchMode
+from domain.value_objects.sweep_status import BenchmarkSweepStatus
 
 __all__ = [
-    "UserRole",
-    "UserKind",
-    "DocumentVisibility",
-    "DocumentStatus",
-    "MessageRole",
+    "BackgroundJobStatus",
+    "BenchmarkStrategy",
+    "BenchmarkSweepStatus",
+    "ConfigValueType",
+    "DocDomain",
+    "FileBackend",
+    "HealthStatus",
+    "OwnerMatch",
+    "PageContentType",
+    "SearchMode",
 ]

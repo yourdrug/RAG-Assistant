@@ -1,21 +1,19 @@
-"""Domain utilities -- pure helper functions with no infrastructure dependencies."""
+"""Domain utilities -- pure functions with no infrastructure dependencies."""
 
 from __future__ import annotations
 
-_TRUE_VALUES = frozenset({"true", "1", "yes", "on"})
-_FALSE_VALUES = frozenset({"false", "0", "no", "off"})
+import hashlib
 
 
-def parse_bool(raw: str) -> bool:
-    """Parse a boolean string (case-insensitive).
+def content_hash(text: str) -> str:
+    """Deterministic short hash for deduplication and merge keys."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
-    Accepted truthy: true, 1, yes, on
-    Accepted falsy: false, 0, no, off
-    Raises ValueError for unrecognized values.
-    """
-    lower = raw.lower().strip()
-    if lower in _TRUE_VALUES:
+
+def parse_bool(value: str) -> bool:
+    """Parse a string to boolean, raising ValueError on failure."""
+    if value.lower() in ("true", "1", "yes", "on"):
         return True
-    if lower in _FALSE_VALUES:
+    if value.lower() in ("false", "0", "no", "off"):
         return False
-    raise ValueError(f"Cannot parse {raw!r} as bool")
+    raise ValueError(f"Cannot parse '{value}' as boolean")

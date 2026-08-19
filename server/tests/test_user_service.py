@@ -1,5 +1,5 @@
-"""
-Tests for application/services/auth_service.py — authentication, user creation, toggle.
+"""Tests for application/services/auth_service.py -- authentication, user creation, toggle.
+
 Tests the application service with mocked UoW factory.
 """
 
@@ -39,6 +39,7 @@ def auth_service():
         uow_factory=uow_factory,
         password_hasher=hasher,
         token_provider=token_provider,
+        api_key_provider=MagicMock(),
     ), uow
 
 

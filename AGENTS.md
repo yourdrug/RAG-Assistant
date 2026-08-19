@@ -33,7 +33,7 @@ docker compose exec server python main.py pdf-diag run /code/project/data/docs_s
 
 - **Entry point**: `server/app/main.py` (FastAPI app)
 - **Clean architecture layers**: `server/app/domain/` → `server/app/application/` → `server/app/infrastructure/` → `server/app/presentation/`
-- **CLI**: `server/app/cli/` — typer-based CLI, invoked via `python main.py <command>`
+- **CLI**: `server/app/presentation/cli/` — typer-based CLI, invoked via `python main.py <command>`
 - **Entrypoint**: `server/entrypoint.sh` does `alembic upgrade head`, then `cd app` then `exec "$@"`
 - **API port**: 8001 (not 8000)
 - **DATA_DIR**: defaults to `/code/project/data` inside container; tests use `tests/conftest.py` to set it automatically
@@ -46,7 +46,7 @@ server/app/domain/       ← Business logic (entities, value objects, exceptions
 server/app/application/  ← Services, ports (protocols), DTOs
 server/app/infrastructure/ ← SQLAlchemy, Qdrant, Ollama, S3 implementations
 server/app/presentation/ ← FastAPI routes, middleware, exception handlers
-server/app/cli/          ← CLI commands (runserver, ingest, benchmark, pdf-diag)
+server/app/presentation/cli/  ← CLI commands (runserver, ingest, benchmark, pdf-diag)
 server/app/config.py     ← Pydantic settings (reads server/.env)
 server/app/infrastructure/logging/logging_config.py  ← Logging config dict
 server/tests/            ← pytest tests

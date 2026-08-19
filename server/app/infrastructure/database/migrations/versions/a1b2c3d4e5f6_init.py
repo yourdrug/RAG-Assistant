@@ -20,7 +20,6 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     """Create all tables (mirrors init.sql)."""
-
     op.create_table(
         "users",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
@@ -173,7 +172,6 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Drop all tables in reverse order."""
-
     op.drop_index("idx_api_keys_user_id", table_name="api_keys")
     op.drop_table("api_keys")
     op.drop_index("ux_documents_active_slot", table_name="documents")

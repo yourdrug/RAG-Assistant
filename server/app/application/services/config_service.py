@@ -1,9 +1,8 @@
 """Application service for managing dynamic configuration parameters.
 
-Validates min/max bounds (a business rule, so it lives here, not in the
-router).  ``publish()`` is called *after* exiting the ``async with
-uow_factory.create()`` block, guaranteeing the event fires only after a
-successful commit -- subscribers never see uncommitted values.
+Validates values via the ConfigParameter entity's validate() method.
+``publish_event()`` is called within the UoW block; the infrastructure UoW
+forwards the event to the broadcaster atomically with the transaction commit.
 """
 
 from __future__ import annotations
@@ -11,11 +10,9 @@ from __future__ import annotations
 import logging
 
 from domain.events.config_events import ConfigParameterChanged
-from domain.exceptions import EntityNotFound, ValidationError
+from domain.exceptions import EntityNotFound
 from domain.repositories.config_parameter_repository import ConfigParameter
-from domain.utils import parse_bool
 
-from application.ports.config_broadcaster import ConfigChangeBroadcaster
 from application.ports.event_bus import EventBus
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
 
@@ -27,11 +24,9 @@ class ConfigService:
         self,
         uow_factory: UnitOfWorkFactory,
         event_bus: EventBus,
-        broadcaster: ConfigChangeBroadcaster,
     ) -> None:
         self._uow_factory = uow_factory
         self._bus = event_bus
-        self._broadcaster = broadcaster
 
     async def list_parameters(self) -> list[ConfigParameter]:
         async with self._uow_factory.create() as uow:
@@ -45,7 +40,7 @@ class ConfigService:
             if param is None:
                 raise EntityNotFound("ConfigParameter", key)
 
-            self._validate(param, raw_value)
+            param.validate(raw_value)
             old_value = param.value
             await uow.config_parameters.update_value(key, raw_value)
             param.value = raw_value
@@ -57,33 +52,9 @@ class ConfigService:
                 value_type=param.value_type,
                 changed_by=changed_by,
             )
-            await self._broadcaster.broadcast_within_session(uow.session, event)
+            await uow.publish_event(event)
         # commit + NOTIFY happen atomically here
 
         self._bus.publish(event)
 
         return param
-
-    @staticmethod
-    def _validate(param: ConfigParameter, raw_value: str) -> None:
-        if param.value_type == "bool":
-            try:
-                parse_bool(raw_value)
-            except ValueError:
-                raise ValidationError(f"Value for '{param.key}' must be boolean")
-            return
-        if param.value_type == "str":
-            if param.allowed_values is not None and raw_value not in param.allowed_values:
-                allowed = ", ".join(param.allowed_values)
-                raise ValidationError(f"Value for '{param.key}' must be one of: {allowed}")
-            return
-        if param.value_type not in ("int", "float"):
-            return
-        try:
-            val = int(raw_value) if param.value_type == "int" else float(raw_value)
-        except ValueError as e:
-            raise ValidationError(f"Invalid value for '{param.key}': {e}") from e
-        if param.min_value is not None and val < param.min_value:
-            raise ValidationError(f"Value for '{param.key}' must be >= {param.min_value}")
-        if param.max_value is not None and val > param.max_value:
-            raise ValidationError(f"Value for '{param.key}' must be <= {param.max_value}")

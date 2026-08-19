@@ -1,5 +1,5 @@
-"""
-Tests for domain/rag.py — pure RAG logic: formatting, sources, history, reranking.
+"""Tests for domain/rag.py -- pure RAG logic: formatting, sources, history, reranking.
+
 Complements test_rag_chain.py with additional edge cases.
 """
 
@@ -515,22 +515,22 @@ class TestAnswerCacheHelpers:
     def test_same_scope_same_hash(self):
         from infrastructure.ml.answer_cache import compute_visibility_scope_hash
 
-        h1 = compute_visibility_scope_hash("internal", [1, 2], [3])
-        h2 = compute_visibility_scope_hash("internal", [1, 2], [3])
+        h1 = compute_visibility_scope_hash("internal", [1, 2])
+        h2 = compute_visibility_scope_hash("internal", [1, 2])
         assert h1 == h2
 
     def test_different_scope_different_hash(self):
         from infrastructure.ml.answer_cache import compute_visibility_scope_hash
 
-        h1 = compute_visibility_scope_hash("internal", [1], [])
-        h2 = compute_visibility_scope_hash("client", [1], [])
+        h1 = compute_visibility_scope_hash("internal", [1])
+        h2 = compute_visibility_scope_hash("client", [1])
         assert h1 != h2
 
     def test_different_groups_different_hash(self):
         from infrastructure.ml.answer_cache import compute_visibility_scope_hash
 
-        h1 = compute_visibility_scope_hash("internal", [1, 2], [])
-        h2 = compute_visibility_scope_hash("internal", [1, 3], [])
+        h1 = compute_visibility_scope_hash("internal", [1, 2])
+        h2 = compute_visibility_scope_hash("internal", [1, 3])
         assert h1 != h2
 
     def test_question_hash_deterministic(self):

@@ -1,9 +1,6 @@
-"""
-Tests for pure parsing/cleaning functions from domain/ingestion.py and
-infrastructure/registry.py.
+"""Tests for pure parsing/cleaning functions from domain/ingestion.py and infrastructure/registry.py.
 
-No Qdrant/embeddings/OCR — only text transformations,
-so they run fast without external services.
+No Qdrant/embeddings/OCR -- only text transformations, so they run fast without external services.
 """
 
 import sys

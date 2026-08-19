@@ -1,7 +1,7 @@
-"""
-Tests for access control logic.
-- Domain rules: domain/services/access_control.py
-- Qdrant filter: infrastructure/acl.py
+"""Tests for access control logic.
+
+Domain rules: domain/services/access_control.py
+Qdrant filter: infrastructure/acl.py
 """
 
 import sys
@@ -67,7 +67,7 @@ class TestValidateVisibility:
 
     def test_internal_user_cannot_use_client_private(self):
         uid, kind, role = _internal_user()
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017
             validate_document_visibility(DocumentVisibility.CLIENT_PRIVATE, None, kind, role, [])
 
     def test_client_user_can_use_client_private(self):
@@ -76,12 +76,12 @@ class TestValidateVisibility:
 
     def test_client_user_cannot_use_internal_public(self):
         uid, kind, role = _client_user()
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017
             validate_document_visibility(DocumentVisibility.INTERNAL_PUBLIC, None, kind, role, [])
 
     def test_non_admin_cannot_publish_internal_public(self):
         uid, kind, role = _internal_user(role=UserRole.USER)
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017
             validate_document_visibility(DocumentVisibility.INTERNAL_PUBLIC, None, kind, role, [])
 
     def test_admin_can_publish_internal_public(self):
@@ -90,12 +90,12 @@ class TestValidateVisibility:
 
     def test_internal_group_requires_group_id(self):
         uid, kind, role = _internal_user()
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017
             validate_document_visibility(DocumentVisibility.INTERNAL_GROUP, None, kind, role, [])
 
     def test_internal_group_rejects_non_member(self):
         uid, kind, role = _internal_user()
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017
             validate_document_visibility(DocumentVisibility.INTERNAL_GROUP, 99, kind, role, [1, 2])
 
 
@@ -160,12 +160,11 @@ class TestCanViewDocument:
         assert can_view_document("client_private", 51, None, "client", 50, [], []) is False
 
     def test_admin_views_client_doc(self):
-        assert can_view_document("client_private", 50, None, "internal", 1, [], [], user_role="admin") is True
+        assert can_view_document("client_private", 50, None, "internal", 1, [], user_role="admin") is True
 
     def test_non_admin_rejected_from_client_doc(self):
         assert (
-            can_view_document("client_private", 50, None, "internal", 1, [], [50, 51], user_role="user")
-            is False
+            can_view_document("client_private", 50, None, "internal", 1, [50, 51], user_role="user") is False
         )
 
     def test_unknown_visibility_raises(self):
@@ -181,7 +180,7 @@ class TestCanViewDocument:
 class TestBuildQdrantFilter:
     def test_client_gets_owner_filter(self):
         user = {"id": 42, "kind": "client"}
-        f = build_qdrant_filter(user, [], [])
+        f = build_qdrant_filter(user, [])
         # Single condition: must=[visibility, owner_id] wrapped in should
         assert f.should is not None
         assert len(f.should) == 1
@@ -190,26 +189,26 @@ class TestBuildQdrantFilter:
         assert len(inner.must) == 2
 
     def test_client_filter_has_correct_visibility(self):
-        f = build_qdrant_filter({"id": 1, "kind": "client"}, [], [])
+        f = build_qdrant_filter({"id": 1, "kind": "client"}, [])
         inner = f.should[0]
         vis_match = inner.must[0]
         assert vis_match.match.value == "client_private"
 
     def test_internal_user_base_filter_has_public_and_private(self):
-        f = build_qdrant_filter({"id": 1, "kind": "internal"}, [], [])
+        f = build_qdrant_filter({"id": 1, "kind": "internal"}, [])
         assert f.should is not None
         assert len(f.should) == 2  # public + private
 
     def test_internal_with_groups_adds_group_filter(self):
-        f = build_qdrant_filter({"id": 1, "kind": "internal"}, [10, 20], [])
+        f = build_qdrant_filter({"id": 1, "kind": "internal"}, [10, 20])
         assert len(f.should) == 3  # public + private + group
 
     def test_internal_with_clients_adds_client_filter(self):
-        f = build_qdrant_filter({"id": 1, "kind": "internal"}, [], [50])
+        f = build_qdrant_filter({"id": 1, "kind": "internal"}, [])
         # for_list=False: client_private NOT included in RAG search filters
         assert len(f.should) == 2  # public + private
 
     def test_internal_with_both_groups_and_clients(self):
-        f = build_qdrant_filter({"id": 1, "kind": "internal"}, [10], [50])
+        f = build_qdrant_filter({"id": 1, "kind": "internal"}, [10])
         # for_list=False: client_private NOT included, but group IS included
         assert len(f.should) == 3  # public + private + group

@@ -1,4 +1,4 @@
-"""main.py — Composition root for the RAG API (provider-observer style)."""
+"""main.py — Composition root for the RAG API."""
 
 from __future__ import annotations
 
@@ -6,14 +6,13 @@ import logging.config
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from cli.cli import cli
+from composition.container import Container
 from config import settings
 from domain.exceptions import ClientException, ServerException
 from fastapi import FastAPI
 from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi_limiter import FastAPILimiter
-from infrastructure.auth.api_key_provider import api_key_provider
 from infrastructure.database.database import database
 from infrastructure.initialization import initialize_app
 from infrastructure.logging import logging_config
@@ -23,7 +22,6 @@ from infrastructure.ml.metrics_middleware import add_metrics_middleware
 from infrastructure.persistence.redis_client import redis_client
 from infrastructure.scheduler import scheduler
 from infrastructure.utils import Singleton
-from presentation.api.dependencies import _uow_factory, get_config_listener
 from presentation.api.exception_handlers import (
     handle_client_exception,
     handle_http_exception,
@@ -45,13 +43,13 @@ from presentation.api.routes.benchmark import router as benchmark_router
 from presentation.api.routes.benchmark_admin import router as benchmark_admin_router
 from presentation.api.routes.chat import router as chat_router
 from presentation.api.routes.chunks import router as chunks_router
-from presentation.api.routes.clients import router as clients_router
 from presentation.api.routes.conversations import router as conversations_router
 from presentation.api.routes.documents import router as documents_router
 from presentation.api.routes.groups import router as groups_router
 from presentation.api.routes.health import router as health_router
 from presentation.api.routes.ingest import router as ingest_router
 from presentation.api.routes.search import router as search_router
+from presentation.cli.cli import cli
 
 # ---------------------------------------------------------------------------
 # Lifespan
@@ -62,32 +60,31 @@ from presentation.api.routes.search import router as search_router
 async def lifespan(app: FastAPI) -> AsyncGenerator:
     logging.config.dictConfig(logging_config)
 
-    # Attach in-memory log buffer for /admin/logs endpoint
     attach_log_buffer()
-
-    # Initialize Redis (mandatory component)
     await redis_client.init()
-
-    # Initialize rate limiter (backed by the same Redis connection)
     await FastAPILimiter.init(redis_client.async_redis)
-
     await database.connect()
-    await initialize_app(_uow_factory)
-    await get_config_listener().start()
 
-    # Start Pub/Sub listener for API key revocation (Redis mode)
-    await api_key_provider.start_pubsub_listener()
+    # --- Build DI container (single call) ---
+    container = Container()
+    container.init(database)
+    app.state.container = container
 
-    # Startup scheduler (periodic jobs)
-    await scheduler.startup()
-
-    # Initial infra metrics snapshot
-    await collect_infra_metrics()
+    await initialize_app(container.infrastructure.uow_factory)
+    await container.infrastructure.config_listener.start()
+    await container.infrastructure.api_key_provider.start_pubsub_listener()
+    await scheduler.startup(
+        uow_factory=container.infrastructure.uow_factory,
+        config_listener=container.infrastructure.config_listener,
+    )
+    await collect_infra_metrics(ml_clients=container.infrastructure.ml_clients)
 
     yield
 
-    # Shutdown
-    await get_config_listener().stop()
+    # --- Shutdown (reverse order) ---
+    await container.infrastructure.config_listener.stop()
+    await container.infrastructure.api_key_provider.stop_pubsub_listener()
+    await container.dispose()
     await scheduler.shutdown()
     await database.disconnect()
     await FastAPILimiter.close()
@@ -101,8 +98,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
 
 @Singleton
 class Application:
-    """FastAPI application configurator with structured setup."""
-
     def __init__(self) -> None:
         self.app: FastAPI = FastAPI(
             title="RAG API",
@@ -111,15 +106,10 @@ class Application:
             lifespan=lifespan,
             servers=[{"url": "./", "description": "Relative server"}],
         )
-
-        self.configure_logging()
         self.add_exception_handlers()
         self.add_middlewares()
         self.add_routers()
         add_metrics_middleware(self.app)
-
-    def configure_logging(self) -> None:
-        logging.config.dictConfig(logging_config)
 
     def add_exception_handlers(self) -> None:
         self.app.add_exception_handler(ClientException, handle_client_exception)  # type: ignore[arg-type]
@@ -149,7 +139,6 @@ class Application:
             documents_router,
             chunks_router,
             groups_router,
-            clients_router,
             health_router,
             benchmark_router,
             benchmark_admin_router,
@@ -163,11 +152,6 @@ class Application:
         )
         for router in routers:
             self.app.include_router(router)
-
-
-# ---------------------------------------------------------------------------
-# Factory
-# ---------------------------------------------------------------------------
 
 
 def create_application() -> FastAPI:

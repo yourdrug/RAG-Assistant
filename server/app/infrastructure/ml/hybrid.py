@@ -5,7 +5,6 @@ is written from scratch with zero external dependencies beyond stdlib.  Includes
 a lightweight Russian suffix stemmer for better sparse recall on Cyrillic text.
 """
 
-import hashlib
 import json
 import logging
 import math
@@ -15,10 +14,8 @@ from pathlib import Path
 log = logging.getLogger("default")
 
 
-def content_hash(text: str) -> str:
-    """Deterministic short hash for merge key between dense and sparse results."""
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
-
+# Re-export from domain for backward compatibility — canonical implementation lives in domain/utils.py
+from domain.utils import content_hash  # noqa: E402, F401
 
 # ---------------------------------------------------------------------------
 # Lightweight Russian stemmer (suffix stripping)
@@ -317,6 +314,59 @@ class BM25Index:
         total_len = self.avgdl * self.n_docs - old_len + new_len
         self.avgdl = total_len / self.n_docs if self.n_docs > 0 else 1.0
 
+    @staticmethod
+    def _remove_old_tokens(
+        doc_freq: dict[str, int],
+        inverted_index: dict[str, set[int]],
+        old_tokens: list[str],
+        old_tf: dict[str, int],
+        index: int,
+    ) -> None:
+        """Remove old document's tokens from doc_freq and inverted_index."""
+        for t in old_tokens:
+            if old_tf.get(t, 0) > 0:
+                if old_tf[t] == 1 and t in doc_freq:
+                    doc_freq[t] -= 1
+                    if doc_freq[t] <= 0:
+                        del doc_freq[t]
+                if t in inverted_index:
+                    inverted_index[t].discard(index)
+                    if not inverted_index[t]:
+                        del inverted_index[t]
+
+    @staticmethod
+    def _remove_from_lists(
+        texts: list[str],
+        hashes: list[str],
+        doc_lens: list[int],
+        token_freqs: list[dict[str, int]],
+        index: int,
+    ) -> int:
+        """Delete entries at index from texts, hashes, doc_lens, token_freqs. Returns removed_len."""
+        removed_len = doc_lens[index]
+        del texts[index]
+        del hashes[index]
+        del doc_lens[index]
+        del token_freqs[index]
+        return removed_len
+
+    @staticmethod
+    def _rebuild_inverted_indices(
+        inverted_index: dict[str, set[int]], removed_index: int
+    ) -> dict[str, set[int]]:
+        """Shift down all inverted_index entries whose indices exceed removed_index."""
+        new_inverted: dict[str, set[int]] = {}
+        for t, posting in inverted_index.items():
+            new_posting = set()
+            for old_idx in posting:
+                if old_idx < removed_index:
+                    new_posting.add(old_idx)
+                elif old_idx > removed_index:
+                    new_posting.add(old_idx - 1)
+            if new_posting:
+                new_inverted[t] = new_posting
+        return new_inverted
+
     def remove_text(self, index: int) -> None:
         """Remove text at given index. Updates all BM25 statistics.
 
@@ -329,43 +379,14 @@ class BM25Index:
         old_tokens = tokenize(self.texts[index])
         old_tf = self.token_freqs[index]
 
-        # Remove tokens from doc_freq and inverted_index
-        for t in old_tokens:
-            if old_tf.get(t, 0) > 0:
-                if old_tf[t] == 1 and t in self.doc_freq:
-                    self.doc_freq[t] -= 1
-                    if self.doc_freq[t] <= 0:
-                        del self.doc_freq[t]
-                if t in self.inverted_index:
-                    self.inverted_index[t].discard(index)
-                    if not self.inverted_index[t]:
-                        del self.inverted_index[t]
-
-        # Remove from lists
-        removed_len = self.doc_lens[index]
-        del self.texts[index]
-        del self.hashes[index]
-        del self.doc_lens[index]
-        del self.token_freqs[index]
+        self._remove_old_tokens(self.doc_freq, self.inverted_index, old_tokens, old_tf, index)
+        removed_len = self._remove_from_lists(self.texts, self.hashes, self.doc_lens, self.token_freqs, index)
 
         self.n_docs -= 1
-
-        # Update avgdl
         total_len = self.avgdl * (self.n_docs + 1) - removed_len
         self.avgdl = total_len / self.n_docs if self.n_docs > 0 else 1.0
 
-        # Rebuild inverted_index indices (shift down indices > removed)
-        new_inverted: dict[str, set[int]] = {}
-        for t, posting in self.inverted_index.items():
-            new_posting = set()
-            for old_idx in posting:
-                if old_idx < index:
-                    new_posting.add(old_idx)
-                elif old_idx > index:
-                    new_posting.add(old_idx - 1)
-            if new_posting:
-                new_inverted[t] = new_posting
-        self.inverted_index = new_inverted
+        self.inverted_index = self._rebuild_inverted_indices(self.inverted_index, index)
 
 
 # ---------------------------------------------------------------------------

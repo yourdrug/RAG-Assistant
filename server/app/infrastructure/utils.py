@@ -14,7 +14,7 @@ from typing import Any
 
 
 def Singleton(aClass: Any) -> Callable:
-    """Decorator that turns a class into a singleton."""
+    """Turn a class into a singleton."""
 
     class Wrapper:
         instance: aClass = None

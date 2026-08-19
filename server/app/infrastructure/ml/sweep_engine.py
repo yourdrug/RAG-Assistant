@@ -18,9 +18,9 @@ from collections.abc import Callable
 
 from config import settings
 from domain.entities.benchmark_sweep import BenchmarkSweep
+from domain.value_objects.benchmark_strategy import BenchmarkStrategy
 from langchain.schema import Document as LCDocument
 
-from infrastructure.clients import get_bm25_index, get_embeddings, get_qdrant_client
 from infrastructure.ml.benchmark import load_questions
 from infrastructure.ml.hybrid import content_hash, rrf_merge
 
@@ -52,7 +52,7 @@ EXPENSIVE_PARAMS = frozenset(
 def _estimate_grid_size(search_space: dict) -> int:
     """Estimate total combinations for grid strategy."""
     total = 1
-    for param, spec in search_space.items():
+    for _param, spec in search_space.items():
         if "values" in spec:
             total *= len(spec["values"])
         elif "min" in spec and "max" in spec and "step" in spec:
@@ -76,7 +76,7 @@ def generate_grid_points(search_space: dict) -> list[dict]:
             param_lists[param] = [spec.get("default", 0)]
 
     keys = list(param_lists.keys())
-    return [dict(zip(keys, combo)) for combo in itertools.product(*param_lists.values())]
+    return [dict(zip(keys, combo, strict=False)) for combo in itertools.product(*param_lists.values())]
 
 
 def generate_random_points(search_space: dict, n: int) -> list[dict]:
@@ -138,10 +138,12 @@ class SweepEngine:
         uow_factory,
         benchmark_service=None,
         config_service=None,
+        ml_clients=None,
     ):
         self._uow_factory = uow_factory
         self._benchmark_service = benchmark_service
         self._config_service = config_service
+        self._ml_clients = ml_clients
 
     async def run_sweep(
         self,
@@ -160,6 +162,7 @@ class SweepEngine:
 
         Returns:
             List of result dicts sorted by composite score (best first).
+
         """
         search_space = sweep.search_space
         strategy = sweep.strategy
@@ -176,18 +179,7 @@ class SweepEngine:
         # Filter to questions with source_hint for retrieval metrics
         eval_questions = [q for q in questions_data if q.get("source_hint") is not None]
 
-        # Generate parameter points based on strategy
-        if strategy == "grid":
-            all_points = generate_grid_points(search_space)
-        elif strategy == "random":
-            n_random = search_space.get("_n_random", 50)
-            all_points = generate_random_points(search_space, n_random)
-        elif strategy == "successive_halving":
-            all_points = generate_grid_points(search_space)
-        else:
-            raise ValueError(f"Unknown strategy: {strategy}")
-
-        total_configs = len(all_points)
+        all_points = self._generate_points(strategy, search_space)
 
         # Filter out expensive params that can't be tested in Phase A
         cheap_points = []
@@ -214,6 +206,38 @@ class SweepEngine:
         dense_cache, sparse_cache, all_candidates = await self._cache_candidates(eval_questions, max_fetch_k)
 
         # Phase A: Cheap retrieval-only scoring
+        results = self._run_phase_a(
+            all_points, eval_questions, dense_cache, sparse_cache, all_candidates, weights, progress_callback
+        )
+
+        # Phase B: Full LLM-judge on top-N (if judge_model provided)
+        if judge_model and top_n_llm > 0:
+            results = self._run_phase_b(results, top_n_llm, judge_model, questions_path, weights)
+
+        return results
+
+    def _generate_points(self, strategy: str, search_space: dict) -> list[dict]:
+        if strategy == BenchmarkStrategy.GRID.value:
+            return generate_grid_points(search_space)
+        elif strategy == BenchmarkStrategy.RANDOM.value:
+            n_random = search_space.get("_n_random", 50)
+            return generate_random_points(search_space, n_random)
+        elif strategy == BenchmarkStrategy.SUCCESSIVE_HALVING.value:
+            return generate_grid_points(search_space)
+        else:
+            raise ValueError(f"Unknown strategy: {strategy}")
+
+    def _run_phase_a(
+        self,
+        all_points: list[dict],
+        eval_questions: list[dict],
+        dense_cache: dict,
+        sparse_cache: dict,
+        all_candidates: dict,
+        weights: dict,
+        progress_callback,
+    ) -> list[dict]:
+        total_configs = len(all_points)
         logger.info("Sweep Phase A: Retrieval-scoring %d configs...", total_configs)
         results = []
 
@@ -230,7 +254,6 @@ class SweepEngine:
             if idx % 50 == 0:
                 logger.info("  %d/%d configs evaluated", idx, total_configs)
 
-        # Sort by composite score
         results.sort(key=lambda x: x.get("composite_score", 0), reverse=True)
 
         logger.info("Phase A done. Top-5 retrieval scores:")
@@ -243,47 +266,50 @@ class SweepEngine:
                 r.get("avg_mrr", 0),
                 r.get("composite_score", 0),
             )
+        return results
 
-        # Phase B: Full LLM-judge on top-N (if judge_model provided)
-        if judge_model and top_n_llm > 0:
-            logger.info("Sweep Phase B: LLM-judge on top-%d configs...", top_n_llm)
-            top_configs = results[:top_n_llm]
+    def _run_phase_b(
+        self,
+        results: list[dict],
+        top_n_llm: int,
+        judge_model: str,
+        questions_path: str | None,
+        weights: dict,
+    ) -> list[dict]:
+        logger.info("Sweep Phase B: LLM-judge on top-%d configs...", top_n_llm)
+        top_configs = results[:top_n_llm]
 
-            for cfg_idx, cfg in enumerate(top_configs, 1):
-                logger.info(
-                    "  LLM evaluation #%d/%d: %s",
-                    cfg_idx,
-                    top_n_llm,
-                    cfg["config"],
+        for cfg_idx, cfg in enumerate(top_configs, 1):
+            logger.info(
+                "  LLM evaluation #%d/%d: %s",
+                cfg_idx,
+                top_n_llm,
+                cfg["config"],
+            )
+
+            orig = self._snapshot_settings()
+            try:
+                self._apply_config(cfg["config"])
+                full_result = self._run_full_benchmark(
+                    questions_path or str(settings.data_dir / "test_questions.json"),
+                    judge_model,
                 )
+                cfg["full_metrics"] = full_result
+                cfg["llm_evaluated"] = True
+                cfg["composite_score"] = compute_composite_score(
+                    {
+                        "hit_rate": cfg.get("avg_hit_rate", 0),
+                        "mrr": cfg.get("avg_mrr", 0),
+                        "faithfulness": full_result.get("avg_faithfulness", 0),
+                        "relevancy": full_result.get("avg_relevancy", 0),
+                        "correctness": full_result.get("avg_correctness"),
+                    },
+                    weights,
+                )
+            finally:
+                self._restore_settings(orig)
 
-                # Apply config to settings temporarily
-                orig = self._snapshot_settings()
-                try:
-                    self._apply_config(cfg["config"])
-                    full_result = self._run_full_benchmark(
-                        questions_path or str(settings.data_dir / "test_questions.json"),
-                        judge_model,
-                    )
-                    cfg["full_metrics"] = full_result
-                    cfg["llm_evaluated"] = True
-                    # Update composite with LLM scores
-                    cfg["composite_score"] = compute_composite_score(
-                        {
-                            "hit_rate": cfg.get("avg_hit_rate", 0),
-                            "mrr": cfg.get("avg_mrr", 0),
-                            "faithfulness": full_result.get("avg_faithfulness", 0),
-                            "relevancy": full_result.get("avg_relevancy", 0),
-                            "correctness": full_result.get("avg_correctness"),
-                        },
-                        weights,
-                    )
-                finally:
-                    self._restore_settings(orig)
-
-            # Re-sort with LLM scores
-            results.sort(key=lambda x: x.get("composite_score", 0), reverse=True)
-
+        results.sort(key=lambda x: x.get("composite_score", 0), reverse=True)
         return results
 
     async def _load_questions(self, dataset: str, questions_path: str | None) -> list[dict]:
@@ -314,8 +340,16 @@ class SweepEngine:
         sparse_cache: dict[str, list] = {}
         all_candidates: dict[str, LCDocument] = {}
 
-        client = get_qdrant_client()
-        embeddings = get_embeddings()
+        if self._ml_clients is not None:
+            client = self._ml_clients.qdrant_client()
+            embeddings = self._ml_clients.embeddings()
+            bm25_index = self._ml_clients.bm25_index()
+        else:
+            from infrastructure.ml.factories import create_embeddings, create_qdrant_client, load_bm25_index
+
+            client = create_qdrant_client()
+            embeddings = create_embeddings()
+            bm25_index = load_bm25_index()
 
         for q in questions:
             qtext = q["question"]
@@ -337,9 +371,8 @@ class SweepEngine:
             dense_cache[qtext] = dense_results
 
             # Sparse search
-            bm25 = get_bm25_index()
-            if bm25:
-                sparse_results = bm25.search_with_hashes(qtext, max_fetch_k)
+            if bm25_index:
+                sparse_results = bm25_index.search_with_hashes(qtext, max_fetch_k)
             else:
                 sparse_results = []
             sparse_cache[qtext] = sparse_results

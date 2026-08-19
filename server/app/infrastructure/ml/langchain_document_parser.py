@@ -83,7 +83,7 @@ class LangchainDocumentParser:
             # Handle table blocks tagged by parse_markdown_sections
             if content.startswith("\x00TABLE:"):
                 metadata["content_type"] = "table"
-                content = content[len("\x00TABLE:"):]
+                content = content[len("\x00TABLE:") :]
 
             if not content.strip():
                 continue

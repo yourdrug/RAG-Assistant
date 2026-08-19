@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from domain.entities.benchmark_question import BenchmarkQuestion
 
 
+@runtime_checkable
 class BenchmarkQuestionRepository(Protocol):
     async def get_by_id(self, question_id: int) -> BenchmarkQuestion | None: ...
 

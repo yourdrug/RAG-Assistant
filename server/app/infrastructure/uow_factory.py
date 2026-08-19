@@ -24,9 +24,6 @@ from infrastructure.repositories.sqlalchemy_benchmark_sweep_repository import (
 )
 from infrastructure.repositories.sqlalchemy_chat_log_repository import SQLAlchemyChatLogRepository
 from infrastructure.repositories.sqlalchemy_chunk_repository import SQLAlchemyChunkRepository
-from infrastructure.repositories.sqlalchemy_client_assignment_repository import (
-    SQLAlchemyClientAssignmentRepository,
-)
 from infrastructure.repositories.sqlalchemy_config_parameter_repository import (
     SQLAlchemyConfigParameterRepository,
 )
@@ -43,8 +40,9 @@ class UnitOfWorkFactory:
     Each call to create() yields a new UoW with a fresh async session.
     """
 
-    def __init__(self, database: DatabaseManager) -> None:
+    def __init__(self, database: DatabaseManager, config_broadcaster=None) -> None:
         self._database = database
+        self._config_broadcaster = config_broadcaster
 
     @asynccontextmanager
     async def create(self, master: bool = False) -> AsyncGenerator[UnitOfWork, None]:
@@ -57,7 +55,6 @@ class UnitOfWorkFactory:
             documents=SQLAlchemyDocumentRepository(session),
             chunks=SQLAlchemyChunkRepository(session),
             groups=SQLAlchemyGroupRepository(session),
-            client_assignments=SQLAlchemyClientAssignmentRepository(session),
             api_keys=SQLAlchemyApiKeyRepository(session),
             config_parameters=SQLAlchemyConfigParameterRepository(session),
             background_jobs=SQLAlchemyBackgroundJobRepository(session),
@@ -66,5 +63,15 @@ class UnitOfWorkFactory:
             benchmark_sweeps=SQLAlchemyBenchmarkSweepRepository(session),
             benchmark_runs=SQLAlchemyBenchmarkRunRepository(session),
         )
+        if self._config_broadcaster is not None:
+            broadcaster = self._config_broadcaster
+
+            async def _publish_to_broadcaster(event: object) -> None:
+                from domain.events.config_events import ConfigParameterChanged
+
+                if isinstance(event, ConfigParameterChanged):
+                    await broadcaster.broadcast_within_session(session, event)
+
+            uow.on_event(_publish_to_broadcaster)
         async with uow:
             yield uow

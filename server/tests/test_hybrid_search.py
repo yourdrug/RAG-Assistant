@@ -1,5 +1,5 @@
-"""
-Tests for infrastructure/ml/hybrid.py — BM25, tokenizer, RRF merge, persistence.
+"""Tests for infrastructure/ml/hybrid.py -- BM25, tokenizer, RRF merge, persistence.
+
 All pure functions, no Qdrant/Ollama needed.
 """
 

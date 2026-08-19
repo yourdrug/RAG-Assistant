@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from domain.value_objects.query_results import GroupInfo, GroupMemberInfo
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,17 +19,17 @@ class SQLAlchemyGroupRepository:
         await self._db.flush()
         return orm.id
 
-    async def list_all(self) -> list[dict]:
+    async def list_all(self) -> list[GroupInfo]:
         result = await self._db.execute(select(GroupModel).order_by(GroupModel.name))
-        return [{"id": orm.id, "name": orm.name} for orm in result.scalars().all()]
+        return [GroupInfo(id=orm.id, name=orm.name) for orm in result.scalars().all()]
 
-    async def list_by_ids(self, ids: list[int]) -> list[dict]:
+    async def list_by_ids(self, ids: list[int]) -> list[GroupInfo]:
         if not ids:
             return []
         result = await self._db.execute(
             select(GroupModel).where(GroupModel.id.in_(ids)).order_by(GroupModel.name)
         )
-        return [{"id": orm.id, "name": orm.name} for orm in result.scalars().all()]
+        return [GroupInfo(id=orm.id, name=orm.name) for orm in result.scalars().all()]
 
     async def get_user_group_ids(self, user_id: int) -> list[int]:
         result = await self._db.execute(
@@ -53,11 +54,11 @@ class SQLAlchemyGroupRepository:
             await self._db.delete(orm)
             await self._db.flush()
 
-    async def list_members(self, group_id: int) -> list[dict]:
+    async def list_members(self, group_id: int) -> list[GroupMemberInfo]:
         result = await self._db.execute(
             select(UserModel.id, UserModel.email)
             .join(UserGroupModel, UserGroupModel.user_id == UserModel.id)
             .where(UserGroupModel.group_id == group_id)
             .order_by(UserModel.email)
         )
-        return [{"id": row.id, "email": row.email} for row in result.all()]
+        return [GroupMemberInfo(id=row.id, email=row.email) for row in result.all()]
