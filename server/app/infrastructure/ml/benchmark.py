@@ -679,7 +679,7 @@ def compute_retrieval_metrics_grid(
 ) -> dict:
     """Compute retrieval metrics for a single RRF config in-memory (no LLM/Qdrant calls)."""
     merged_hashes = rrf_merge(
-        [(h, s) for h, s, _ in []] if not dense_by_hash else list(dense_by_hash.values()),
+        [(h, v[0]) for h, v in dense_by_hash.items()] if dense_by_hash else [],
         sparse_results,
         k=rrf_k,
         dense_weight=dense_weight,

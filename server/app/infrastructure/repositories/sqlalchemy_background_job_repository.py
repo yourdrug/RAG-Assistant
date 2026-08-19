@@ -16,6 +16,20 @@ class SQLAlchemyBackgroundJobRepository:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
 
+    @staticmethod
+    def _to_entity(orm: BackgroundJobModel) -> BackgroundJob:
+        return BackgroundJob(
+            id=orm.id,
+            job_type=orm.job_type,
+            status=orm.status,
+            related_id=orm.related_id,
+            request_id=orm.request_id,
+            started_at=orm.started_at,
+            finished_at=orm.finished_at,
+            error_message=orm.error_message,
+            creation_date=orm.creation_date,
+        )
+
     async def create(self, job: BackgroundJob) -> BackgroundJob:
         orm = BackgroundJobModel(
             job_type=job.job_type,
@@ -86,37 +100,14 @@ class SQLAlchemyBackgroundJobRepository:
             .limit(limit)
         )
         rows = result.scalars().all()
-        return [
-            BackgroundJob(
-                id=orm.id,
-                job_type=orm.job_type,
-                status=orm.status,
-                related_id=orm.related_id,
-                request_id=orm.request_id,
-                started_at=orm.started_at,
-                finished_at=orm.finished_at,
-                error_message=orm.error_message,
-                creation_date=orm.creation_date,
-            )
-            for orm in rows
-        ]
+        return [self._to_entity(orm) for orm in rows]
 
     async def get_by_id(self, job_id: int) -> BackgroundJob | None:
         result = await self._db.execute(select(BackgroundJobModel).where(BackgroundJobModel.id == job_id))
         orm = result.scalar_one_or_none()
         if not orm:
             return None
-        return BackgroundJob(
-            id=orm.id,
-            job_type=orm.job_type,
-            status=orm.status,
-            related_id=orm.related_id,
-            request_id=orm.request_id,
-            started_at=orm.started_at,
-            finished_at=orm.finished_at,
-            error_message=orm.error_message,
-            creation_date=orm.creation_date,
-        )
+        return self._to_entity(orm)
 
     async def count_by_status(self) -> dict[str, int]:
         result = await self._db.execute(

@@ -131,7 +131,7 @@ class ChatService:
 
         async def _bg_update_summary() -> None:
             try:
-                async with self._uow_factory.create() as uow:
+                async with self._uow_factory.create(master=True) as uow:
                     conv_model = await uow.conversations.get(conv_id)
                     if conv_model is not None and updater is not None:
                         existing = getattr(conv_model, "summary", None)
@@ -160,8 +160,8 @@ class ChatService:
             depth=depth,
         )
 
-        # UoW 1: read-only — get/create conversation + history
-        async with self._uow_factory.create() as uow:
+        # UoW 1: get/create conversation + history (get_or_create may INSERT)
+        async with self._uow_factory.create(master=True) as uow:
             conv = await uow.conversations.get_or_create(conversation_id, user_id)
             history = await uow.messages.get_history(conv.id, window=self._settings.history_window)
             if history and history[-1].role == MessageRole.USER:
@@ -246,8 +246,8 @@ class ChatService:
             depth=depth,
         )
 
-        # UoW 1: read-only — get/create conversation + history
-        async with self._uow_factory.create() as uow:
+        # UoW 1: get/create conversation + history (get_or_create may INSERT)
+        async with self._uow_factory.create(master=True) as uow:
             conv = await uow.conversations.get_or_create(conversation_id, user_id)
             history = await uow.messages.get_history(conv.id, window=self._settings.history_window)
             if history and history[-1].role == MessageRole.USER:

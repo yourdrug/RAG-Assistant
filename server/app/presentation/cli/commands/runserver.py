@@ -6,14 +6,15 @@ import logging
 import sys
 from typing import Literal, cast
 
+import typer
 import uvicorn
 
 logger = logging.getLogger("cli")
 
 
 def runserver(
-    host: str = "0.0.0.0",
-    port: int = 8001,
+    host: str = typer.Option("0.0.0.0", "--host", help="Bind host"),
+    port: int = typer.Option(8001, "--port", help="Bind port"),
     loop: str = "auto",
     reload: bool = False,
     proxy_headers: bool = True,

@@ -12,13 +12,17 @@ from datetime import UTC, datetime
 from domain.entities.document import Document
 from domain.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
 from domain.repositories.vector_store_repository import VectorStoreRepository
-from domain.services.access_control import can_view_document, validate_document_visibility
+from domain.services.access_control import (
+    compute_owner_and_group,
+    validate_document_visibility,
+)
 from domain.utils import content_hash
 from domain.value_objects.document_status import DocumentStatus
 from domain.value_objects.roles import UserKind, UserRole
 from domain.value_objects.visibility import DocumentVisibility
 
 from application.dto.document_dto import DocumentDTO
+from application.services.document_service import check_document_access, _to_document_dto
 from application.ports.chunk_settings import ChunkSettingsPort
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
 
@@ -55,20 +59,7 @@ class ChunkService:
             if doc is None:
                 raise EntityNotFound("Document", document_id)
 
-            user_group_ids = (
-                await uow.groups.get_user_group_ids(user_id) if user_kind == UserKind.INTERNAL else []
-            )
-
-            if not can_view_document(
-                doc_visibility=doc.visibility,
-                doc_owner_id=doc.owner_id,
-                doc_group_id=doc.group_id,
-                user_kind=user_kind,
-                user_id=user_id,
-                user_group_ids=user_group_ids,
-                user_role=user_role,
-            ):
-                raise BusinessRuleViolation("No access to this document")
+            await check_document_access(uow, doc, user_id, user_kind, user_role)
 
             chunks, total = await uow.chunks.list_for_document(document_id, limit=limit, offset=offset)
 
@@ -102,7 +93,7 @@ class ChunkService:
         """Edit an existing chunk's content with automatic re-embedding."""
         role = UserRole(user_role)
 
-        async with self._uow_factory.create() as uow:
+        async with self._uow_factory.create(master=True) as uow:
             doc = await uow.documents.get_by_id(document_id)
             if doc is None:
                 raise EntityNotFound("Document", document_id)
@@ -188,7 +179,7 @@ class ChunkService:
         """Add a new chunk to an existing document."""
         role = UserRole(user_role)
 
-        async with self._uow_factory.create() as uow:
+        async with self._uow_factory.create(master=True) as uow:
             doc = await uow.documents.get_by_id(document_id)
             if doc is None:
                 raise EntityNotFound("Document", document_id)
@@ -273,7 +264,7 @@ class ChunkService:
         """Delete a single chunk."""
         role = UserRole(user_role)
 
-        async with self._uow_factory.create() as uow:
+        async with self._uow_factory.create(master=True) as uow:
             doc = await uow.documents.get_by_id(document_id)
             if doc is None:
                 raise EntityNotFound("Document", document_id)
@@ -315,11 +306,11 @@ class ChunkService:
         user_kind_enum = UserKind(user_kind)
         user_role_enum = UserRole(user_role)
 
-        async with self._uow_factory.create() as uow:
+        async with self._uow_factory.create(master=True) as uow:
             user_group_ids = await uow.groups.get_user_group_ids(user_id)
             validate_document_visibility(vis, group_id, user_kind_enum, user_role_enum, user_group_ids)
 
-            owner_id, effective_group_id = self._compute_owner_and_group(vis, group_id, user_id)
+            owner_id, effective_group_id = compute_owner_and_group(vis, group_id, user_id)
 
             doc = Document(
                 filename=title,
@@ -342,21 +333,7 @@ class ChunkService:
                 title,
             )
 
-            return DocumentDTO(
-                id=saved_doc.id,
-                filename=saved_doc.filename,
-                visibility=saved_doc.visibility,
-                status=saved_doc.status,
-                source_path=saved_doc.source_path,
-                creation_date=saved_doc.creation_date,
-                indexed_at=saved_doc.indexed_at,
-                error_message=saved_doc.error_message,
-                chunks=0,
-                chars=0,
-                owner_id=owner_id,
-                group_id=effective_group_id,
-                source_type="manual",
-            )
+            return _to_document_dto(saved_doc, chunks=0, chars=0, source_type="manual")
 
     def _validate_chunk_content(self, content: str) -> None:
         """Validate chunk content length."""
@@ -403,16 +380,3 @@ class ChunkService:
         """Update document chunks and chars counts."""
         stats = await uow.chunks.get_document_stats(document_id)
         await uow.documents.update_chunk_stats(document_id, stats.total_chunks, stats.total_chars)
-
-    @staticmethod
-    def _compute_owner_and_group(
-        visibility: DocumentVisibility,
-        group_id: int | None,
-        user_id: int,
-    ) -> tuple[int | None, int | None]:
-        """Compute owner_id and group_id based on visibility."""
-        if visibility == DocumentVisibility.INTERNAL_PUBLIC:
-            return None, None
-        if visibility == DocumentVisibility.INTERNAL_GROUP:
-            return None, group_id
-        return user_id, None

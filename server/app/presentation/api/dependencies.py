@@ -12,7 +12,6 @@ import logging
 from typing import TYPE_CHECKING
 
 from fastapi import Request
-from fastapi.security import APIKeyHeader
 
 if TYPE_CHECKING:
     from application.services.auth_service import AuthService
@@ -60,16 +59,6 @@ def _create_container(request: Request) -> Container:
     if container is None:
         raise RuntimeError("Container not initialized — lifespan() did not run")
     return container
-
-
-# ---------------------------------------------------------------------------
-# Auth
-# ---------------------------------------------------------------------------
-
-auth_key_header = APIKeyHeader(
-    name="Authorization",
-    auto_error=False,
-)
 
 
 # ---------------------------------------------------------------------------

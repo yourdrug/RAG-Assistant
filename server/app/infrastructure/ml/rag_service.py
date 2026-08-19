@@ -54,6 +54,7 @@ from infrastructure.ml.rag import (
     decompose_question,
     deduplicate_docs,
     extract_sources,
+    filter_cited_sources,
     format_docs,
     history_to_messages,
     needs_decomposition,
@@ -384,8 +385,8 @@ class RagService:
         sources: list[dict],
     ) -> None:
         doc_ids = []
-        for _, d in docs:
-            did = d.metadata.get("document_id")
+        for doc, _score in docs:
+            did = doc.metadata.get("document_id")
             if did is not None:
                 doc_ids.append(did)
         await store_cached_answer(
@@ -410,7 +411,9 @@ class RagService:
         RAG_BREADTH_TOTAL.labels(breadth=breadth).inc()
         return breadth
 
-    def _compute_effective_weights(self, rag: RagSettings, query_for_search: str) -> tuple[float, float]:
+    def _compute_effective_weights(
+        self, rag: RagSettings, query_for_search: str
+    ) -> tuple[float, float, bool]:
         use_exact_ref_boost = has_exact_reference(query_for_search)
         effective_dense_weight = rag.dense_weight
         effective_sparse_weight = rag.sparse_weight
@@ -429,7 +432,7 @@ class RagService:
         q_hash: str,
         vis_hash: str,
         t_pipeline_start: float,
-    ) -> AsyncIterator[StreamEvent] | None:
+    ) -> dict | None:
         if not rag.cache_enabled:
             return None
         t0 = time.monotonic()
@@ -439,6 +442,35 @@ class RagService:
             RAG_CACHE_MISSES_TOTAL.inc()
             return None
         return cached
+
+    def _apply_citation_filter(
+        self, rag: RagSettings, full_answer: str, sources: list[dict]
+    ) -> list[dict]:
+        """Filter sources to only those cited in the LLM answer."""
+        if not rag.citation_filter_enabled:
+            return sources
+        return filter_cited_sources(full_answer, sources)
+
+    async def _reject_not_relevant(
+        self,
+        breadth: Breadth,
+        docs: list,
+        avg_sim: float,
+        t_pipeline_start: float,
+    ) -> AsyncIterator[StreamEvent]:
+        """Yield a rejection message when relevance gate fails."""
+        yield TextChunk(
+            text="К сожалению, я не нашёл релевантной информации "
+            "в загруженных документах для ответа на ваш вопрос."
+        )
+        record_rag_answer(
+            breadth=breadth.value,
+            answer="",
+            retrieved_count=len(docs),
+            avg_similarity=avg_sim,
+        )
+        RAG_STAGE_DURATION.labels("total").observe(time.monotonic() - t_pipeline_start)
+        yield SourcesEvent(sources=[], confidence=None)
 
     async def _post_rerank_adjustments(
         self,
@@ -587,7 +619,7 @@ class RagService:
         sources = self._apply_citation_filter(rag, full_answer, sources)
 
         record_rag_answer(
-            breadth=breadth,
+            breadth=breadth.value,
             answer=full_answer,
             retrieved_count=len(docs),
             avg_similarity=avg_sim,

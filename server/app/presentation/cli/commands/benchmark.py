@@ -604,8 +604,8 @@ def benchmark_grid_search(
         max_fetch_k,
         len(questions_data),
     )
-    dense_cache, sparse_cache, all_candidates_by_hash = await _cache_dense_sparse_candidates(
-        questions_data, max_fetch_k
+    dense_cache, sparse_cache, all_candidates_by_hash = asyncio.run(
+        _cache_dense_sparse_candidates(questions_data, max_fetch_k)
     )
 
     # Phase 2: fast retrieval-only scoring

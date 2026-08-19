@@ -132,7 +132,7 @@ class DocumentProcessor:
     async def _handle_processing_failure(self, document_id: int, e: Exception) -> None:
         log.exception("Document processing failed for doc %d: %s", document_id, e)
         try:
-            async with self._uow_factory.create() as uow:
+            async with self._uow_factory.create(master=True) as uow:
                 await uow.documents.update_status(document_id, DocumentStatus.FAILED.value, error=str(e))
         except Exception:
             log.exception("Failed to mark document as failed")
@@ -181,40 +181,45 @@ class DocumentProcessor:
         status = DocumentStatus.FAILED.value
         raw_chunks = None
         try:
-            async with self._uow_factory.create() as uow:
+            # --- Short transaction: mark as PROCESSING ---
+            async with self._uow_factory.create(master=True) as uow:
                 await uow.documents.update_status(document_id, DocumentStatus.PROCESSING.value)
 
-                temp_path = self._file_storage.download_to_temp(storage_key)
-                docs = self._parser.parse(temp_path)
+            # --- Heavy I/O outside transaction ---
+            temp_path = self._file_storage.download_to_temp(storage_key)
+            docs = self._parser.parse(temp_path)
 
-                if not docs:
-                    raise RuntimeError(
-                        "Текст не извлечён — документ похож на скан, и OCR не смог распознать содержимое."
-                    )
-
-                quality, warning_message = self._assess_pdf_quality_for_docs(
-                    temp_path,
-                    original_filename,
-                    document_id,
-                    docs,
+            if not docs:
+                raise RuntimeError(
+                    "Текст не извлечён — документ похож на скан, и OCR не смог распознать содержимое."
                 )
 
-                if doc_domain is None:
-                    full_text = "\n".join(d.page_content for d in docs)
-                    doc_domain = classify_document_domain(full_text, threshold=self._domain_marker_threshold)
-                    log.info("Auto-detected doc_domain=%s for doc %d", doc_domain, document_id)
+            quality, warning_message = self._assess_pdf_quality_for_docs(
+                temp_path,
+                original_filename,
+                document_id,
+                docs,
+            )
+
+            if doc_domain is None:
+                full_text = "\n".join(d.page_content for d in docs)
+                doc_domain = classify_document_domain(full_text, threshold=self._domain_marker_threshold)
+                log.info("Auto-detected doc_domain=%s for doc %d", doc_domain, document_id)
+
+            self._attach_metadata_to_docs(docs, original_filename, self._extractor)
+
+            raw_chunks = self._splitter.split(docs, domain=doc_domain)
+            self._enrich_chunks(raw_chunks, doc_domain, document_id, visibility, owner_id, group_id)
+
+            for rc in raw_chunks:
+                self._enrich_chunk_with_section(rc, doc_domain)
+
+            domain_chunks = [Chunk(content=rc.page_content, metadata=rc.metadata) for rc in raw_chunks]
+            await self._upload_to_vector_store(domain_chunks)
+
+            # --- Short transaction: persist chunks + mark DONE ---
+            async with self._uow_factory.create(master=True) as uow:
                 await uow.documents.set_domain(document_id, doc_domain)
-
-                self._attach_metadata_to_docs(docs, original_filename, self._extractor)
-
-                raw_chunks = self._splitter.split(docs, domain=doc_domain)
-                self._enrich_chunks(raw_chunks, doc_domain, document_id, visibility, owner_id, group_id)
-
-                for rc in raw_chunks:
-                    self._enrich_chunk_with_section(rc, doc_domain)
-
-                domain_chunks = [Chunk(content=rc.page_content, metadata=rc.metadata) for rc in raw_chunks]
-                await self._upload_to_vector_store(domain_chunks)
 
                 await uow.chunks.bulk_insert(
                     document_id=document_id,

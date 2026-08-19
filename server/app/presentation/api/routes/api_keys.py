@@ -14,6 +14,15 @@ from presentation.api.schemas import ApiKeyCreateRequest, ApiKeyCreateResponse, 
 router = APIRouter(prefix="/clients", tags=["api-keys"])
 
 
+def _check_client_access(current_user: dict, client_user_id: int) -> None:
+    """Raise 403 if current user is not admin and not the owning client."""
+    if current_user["role"] == UserRole.ADMIN or (
+        current_user["kind"] == UserKind.CLIENT and current_user["id"] == client_user_id
+    ):
+        return
+    raise HTTPException(status_code=403, detail="Forbidden")
+
+
 @router.post("/{client_user_id}/api-keys", response_model=ApiKeyCreateResponse)
 async def issue_api_key(
     client_user_id: int,
@@ -34,11 +43,8 @@ async def list_api_keys(
     current_user: dict = Depends(get_current_user),
     auth_service: AuthService = Depends(create_auth_service),
 ):
-    if current_user["role"] == UserRole.ADMIN or (
-        current_user["kind"] == UserKind.CLIENT and current_user["id"] == client_user_id
-    ):
-        return await auth_service.list_api_keys(client_user_id)
-    raise HTTPException(status_code=403, detail="Forbidden")
+    _check_client_access(current_user, client_user_id)
+    return await auth_service.list_api_keys(client_user_id)
 
 
 @router.delete("/{client_user_id}/api-keys/{api_key_id}")
@@ -48,10 +54,7 @@ async def revoke_api_key(
     current_user: dict = Depends(get_current_user),
     auth_service: AuthService = Depends(create_auth_service),
 ):
-    if current_user["role"] == UserRole.ADMIN or (
-        current_user["kind"] == UserKind.CLIENT and current_user["id"] == client_user_id
-    ):
-        await auth_service.revoke_api_key(api_key_id, client_user_id=client_user_id)
-        log_action("api_key.revoke", user_id=current_user["id"], details={"api_key_id": api_key_id})
-        return {"status": "revoked"}
-    raise HTTPException(status_code=403, detail="Forbidden")
+    _check_client_access(current_user, client_user_id)
+    await auth_service.revoke_api_key(api_key_id, client_user_id=client_user_id)
+    log_action("api_key.revoke", user_id=current_user["id"], details={"api_key_id": api_key_id})
+    return {"status": "revoked"}

@@ -31,7 +31,7 @@ def pdf_diag_run(
         check_pdf(p, dump=dump, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
 
     elif p.is_dir():
-        pdfs = list(p.glob("**/*.pdf")) + list(p.glob("**/*.PDF"))
+        pdfs = sorted(set(p.glob("**/*.pdf")) | set(p.glob("**/*.PDF")))
         if not pdfs:
             typer.echo(f"PDF файлов не найдено в {p}", err=True)
             sys.exit(1)

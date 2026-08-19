@@ -5,16 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from domain.exceptions import ValidationError
+from domain.utils import parse_bool
 from domain.value_objects.config_value_type import ConfigValueType
-
-
-def _parse_bool(value: str) -> bool:
-    """Parse a string to boolean, raising ValueError on failure."""
-    if value.lower() in ("true", "1", "yes", "on"):
-        return True
-    if value.lower() in ("false", "0", "no", "off"):
-        return False
-    raise ValueError(f"Cannot parse '{value}' as boolean")
 
 
 @dataclass
@@ -35,7 +27,7 @@ class ConfigParameter:
         """
         if self.value_type == ConfigValueType.BOOL:
             try:
-                _parse_bool(raw_value)
+                parse_bool(raw_value)
             except ValueError:
                 raise ValidationError(f"Value for '{self.key}' must be boolean") from None
             return

@@ -45,7 +45,7 @@ class AuthService:
     async def create_user(
         self, command: CreateUserCommand, creator_role: str | UserRole = UserRole.ADMIN
     ) -> UserDTO:
-        async with self._uow_factory.create() as uow:
+        async with self._uow_factory.create(master=True) as uow:
             role = UserRole.validate(command.role)
             kind = UserKind.validate(command.kind)
 
@@ -86,7 +86,7 @@ class AuthService:
             ]
 
     async def toggle_active(self, user_id: int, is_active: bool, admin_id: int) -> dict:
-        async with self._uow_factory.create() as uow:
+        async with self._uow_factory.create(master=True) as uow:
             user = await uow.users.get_by_id(user_id)
             if user is None:
                 raise EntityNotFound("User", user_id)
@@ -133,7 +133,7 @@ class AuthService:
         return self._tokens.decode_token(token)
 
     async def issue_api_key(self, client_user_id: int, name: str | None = None) -> dict:
-        async with self._uow_factory.create() as uow:
+        async with self._uow_factory.create(master=True) as uow:
             user = await uow.users.get_by_id(client_user_id)
             if user is None:
                 raise EntityNotFound("User", client_user_id)
@@ -173,7 +173,7 @@ class AuthService:
             ]
 
     async def revoke_api_key(self, api_key_id: int, client_user_id: int | None = None) -> dict:
-        async with self._uow_factory.create() as uow:
+        async with self._uow_factory.create(master=True) as uow:
             revoked = await uow.api_keys.revoke(api_key_id, user_id=client_user_id)
             if not revoked:
                 raise EntityNotFound("ApiKey", api_key_id)

@@ -40,7 +40,7 @@ def worker(
         if max_jobs is None:
             max_jobs = settings.worker_max_concurrent
 
-        worker = Worker(
+        w = Worker(
             functions=functions,
             redis_settings=redis_settings,
             max_jobs=max_jobs,
@@ -55,7 +55,7 @@ def worker(
             max_jobs,
             settings.redis_host,
         )
-        worker.run()
+        w.run()
     except ImportError:
         logger.error("arq package not installed. Run: pip install arq redis")
         sys.exit(1)
