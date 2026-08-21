@@ -22,6 +22,7 @@ export {
   useDeleteBenchmarkQuestion,
   useExportBenchmarkQuestions,
   useImportBenchmarkQuestions,
+  useRegressionCheck,
   useSourceFiles,
   useSweep,
   useSweeps,
@@ -60,4 +61,11 @@ export { useIngestAll, useIngestFile, useIngestRegistry, useUploadFiles } from "
 export { useJobStats, useJobs } from "./use-jobs";
 export { useLogs } from "./use-logs";
 export { useMetrics } from "./use-metrics";
-export { useDocumentDiagnosis, useDryRun, useDryRunOcr, useQualityDocuments } from "./use-admin-quality";
+export {
+  useDocumentDiagnosis,
+  useDryRun,
+  useDryRunOcr,
+  useIndexFromPreview,
+  usePageImage,
+  useQualityDocuments,
+} from "./use-admin-quality";

@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from application.services.preview_cache import PreviewCache
     from infrastructure.admin.config_admin_adapter import OllamaProbe, QdrantInfo
     from infrastructure.auth.api_key_provider import ApiKeyProvider
     from infrastructure.database.database import DatabaseManager
@@ -60,6 +61,7 @@ class InfrastructureContainer:
     content_extractor: MLContentExtractor | None = field(default=None)
     pdf_quality_assessor: MLPDFQualityAssessor | None = field(default=None)
     metrics_collector: PrometheusMetricsCollector | None = field(default=None)
+    preview_cache: PreviewCache | None = field(default=None)
 
     def init(self, database_manager: DatabaseManager) -> None:
         """Create all infrastructure-layer objects.
@@ -92,9 +94,11 @@ class InfrastructureContainer:
         from infrastructure.services.benchmark_service import BenchmarkService
         from infrastructure.storage import LazyStorage
         from infrastructure.uow_factory import UnitOfWorkFactory
+        from application.services.preview_cache import PreviewCache
 
         self.database = database_manager
         self.api_key_provider = api_key_provider
+        self.preview_cache = PreviewCache()
         self.config_broadcaster = PostgresConfigBroadcaster(database=database_manager)
         self.uow_factory = UnitOfWorkFactory(
             database=database_manager,

@@ -15,6 +15,7 @@ from application.ports.pdf_diagnostics import (
     PDFStoragePort,
     PDFTextCleanerPort,
 )
+from application.services.preview_cache import PreviewCache
 
 logger = logging.getLogger("default")
 
@@ -43,6 +44,9 @@ class DryRunPageResult:
     content_type: str = PageContentType.TEXT
     chars: int = 0
     preview: str = ""
+    full_text: str = ""
+    problem_spans: list[tuple[int, int]] = field(default_factory=list)
+    previous_type: str | None = None
 
 
 @dataclass(frozen=True)
@@ -55,6 +59,8 @@ class DryRunResult:
     warning: str | None = None
     full_text_preview: str = ""
     summary: dict[str, int] = field(default_factory=dict)
+    suggestion: str | None = None
+    preview_id: str | None = None
 
 
 class PDFDiagnosticService:
@@ -67,6 +73,7 @@ class PDFDiagnosticService:
         storage: PDFStoragePort,
         *,
         max_dry_run_bytes: int = 50 * 1024 * 1024,
+        preview_cache: PreviewCache | None = None,
     ) -> None:
         self._classifier = classifier
         self._cleaner = text_cleaner
@@ -74,6 +81,7 @@ class PDFDiagnosticService:
         self._pdf = pdf_doc
         self._storage = storage
         self._max_bytes = max_dry_run_bytes
+        self._preview_cache = preview_cache
 
     async def diagnose_document(self, document_id: int, source_path: str) -> DocumentDiagnoseResult | None:
         temp_path = self._storage.download_to_temp(source_path)
@@ -148,6 +156,7 @@ class PDFDiagnosticService:
                     content_type=PageContentType.TABLE if has_table else PageContentType.TEXT,
                     chars=chars,
                     preview=cleaned[:200] if cleaned else raw_text[:200],
+                    full_text=cleaned if cleaned else raw_text,
                 )
             )
 
@@ -188,6 +197,8 @@ class PDFDiagnosticService:
                             content_type=PageContentType.OCR,
                             chars=len(ocr_text),
                             preview=ocr_text[:200],
+                            full_text=ocr_text,
+                            previous_type=pr.type,
                         )
                     else:
                         pr = DryRunPageResult(
@@ -196,6 +207,8 @@ class PDFDiagnosticService:
                             content_type=PageContentType.OCR,
                             chars=pr.chars,
                             preview=pr.preview,
+                            full_text=pr.full_text,
+                            previous_type=pr.type,
                         )
                 else:
                     pr = DryRunPageResult(
@@ -204,9 +217,61 @@ class PDFDiagnosticService:
                         content_type=PageContentType.OCR,
                         chars=pr.chars,
                         preview=pr.preview,
+                        full_text=pr.full_text,
+                        previous_type=pr.type,
                     )
 
             new_types[pr.type] = new_types.get(pr.type, 0) + 1
             total_chars += pr.chars
 
         return page_results, new_types, total_chars
+
+    @staticmethod
+    def suggest_action(page_results: list[DryRunPageResult], types_count: dict[str, int]) -> str:
+        total = len(page_results)
+        if total == 0:
+            return "Документ пуст или не удалось извлечь данные."
+
+        bad_types = (PageContentType.SCAN, PageContentType.GARBLED, PageContentType.EMPTY)
+        bad_pages = [p for p in page_results if p.type in bad_types]
+        bad_count = len(bad_pages)
+        bad_ratio = bad_count / total
+
+        scan_count = types_count.get(PageContentType.SCAN, 0)
+        garbled_count = types_count.get(PageContentType.GARBLED, 0)
+
+        if bad_ratio <= 0.10:
+            return (
+                "Качество хорошее — можно индексировать без дополнительных действий. "
+                f"({bad_count} проблемных из {total} страниц)"
+            )
+
+        if garbled_count > scan_count and garbled_count > 0:
+            return (
+                "Проблема не в сканировании, а в кодировке или шрифте исходного PDF — "
+                "OCR может не помочь. Попробуйте пересохранить документ из источника."
+            )
+
+        bad_pages_sorted = sorted(bad_pages, key=lambda p: p.page)
+        last_bad = bad_pages_sorted[-1].page
+        tail_from = last_bad - bad_count + 1
+        is_tail = all(p.page >= tail_from for p in bad_pages_sorted)
+
+        if is_tail and bad_ratio <= 0.50:
+            return (
+                f"Похоже, начиная со страницы {tail_from} документ представляет собой скан. "
+                f"Рекомендуется переконвертировать файл целиком или прогнать OCR по всему хвосту "
+                f"({bad_count} страниц из {total})."
+            )
+
+        if bad_ratio <= 0.15:
+            return (
+                f"Документ в целом хороший. Рекомендуется точечный OCR по {bad_count} "
+                f"страницам: {', '.join(f'p.{p.page}' for p in bad_pages_sorted[:10])}"
+                + ("..." if bad_count > 10 else "")
+            )
+
+        return (
+            f"Обнаружено {bad_count} проблемных страниц из {total} ({bad_ratio:.0%}). "
+            "Рекомендуется проверить документ и рассмотреть полную переконвертацию или OCR."
+        )

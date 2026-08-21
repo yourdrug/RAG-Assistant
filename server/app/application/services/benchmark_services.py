@@ -155,31 +155,6 @@ class BenchmarkRunService:
         async with self._uow_factory.create() as uow:
             return await uow.benchmark_runs.get_by_ids(ids)
 
-    async def apply_config(self, run_id: int, changed_by: int | None = None):
-        run = await self.get(run_id)
-        config = run.config_json
-
-        key_mapping = {
-            "top_k": "retriever_top_k",
-            "fetch_k": "retriever_fetch_k",
-            "dense_weight": "dense_weight",
-            "sparse_weight": "sparse_weight",
-            "rrf_k": "rrf_k",
-            "rerank_min_score": "rerank_min_score",
-            "rerank_score_gap_ratio": "rerank_score_gap_ratio",
-        }
-
-        applied_keys = []
-        for config_key, param_key in key_mapping.items():
-            if config_key in config:
-                try:
-                    # ConfigService is injected via apply_run_config route
-                    applied_keys.append(param_key)
-                except Exception as e:
-                    log.warning("Failed to apply %s=%s: %s", param_key, config[config_key], e)
-
-        return applied_keys
-
     async def compare(self, ids: list[int]):
         if len(ids) < 2:
             raise ValidationError(detail="Provide at least 2 run IDs")

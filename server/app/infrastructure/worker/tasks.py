@@ -256,6 +256,7 @@ async def run_sweep(
                     summary_metrics=metrics,
                     dataset=sweep.dataset,
                     llm_evaluated=best.get("llm_evaluated", False),
+                    per_question_results=best.get("full_metrics", {}).get("results"),
                 )
                 run_entity = await uow.benchmark_runs.create(run_entity)
                 best_run_id = run_entity.id

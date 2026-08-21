@@ -42,5 +42,5 @@ repos:
         name: typescript typecheck
         entry: bash -c 'cd client && npx tsc -b --noEmit'
         language: system
-        types: [typescript, tsx, jsx]
+        types: [ts, tsx, jsx]
         pass_filenames: false

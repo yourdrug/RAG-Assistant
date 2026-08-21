@@ -635,14 +635,35 @@ class BenchmarkRunsListResponse(BaseModel):
     total: int
 
 
+class RunApplyFailed(BaseModel):
+    key: str
+    error: str
+
+
 class RunApplyResponse(BaseModel):
     applied: int
     keys: list[str]
+    failed: list[RunApplyFailed]
 
 
 class RunCompareResponse(BaseModel):
     runs: list[BenchmarkRunResponse]
     diff: dict
+
+
+class RegressionCheckResult(BaseModel):
+    metric: str
+    baseline: float | None
+    current: float | None
+    delta: float | None
+    threshold: float
+    failed: bool
+    note: str | None = None
+
+
+class RegressionCheckResponse(BaseModel):
+    passed: bool
+    results: list[RegressionCheckResult]
 
 
 # ---------------------------------------------------------------------------
@@ -706,6 +727,10 @@ class DryRunPageResult(BaseModel):
     content_type: str  # text, table, ocr
     chars: int
     preview: str  # first 200 chars
+    full_text: str = ""  # full cleaned text of the page
+    problem_spans: list[tuple[int, int]] = Field(default_factory=list)
+    previous_type: str | None = None  # type before OCR, for diff badge
+    image_available: bool = False
 
 
 class DryRunResponse(BaseModel):
@@ -717,3 +742,16 @@ class DryRunResponse(BaseModel):
     warning: str | None = None
     full_text_preview: str  # first 2000 chars
     summary: dict  # {text: N, scan: N, garbled: N, empty: N, table: N}
+    suggestion: str | None = None
+    preview_id: str | None = None
+
+
+class PageImageResponse(BaseModel):
+    image_base64: str
+    page: int
+
+
+class IndexFromPreviewRequest(BaseModel):
+    visibility: str = "internal_public"
+    group_id: int | None = None
+    doc_domain: str | None = None

@@ -52,6 +52,9 @@ const AdminBenchmarkPage = lazy(() =>
 const AdminQualityPage = lazy(() =>
   import("@/pages/admin/quality").then((m) => ({ default: m.AdminQualityPage })),
 );
+const DryRunResultPage = lazy(() =>
+  import("@/pages/admin/dry-run/DryRunResultPage").then((m) => ({ default: m.DryRunResultPage })),
+);
 
 function AdminFallback() {
   return (
@@ -125,6 +128,14 @@ export default function App() {
                     element={
                       <Suspense fallback={<AdminFallback />}>
                         <AdminQualityPage />
+                      </Suspense>
+                    }
+                  />
+                  <Route
+                    path="quality/dry-run"
+                    element={
+                      <Suspense fallback={<AdminFallback />}>
+                        <DryRunResultPage />
                       </Suspense>
                     }
                   />

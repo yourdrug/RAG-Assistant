@@ -36,12 +36,12 @@ export function useBenchmarkResults() {
   });
 }
 
-export function useBenchmarkResult(filename: string | null) {
+export function useBenchmarkResult(runId: number | null) {
   return useQuery({
-    queryKey: ["benchmark", "result", filename],
+    queryKey: ["benchmark", "result", runId],
     queryFn: async () =>
-      (await apiClient.get<BenchmarkResultDetail>(`/benchmark/results/${filename}`)).data,
-    enabled: !!filename,
+      (await apiClient.get<BenchmarkResultDetail>(`/benchmark/results/${runId}`)).data,
+    enabled: runId != null,
   });
 }
 
@@ -205,7 +205,7 @@ export function useBenchmarkRun(runId: number | null) {
 export function useApplyRunConfig() {
   return useMutation({
     mutationFn: async (runId: number) =>
-      (await apiClient.post<{ applied: number; keys: string[] }>(
+      (await apiClient.post<{ applied: number; keys: string[]; failed: Array<{ key: string; error: string }> }>(
         `/admin/benchmark/runs/${runId}/apply`
       )).data,
   });
@@ -240,5 +240,31 @@ export function useBenchmarkHistory(params?: {
         `/admin/benchmark/history?${query.toString()}`
       )).data;
     },
+  });
+}
+
+export interface RegressionCheckResult {
+  metric: string;
+  baseline: number | null;
+  current: number | null;
+  delta: number | null;
+  threshold: number;
+  failed: boolean;
+  note?: string | null;
+}
+
+export interface RegressionCheckResponse {
+  passed: boolean;
+  results: RegressionCheckResult[];
+}
+
+export function useRegressionCheck(runId: number | null) {
+  return useQuery({
+    queryKey: ["benchmark", "regression-check", runId],
+    queryFn: async () =>
+      (await apiClient.get<RegressionCheckResponse>(
+        `/admin/benchmark/regression-check${runId != null ? `?run_id=${runId}` : ""}`
+      )).data,
+    enabled: runId != null,
   });
 }

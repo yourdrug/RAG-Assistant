@@ -25,6 +25,11 @@ class FitzPDFDocument:
         except Exception:
             return False
 
+    def render_page_image(self, doc, index: int, dpi: int = 100) -> bytes:
+        page = doc.load_page(index)
+        pix = page.get_pixmap(dpi=dpi)
+        return pix.tobytes("png")
+
     def close(self, doc) -> None:
         doc.close()
 

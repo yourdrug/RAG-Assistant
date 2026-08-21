@@ -2,6 +2,8 @@
 import {
   BarChart3,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   Download,
   Filter,
   GitCompare,
@@ -17,12 +19,14 @@ import {
   X,
   XCircle,
 } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { Fragment, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
+import { apiClient } from "@/shared/api/client";
 import {
   useApplyRunConfig,
   useBenchmarkHistory,
   useBenchmarkQuestions,
+  useBenchmarkResult,
   useBenchmarkRuns,
   useCancelSweep,
   useCompareRuns,
@@ -30,6 +34,7 @@ import {
   useCreateSweep,
   useDeleteBenchmarkQuestion,
   useImportBenchmarkQuestions,
+  useRegressionCheck,
   useSourceFiles,
   useSweeps,
   useUpdateBenchmarkQuestion,
@@ -297,13 +302,9 @@ function QuestionsTab() {
 
   const handleExport = async () => {
     try {
-      const response = await fetch(
-        `/api/admin/benchmark/questions/export${datasetFilter ? `?dataset=${datasetFilter}` : ""}`,
-        {
-          headers: { Authorization: `Bearer ${localStorage.getItem("rag-auth") ? JSON.parse(localStorage.getItem("rag-auth")!).state.token : ""}` },
-        }
+      const { data } = await apiClient.get(
+        `/admin/benchmark/questions/export${datasetFilter ? `?dataset=${datasetFilter}` : ""}`
       );
-      const data = await response.json();
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -894,9 +895,11 @@ function SweepProgressTab({
 
 function LeaderboardTab() {
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [expandedRunId, setExpandedRunId] = useState<number | null>(null);
   const { data: runsData, isLoading } = useBenchmarkRuns({ limit: 50 });
   const applyConfig = useApplyRunConfig();
   const { data: compareData } = useCompareRuns(selectedIds);
+  const { data: runDetail } = useBenchmarkResult(expandedRunId);
 
   const toggleSelect = (id: number) => {
     setSelectedIds((prev) =>
@@ -908,7 +911,13 @@ function LeaderboardTab() {
     if (!confirm(`Apply config from run #${run.id}? This will update live settings.`)) return;
     try {
       const result = await applyConfig.mutateAsync(run.id);
-      toast.success(`Applied ${result.applied} config parameters: ${result.keys.join(", ")}`);
+      if (result.failed.length > 0) {
+        toast.warning(
+          `Applied ${result.applied}, failed ${result.failed.length}: ${result.failed.map((f) => f.key).join(", ")}`
+        );
+      } else {
+        toast.success(`Applied ${result.applied} config parameters: ${result.keys.join(", ")}`);
+      }
     } catch (e: any) {
       toast.error(e.response?.data?.detail || "Failed to apply");
     }
@@ -967,6 +976,7 @@ function LeaderboardTab() {
             <TableHeader>
               <TableRow>
                 <TableHead className="w-[30px]"></TableHead>
+                <TableHead className="w-[30px]"></TableHead>
                 <TableHead>Run</TableHead>
                 <TableHead>Config</TableHead>
                 <TableHead>Hit Rate</TableHead>
@@ -979,62 +989,145 @@ function LeaderboardTab() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {runsData?.runs.map((run) => (
-                <TableRow key={run.id}>
-                  <TableCell>
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.includes(run.id)}
-                      onChange={() => toggleSelect(run.id)}
-                      className="rounded"
-                    />
-                  </TableCell>
-                  <TableCell className="font-mono text-xs">#{run.id}</TableCell>
-                  <TableCell className="text-xs max-w-[200px]">
-                    <div className="truncate font-mono">
-                      {Object.entries(run.config_json)
-                        .slice(0, 3)
-                        .map(([k, v]) => `${k}=${v}`)
-                        .join(" ")}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    {run.summary_metrics.hit_rate !== null && run.summary_metrics.hit_rate !== undefined ? (
-                      <span className={run.summary_metrics.hit_rate >= 0.5 ? "text-green-500" : "text-red-500"}>
-                        {(run.summary_metrics.hit_rate * 100).toFixed(0)}%
-                      </span>
-                    ) : (
-                      "-"
+              {runsData?.runs.map((run) => {
+                const isExpanded = expandedRunId === run.id;
+                return (
+                  <Fragment key={run.id}>
+                    <TableRow className={isExpanded ? "bg-muted/50" : ""}>
+                      <TableCell>
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.includes(run.id)}
+                          onChange={() => toggleSelect(run.id)}
+                          className="rounded"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <button
+                          className="p-0.5 hover:bg-muted rounded"
+                          onClick={() => setExpandedRunId(isExpanded ? null : run.id)}
+                        >
+                          {isExpanded ? (
+                            <ChevronDown className="h-3.5 w-3.5" />
+                          ) : (
+                            <ChevronRight className="h-3.5 w-3.5" />
+                          )}
+                        </button>
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">#{run.id}</TableCell>
+                      <TableCell className="text-xs max-w-[200px]">
+                        <div className="truncate font-mono">
+                          {Object.entries(run.config_json)
+                            .slice(0, 3)
+                            .map(([k, v]) => `${k}=${v}`)
+                            .join(" ")}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        {run.summary_metrics.hit_rate !== null && run.summary_metrics.hit_rate !== undefined ? (
+                          <span className={run.summary_metrics.hit_rate >= 0.5 ? "text-green-500" : "text-red-500"}>
+                            {(run.summary_metrics.hit_rate * 100).toFixed(0)}%
+                          </span>
+                        ) : (
+                          "-"
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <ScoreBadge score={run.summary_metrics.faithfulness ?? run.summary_metrics.avg_faithfulness} />
+                      </TableCell>
+                      <TableCell>
+                        <ScoreBadge score={run.summary_metrics.relevancy ?? run.summary_metrics.avg_relevancy} />
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">
+                        {run.summary_metrics.composite?.toFixed(3) ?? "-"}
+                      </TableCell>
+                      <TableCell>
+                        {run.llm_evaluated ? (
+                          <Badge variant="success" className="text-xs">LLM</Badge>
+                        ) : (
+                          <Badge variant="secondary" className="text-xs">Retrieval</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {run.duration_sec < 60
+                          ? `${run.duration_sec.toFixed(0)}s`
+                          : `${(run.duration_sec / 60).toFixed(1)}m`}
+                      </TableCell>
+                      <TableCell>
+                        <Button variant="outline" size="sm" onClick={() => handleApply(run)}>
+                          Apply
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                    {isExpanded && (
+                      <TableRow>
+                        <TableCell colSpan={11} className="p-0">
+                          <div className="px-4 py-3 bg-muted/30">
+                            {runDetail?.per_question_results ? (
+                              <div className="space-y-2">
+                                <h4 className="text-sm font-medium flex items-center gap-1">
+                                  <ListChecks className="h-4 w-4" /> Per-question results (
+                                  {runDetail.per_question_results.length})
+                                </h4>
+                                <div className="overflow-auto max-h-[300px] border rounded-md">
+                                  <Table>
+                                    <TableHeader>
+                                      <TableRow>
+                                        <TableHead className="text-xs">#</TableHead>
+                                        <TableHead className="text-xs">Question</TableHead>
+                                        <TableHead className="text-xs">Hit</TableHead>
+                                        <TableHead className="text-xs">MRR</TableHead>
+                                        <TableHead className="text-xs">Faith</TableHead>
+                                        <TableHead className="text-xs">Rel</TableHead>
+                                        <TableHead className="text-xs">Latency</TableHead>
+                                      </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                      {runDetail.per_question_results.map((qr, idx) => (
+                                        <TableRow key={qr.id ?? idx}>
+                                          <TableCell className="text-xs text-muted-foreground">{idx + 1}</TableCell>
+                                          <TableCell className="text-xs max-w-[300px] truncate">
+                                            {qr.question}
+                                          </TableCell>
+                                          <TableCell className="text-xs">
+                                            {qr.hit_rate != null ? (
+                                              <span className={qr.hit_rate >= 0.5 ? "text-green-500" : "text-red-500"}>
+                                                {qr.hit_rate >= 0.5 ? "Hit" : "Miss"}
+                                              </span>
+                                            ) : (
+                                              "-"
+                                            )}
+                                          </TableCell>
+                                          <TableCell className="text-xs font-mono">
+                                            {qr.mrr?.toFixed(2) ?? "-"}
+                                          </TableCell>
+                                          <TableCell className="text-xs">
+                                            <ScoreBadge score={qr.faithfulness} />
+                                          </TableCell>
+                                          <TableCell className="text-xs">
+                                            <ScoreBadge score={qr.relevancy} />
+                                          </TableCell>
+                                          <TableCell className="text-xs text-muted-foreground">
+                                            {qr.latency_sec != null ? `${qr.latency_sec.toFixed(1)}s` : "-"}
+                                          </TableCell>
+                                        </TableRow>
+                                      ))}
+                                    </TableBody>
+                                  </Table>
+                                </div>
+                              </div>
+                            ) : (
+                              <p className="text-sm text-muted-foreground">
+                                No per-question data available for this run.
+                              </p>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
                     )}
-                  </TableCell>
-                  <TableCell>
-                    <ScoreBadge score={run.summary_metrics.faithfulness ?? run.summary_metrics.avg_faithfulness} />
-                  </TableCell>
-                  <TableCell>
-                    <ScoreBadge score={run.summary_metrics.relevancy ?? run.summary_metrics.avg_relevancy} />
-                  </TableCell>
-                  <TableCell className="font-mono text-xs">
-                    {run.summary_metrics.composite?.toFixed(3) ?? "-"}
-                  </TableCell>
-                  <TableCell>
-                    {run.llm_evaluated ? (
-                      <Badge variant="success" className="text-xs">LLM</Badge>
-                    ) : (
-                      <Badge variant="secondary" className="text-xs">Retrieval</Badge>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
-                    {run.duration_sec < 60
-                      ? `${run.duration_sec.toFixed(0)}s`
-                      : `${(run.duration_sec / 60).toFixed(1)}m`}
-                  </TableCell>
-                  <TableCell>
-                    <Button variant="outline" size="sm" onClick={() => handleApply(run)}>
-                      Apply
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
+                  </Fragment>
+                );
+              })}
             </TableBody>
           </Table>
         </div>
@@ -1047,6 +1140,8 @@ function LeaderboardTab() {
 
 function TrendsTab() {
   const { data: historyData, isLoading } = useBenchmarkHistory({ days: 30 });
+  const latestRunId = historyData?.points?.length ? historyData.points[historyData.points.length - 1].run_id : null;
+  const { data: regressionData } = useRegressionCheck(latestRunId);
 
   if (isLoading) {
     return (
@@ -1101,6 +1196,64 @@ function TrendsTab() {
           );
         })}
       </div>
+
+      {/* Regression check */}
+      {regressionData && regressionData.results.length > 0 && (
+        <Card className={regressionData.passed ? "border-green-200" : "border-red-200"}>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              {regressionData.passed ? (
+                <CheckCircle2 className="h-4 w-4 text-green-500" />
+              ) : (
+                <XCircle className="h-4 w-4 text-red-500" />
+              )}
+              Regression Check — {regressionData.passed ? "PASSED" : "FAILED"}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="text-xs">Metric</TableHead>
+                    <TableHead className="text-xs">Baseline</TableHead>
+                    <TableHead className="text-xs">Current</TableHead>
+                    <TableHead className="text-xs">Delta</TableHead>
+                    <TableHead className="text-xs">Threshold</TableHead>
+                    <TableHead className="text-xs">Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {regressionData.results.map((r) => (
+                    <TableRow key={r.metric}>
+                      <TableCell className="text-xs font-mono">{r.metric}</TableCell>
+                      <TableCell className="text-xs">{r.baseline != null ? r.baseline.toFixed(4) : "-"}</TableCell>
+                      <TableCell className="text-xs">{r.current != null ? r.current.toFixed(4) : "-"}</TableCell>
+                      <TableCell className="text-xs font-mono">
+                        {r.delta != null ? (
+                          <span className={r.failed ? "text-red-500" : "text-green-500"}>
+                            {r.delta > 0 ? "+" : ""}{r.delta.toFixed(4)}
+                          </span>
+                        ) : (
+                          "-"
+                        )}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{r.threshold}</TableCell>
+                      <TableCell className="text-xs">
+                        {r.failed ? (
+                          <Badge variant="destructive" className="text-xs">FAIL</Badge>
+                        ) : (
+                          <Badge variant="success" className="text-xs">OK</Badge>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* History table */}
       <Card>

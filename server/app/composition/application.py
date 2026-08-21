@@ -201,6 +201,7 @@ class ApplicationContainer:
             ocr=MLOcrRunner(),
             pdf_doc=FitzPDFDocument(),
             storage=fs,
+            preview_cache=infra.preview_cache,
         )
 
         self.search_service = SearchService(uow_factory=uow)

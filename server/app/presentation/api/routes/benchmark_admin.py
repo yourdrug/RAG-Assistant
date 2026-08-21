@@ -37,6 +37,8 @@ from presentation.api.schemas import (
     BenchmarkQuestionUpdate,
     BenchmarkRunResponse,
     BenchmarkRunsListResponse,
+    RegressionCheckResponse,
+    RegressionCheckResult,
     RunApplyResponse,
     RunCompareResponse,
     SweepCreateRequest,
@@ -405,6 +407,7 @@ async def apply_run_config(
 
     config = run.config_json
     applied_keys = []
+    failed_keys = []
 
     key_mapping = {
         "top_k": "retriever_top_k",
@@ -425,8 +428,9 @@ async def apply_run_config(
                 applied_keys.append(param_key)
             except Exception as e:
                 logger.warning("Failed to apply %s=%s: %s", param_key, config[config_key], e)
+                failed_keys.append({"key": param_key, "error": str(e)})
 
-    return RunApplyResponse(applied=len(applied_keys), keys=applied_keys)
+    return RunApplyResponse(applied=len(applied_keys), keys=applied_keys, failed=failed_keys)
 
 
 @router.get("/admin/benchmark/runs/compare", response_model=RunCompareResponse)
@@ -496,3 +500,51 @@ async def benchmark_history(
         )
 
     return BenchmarkHistoryResponse(points=points, total=len(points))
+
+
+@router.get("/admin/benchmark/regression-check", response_model=RegressionCheckResponse)
+async def regression_check(
+    run_id: int | None = Query(
+        None,
+        description="DB run ID to check; if omitted, compares last two history entries",
+    ),
+    admin: dict = Depends(require_admin),
+    service: BenchmarkRunService = Depends(create_benchmark_run_service),
+):
+    """Check for regression: compare a run (or latest) against the last baseline."""
+    from config import settings
+    from infrastructure.ml.benchmark_history import compare_runs, get_last_baseline, load_history
+
+    data_dir = str(settings.data_dir)
+    baseline = get_last_baseline(data_dir)
+    if baseline is None:
+        return RegressionCheckResponse(passed=True, results=[])
+
+    if run_id is not None:
+        run = await service.get(run_id)
+        current = {
+            "metrics": run.summary_metrics or {},
+            "config": run.config_json,
+        }
+    else:
+        history = load_history(data_dir)
+        if len(history) < 2:
+            return RegressionCheckResponse(passed=True, results=[])
+        current = history[-1]
+
+    result = compare_runs(current, baseline)
+    return RegressionCheckResponse(
+        passed=result["passed"],
+        results=[
+            RegressionCheckResult(
+                metric=r["metric"],
+                baseline=r.get("baseline"),
+                current=r.get("current"),
+                delta=r.get("delta"),
+                threshold=r["threshold"],
+                failed=r["failed"],
+                note=r.get("note"),
+            )
+            for r in result["results"]
+        ],
+    )

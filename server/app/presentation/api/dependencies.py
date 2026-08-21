@@ -112,6 +112,12 @@ def create_ingestion_port(request: Request) -> IngestionService:
     return _create_container(request).application.ingestion_service
 
 
+def create_preview_cache(request: Request):
+    result = _create_container(request).infrastructure.preview_cache
+    assert result is not None, "Container not initialized"
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Application services
 # ---------------------------------------------------------------------------

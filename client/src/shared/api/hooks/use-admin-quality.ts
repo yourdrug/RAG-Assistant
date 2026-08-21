@@ -5,6 +5,8 @@ import type {
   DocumentDiagnoseResponse,
   DocumentQualityListResponse,
   DryRunResponse,
+  IndexFromPreviewResponse,
+  PageImageResponse,
 } from "../types";
 
 export function useQualityDocuments() {
@@ -46,14 +48,70 @@ export function useDryRun() {
 /** Phase 2: run OCR on specific problem pages */
 export function useDryRunOcr() {
   return useMutation({
-    mutationFn: async ({ file, pages }: { file: File; pages: number[] }) => {
+    mutationFn: async ({
+      file,
+      previewId,
+      pages,
+    }: {
+      file?: File | null;
+      previewId?: string;
+      pages: number[];
+    }) => {
       const fd = new FormData();
-      fd.append("file", file);
+      if (file) fd.append("file", file);
+      if (previewId) fd.append("preview_id", previewId);
       fd.append("pages", pages.join(","));
       return (
         await apiClient.post<DryRunResponse>("/admin/documents/preview-ocr", fd, {
           headers: { "Content-Type": "multipart/form-data" },
         })
+      ).data;
+    },
+  });
+}
+
+/** Fetch rendered page image (base64 PNG) */
+export function usePageImage() {
+  return useMutation({
+    mutationFn: async ({ previewId, page }: { previewId: string; page: number }) => {
+      const fd = new FormData();
+      fd.append("preview_id", previewId);
+      fd.append("page", String(page));
+      return (
+        await apiClient.post<PageImageResponse>(
+          "/admin/documents/preview/page-image",
+          fd,
+          { headers: { "Content-Type": "multipart/form-data" } },
+        )
+      ).data;
+    },
+  });
+}
+
+/** Index the cached PDF through the standard ingestion pipeline */
+export function useIndexFromPreview() {
+  return useMutation({
+    mutationFn: async ({
+      previewId,
+      visibility = "internal_public",
+      groupId,
+      docDomain,
+    }: {
+      previewId: string;
+      visibility?: string;
+      groupId?: number | null;
+      docDomain?: string | null;
+    }) => {
+      const fd = new FormData();
+      fd.append("visibility", visibility);
+      if (groupId != null) fd.append("group_id", String(groupId));
+      if (docDomain) fd.append("doc_domain", docDomain);
+      return (
+        await apiClient.post<IndexFromPreviewResponse>(
+          `/admin/documents/preview/${previewId}/index`,
+          fd,
+          { headers: { "Content-Type": "multipart/form-data" } },
+        )
       ).data;
     },
   });

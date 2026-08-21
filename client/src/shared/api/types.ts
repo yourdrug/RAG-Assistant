@@ -279,30 +279,21 @@ export interface BenchmarkResultsListResponse {
 }
 
 export interface BenchmarkResultDetail {
-  filename: string;
+  id: number;
   summary: BenchmarkResultSummary;
-  results: Array<{
-    id: string;
+  per_question_results: Array<{
+    id: string | number;
     question: string;
     answer: string;
-    expected_answer: string | null;
-    source_hint: string | null;
-    retriever_metrics: {
-      hit_rate: number | null;
-      mrr: number | null;
-      avg_similarity: number;
-      retrieved_sources: string[];
-    };
-    generator_metrics: {
-      faithfulness: number;
-      faithfulness_reason: string;
-      relevancy: number;
-      relevancy_reason: string;
-      correctness: number | null;
-      correctness_reason: string;
-    };
-    latency_sec: number;
-  }>;
+    expected_answer?: string | null;
+    faithfulness?: number;
+    relevancy?: number;
+    correctness?: number | null;
+    hit_rate?: number | null;
+    mrr?: number | null;
+    avg_similarity?: number;
+    latency_sec?: number;
+  }> | null;
 }
 
 // ─── Background Jobs ───────────────────────────────────────────────────────
@@ -558,6 +549,10 @@ export interface DryRunPageResult {
   content_type: string;
   chars: number;
   preview: string;
+  full_text: string;
+  problem_spans: [number, number][];
+  previous_type: string | null;
+  image_available: boolean;
 }
 
 export interface DryRunResponse {
@@ -575,4 +570,17 @@ export interface DryRunResponse {
     empty: number;
     table: number;
   };
+  suggestion: string | null;
+  preview_id: string;
+}
+
+export interface PageImageResponse {
+  image_base64: string;
+  page: number;
+}
+
+export interface IndexFromPreviewResponse {
+  document_id: number;
+  filename: string;
+  status: string;
 }
