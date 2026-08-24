@@ -12,12 +12,9 @@ from pathlib import Path
 import httpx
 from config import settings
 from domain.value_objects.llm_provider import Breadth, LLMProvider
-from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
-from langchain_qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
-from sentence_transformers import CrossEncoder
 
 log = logging.getLogger("default")
 
@@ -27,29 +24,23 @@ log = logging.getLogger("default")
 # ---------------------------------------------------------------------------
 
 
-def create_embeddings() -> HuggingFaceEmbeddings:
-    log.info("Loading embedding model %s on %s ...", settings.embed_model, settings.embed_resolved_device)
-    return HuggingFaceEmbeddings(
-        model_name=settings.embed_model,
-        model_kwargs={"device": settings.embed_resolved_device},
-        encode_kwargs={"normalize_embeddings": True, "batch_size": settings.embed_batch_size},
-    )
+def create_embeddings():
+    from infrastructure.ml.tei_clients import TEIEmbeddingsClient
+
+    log.info("Creating TEI embeddings client (%s) ...", settings.tei_embed_url)
+    return TEIEmbeddingsClient(settings.tei_embed_url)
 
 
 # ---------------------------------------------------------------------------
-# Vector store
+# Reranker
 # ---------------------------------------------------------------------------
 
 
-def create_vector_store(embeddings: HuggingFaceEmbeddings) -> QdrantVectorStore:
-    return QdrantVectorStore.from_existing_collection(
-        embedding=embeddings,
-        url=settings.qdrant_url,
-        api_key=settings.qdrant_api_key,
-        collection_name=settings.collection_name,
-        content_payload_key="page_content",
-        metadata_payload_key="metadata",
-    )
+def create_reranker():
+    from infrastructure.ml.tei_clients import TEIRerankerClient
+
+    log.info("Creating TEI reranker client (%s) ...", settings.tei_rerank_url)
+    return TEIRerankerClient(settings.tei_rerank_url)
 
 
 # ---------------------------------------------------------------------------
@@ -121,22 +112,6 @@ def _create_openrouter_llm_for_breadth(breadth: str) -> ChatOpenAI:
         timeout=120,
         max_retries=2,
     )
-
-
-# ---------------------------------------------------------------------------
-# Reranker
-# ---------------------------------------------------------------------------
-
-
-def create_reranker() -> CrossEncoder:
-    log.info("Loading reranker %s on %s ...", settings.rerank_model, settings.rerank_resolved_device)
-    reranker = CrossEncoder(
-        settings.rerank_model,
-        max_length=1024,
-        device=settings.rerank_resolved_device,
-    )
-    log.info("Reranker loaded")
-    return reranker
 
 
 # ---------------------------------------------------------------------------

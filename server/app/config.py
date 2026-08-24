@@ -14,7 +14,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-import torch
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -78,12 +77,10 @@ class Settings(BaseSettings):
     def allowed_origins_list(self) -> list[str]:
         return [o.strip() for o in self.allowed_origins.split(",") if o.strip()]
 
-    # --- Эмбеддинги и реранкер (лицензионно безопасный набор, MIT/Apache-2.0) ---
-    embed_model: str = "BAAI/bge-m3"
-    device: str = "cpu"  # "cuda" если есть GPU (fallback для всех)
-    embed_device: str = ""  # отдельно для embedding; пусто = использовать device
-    rerank_device: str = ""  # отдельно для reranker; пусто = использовать device
-    rerank_model: str = "BAAI/bge-reranker-v2-m3"
+    # --- TEI (Text Embeddings Inference) ---
+    # Обязательные URL сервисов. Пустые = ошибка при старте.
+    tei_embed_url: str = ""  # e.g. "http://tei-embed:8080"
+    tei_rerank_url: str = ""  # e.g. "http://tei-rerank:8080"
 
     # --- LLM ---
     llm_provider: str = "ollama"  # "ollama" | "openrouter"
@@ -209,31 +206,6 @@ class Settings(BaseSettings):
     def tz(self) -> ZoneInfo:
         return ZoneInfo(self.timezone)
 
-    @property
-    def resolved_device(self) -> str:
-        """Return 'cuda' only if DEVICE=cuda AND GPU is available."""
-        if self.device == "cuda" and torch.cuda.is_available():
-            return "cuda"
-        return "cpu"
-
-    @property
-    def embed_resolved_device(self) -> str:
-        """Return device for embedding model. Uses EMBED_DEVICE if set, else falls back to resolved_device."""
-        if self.embed_device:
-            if self.embed_device == "cuda" and torch.cuda.is_available():
-                return "cuda"
-            return "cpu"
-        return self.resolved_device
-
-    @property
-    def rerank_resolved_device(self) -> str:
-        """Return device for reranker model. Uses RERANK_DEVICE if set, else falls back to resolved_device."""
-        if self.rerank_device:
-            if self.rerank_device == "cuda" and torch.cuda.is_available():
-                return "cuda"
-            return "cpu"
-        return self.resolved_device
-
     # --- App version & metadata ---
     version: str = ""
     service_start_datetime: str = ""
@@ -260,42 +232,52 @@ class Settings(BaseSettings):
         errors: list[str] = []
         is_prod = self.stage == "prod"
 
-        if is_prod and self.jwt_secret_key == _INSECURE_DEFAULTS["jwt_secret_key"]:
+        if is_prod:
+            errors.extend(self._check_prod_security())
+        errors.extend(self._check_required_urls())
+
+        if errors:
+            msg = "Configuration errors:\n" + "\n".join(f"  - {e}" for e in errors)
+            if is_prod:
+                sys.stderr.write(msg + "\n")
+                sys.exit(1)
+            else:
+                logging.getLogger("default").warning(msg)
+
+        return self
+
+    def _check_prod_security(self) -> list[str]:
+        errors: list[str] = []
+        if self.jwt_secret_key == _INSECURE_DEFAULTS["jwt_secret_key"]:
             errors.append(
                 "JWT_SECRET_KEY must be changed in production "
                 "(currently 'change-me-in-production'). "
                 "Generate with: openssl rand -hex 32"
             )
-
-        if is_prod:
-            for field, default in _INSECURE_DEFAULTS.items():
-                if field == "jwt_secret_key":
-                    continue
-                val = getattr(self, field, None)
-                if val == default:
-                    errors.append(
-                        f"{field} uses the insecure default value '{default}' "
-                        f"which is not allowed in production (stage=prod). "
-                        f"Set a strong value in server/.env"
-                    )
-
-        if errors:
-            msg = "Security validation failed:\n" + "\n".join(f"  - {e}" for e in errors)
-            if is_prod:
-                print(msg, file=sys.stderr)
-                sys.exit(1)
-            else:
-                logging.getLogger("default").warning(msg)
-
-        if is_prod and "*" in self.allowed_origins_list:
-            msg = (
+        for field, default in _INSECURE_DEFAULTS.items():
+            if field == "jwt_secret_key":
+                continue
+            val = getattr(self, field, None)
+            if val == default:
+                errors.append(
+                    f"{field} uses the insecure default value '{default}' "
+                    f"which is not allowed in production (stage=prod). "
+                    f"Set a strong value in server/.env"
+                )
+        if "*" in self.allowed_origins_list:
+            errors.append(
                 "CORS allowed_origins contains '*' which is insecure in production. "
                 "Set ALLOWED_ORIGINS to specific origins in server/.env"
             )
-            print(msg, file=sys.stderr)
-            sys.exit(1)
+        return errors
 
-        return self
+    def _check_required_urls(self) -> list[str]:
+        errors: list[str] = []
+        if not self.tei_embed_url:
+            errors.append("TEI_EMBED_URL is required — set it in server/.env")
+        if not self.tei_rerank_url:
+            errors.append("TEI_RERANK_URL is required — set it in server/.env")
+        return errors
 
     @property
     def uptime_seconds(self) -> float:

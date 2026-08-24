@@ -237,12 +237,7 @@ services:
     env_file:
       - path: server/.env
         required: true
-    environment:
-      DEVICE: ${DEVICE}
     volumes:
-      - type: volume
-        source: huggingface_cache
-        target: /root/.cache/huggingface
       - type: bind
         source: ./data/paddleocr_cache
         target: /root/.paddleocr
@@ -273,6 +268,10 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      tei-embed:
+        condition: service_healthy
+      tei-rerank:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - default
@@ -285,12 +284,7 @@ services:
     env_file:
       - path: server/.env
         required: true
-    environment:
-      DEVICE: ${DEVICE}
     volumes:
-      - type: volume
-        source: huggingface_cache
-        target: /root/.cache/huggingface
       - type: bind
         source: ./data
         target: /code/project/data
@@ -306,6 +300,10 @@ services:
         condition: service_healthy
       ollama:
         condition: service_healthy
+      tei-embed:
+        condition: service_healthy
+      tei-rerank:
+        condition: service_healthy
     deploy:
       resources:
         limits:
@@ -318,6 +316,72 @@ services:
     networks:
       - backend
     command: [ "python", "main.py", "worker" ]
+
+  tei-embed:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.5
+    hostname: tei-embed
+    container_name: rag-tei-embed
+    command: --model-id /data/bge-m3 --port 8080
+    expose:
+      - "8080/tcp"
+    volumes:
+      - type: bind
+        source: ./data/tei_cache
+        target: /data
+        bind:
+          propagation: rprivate
+          create_host_path: true
+          selinux: Z
+    healthcheck:
+      test: [ "CMD-SHELL", "bash -c '</dev/tcp/localhost/8080' || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 3G
+        reservations:
+          cpus: "0.5"
+          memory: 1G
+    restart: unless-stopped
+    networks:
+      - backend
+
+  tei-rerank:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.5
+    hostname: tei-rerank
+    container_name: rag-tei-rerank
+    command: --model-id /data/bge-reranker-v2-m3-onnx --port 8080
+    expose:
+      - "8080/tcp"
+    volumes:
+      - type: bind
+        source: ./data/tei_cache
+        target: /data
+        bind:
+          propagation: rprivate
+          create_host_path: true
+          selinux: Z
+    healthcheck:
+      test: [ "CMD-SHELL", "bash -c '</dev/tcp/localhost/8080' || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 3G
+        reservations:
+          cpus: "0.5"
+          memory: 1G
+    restart: unless-stopped
+    networks:
+      - backend
 
   minio:
     image: minio/minio:RELEASE.2024-09-22T00-33-43Z
@@ -470,14 +534,8 @@ networks:
     name: rag-network
     driver: bridge
     driver_opts:
-      # По умолчанию Docker-мост держит MTU=1500. Если на хосте поднят VPN (обычно
-      # снижает MTU до ~1400 и меньше), крупные TLS-пакеты при долгих скачиваниях рвутся
-      # с "EOF" — см. README → Troubleshooting.
       com.docker.network.driver.mtu: ${DOCKER_MTU}
   backend:
     name: rag-backend
     driver: bridge
     internal: true
-
-volumes:
-  huggingface_cache:

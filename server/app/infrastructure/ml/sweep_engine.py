@@ -44,7 +44,6 @@ EXPENSIVE_PARAMS = frozenset(
     {
         "chunk_size",
         "chunk_overlap",
-        "embed_model",
     }
 )
 
@@ -358,7 +357,7 @@ class SweepEngine:
             dense_results = []
             for point in client.search(
                 collection_name=settings.collection_name,
-                query_vector=embeddings.embed_query(qtext),
+                query_vector=embeddings.embed_query_sync(qtext),
                 limit=max_fetch_k,
             ):
                 payload = point.payload or {}

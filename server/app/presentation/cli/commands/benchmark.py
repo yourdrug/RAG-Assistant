@@ -53,7 +53,7 @@ async def _cache_dense_sparse_candidates(
         dense_results = []
         for point in create_qdrant_client().search(
             collection_name=settings.collection_name,
-            query_vector=create_embeddings().embed_query(qtext),
+            query_vector=create_embeddings().embed_query_sync(qtext),
             limit=max_fetch_k,
         ):
             payload = point.payload or {}
@@ -279,7 +279,7 @@ def _score_reranked_question(
     if not pairs:
         return 0, 0.0
 
-    scores = reranker.predict(pairs)
+    scores = reranker.predict_sync(pairs)
     ranked = sorted(
         zip(candidate_docs, scores, strict=False),
         key=lambda x: x[1],

@@ -33,7 +33,6 @@ class MLClientRegistry:
 
     def __init__(self) -> None:
         self._embeddings: Any = None
-        self._vector_store: Any = None
         self._llm: Any = None
         self._llm_breadth_cache: dict[str, Any] = {}
         self._reranker: Any = None
@@ -51,13 +50,6 @@ class MLClientRegistry:
 
             self._embeddings = create_embeddings()
         return self._embeddings
-
-    def vector_store(self):
-        if self._vector_store is None:
-            from infrastructure.ml.factories import create_vector_store
-
-            self._vector_store = create_vector_store(self.embeddings())
-        return self._vector_store
 
     def llm(self):
         if self._llm is None:
@@ -109,12 +101,8 @@ class MLClientRegistry:
         log.info("MLClientRegistry: LLM cache invalidated")
 
     def invalidate_embeddings(self) -> None:
-        """Clear cached embeddings model.
-
-        Cascades: vector_store depends on embeddings, so it is cleared too.
-        """
+        """Clear cached embeddings model."""
         self._embeddings = None
-        self._vector_store = None
         log.info("MLClientRegistry: embeddings cache invalidated")
 
     def invalidate_bm25(self) -> None:

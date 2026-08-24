@@ -2,6 +2,7 @@
 
 import asyncio
 import importlib
+import logging
 from logging.config import fileConfig
 
 from alembic import context
@@ -24,7 +25,7 @@ def load_model_modules() -> None:
         try:
             importlib.import_module(model_module)
         except ModuleNotFoundError:
-            print(f"Module {model_module} not found")
+            logging.getLogger("default").debug("Module %s not found", model_module)
 
 
 def init_alembic_config() -> None:

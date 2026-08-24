@@ -91,7 +91,7 @@ function MetricCard({
   );
 }
 
-function ScoreBadge({ score, max = 10 }: { score: number | null; max?: number }) {
+function ScoreBadge({ score, max = 10 }: { score: number | null | undefined; max?: number }) {
   if (score === null || score === undefined) return <Badge variant="secondary">-</Badge>;
   const pct = (score / max) * 100;
   if (pct >= 70) return <Badge variant="success">{typeof score === "number" ? score.toFixed(1) : score}</Badge>;
@@ -912,8 +912,9 @@ function LeaderboardTab() {
     try {
       const result = await applyConfig.mutateAsync(run.id);
       if (result.failed.length > 0) {
-        toast.warning(
-          `Applied ${result.applied}, failed ${result.failed.length}: ${result.failed.map((f) => f.key).join(", ")}`
+        toast(
+          `Applied ${result.applied}, failed ${result.failed.length}: ${result.failed.map((f) => f.key).join(", ")}`,
+          { icon: "\u26a0\ufe0f" }
         );
       } else {
         toast.success(`Applied ${result.applied} config parameters: ${result.keys.join(", ")}`);

@@ -125,7 +125,7 @@ async def _qdrant_dense_search(
     client = ml_clients.qdrant_client()
     embeddings = ml_clients.embeddings()
 
-    query_vector = await asyncio.to_thread(embeddings.embed_query, query)
+    query_vector = await embeddings.embed_query(query)
     qdrant_filter = None
     if access_filter and access_filter.should:
         qdrant_filter = access_filter
@@ -203,11 +203,8 @@ async def _run_hybrid_search(
         )
     else:
         t0 = time.monotonic()
-        retriever = ml_clients.vector_store().as_retriever(
-            search_type="similarity",
-            search_kwargs={"k": fetch_k, "filter": access_filter},
-        )
-        candidates = await asyncio.to_thread(retriever.invoke, query)
+        dense_results = await _qdrant_dense_search(query, fetch_k, access_filter, ml_clients)
+        candidates = [doc for _, _, doc in dense_results]
         RAG_STAGE_DURATION.labels("dense_search").observe(time.monotonic() - t0)
 
     return deduplicate_docs(candidates)

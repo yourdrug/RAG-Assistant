@@ -89,7 +89,7 @@ def _search_dense(
     """Dense search via Qdrant client. Returns (dense_docs, dense_by_hash)."""
     client = create_qdrant_client()
     embeddings = create_embeddings()
-    query_vector = embeddings.embed_query(question)
+    query_vector = embeddings.embed_query_sync(question)
     dense_results = client.search(
         collection_name=settings.collection_name,
         query_vector=query_vector,
@@ -185,7 +185,7 @@ def retrieve_with_scores_hybrid(question: str, top_k: int, fetch_k: int) -> list
         content_with_prefix = f"[{doc_name}] {doc.page_content}" if doc_name else doc.page_content
         pairs.append((question, content_with_prefix))
 
-    scores = reranker.predict(pairs)
+    scores = reranker.predict_sync(pairs)
     ranked = sorted(zip(candidate_docs, scores, strict=False), key=lambda x: x[1], reverse=True)[:top_k]
 
     return _apply_rerank_filters(ranked)
@@ -651,7 +651,7 @@ def save_results(results: list[dict], out_dir: str, model_name: str = "", run_id
         "top_k": settings.retriever_top_k,
         "chunk_size": settings.chunk_size,
         "chunk_overlap": settings.chunk_overlap,
-        "embed_model": settings.embed_model,
+        "tei_embed_url": settings.tei_embed_url,
         "llm_model": model_name or settings.llm_model,
         "hybrid_enabled": settings.hybrid_enabled,
         "dense_weight": settings.dense_weight,

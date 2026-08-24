@@ -95,7 +95,7 @@ def _upsert_chunk(
     embeddings = create_embeddings()
 
     # Generate embedding
-    vector = embeddings.embed_query(content)
+    vector = embeddings.embed_query_sync(content)
 
     # Build metadata
     metadata = {

@@ -75,11 +75,8 @@ async def models_info(
     return ModelsInfoResponse(
         llm_provider=info.llm_provider,
         llm_model=info.llm_model,
-        embed_model=info.embed_model,
-        rerank_model=info.rerank_model,
-        device=info.device,
-        embed_device=info.embed_device,
-        rerank_device=info.rerank_device,
+        tei_embed_url=info.tei_embed_url,
+        tei_rerank_url=info.tei_rerank_url,
         ocr_engine=info.ocr_engine,
         ocr_enabled=info.ocr_enabled,
         ollama_models=info.ollama_models,

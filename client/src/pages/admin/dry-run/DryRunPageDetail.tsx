@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
 import { Badge } from "@/shared/ui/badge";
 import { usePageImage } from "@/shared/api/hooks";
-import { TYPE_COLORS } from "./DryRunSummaryBar";
 import type { DryRunPageResult } from "@/shared/api/types";
 
 interface DryRunPageDetailProps {

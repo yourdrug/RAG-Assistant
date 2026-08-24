@@ -5,7 +5,6 @@ Pure policy functions (breadth classification, prompt building) live in
 construction (chain assembly, document formatting, citation extraction).
 """
 
-import asyncio
 import logging
 import re
 from pathlib import Path
@@ -203,7 +202,9 @@ async def rerank_documents(
         content_with_prefix = f"[{doc_name}] {doc.page_content}" if doc_name else doc.page_content
         pairs.append((question, content_with_prefix))
 
-    scores = await asyncio.to_thread(reranker.predict, pairs)
+    scores = reranker.predict(pairs)
+    if hasattr(scores, "__await__"):
+        scores = await scores
 
     ranked = sorted(zip(docs, scores, strict=False), key=lambda x: x[1], reverse=True)[:top_n]
 

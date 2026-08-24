@@ -15,11 +15,8 @@ from application.ports.config_admin_settings import ConfigAdminSettingsPort
 class ModelsInfo:
     llm_provider: str
     llm_model: str
-    embed_model: str
-    rerank_model: str
-    device: str
-    embed_device: str
-    rerank_device: str
+    tei_embed_url: str
+    tei_rerank_url: str
     ocr_engine: str
     ocr_enabled: bool
     ollama_models: list[str] = field(default_factory=list)
@@ -73,11 +70,8 @@ class ConfigAdminService:
         return ModelsInfo(
             llm_provider=self._settings.llm_provider,
             llm_model=self._settings.llm_model,
-            embed_model=self._settings.embed_model,
-            rerank_model=self._settings.rerank_model,
-            device=self._settings.resolved_device,
-            embed_device=self._settings.embed_resolved_device,
-            rerank_device=self._settings.embed_resolved_device,
+            tei_embed_url=self._settings.tei_embed_url,
+            tei_rerank_url=self._settings.tei_rerank_url,
             ocr_engine=self._settings.ocr_engine,
             ocr_enabled=self._settings.ocr_enabled,
             ollama_models=ollama_models,

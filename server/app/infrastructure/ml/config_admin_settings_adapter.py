@@ -17,20 +17,12 @@ class LiveConfigAdminSettings:
         return settings.llm_model
 
     @property
-    def embed_model(self) -> str:  # type: ignore[override]
-        return settings.embed_model
+    def tei_embed_url(self) -> str:  # type: ignore[override]
+        return settings.tei_embed_url
 
     @property
-    def rerank_model(self) -> str:  # type: ignore[override]
-        return settings.rerank_model
-
-    @property
-    def resolved_device(self) -> str:  # type: ignore[override]
-        return settings.resolved_device
-
-    @property
-    def embed_resolved_device(self) -> str:  # type: ignore[override]
-        return settings.embed_resolved_device
+    def tei_rerank_url(self) -> str:  # type: ignore[override]
+        return settings.tei_rerank_url
 
     @property
     def ocr_engine(self) -> str:  # type: ignore[override]

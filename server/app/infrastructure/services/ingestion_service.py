@@ -85,7 +85,7 @@ class IngestionService:
             log.info("prefix   : %s (bucket: %s)", prefix or "docs/", settings.s3_bucket)
         else:
             log.info("docs_dir : %s", docs_dir)
-        log.info("model    : %s", settings.embed_model)
+        log.info("tei_embed: %s", settings.tei_embed_url)
         log.info("qdrant   : %s  /  collection: %s", settings.qdrant_url, settings.collection_name)
         log.info("=" * 55)
 

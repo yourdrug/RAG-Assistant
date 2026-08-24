@@ -11,7 +11,6 @@ import uuid
 
 from config import settings
 from langchain.schema import Document
-from langchain_huggingface import HuggingFaceEmbeddings
 from qdrant_client.models import Distance, PayloadSchemaType, PointStruct, VectorParams
 
 from infrastructure.ml.factories import create_qdrant_client
@@ -75,7 +74,7 @@ def _ensure_payload_indexes(client) -> None:
                 log.warning("Failed to create payload index %s: %s", field_name, e)
 
 
-def upload_to_qdrant(chunks: list[Document], embeddings: HuggingFaceEmbeddings) -> None:
+async def upload_to_qdrant(chunks: list[Document], embeddings) -> None:
     embed_batch = settings.embed_batch_size
     qdrant_batch = 500
     total = len(chunks)
@@ -104,7 +103,7 @@ def upload_to_qdrant(chunks: list[Document], embeddings: HuggingFaceEmbeddings) 
 
         log.info("  Embedding chunks %d/%d ...", batch_end, total)
         t_embed = time.monotonic()
-        batch_vectors = embeddings.embed_documents(batch_texts)
+        batch_vectors = await embeddings.embed_documents(batch_texts)
         log.info("  Embedded in %.1fs", time.monotonic() - t_embed)
 
         for doc, vector in zip(batch_chunks_slice, batch_vectors, strict=False):

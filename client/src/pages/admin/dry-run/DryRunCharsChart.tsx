@@ -1,5 +1,4 @@
 import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { TYPE_COLORS } from "./DryRunSummaryBar";
 import type { DryRunPageResult } from "@/shared/api/types";
 
 const CHART_COLORS: Record<string, string> = {
