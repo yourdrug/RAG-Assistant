@@ -98,7 +98,6 @@ class InfrastructureContainer:
 
         self.database = database_manager
         self.api_key_provider = api_key_provider
-        self.preview_cache = PreviewCache()
         self.config_broadcaster = PostgresConfigBroadcaster(database=database_manager)
         self.uow_factory = UnitOfWorkFactory(
             database=database_manager,
@@ -107,6 +106,7 @@ class InfrastructureContainer:
         self.ml_clients = MLClientRegistry()
         self.vector_store_repo = QdrantVectorStoreRepository(ml_clients=self.ml_clients)
         self.file_storage = LazyStorage()
+        self.preview_cache = PreviewCache(storage=self.file_storage)
         self.document_parser = LangchainDocumentParser()
         self.document_splitter = LangchainDocumentSplitter()
         self.health_probe = SystemHealthProbe()

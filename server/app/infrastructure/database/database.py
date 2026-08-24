@@ -76,8 +76,8 @@ class DatabaseNode:
             self.node_url.url,
             echo=False,
             future=True,
-            pool_size=100,
-            max_overflow=20,
+            pool_size=settings.db_pool_size,
+            max_overflow=settings.db_max_overflow,
             connect_args={"options": "-c timezone=Europe/Minsk"},
         )
 

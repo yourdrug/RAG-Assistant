@@ -28,7 +28,7 @@ async def bootstrap_admin(uow_factory: UnitOfWorkFactory) -> None:
         hasher = BCryptPasswordHasher()
         user = User(
             email=settings.admin_email,
-            hashed_password=hasher.hash(settings.admin_password),
+            hashed_password=await hasher.hash(settings.admin_password),
             role=UserRole.ADMIN,
             kind=UserKind.INTERNAL,
         )

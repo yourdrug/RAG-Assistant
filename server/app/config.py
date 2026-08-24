@@ -54,6 +54,10 @@ class Settings(BaseSettings):
     db_slave_hosts: str = ""
     db_slave_ports: str = ""
 
+    # --- Connection pool (per engine) ---
+    db_pool_size: int = 100
+    db_max_overflow: int = 20
+
     @property
     def db_slave_hosts_list(self) -> list[str]:
         return [h.strip() for h in self.db_slave_hosts.split(",") if h.strip()]

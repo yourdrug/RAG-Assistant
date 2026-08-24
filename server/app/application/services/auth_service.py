@@ -36,7 +36,7 @@ class AuthService:
             user = await uow.users.get_by_email(command.email)
             if user is None or not user.is_active:
                 raise ValidationError("Invalid email or password")
-            if not self._hasher.verify(command.password, user.hashed_password):
+            if not await self._hasher.verify(command.password, user.hashed_password):
                 raise ValidationError("Invalid email or password")
 
             token = self._tokens.create_token(user_id=user.id, role=user.role)
@@ -60,7 +60,7 @@ class AuthService:
             if await uow.users.get_by_email(command.email) is not None:
                 raise BusinessRuleViolation("User with this email already exists")
 
-            user.hashed_password = self._hasher.hash(command.password)
+            user.hashed_password = await self._hasher.hash(command.password)
             saved = await uow.users.save(user)
 
             return UserDTO(

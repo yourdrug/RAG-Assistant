@@ -125,5 +125,5 @@ async def upload_files(
         data = await f.read()
         file_data.append(type("UploadFileData", (), {"filename": f.filename, "data": data})())
 
-    uploaded = ingestion_port.upload_files(file_data)
+    uploaded = await ingestion_port.upload_files(file_data)
     return UploadResponse(files=uploaded)

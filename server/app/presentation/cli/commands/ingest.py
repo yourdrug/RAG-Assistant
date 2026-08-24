@@ -95,7 +95,7 @@ def ingest_upload(
 
         s3_key = key or f"docs/{path.name}"
         data = path.read_bytes()
-        storage.upload_file(s3_key, data)
+        asyncio.run(storage.upload_file(s3_key, data))
         logger.info("Uploaded: s3://%s/%s (%d bytes)", settings.s3_bucket, s3_key, len(data))
     except Exception as exc:
         logger.error("Upload error", exc_info=exc)

@@ -186,7 +186,7 @@ class DocumentProcessor:
                 await uow.documents.update_status(document_id, DocumentStatus.PROCESSING.value)
 
             # --- Heavy I/O outside transaction ---
-            temp_path = self._file_storage.download_to_temp(storage_key)
+            temp_path = await self._file_storage.download_to_temp(storage_key)
             docs = self._parser.parse(temp_path)
 
             if not docs:

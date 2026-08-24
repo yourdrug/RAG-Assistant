@@ -23,7 +23,7 @@ from domain.value_objects.roles import UserKind, UserRole  # noqa: E402
 
 @pytest.fixture
 def auth_service():
-    hasher = MagicMock()
+    hasher = AsyncMock()
     hasher.hash.return_value = "hashed_pw"
     hasher.verify.return_value = True
 

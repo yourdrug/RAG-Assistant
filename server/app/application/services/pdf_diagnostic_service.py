@@ -84,7 +84,7 @@ class PDFDiagnosticService:
         self._preview_cache = preview_cache
 
     async def diagnose_document(self, document_id: int, source_path: str) -> DocumentDiagnoseResult | None:
-        temp_path = self._storage.download_to_temp(source_path)
+        temp_path = await self._storage.download_to_temp(source_path)
         try:
             doc = self._pdf.open(str(temp_path))
             total_pages = self._pdf.get_page_count(doc)

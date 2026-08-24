@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import base64
 import logging
-import tempfile
 from pathlib import Path
 
 from config import settings
@@ -114,6 +113,31 @@ def _build_dry_run_response(
     )
 
 
+def _handle_ocr_analysis(
+    tmp_path: Path,
+    effective_preview_id: str,
+    preview_cache,
+    diag_service: PDFDiagnosticService,
+    file: UploadFile | None,
+) -> DryRunResponse:
+    """Run OCR analysis on *tmp_path* and build the response."""
+    page_results, _types_count, _total_chars = diag_service.analyze_text_layer(tmp_path)
+    page_results, types_count, total_chars = diag_service.ocr_problem_pages(tmp_path, page_results)
+    warning = _compute_quality_warning(page_results, types_count, "Still low quality after OCR")
+    suggestion = PDFDiagnosticService.suggest_action(page_results, types_count)
+
+    filename = file.filename if file else (tmp_path.stem + ".pdf")
+    return _build_dry_run_response(
+        filename,
+        page_results,
+        types_count,
+        total_chars,
+        warning,
+        preview_id=effective_preview_id,
+        suggestion=suggestion,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Quality list & diagnosis
 # ---------------------------------------------------------------------------
@@ -186,13 +210,11 @@ async def dry_run_preview(
     """Phase 1: Fast dry-run — text layer only, no OCR."""
     data = await _validate_pdf_upload(file, diag_service)
 
-    preview_id = preview_cache.store(data)
+    preview_id = await preview_cache.store(data)
 
-    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-        tmp.write(data)
-        tmp_path = Path(tmp.name)
-
-    try:
+    async with preview_cache.get_path(preview_id) as tmp_path:
+        if tmp_path is None:
+            raise HTTPException(status_code=500, detail="Failed to store preview")
         page_results, types_count, total_chars = diag_service.analyze_text_layer(tmp_path)
         warning = _compute_quality_warning(page_results, types_count, "Low quality")
         suggestion = PDFDiagnosticService.suggest_action(page_results, types_count)
@@ -205,8 +227,6 @@ async def dry_run_preview(
             preview_id=preview_id,
             suggestion=suggestion,
         )
-    finally:
-        tmp_path.unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------
@@ -237,51 +257,24 @@ async def dry_run_ocr_phase2(
         raise HTTPException(status_code=400, detail="No pages specified for OCR")
 
     # Resolve the PDF: cached file takes precedence over a fresh upload
-    cached_path = None
     if preview_id:
-        cached_path = preview_cache.get_path(preview_id)
+        async with preview_cache.get_path(preview_id) as cached_path:
+            if cached_path is not None:
+                return _handle_ocr_analysis(cached_path, preview_id, preview_cache, diag_service, file)
 
-    if cached_path is not None:
-        tmp_path = cached_path
-        data = None
-    else:
-        if file is None:
-            raise HTTPException(
-                status_code=400,
-                detail="Provide either a file upload or a valid preview_id",
-            )
-        data = await _validate_pdf_upload(file, diag_service)
-        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-            tmp.write(data)
-            tmp_path = Path(tmp.name)
-
-    try:
-        page_results, _types_count, _total_chars = diag_service.analyze_text_layer(tmp_path)
-        page_results, types_count, total_chars = diag_service.ocr_problem_pages(tmp_path, page_results)
-        warning = _compute_quality_warning(page_results, types_count, "Still low quality after OCR")
-        suggestion = PDFDiagnosticService.suggest_action(page_results, types_count)
-
-        # Re-use existing preview_id if available, store new one otherwise
-        if cached_path is not None and preview_id:
-            effective_preview_id = preview_id
-        elif data is not None:
-            effective_preview_id = preview_cache.store(data)
-        else:
-            effective_preview_id = None
-
-        filename = file.filename if file else (cached_path.stem if cached_path else "unknown")
-        return _build_dry_run_response(
-            filename,
-            page_results,
-            types_count,
-            total_chars,
-            warning,
-            preview_id=effective_preview_id,
-            suggestion=suggestion,
+    # No cached file — require a fresh upload
+    if file is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide either a file upload or a valid preview_id",
         )
-    finally:
-        if cached_path is None:
-            tmp_path.unlink(missing_ok=True)
+    data = await _validate_pdf_upload(file, diag_service)
+    new_preview_id = await preview_cache.store(data)
+
+    async with preview_cache.get_path(new_preview_id) as tmp_path:
+        if tmp_path is None:
+            raise HTTPException(status_code=500, detail="Failed to store preview")
+        return _handle_ocr_analysis(tmp_path, new_preview_id, preview_cache, diag_service, file)
 
 
 # ---------------------------------------------------------------------------
@@ -304,29 +297,29 @@ async def get_page_image(
             detail="Page image rendering is not available (requires S3 storage backend)",
         )
 
-    tmp_path = preview_cache.get_path(preview_id)
-    if tmp_path is None:
-        raise HTTPException(status_code=404, detail="Preview expired or not found")
+    async with preview_cache.get_path(preview_id) as tmp_path:
+        if tmp_path is None:
+            raise HTTPException(status_code=404, detail="Preview expired or not found")
 
-    if page < 1:
-        raise HTTPException(status_code=400, detail="Page number must be >= 1")
+        if page < 1:
+            raise HTTPException(status_code=400, detail="Page number must be >= 1")
 
-    doc = diag_service._pdf.open(str(tmp_path))
-    try:
-        total = diag_service._pdf.get_page_count(doc)
-        if page > total:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Page {page} out of range (document has {total} pages)",
-            )
-        image_bytes = diag_service._pdf.render_page_image(doc, page - 1, dpi=120)
-    finally:
-        diag_service._pdf.close(doc)
+        doc = diag_service._pdf.open(str(tmp_path))
+        try:
+            total = diag_service._pdf.get_page_count(doc)
+            if page > total:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Page {page} out of range (document has {total} pages)",
+                )
+            image_bytes = diag_service._pdf.render_page_image(doc, page - 1, dpi=120)
+        finally:
+            diag_service._pdf.close(doc)
 
-    return PageImageResponse(
-        image_base64=base64.b64encode(image_bytes).decode("ascii"),
-        page=page,
-    )
+        return PageImageResponse(
+            image_base64=base64.b64encode(image_bytes).decode("ascii"),
+            page=page,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -352,12 +345,11 @@ async def index_from_preview(
     reused — the standard ``DocumentProcessor`` re-processes the file from
     scratch.
     """
-    tmp_path = preview_cache.get_path(preview_id)
-    if tmp_path is None:
+    file_data = await preview_cache.get_bytes(preview_id)
+    if file_data is None:
         raise HTTPException(status_code=404, detail="Preview expired or not found")
 
-    file_data = tmp_path.read_bytes()
-    filename = tmp_path.stem + ".pdf"
+    filename = preview_cache.get_filename(preview_id)
 
     result = await document_service.upload(
         filename=filename,

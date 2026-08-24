@@ -19,12 +19,12 @@ _hasher = BCryptPasswordHasher()
 _token_provider = JWTProvider()
 
 
-def hash_password(password: str) -> str:
-    return _hasher.hash(password)
+async def hash_password(password: str) -> str:
+    return await _hasher.hash(password)
 
 
-def verify_password(password: str, hashed: str) -> bool:
-    return _hasher.verify(password, hashed)
+async def verify_password(password: str, hashed: str) -> bool:
+    return await _hasher.verify(password, hashed)
 
 
 def create_access_token(user_id: int, role: str) -> str:
@@ -41,44 +41,53 @@ def decode_access_token(token: str) -> dict:
 
 
 class TestPasswordHashing:
-    def test_hash_produces_bcrypt_string(self):
-        h = hash_password("mypassword")
+    @pytest.mark.asyncio
+    async def test_hash_produces_bcrypt_string(self):
+        h = await hash_password("mypassword")
         assert h.startswith("$2")
 
-    def test_hash_is_deterministic_for_same_input_different_salts(self):
-        h1 = hash_password("test")
-        h2 = hash_password("test")
+    @pytest.mark.asyncio
+    async def test_hash_is_deterministic_for_same_input_different_salts(self):
+        h1 = await hash_password("test")
+        h2 = await hash_password("test")
         # Different salts -> different hashes, but both valid
         assert h1 != h2
-        assert verify_password("test", h1)
-        assert verify_password("test", h2)
+        assert await verify_password("test", h1)
+        assert await verify_password("test", h2)
 
-    def test_verify_correct_password(self):
-        h = hash_password("secret123")
-        assert verify_password("secret123", h) is True
+    @pytest.mark.asyncio
+    async def test_verify_correct_password(self):
+        h = await hash_password("secret123")
+        assert await verify_password("secret123", h) is True
 
-    def test_verify_wrong_password(self):
-        h = hash_password("secret123")
-        assert verify_password("wrong", h) is False
+    @pytest.mark.asyncio
+    async def test_verify_wrong_password(self):
+        h = await hash_password("secret123")
+        assert await verify_password("wrong", h) is False
 
-    def test_verify_empty_password_against_hash(self):
-        h = hash_password("notempty")
-        assert verify_password("", h) is False
+    @pytest.mark.asyncio
+    async def test_verify_empty_password_against_hash(self):
+        h = await hash_password("notempty")
+        assert await verify_password("", h) is False
 
-    def test_verify_with_invalid_hash_returns_false(self):
-        assert verify_password("password", "not-a-valid-hash") is False
+    @pytest.mark.asyncio
+    async def test_verify_with_invalid_hash_returns_false(self):
+        assert await verify_password("password", "not-a-valid-hash") is False
 
-    def test_verify_with_empty_hash_returns_false(self):
-        assert verify_password("password", "") is False
+    @pytest.mark.asyncio
+    async def test_verify_with_empty_hash_returns_false(self):
+        assert await verify_password("password", "") is False
 
-    def test_unicode_password(self):
-        h = hash_password("Пароль123!@#")
-        assert verify_password("Пароль123!@#", h) is True
+    @pytest.mark.asyncio
+    async def test_unicode_password(self):
+        h = await hash_password("Пароль123!@#")
+        assert await verify_password("Пароль123!@#", h) is True
 
-    def test_long_password(self):
+    @pytest.mark.asyncio
+    async def test_long_password(self):
         long_pw = "a" * 1000
-        h = hash_password(long_pw)
-        assert verify_password(long_pw, h) is True
+        h = await hash_password(long_pw)
+        assert await verify_password(long_pw, h) is True
 
 
 # ---------------------------------------------------------------------------

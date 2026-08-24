@@ -65,5 +65,5 @@ class IngestAppService:
     def force_reindex(self, filename: str) -> None:
         self._ingestion.force_reindex(filename)
 
-    def upload_files(self, files, prefix: str = "docs/") -> list[str]:
-        return self._ingestion.upload_files(files, prefix)
+    async def upload_files(self, files, prefix: str = "docs/") -> list[str]:
+        return await self._ingestion.upload_files(files, prefix)

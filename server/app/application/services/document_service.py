@@ -195,7 +195,7 @@ class DocumentService:
                 raise
 
             key = self._storage_key(owner_id, effective_group_id, saved_doc.id, filename)
-            self._file_storage.upload_file(key, file_data)
+            await self._file_storage.upload_file(key, file_data)
             await uow.documents.set_source_path(saved_doc.id, key)
 
             final_doc = await uow.documents.get_by_id(saved_doc.id)

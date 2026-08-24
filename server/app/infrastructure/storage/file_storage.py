@@ -11,6 +11,7 @@ from ``application.ports.file_storage`` for backward compatibility.
 
 from __future__ import annotations
 
+import asyncio
 import functools
 import logging
 import tempfile
@@ -56,19 +57,25 @@ class LocalStorage:
             )
         return items
 
-    def download_to_temp(self, key: str) -> Path:
-        src = self.base_dir / key
-        if not src.exists():
-            raise FileNotFoundError(f"File not found: {key}")
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=Path(key).suffix)
-        tmp.write(src.read_bytes())
-        tmp.close()
-        return Path(tmp.name)
+    async def download_to_temp(self, key: str) -> Path:
+        def _download() -> Path:
+            src = self.base_dir / key
+            if not src.exists():
+                raise FileNotFoundError(f"File not found: {key}")
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=Path(key).suffix)
+            tmp.write(src.read_bytes())
+            tmp.close()
+            return Path(tmp.name)
 
-    def upload_file(self, key: str, data: bytes) -> None:
-        dest = self.base_dir / key
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_bytes(data)
+        return await asyncio.to_thread(_download)
+
+    async def upload_file(self, key: str, data: bytes) -> None:
+        def _upload() -> None:
+            dest = self.base_dir / key
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(data)
+
+        await asyncio.to_thread(_upload)
 
     def get_file_info(self, key: str) -> FileItem | None:
         f = self.base_dir / key
@@ -125,15 +132,18 @@ class S3Storage:
                 )
         return sorted(items, key=lambda x: x.key)
 
-    def download_to_temp(self, key: str) -> Path:
-        suffix = Path(key).suffix
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
-        self.client.download_fileobj(self.bucket, key, tmp)
-        tmp.close()
-        return Path(tmp.name)
+    async def download_to_temp(self, key: str) -> Path:
+        def _download() -> Path:
+            suffix = Path(key).suffix
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+            self.client.download_fileobj(self.bucket, key, tmp)
+            tmp.close()
+            return Path(tmp.name)
 
-    def upload_file(self, key: str, data: bytes) -> None:
-        self.client.put_object(Bucket=self.bucket, Key=key, Body=data)
+        return await asyncio.to_thread(_download)
+
+    async def upload_file(self, key: str, data: bytes) -> None:
+        await asyncio.to_thread(self.client.put_object, Bucket=self.bucket, Key=key, Body=data)
 
     def get_file_info(self, key: str) -> FileItem | None:
         try:

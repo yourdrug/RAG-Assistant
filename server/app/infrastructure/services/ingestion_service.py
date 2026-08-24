@@ -143,7 +143,7 @@ class IngestionService:
         vector_size = len(await self._vector_store.generate_embeddings("test"))
         await self._vector_store.ensure_collection(vector_size, reset=reset)
 
-        docs, cached = self._load_documents(docs_dir, registry, force=reset, prefix=prefix)
+        docs, cached = await self._load_documents(docs_dir, registry, force=reset, prefix=prefix)
         if not docs:
             if cached > 0:
                 log.info("All files already in registry — nothing to index. Use --reset to re-index.")
@@ -270,7 +270,7 @@ class IngestionService:
             log.warning("File '%s' already in registry.", file_info.filename)
             return None
 
-        temp_path = self._file_storage.download_to_temp(key)
+        temp_path = await self._file_storage.download_to_temp(key)
         try:
             docs = self._parse_file(file_info, temp_path)
         finally:
@@ -376,12 +376,12 @@ class IngestionService:
         await self._upload_chunks_to_vector_store(chunks)
         return chunks
 
-    def upload_files(self, files, prefix: str = "docs/") -> list[str]:
+    async def upload_files(self, files, prefix: str = "docs/") -> list[str]:
         uploaded: list[str] = []
         for f in files:
             key = prefix + f.filename
             data = f.data
-            self._file_storage.upload_file(key, data)
+            await self._file_storage.upload_file(key, data)
             uploaded.append(key)
             log.info("Uploaded: %s (%d bytes)", key, len(data))
         return uploaded
@@ -487,7 +487,7 @@ class IngestionService:
             "size_bytes": source.stat().st_size,
         }
 
-    def _load_documents(
+    async def _load_documents(
         self,
         docs_dir: str,
         registry: dict,
@@ -526,7 +526,7 @@ class IngestionService:
                 log.info("%s PARSE   %s  (%.1f KB)", tag, file_item.filename, size_kb)
                 t0 = time.monotonic()
 
-                temp_path = self._file_storage.download_to_temp(file_item.key)
+                temp_path = await self._file_storage.download_to_temp(file_item.key)
                 try:
                     docs = self._parse_file(file_item, temp_path)
                 finally:
