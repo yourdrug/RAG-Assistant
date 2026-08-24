@@ -1,0 +1,35 @@
+services:
+  k6:
+    image: grafana/k6:0.54.0
+    user: root
+    volumes:
+      - ./k6:/scripts:ro
+      - ./data:/data:ro
+      - ./results:/results
+    environment:
+      BASE_URL: ${BASE_URL:-http://host.docker.internal:8001}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    working_dir: /scripts
+    profiles: ["k6"]
+
+  locust:
+    image: locustio/locust:2.32.0
+    volumes:
+      - ./locust:/mnt/locust:ro
+      - ./data:/data:ro
+      - ./results:/results
+    environment:
+      LOCUST_HOST: ${BASE_URL:-http://host.docker.internal:8001}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    working_dir: /mnt/locust
+    command: >
+      -f locustfile.py
+      --headless
+      --users ${LOCUST_USERS:-100}
+      --spawn-rate ${LOCUST_SPAWN_RATE:-10}
+      --run-time ${LOCUST_RUN_TIME:-5m}
+      --csv=/results/locust
+      --html=/results/locust_report.html
+    profiles: ["locust"]

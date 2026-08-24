@@ -31,3 +31,7 @@ server/app/results/
 # coverage
 server/.coverage
 server/.coverage_report
+
+# Load test results & generated data
+loadtest/results/
+loadtest/data/test_users.json

@@ -482,3 +482,98 @@ tasks:
     dir: server
     cmds:
       - uv run pytest -v
+
+  # -------------------------------------------------------------------------
+  # Нагрузочное тестирование
+  # -------------------------------------------------------------------------
+
+  loadtest:setup-users:
+    desc: "Создать тестовых пользователей для нагрузочных тестов (task loadtest:setup-users -- count=50)"
+    dir: loadtest
+    cmds:
+      - >
+        python3 data/generate_users.py
+        --count {{.count | default "50"}}
+        --base-url {{.url | default "http://localhost:8001"}}
+        {{if .admin_email}}--admin-email {{.admin_email}}{{end}}
+        {{if .admin_password}}--admin-password {{.admin_password}}{{end}}
+
+  loadtest:smoke:
+    desc: "Smoke test (1-5 VU, 1 мин) — проверка что сценарий работает"
+    dir: loadtest
+    cmds:
+      - >
+        docker compose -f docker-compose.loadtest.yml --profile k6 run --rm k6
+        run /scripts/smoke.js
+    env:
+      BASE_URL: '{{.url | default "http://host.docker.internal:8001"}}'
+
+  loadtest:run:
+    desc: "Нагрузочный тест (0→500 VU за 5 мин, 10 мин steady)"
+    dir: loadtest
+    cmds:
+      - >
+        docker compose -f docker-compose.loadtest.yml --profile k6 run --rm k6
+        run /scripts/load.js
+        --out json=/results/results_load_{{now | date "20060102_150405"}}.json
+    env:
+      BASE_URL: '{{.url | default "http://host.docker.internal:8001"}}'
+
+  loadtest:spike:
+    desc: "Spike test (50→500 VU за 30 сек)"
+    dir: loadtest
+    cmds:
+      - >
+        docker compose -f docker-compose.loadtest.yml --profile k6 run --rm k6
+        run /scripts/spike.js
+        --out json=/results/results_spike_{{now | date "20060102_150405"}}.json
+    env:
+      BASE_URL: '{{.url | default "http://host.docker.internal:8001"}}'
+
+  loadtest:soak:
+    desc: "Soak test (200 VU на 1 час — поиск утечек памяти)"
+    dir: loadtest
+    cmds:
+      - >
+        docker compose -f docker-compose.loadtest.yml --profile k6 run --rm k6
+        run /scripts/soak.js
+        --out json=/results/results_soak_{{now | date "20060102_150405"}}.json
+    env:
+      BASE_URL: '{{.url | default "http://host.docker.internal:8001"}}'
+
+  loadtest:breakpoint:
+    desc: "Breakpoint test (постепенный рост до отказа)"
+    dir: loadtest
+    cmds:
+      - >
+        docker compose -f docker-compose.loadtest.yml --profile k6 run --rm k6
+        run /scripts/breakpoint.js
+        --out json=/results/results_breakpoint_{{now | date "20060102_150405"}}.json
+    env:
+      BASE_URL: '{{.url | default "http://host.docker.internal:8001"}}'
+
+  loadtest:sse:
+    desc: "Locust SSE test — тестирование /chat streaming (task loadtest:sse -- users=200 duration=10m)"
+    dir: loadtest
+    cmds:
+      - >
+        docker compose -f docker-compose.loadtest.yml --profile locust run --rm locust
+        -f locustfile.py --headless
+        --users {{.users | default "200"}}
+        --spawn-rate {{.spawn_rate | default "10"}}
+        --run-time {{.duration | default "10m"}}
+        --csv=/results/locust_{{now | date "20060102_150405"}}
+        --html=/results/locust_report_{{now | date "20060102_150405"}}.html
+    env:
+      BASE_URL: '{{.url | default "http://host.docker.internal:8001"}}'
+      LOCUST_USERS: '{{.users | default "200"}}'
+      LOCUST_SPAWN_RATE: '{{.spawn_rate | default "10"}}'
+      LOCUST_RUN_TIME: '{{.duration | default "10m"}}'
+
+  loadtest:local:
+    desc: "Запустить k6 локально (без Docker, если k6 установлен)"
+    dir: loadtest/k6
+    cmds:
+      - "k6 run {{.script | default 'smoke.js'}} {{.CLI_ARGS}}"
+    env:
+      BASE_URL: '{{.url | default "http://localhost:8001"}}'

@@ -27,6 +27,15 @@ docker compose exec server python main.py ingest file /code/project/data/docs_sa
 docker compose exec server python main.py ingest list
 docker compose exec server python main.py benchmark run --questions /code/project/data/test_questions.json
 docker compose exec server python main.py pdf-diag run /code/project/data/docs_sample/report.pdf
+
+# Load testing
+task loadtest:setup-users  # Create 50 test users via API
+task loadtest:smoke        # Smoke test (3 VU, 1 min)
+task loadtest:run          # Load test (0→500 VU, 17 min)
+task loadtest:spike        # Spike test (50→500 in 30s)
+task loadtest:soak         # Soak test (200 VU, 1 hour)
+task loadtest:breakpoint   # Breakpoint test (find failure point)
+task loadtest:sse          # Locust SSE test (streaming /chat)
 ```
 
 ## Architecture
@@ -53,6 +62,7 @@ server/tests/            ← pytest tests
 server/pyproject.toml    ← Dependencies (uv)
 server/uv.lock           ← Locked versions (committed to git)
 data/docs_sample/        ← Documents for indexing
+loadtest/                ← Load testing (k6 + Locust)
 ```
 
 ## CLI Commands
