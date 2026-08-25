@@ -11,3 +11,17 @@ spec:
     matchLabels:
       {{- include "rag-app.server.selectorLabels" . | nindent 6 }}
 {{- end }}
+---
+{{- if and .Values.worker.enabled .Values.worker.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "rag-app.fullname" . }}-worker
+  labels:
+    {{- include "rag-app.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.worker.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "rag-app.worker.selectorLabels" . | nindent 6 }}
+{{- end }}

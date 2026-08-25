@@ -27,6 +27,9 @@ worker:
     limits:
       cpu: "2"
       memory: "3Gi"
+  pdb:
+    enabled: true
+    minAvailable: 1
 
 config:
   logLevel: INFO

@@ -125,19 +125,9 @@ services:
           create_host_path: true
           selinux: Z
     healthcheck:
-      test:
-        - "CMD"
-        - "psql"
-        - |
-          host=postgres
-          port=5432
-          user=postgres
-          password=${DB_PASSWORD}
-          dbname=${DB_NAME}
-        - "-c"
-        - "SELECT 'OK'"
+      test: [ "CMD-SHELL", "pg_isready -h localhost -U raguser -d ragdb" ]
       interval: 30s
-      timeout: 30s
+      timeout: 5s
       retries: 10
       start_period: 30s
       start_interval: 10s
@@ -225,11 +215,11 @@ services:
       - backend
 
   server:
-    image: rag-server:${STAGE}-${BUILD_TARGET}-${VERSION}
+    image: rag-server:${STAGE:-development}-${BUILD_TARGET:-cpu}-${VERSION:-0.0.0}
     build:
       context: .
       dockerfile: Dockerfile
-      target: ${STAGE}-${BUILD_TARGET}
+      target: ${STAGE:-development}-${BUILD_TARGET:-cpu}
     hostname: rag-server
     container_name: rag-server
     ports:
@@ -278,7 +268,7 @@ services:
       - backend
 
   worker:
-    image: rag-server:${STAGE}-${BUILD_TARGET}-${VERSION}
+    image: rag-server:${STAGE:-development}-${BUILD_TARGET:-cpu}-${VERSION:-0.0.0}
     hostname: rag-worker
     container_name: rag-worker
     env_file:

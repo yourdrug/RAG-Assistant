@@ -1,0 +1,275 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["image", "server", "worker", "migrations", "config", "secrets"],
+  "properties": {
+    "replicaCount": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Default replica count"
+    },
+    "image": {
+      "type": "object",
+      "required": ["repository", "tag", "pullPolicy"],
+      "properties": {
+        "repository": { "type": "string" },
+        "tag": { "type": "string" },
+        "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
+      }
+    },
+    "server": {
+      "type": "object",
+      "required": ["replicas", "port", "resources"],
+      "properties": {
+        "replicas": { "type": "integer", "minimum": 1 },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "command": { "type": "array", "items": { "type": "string" } },
+        "resources": { "$ref": "#/$defs/resources" },
+        "readinessProbe": { "type": "object" },
+        "livenessProbe": { "type": "object" },
+        "autoscaling": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "minReplicas": { "type": "integer", "minimum": 1 },
+            "maxReplicas": { "type": "integer", "minimum": 1 },
+            "targetCPUUtilizationPercentage": { "type": "integer", "minimum": 1, "maximum": 100 },
+            "targetMemoryUtilizationPercentage": { "type": "integer", "minimum": 1, "maximum": 100 }
+          }
+        },
+        "pdb": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "minAvailable": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "worker": {
+      "type": "object",
+      "required": ["enabled", "command", "resources"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "replicas": { "type": "integer", "minimum": 1 },
+        "command": { "type": "array", "items": { "type": "string" } },
+        "resources": { "$ref": "#/$defs/resources" },
+        "pdb": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "minAvailable": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "migrations": {
+      "type": "object",
+      "required": ["enabled", "command"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "command": { "type": "array", "items": { "type": "string" } },
+        "backoffLimit": { "type": "integer", "minimum": 0 },
+        "ttlSecondsAfterFinished": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "config": {
+      "type": "object",
+      "required": ["logLevel", "allowedOrigins", "llmProvider", "llmModel"],
+      "properties": {
+        "logLevel": { "type": "string", "enum": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] },
+        "allowedOrigins": { "type": "string" },
+        "llmProvider": { "type": "string", "enum": ["ollama", "openrouter"] },
+        "llmModel": { "type": "string" },
+        "ocrEnabled": { "type": "string", "enum": ["true", "false"] },
+        "ocrEngine": { "type": "string" },
+        "ocrLangPaddle": { "type": "string" },
+        "fileBackend": { "type": "string", "enum": ["local", "s3"] },
+        "collectionName": { "type": "string" },
+        "dataDir": { "type": "string" },
+        "timezone": { "type": "string" },
+        "workerMaxConcurrent": { "type": "string" },
+        "dbHost": { "type": "string" },
+        "dbPort": { "type": "string" },
+        "dbUser": { "type": "string" },
+        "dbName": { "type": "string" },
+        "redisHost": { "type": "string" },
+        "redisPort": { "type": "string" },
+        "redisUser": { "type": "string" },
+        "redisDb": { "type": "string" },
+        "qdrantUrl": { "type": "string" },
+        "ollamaBaseUrl": { "type": "string" },
+        "teiEmbedUrl": { "type": "string" },
+        "teiRerankUrl": { "type": "string" },
+        "s3Endpoint": { "type": "string" },
+        "s3Bucket": { "type": "string" },
+        "s3Region": { "type": "string" }
+      }
+    },
+    "secrets": {
+      "type": "object",
+      "required": ["jwtSecretKey", "dbPassword", "adminEmail", "adminPassword"],
+      "properties": {
+        "jwtSecretKey": { "type": "string", "minLength": 8 },
+        "dbPassword": { "type": "string" },
+        "qdrantApiKey": { "type": "string" },
+        "s3AccessKey": { "type": "string" },
+        "s3SecretKey": { "type": "string" },
+        "openrouterApiKey": { "type": "string" },
+        "adminEmail": { "type": "string", "format": "email" },
+        "adminPassword": { "type": "string", "minLength": 8 },
+        "redisPassword": { "type": "string" }
+      }
+    },
+    "ingress": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "className": { "type": "string" },
+        "annotations": { "type": "object" },
+        "hosts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["host", "paths"],
+            "properties": {
+              "host": { "type": "string" },
+              "paths": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["path", "pathType"],
+                  "properties": {
+                    "path": { "type": "string" },
+                    "pathType": { "type": "string", "enum": ["Prefix", "Exact", "ImplementationSpecific"] }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tls": { "type": "array" }
+      }
+    },
+    "observability": {
+      "type": "object",
+      "properties": {
+        "metrics": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "port": { "type": "integer" }
+          }
+        },
+        "serviceMonitor": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "interval": { "type": "string" }
+          }
+        }
+      }
+    },
+    "networkPolicy": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" }
+      }
+    },
+    "postgres": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "external": { "type": "boolean" },
+        "host": { "type": "string" },
+        "port": { "type": "integer" },
+        "user": { "type": "string" },
+        "database": { "type": "string" },
+        "password": { "type": "string" }
+      }
+    },
+    "redis": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "external": { "type": "boolean" },
+        "host": { "type": "string" },
+        "port": { "type": "integer" },
+        "password": { "type": "string" },
+        "db": { "type": "integer" }
+      }
+    },
+    "qdrant": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "external": { "type": "boolean" },
+        "host": { "type": "string" },
+        "port": { "type": "integer" },
+        "apiKey": { "type": "string" }
+      }
+    },
+    "ollama": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "external": { "type": "boolean" },
+        "host": { "type": "string" },
+        "port": { "type": "integer" }
+      }
+    },
+    "tei": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "external": { "type": "boolean" },
+        "embed": {
+          "type": "object",
+          "properties": {
+            "host": { "type": "string" },
+            "port": { "type": "integer" }
+          }
+        },
+        "rerank": {
+          "type": "object",
+          "properties": {
+            "host": { "type": "string" },
+            "port": { "type": "integer" }
+          }
+        }
+      }
+    },
+    "minio": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "external": { "type": "boolean" },
+        "host": { "type": "string" },
+        "port": { "type": "integer" },
+        "consolePort": { "type": "integer" }
+      }
+    }
+  },
+  "$defs": {
+    "resources": {
+      "type": "object",
+      "required": ["requests", "limits"],
+      "properties": {
+        "requests": {
+          "type": "object",
+          "properties": {
+            "cpu": { "type": "string" },
+            "memory": { "type": "string" }
+          }
+        },
+        "limits": {
+          "type": "object",
+          "properties": {
+            "cpu": { "type": "string" },
+            "memory": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}

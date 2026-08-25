@@ -69,7 +69,7 @@ tasks:
       BUILD_TARGET: '{{if contains "gpu" .CLI_ARGS}}gpu{{else}}cpu{{end}}'
       DEVICE: '{{if contains "gpu" .CLI_ARGS}}cuda{{else}}cpu{{end}}'
       GPU_COUNT: '{{if contains "gpu" .CLI_ARGS}}all{{else}}0{{end}}'
-      STAGE: '{{if contains "prod" .CLI_ARGS}}prod{{else}}development{{end}}'
+      STAGE: '{{if contains "prod" .CLI_ARGS}}production{{else}}development{{end}}'
       VERSION: "{{.VERSION}}"
       VITE_API_URL: ${VITE_API_URL}
 
@@ -88,7 +88,7 @@ tasks:
       BUILD_TARGET: '{{if contains "gpu" .CLI_ARGS}}gpu{{else}}cpu{{end}}'
       DEVICE: '{{if contains "gpu" .CLI_ARGS}}cuda{{else}}cpu{{end}}'
       GPU_COUNT: '{{if contains "gpu" .CLI_ARGS}}all{{else}}0{{end}}'
-      STAGE: '{{if contains "prod" .CLI_ARGS}}prod{{else}}development{{end}}'
+      STAGE: '{{if contains "prod" .CLI_ARGS}}production{{else}}development{{end}}'
       VERSION: "{{.VERSION}}"
       VITE_API_URL: ${VITE_API_URL}
 
@@ -660,7 +660,6 @@ tasks:
         --set image.repository=registry.localhost:5000/rag-server
         --set image.tag=latest
         --set image.pullPolicy=Always
-        --set migrations.enabled=false
         {{.CLI_ARGS}}
 
   helm:status:

@@ -1,4 +1,8 @@
 # Production overrides — external stateful components, managed services
+image:
+  tag: "0.5.0"
+  pullPolicy: IfNotPresent
+
 server:
   replicas: 3
   resources:
@@ -28,6 +32,9 @@ worker:
     limits:
       cpu: "2"
       memory: "3Gi"
+  pdb:
+    enabled: true
+    minAvailable: 1
 
 config:
   logLevel: INFO

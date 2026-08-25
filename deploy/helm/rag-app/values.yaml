@@ -74,6 +74,9 @@ worker:
     limits:
       cpu: "2"
       memory: "3Gi"
+  pdb:
+    enabled: false
+    minAvailable: 1
 
 # -- Database migrations
 migrations:
@@ -164,6 +167,10 @@ podLabels: {}
 nodeSelector: {}
 tolerations: []
 affinity: {}
+
+# -- NetworkPolicy
+networkPolicy:
+  enabled: false
 
 # -- Stateful components (in-cluster for dev, external for prod)
 postgres:
