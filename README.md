@@ -9,10 +9,6 @@
 ## Быстрый старт
 
 ```bash
-# Одной командой (автоустановка Docker/Task, сборка, подъём стека):
-curl -fsSL https://raw.githubusercontent.com/yourdrug/RAG-Assistant/main/install.sh | bash
-
-# Или вручную:
 task init && task up && task pull-model
 task login email=admin@example.com password=change-me-please
 cp /path/to/docs/* data/docs_sample/

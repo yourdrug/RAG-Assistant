@@ -1,0 +1,18 @@
+# Observability stack for local k3d development
+# Deploys: Prometheus + Grafana + Loki + Promtail
+#
+# Usage:
+#   kubectl apply -f deploy/observability/namespace.yaml
+#   helm upgrade --install prometheus prometheus-community/kube-prometheus-stack -n monitoring -f deploy/observability/prometheus-values.yaml
+#   helm upgrade --install loki grafana/loki-stack -n monitoring -f deploy/observability/loki-values.yaml
+#
+# Or via Taskfile:
+#   task observability:up
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    app.kubernetes.io/part-of: rag-app

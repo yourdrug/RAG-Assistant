@@ -20,6 +20,14 @@ task down             # Stop stack
 task build            # Rebuild server image (supports -- gpu, -- prod)
 task restart -- server  # Restart single service
 
+# Kubernetes (k3d)
+task k3d:create       # Create k3d cluster
+task helm:infra       # Deploy infra (postgres, redis, qdrant, ollama, minio, ingress)
+task helm:upgrade     # Deploy app to k3d
+task k8s:status       # Show all app resources
+task k8s:logs         # Tail server logs
+task k8s:port-forward # Port-forward API to localhost:8001
+
 # CLI commands (via Docker)
 docker compose exec server python main.py runserver --host 0.0.0.0 --port 8001
 docker compose exec server python main.py ingest run --docs-dir /code/project/data/docs_sample

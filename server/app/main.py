@@ -16,7 +16,6 @@ from fastapi_limiter import FastAPILimiter
 from infrastructure.database.database import database
 from infrastructure.initialization import initialize_app
 from infrastructure.logging import logging_config
-from infrastructure.logging.log_buffer import attach_log_buffer
 from infrastructure.ml.metrics import collect_infra_metrics
 from infrastructure.ml.metrics_middleware import add_metrics_middleware
 from infrastructure.persistence.redis_client import redis_client
@@ -60,7 +59,6 @@ from presentation.cli.cli import cli
 async def lifespan(app: FastAPI) -> AsyncGenerator:
     logging.config.dictConfig(logging_config)
 
-    attach_log_buffer()
     await redis_client.init()
     await FastAPILimiter.init(redis_client.async_redis)
     await database.connect()

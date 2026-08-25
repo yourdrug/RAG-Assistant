@@ -1,0 +1,117 @@
+{
+  "annotations": {
+    "description": "RAG Application — API Overview",
+    "editable": true
+  },
+  "title": "RAG Application Overview",
+  "uid": "rag-app-overview",
+  "tags": ["rag", "fastapi", "kubernetes"],
+  "timezone": "browser",
+  "panels": [
+    {
+      "title": "API Replicas",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "kube_deployment_status_replicas{deployment=~\"rag-app-server\"}",
+          "legendFormat": "Ready Replicas"
+        }
+      ]
+    },
+    {
+      "title": "Request Rate (req/s)",
+      "type": "graph",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{deployment=~\"rag-app-server.*\"}[5m])) by (handler)",
+          "legendFormat": "{{handler}}"
+        }
+      ]
+    },
+    {
+      "title": "Error Rate (5xx)",
+      "type": "graph",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{deployment=~\"rag-app-server.*\", status=~\"5..\"}[5m])) by (handler)",
+          "legendFormat": "5xx {{handler}}"
+        }
+      ]
+    },
+    {
+      "title": "CPU Usage",
+      "type": "graph",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "targets": [
+        {
+          "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"default\", pod=~\"rag-app-server.*\"}[5m])) by (pod)",
+          "legendFormat": "{{pod}}"
+        }
+      ]
+    },
+    {
+      "title": "Memory Usage",
+      "type": "graph",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "targets": [
+        {
+          "expr": "sum(container_memory_working_set_bytes{namespace=\"default\", pod=~\"rag-app-server.*\"}) by (pod)",
+          "legendFormat": "{{pod}}"
+        }
+      ]
+    },
+    {
+      "title": "HPA Current / Desired Replicas",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 20 },
+      "targets": [
+        {
+          "expr": "kube_horizontalpodautoscaler_status_current_replicas{horizontalpodautoscaler=~\"rag-app-server.*\"}",
+          "legendFormat": "Current"
+        },
+        {
+          "expr": "kube_horizontalpodautoscaler_spec_max_replicas{horizontalpodautoscaler=~\"rag-app-server.*\"}",
+          "legendFormat": "Max"
+        }
+      ]
+    },
+    {
+      "title": "Worker Pods",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 20 },
+      "targets": [
+        {
+          "expr": "kube_deployment_status_replicas{deployment=~\"rag-app-worker\"}",
+          "legendFormat": "Ready"
+        }
+      ]
+    },
+    {
+      "title": "Pod Restarts (24h)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 20 },
+      "targets": [
+        {
+          "expr": "sum(kube_pod_container_status_restarts_total{namespace=\"default\", pod=~\"rag-app-.*\"}) by (pod)",
+          "legendFormat": "{{pod}}"
+        }
+      ]
+    },
+    {
+      "title": "Background Jobs Queue",
+      "type": "graph",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "targets": [
+        {
+          "expr": "rag_background_jobs_total{namespace=\"default\"}",
+          "legendFormat": "{{status}}"
+        }
+      ]
+    }
+  ],
+  "time": { "from": "now-1h", "to": "now" },
+  "refresh": "10s"
+}

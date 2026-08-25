@@ -1,0 +1,16 @@
+{{- if and .Values.observability.serviceMonitor.enabled .Values.observability.metrics.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "rag-app.fullname" . }}-server
+  labels:
+    {{- include "rag-app.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "rag-app.server.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.observability.serviceMonitor.interval }}
+{{- end }}

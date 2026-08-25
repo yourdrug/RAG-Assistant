@@ -1,12 +1,6 @@
-"""Database infrastructure enums -- environment, job status, and role definitions."""
+"""Database infrastructure enums -- job status and role definitions."""
 
-from enum import Enum, StrEnum
-
-
-class Environment(Enum):
-    PRODUCTION = "PROD"
-    TESTING = "TEST"
-    DEVELOPMENT = "DEV"
+from enum import StrEnum
 
 
 class DatabaseNodeRole(StrEnum):

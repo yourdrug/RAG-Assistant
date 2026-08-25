@@ -1,0 +1,34 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "rag-app.fullname" . }}-config
+  labels:
+    {{- include "rag-app.labels" . | nindent 4 }}
+data:
+  LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  ALLOWED_ORIGINS: {{ .Values.config.allowedOrigins | quote }}
+  LLM_PROVIDER: {{ .Values.config.llmProvider | quote }}
+  LLM_MODEL: {{ .Values.config.llmModel | quote }}
+  OCR_ENABLED: {{ .Values.config.ocrEnabled | quote }}
+  OCR_ENGINE: {{ .Values.config.ocrEngine | quote }}
+  OCR_LANG_PADDLE: {{ .Values.config.ocrLangPaddle | quote }}
+  FILE_BACKEND: {{ .Values.config.fileBackend | quote }}
+  COLLECTION_NAME: {{ .Values.config.collectionName | quote }}
+  DATA_DIR: {{ .Values.config.dataDir | quote }}
+  TIMEZONE: {{ .Values.config.timezone | quote }}
+  WORKER_MAX_CONCURRENT: {{ .Values.config.workerMaxConcurrent | quote }}
+  DB_HOST: {{ .Values.config.dbHost | quote }}
+  DB_PORT: {{ .Values.config.dbPort | quote }}
+  DB_USER: {{ .Values.config.dbUser | quote }}
+  DB_NAME: {{ .Values.config.dbName | quote }}
+  REDIS_HOST: {{ .Values.config.redisHost | quote }}
+  REDIS_PORT: {{ .Values.config.redisPort | quote }}
+  REDIS_USER: {{ .Values.config.redisUser | quote }}
+  REDIS_DB: {{ .Values.config.redisDb | quote }}
+  QDRANT_URL: {{ .Values.config.qdrantUrl | quote }}
+  OLLAMA_BASE_URL: {{ .Values.config.ollamaBaseUrl | quote }}
+  TEI_EMBED_URL: {{ .Values.config.teiEmbedUrl | quote }}
+  TEI_RERANK_URL: {{ .Values.config.teiRerankUrl | quote }}
+  S3_ENDPOINT: {{ .Values.config.s3Endpoint | quote }}
+  S3_BUCKET: {{ .Values.config.s3Bucket | quote }}
+  S3_REGION: {{ .Values.config.s3Region | quote }}

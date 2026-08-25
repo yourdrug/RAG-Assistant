@@ -1,0 +1,215 @@
+# Default values — override in values-dev / values-staging / values-prod
+# Run: helm install rag-app . -f values.yaml -f values-prod.yaml
+
+# -- Global
+replicaCount: 1
+
+image:
+  repository: rag-server
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# -- Server (API) deployment
+server:
+  replicas: 1
+  port: 8001
+  command:
+    - ./entrypoint.sh
+    - python
+    - main.py
+    - runserver
+    - --host
+    - "0.0.0.0"
+    - --port
+    - "8001"
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "2"
+      memory: "3Gi"
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: 8001
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 8001
+    initialDelaySeconds: 30
+    periodSeconds: 15
+    timeoutSeconds: 5
+    failureThreshold: 5
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 65
+    targetMemoryUtilizationPercentage: 75
+  pdb:
+    enabled: false
+    minAvailable: 1
+
+# -- Worker (arq) deployment
+worker:
+  enabled: true
+  command:
+    - ./entrypoint.sh
+    - python
+    - main.py
+    - worker
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "2"
+      memory: "3Gi"
+
+# -- Database migrations
+migrations:
+  enabled: true
+  command:
+    - alembic
+    - upgrade
+    - head
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
+
+# -- Application configuration
+config:
+  logLevel: INFO
+  allowedOrigins: "*"
+  llmProvider: ollama
+  llmModel: "qwen2.5:7b"
+  ocrEnabled: "true"
+  ocrEngine: paddleocr
+  ocrLangPaddle: ru
+  fileBackend: local
+  collectionName: company_docs
+  dataDir: /code/project/data
+  timezone: UTC
+  workerMaxConcurrent: "4"
+  dbHost: rag-app-postgres-postgresql
+  dbPort: "5432"
+  dbUser: raguser
+  dbName: ragdb
+  redisHost: rag-app-redis-master
+  redisPort: "6379"
+  redisUser: ""
+  redisDb: "0"
+  qdrantUrl: "http://rag-app-qdrant:6333"
+  ollamaBaseUrl: "http://rag-app-ollama:11434"
+  teiEmbedUrl: "http://rag-app-tei-embed:8080"
+  teiRerankUrl: "http://rag-app-tei-rerank:8080"
+  s3Endpoint: "http://rag-app-minio:9000"
+  s3Bucket: rag-documents
+  s3Region: us-east-1
+
+# -- Secrets (override in values-*.yaml or use --set / external secrets)
+secrets:
+  jwtSecretKey: "change-me-in-production"
+  dbPassword: ragpassword
+  qdrantApiKey: qdrant_api_key
+  s3AccessKey: minioadmin
+  s3SecretKey: minioadmin
+  openrouterApiKey: ""
+  adminEmail: admin
+  adminPassword: admin
+  redisPassword: password
+
+# -- Ingress
+ingress:
+  enabled: false
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+  hosts:
+    - host: rag.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# -- Observability
+observability:
+  metrics:
+    enabled: true
+    port: 8001
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+
+# -- ServiceAccount
+serviceAccount:
+  create: false
+  name: ""
+  annotations: {}
+
+# -- Pod-level
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# -- Stateful components (in-cluster for dev, external for prod)
+postgres:
+  enabled: true
+  external: false
+  host: rag-app-postgres-postgresql
+  port: 5432
+  user: raguser
+  database: ragdb
+  password: ragpassword
+
+redis:
+  enabled: true
+  external: false
+  host: rag-app-redis-master
+  port: 6379
+  user: ""
+  password: password
+  db: 0
+
+qdrant:
+  enabled: true
+  external: false
+  host: rag-app-qdrant
+  port: 6333
+  apiKey: qdrant_api_key
+
+ollama:
+  enabled: true
+  external: false
+  host: rag-app-ollama
+  port: 11434
+
+tei:
+  enabled: true
+  external: false
+  embed:
+    host: rag-app-tei-embed
+    port: 8080
+  rerank:
+    host: rag-app-tei-rerank
+    port: 8080
+
+minio:
+  enabled: true
+  external: false
+  host: rag-app-minio
+  port: 9000
+  consolePort: 9001

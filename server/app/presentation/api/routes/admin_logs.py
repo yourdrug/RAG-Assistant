@@ -1,4 +1,9 @@
-"""Admin logs endpoint — in-memory log viewer."""
+"""Admin logs endpoint — reads from in-memory buffer if available.
+
+In Kubernetes, centralized logging via Loki/Grafana is the primary log
+storage mechanism.  The buffer is empty unless attach_log_buffer() was
+called at startup (it is not — kept for local dev/debug convenience).
+"""
 
 from __future__ import annotations
 

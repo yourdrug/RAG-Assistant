@@ -1,0 +1,125 @@
+# Production overrides — external stateful components, managed services
+server:
+  replicas: 3
+  resources:
+    requests:
+      cpu: "1"
+      memory: "2Gi"
+    limits:
+      cpu: "4"
+      memory: "6Gi"
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 15
+    targetCPUUtilizationPercentage: 65
+    targetMemoryUtilizationPercentage: 75
+  pdb:
+    enabled: true
+    minAvailable: 2
+
+worker:
+  enabled: true
+  replicas: 2
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "2"
+      memory: "3Gi"
+
+config:
+  logLevel: INFO
+  llmProvider: openrouter
+  fileBackend: s3
+  workerMaxConcurrent: "8"
+  dbHost: ""        # Set via external secret / managed DB
+  redisHost: ""     # Set via external secret / managed Redis
+  qdrantUrl: ""     # Set via external secret / Qdrant Cloud
+
+secrets:
+  # All production secrets MUST be injected via external secret management
+  # (e.g. Sealed Secrets, External Secrets Operator, Vault)
+  # Do NOT set real values here — this file is committed to git.
+  jwtSecretKey: "PRODUCTION_SECRET_FROM_VAULT"
+  dbPassword: "PRODUCTION_SECRET_FROM_VAULT"
+  qdrantApiKey: "PRODUCTION_SECRET_FROM_VAULT"
+  s3AccessKey: "PRODUCTION_SECRET_FROM_VAULT"
+  s3SecretKey: "PRODUCTION_SECRET_FROM_VAULT"
+  openrouterApiKey: "PRODUCTION_SECRET_FROM_VAULT"
+  adminEmail: "admin@example.com"
+  adminPassword: "PRODUCTION_SECRET_FROM_VAULT"
+  redisPassword: "PRODUCTION_SECRET_FROM_VAULT"
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: rag.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: rag-tls
+      hosts:
+        - rag.example.com
+
+observability:
+  metrics:
+    enabled: true
+  serviceMonitor:
+    enabled: true
+    interval: 15s
+
+# Production: all stateful components are external/managed
+postgres:
+  enabled: false
+  external: true
+  host: ""     # Set via external secret (e.g. CloudSQL, RDS)
+  port: 5432
+  user: raguser
+  database: ragdb
+  password: ""
+
+redis:
+  enabled: false
+  external: true
+  host: ""     # Set via external secret (e.g. ElastiCache, Memorystore)
+  port: 6379
+  password: ""
+
+qdrant:
+  enabled: false
+  external: true
+  host: ""     # Set via external secret (e.g. Qdrant Cloud)
+  port: 6333
+  apiKey: ""
+
+ollama:
+  enabled: false
+  external: true
+  host: ""
+  port: 11434
+
+tei:
+  enabled: false
+  external: true
+  embed:
+    host: ""
+    port: 8080
+  rerank:
+    host: ""
+    port: 8080
+
+minio:
+  enabled: false
+  external: true
+  host: ""     # Set via external secret (e.g. S3-compatible)
+  port: 9000

@@ -1,0 +1,98 @@
+# Staging overrides — production-like with smaller resources
+server:
+  replicas: 2
+  resources:
+    requests:
+      cpu: "1"
+      memory: "2Gi"
+    limits:
+      cpu: "4"
+      memory: "6Gi"
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 65
+    targetMemoryUtilizationPercentage: 75
+  pdb:
+    enabled: true
+    minAvailable: 1
+
+worker:
+  enabled: true
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "2"
+      memory: "3Gi"
+
+config:
+  logLevel: INFO
+  allowedOrigins: "*"
+  llmProvider: ollama
+  fileBackend: s3
+  workerMaxConcurrent: "4"
+
+secrets:
+  jwtSecretKey: "staging-jwt-replace-in-real-deploy"
+  dbPassword: ragpassword
+  qdrantApiKey: qdrant_api_key
+  s3AccessKey: minioadmin
+  s3SecretKey: minioadmin
+  adminEmail: admin
+  adminPassword: admin
+  redisPassword: password
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+  hosts:
+    - host: rag-staging.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+observability:
+  metrics:
+    enabled: true
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+
+postgres:
+  enabled: true
+  external: false
+  host: rag-app-postgres-postgresql
+  password: ragpassword
+
+redis:
+  enabled: true
+  external: false
+  host: rag-app-redis-master
+  password: password
+
+qdrant:
+  enabled: true
+  external: false
+  host: rag-app-qdrant
+  apiKey: qdrant_api_key
+
+ollama:
+  enabled: true
+  external: false
+
+tei:
+  enabled: true
+  external: false
+
+minio:
+  enabled: true
+  external: false

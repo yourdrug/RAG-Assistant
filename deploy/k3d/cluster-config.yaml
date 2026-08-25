@@ -1,0 +1,32 @@
+# k3d cluster configuration for local RAG development
+# Usage: k3d cluster create rag-dev --config deploy/k3d/cluster-config.yaml
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+metadata:
+  name: rag-dev
+servers: 1
+agents: 0
+registries:
+  create:
+    name: registry.localhost
+    host: "0.0.0.0"
+    hostPort: "5000"
+options:
+  k3d:
+    wait: true
+    timeout: "120s"
+  kubeconfig:
+    updateDefaultKubeconfig: true
+    switchCurrentContext: true
+  runtime:
+    gpuRequestMode: none
+ports:
+  - port: "8080:80"
+    nodeFilters:
+      - loadbalancer
+  - port: "8443:443"
+    nodeFilters:
+      - loadbalancer
+volumes:
+  - volume: "/home/eugene/rag_project_new/rag_project/data:/var/lib/rancher/k3s/storage/data@server[0]"
+    nodeFilters: [servers:0]

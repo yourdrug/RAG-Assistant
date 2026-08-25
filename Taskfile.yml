@@ -577,3 +577,168 @@ tasks:
       - "k6 run {{.script | default 'smoke.js'}} {{.CLI_ARGS}}"
     env:
       BASE_URL: '{{.url | default "http://localhost:8001"}}'
+
+  # -------------------------------------------------------------------------
+  # Kubernetes (k3d + Helm + Tilt)
+  # -------------------------------------------------------------------------
+
+  k3d:create:
+    desc: "Создать локальный k3d-кластер для разработки"
+    cmds:
+      - k3d cluster create rag-dev --config deploy/k3d/cluster-config.yaml
+      - kubectl wait --for=condition=Ready node --all --timeout=120s
+      - 'echo "k3d cluster rag-dev ready — run: task tilt"'
+
+  k3d:delete:
+    desc: "Удалить k3d-кластер"
+    cmds:
+      - k3d cluster delete rag-dev
+
+  k3d:list:
+    desc: "Показать k3d-кластеры"
+    cmds:
+      - k3d cluster list
+
+  tilt:
+    desc: "Запустить Tilt для локальной Kubernetes-разработки"
+    cmds:
+      - tilt up
+
+  tilt:down:
+    desc: "Остановить Tilt"
+    cmds:
+      - tilt down
+
+  helm:template:
+    desc: "Просмотр сгенерированных Kubernetes-манифестов (dry-run)"
+    cmds:
+      - >
+        helm template rag-app ./deploy/helm/rag-app
+        -f ./deploy/helm/rag-app/values-dev.yaml
+        {{.CLI_ARGS}}
+
+  helm:diff:
+    desc: "Показать diff перед обновлением Helm-релиза"
+    cmds:
+      - >
+        helm diff upgrade rag-app ./deploy/helm/rag-app
+        -f ./deploy/helm/rag-app/values-dev.yaml
+        {{.CLI_ARGS}}
+
+  helm:infra:
+    desc: "Поднять инфру в k3d (postgres, redis, qdrant, ollama, minio, ingress)"
+    cmds:
+      - helm repo add qdrant https://qdrant.github.io/qdrant-helm --force-update
+      - helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx --force-update
+      - helm repo add otwld https://otwld.github.io/helm-charts --force-update
+      - >
+        helm upgrade --install rag-app-postgres
+        oci://registry-1.docker.io/bitnamicharts/postgresql
+        --set auth.username=raguser
+        --set auth.password=ragpassword
+        --set auth.database=ragdb
+        --set primary.persistence.size=2Gi
+      - >
+        helm upgrade --install rag-app-redis
+        oci://registry-1.docker.io/bitnamicharts/redis
+        --set auth.password=password
+        --set master.persistence.size=1Gi
+      - >
+        helm upgrade --install rag-app-qdrant qdrant/qdrant
+        --set storage.persistence.size=2Gi
+      - >
+        helm upgrade --install rag-app-ollama otwld/ollama
+      - >
+        helm upgrade --install rag-app-minio
+        oci://registry-1.docker.io/bitnamicharts/minio
+        --set auth.rootUser=minioadmin
+        --set auth.rootPassword=minioadmin
+        --set persistence.size=2Gi
+      - >
+        helm upgrade --install rag-app-ingress-nginx
+        ingress-nginx/ingress-nginx
+        --set controller.service.type=LoadBalancer
+        --set controller.service.ports.http=80
+        --set controller.service.ports.https=443
+
+  helm:upgrade:
+    desc: "Обновить Helm-релиз в dev-окружении"
+    cmds:
+      - >
+        helm upgrade --install rag-app ./deploy/helm/rag-app
+        -f ./deploy/helm/rag-app/values-dev.yaml
+        --set image.repository=registry.localhost:5000/rag-server
+        --set image.tag=latest
+        --set image.pullPolicy=Always
+        --set migrations.enabled=false
+        {{.CLI_ARGS}}
+
+  helm:status:
+    desc: "Показать статус Helm-релиза"
+    cmds:
+      - helm status rag-app
+      - kubectl get pods -l "app.kubernetes.io/instance=rag-app"
+
+  helm:rollback:
+    desc: "Откатить Helm-релиз (task helm:rollback REVISION=1)"
+    cmds:
+      - helm rollback rag-app {{.REVISION | default "0"}}
+
+  k8s:logs:
+    desc: "Просмотр логов API pods"
+    cmds:
+      - kubectl logs -l "app.kubernetes.io/component=server" --tail=100 -f
+
+  k8s:logs:worker:
+    desc: "Просмотр логов worker pods"
+    cmds:
+      - kubectl logs -l "app.kubernetes.io/component=worker" --tail=100 -f
+
+  k8s:describe:
+    desc: "Описание всех pod'ов приложения"
+    cmds:
+      - kubectl describe pods -l "app.kubernetes.io/instance=rag-app"
+
+  k8s:port-forward:
+    desc: "Port-forward к API (localhost:8001)"
+    cmds:
+      - kubectl port-forward svc/rag-app-server 8001:80
+
+  k8s:migrate:
+    desc: "Запустить миграции вручную (вне Helm hook)"
+    cmds:
+      - kubectl exec -it deployment/rag-app-server -- alembic upgrade head
+
+  k8s:scale:
+    desc: "Масштабировать API (task k8s:scale REPLICAS=3)"
+    cmds:
+      - kubectl scale deployment/rag-app-server --replicas={{.REPLICAS | default "3"}}
+
+  k8s:status:
+    desc: "Показать статус всех ресурсов приложения"
+    cmds:
+      - 'echo "=== Pods ==="'
+      - kubectl get pods -l "app.kubernetes.io/instance=rag-app"
+      - 'echo "=== Services ==="'
+      - kubectl get svc -l "app.kubernetes.io/instance=rag-app"
+      - 'echo "=== Ingress ==="'
+      - kubectl get ingress -l "app.kubernetes.io/instance=rag-app"
+      - 'echo "=== HPA ==="'
+      - kubectl get hpa -l "app.kubernetes.io/instance=rag-app"
+      - 'echo "=== PDB ==="'
+      - kubectl get pdb -l "app.kubernetes.io/instance=rag-app"
+
+  observability:up:
+    desc: "Развернуть Prometheus + Grafana + Loki в k3d"
+    cmds:
+      - helm upgrade --install prometheus prometheus-community/kube-prometheus-stack -n monitoring --create-namespace
+      - helm upgrade --install loki grafana/loki-stack -n monitoring
+      - 'echo "Prometheus: kubectl port-forward svc/prometheus-kube-prometheus-prometheus 9090 -n monitoring"'
+      - 'echo "Grafana:    kubectl port-forward svc/prometheus-grafana 3000 -n monitoring"'
+
+  observability:down:
+    desc: "Удалить Prometheus + Grafana + Loki"
+    cmds:
+      - helm uninstall loki -n monitoring || true
+      - helm uninstall prometheus -n monitoring || true
+      - kubectl delete namespace monitoring || true

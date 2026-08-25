@@ -1,0 +1,14 @@
+apiVersion: v2
+name: rag-app
+description: Corporate RAG assistant — Helm chart for Kubernetes deployment
+type: application
+version: 0.1.0
+appVersion: "0.5.0"
+keywords:
+  - rag
+  - llm
+  - qdrant
+  - fastapi
+maintainers:
+  - name: Eugene Mitsko
+    email: mitkojenia@gmail.com
