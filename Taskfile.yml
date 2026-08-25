@@ -599,16 +599,6 @@ tasks:
     cmds:
       - k3d cluster list
 
-  tilt:
-    desc: "Запустить Tilt для локальной Kubernetes-разработки"
-    cmds:
-      - tilt up
-
-  tilt:down:
-    desc: "Остановить Tilt"
-    cmds:
-      - tilt down
-
   helm:template:
     desc: "Просмотр сгенерированных Kubernetes-манифестов (dry-run)"
     cmds:

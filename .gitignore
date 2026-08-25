@@ -34,4 +34,4 @@ server/.coverage_report
 
 # Load test results & generated data
 loadtest/results/
-loadtest/data/test_users.jsontilt_modules/
+loadtest/data/test_users.json
