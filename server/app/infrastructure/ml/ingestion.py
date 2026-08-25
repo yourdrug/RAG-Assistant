@@ -296,19 +296,15 @@ def merge_pdf_pages(pages: list[Document]) -> list[Document]:
 
     merged = []
     for _src, group in by_source.items():
-        page_nums = sorted(p.metadata.get("page", i + 1) for i, p in enumerate(group))
         merged_text = "\n\n".join(p.page_content for p in group)
-        merged.append(
-            Document(
-                page_content=merged_text,
-                metadata={
-                    **group[0].metadata,
-                    "page_start": page_nums[0],
-                    "page_end": page_nums[-1],
-                    "pages": page_nums,
-                },
-            )
-        )
+        has_pages = any("page" in p.metadata for p in group)
+        meta = {**group[0].metadata}
+        if has_pages:
+            page_nums = sorted(p.metadata.get("page", i + 1) for i, p in enumerate(group))
+            meta["page_start"] = page_nums[0]
+            meta["page_end"] = page_nums[-1]
+            meta["pages"] = page_nums
+        merged.append(Document(page_content=merged_text, metadata=meta))
     return merged
 
 

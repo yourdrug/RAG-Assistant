@@ -1,5 +1,5 @@
-# GPU override — подключает nvidia runtime для ollama и server.
-# Использование: docker compose -f docker-compose.yml -f docker-compose.gpu.yml up
+# GPU override — подключает nvidia runtime для ollama, server, tei-embed и tei-rerank.
+# Использование: task up -- gpu
 services:
   ollama:
     deploy:
@@ -18,3 +18,32 @@ services:
             - driver: nvidia
               count: ${GPU_COUNT:-1}
               capabilities: [gpu]
+
+  tei-embed:
+    image: ghcr.io/huggingface/text-embeddings-inference:turing-1.5
+    environment:
+      USE_FLASH_ATTENTION: "True"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${GPU_COUNT:-1}
+              capabilities: [gpu]
+        limits:
+          memory: 4G
+
+  tei-rerank:
+    image: ghcr.io/huggingface/text-embeddings-inference:turing-1.5
+    command: --model-id /data/bge-reranker-v2-m3 --port 8080
+    environment:
+      USE_FLASH_ATTENTION: "True"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${GPU_COUNT:-1}
+              capabilities: [gpu]
+        limits:
+          memory: 4G

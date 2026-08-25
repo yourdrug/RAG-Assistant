@@ -3,6 +3,7 @@ import type { Source } from "@/shared/api/types";
 export interface SSEDone {
   conversation_id: number;
   sources: Source[];
+  confidence?: number | null;
 }
 
 interface StreamChatParams {

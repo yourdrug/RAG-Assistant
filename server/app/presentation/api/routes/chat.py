@@ -42,10 +42,11 @@ async def chat_stream(
                 depth=req.depth,
             ):
                 if isinstance(event, MetaEvent):
-                    sources = event.sources
+                    sources = [s for s in event.sources if "_confidence" not in s]
                     payload = {
                         "conversation_id": event.conversation_id,
                         "sources": sources,
+                        "confidence": event.confidence,
                     }
                     yield f"event: done\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
                 elif isinstance(event, TextChunk):

@@ -60,7 +60,7 @@ async def get_conversation_history(
             id=m.id,
             role=m.role,
             content=m.content,
-            sources=m.sources or None,
+            sources=[s for s in m.sources if "_confidence" not in s] if m.sources else None,
             creation_date=m.creation_date,
         )
         for m in messages

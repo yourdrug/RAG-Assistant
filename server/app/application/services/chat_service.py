@@ -196,15 +196,11 @@ class ChatService:
         reranker_score = self._compute_reranker_score(sources)
 
         async with self._uow_factory.create(master=True) as uow:
-            msg_sources = list(sources) if sources else None
-            if confidence is not None and msg_sources is not None:
-                msg_sources = list(msg_sources)
-                msg_sources.append({"_confidence": confidence})
             assistant_msg = Message(
                 conversation_id=conv.id,
                 role=MessageRole.ASSISTANT,
                 content=full_answer,
-                sources=msg_sources,
+                sources=sources,
             )
             await uow.messages.save(assistant_msg)
 

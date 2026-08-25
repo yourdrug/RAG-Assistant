@@ -45,6 +45,7 @@ export interface Source {
   source: string;
   pages: number[];
   articles?: string[];
+  max_score?: number;
 }
 
 // ─── Conversations ───────────────────────────────────────────────────────────
