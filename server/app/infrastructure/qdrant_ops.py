@@ -77,6 +77,20 @@ def _ensure_payload_indexes(client) -> None:
 async def upload_to_qdrant(chunks: list[Document], embeddings) -> None:
     embed_batch = settings.embed_batch_size
     qdrant_batch = 500
+
+    # Filter out empty/whitespace-only chunks that would cause TEI errors
+    original_count = len(chunks)
+    chunks = [c for c in chunks if c.page_content.strip()]
+    if len(chunks) < original_count:
+        log.warning(
+            "Filtered %d empty/whitespace chunks → %d remaining",
+            original_count - len(chunks),
+            len(chunks),
+        )
+    if not chunks:
+        log.warning("No non-empty chunks to upload — skipping Qdrant upload")
+        return
+
     total = len(chunks)
     log.info(
         "Uploading %d chunks to Qdrant (embed batch=%d, upsert batch=%d) ...",

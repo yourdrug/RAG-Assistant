@@ -18,6 +18,7 @@ import httpx
 log = logging.getLogger("default")
 
 TEI_TIMEOUT = 120.0
+RERANK_BATCH_SIZE = 16
 
 
 class TEIEmbeddingsClient:
@@ -38,7 +39,17 @@ class TEIEmbeddingsClient:
         async with httpx.AsyncClient(timeout=TEI_TIMEOUT) as client:
             r = await client.post(f"{self._base_url}/embed", json={"inputs": texts})
             r.raise_for_status()
-            return r.json()
+            data = r.json()
+            if not isinstance(data, list):
+                short = repr(data)[:200]
+                raise RuntimeError(f"TEI /embed returned unexpected type {type(data).__name__}: {short}")
+            none_indices = [i for i, v in enumerate(data) if v is None]
+            if none_indices:
+                raise RuntimeError(
+                    f"TEI /embed returned None for {len(none_indices)}/{len(data)} texts "
+                    f"(indices: {none_indices[:10]}{'...' if len(none_indices) > 10 else ''})"
+                )
+            return data
 
     def embed_query_sync(self, text: str) -> list[float]:
         with httpx.Client(timeout=TEI_TIMEOUT) as client:
@@ -52,7 +63,17 @@ class TEIEmbeddingsClient:
         with httpx.Client(timeout=TEI_TIMEOUT) as client:
             r = client.post(f"{self._base_url}/embed", json={"inputs": texts})
             r.raise_for_status()
-            return r.json()
+            data = r.json()
+            if not isinstance(data, list):
+                short = repr(data)[:200]
+                raise RuntimeError(f"TEI /embed returned unexpected type {type(data).__name__}: {short}")
+            none_indices = [i for i, v in enumerate(data) if v is None]
+            if none_indices:
+                raise RuntimeError(
+                    f"TEI /embed returned None for {len(none_indices)}/{len(data)} texts "
+                    f"(indices: {none_indices[:10]}{'...' if len(none_indices) > 10 else ''})"
+                )
+            return data
 
     @property
     def persistent(self) -> bool:
@@ -68,25 +89,31 @@ class TEIRerankerClient:
     async def predict(self, pairs: list[tuple[str, str]]) -> list[float]:
         if not pairs:
             return []
-        payload = {
-            "query": pairs[0][0],
-            "texts": [p[1] for p in pairs],
-        }
+        query = pairs[0][0]
+        texts = [p[1] for p in pairs]
+        all_scores: list[float] = []
         async with httpx.AsyncClient(timeout=TEI_TIMEOUT) as client:
-            r = await client.post(f"{self._base_url}/rerank", json=payload)
-            r.raise_for_status()
-            data = r.json()
-            return [item["score"] for item in data]
+            for i in range(0, len(texts), RERANK_BATCH_SIZE):
+                batch = texts[i : i + RERANK_BATCH_SIZE]
+                payload = {"query": query, "texts": batch}
+                r = await client.post(f"{self._base_url}/rerank", json=payload)
+                r.raise_for_status()
+                data = r.json()
+                all_scores.extend(item["score"] for item in data)
+        return all_scores
 
     def predict_sync(self, pairs: list[tuple[str, str]]) -> list[float]:
         if not pairs:
             return []
-        payload = {
-            "query": pairs[0][0],
-            "texts": [p[1] for p in pairs],
-        }
+        query = pairs[0][0]
+        texts = [p[1] for p in pairs]
+        all_scores: list[float] = []
         with httpx.Client(timeout=TEI_TIMEOUT) as client:
-            r = client.post(f"{self._base_url}/rerank", json=payload)
-            r.raise_for_status()
-            data = r.json()
-            return [item["score"] for item in data]
+            for i in range(0, len(texts), RERANK_BATCH_SIZE):
+                batch = texts[i : i + RERANK_BATCH_SIZE]
+                payload = {"query": query, "texts": batch}
+                r = client.post(f"{self._base_url}/rerank", json=payload)
+                r.raise_for_status()
+                data = r.json()
+                all_scores.extend(item["score"] for item in data)
+        return all_scores

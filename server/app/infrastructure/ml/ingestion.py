@@ -335,6 +335,11 @@ def split_documents(docs: list[Document], domain: str = "general") -> list[Docum
     chunks = splitter.split_documents(text_docs)
     # Tables pass through unsplit
     chunks.extend(tables)
+    # Filter out empty/whitespace-only chunks that cause TEI errors
+    before = len(chunks)
+    chunks = [c for c in chunks if c.page_content.strip()]
+    if len(chunks) < before:
+        log.warning("Filtered %d empty chunks during split", before - len(chunks))
     log.info("Split %d documents into %d chunks (domain=%s)", len(docs), len(chunks), domain)
     return chunks
 
@@ -378,6 +383,11 @@ def split_documents_legal(docs: list[Document]) -> list[Document]:
         separators=LEGAL_SEPARATORS,
     )
     chunks = splitter.split_documents(docs)
+    # Filter out empty/whitespace-only chunks that cause TEI errors
+    before = len(chunks)
+    chunks = [c for c in chunks if c.page_content.strip()]
+    if len(chunks) < before:
+        log.warning("Filtered %d empty chunks during legal split", before - len(chunks))
     log.info("Split %d legal documents into %d chunks", len(docs), len(chunks))
     return chunks
 

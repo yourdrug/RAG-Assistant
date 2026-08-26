@@ -270,8 +270,6 @@ services:
         condition: service_healthy
       tei-embed:
         condition: service_healthy
-      tei-rerank:
-        condition: service_healthy
     restart: unless-stopped
     networks:
       - default
@@ -291,6 +289,13 @@ services:
         bind:
           propagation: rprivate
           create_host_path: true
+      - type: bind
+        source: ./data/paddleocr_cache
+        target: /root/.paddleocr
+        bind:
+          propagation: rprivate
+          create_host_path: true
+          selinux: Z
     depends_on:
       postgres:
         condition: service_healthy
@@ -302,8 +307,6 @@ services:
         condition: service_healthy
       tei-embed:
         condition: service_healthy
-      tei-rerank:
-        condition: service_healthy
     deploy:
       resources:
         limits:
@@ -314,6 +317,7 @@ services:
           memory: 1G
     restart: unless-stopped
     networks:
+      - default
       - backend
     command: [ "python", "main.py", "worker" ]
 
@@ -354,7 +358,7 @@ services:
     image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.5
     hostname: tei-rerank
     container_name: rag-tei-rerank
-    command: --model-id /data/bge-reranker-v2-m3-onnx --port 8080
+    command: --model-id /data/bge-reranker-v2-m3 --port 8080
     expose:
       - "8080/tcp"
     volumes:
@@ -381,6 +385,7 @@ services:
           memory: 1G
     restart: unless-stopped
     networks:
+      - default
       - backend
 
   minio:
