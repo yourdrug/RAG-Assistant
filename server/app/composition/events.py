@@ -20,6 +20,7 @@ def _subscribe_config_events(infra: InfrastructureContainer) -> None:
         apply_to_settings,
         audit_log_config_change,
         invalidate_paddle_ocr_cache,
+        invalidate_pii_detector_cache,
         invalidate_storage_cache,
     )
 
@@ -31,6 +32,7 @@ def _subscribe_config_events(infra: InfrastructureContainer) -> None:
     bus.subscribe(ConfigParameterChanged, apply_to_settings)
     bus.subscribe(ConfigParameterChanged, invalidate_paddle_ocr_cache)
     bus.subscribe(ConfigParameterChanged, invalidate_storage_cache)
+    bus.subscribe(ConfigParameterChanged, invalidate_pii_detector_cache)
     bus.subscribe(ConfigParameterChanged, audit_log_config_change)
 
     def _invalidate_llm(event: ConfigParameterChanged) -> None:

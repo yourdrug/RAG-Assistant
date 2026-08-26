@@ -61,6 +61,8 @@ _DYNAMIC_FIELDS: dict[str, tuple[str, type]] = {
     "rolling_summary_enabled": ("rolling_summary_enabled", bool),
     # --- Cache ---
     "cache_enabled": ("cache_enabled", bool),
+    # --- PII guardrail ---
+    "pii_redaction_enabled": ("pii_redaction_enabled", bool),
     # --- LLM ---
     "llm_provider": ("llm_provider", str),
     "llm_model": ("llm_model", str),
@@ -145,3 +147,14 @@ def audit_log_config_change(event: ConfigParameterChanged) -> None:
         event.changed_by,
         event.occurred_at,
     )
+
+
+def invalidate_pii_detector_cache(event: ConfigParameterChanged) -> None:
+    """Сбросить кэш PII-детектора при изменении pii_redaction_enabled."""
+    if event.key != "pii_redaction_enabled":
+        return
+
+    from infrastructure.ml.guardrails import invalidate_pii_detector
+
+    invalidate_pii_detector()
+    log.info("PII detector cache invalidated (pii_redaction_enabled -> %s)", event.new_value)

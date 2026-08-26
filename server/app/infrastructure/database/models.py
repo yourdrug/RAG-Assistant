@@ -233,6 +233,8 @@ class ChatLogModel(BaseModel):
     domain: Mapped[str | None] = mapped_column(String(20), nullable=True)
     retrieval_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     reranker_score: Mapped[float | None] = mapped_column(nullable=True)
+    input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class BenchmarkQuestionModel(BaseModel):

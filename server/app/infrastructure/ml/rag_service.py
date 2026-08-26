@@ -9,6 +9,7 @@ Exposes ``stream_answer`` as an async iterator of tagged union events
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import logging
 import time
 from collections.abc import AsyncIterator
@@ -19,10 +20,10 @@ from config import settings
 from domain.services.rag_policy import classify_query_domain, has_exact_reference
 from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.doc_domain import DocDomain
-from domain.value_objects.llm_provider import BREADTH_ALIASES, Breadth
+from domain.value_objects.llm_provider import BREADTH_ALIASES, Breadth, LLMProvider
 from domain.value_objects.rag_settings import RagSettings
 from domain.value_objects.search_mode import SearchMode
-from domain.value_objects.stream_events import SourcesEvent, StreamEvent, TextChunk
+from domain.value_objects.stream_events import SourcesEvent, StreamEvent, TextChunk, UsageReport
 from langchain.schema import Document as LCDocument
 from qdrant_client.models import FieldCondition, Filter, MatchValue
 
@@ -43,7 +44,10 @@ from infrastructure.ml.metrics import (
     RAG_CACHE_MISSES_TOTAL,
     RAG_DECOMPOSED_TOTAL,
     RAG_RELEVANCE_GATE_TOTAL,
+    RAG_SELF_RAG_RETRIES,
     RAG_STAGE_DURATION,
+    extract_usage_from_langchain,
+    record_llm_usage,
     record_rag_answer,
 )
 from infrastructure.ml.rag import (
@@ -60,6 +64,11 @@ from infrastructure.ml.rag import (
     needs_decomposition,
     rerank_documents,
 )
+from infrastructure.ml.instructor_client import create_instructor_client
+from infrastructure.ml.llm_schemas import DecompositionCheck, SufficiencyAssessment
+
+# Context variable for request tracing — set at API entry point
+request_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="")
 
 
 def _build_rag_settings() -> RagSettings:
@@ -240,6 +249,17 @@ class RagService:
         RAG_CACHE_HITS_TOTAL.inc()
         log.info("Cache hit for question hash=%s", q_hash[:12])
         answer_text = cached["answer"]
+
+        # PII guardrail on cached answers too
+        if settings.pii_redaction_enabled:
+            from infrastructure.ml.guardrails import get_pii_detector
+
+            detector = get_pii_detector()
+            pii_found = detector.scan(answer_text)
+            if pii_found:
+                answer_text, _ = detector.scan_and_redact(answer_text)
+                log.warning("PII detected in cached answer: types=%s", pii_found)
+
         yield TextChunk(text=answer_text)
         record_rag_answer(
             breadth=Breadth.NARROW.value, answer=answer_text, retrieved_count=0, avg_similarity=0.0
@@ -396,11 +416,117 @@ class RagService:
         )
 
     async def _maybe_decompose(self, rag: RagSettings, query_for_search: str) -> None:
-        if rag.decomposition_enabled and needs_decomposition(query_for_search):
-            t0 = time.monotonic()
-            await decompose_question(self._ml.llm(), query_for_search)
-            RAG_STAGE_DURATION.labels("decompose").observe(time.monotonic() - t0)
-            RAG_DECOMPOSED_TOTAL.inc()
+        if rag.decomposition_enabled:
+            use_llm = settings.llm_provider == LLMProvider.OPENROUTER or True
+            if use_llm:
+                t0 = time.monotonic()
+                try:
+                    should_decompose, sub_queries = await self._llm_assess_decomposition(query_for_search)
+                    if should_decompose and len(sub_queries) >= 2:
+                        log.info("LLM decomposition: %r -> %s", query_for_search, sub_queries)
+                        RAG_DECOMPOSED_TOTAL.inc()
+                    else:
+                        log.info("LLM decomposition: not needed for %r", query_for_search)
+                except Exception as e:
+                    log.warning("LLM decomposition failed, falling back to regex: %s", e)
+                    if needs_decomposition(query_for_search):
+                        await decompose_question(self._ml.llm(), query_for_search)
+                        RAG_DECOMPOSED_TOTAL.inc()
+                RAG_STAGE_DURATION.labels("decompose").observe(time.monotonic() - t0)
+            else:
+                if needs_decomposition(query_for_search):
+                    t0 = time.monotonic()
+                    await decompose_question(self._ml.llm(), query_for_search)
+                    RAG_STAGE_DURATION.labels("decompose").observe(time.monotonic() - t0)
+                    RAG_DECOMPOSED_TOTAL.inc()
+
+    async def _llm_assess_decomposition(self, question: str) -> tuple[bool, list[str]]:
+        """Use LLM to assess whether a query needs decomposition."""
+        from config import settings as _settings
+
+        if _settings.llm_provider == LLMProvider.OPENROUTER:
+            client = create_instructor_client(
+                base_url=_settings.openrouter_base_url,
+                api_key=_settings.openrouter_api_key,
+            )
+            model = _settings.openrouter_model
+        else:
+            client = create_instructor_client(
+                base_url=f"{_settings.ollama_base_url}/v1",
+                api_key="ollama",
+            )
+            model = _settings.llm_model
+
+        system_msg = (
+            "Оцени, является ли вопрос составным (содержит 2+ независимых подтемы).\n"
+            "Если да — разбей его на 2-4 независимых подвопроса.\n"
+            "Если нет — верни needs_decomposition=false."
+        )
+
+        import asyncio
+
+        result = await asyncio.to_thread(
+            lambda: client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_msg},
+                    {"role": "user", "content": question},
+                ],
+                response_model=DecompositionCheck,
+                max_retries=3,
+            )
+        )
+        return result.needs_decomposition, result.sub_queries
+
+    async def _assess_sufficiency(
+        self, question: str, docs: list, llm_client=None, model: str = ""
+    ) -> SufficiencyAssessment:
+        """Self-RAG: assess whether retrieved context is sufficient to answer."""
+        if not docs:
+            return SufficiencyAssessment(
+                is_sufficient=False,
+                reasoning="No documents retrieved",
+                suggested_refinement=question,
+            )
+
+        from config import settings as _settings
+
+        if llm_client is None:
+            if _settings.llm_provider == LLMProvider.OPENROUTER:
+                llm_client = create_instructor_client(
+                    base_url=_settings.openrouter_base_url,
+                    api_key=_settings.openrouter_api_key,
+                )
+                model = _settings.openrouter_model
+            else:
+                llm_client = create_instructor_client(
+                    base_url=f"{_settings.ollama_base_url}/v1",
+                    api_key="ollama",
+                )
+                model = _settings.llm_model
+
+        context = format_docs(docs, max_context_tokens=2000)
+        system_msg = (
+            "Оцени, достаточно ли контекста для ответа на вопрос.\n"
+            "Если достаточно — is_sufficient=true.\n"
+            "Если нет — is_sufficient=false и предложи уточнённый поисковый запрос для retry."
+        )
+        user_msg = f"Вопрос: {question}\n\nКонтекст:\n{context}"
+
+        import asyncio
+
+        result = await asyncio.to_thread(
+            lambda: llm_client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_msg},
+                    {"role": "user", "content": user_msg},
+                ],
+                response_model=SufficiencyAssessment,
+                max_retries=3,
+            )
+        )
+        return result
 
     def _resolve_breadth(self, ctx: ChatContext, query_for_search: str) -> Breadth:
         breadth = ctx.depth if ctx.depth in BREADTH_ALIASES else classify_question_breadth(query_for_search)
@@ -487,7 +613,7 @@ class RagService:
             )
         return docs
 
-    async def stream(
+    async def stream(  # noqa: C901
         self,
         question: str,
         history: list,
@@ -495,6 +621,14 @@ class RagService:
     ) -> AsyncIterator[StreamEvent]:
         rag = _build_rag_settings()
         t_pipeline_start = time.monotonic()
+
+        # Set request_id for tracing through the pipeline
+        req_id = request_id_var.get("")
+        if not req_id:
+            import uuid
+
+            req_id = uuid.uuid4().hex[:12]
+            request_id_var.set(req_id)
 
         user = {"id": ctx.user_id, "kind": ctx.user_kind}
         access_filter = build_qdrant_filter(user, ctx.user_group_ids)
@@ -573,11 +707,65 @@ class RagService:
 
         avg_sim = sum(s for _, s in docs) / len(docs) if docs else 0.0
 
-        # --- Relevance gate ---
-        is_relevant = await self._handle_relevance_gate(
-            query_for_search, docs, breadth, t_pipeline_start, rag
-        )
-        if not is_relevant:
+        # --- Self-RAG: assess sufficiency and retry once if insufficient ---
+        MAX_SELF_RAG_RETRIES = 1
+        for self_rag_attempt in range(MAX_SELF_RAG_RETRIES + 1):
+            is_relevant = await self._handle_relevance_gate(
+                query_for_search, docs, breadth, t_pipeline_start, rag
+            )
+            if is_relevant:
+                break
+
+            # On rejection: assess if we should retry with broader query
+            if self_rag_attempt < MAX_SELF_RAG_RETRIES:
+                t0 = time.monotonic()
+                assessment = await self._assess_sufficiency(query_for_search, docs)
+                RAG_STAGE_DURATION.labels("sufficiency_assess").observe(time.monotonic() - t0)
+
+                if assessment.is_sufficient:
+                    log.info("Self-RAG: context deemed sufficient despite relevance gate rejection")
+                    break
+
+                if assessment.suggested_refinement:
+                    log.info(
+                        "Self-RAG: retrying with refined query (attempt %d/%d): %r",
+                        self_rag_attempt + 1,
+                        MAX_SELF_RAG_RETRIES,
+                        assessment.suggested_refinement,
+                    )
+                    RAG_SELF_RAG_RETRIES.inc()
+                    query_for_search = assessment.suggested_refinement
+                    candidates = await self._run_retrieval(
+                        query_for_search,
+                        fetch_k,
+                        access_filter,
+                        rag,
+                        breadth,
+                        query_domain,
+                        effective_dense_weight,
+                        effective_sparse_weight,
+                    )
+                    docs = await rerank_documents(
+                        query_for_search,
+                        candidates,
+                        top_n=top_k,
+                        reranker=self._ml.reranker(),
+                        min_score=rag.rerank_min_score,
+                        score_gap_ratio=rag.rerank_score_gap_ratio,
+                    )
+                    docs = await self._post_rerank_adjustments(
+                        docs,
+                        query_domain,
+                        query_for_search,
+                        fetch_k,
+                        top_k,
+                        access_filter,
+                        rag,
+                    )
+                    avg_sim = sum(s for _, s in docs) / len(docs) if docs else 0.0
+                    continue
+
+            # Final rejection
             async for event in self._reject_not_relevant(breadth, docs, avg_sim, t_pipeline_start):
                 yield event
             return
@@ -602,14 +790,51 @@ class RagService:
 
         t0 = time.monotonic()
         answer_parts: list[str] = []
+        last_chunk = None
         async for chunk in self._ml.llm_for_breadth(breadth).astream(messages):
             text = chunk.content
             if text:
                 answer_parts.append(text)
+                last_chunk = chunk
                 yield TextChunk(text=text)
         RAG_STAGE_DURATION.labels("generate").observe(time.monotonic() - t0)
 
+        # --- Extract token usage from last chunk ---
+        usage_report = None
+        if last_chunk is not None:
+            input_tokens, output_tokens = extract_usage_from_langchain(last_chunk)
+            if settings.llm_provider == LLMProvider.OLLAMA:
+                model_name = settings.llm_model
+            else:
+                model_name = settings.openrouter_model
+            record_llm_usage(
+                model=model_name,
+                operation="generate",
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+            )
+            usage_report = UsageReport(
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                model=model_name,
+                operation="generate",
+            )
+
         full_answer = "".join(answer_parts)
+
+        # --- PII output guardrail ---
+        if settings.pii_redaction_enabled:
+            from infrastructure.ml.guardrails import get_pii_detector
+
+            detector = get_pii_detector()
+            pii_found = detector.scan(full_answer)
+            if pii_found:
+                full_answer, _ = detector.scan_and_redact(full_answer)
+                log.warning(
+                    "PII detected in LLM output [request_id=%s]: types=%s",
+                    request_id_var.get(""),
+                    pii_found,
+                )
 
         sources = self._apply_citation_filter(rag, full_answer, sources)
 
@@ -634,7 +859,7 @@ class RagService:
                 sources,
             )
 
-        yield SourcesEvent(sources=sources, confidence=confidence)
+        yield SourcesEvent(sources=sources, confidence=confidence, usage=usage_report)
 
     async def invoke(
         self,

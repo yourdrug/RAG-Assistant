@@ -174,6 +174,14 @@ class Settings(BaseSettings):
     # --- Semantic answer cache ---
     cache_enabled: bool = False
 
+    # --- Cost-based rate limiting (USD per user) ---
+    cost_rate_limit_enabled: bool = False
+    cost_hourly_limit: float = 1.0
+    cost_daily_limit: float = 5.0
+
+    # --- PII output guardrail ---
+    pii_redaction_enabled: bool = True
+
     # --- Hybrid search (BM25 + dense RRF) ---
     hybrid_enabled: bool = True
     bm25_fetch_k: int = 25

@@ -91,6 +91,11 @@ RAG_CACHE_MISSES_TOTAL = Counter(
     "Semantic answer cache misses",
 )
 
+RAG_SELF_RAG_RETRIES = Counter(
+    "rag_self_rag_retries_total",
+    "Self-RAG retry attempts (insufficient context → refined query)",
+)
+
 # ---------------------------------------------------------------------------
 # Ingestion metrics
 # ---------------------------------------------------------------------------
@@ -201,6 +206,96 @@ HTTP_REQUESTS_TOTAL = Counter(
     "Total HTTP requests",
     ["handler", "method", "status"],
 )
+
+# ---------------------------------------------------------------------------
+# GenAI observability (OTel semantic conventions)
+# ---------------------------------------------------------------------------
+
+LLM_TOKEN_USAGE = Counter(
+    "rag_llm_tokens_total",
+    "LLM token usage (input + output)",
+    ["model", "direction", "operation"],
+    # direction: "input" | "output"
+    # operation: "generate" | "condense" | "decompose" | "relevance_gate" | "judge"
+)
+
+LLM_COST_DOLLARS = Counter(
+    "rag_llm_cost_dollars_total",
+    "Estimated LLM cost in USD (input + output)",
+    ["model", "operation"],
+)
+
+LLM_REQUEST_DURATION = Histogram(
+    "rag_llm_request_duration_seconds",
+    "LLM request latency by operation",
+    ["model", "operation"],
+    buckets=(0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0),
+)
+
+RAG_REQUEST_TOTAL = Counter(
+    "rag_requests_total",
+    "Total RAG requests processed",
+    ["breadth", "answer_type"],
+)
+
+# Pricing per 1M tokens (input / output) — updated from config at startup
+# Defaults: Ollama = free (local), OpenRouter models vary
+_LLM_PRICING: dict[str, dict[str, float]] = {
+    "qwen/qwen-2.5-7b-instruct": {"input": 0.0, "output": 0.0},
+    "qwen/qwen-2.5-14b-instruct": {"input": 0.0, "output": 0.0},
+    "_default": {"input": 0.0, "output": 0.0},
+}
+
+
+def update_llm_pricing(model: str, input_per_1m: float, output_per_1m: float) -> None:
+    """Update pricing for a specific model (call on config change)."""
+    _LLM_PRICING[model] = {"input": input_per_1m, "output": output_per_1m}
+
+
+def record_llm_usage(
+    model: str,
+    operation: str,
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
+) -> None:
+    """Record LLM token usage and estimated cost.
+
+    Extracts from LangChain response.usage_metadata when available.
+    """
+    if input_tokens is not None and input_tokens > 0:
+        LLM_TOKEN_USAGE.labels(model=model, direction="input", operation=operation).inc(input_tokens)
+    if output_tokens is not None and output_tokens > 0:
+        LLM_TOKEN_USAGE.labels(model=model, direction="output", operation=operation).inc(output_tokens)
+
+    pricing = _LLM_PRICING.get(model, _LLM_PRICING["_default"])
+    cost = 0.0
+    if input_tokens:
+        cost += (input_tokens / 1_000_000) * pricing["input"]
+    if output_tokens:
+        cost += (output_tokens / 1_000_000) * pricing["output"]
+    if cost > 0:
+        LLM_COST_DOLLARS.labels(model=model, operation=operation).inc(cost)
+
+
+def extract_usage_from_langchain(response) -> tuple[int | None, int | None]:
+    """Extract (input_tokens, output_tokens) from a LangChain AIMessage or chunk.
+
+    Supports both usage_metadata (LangChain v0.3+) and response_metadata.
+    Returns (None, None) if not available.
+    """
+    # Try usage_metadata first (LangChain >=0.3)
+    usage = getattr(response, "usage_metadata", None)
+    if usage and isinstance(usage, dict):
+        return usage.get("input_tokens"), usage.get("output_tokens")
+
+    # Try response_metadata (older LangChain / OpenAI format)
+    meta = getattr(response, "response_metadata", None)
+    if meta and isinstance(meta, dict):
+        usage = meta.get("usage", {})
+        if usage:
+            return usage.get("prompt_tokens"), usage.get("completion_tokens")
+
+    return None, None
 
 
 # ---------------------------------------------------------------------------

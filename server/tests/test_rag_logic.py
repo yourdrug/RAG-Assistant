@@ -395,14 +395,38 @@ class TestCheckRelevance:
         assert result == (False, "Нет документов для проверки")
 
     def test_relevant_answer_detected(self):
-        llm = FakeListChatModel(responses=["ДА — контекста достаточно"])
-        result = asyncio.run(rag.check_relevance(llm, "question", [_doc("some context")]))
-        assert result[0] is True
+        from unittest.mock import MagicMock, patch
+
+        mock_client = MagicMock()
+        mock_result = MagicMock()
+        mock_result.is_relevant = True
+        mock_result.reason = "Context is sufficient"
+        mock_client.chat.completions.create.return_value = mock_result
+
+        with patch.object(rag, "_get_rag_instructor_client", return_value=mock_client):
+            with patch("infrastructure.ml.llm_schemas.RelevanceCheck"):
+                from config import settings
+
+                settings.llm_model = "test-model"
+                result = asyncio.run(rag.check_relevance(None, "question", [_doc("some context")]))
+                assert result[0] is True
 
     def test_irrelevant_answer_detected(self):
-        llm = FakeListChatModel(responses=["НЕТ — в документах нет информации про это"])
-        result = asyncio.run(rag.check_relevance(llm, "question", [_doc("some context")]))
-        assert result[0] is False
+        from unittest.mock import MagicMock, patch
+
+        mock_client = MagicMock()
+        mock_result = MagicMock()
+        mock_result.is_relevant = False
+        mock_result.reason = "Context lacks relevant information"
+        mock_client.chat.completions.create.return_value = mock_result
+
+        with patch.object(rag, "_get_rag_instructor_client", return_value=mock_client):
+            with patch("infrastructure.ml.llm_schemas.RelevanceCheck"):
+                from config import settings
+
+                settings.llm_model = "test-model"
+                result = asyncio.run(rag.check_relevance(None, "question", [_doc("some context")]))
+                assert result[0] is False
 
 
 # ---------------------------------------------------------------------------

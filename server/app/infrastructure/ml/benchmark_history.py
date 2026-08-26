@@ -21,6 +21,8 @@ DEFAULT_THRESHOLDS = {
     "faithfulness": -1.0,
     "relevancy": -1.0,
     "correctness": -1.0,
+    "avg_context_precision": -1.0,
+    "avg_context_recall": -1.0,
 }
 
 
@@ -37,6 +39,8 @@ def save_summary_to_history(summary: dict, config: dict, data_dir: str) -> None:
         "avg_relevancy": summary.get("avg_relevancy"),
         "avg_correctness": summary.get("avg_correctness"),
         "avg_similarity": summary.get("avg_similarity"),
+        "avg_context_precision": summary.get("avg_context_precision"),
+        "avg_context_recall": summary.get("avg_context_recall"),
     }
 
     record = {

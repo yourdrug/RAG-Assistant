@@ -19,5 +19,7 @@ class ChatLog:
     domain: str | None = None
     retrieval_count: int | None = None
     reranker_score: float | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
     id: int | None = None
     creation_date: datetime = field(default_factory=lambda: datetime.now(UTC))

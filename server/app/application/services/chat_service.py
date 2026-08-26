@@ -103,6 +103,8 @@ class ChatService:
         depth: str | None,
         retrieval_count: int,
         reranker_score: float | None,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
     ) -> ChatLog:
         return ChatLog(
             user_id=user_id,
@@ -116,6 +118,8 @@ class ChatService:
             domain=DocDomain.GENERAL.value,
             retrieval_count=retrieval_count,
             reranker_score=reranker_score,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
         )
 
     async def _handle_rolling_summary(
@@ -170,6 +174,7 @@ class ChatService:
         full_answer = ""
         sources: list[dict] = []
         confidence: float | None = None
+        usage = None
         user_msg_saved = False
         t_start = time.monotonic()
 
@@ -181,6 +186,7 @@ class ChatService:
             if isinstance(event, SourcesEvent):
                 sources = event.sources
                 confidence = event.confidence
+                usage = event.usage
             elif isinstance(event, TextChunk):
                 if not user_msg_saved:
                     user_msg_saved = True
@@ -214,8 +220,19 @@ class ChatService:
                 depth=depth,
                 retrieval_count=retrieval_count,
                 reranker_score=reranker_score,
+                input_tokens=usage.input_tokens if usage else None,
+                output_tokens=usage.output_tokens if usage else None,
             )
             await uow.chat_logs.save(chat_log)
+
+        if usage:
+            log.info(
+                "chat_token_usage conversation=%d input=%s output=%s model=%s",
+                conv.id,
+                usage.input_tokens,
+                usage.output_tokens,
+                usage.model,
+            )
 
         await self._handle_rolling_summary(conv.id, question, full_answer, history)
 

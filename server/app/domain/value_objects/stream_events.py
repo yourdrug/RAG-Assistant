@@ -22,6 +22,17 @@ class SourcesEvent:
 
     sources: list[dict]
     confidence: float | None = None
+    usage: UsageReport | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class UsageReport:
+    """LLM token usage and cost for the request."""
+
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    model: str = ""
+    operation: str = "generate"
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +42,7 @@ class MetaEvent:
     conversation_id: int
     sources: list[dict]
     confidence: float | None = None
+    usage: UsageReport | None = None
 
 
 StreamEvent = TextChunk | SourcesEvent | MetaEvent

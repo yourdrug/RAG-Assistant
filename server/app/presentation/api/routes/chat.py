@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+import uuid
 
 from application.services.chat_service import ChatService
 from domain.value_objects.stream_events import MetaEvent, TextChunk
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from infrastructure.logging.actions import log_action
+from infrastructure.ml.rag_service import request_id_var
 
 from presentation.api.auth_dependencies import get_current_user
 from presentation.api.dependencies import create_chat_service
@@ -27,38 +29,50 @@ async def chat_stream(
     if not req.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty")
 
-    log_action("chat", user_id=current_user["id"], details={"question": req.question[:100]})
+    req_id = uuid.uuid4().hex[:12]
+    token = request_id_var.set(req_id)
+    try:
+        log_action(
+            "chat",
+            user_id=current_user["id"],
+            details={
+                "question": req.question[:100],
+                "request_id": req_id,
+            },
+        )
 
-    async def event_generator():
-        try:
-            # Send heartbeat immediately to keep connection alive during embedding
-            yield ": heartbeat\n\n"
-            async for event in chat_service.stream_chat(
-                req.question,
-                req.conversation_id,
-                current_user["id"],
-                current_user["kind"],
-                current_user["role"],
-                depth=req.depth,
-            ):
-                if isinstance(event, MetaEvent):
-                    sources = [s for s in event.sources if "_confidence" not in s]
-                    payload = {
-                        "conversation_id": event.conversation_id,
-                        "sources": sources,
-                        "confidence": event.confidence,
-                    }
-                    yield f"event: done\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
-                elif isinstance(event, TextChunk):
-                    yield f"data: {json.dumps({'text': event.text}, ensure_ascii=False)}\n\n"
-        except Exception as e:
-            yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
+        async def event_generator():
+            try:
+                yield ": heartbeat\n\n"
+                async for event in chat_service.stream_chat(
+                    req.question,
+                    req.conversation_id,
+                    current_user["id"],
+                    current_user["kind"],
+                    current_user["role"],
+                    depth=req.depth,
+                ):
+                    if isinstance(event, MetaEvent):
+                        sources = [s for s in event.sources if "_confidence" not in s]
+                        payload = {
+                            "conversation_id": event.conversation_id,
+                            "sources": sources,
+                            "confidence": event.confidence,
+                            "request_id": req_id,
+                        }
+                        yield f"event: done\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                    elif isinstance(event, TextChunk):
+                        yield f"data: {json.dumps({'text': event.text}, ensure_ascii=False)}\n\n"
+            except Exception as e:
+                yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
 
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+    finally:
+        request_id_var.reset(token)
 
 
 @router.post("/chat/sync", response_model=ChatResponse, dependencies=[Depends(chat_rate_limit)])
@@ -70,14 +84,30 @@ async def chat_sync(
     if not req.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty")
 
-    log_action("chat.sync", user_id=current_user["id"], details={"question": req.question[:100]})
+    req_id = uuid.uuid4().hex[:12]
+    token = request_id_var.set(req_id)
+    try:
+        log_action(
+            "chat.sync",
+            user_id=current_user["id"],
+            details={
+                "question": req.question[:100],
+                "request_id": req_id,
+            },
+        )
 
-    result = await chat_service.sync_chat(
-        req.question,
-        req.conversation_id,
-        current_user["id"],
-        current_user["kind"],
-        current_user["role"],
-        depth=req.depth,
-    )
-    return ChatResponse(answer=result.answer, conversation_id=result.conversation_id, sources=result.sources)
+        result = await chat_service.sync_chat(
+            req.question,
+            req.conversation_id,
+            current_user["id"],
+            current_user["kind"],
+            current_user["role"],
+            depth=req.depth,
+        )
+        return ChatResponse(
+            answer=result.answer,
+            conversation_id=result.conversation_id,
+            sources=result.sources,
+        )
+    finally:
+        request_id_var.reset(token)

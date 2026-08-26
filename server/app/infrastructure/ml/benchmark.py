@@ -28,6 +28,12 @@ from domain.value_objects.llm_provider import Breadth, LLMProvider
 from langchain.schema import Document
 from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from infrastructure.ml.benchmark_history import save_summary_to_history
 from infrastructure.ml.factories import (
@@ -37,6 +43,8 @@ from infrastructure.ml.factories import (
     load_bm25_index,
 )
 from infrastructure.ml.hybrid import content_hash, rrf_merge
+from infrastructure.ml.instructor_client import create_instructor_client
+from infrastructure.ml.llm_schemas import JudgeScore
 from infrastructure.ml.rag import deduplicate_docs
 
 logger = logging.getLogger("default")
@@ -254,7 +262,7 @@ def get_rag_answer(llm: ChatOllama, docs_with_scores: list[tuple[Document, float
 
 
 # ---------------------------------------------------------------------------
-# LLM-судья: оценки
+# LLM-судья: оценки (structured output via instructor + tenacity)
 # ---------------------------------------------------------------------------
 
 FAITHFULNESS_PROMPT = """\
@@ -311,73 +319,82 @@ CORRECTNESS_PROMPT = """\
 {{"score": <число от 0 до 10>, "reason": "<одно предложение>"}}
 """
 
+CONTEXT_PRECISION_PROMPT = """\
+Ты — эксперт по оценке качества поиска (retrieval) в RAG-системе.
 
-def parse_judge_response(raw: str, metric: str) -> tuple[float, str]:
-    match = re.search(r"\{[^{}]+\}", raw, re.DOTALL)
-    if not match:
-        return 0.0, f"[Ошибка парсинга ответа судьи: {raw[:100]}]"
-    try:
-        data = json.loads(match.group())
-        score = float(data.get("score", 0))
-        score = max(0.0, min(10.0, score))
-        reason = str(data.get("reason", ""))
-        return score, reason
-    except (json.JSONDecodeError, ValueError) as e:
-        return 0.0, f"[JSON parse error: {e}]"
+Вопрос: {question}
+
+Релевантный ответ (для справки): {answer}
+
+Ретривированные документы (по порядку ретривера):
+{context}
+
+Задача: оцени CONTEXT PRECISION — сколько из ретривированных документов
+действительно релевантны для ответа на вопрос.
+Все релевантны = 10. Ни один не релевантен = 0.
+Считай количество релевантных документов и дели на общее число.
+
+Ответь СТРОГО в формате JSON (только JSON, без пояснений):
+{{"score": <число от 0 до 10>, "reason": "<одно предложение>"}}
+"""
+
+CONTEXT_RECALL_PROMPT = """\
+Ты — эксперт по оценке качества поиска (retrieval) в RAG-системе.
+
+Вопрос: {question}
+
+Релевантный ответ (для справки): {answer}
+
+Ретривированные документы:
+{context}
+
+Задача: оцени CONTEXT RECALL — какая доля информации, необходимой для ответа
+на вопрос, присутствует в ретривированных документах.
+Вся необходимая информация есть = 10. Ничего нет = 0.
+
+Ответь СТРОГО в формате JSON (только JSON, без пояснений):
+{{"score": <число от 0 до 10>, "reason": "<одно предложение>"}}
+"""
 
 
-async def judge_answer_async(
-    judge_llm: ChatOllama,
-    question: str,
-    answer: str,
-    context: str,
-    expected_answer: str | None = None,
-) -> dict:
-    """Judge answer quality with 3 parallel LLM calls (faithfulness, relevancy, correctness)."""
+def _get_judge_client(model: str):
+    """Create an instructor-wrapped client for the judge model."""
+    if settings.llm_provider == LLMProvider.OPENROUTER:
+        return create_instructor_client(
+            base_url=settings.openrouter_base_url,
+            api_key=settings.openrouter_api_key,
+            model=model,
+        )
+    return create_instructor_client(
+        base_url=f"{settings.ollama_base_url}/v1",
+        api_key="ollama",
+        model=model,
+    )
 
-    async def _judge_one(prompt):
-        last_exc: Exception | None = None
-        for attempt in range(1, JUDGE_MAX_RETRIES + 1):
-            try:
-                response = await judge_llm.ainvoke(prompt)
-                return response.content
-            except Exception as exc:
-                last_exc = exc
-                if attempt < JUDGE_MAX_RETRIES:
-                    delay = JUDGE_RETRY_DELAY * attempt
-                    logger.warning(
-                        "Async judge invoke failed (attempt %d/%d): %s — retrying in %.1fs",
-                        attempt,
-                        JUDGE_MAX_RETRIES,
-                        exc,
-                        delay,
-                    )
-                    await asyncio.sleep(delay)
-        raise last_exc  # type: ignore[misc]
 
-    prompts = {
-        "faithfulness": FAITHFULNESS_PROMPT.format(context=context, question=question, answer=answer),
-        "relevancy": RELEVANCY_PROMPT.format(question=question, answer=answer),
-    }
-    if expected_answer:
-        prompts["correctness"] = CORRECTNESS_PROMPT.format(
-            question=question, expected=expected_answer, answer=answer
+def _judge_with_structured_output(
+    client,
+    prompt: str,
+    model: str,
+) -> JudgeScore:
+    """Call judge LLM with structured output + tenacity retry."""
+    max_retries = JUDGE_MAX_RETRIES
+
+    @retry(
+        stop=stop_after_attempt(max_retries),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        retry=retry_if_exception_type((Exception,)),
+        reraise=True,
+    )
+    def _call() -> JudgeScore:
+        return client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            response_model=JudgeScore,
+            max_retries=3,
         )
 
-    keys = list(prompts.keys())
-    raw_results = await asyncio.gather(*[_judge_one(prompts[k]) for k in keys])
-
-    scores = {}
-    for key, raw in zip(keys, raw_results, strict=False):
-        score, reason = parse_judge_response(raw, key)
-        scores[key] = score
-        scores[f"{key}_reason"] = reason
-
-    if "correctness" not in scores:
-        scores["correctness"] = None
-        scores["correctness_reason"] = "Эталонный ответ не задан"
-
-    return scores
+    return _call()
 
 
 def judge_answer(
@@ -387,8 +404,9 @@ def judge_answer(
     context: str,
     expected_answer: str | None = None,
 ) -> dict:
-    """Run judge LLM synchronously with retry on transient Ollama errors."""
-    scores = {}
+    """Run judge LLM synchronously with structured output (instructor + tenacity)."""
+    client = _get_judge_client(settings.llm_model if settings.llm_provider == LLMProvider.OLLAMA else "")
+    model = settings.llm_model if settings.llm_provider == LLMProvider.OLLAMA else settings.openrouter_model
 
     prompts = {
         "faithfulness": FAITHFULNESS_PROMPT.format(context=context, question=question, answer=answer),
@@ -399,11 +417,16 @@ def judge_answer(
             question=question, expected=expected_answer, answer=answer
         )
 
+    scores = {}
     for key, prompt in prompts.items():
-        raw = _invoke_with_retry(judge_llm, prompt, key)
-        score, reason = parse_judge_response(raw, key)
-        scores[key] = score
-        scores[f"{key}_reason"] = reason
+        try:
+            result = _judge_with_structured_output(client, prompt, model)
+            scores[key] = max(0.0, min(10.0, result.score))
+            scores[f"{key}_reason"] = result.reason
+        except Exception as exc:
+            logger.warning("Judge structured output failed for %s: %s — falling back to 0.0", key, exc)
+            scores[key] = 0.0
+            scores[f"{key}_reason"] = f"[Ошибка вызова судьи: {exc}]"
 
     if "correctness" not in scores:
         scores["correctness"] = None
@@ -411,28 +434,67 @@ def judge_answer(
     return scores
 
 
-def _invoke_with_retry(llm: ChatOllama, prompt: str, label: str, max_retries: int = JUDGE_MAX_RETRIES) -> str:
-    """Invoke LLM with retry on transient errors (500, connection reset, etc.)."""
-    last_exc: Exception | None = None
-    for attempt in range(1, max_retries + 1):
-        try:
-            return llm.invoke(prompt).content
-        except Exception as exc:
-            last_exc = exc
-            if attempt < max_retries:
+async def judge_answer_async(
+    judge_llm: ChatOllama,
+    question: str,
+    answer: str,
+    context: str,
+    expected_answer: str | None = None,
+) -> dict:
+    """Judge answer quality with structured output (instructor + tenacity)."""
+    client = _get_judge_client(settings.llm_model if settings.llm_provider == LLMProvider.OLLAMA else "")
+    model = settings.llm_model if settings.llm_provider == LLMProvider.OLLAMA else settings.openrouter_model
+
+    prompts = {
+        "faithfulness": FAITHFULNESS_PROMPT.format(context=context, question=question, answer=answer),
+        "relevancy": RELEVANCY_PROMPT.format(question=question, answer=answer),
+    }
+    if expected_answer:
+        prompts["correctness"] = CORRECTNESS_PROMPT.format(
+            question=question, expected=expected_answer, answer=answer
+        )
+
+    async def _judge_one(prompt: str) -> JudgeScore:
+        import asyncio as _asyncio
+
+        for attempt in range(1, JUDGE_MAX_RETRIES + 1):
+            try:
+                result = await _asyncio.to_thread(
+                    lambda p=prompt: client.chat.completions.create(
+                        model=model,
+                        messages=[{"role": "user", "content": p}],
+                        response_model=JudgeScore,
+                        max_retries=3,
+                    )
+                )
+                return result
+            except Exception as exc:
+                if attempt == JUDGE_MAX_RETRIES:
+                    raise
                 delay = JUDGE_RETRY_DELAY * attempt
                 logger.warning(
-                    "Judge invoke failed (attempt %d/%d, %s): %s — retrying in %.1fs",
+                    "Async judge invoke failed (attempt %d/%d): %s — retrying in %.1fs",
                     attempt,
-                    max_retries,
-                    label,
+                    JUDGE_MAX_RETRIES,
                     exc,
                     delay,
                 )
-                time.sleep(delay)
-            else:
-                logger.error("Judge invoke failed after %d attempts (%s): %s", max_retries, label, exc)
-    raise last_exc  # type: ignore[misc]
+                await _asyncio.sleep(delay)
+        raise RuntimeError("Unreachable")
+
+    keys = list(prompts.keys())
+    raw_results = await asyncio.gather(*[_judge_one(prompts[k]) for k in keys])
+
+    scores = {}
+    for key, result in zip(keys, raw_results, strict=False):
+        scores[key] = max(0.0, min(10.0, result.score))
+        scores[f"{key}_reason"] = result.reason
+
+    if "correctness" not in scores:
+        scores["correctness"] = None
+        scores["correctness_reason"] = "Эталонный ответ не задан"
+
+    return scores
 
 
 # ---------------------------------------------------------------------------
@@ -484,6 +546,51 @@ def compute_retriever_metrics(
     }
 
 
+def compute_context_precision_recall(
+    judge_llm: ChatOllama,
+    question: str,
+    answer: str,
+    docs_with_scores: list[tuple[Document, float]],
+) -> dict:
+    """Compute context_precision and context_recall via LLM judge."""
+    if not docs_with_scores:
+        return {
+            "context_precision": None,
+            "context_precision_reason": "No documents retrieved",
+            "context_recall": None,
+            "context_recall_reason": "No documents retrieved",
+        }
+
+    client = _get_judge_client(settings.llm_model if settings.llm_provider == LLMProvider.OLLAMA else "")
+    model = settings.llm_model if settings.llm_provider == LLMProvider.OLLAMA else settings.openrouter_model
+
+    context = "\n\n---\n\n".join(d.page_content for d, _ in docs_with_scores)
+
+    result = {"context_precision": None, "context_precision_reason": "", "context_recall": None}
+
+    # Context precision
+    try:
+        prompt = CONTEXT_PRECISION_PROMPT.format(question=question, answer=answer, context=context)
+        cp = _judge_with_structured_output(client, prompt, model)
+        result["context_precision"] = max(0.0, min(10.0, cp.score))
+        result["context_precision_reason"] = cp.reason
+    except Exception as exc:
+        logger.warning("Context precision judge failed: %s", exc)
+        result["context_precision_reason"] = f"[Error: {exc}]"
+
+    # Context recall
+    try:
+        prompt = CONTEXT_RECALL_PROMPT.format(question=question, answer=answer, context=context)
+        cr = _judge_with_structured_output(client, prompt, model)
+        result["context_recall"] = max(0.0, min(10.0, cr.score))
+        result["context_recall_reason"] = cr.reason
+    except Exception as exc:
+        logger.warning("Context recall judge failed: %s", exc)
+        result["context_recall_reason"] = f"[Error: {exc}]"
+
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Форматирование прогресса
 # ---------------------------------------------------------------------------
@@ -509,6 +616,14 @@ def log_question_result(idx: int, total: int, q: dict, result: dict):
     logger.info("  Relevancy:    %.1f/10  — %s", gm["relevancy"], gm["relevancy_reason"])
     if gm["correctness"] is not None:
         logger.info("  Correctness:  %.1f/10  — %s", gm["correctness"], gm["correctness_reason"])
+
+    cm = result.get("context_metrics", {})
+    cp = cm.get("context_precision")
+    cr = cm.get("context_recall")
+    if cp is not None:
+        logger.info("  Context Precision: %.1f/10  — %s", cp, cm.get("context_precision_reason", ""))
+    if cr is not None:
+        logger.info("  Context Recall:    %.1f/10  — %s", cr, cm.get("context_recall_reason", ""))
 
     answer_preview = result["answer"][:200].replace("\n", " ")
     if len(result["answer"]) > 200:
@@ -537,6 +652,17 @@ def compute_summary_metrics(results: list[dict]) -> dict:
     mrrs = [r["retriever_metrics"]["mrr"] for r in results if r["retriever_metrics"]["mrr"] is not None]
     sims = [r["retriever_metrics"]["avg_similarity"] for r in results]
 
+    cp_scores = [
+        r["context_metrics"]["context_precision"]
+        for r in results
+        if r["context_metrics"].get("context_precision") is not None
+    ]
+    cr_scores = [
+        r["context_metrics"]["context_recall"]
+        for r in results
+        if r["context_metrics"].get("context_recall") is not None
+    ]
+
     return {
         "total_questions": len(results),
         "total_time_sec": round(sum(r["latency_sec"] for r in results), 1),
@@ -546,6 +672,8 @@ def compute_summary_metrics(results: list[dict]) -> dict:
         "avg_relevancy": round(sum(rels) / len(rels), 1) if rels else None,
         "avg_correctness": round(sum(corrs) / len(corrs), 1) if corrs else None,
         "avg_similarity": round(sum(sims) / len(sims), 3) if sims else 0,
+        "avg_context_precision": round(sum(cp_scores) / len(cp_scores), 1) if cp_scores else None,
+        "avg_context_recall": round(sum(cr_scores) / len(cr_scores), 1) if cr_scores else None,
     }
 
 
@@ -571,6 +699,17 @@ def log_summary(results: list[dict], total_time: float):
         )
         logger.info("  MRR:             %.3f  (1.0 = нужный чанк всегда первый)", m["avg_mrr"])
     logger.info("  Avg Similarity:  %.3f", m["avg_similarity"])
+
+    logger.info("Context Quality:")
+    if m["avg_context_precision"] is not None:
+        logger.info(
+            "  Context Precision: %.1f/10  (доля релевантных документов среди ретривированных)",
+            m["avg_context_precision"],
+        )
+    if m["avg_context_recall"] is not None:
+        logger.info(
+            "  Context Recall:    %.1f/10  (доля нужной информации в контексте)", m["avg_context_recall"]
+        )
 
     logger.info("Generator:")
     logger.info(
@@ -619,10 +758,15 @@ def save_results(results: list[dict], out_dir: str, model_name: str = "", run_id
     json_path.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
 
     csv_path = out / f"benchmark_{ts}{model_tag}{run_tag}.csv"
-    rows = ["id,question,faithfulness,relevancy,correctness,hit_rate,mrr,avg_sim,latency_sec"]
+    csv_header = (
+        "id,question,faithfulness,relevancy,correctness,"
+        "hit_rate,mrr,avg_sim,context_precision,context_recall,latency_sec"
+    )
+    rows = [csv_header]
     for r in results:
         gm = r["generator_metrics"]
         rm = r["retriever_metrics"]
+        cm = r.get("context_metrics", {})
         rows.append(
             ",".join(
                 [
@@ -634,6 +778,8 @@ def save_results(results: list[dict], out_dir: str, model_name: str = "", run_id
                     str(rm["hit_rate"] if rm["hit_rate"] is not None else ""),
                     str(rm["mrr"] if rm["mrr"] is not None else ""),
                     str(rm["avg_similarity"]),
+                    str(cm.get("context_precision", "") if cm.get("context_precision") is not None else ""),
+                    str(cm.get("context_recall", "") if cm.get("context_recall") is not None else ""),
                     str(round(r["latency_sec"], 2)),
                 ]
             )
@@ -798,6 +944,13 @@ def run_benchmark(
                 expected_answer=q.get("expected_answer"),
             )
 
+            context_metrics = compute_context_precision_recall(
+                judge_llm,
+                question=q["question"],
+                answer=answer,
+                docs_with_scores=docs_with_scores,
+            )
+
             latency = time.time() - t_start
 
             result = {
@@ -808,6 +961,7 @@ def run_benchmark(
                 "source_hint": q.get("source_hint"),
                 "retriever_metrics": retriever_metrics,
                 "generator_metrics": generator_metrics,
+                "context_metrics": context_metrics,
                 "latency_sec": round(latency, 2),
             }
             results.append(result)
@@ -849,6 +1003,14 @@ def run_benchmark(
                     "relevancy": _safe_avg(r["generator_metrics"]["relevancy"] for r in q_runs),
                     "correctness": _safe_avg(r["generator_metrics"]["correctness"] for r in q_runs),
                 },
+                "context_metrics": {
+                    "context_precision": _safe_avg(
+                        r.get("context_metrics", {}).get("context_precision") for r in q_runs
+                    ),
+                    "context_recall": _safe_avg(
+                        r.get("context_metrics", {}).get("context_recall") for r in q_runs
+                    ),
+                },
                 "latency_sec": _safe_avg(r["latency_sec"] for r in q_runs),
             }
             agg_results.append(agg)
@@ -859,6 +1021,12 @@ def run_benchmark(
             "avg_faithfulness": _safe_avg(r["generator_metrics"]["faithfulness"] for r in agg_results),
             "avg_relevancy": _safe_avg(r["generator_metrics"]["relevancy"] for r in agg_results),
             "avg_correctness": _safe_avg(r["generator_metrics"]["correctness"] for r in agg_results),
+            "avg_context_precision": _safe_avg(
+                r.get("context_metrics", {}).get("context_precision") for r in agg_results
+            ),
+            "avg_context_recall": _safe_avg(
+                r.get("context_metrics", {}).get("context_recall") for r in agg_results
+            ),
             "avg_latency": _safe_avg(r["latency_sec"] for r in agg_results),
         }
         logger.info("  Hit Rate:  %.3f", agg_metrics["avg_hit_rate"])
@@ -866,6 +1034,8 @@ def run_benchmark(
         logger.info("  Faith:     %.1f/10", agg_metrics["avg_faithfulness"])
         logger.info("  Rel:       %.1f/10", agg_metrics["avg_relevancy"])
         logger.info("  Correct:   %.1f/10", agg_metrics["avg_correctness"])
+        logger.info("  Ctx Prec:  %.1f/10", agg_metrics["avg_context_precision"])
+        logger.info("  Ctx Rec:   %.1f/10", agg_metrics["avg_context_recall"])
         logger.info("  Latency:   %.1fs", agg_metrics["avg_latency"])
     else:
         save_results(all_results, out_dir, model_name=settings.llm_model)
@@ -938,6 +1108,14 @@ async def run_benchmark_async(
                     expected_answer=q.get("expected_answer"),
                 )
 
+                context_metrics = await asyncio.to_thread(
+                    compute_context_precision_recall,
+                    judge_llm,
+                    q["question"],
+                    answer,
+                    docs_with_scores,
+                )
+
                 latency = time.time() - t_start
 
                 result = {
@@ -948,6 +1126,7 @@ async def run_benchmark_async(
                     "source_hint": q.get("source_hint"),
                     "retriever_metrics": retriever_metrics,
                     "generator_metrics": generator_metrics,
+                    "context_metrics": context_metrics,
                     "latency_sec": round(latency, 2),
                     "run": _run_idx,
                 }

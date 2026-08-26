@@ -18,8 +18,16 @@ from domain.value_objects.message_role import MessageRole
 from domain.value_objects.page_content_type import PageContentType
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import AIMessage, HumanMessage
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from infrastructure.ml.hybrid import content_hash
+from infrastructure.ml.instructor_client import create_instructor_client
+from infrastructure.ml.llm_schemas import RelevanceCheck
 
 log = logging.getLogger("default")
 
@@ -47,6 +55,12 @@ CONDENSE_PROMPT = ChatPromptTemplate.from_messages(
 )
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+    retry=retry_if_exception_type((Exception,)),
+    reraise=True,
+)
 async def condense_question(llm, question: str, history_messages: list) -> str:
     """Rewrite a follow-up question into a self-contained query using history context.
 
@@ -96,6 +110,12 @@ DECOMPOSE_PROMPT = ChatPromptTemplate.from_messages(
 )
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+    retry=retry_if_exception_type((Exception,)),
+    reraise=True,
+)
 async def decompose_question(llm, question: str) -> list[str]:
     """Split a compound question into independent sub-queries.
 
@@ -488,22 +508,61 @@ RELEVANCE_PROMPT = ChatPromptTemplate.from_messages(
 )
 
 
+def _get_rag_instructor_client():
+    """Create instructor client for relevance checks (Ollama or OpenRouter)."""
+    from config import settings
+    from domain.value_objects.llm_provider import LLMProvider
+
+    if settings.llm_provider == LLMProvider.OPENROUTER:
+        return create_instructor_client(
+            base_url=settings.openrouter_base_url,
+            api_key=settings.openrouter_api_key,
+        )
+    return create_instructor_client(
+        base_url=f"{settings.ollama_base_url}/v1",
+        api_key="ollama",
+    )
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+    retry=retry_if_exception_type((Exception,)),
+    reraise=True,
+)
 async def check_relevance(llm, question: str, docs: list) -> tuple[bool, str]:
     """Semantic check: check if the retrieved context is sufficient to answer the question.
 
+    Uses structured output via instructor for reliable parsing.
     Returns (is_relevant, reason).  If docs is empty, returns (False, ...).
     """
     if not docs:
         return False, "Нет документов для проверки"
 
-    context = format_docs(docs, max_context_tokens=2000)
-    chain = RELEVANCE_PROMPT | llm
-    result = await chain.ainvoke({"question": question, "context": context})
-    text = result.content.strip()
+    from config import settings
+    from domain.value_objects.llm_provider import LLMProvider
 
-    is_relevant = text.upper().startswith("ДА")
-    reason = "" if is_relevant else text
-    return is_relevant, reason
+    context = format_docs(docs, max_context_tokens=2000)
+    prompt_text = f"Вопрос: {question}\n\nКонтекст из документов:\n{context}"
+
+    client = _get_rag_instructor_client()
+    model = settings.llm_model if settings.llm_provider == LLMProvider.OLLAMA else settings.openrouter_model
+
+    import asyncio
+
+    result = await asyncio.to_thread(
+        lambda: client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": RELEVANCE_SYSTEM},
+                {"role": "user", "content": prompt_text},
+            ],
+            response_model=RelevanceCheck,
+            max_retries=3,
+        )
+    )
+
+    return result.is_relevant, result.reason
 
 
 def filter_cited_sources(answer: str, sources: list[dict]) -> list[dict]:
