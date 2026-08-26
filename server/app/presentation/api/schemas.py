@@ -138,11 +138,6 @@ class LoginRequest(BaseModel):
     password: str
 
 
-class LoginResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-
-
 # ---------------------------------------------------------------------------
 # Conversations
 # ---------------------------------------------------------------------------
@@ -177,15 +172,13 @@ class ChatResponse(BaseModel):
     conversation_id: int
     sources: list[dict] | None = None
     confidence: float | None = Field(None, description="Answer confidence score (0.0-1.0)")
+    input_tokens: int | None = None
+    output_tokens: int | None = None
 
 
 # ---------------------------------------------------------------------------
 # Groups
 # ---------------------------------------------------------------------------
-
-
-class GroupCreateRequest(BaseModel):
-    name: str
 
 
 class GroupResponse(BaseModel):
@@ -198,10 +191,6 @@ class GroupMemberResponse(BaseModel):
     model_config = {"populate_by_name": True}
     id: int = Field(validation_alias="user_id")
     email: str
-
-
-class AddMemberRequest(BaseModel):
-    user_id: int
 
 
 # ---------------------------------------------------------------------------
@@ -444,6 +433,8 @@ class ChatLogEntry(BaseModel):
     domain: str | None = None
     retrieval_count: int | None = None
     reranker_score: float | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
 
 
 class ChatLogsResponse(BaseModel):

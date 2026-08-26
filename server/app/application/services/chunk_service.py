@@ -22,7 +22,7 @@ from domain.value_objects.roles import UserKind, UserRole
 from domain.value_objects.visibility import DocumentVisibility
 
 from application.dto.document_dto import DocumentDTO
-from application.services.document_service import check_document_access, _to_document_dto
+from application.services.document_service import check_document_access, to_document_dto
 from application.ports.chunk_settings import ChunkSettingsPort
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
 
@@ -115,19 +115,24 @@ class ChunkService:
             new_vector = await self._vector_store.generate_embeddings(content)
 
             new_hash = content_hash(content)
+            existing_payload = await self._vector_store.get_point_payload(chunk_id)
+            existing_metadata = (existing_payload or {}).get("metadata") or {}
+            now = datetime.now(UTC)
+            metadata = {
+                **existing_metadata,
+                "document_id": document_id,
+                "visibility": doc.visibility.value if hasattr(doc.visibility, "value") else doc.visibility,
+                "owner_id": doc.owner_id,
+                "group_id": doc.group_id,
+                "source": doc.filename,
+                "content_hash": new_hash,
+                "doc_domain": doc.doc_domain,
+                "edited": True,
+                "edited_at": now.isoformat(),
+            }
             payload = {
                 "page_content": content,
-                "metadata": {
-                    "document_id": document_id,
-                    "visibility": doc.visibility.value
-                    if hasattr(doc.visibility, "value")
-                    else doc.visibility,
-                    "owner_id": doc.owner_id,
-                    "group_id": doc.group_id,
-                    "source": doc.filename,
-                    "content_hash": new_hash,
-                    "doc_domain": doc.doc_domain,
-                },
+                "metadata": metadata,
             }
 
             await self._vector_store.upsert_point(
@@ -136,7 +141,6 @@ class ChunkService:
                 payload=payload,
             )
 
-            now = datetime.now(UTC)
             await uow.chunks.update_content(
                 chunk_id=chunk_id,
                 content=content,
@@ -333,7 +337,7 @@ class ChunkService:
                 title,
             )
 
-            return _to_document_dto(saved_doc, chunks=0, chars=0, source_type="manual")
+            return to_document_dto(saved_doc, chunks=0, chars=0, source_type="manual")
 
     def _validate_chunk_content(self, content: str) -> None:
         """Validate chunk content length."""

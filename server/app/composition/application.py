@@ -120,10 +120,12 @@ class ApplicationContainer:
         from infrastructure.auth.jwt_provider import JWTProvider
         from infrastructure.auth.password_hasher import BCryptPasswordHasher
         from infrastructure.events.in_process_event_bus import event_bus
-        from infrastructure.ml.chat_settings_adapter import LiveChatSettings
-        from infrastructure.ml.chunk_settings_adapter import LiveChunkSettings
-        from infrastructure.ml.config_admin_settings_adapter import LiveConfigAdminSettings
-        from infrastructure.ml.health_settings_adapter import LiveHealthSettings
+        from infrastructure.ml.settings_adapters import (
+            LiveChatSettings,
+            LiveChunkSettings,
+            LiveConfigAdminSettings,
+            LiveHealthSettings,
+        )
         from infrastructure.ml.pdf_adapter import (
             FitzPDFDocument,
             MLOcrRunner,

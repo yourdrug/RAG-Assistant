@@ -46,6 +46,9 @@ export interface Source {
   pages: number[];
   articles?: string[];
   max_score?: number;
+  edited?: boolean;
+  edited_at?: string | null;
+  manual?: boolean;
 }
 
 // ─── Conversations ───────────────────────────────────────────────────────────
@@ -366,6 +369,8 @@ export interface ChatLogEntry {
   domain?: string | null;
   retrieval_count?: number | null;
   reranker_score?: number | null;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
 }
 
 export interface ChatLogsResponse {

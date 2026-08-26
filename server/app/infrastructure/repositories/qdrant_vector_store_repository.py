@@ -89,6 +89,21 @@ class QdrantVectorStoreRepository:
 
         await asyncio.to_thread(_upsert)
 
+    async def get_point_payload(self, point_id: int) -> dict | None:
+        """Fetch a single point's payload by ID. Returns None if the point does not exist."""
+        client = self._get_qdrant_client()
+
+        def _get() -> dict | None:
+            result = client.retrieve(
+                collection_name=settings.collection_name,
+                ids=[point_id],
+                with_payload=True,
+                with_vectors=False,
+            )
+            return result[0].payload if result else None
+
+        return await asyncio.to_thread(_get)
+
     async def delete_by_ids(self, ids: list[int]) -> None:
         """Delete points by their IDs."""
         client = self._get_qdrant_client()

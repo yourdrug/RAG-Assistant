@@ -57,28 +57,6 @@ class TEIEmbeddingsClient:
             r.raise_for_status()
             return r.json()[0]
 
-    def embed_documents_sync(self, texts: list[str]) -> list[list[float]]:
-        if not texts:
-            return []
-        with httpx.Client(timeout=TEI_TIMEOUT) as client:
-            r = client.post(f"{self._base_url}/embed", json={"inputs": texts})
-            r.raise_for_status()
-            data = r.json()
-            if not isinstance(data, list):
-                short = repr(data)[:200]
-                raise RuntimeError(f"TEI /embed returned unexpected type {type(data).__name__}: {short}")
-            none_indices = [i for i, v in enumerate(data) if v is None]
-            if none_indices:
-                raise RuntimeError(
-                    f"TEI /embed returned None for {len(none_indices)}/{len(data)} texts "
-                    f"(indices: {none_indices[:10]}{'...' if len(none_indices) > 10 else ''})"
-                )
-            return data
-
-    @property
-    def persistent(self) -> bool:
-        return True
-
 
 class TEIRerankerClient:
     """Reranking client that calls a TEI /rerank endpoint over HTTP."""

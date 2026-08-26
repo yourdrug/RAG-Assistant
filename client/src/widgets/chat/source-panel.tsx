@@ -1,5 +1,5 @@
 "use client";
-import { FileText, Hash, X } from "lucide-react";
+import { FileText, Hash, Pencil, X } from "lucide-react";
 import type { Source } from "@/shared/api/types";
 import { Button } from "@/shared/ui/button";
 import { ScrollArea } from "@/shared/ui/scroll-area";
@@ -36,6 +36,14 @@ export function SourcePanel({ sources, onClose }: Props) {
                 <div className="flex items-center gap-1 text-xs text-muted-foreground">
                   <Hash className="h-3 w-3" />
                   <span>Articles: {s.articles.join(", ")}</span>
+                </div>
+              )}
+              {s.edited_at && (
+                <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <Pencil className="h-3 w-3" />
+                  <span>
+                    Изменён: {new Date(s.edited_at).toLocaleDateString("ru-RU")}
+                  </span>
                 </div>
               )}
             </div>

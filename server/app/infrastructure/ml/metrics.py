@@ -2,13 +2,12 @@
 
 Defines counters, histograms, and gauges for RAG query quality, document
 ingestion throughput, and infrastructure health (Postgres pool, Qdrant
-collection size, Ollama GPU usage).  A periodic background collector
-refreshes the infrastructure gauges every 30 seconds.
+collection size, Ollama GPU usage).  The infrastructure gauges are refreshed
+periodically by the Scheduler (``infrastructure.scheduler``).
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import TYPE_CHECKING
 
@@ -219,38 +218,6 @@ LLM_TOKEN_USAGE = Counter(
     # operation: "generate" | "condense" | "decompose" | "relevance_gate" | "judge"
 )
 
-LLM_COST_DOLLARS = Counter(
-    "rag_llm_cost_dollars_total",
-    "Estimated LLM cost in USD (input + output)",
-    ["model", "operation"],
-)
-
-LLM_REQUEST_DURATION = Histogram(
-    "rag_llm_request_duration_seconds",
-    "LLM request latency by operation",
-    ["model", "operation"],
-    buckets=(0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0),
-)
-
-RAG_REQUEST_TOTAL = Counter(
-    "rag_requests_total",
-    "Total RAG requests processed",
-    ["breadth", "answer_type"],
-)
-
-# Pricing per 1M tokens (input / output) — updated from config at startup
-# Defaults: Ollama = free (local), OpenRouter models vary
-_LLM_PRICING: dict[str, dict[str, float]] = {
-    "qwen/qwen-2.5-7b-instruct": {"input": 0.0, "output": 0.0},
-    "qwen/qwen-2.5-14b-instruct": {"input": 0.0, "output": 0.0},
-    "_default": {"input": 0.0, "output": 0.0},
-}
-
-
-def update_llm_pricing(model: str, input_per_1m: float, output_per_1m: float) -> None:
-    """Update pricing for a specific model (call on config change)."""
-    _LLM_PRICING[model] = {"input": input_per_1m, "output": output_per_1m}
-
 
 def record_llm_usage(
     model: str,
@@ -258,7 +225,7 @@ def record_llm_usage(
     input_tokens: int | None = None,
     output_tokens: int | None = None,
 ) -> None:
-    """Record LLM token usage and estimated cost.
+    """Record LLM token usage.
 
     Extracts from LangChain response.usage_metadata when available.
     """
@@ -266,15 +233,6 @@ def record_llm_usage(
         LLM_TOKEN_USAGE.labels(model=model, direction="input", operation=operation).inc(input_tokens)
     if output_tokens is not None and output_tokens > 0:
         LLM_TOKEN_USAGE.labels(model=model, direction="output", operation=operation).inc(output_tokens)
-
-    pricing = _LLM_PRICING.get(model, _LLM_PRICING["_default"])
-    cost = 0.0
-    if input_tokens:
-        cost += (input_tokens / 1_000_000) * pricing["input"]
-    if output_tokens:
-        cost += (output_tokens / 1_000_000) * pricing["output"]
-    if cost > 0:
-        LLM_COST_DOLLARS.labels(model=model, operation=operation).inc(cost)
 
 
 def extract_usage_from_langchain(response) -> tuple[int | None, int | None]:
@@ -395,10 +353,3 @@ async def collect_infra_metrics(ml_clients: MLClientRegistry | None = None) -> N
                     OLLAMA_RAM_MEMORY_BYTES.labels(model=model_name).set(model_size)
     except Exception as e:
         log.warning("Failed to collect Ollama metrics: [%s] %s", type(e).__name__, e)
-
-
-async def _periodic_infra_collector(interval: float = 30.0) -> None:
-    """Background task that updates infrastructure gauges periodically."""
-    while True:
-        await asyncio.sleep(interval)
-        await collect_infra_metrics()

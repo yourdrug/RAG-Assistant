@@ -29,45 +29,51 @@ backfill_app = typer.Typer(help="Backfill chunk IDs to sync Postgres and Qdrant"
 
 async def _get_documents_with_chunks(document_id: int | None = None) -> list[dict]:
     """Get all documents with their chunks from Postgres."""
+    from sqlalchemy import select
+
+    from infrastructure.database.models import ChunkModel, DocumentModel
+
     await database.connect()
     try:
-        if document_id:
-            doc_rows = await database.fetch_all(
-                "SELECT id, filename, visibility, owner_id, group_id, doc_domain "
-                "FROM documents WHERE id = $1 AND status = 'done'",
-                document_id,
-            )
-        else:
-            doc_rows = await database.fetch_all(
-                "SELECT id, filename, visibility, owner_id, group_id, doc_domain "
-                "FROM documents WHERE status = 'done'"
-            )
+        async with database.get_read_session() as session:
+            stmt = select(DocumentModel).where(DocumentModel.status == "done")
+            if document_id:
+                stmt = stmt.where(DocumentModel.id == document_id)
+            doc_rows = (await session.execute(stmt)).scalars().all()
 
-        result = []
-        for doc in doc_rows:
-            chunk_rows = await database.fetch_all(
-                "SELECT id, content, chunk_index FROM chunks WHERE document_id = $1 ORDER BY chunk_index",
-                doc["id"],
-            )
-            result.append(
-                {
-                    "document_id": doc["id"],
-                    "filename": doc["filename"],
-                    "visibility": doc["visibility"],
-                    "owner_id": doc["owner_id"],
-                    "group_id": doc["group_id"],
-                    "doc_domain": doc["doc_domain"],
-                    "chunks": [
-                        {
-                            "id": c["id"],
-                            "content": c["content"],
-                            "chunk_index": c["chunk_index"],
-                        }
-                        for c in chunk_rows
-                    ],
-                }
-            )
-        return result
+            result: list[dict] = []
+            for d in doc_rows:
+                cstmt = (
+                    select(
+                        ChunkModel.id,
+                        ChunkModel.content,
+                        ChunkModel.chunk_index,
+                        ChunkModel.edited_at,
+                    )
+                    .where(ChunkModel.document_id == d.id)
+                    .order_by(ChunkModel.chunk_index)
+                )
+                chunk_rows = (await session.execute(cstmt)).all()
+                result.append(
+                    {
+                        "document_id": d.id,
+                        "filename": d.filename,
+                        "visibility": d.visibility,
+                        "owner_id": d.owner_id,
+                        "group_id": d.group_id,
+                        "doc_domain": d.doc_domain,
+                        "chunks": [
+                            {
+                                "id": c.id,
+                                "content": c.content,
+                                "chunk_index": c.chunk_index,
+                                "edited_at": c.edited_at,
+                            }
+                            for c in chunk_rows
+                        ],
+                    }
+                )
+            return result
     finally:
         await database.disconnect()
 
@@ -89,6 +95,7 @@ def _upsert_chunk(
     chunk_id: int,
     content: str,
     doc: dict,
+    edited_at=None,
 ) -> None:
     """Upsert a single chunk to Qdrant with deterministic ID."""
     client = create_qdrant_client()
@@ -107,6 +114,9 @@ def _upsert_chunk(
         "content_hash": content_hash(content),
         "doc_domain": doc["doc_domain"],
     }
+    if edited_at:
+        metadata["edited"] = True
+        metadata["edited_at"] = edited_at.isoformat() if hasattr(edited_at, "isoformat") else str(edited_at)
 
     point = PointStruct(
         id=chunk_id,
@@ -180,6 +190,7 @@ def backfill_run(
                     chunk_id=chunk["id"],
                     content=chunk["content"],
                     doc=doc,
+                    edited_at=chunk.get("edited_at"),
                 )
                 processed += 1
 

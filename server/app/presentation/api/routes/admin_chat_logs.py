@@ -58,6 +58,8 @@ async def list_chat_logs(
             domain=log.domain,
             retrieval_count=log.retrieval_count,
             reranker_score=log.reranker_score,
+            input_tokens=log.input_tokens,
+            output_tokens=log.output_tokens,
         )
         for log in logs
     ]

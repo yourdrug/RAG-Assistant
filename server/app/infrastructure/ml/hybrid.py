@@ -441,23 +441,3 @@ def rrf_merge(
 
     merged = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
     return [h for h, _score in merged]
-
-
-# ---------------------------------------------------------------------------
-# Text index for BM25 (stored alongside the index for LangChain doc mapping)
-# ---------------------------------------------------------------------------
-
-
-def save_text_index(texts: list[str], path: Path) -> None:
-    """Save raw chunk texts so BM25 index can be rebuilt on load."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(texts, ensure_ascii=False), encoding="utf-8")
-
-
-def load_text_index(path: Path) -> list[str] | None:
-    if not path.exists():
-        return None
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return None

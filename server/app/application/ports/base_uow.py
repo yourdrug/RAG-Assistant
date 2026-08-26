@@ -27,10 +27,6 @@ class BaseUnitOfWork(ABC):  # noqa: B024
     def __init__(self, session: SessionProtocol) -> None:
         self._session = session
 
-    @property
-    def session(self) -> SessionProtocol:
-        return self._session
-
     async def __aenter__(self) -> BaseUnitOfWork:
         return self
 

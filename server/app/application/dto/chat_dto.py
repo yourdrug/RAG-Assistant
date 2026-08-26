@@ -13,6 +13,8 @@ class ChatResult:
     answer: str
     conversation_id: int
     sources: list[dict] = field(default_factory=list)
+    input_tokens: int | None = None
+    output_tokens: int | None = None
 
 
 @dataclass(frozen=True)
@@ -26,3 +28,5 @@ class RagResult:
     retrieval_count: int = 0
     reranker_score: float | None = None
     model_used: str | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None

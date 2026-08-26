@@ -9,7 +9,6 @@ Exposes ``stream_answer`` as an async iterator of tagged union events
 from __future__ import annotations
 
 import asyncio
-import contextvars
 import logging
 import time
 from collections.abc import AsyncIterator
@@ -64,11 +63,8 @@ from infrastructure.ml.rag import (
     needs_decomposition,
     rerank_documents,
 )
-from infrastructure.ml.instructor_client import create_instructor_client
 from infrastructure.ml.llm_schemas import DecompositionCheck, SufficiencyAssessment
-
-# Context variable for request tracing — set at API entry point
-request_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="")
+from shared import request_id_ctx
 
 
 def _build_rag_settings() -> RagSettings:
@@ -442,20 +438,9 @@ class RagService:
 
     async def _llm_assess_decomposition(self, question: str) -> tuple[bool, list[str]]:
         """Use LLM to assess whether a query needs decomposition."""
-        from config import settings as _settings
+        from infrastructure.ml.instructor_client import create_llm_instructor_client
 
-        if _settings.llm_provider == LLMProvider.OPENROUTER:
-            client = create_instructor_client(
-                base_url=_settings.openrouter_base_url,
-                api_key=_settings.openrouter_api_key,
-            )
-            model = _settings.openrouter_model
-        else:
-            client = create_instructor_client(
-                base_url=f"{_settings.ollama_base_url}/v1",
-                api_key="ollama",
-            )
-            model = _settings.llm_model
+        client, model = create_llm_instructor_client()
 
         system_msg = (
             "Оцени, является ли вопрос составным (содержит 2+ независимых подтемы).\n"
@@ -489,21 +474,10 @@ class RagService:
                 suggested_refinement=question,
             )
 
-        from config import settings as _settings
+        from infrastructure.ml.instructor_client import create_llm_instructor_client
 
         if llm_client is None:
-            if _settings.llm_provider == LLMProvider.OPENROUTER:
-                llm_client = create_instructor_client(
-                    base_url=_settings.openrouter_base_url,
-                    api_key=_settings.openrouter_api_key,
-                )
-                model = _settings.openrouter_model
-            else:
-                llm_client = create_instructor_client(
-                    base_url=f"{_settings.ollama_base_url}/v1",
-                    api_key="ollama",
-                )
-                model = _settings.llm_model
+            llm_client, model = create_llm_instructor_client()
 
         context = format_docs(docs, max_context_tokens=2000)
         system_msg = (
@@ -623,12 +597,12 @@ class RagService:
         t_pipeline_start = time.monotonic()
 
         # Set request_id for tracing through the pipeline
-        req_id = request_id_var.get("")
+        req_id = request_id_ctx.get("")
         if not req_id:
             import uuid
 
             req_id = uuid.uuid4().hex[:12]
-            request_id_var.set(req_id)
+            request_id_ctx.set(req_id)
 
         user = {"id": ctx.user_id, "kind": ctx.user_kind}
         access_filter = build_qdrant_filter(user, ctx.user_group_ids)
@@ -792,10 +766,11 @@ class RagService:
         answer_parts: list[str] = []
         last_chunk = None
         async for chunk in self._ml.llm_for_breadth(breadth).astream(messages):
+            # Track every chunk — the final one (empty content) carries usage_metadata
+            last_chunk = chunk
             text = chunk.content
             if text:
                 answer_parts.append(text)
-                last_chunk = chunk
                 yield TextChunk(text=text)
         RAG_STAGE_DURATION.labels("generate").observe(time.monotonic() - t0)
 
@@ -832,7 +807,7 @@ class RagService:
                 full_answer, _ = detector.scan_and_redact(full_answer)
                 log.warning(
                     "PII detected in LLM output [request_id=%s]: types=%s",
-                    request_id_var.get(""),
+                    request_id_ctx.get(""),
                     pii_found,
                 )
 
@@ -873,10 +848,12 @@ class RagService:
         domain = DocDomain.GENERAL.value
         retrieval_count = 0
         reranker_score: float | None = None
+        usage_report = None
 
         async for event in self.stream(question, history, ctx):
             if isinstance(event, SourcesEvent):
                 sources = event.sources
+                usage_report = event.usage
             elif isinstance(event, TextChunk):
                 answer_parts.append(event.text)
 
@@ -889,8 +866,9 @@ class RagService:
         domain = classify_query_domain(query_for_search)
         retrieval_count = len(sources)
         if sources:
-            scores = [s.get("max_score", 0) for s in sources if isinstance(s, dict)]
-            reranker_score = max(scores) if scores else None
+            from domain.utils import compute_reranker_score
+
+            reranker_score = compute_reranker_score(sources)
 
         return RagResult(
             answer="".join(answer_parts),
@@ -900,4 +878,6 @@ class RagService:
             retrieval_count=retrieval_count,
             reranker_score=reranker_score,
             model_used=settings.llm_model,
+            input_tokens=usage_report.input_tokens if usage_report else None,
+            output_tokens=usage_report.output_tokens if usage_report else None,
         )

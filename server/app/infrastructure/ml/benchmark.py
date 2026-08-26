@@ -43,7 +43,6 @@ from infrastructure.ml.factories import (
     load_bm25_index,
 )
 from infrastructure.ml.hybrid import content_hash, rrf_merge
-from infrastructure.ml.instructor_client import create_instructor_client
 from infrastructure.ml.llm_schemas import JudgeScore
 from infrastructure.ml.rag import deduplicate_docs
 
@@ -359,17 +358,10 @@ CONTEXT_RECALL_PROMPT = """\
 
 def _get_judge_client(model: str):
     """Create an instructor-wrapped client for the judge model."""
-    if settings.llm_provider == LLMProvider.OPENROUTER:
-        return create_instructor_client(
-            base_url=settings.openrouter_base_url,
-            api_key=settings.openrouter_api_key,
-            model=model,
-        )
-    return create_instructor_client(
-        base_url=f"{settings.ollama_base_url}/v1",
-        api_key="ollama",
-        model=model,
-    )
+    from infrastructure.ml.instructor_client import create_llm_instructor_client
+
+    client, _resolved = create_llm_instructor_client(model=model)
+    return client
 
 
 def _judge_with_structured_output(
@@ -806,74 +798,6 @@ def save_results(results: list[dict], out_dir: str, model_name: str = "", run_id
     }
 
     save_summary_to_history(summary, config, settings.data_dir)
-
-
-# ---------------------------------------------------------------------------
-# Grid search helpers (retrieval-only, no LLM)
-# ---------------------------------------------------------------------------
-
-
-def compute_retrieval_metrics_grid(
-    dense_by_hash: dict,
-    sparse_results: list[tuple[str, float]],
-    questions: list[dict],
-    candidates_by_hash: dict,
-    top_k: int,
-    rrf_k: int,
-    dense_weight: float,
-    sparse_weight: float,
-) -> dict:
-    """Compute retrieval metrics for a single RRF config in-memory (no LLM/Qdrant calls)."""
-    merged_hashes = rrf_merge(
-        [(h, v[0]) for h, v in dense_by_hash.items()] if dense_by_hash else [],
-        sparse_results,
-        k=rrf_k,
-        dense_weight=dense_weight,
-        sparse_weight=sparse_weight,
-    )
-
-    # Deduplicate and take top_k
-    seen = set()
-    top_hashes = []
-    for h in merged_hashes:
-        if h not in seen:
-            seen.add(h)
-            top_hashes.append(h)
-            if len(top_hashes) >= top_k:
-                break
-
-    # Compute metrics for each question
-    hit_rates = []
-    mrrs = []
-
-    for q in questions:
-        source_hint = q.get("source_hint")
-        if source_hint is None:
-            continue
-
-        hit = 0
-        mrr = 0.0
-        for rank, h in enumerate(top_hashes, 1):
-            doc = candidates_by_hash.get(h)
-            if doc is None:
-                continue
-            filename = doc.metadata.get("filename", "") or doc.metadata.get("source", "")
-            if source_hint.lower() in filename.lower():
-                hit = 1
-                if mrr == 0.0:
-                    mrr = 1.0 / rank
-                break
-
-        hit_rates.append(hit)
-        mrrs.append(mrr)
-
-    avg_hr = sum(hit_rates) / len(hit_rates) if hit_rates else 0
-    avg_mrr = sum(mrrs) / len(mrrs) if mrrs else 0
-
-    return {
-        "avg_hit_rate": round(avg_hr, 3),
-        "avg_mrr": round(avg_mrr, 4),
-    }
 
 
 # ---------------------------------------------------------------------------

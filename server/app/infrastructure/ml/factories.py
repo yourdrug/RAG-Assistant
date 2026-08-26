@@ -81,6 +81,7 @@ def _create_openrouter_llm() -> ChatOpenAI:
         max_tokens=settings.llm_num_predict_narrow,
         timeout=120,
         max_retries=2,
+        stream_usage=True,
     )
 
 
@@ -111,6 +112,7 @@ def _create_openrouter_llm_for_breadth(breadth: str) -> ChatOpenAI:
         max_tokens=max_tokens,
         timeout=120,
         max_retries=2,
+        stream_usage=True,
     )
 
 

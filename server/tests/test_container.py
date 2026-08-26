@@ -9,11 +9,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 import pytest
+from composition.application import _ChunkSearchAdapter
 from composition.container import (
     ApplicationContainer,
     Container,
     InfrastructureContainer,
-    _ChunkSearchAdapter,
     _subscribe_config_events,
 )
 from infrastructure.database.database import DatabaseManager

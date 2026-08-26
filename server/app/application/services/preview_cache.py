@@ -98,10 +98,6 @@ class PreviewCache:
             return Path(key).name
         return f"{preview_id}.pdf"
 
-    def delete(self, preview_id: str) -> None:
-        """Explicitly remove a cached entry from storage."""
-        self._evict(preview_id)
-
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------

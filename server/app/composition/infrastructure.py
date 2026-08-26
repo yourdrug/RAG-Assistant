@@ -98,7 +98,7 @@ class InfrastructureContainer:
 
         self.database = database_manager
         self.api_key_provider = api_key_provider
-        self.config_broadcaster = PostgresConfigBroadcaster(database=database_manager)
+        self.config_broadcaster = PostgresConfigBroadcaster()
         self.uow_factory = UnitOfWorkFactory(
             database=database_manager,
             config_broadcaster=self.config_broadcaster,

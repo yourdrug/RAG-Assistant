@@ -26,7 +26,6 @@ from tenacity import (
 )
 
 from infrastructure.ml.hybrid import content_hash
-from infrastructure.ml.instructor_client import create_instructor_client
 from infrastructure.ml.llm_schemas import RelevanceCheck
 
 log = logging.getLogger("default")
@@ -510,18 +509,10 @@ RELEVANCE_PROMPT = ChatPromptTemplate.from_messages(
 
 def _get_rag_instructor_client():
     """Create instructor client for relevance checks (Ollama or OpenRouter)."""
-    from config import settings
-    from domain.value_objects.llm_provider import LLMProvider
+    from infrastructure.ml.instructor_client import create_llm_instructor_client
 
-    if settings.llm_provider == LLMProvider.OPENROUTER:
-        return create_instructor_client(
-            base_url=settings.openrouter_base_url,
-            api_key=settings.openrouter_api_key,
-        )
-    return create_instructor_client(
-        base_url=f"{settings.ollama_base_url}/v1",
-        api_key="ollama",
-    )
+    client, _model = create_llm_instructor_client()
+    return client
 
 
 @retry(

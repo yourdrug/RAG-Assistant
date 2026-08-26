@@ -13,11 +13,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from composition.application import (  # noqa: F401
-    ApplicationContainer,
-    _ChunkSearchAdapter,
-    _get_openrouter_fetcher,
-)
+from composition.application import ApplicationContainer
 from composition.events import _subscribe_config_events, _unsubscribe_config_events
 from composition.infrastructure import InfrastructureContainer
 

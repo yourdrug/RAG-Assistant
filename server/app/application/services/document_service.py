@@ -31,7 +31,7 @@ from application.ports.unit_of_work_factory import UnitOfWorkFactory
 log = logging.getLogger(__name__)
 
 
-def _to_document_dto(doc: Document, **overrides) -> DocumentDTO:
+def to_document_dto(doc: Document, **overrides) -> DocumentDTO:
     """Convert a Document entity to a DocumentDTO."""
     return DocumentDTO(
         id=doc.id,
@@ -199,7 +199,7 @@ class DocumentService:
             await uow.documents.set_source_path(saved_doc.id, key)
 
             final_doc = await uow.documents.get_by_id(saved_doc.id)
-            return _to_document_dto(final_doc, storage_key=key, replace_id=replace_id)
+            return to_document_dto(final_doc, storage_key=key, replace_id=replace_id)
 
     async def list_uploadable_clients(self, user_id: int, user_kind: str, user_role: str) -> list[dict]:
         async with self._uow_factory.create() as uow:
@@ -230,7 +230,7 @@ class DocumentService:
                     group_ids=group_ids or [],
                 )
 
-            return [_to_document_dto(d) for d in docs]
+            return [to_document_dto(d) for d in docs]
 
     async def get_document(
         self, document_id: int, user_id: int, user_kind: str, user_role: str
@@ -242,7 +242,7 @@ class DocumentService:
 
             await check_document_access(uow, doc, user_id, user_kind, user_role)
 
-            return _to_document_dto(doc)
+            return to_document_dto(doc)
 
     async def delete_document(self, document_id: int, user_id: int, user_role: str) -> None:
         async with self._uow_factory.create(master=True) as uow:

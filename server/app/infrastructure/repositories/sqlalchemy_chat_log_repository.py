@@ -28,6 +28,8 @@ class SQLAlchemyChatLogRepository:
             domain=log.domain,
             retrieval_count=log.retrieval_count,
             reranker_score=log.reranker_score,
+            input_tokens=log.input_tokens,
+            output_tokens=log.output_tokens,
         )
         self._db.add(orm)
         await self._db.flush()
@@ -106,4 +108,6 @@ class SQLAlchemyChatLogRepository:
             domain=orm.domain,
             retrieval_count=orm.retrieval_count,
             reranker_score=orm.reranker_score,
+            input_tokens=orm.input_tokens,
+            output_tokens=orm.output_tokens,
         )

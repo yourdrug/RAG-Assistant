@@ -115,38 +115,3 @@ async def store_cached_answer(
             await r.aclose()
     except Exception:
         log.exception("Failed to store cached answer")
-
-
-async def invalidate_cache_for_document(document_id: int) -> int:
-    """Remove all cache entries that reference a specific document.
-
-    Uses SCAN to find entries, then deletes matching ones.
-    Returns the number of deleted entries.
-    """
-    try:
-        r = await _get_redis()
-        try:
-            count = 0
-            cursor = 0
-            pattern = f"{CACHE_PREFIX}*"
-
-            while True:
-                cursor, keys = await r.scan(cursor=cursor, match=pattern, count=100)
-                for key in keys:
-                    raw = await r.get(key)
-                    if raw:
-                        entry = json.loads(raw)
-                        if document_id in (entry.get("document_ids") or []):
-                            await r.delete(key)
-                            count += 1
-                if cursor == 0:
-                    break
-
-            if count:
-                log.info("Invalidated %d cache entries for document %d", count, document_id)
-            return count
-        finally:
-            await r.aclose()
-    except Exception:
-        log.exception("Cache invalidation failed for document %d", document_id)
-        return 0

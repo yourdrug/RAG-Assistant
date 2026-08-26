@@ -26,36 +26,6 @@ from striprtf.striprtf import rtf_to_text
 log = logging.getLogger("detailed")
 
 
-def setup_logger() -> logging.Logger:
-    logger = logging.getLogger("detailed")
-    if logger.handlers:
-        return logger
-
-    logger.setLevel(logging.DEBUG)
-
-    fmt = logging.Formatter(
-        fmt="%(asctime)s  %(levelname)-8s  %(message)s",
-        datefmt="%H:%M:%S",
-    )
-
-    ch = logging.StreamHandler()
-    ch.setLevel(logging.DEBUG)
-    ch.setFormatter(fmt)
-    logger.addHandler(ch)
-
-    log_path = Path(settings.data_dir) / "ingestion.log"
-    try:
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        fh = logging.FileHandler(log_path, encoding="utf-8")
-        fh.setLevel(logging.DEBUG)
-        fh.setFormatter(fmt)
-        logger.addHandler(fh)
-    except OSError:
-        pass
-
-    return logger
-
-
 # ---------------------------------------------------------------------------
 # OCR — lazy-loaded via lru_cache (no global keyword)
 # ---------------------------------------------------------------------------

@@ -97,6 +97,21 @@ export function AdminChatLogsPage() {
         return s != null ? s.toFixed(3) : "—";
       },
     },
+    {
+      accessorKey: "input_tokens",
+      header: "Tokens",
+      cell: ({ row }) => {
+        const inp = row.original.input_tokens;
+        const out = row.original.output_tokens;
+        if (inp == null && out == null) return "—";
+        const format = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
+        return (
+          <span className="text-xs whitespace-nowrap" title={`Input: ${inp ?? 0} / Output: ${out ?? 0}`}>
+            {inp != null ? format(inp) : "0"} / {out != null ? format(out) : "0"}
+          </span>
+        );
+      },
+    },
   ];
 
   const totalPages = data ? Math.ceil(data.total / pageSize) : 0;

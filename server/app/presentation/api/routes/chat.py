@@ -10,7 +10,7 @@ from domain.value_objects.stream_events import MetaEvent, TextChunk
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from infrastructure.logging.actions import log_action
-from infrastructure.ml.rag_service import request_id_var
+from shared import request_id_ctx
 
 from presentation.api.auth_dependencies import get_current_user
 from presentation.api.dependencies import create_chat_service
@@ -30,7 +30,7 @@ async def chat_stream(
         raise HTTPException(status_code=400, detail="Question cannot be empty")
 
     req_id = uuid.uuid4().hex[:12]
-    token = request_id_var.set(req_id)
+    token = request_id_ctx.set(req_id)
     try:
         log_action(
             "chat",
@@ -72,7 +72,7 @@ async def chat_stream(
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
     finally:
-        request_id_var.reset(token)
+        request_id_ctx.reset(token)
 
 
 @router.post("/chat/sync", response_model=ChatResponse, dependencies=[Depends(chat_rate_limit)])
@@ -85,7 +85,7 @@ async def chat_sync(
         raise HTTPException(status_code=400, detail="Question cannot be empty")
 
     req_id = uuid.uuid4().hex[:12]
-    token = request_id_var.set(req_id)
+    token = request_id_ctx.set(req_id)
     try:
         log_action(
             "chat.sync",
@@ -108,6 +108,8 @@ async def chat_sync(
             answer=result.answer,
             conversation_id=result.conversation_id,
             sources=result.sources,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
         )
     finally:
-        request_id_var.reset(token)
+        request_id_ctx.reset(token)

@@ -48,17 +48,6 @@ EXPENSIVE_PARAMS = frozenset(
 )
 
 
-def _estimate_grid_size(search_space: dict) -> int:
-    """Estimate total combinations for grid strategy."""
-    total = 1
-    for _param, spec in search_space.items():
-        if "values" in spec:
-            total *= len(spec["values"])
-        elif "min" in spec and "max" in spec and "step" in spec:
-            total *= max(1, int((spec["max"] - spec["min"]) / spec["step"]) + 1)
-    return total
-
-
 def generate_grid_points(search_space: dict) -> list[dict]:
     """Generate all parameter combinations (cartesian product)."""
     param_lists = {}

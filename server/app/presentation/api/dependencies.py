@@ -38,18 +38,7 @@ if TYPE_CHECKING:
     from application.services.search_service import SearchService
     from composition.container import Container
     from infrastructure.auth.api_key_provider import ApiKeyProvider
-    from infrastructure.events.postgres_config_listener import PostgresConfigListener
-    from infrastructure.ml.langchain_document_parser import (
-        LangchainDocumentParser,
-        LangchainDocumentSplitter,
-    )
-    from infrastructure.repositories.qdrant_vector_store_repository import (
-        QdrantVectorStoreRepository,
-    )
-    from infrastructure.services.benchmark_service import BenchmarkService
     from infrastructure.services.ingestion_service import IngestionService
-    from infrastructure.storage import LazyStorage
-    from infrastructure.uow_factory import UnitOfWorkFactory
 
 log = logging.getLogger("default")
 
@@ -64,48 +53,6 @@ def _create_container(request: Request) -> Container:
 # ---------------------------------------------------------------------------
 # Infrastructure
 # ---------------------------------------------------------------------------
-
-
-def create_uow_factory(request: Request) -> UnitOfWorkFactory:
-    result = _create_container(request).infrastructure.uow_factory
-    assert result is not None, "Container not initialized"
-    return result
-
-
-def create_document_parser(request: Request) -> LangchainDocumentParser:
-    result = _create_container(request).infrastructure.document_parser
-    assert result is not None, "Container not initialized"
-    return result
-
-
-def create_document_splitter(request: Request) -> LangchainDocumentSplitter:
-    result = _create_container(request).infrastructure.document_splitter
-    assert result is not None, "Container not initialized"
-    return result
-
-
-def create_vector_store_repo(request: Request) -> QdrantVectorStoreRepository:
-    result = _create_container(request).infrastructure.vector_store_repo
-    assert result is not None, "Container not initialized"
-    return result
-
-
-def create_file_storage(request: Request) -> LazyStorage:
-    result = _create_container(request).infrastructure.file_storage
-    assert result is not None, "Container not initialized"
-    return result
-
-
-def create_config_listener(request: Request) -> PostgresConfigListener:
-    result = _create_container(request).infrastructure.config_listener
-    assert result is not None, "Container not initialized"
-    return result
-
-
-def create_benchmark_service(request: Request) -> BenchmarkService:
-    result = _create_container(request).infrastructure.benchmark_service
-    assert result is not None, "Container not initialized"
-    return result
 
 
 def create_ingestion_port(request: Request) -> IngestionService:
@@ -141,10 +88,6 @@ def create_chunk_service(request: Request) -> ChunkService:
 
 def create_ingest_service(request: Request) -> IngestAppService:
     return _create_container(request).application.ingest_app_service
-
-
-def create_ingestion_service(request: Request) -> IngestionService:
-    return _create_container(request).application.ingestion_service
 
 
 def create_config_service(request: Request) -> ConfigService:

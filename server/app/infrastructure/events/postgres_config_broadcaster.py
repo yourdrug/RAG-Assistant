@@ -1,23 +1,18 @@
 """Postgres LISTEN/NOTIFY broadcaster for config change events.
 
 Sends ``pg_notify('config_changed', payload)`` to alert other processes
-about config parameter changes.  Uses a dedicated write session from the
-database manager, or an existing session for transactional atomicity
-when the config change originates from the same transaction.
+about config parameter changes.  Uses an existing session so the NOTIFY is
+transactionally atomic with the config UPDATE that triggered it.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-from typing import TYPE_CHECKING
 
 from domain.events.config_events import ConfigParameterChanged
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-
-if TYPE_CHECKING:
-    from infrastructure.database.database import DatabaseManager
 
 log = logging.getLogger("default")
 
@@ -41,19 +36,6 @@ def _build_payload(event: ConfigParameterChanged) -> str:
 
 
 class PostgresConfigBroadcaster:
-    def __init__(self, database: DatabaseManager) -> None:
-        self._database = database
-
-    async def broadcast(self, event: ConfigParameterChanged) -> None:
-        session = self._database.get_write_session()
-        try:
-            await self._send_notify(session, event)
-            await session.commit()
-        except Exception:
-            log.exception("Failed to send pg_notify for config_changed")
-        finally:
-            await session.close()
-
     async def broadcast_within_session(self, session: object, event: ConfigParameterChanged) -> None:
         """Send pg_notify within an existing session (same transaction as UPDATE)."""
         if not isinstance(session, AsyncSession):

@@ -14,6 +14,7 @@ from collections.abc import AsyncIterator
 
 from domain.entities.chat_log import ChatLog
 from domain.entities.message import Message
+from domain.utils import compute_reranker_score
 from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.llm_provider import Breadth
@@ -83,13 +84,6 @@ class ChatService:
                 content=question,
             )
             await uow.messages.save(user_msg)
-
-    @staticmethod
-    def _compute_reranker_score(sources: list[dict]) -> float | None:
-        if not sources:
-            return None
-        scores = [s.get("max_score", 0) for s in sources if isinstance(s, dict)]
-        return max(scores) if scores else None
 
     @staticmethod
     def _build_chat_log(
@@ -199,7 +193,7 @@ class ChatService:
 
         # UoW 2: atomic — save assistant message + chat log together
         retrieval_count = len(sources)
-        reranker_score = self._compute_reranker_score(sources)
+        reranker_score = compute_reranker_score(sources)
 
         async with self._uow_factory.create(master=True) as uow:
             assistant_msg = Message(
@@ -305,7 +299,15 @@ class ChatService:
                 domain=rag_result.domain,
                 retrieval_count=rag_result.retrieval_count,
                 reranker_score=rag_result.reranker_score,
+                input_tokens=rag_result.input_tokens,
+                output_tokens=rag_result.output_tokens,
             )
             await uow.chat_logs.save(chat_log)
 
-        return ChatResult(answer=rag_result.answer, conversation_id=conv.id, sources=rag_result.sources)
+        return ChatResult(
+            answer=rag_result.answer,
+            conversation_id=conv.id,
+            sources=rag_result.sources,
+            input_tokens=rag_result.input_tokens,
+            output_tokens=rag_result.output_tokens,
+        )

@@ -1,0 +1,80 @@
+"""Live adapters for settings ports — reads from global settings singleton at access time.
+
+Consolidates all four settings adapter classes into a single module.
+"""
+
+from __future__ import annotations
+
+from config import settings
+
+
+class LiveChunkSettings:
+    """Each property read returns the current value from the global settings singleton."""
+
+    @property
+    def chunk_size(self) -> int:  # type: ignore[override]
+        return settings.chunk_size
+
+
+class LiveChatSettings:
+    """Each property read returns the current value from the global settings singleton."""
+
+    @property
+    def history_window(self) -> int:  # type: ignore[override]
+        return settings.history_window
+
+    @property
+    def rolling_summary_enabled(self) -> bool:  # type: ignore[override]
+        return settings.rolling_summary_enabled
+
+
+class LiveHealthSettings:
+    """Each property read returns the current value from the global settings singleton."""
+
+    @property
+    def version(self) -> str:  # type: ignore[override]
+        return settings.version
+
+    @property
+    def uptime_seconds(self) -> float:  # type: ignore[override]
+        return settings.uptime_seconds
+
+    @property
+    def llm_provider(self) -> str:  # type: ignore[override]
+        return settings.llm_provider
+
+
+class LiveConfigAdminSettings:
+    """Each property read returns the current value from the global settings singleton."""
+
+    @property
+    def llm_provider(self) -> str:  # type: ignore[override]
+        return settings.llm_provider
+
+    @property
+    def llm_model(self) -> str:  # type: ignore[override]
+        return settings.llm_model
+
+    @property
+    def tei_embed_url(self) -> str:  # type: ignore[override]
+        return settings.tei_embed_url
+
+    @property
+    def tei_rerank_url(self) -> str:  # type: ignore[override]
+        return settings.tei_rerank_url
+
+    @property
+    def ocr_engine(self) -> str:  # type: ignore[override]
+        return settings.ocr_engine
+
+    @property
+    def ocr_enabled(self) -> bool:  # type: ignore[override]
+        return settings.ocr_enabled
+
+    @property
+    def openrouter_model(self) -> str:  # type: ignore[override]
+        return settings.openrouter_model
+
+    @property
+    def collection_name(self) -> str:  # type: ignore[override]
+        return settings.collection_name
