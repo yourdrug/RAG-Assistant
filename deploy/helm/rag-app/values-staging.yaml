@@ -69,6 +69,19 @@ observability:
   serviceMonitor:
     enabled: true
     interval: 30s
+  prometheusRules:
+    enabled: true
+  grafanaDashboard:
+    enabled: true
+  opentelemetry:
+    enabled: true
+  tempo:
+    enabled: true
+    endpoint: "tempo-distributor.observability.svc.cluster.local:4317"
+    insecure: true
+
+networkPolicy:
+  enabled: true
 
 postgres:
   enabled: true

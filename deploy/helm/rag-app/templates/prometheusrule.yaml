@@ -1,0 +1,87 @@
+{{- if .Values.observability.prometheusRules.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "rag-app.fullname" . }}-alerts
+  labels:
+    {{- include "rag-app.labels" . | nindent 4 }}
+    {{- with .Values.observability.prometheusRules.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: rag-app.rules
+      rules:
+        - alert: RagAppHighErrorRate
+          expr: |
+            sum(rate(http_requests_total{app_kubernetes_io_name=~"rag-app-server",status=~"5.."}[5m]))
+            / sum(rate(http_requests_total{app_kubernetes_io_name=~"rag-app-server"}[5m])) > 0.05
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "High error rate on RAG server"
+            description: "Error rate is {{ "{{" }} $value | humanizePercentage {{ "}}" }} (threshold: 5%)"
+
+        - alert: RagAppHighLatency
+          expr: |
+            histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{app_kubernetes_io_name=~"rag-app-server"}[5m])) by (le)) > 5
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High p99 latency on RAG server"
+            description: "p99 latency is {{ "{{" }} $value {{ "}}" }}s (threshold: 5s)"
+
+        - alert: RagAppServerHPAMaxedOut
+          expr: |
+            kube_horizontalpodautoscaler_status_current_replicas{horizontalpodautoscaler=~"rag-app-server"}
+            == kube_horizontalpodautoscaler_spec_max_replicas{horizontalpodautoscaler=~"rag-app-server"}
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "RAG server HPA at max replicas"
+            description: "HPA has been at max replicas for 15+ minutes"
+
+        - alert: RagAppPodCrashLooping
+          expr: |
+            increase(kube_pod_container_status_restarts_total{namespace="{{ .Release.Namespace }}"}[1h]) > 3
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Pod crash-looping in {{ .Release.Namespace }}"
+            description: "Pod {{ "{{" }} $labels.pod {{ "}}" }} has restarted {{ "{{" }} $value {{ "}}" }} times in the last hour"
+
+        - alert: RagAppPDBViolation
+          expr: |
+            kube_poddisruptionbudget_status_current_healthy{namespace="{{ .Release.Namespace }}"}
+            < kube_poddisruptionbudget_spec_min_available{namespace="{{ .Release.Namespace }}"}
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "PDB violated in {{ .Release.Namespace }}"
+            description: "Fewer pods healthy than PDB minimum"
+
+        - alert: RagAppMigrationJobFailed
+          expr: |
+            kube_job_status_failed{namespace="{{ .Release.Namespace }}",job_name=~".*migrations.*"} > 0
+          for: 0m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Migration job failed"
+            description: "Alembic migration job {{ "{{" }} $labels.job_name {{ "}}" }} has failed"
+
+        - alert: RagAppWorkerQueueBacklog
+          expr: |
+            redis_llen{list="arq:queue"} > 100
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Worker queue backlog"
+            description: "arq queue has {{ "{{" }} $value {{ "}}" }} pending tasks"
+{{- end }}

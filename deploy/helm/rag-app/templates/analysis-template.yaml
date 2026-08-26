@@ -1,0 +1,43 @@
+{{- if .Values.server.rollouts.enabled }}
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: {{ include "rag-app.fullname" . }}-latency-analysis
+  labels:
+    {{- include "rag-app.labels" . | nindent 4 }}
+spec:
+  args:
+    - name: service-name
+  metrics:
+    - name: latency
+      interval: 60s
+      count: 5
+      successCondition: result[0] < 5000
+      failureLimit: 3
+      provider:
+        prometheus:
+          address: {{ .Values.observability.prometheusAddress | default "http://prometheus-kube-prometheus-prometheus:9090" }}
+          query: |
+            histogram_quantile(0.99,
+              sum(rate(http_request_duration_seconds_bucket{
+                app_kubernetes_io_name="rag-app-server"
+              }[2m])) by (le)
+            ) * 1000
+    - name: error-rate
+      interval: 60s
+      count: 5
+      successCondition: result[0] < 5
+      failureLimit: 3
+      provider:
+        prometheus:
+          address: {{ .Values.observability.prometheusAddress | default "http://prometheus-kube-prometheus-prometheus:9090" }}
+          query: |
+            sum(rate(http_request_total{
+              app_kubernetes_io_name="rag-app-server",
+              status=~"5.."
+            }[2m]))
+            /
+            sum(rate(http_request_total{
+              app_kubernetes_io_name="rag-app-server"
+            }[2m])) * 100
+{{- end }}

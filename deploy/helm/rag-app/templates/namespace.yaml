@@ -1,0 +1,16 @@
+{{- if .Values.namespace.create }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Release.Namespace }}
+  labels:
+    {{- include "rag-app.labels" . | nindent 4 }}
+    {{- if .Values.podSecurity.enabled }}
+    pod-security.kubernetes.io/enforce: {{ .Values.podSecurity.enforce | default "restricted" }}
+    pod-security.kubernetes.io/enforce-version: {{ .Values.podSecurity.enforceVersion | default "latest" }}
+    pod-security.kubernetes.io/audit: {{ .Values.podSecurity.audit | default "restricted" }}
+    pod-security.kubernetes.io/audit-version: {{ .Values.podSecurity.auditVersion | default "latest" }}
+    pod-security.kubernetes.io/warn: {{ .Values.podSecurity.warn | default "restricted" }}
+    pod-security.kubernetes.io/warn-version: {{ .Values.podSecurity.warnVersion | default "latest" }}
+    {{- end }}
+{{- end }}

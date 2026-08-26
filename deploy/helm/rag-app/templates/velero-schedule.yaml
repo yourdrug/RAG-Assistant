@@ -1,0 +1,40 @@
+{{- if .Values.velero.enabled }}
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: {{ include "rag-app.fullname" . }}-daily
+  labels:
+    {{- include "rag-app.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.velero.schedule | quote }}
+  template:
+    ttl: {{ .Values.velero.ttl | quote }}
+    includedNamespaces:
+      - {{ .Release.Namespace }}
+    {{- if .Values.velero.includeClusterResources }}
+    includeClusterResources: true
+    {{- end }}
+    storageLocation: {{ .Values.velero.storageLocation | default "default" }}
+    volumeSnapshotLocations:
+      - {{ .Values.velero.volumeSnapshotLocation | default "default" }}
+    {{- with .Values.velero.labelSelector }}
+    labelSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+---
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: {{ include "rag-app.fullname" . }}-weekly
+  labels:
+    {{- include "rag-app.labels" . | nindent 4 }}
+spec:
+  schedule: "0 2 * * 0"
+  template:
+    ttl: 720h
+    includedNamespaces:
+      - {{ .Release.Namespace }}
+    storageLocation: {{ .Values.velero.storageLocation | default "default" }}
+    volumeSnapshotLocations:
+      - {{ .Values.velero.volumeSnapshotLocation | default "default" }}
+{{- end }}

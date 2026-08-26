@@ -1,0 +1,46 @@
+{{- if and .Values.worker.enabled .Values.worker.keda.enabled }}
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "rag-app.fullname" . }}-worker
+  labels:
+    {{- include "rag-app.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  scaleTargetRef:
+    name: {{ include "rag-app.fullname" . }}-worker
+  pollingInterval: {{ .Values.worker.keda.pollingInterval | default 15 }}
+  cooldownPeriod: {{ .Values.worker.keda.cooldownPeriod | default 60 }}
+  idleReplicaCount: {{ .Values.worker.keda.idleReplicaCount | default 0 }}
+  minReplicaCount: {{ .Values.worker.keda.minReplicaCount | default 1 }}
+  maxReplicaCount: {{ .Values.worker.keda.maxReplicaCount | default 10 }}
+  fallback:
+    failureThreshold: 3
+    replicas: {{ .Values.worker.keda.fallbackReplicas | default 2 }}
+  triggers:
+    - type: redis
+      metadata:
+        address: {{ .Values.config.redisHost }}:{{ .Values.config.redisPort }}
+        listName: arq:queue
+        listLength: "{{ .Values.worker.keda.queueLength | default 5 }}"
+        databaseIndex: "{{ .Values.config.redisDb | default 0 }}"
+        {{- if .Values.config.redisUser }}
+        username: {{ .Values.config.redisUser | quote }}
+        {{- end }}
+      authenticationRef:
+        name: {{ include "rag-app.fullname" . }}-worker-redis-auth
+{{- end }}
+---
+{{- if and .Values.worker.enabled .Values.worker.keda.enabled .Values.secrets.redisPassword }}
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: {{ include "rag-app.fullname" . }}-worker-redis-auth
+  labels:
+    {{- include "rag-app.labels" . | nindent 4 }}
+spec:
+  secretTargetRef:
+    - parameter: password
+      name: {{ include "rag-app.fullname" . }}-secret
+      key: REDIS_PASSWORD
+{{- end }}

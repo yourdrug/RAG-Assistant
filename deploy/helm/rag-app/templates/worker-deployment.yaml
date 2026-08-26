@@ -24,6 +24,7 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
     spec:
+      shareProcessNamespace: true
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -33,6 +34,8 @@ spec:
         runAsUser: 1001
         runAsGroup: 1001
         fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: worker
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -49,8 +52,15 @@ spec:
               command:
                 - python
                 - -c
-                - "import os, signal; signal.alarm(0)"
-            initialDelaySeconds: 30
+                - |
+                  import os, time
+                  hb = "/tmp/worker-heartbeat"
+                  if not os.path.exists(hb):
+                      raise SystemExit("no heartbeat")
+                  age = time.time() - os.path.getmtime(hb)
+                  if age > 120:
+                      raise SystemExit(f"stale heartbeat: {age:.0f}s")
+            initialDelaySeconds: 45
             periodSeconds: 30
             timeoutSeconds: 10
             failureThreshold: 3
@@ -58,10 +68,49 @@ spec:
             {{- toYaml .Values.worker.resources | nindent 12 }}
           securityContext:
             allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: false
+            readOnlyRootFilesystem: true
             capabilities:
               drop:
                 - ALL
+          volumeMounts:
+            - name: heartbeat
+              mountPath: /tmp
+            - name: data
+              mountPath: /code/project/data
+        - name: heartbeat-sidecar
+          image: busybox:1.36
+          command:
+            - /bin/sh
+            - -c
+            - |
+              while true; do
+                if pgrep -f "python.*main.py.*worker" > /dev/null 2>&1; then
+                  date +%s > /tmp/worker-heartbeat
+                fi
+                sleep 30
+              done
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "16Mi"
+            limits:
+              cpu: "50m"
+              memory: "32Mi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: heartbeat
+              mountPath: /tmp
+              readOnly: true
+      volumes:
+        - name: heartbeat
+          emptyDir: {}
+        - name: data
+          emptyDir: {}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

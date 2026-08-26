@@ -1,0 +1,14 @@
+{{- if .Values.observability.grafanaDashboard.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "rag-app.fullname" . }}-grafana-dashboard
+  labels:
+    {{- include "rag-app.labels" . | nindent 4 }}
+    grafana_dashboard: "1"
+  annotations:
+    k8s-sidecar-target-directory: /tmp/dashboards
+data:
+  rag-app-overview.json: |-
+    {{- .Files.Get "dashboards/grafana-dashboard.json" | nindent 4 }}
+{{- end }}

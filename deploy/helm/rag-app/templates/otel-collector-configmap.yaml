@@ -1,0 +1,73 @@
+{{- if .Values.observability.opentelemetry.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "rag-app.fullname" . }}-otel-collector
+  labels:
+    {{- include "rag-app.labels" . | nindent 4 }}
+    app.kubernetes.io/component: otel-collector
+data:
+  config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+      prometheus:
+        config:
+          scrape_configs:
+            - job_name: 'rag-app'
+              kubernetes_sd_configs:
+                - role: pod
+                  namespaces:
+                    names:
+                      - {{ .Release.Namespace }}
+              relabel_configs:
+                - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_component]
+                  regex: server
+                  action: keep
+
+    processors:
+      batch:
+        timeout: 5s
+        send_batch_size: 1024
+      memory_limiter:
+        check_interval: 1s
+        limit_mib: 512
+        spike_limit_mib: 128
+      attributes:
+        actions:
+          - key: deployment.namespace
+            value: {{ .Release.Namespace }}
+            action: upsert
+
+    exporters:
+      {{- if .Values.observability.jaeger.enabled }}
+      jaeger:
+        endpoint: {{ .Values.observability.jaeger.endpoint }}
+        tls:
+          insecure: {{ .Values.observability.jaeger.insecure | default true }}
+      {{- end }}
+      {{- if .Values.observability.tempo.enabled }}
+      otlp/tempo:
+        endpoint: {{ .Values.observability.tempo.endpoint }}
+        tls:
+          insecure: {{ .Values.observability.tempo.insecure | default true }}
+      {{- end }}
+      prometheus:
+        endpoint: "0.0.0.0:8889"
+        namespace: rag_app
+
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, attributes, batch]
+          exporters: [{{ if .Values.observability.tempo.enabled }}otlp/tempo{{ else if .Values.observability.jaeger.enabled }}jaeger{{ end }}]
+        metrics:
+          receivers: [otlp, prometheus]
+          processors: [memory_limiter, batch]
+          exporters: [prometheus]
+{{- end }}

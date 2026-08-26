@@ -23,6 +23,9 @@ worker:
       cpu: "1"
       memory: "2Gi"
 
+migrations:
+  enabled: true
+
 config:
   logLevel: DEBUG
   allowedOrigins: "*"

@@ -43,6 +43,10 @@
             "enabled": { "type": "boolean" },
             "minAvailable": { "type": "integer", "minimum": 0 }
           }
+        },
+        "topologySpreadConstraints": {
+          "type": "array",
+          "items": { "type": "object" }
         }
       }
     },
@@ -59,6 +63,19 @@
           "properties": {
             "enabled": { "type": "boolean" },
             "minAvailable": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "keda": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "pollingInterval": { "type": "integer", "minimum": 1 },
+            "cooldownPeriod": { "type": "integer", "minimum": 0 },
+            "idleReplicaCount": { "type": "integer", "minimum": 0 },
+            "minReplicaCount": { "type": "integer", "minimum": 0 },
+            "maxReplicaCount": { "type": "integer", "minimum": 1 },
+            "queueLength": { "type": "integer", "minimum": 1 },
+            "fallbackReplicas": { "type": "integer", "minimum": 1 }
           }
         }
       }
@@ -174,6 +191,29 @@
       "type": "object",
       "properties": {
         "enabled": { "type": "boolean" }
+      }
+    },
+    "externalSecrets": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "refreshInterval": { "type": "string" },
+        "secretStoreRef": { "type": "string" },
+        "secretStoreKind": { "type": "string", "enum": ["ClusterSecretStore", "SecretStore"] },
+        "vaultPaths": {
+          "type": "object",
+          "properties": {
+            "jwtSecretKey": { "type": "string" },
+            "dbPassword": { "type": "string" },
+            "qdrantApiKey": { "type": "string" },
+            "s3AccessKey": { "type": "string" },
+            "s3SecretKey": { "type": "string" },
+            "openrouterApiKey": { "type": "string" },
+            "adminEmail": { "type": "string" },
+            "adminPassword": { "type": "string" },
+            "redisPassword": { "type": "string" }
+          }
+        }
       }
     },
     "postgres": {

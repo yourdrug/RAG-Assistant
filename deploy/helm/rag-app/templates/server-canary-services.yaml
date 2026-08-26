@@ -1,0 +1,35 @@
+{{- if .Values.server.rollouts.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "rag-app.fullname" . }}-server-canary
+  labels:
+    {{- include "rag-app.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server-canary
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "rag-app.server.selectorLabels" . | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "rag-app.fullname" . }}-server-stable
+  labels:
+    {{- include "rag-app.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server-stable
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "rag-app.server.selectorLabels" . | nindent 4 }}
+{{- end }}

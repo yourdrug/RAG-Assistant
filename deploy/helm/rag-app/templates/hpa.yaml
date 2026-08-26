@@ -7,8 +7,8 @@ metadata:
     {{- include "rag-app.labels" . | nindent 4 }}
 spec:
   scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
+    apiVersion: {{ if .Values.server.rollouts.enabled }}argoproj.io/v1alpha1{{ else }}apps/v1{{ end }}
+    kind: {{ if .Values.server.rollouts.enabled }}Rollout{{ else }}Deployment{{ end }}
     name: {{ include "rag-app.fullname" . }}-server
   minReplicas: {{ .Values.server.autoscaling.minReplicas }}
   maxReplicas: {{ .Values.server.autoscaling.maxReplicas }}

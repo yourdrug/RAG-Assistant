@@ -35,6 +35,15 @@ worker:
   pdb:
     enabled: true
     minAvailable: 1
+  keda:
+    enabled: true
+    pollingInterval: 15
+    cooldownPeriod: 60
+    idleReplicaCount: 0
+    minReplicaCount: 2
+    maxReplicaCount: 20
+    queueLength: 5
+    fallbackReplicas: 2
 
 config:
   logLevel: INFO
@@ -45,19 +54,34 @@ config:
   redisHost: ""     # Set via external secret / managed Redis
   qdrantUrl: ""     # Set via external secret / Qdrant Cloud
 
+# Production: secrets from External Secrets Operator (Vault)
+externalSecrets:
+  enabled: true
+  refreshInterval: 1h
+  secretStoreRef: vault-backend
+  secretStoreKind: ClusterSecretStore
+  vaultPaths:
+    jwtSecretKey: secret/data/rag-app/jwt-secret-key
+    dbPassword: secret/data/rag-app/db-password
+    qdrantApiKey: secret/data/rag-app/qdrant-api-key
+    s3AccessKey: secret/data/rag-app/s3-access-key
+    s3SecretKey: secret/data/rag-app/s3-secret-key
+    openrouterApiKey: secret/data/rag-app/openrouter-api-key
+    adminEmail: secret/data/rag-app/admin-email
+    adminPassword: secret/data/rag-app/admin-password
+    redisPassword: secret/data/rag-app/redis-password
+
 secrets:
-  # All production secrets MUST be injected via external secret management
-  # (e.g. Sealed Secrets, External Secrets Operator, Vault)
-  # Do NOT set real values here — this file is committed to git.
-  jwtSecretKey: "PRODUCTION_SECRET_FROM_VAULT"
-  dbPassword: "PRODUCTION_SECRET_FROM_VAULT"
-  qdrantApiKey: "PRODUCTION_SECRET_FROM_VAULT"
-  s3AccessKey: "PRODUCTION_SECRET_FROM_VAULT"
-  s3SecretKey: "PRODUCTION_SECRET_FROM_VAULT"
-  openrouterApiKey: "PRODUCTION_SECRET_FROM_VAULT"
-  adminEmail: "admin@example.com"
-  adminPassword: "PRODUCTION_SECRET_FROM_VAULT"
-  redisPassword: "PRODUCTION_SECRET_FROM_VAULT"
+  # Placeholder — real values come from ExternalSecret -> Vault
+  jwtSecretKey: ""
+  dbPassword: ""
+  qdrantApiKey: ""
+  s3AccessKey: ""
+  s3SecretKey: ""
+  openrouterApiKey: ""
+  adminEmail: ""
+  adminPassword: ""
+  redisPassword: ""
 
 ingress:
   enabled: true
@@ -84,8 +108,27 @@ observability:
   serviceMonitor:
     enabled: true
     interval: 15s
+  prometheusRules:
+    enabled: true
+  grafanaDashboard:
+    enabled: true
+  opentelemetry:
+    enabled: true
+  tempo:
+    enabled: true
+    endpoint: "tempo-distributor.observability.svc.cluster.local:4317"
+    insecure: false
 
 # Production: all stateful components are external/managed
+namespace:
+  create: true
+
+podSecurity:
+  enabled: true
+  enforce: restricted
+  audit: restricted
+  warn: restricted
+
 postgres:
   enabled: false
   external: true

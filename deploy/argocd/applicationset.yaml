@@ -1,0 +1,55 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: rag-app
+  namespace: argocd
+spec:
+  generators:
+    - list:
+        elements:
+          - env: dev
+            cluster: https://kubernetes.default.svc
+            namespace: rag-dev
+            values: values-dev.yaml
+            autoSync: "true"
+          - env: staging
+            cluster: https://kubernetes.default.svc
+            namespace: rag-staging
+            values: values-staging.yaml
+            autoSync: "true"
+          - env: prod
+            cluster: https://kubernetes.default.svc
+            namespace: rag-prod
+            values: values-prod.yaml
+            autoSync: "false"
+  template:
+    metadata:
+      name: 'rag-app-{{env}}'
+      annotations:
+        argocd.argoproj.io/manifest-generate-paths: deploy/helm/rag-app
+    spec:
+      project: default
+      source:
+        repoURL: <YOUR_GIT_REPO_URL>
+        targetRevision: HEAD
+        path: deploy/helm/rag-app
+        helm:
+          valueFiles:
+            - '{{values}}'
+      destination:
+        server: '{{cluster}}'
+        namespace: '{{namespace}}'
+      syncPolicy:
+        syncOptions:
+          - CreateNamespace=true
+          - PrunePropagationPolicy=foreground
+          - ServerSideApply=true
+        retry:
+          limit: 3
+          backoff:
+            duration: 30s
+            factor: 2
+            maxDuration: 3m
+      # Note: auto-sync is controlled per-env via Argo CD UI or annotations
+      # Dev/staging: enable auto-sync in ArgoCD UI
+      # Prod: manual sync only (requires approval)

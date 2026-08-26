@@ -58,6 +58,17 @@ server:
   pdb:
     enabled: false
     minAvailable: 1
+  topologySpreadConstraints: []
+  rollouts:
+    enabled: false
+    steps:
+      - setWeight: 10
+      - pause: { duration: 60s }
+      - setWeight: 30
+      - pause: { duration: 60s }
+      - setWeight: 60
+      - pause: { duration: 120s }
+      - setWeight: 100
 
 # -- Worker (arq) deployment
 worker:
@@ -77,6 +88,15 @@ worker:
   pdb:
     enabled: false
     minAvailable: 1
+  keda:
+    enabled: false
+    pollingInterval: 15
+    cooldownPeriod: 60
+    idleReplicaCount: 0
+    minReplicaCount: 1
+    maxReplicaCount: 10
+    queueLength: 5
+    fallbackReplicas: 2
 
 # -- Database migrations
 migrations:
@@ -130,6 +150,23 @@ secrets:
   adminPassword: admin
   redisPassword: password
 
+# -- External Secrets Operator (disable for dev, enable for prod)
+externalSecrets:
+  enabled: false
+  refreshInterval: 1h
+  secretStoreRef: vault-backend
+  secretStoreKind: ClusterSecretStore
+  vaultPaths:
+    jwtSecretKey: secret/data/rag-app/jwt-secret-key
+    dbPassword: secret/data/rag-app/db-password
+    qdrantApiKey: secret/data/rag-app/qdrant-api-key
+    s3AccessKey: secret/data/rag-app/s3-access-key
+    s3SecretKey: secret/data/rag-app/s3-secret-key
+    openrouterApiKey: secret/data/rag-app/openrouter-api-key
+    adminEmail: secret/data/rag-app/admin-email
+    adminPassword: secret/data/rag-app/admin-password
+    redisPassword: secret/data/rag-app/redis-password
+
 # -- Ingress
 ingress:
   enabled: false
@@ -154,6 +191,35 @@ observability:
   serviceMonitor:
     enabled: false
     interval: 30s
+  prometheusRules:
+    enabled: false
+    additionalLabels: {}
+  grafanaDashboard:
+    enabled: false
+  opentelemetry:
+    enabled: false
+  jaeger:
+    enabled: false
+    endpoint: "jaeger-collector:14250"
+    insecure: true
+  tempo:
+    enabled: false
+    endpoint: "tempo-distributor:4317"
+    insecure: true
+
+# -- Namespace (create with Pod Security Admission labels)
+namespace:
+  create: false
+
+# -- Pod Security Admission (namespace-level enforcement)
+podSecurity:
+  enabled: false
+  enforce: restricted
+  enforceVersion: latest
+  audit: restricted
+  auditVersion: latest
+  warn: restricted
+  warnVersion: latest
 
 # -- ServiceAccount
 serviceAccount:
@@ -220,3 +286,13 @@ minio:
   host: rag-app-minio
   port: 9000
   consolePort: 9001
+
+# -- Velero backups (for stateful components)
+velero:
+  enabled: false
+  schedule: "0 2 * * *"
+  ttl: 168h
+  storageLocation: default
+  volumeSnapshotLocation: default
+  includeClusterResources: false
+  labelSelector: {}

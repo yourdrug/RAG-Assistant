@@ -1,6 +1,6 @@
-{{- if not .Values.server.rollouts.enabled }}
-apiVersion: apps/v1
-kind: Deployment
+{{- if .Values.server.rollouts.enabled }}
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
 metadata:
   name: {{ include "rag-app.fullname" . }}-server
   labels:
@@ -8,11 +8,7 @@ metadata:
     app.kubernetes.io/component: server
 spec:
   replicas: {{ .Values.server.replicas }}
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 0
-      maxSurge: 1
+  revisionHistoryLimit: 5
   selector:
     matchLabels:
       {{- include "rag-app.server.selectorLabels" . | nindent 6 }}
@@ -111,4 +107,24 @@ spec:
       affinity:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+  strategy:
+    canary:
+      canaryService: {{ include "rag-app.fullname" . }}-server-canary
+      stableService: {{ include "rag-app.fullname" . }}-server-stable
+      trafficRouting:
+        nginx:
+          stableIngress: {{ include "rag-app.fullname" . }}-ingress
+          additionalIngressAnnotations:
+            canary-by-header: X-Canary
+      {{- with .Values.server.rollouts.steps }}
+      steps:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      analysis:
+        templates:
+          - templateName: latency-analysis
+        startingStep: 2
+        args:
+          - name: service-name
+            value: {{ include "rag-app.fullname" . }}-server-canary
 {{- end }}
