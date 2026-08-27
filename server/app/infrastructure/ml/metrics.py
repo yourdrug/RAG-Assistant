@@ -9,11 +9,12 @@ periodically by the Scheduler (``infrastructure.scheduler``).
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import httpx
 from config import settings
 from prometheus_client import Counter, Gauge, Histogram
+from sqlalchemy.pool import QueuePool
 
 from infrastructure.database.database import database
 
@@ -297,59 +298,65 @@ def record_rag_answer(
 # ---------------------------------------------------------------------------
 
 
+async def _collect_db_pool_metrics() -> None:
+    engine = database.master_node.async_engine if database.master_node else None
+    if engine is None:
+        return
+    pool = cast(QueuePool, engine.pool)
+    DB_POOL_IN_USE.set(pool.checkedout())
+    DB_POOL_IDLE.set(pool.checkedin())
+    DB_POOL_OVERFLOW.set(pool.overflow())
+
+
+async def _collect_qdrant_metrics(ml_clients: MLClientRegistry | None) -> None:
+    if ml_clients is not None:
+        client = ml_clients.qdrant_client()
+    else:
+        from infrastructure.ml.factories import create_qdrant_client
+
+        client = create_qdrant_client()
+    info = client.get_collection(settings.collection_name)
+    QDRANT_POINTS.set(info.points_count or 0)
+
+
+async def _collect_bm25_metrics(ml_clients: MLClientRegistry | None) -> None:
+    if ml_clients is not None:
+        bm25 = ml_clients.bm25_index()
+    else:
+        from infrastructure.ml.factories import load_bm25_index
+
+        bm25 = load_bm25_index()
+    if bm25 is not None:
+        BM25_INDEX_SIZE.set(len(bm25.hashes))
+
+
+async def _collect_ollama_metrics() -> None:
+    async with httpx.AsyncClient(timeout=3) as http:
+        r = await http.get(f"{settings.ollama_base_url}/api/tags")
+        if r.status_code == 200:
+            data = r.json()
+            for model in data.get("models", []):
+                model_name = model.get("name", "unknown")
+                model_size = model.get("size", 0)
+                OLLAMA_GPU_MEMORY_BYTES.labels(model=model_name).set(model_size)
+                OLLAMA_RAM_MEMORY_BYTES.labels(model=model_name).set(model_size)
+
+
 async def collect_infra_metrics(ml_clients: MLClientRegistry | None = None) -> None:
     """Update infrastructure gauges. Called periodically from lifespan."""
-    # Postgres pool
     try:
-        engine = database.master_node.async_engine  # type: ignore[union-attr]
-        pool = engine.pool
-        in_use = pool.checkedout()
-        idle = pool.checkedin()
-        overflow = pool.overflow()
-        DB_POOL_IN_USE.set(in_use)
-        DB_POOL_IDLE.set(idle)
-        DB_POOL_OVERFLOW.set(overflow)
-        log.debug("DB pool metrics: in_use=%s, idle=%s, overflow=%s", in_use, idle, overflow)
+        await _collect_db_pool_metrics()
     except Exception as e:
         log.warning("Failed to collect DB pool metrics: %s", e)
-
-    # Qdrant collection size
     try:
-        if ml_clients is not None:
-            client = ml_clients.qdrant_client()
-        else:
-            from infrastructure.ml.factories import create_qdrant_client
-
-            client = create_qdrant_client()
-        info = client.get_collection(settings.collection_name)
-        QDRANT_POINTS.set(info.points_count or 0)
+        await _collect_qdrant_metrics(ml_clients)
     except Exception as e:
         log.warning("Failed to collect Qdrant metrics: [%s] %s", type(e).__name__, e)
-
-    # BM25 index size
     try:
-        if ml_clients is not None:
-            bm25 = ml_clients.bm25_index()
-        else:
-            from infrastructure.ml.factories import load_bm25_index
-
-            bm25 = load_bm25_index()
-        if bm25 is not None:
-            BM25_INDEX_SIZE.set(len(bm25.hashes))
+        await _collect_bm25_metrics(ml_clients)
     except Exception as e:
         log.warning("Failed to collect BM25 metrics: [%s] %s", type(e).__name__, e)
-
-    # Ollama GPU/RAM usage
     try:
-        async with httpx.AsyncClient(timeout=3) as http:
-            r = await http.get(f"{settings.ollama_base_url}/api/tags")
-            if r.status_code == 200:
-                data = r.json()
-                for model in data.get("models", []):
-                    model_name = model.get("name", "unknown")
-                    # size is total model size in bytes
-                    model_size = model.get("size", 0)
-                    OLLAMA_GPU_MEMORY_BYTES.labels(model=model_name).set(model_size)
-                    OLLAMA_RAM_MEMORY_BYTES.labels(model=model_name).set(model_size)
+        await _collect_ollama_metrics()
     except Exception as e:
         log.warning("Failed to collect Ollama metrics: [%s] %s", type(e).__name__, e)

@@ -114,7 +114,7 @@ class IngestRegistryItem(BaseModel):
     filename: str
     chunks: int | None = None
     chars: int | None = None
-    indexed_at: datetime | None = None
+    indexed_at: datetime | str | None = None
     source: str | None = None
 
 

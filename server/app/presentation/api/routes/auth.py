@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from application.dto.auth_dto import CreateUserCommand, LoginCommand
 from application.services.auth_service import AuthService
+from domain.value_objects.roles import UserKind, UserRole
 from fastapi import APIRouter, Depends
 from infrastructure.logging.actions import log_action
 
@@ -33,7 +34,12 @@ async def add_user(
     auth_service: AuthService = Depends(create_auth_service),
 ):
     result = await auth_service.create_user(
-        CreateUserCommand(email=req.email, password=req.password, role=req.role, kind=req.kind),
+        CreateUserCommand(
+            email=req.email,
+            password=req.password,
+            role=req.role or UserRole.USER,
+            kind=req.kind or UserKind.INTERNAL,
+        ),
         creator_role=admin["role"],
     )
     log_action("user.create", user_id=admin["id"], details={"email": req.email, "role": req.role})

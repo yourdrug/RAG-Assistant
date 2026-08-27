@@ -7,14 +7,11 @@ bypass read replicas.
 
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
-from typing import Protocol, runtime_checkable
+from typing import AsyncContextManager, Protocol, runtime_checkable
 
 from application.uow import UnitOfWork
 
 
 @runtime_checkable
 class UnitOfWorkFactory(Protocol):
-    @asynccontextmanager
-    async def create(self, master: bool = False) -> AsyncGenerator[UnitOfWork, None]: ...
+    def create(self, master: bool = False) -> AsyncContextManager[UnitOfWork]: ...

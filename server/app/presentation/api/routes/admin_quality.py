@@ -126,7 +126,7 @@ def _handle_ocr_analysis(
     warning = _compute_quality_warning(page_results, types_count, "Still low quality after OCR")
     suggestion = PDFDiagnosticService.suggest_action(page_results, types_count)
 
-    filename = file.filename if file else (tmp_path.stem + ".pdf")
+    filename = (file.filename or (tmp_path.stem + ".pdf")) if file else (tmp_path.stem + ".pdf")
     return _build_dry_run_response(
         filename,
         page_results,

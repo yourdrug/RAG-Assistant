@@ -5,6 +5,8 @@ Uses shared BaseModel (int PK + creation_date) and LinkedBaseModel (M2M join tab
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from sqlalchemy import (
     JSON,
     Boolean,
@@ -59,7 +61,7 @@ class MessageModel(BaseModel):
     conversation_id: Mapped[int | None] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"))
     role: Mapped[str] = mapped_column(String(16), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    sources: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    sources: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
     conversation = relationship("ConversationModel", back_populates="messages")
 
@@ -122,7 +124,7 @@ class DocumentModel(BaseModel):
     quality_score: Mapped[float | None] = mapped_column(Float)
     chunks: Mapped[int | None] = mapped_column(Integer)
     chars: Mapped[int | None] = mapped_column(Integer)
-    indexed_at: Mapped[DateTime | None] = mapped_column(DateTime)
+    indexed_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
 class ConfigParameterModel(BaseModel):
@@ -155,8 +157,8 @@ class ApiKeyModel(BaseModel):
     key_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     key_prefix: Mapped[str] = mapped_column(String(20), nullable=False)
     name: Mapped[str | None] = mapped_column(String(255))
-    revoked_at: Mapped[DateTime | None] = mapped_column(DateTime)
-    last_used_at: Mapped[DateTime | None] = mapped_column(DateTime)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
 class BackgroundJobModel(BaseModel):
@@ -175,8 +177,8 @@ class BackgroundJobModel(BaseModel):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     related_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     request_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    started_at: Mapped[DateTime | None] = mapped_column(DateTime, nullable=True)
-    finished_at: Mapped[DateTime | None] = mapped_column(DateTime, nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
@@ -205,7 +207,7 @@ class ChunkModel(BaseModel):
     doc_domain: Mapped[str] = mapped_column(String(16), nullable=False, default="general")
     owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     group_id: Mapped[int | None] = mapped_column(ForeignKey("groups.id", ondelete="SET NULL"))
-    edited_at: Mapped[DateTime | None] = mapped_column(DateTime, nullable=True)
+    edited_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     edited_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     manual: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
 
@@ -226,7 +228,7 @@ class ChatLogModel(BaseModel):
     )
     question: Mapped[str] = mapped_column(Text, nullable=False)
     answer: Mapped[str] = mapped_column(Text, nullable=False)
-    sources: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    sources: Mapped[list | None] = mapped_column(JSON, nullable=True)
     latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     model_used: Mapped[str | None] = mapped_column(String(100), nullable=True)
     breadth: Mapped[str | None] = mapped_column(String(20), nullable=True)

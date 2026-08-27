@@ -223,7 +223,24 @@ class SQLAlchemyChunkRepository:
             )
 
         result = await self._session.execute(stmt)
-        return [self._to_chunk_search_result(row) for row in result.all()]
+        return [
+            ChunkSearchResult(
+                chunk_id=row[0],
+                document_id=row[1],
+                filename=row[2],
+                content=row[3],
+                chunk_index=row[4],
+                visibility=row[5],
+                doc_domain=row[6],
+                owner_id=row[7],
+                group_id=row[8],
+                edited_at=row[9],
+                edited_by=row[10],
+                manual=row[11],
+                creation_date=row[12],
+            )
+            for row in result.all()
+        ]
 
     async def delete_by_document_id(self, document_id: int) -> None:
         await self._session.execute(delete(ChunkModel).where(ChunkModel.document_id == document_id))

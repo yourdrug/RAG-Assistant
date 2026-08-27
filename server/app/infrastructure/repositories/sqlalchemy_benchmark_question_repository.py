@@ -19,7 +19,7 @@ class SQLAlchemyBenchmarkQuestionRepository:
         orm = result.scalar_one_or_none()
         return self._to_entity(orm) if orm else None
 
-    async def list(
+    async def list_items(
         self,
         *,
         dataset: str | None = None,

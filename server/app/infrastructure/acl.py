@@ -7,7 +7,16 @@ into Qdrant Filter objects. All business logic lives in domain/services/access_c
 
 from domain.services.access_control import get_visibility_conditions
 from domain.value_objects.roles import UserKind
-from qdrant_client.models import FieldCondition, Filter, MatchAny, MatchValue
+from qdrant_client.models import (
+    FieldCondition,
+    Filter,
+    HasIdCondition,
+    IsEmptyCondition,
+    IsNullCondition,
+    MatchAny,
+    MatchValue,
+    NestedCondition,
+)
 
 
 def build_qdrant_filter(
@@ -25,10 +34,15 @@ def build_qdrant_filter(
     """
     conditions = get_visibility_conditions(UserKind(user["kind"]), user["id"], group_ids, for_list=False)
 
-    should: list[FieldCondition | Filter] = []
+    ConditionType = (
+        FieldCondition | IsEmptyCondition | IsNullCondition | HasIdCondition | NestedCondition | Filter
+    )
+    should: list[ConditionType] = []
 
     for cond in conditions:
-        must = [FieldCondition(key="metadata.visibility", match=MatchValue(value=cond.visibility))]
+        must: list[ConditionType] = [
+            FieldCondition(key="metadata.visibility", match=MatchValue(value=cond.visibility)),
+        ]
 
         if cond.owner_match == "self":
             must.append(FieldCondition(key="metadata.owner_id", match=MatchValue(value=user["id"])))

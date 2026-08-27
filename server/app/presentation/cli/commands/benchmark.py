@@ -315,7 +315,7 @@ def _find_best_rerank_params(
     reranker,
 ) -> tuple[float, dict]:
     best_composite = 0.0
-    best_params = {"rerank_min_score": None, "rerank_score_gap_ratio": None}
+    best_params: dict[str, float | None] = {"rerank_min_score": None, "rerank_score_gap_ratio": None}
 
     for min_sc in rerank_min_list:
         for gap_rt in rerank_gap_list:

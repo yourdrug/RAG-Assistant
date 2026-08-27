@@ -13,7 +13,7 @@ class BenchmarkRunRepository(Protocol):
 
     async def create(self, run: BenchmarkRun) -> BenchmarkRun: ...
 
-    async def list(
+    async def list_items(
         self,
         *,
         sweep_id: int | None = None,

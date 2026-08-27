@@ -38,7 +38,7 @@ class GroupService:
                 raise EntityNotFound("User", user_id)
             if target.kind != UserKind.INTERNAL.value:
                 raise ValidationError(
-                    detail="Only internal employees can be added to groups",
+                    "Only internal employees can be added to groups",
                     field="user_id",
                 )
             await uow.groups.add_user(user_id, group_id)

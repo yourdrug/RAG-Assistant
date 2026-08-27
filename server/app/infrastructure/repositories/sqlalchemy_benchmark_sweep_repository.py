@@ -61,7 +61,7 @@ class SQLAlchemyBenchmarkSweepRepository:
             orm.best_run_id = run_id
             await self._db.flush()
 
-    async def list(
+    async def list_items(
         self,
         *,
         limit: int = 50,

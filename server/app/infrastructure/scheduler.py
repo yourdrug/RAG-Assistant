@@ -8,11 +8,16 @@ recurring background tasks (e.g. infra-metrics collection).
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable
 from functools import wraps
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from config import settings
+from infrastructure.ml.hybrid import BM25Index, save_bm25_index
+from infrastructure.ml.metrics import collect_infra_metrics
 
 if TYPE_CHECKING:
     from application.ports.unit_of_work_factory import UnitOfWorkFactory
@@ -123,8 +128,8 @@ class Scheduler:
     @handle_exceptions
     async def _periodic_job_cleanup(self) -> None:
         """Periodically delete old background job records."""
-        from config import settings
-
+        if self._uow_factory is None:
+            return
         async with self._uow_factory.create(master=True) as uow:
             deleted = await uow.background_jobs.delete_old(days=settings.job_cleanup_days)
             if deleted:
@@ -133,8 +138,6 @@ class Scheduler:
     @handle_exceptions
     async def _periodic_infra_collector(self) -> None:
         """Periodically update infrastructure Prometheus gauges."""
-        from infrastructure.ml.metrics import collect_infra_metrics
-
         await collect_infra_metrics(ml_clients=self._ml_clients)
 
     @handle_exceptions
@@ -150,6 +153,8 @@ class Scheduler:
     @handle_exceptions
     async def _periodic_recover_orphaned_jobs(self) -> None:
         """Recover background jobs stuck in 'running' state."""
+        if self._uow_factory is None:
+            return
         async with self._uow_factory.create(master=True) as uow:
             orphaned_ids = await uow.background_jobs.recover_orphaned(timeout_minutes=15)
             if orphaned_ids:
@@ -158,15 +163,11 @@ class Scheduler:
     @handle_exceptions
     async def _periodic_bm25_rebuild(self) -> None:
         """Rebuild BM25 index from scratch daily."""
-        import time
-        from pathlib import Path
-
-        from config import settings
-
-        from infrastructure.ml.hybrid import BM25Index, save_bm25_index
-
         if not settings.hybrid_enabled:
             logger.debug("BM25 rebuild skipped: hybrid search disabled")
+            return
+
+        if self._uow_factory is None:
             return
 
         t0 = time.monotonic()

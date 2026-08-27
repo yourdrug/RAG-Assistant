@@ -9,7 +9,7 @@ Naming convention: ``create_*`` for all providers (consistent prefix).
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar
 
 from fastapi import Request
 
@@ -42,6 +42,8 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("default")
 
+T = TypeVar("T")
+
 
 def _create_container(request: Request) -> Container:
     container = getattr(request.app.state, "container", None)
@@ -50,13 +52,21 @@ def _create_container(request: Request) -> Container:
     return container
 
 
+def _get_or_raise(value: T | None, name: str) -> T:
+    if value is None:
+        raise RuntimeError(f"{name} not initialized — Container.init() did not run")
+    return value
+
+
 # ---------------------------------------------------------------------------
 # Infrastructure
 # ---------------------------------------------------------------------------
 
 
 def create_ingestion_port(request: Request) -> IngestionService:
-    return _create_container(request).application.ingestion_service
+    return _get_or_raise(
+        _create_container(request).application.ingestion_service, "IngestionService"
+    )
 
 
 def create_preview_cache(request: Request):
@@ -71,83 +81,110 @@ def create_preview_cache(request: Request):
 
 
 def create_chat_service(request: Request) -> ChatService:
-    return _create_container(request).application.chat_service
+    return _get_or_raise(_create_container(request).application.chat_service, "ChatService")
 
 
 def create_auth_service(request: Request) -> AuthService:
-    return _create_container(request).application.auth_service
+    return _get_or_raise(_create_container(request).application.auth_service, "AuthService")
 
 
 def create_document_service(request: Request) -> DocumentService:
-    return _create_container(request).application.document_service
+    return _get_or_raise(
+        _create_container(request).application.document_service, "DocumentService"
+    )
 
 
 def create_chunk_service(request: Request) -> ChunkService:
-    return _create_container(request).application.chunk_service
+    return _get_or_raise(_create_container(request).application.chunk_service, "ChunkService")
 
 
 def create_ingest_service(request: Request) -> IngestAppService:
-    return _create_container(request).application.ingest_app_service
+    return _get_or_raise(
+        _create_container(request).application.ingest_app_service, "IngestAppService"
+    )
 
 
 def create_config_service(request: Request) -> ConfigService:
-    return _create_container(request).application.config_service
+    return _get_or_raise(_create_container(request).application.config_service, "ConfigService")
 
 
 def create_health_service(request: Request) -> HealthService:
-    return _create_container(request).application.health_service
+    return _get_or_raise(_create_container(request).application.health_service, "HealthService")
 
 
 def create_metrics_service(request: Request) -> MetricsService:
-    return _create_container(request).application.metrics_service
+    return _get_or_raise(
+        _create_container(request).application.metrics_service, "MetricsService"
+    )
 
 
 def create_config_admin_service(request: Request) -> ConfigAdminService:
-    return _create_container(request).application.config_admin_service
+    return _get_or_raise(
+        _create_container(request).application.config_admin_service, "ConfigAdminService"
+    )
 
 
 def create_pdf_diagnostic_service(request: Request) -> PDFDiagnosticService:
-    return _create_container(request).application.pdf_diagnostic_service
+    return _get_or_raise(
+        _create_container(request).application.pdf_diagnostic_service, "PDFDiagnosticService"
+    )
 
 
 def create_benchmark_result_service(request: Request) -> BenchmarkResultService:
-    return _create_container(request).application.benchmark_result_service
+    return _get_or_raise(
+        _create_container(request).application.benchmark_result_service, "BenchmarkResultService"
+    )
 
 
 def create_search_service(request: Request) -> SearchService:
-    return _create_container(request).application.search_service
+    return _get_or_raise(
+        _create_container(request).application.search_service, "SearchService"
+    )
 
 
 def create_conversation_service(request: Request) -> ConversationService:
-    return _create_container(request).application.conversation_service
+    return _get_or_raise(
+        _create_container(request).application.conversation_service, "ConversationService"
+    )
 
 
 def create_group_service(request: Request) -> GroupService:
-    return _create_container(request).application.group_service
+    return _get_or_raise(_create_container(request).application.group_service, "GroupService")
 
 
 def create_quality_service(request: Request) -> QualityService:
-    return _create_container(request).application.quality_service
+    return _get_or_raise(
+        _create_container(request).application.quality_service, "QualityService"
+    )
 
 
 def create_benchmark_question_service(request: Request) -> BenchmarkQuestionService:
-    return _create_container(request).application.benchmark_question_service
+    return _get_or_raise(
+        _create_container(request).application.benchmark_question_service,
+        "BenchmarkQuestionService",
+    )
 
 
 def create_benchmark_sweep_service(request: Request) -> BenchmarkSweepService:
-    return _create_container(request).application.benchmark_sweep_service
+    return _get_or_raise(
+        _create_container(request).application.benchmark_sweep_service, "BenchmarkSweepService"
+    )
 
 
 def create_benchmark_run_service(request: Request) -> BenchmarkRunService:
-    return _create_container(request).application.benchmark_run_service
+    return _get_or_raise(
+        _create_container(request).application.benchmark_run_service, "BenchmarkRunService"
+    )
 
 
 def create_job_service(request: Request) -> JobService:
-    return _create_container(request).application.job_service
+    return _get_or_raise(_create_container(request).application.job_service, "JobService")
 
 
 def create_chat_log_service(request: Request) -> ChatLogService:
-    return _create_container(request).application.chat_log_service
+    return _get_or_raise(
+        _create_container(request).application.chat_log_service, "ChatLogService"
+    )
 
 
 def create_api_key_provider(request: Request) -> ApiKeyProvider:

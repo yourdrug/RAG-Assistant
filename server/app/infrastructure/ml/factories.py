@@ -14,6 +14,7 @@ from config import settings
 from domain.value_objects.llm_provider import Breadth, LLMProvider
 from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
+from pydantic import SecretStr
 from qdrant_client import QdrantClient
 
 log = logging.getLogger("default")
@@ -74,12 +75,12 @@ def _create_ollama_llm() -> ChatOllama:
 
 def _create_openrouter_llm() -> ChatOpenAI:
     return ChatOpenAI(
-        model=settings.openrouter_model,
-        api_key=settings.openrouter_api_key,
-        base_url=settings.openrouter_base_url,
+        model_name=settings.openrouter_model,
+        openai_api_key=SecretStr(settings.openrouter_api_key) if settings.openrouter_api_key else None,
+        openai_api_base=settings.openrouter_base_url,
         temperature=settings.llm_temperature,
         max_tokens=settings.llm_num_predict_narrow,
-        timeout=120,
+        request_timeout=120,
         max_retries=2,
         stream_usage=True,
     )
@@ -105,12 +106,12 @@ def _create_openrouter_llm_for_breadth(breadth: str) -> ChatOpenAI:
         settings.llm_num_predict_broad if breadth == Breadth.BROAD else settings.llm_num_predict_narrow
     )
     return ChatOpenAI(
-        model=settings.openrouter_model,
-        api_key=settings.openrouter_api_key,
-        base_url=settings.openrouter_base_url,
+        model_name=settings.openrouter_model,
+        openai_api_key=SecretStr(settings.openrouter_api_key) if settings.openrouter_api_key else None,
+        openai_api_base=settings.openrouter_base_url,
         temperature=settings.llm_temperature,
         max_tokens=max_tokens,
-        timeout=120,
+        request_timeout=120,
         max_retries=2,
         stream_usage=True,
     )

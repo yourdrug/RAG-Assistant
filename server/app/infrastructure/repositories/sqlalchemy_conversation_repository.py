@@ -30,6 +30,26 @@ class SQLAlchemyConversationRepository:
             return None
         return Conversation(id=orm.id, user_id=orm.user_id, creation_date=orm.creation_date)
 
+    async def get(self, conversation_id: int) -> Conversation | None:
+        return await self.get_by_id(conversation_id)
+
+    async def save(self, conversation: Conversation) -> Conversation:
+        if conversation.id is not None:
+            result = await self._db.execute(
+                select(ConversationModel).where(ConversationModel.id == conversation.id)
+            )
+            orm = result.scalar_one_or_none()
+            if orm is not None:
+                orm.user_id = conversation.user_id
+                await self._db.flush()
+                return conversation
+        orm = ConversationModel(user_id=conversation.user_id)
+        self._db.add(orm)
+        await self._db.flush()
+        await self._db.refresh(orm)
+        conversation.id = orm.id
+        return conversation
+
     async def get_or_create(self, conversation_id: int | None, user_id: int) -> Conversation:
         if conversation_id:
             conv = await self.get_by_id(conversation_id)

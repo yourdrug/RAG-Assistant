@@ -11,8 +11,12 @@ import asyncio
 import logging
 from typing import Any
 
+from application.services.ingest_service import IngestAppService
 from config import settings
+from domain.entities.benchmark_run import BenchmarkRun
 from domain.value_objects.sweep_status import BenchmarkSweepStatus
+from infrastructure.ml.sweep_engine import SweepEngine
+from infrastructure.services.benchmark_service import BenchmarkService
 
 logger = logging.getLogger("default")
 
@@ -87,8 +91,6 @@ async def run_full_ingest(
     job_id: int,
 ) -> None:
     """Full document ingestion from a directory."""
-    from application.services.ingest_service import IngestAppService
-
     infra = ctx["container"].infrastructure
     uow_factory = infra.uow_factory
 
@@ -118,8 +120,6 @@ async def run_single_ingest(
     job_id: int,
 ) -> None:
     """Ingest a single file."""
-    from application.services.ingest_service import IngestAppService
-
     infra = ctx["container"].infrastructure
     uow_factory = infra.uow_factory
 
@@ -153,8 +153,6 @@ async def run_benchmark(
     """Run RAG quality benchmark."""
     uow_factory = ctx["container"].infrastructure.uow_factory
 
-    from infrastructure.services.benchmark_service import BenchmarkService
-
     service = BenchmarkService()
 
     try:
@@ -186,12 +184,7 @@ async def run_sweep(
     """Run a parameter sweep as a background job."""
     import json
 
-    from domain.entities.benchmark_run import BenchmarkRun
-
     uow_factory = ctx["container"].infrastructure.uow_factory
-
-    from infrastructure.ml.sweep_engine import SweepEngine
-    from infrastructure.services.benchmark_service import BenchmarkService
 
     try:
         async with uow_factory.create(master=True) as uow:
@@ -225,6 +218,9 @@ async def run_sweep(
             except Exception:
                 logger.debug("Failed to publish sweep progress to Redis", exc_info=True)
 
+        def _progress_callback(ev: int, tot: int, res: dict | None) -> None:
+            asyncio.create_task(_publish_progress(ev, tot, res))
+
         engine = SweepEngine(
             uow_factory=uow_factory,
             benchmark_service=BenchmarkService(),
@@ -234,7 +230,7 @@ async def run_sweep(
         results = await engine.run_sweep(
             sweep=sweep,
             judge_model=settings.llm_model,
-            progress_callback=lambda ev, tot, res: asyncio.create_task(_publish_progress(ev, tot, res)),
+            progress_callback=_progress_callback,
         )
 
         # Save best run to DB

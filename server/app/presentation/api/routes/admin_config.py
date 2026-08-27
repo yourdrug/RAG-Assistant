@@ -92,7 +92,7 @@ async def openrouter_models(
     info = await admin_service.get_openrouter_models()
     return OpenRouterModelsResponse(
         models=[OpenRouterModelInfo(**m) for m in info.models],
-        active_model=info.active_model,
+        active_model=info.active_model or "",
     )
 
 

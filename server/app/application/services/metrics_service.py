@@ -12,7 +12,7 @@ class MetricsResult:
     db_pool: dict[str, float] = field(default_factory=dict)
     qdrant: dict[str, float] = field(default_factory=dict)
     bm25: dict[str, float] = field(default_factory=dict)
-    ollama: list[dict[str, float]] = field(default_factory=list)
+    ollama: list[dict[str, object]] = field(default_factory=list)
     rag: dict[str, object] = field(default_factory=dict)
     ingestion: dict[str, object] = field(default_factory=dict)
     http_requests: dict[str, object] = field(default_factory=dict)
@@ -59,7 +59,7 @@ class MetricsService:
         rag_answer_len = reg.collect_histogram("rag_answer_length_chars")
         rag_chunks = reg.collect_histogram("rag_retrieved_chunks")
         rag_not_found = reg.collect_counter("rag_not_found")
-        rag = {
+        rag: dict[str, object] = {
             "queries_total": sum(rag_queries.values()) if rag_queries else 0.0,
             "not_found_total": sum(rag_not_found.values()) if rag_not_found else 0.0,
             "stage_latency": rag_latency,
@@ -75,7 +75,7 @@ class MetricsService:
         ingest_pdf_pages = reg.collect_counter("ingest_pdf_pages")
         ingest_pdf_bad_ratio = reg.collect_histogram("ingest_pdf_bad_ratio")
 
-        ingestion = {
+        ingestion: dict[str, object] = {
             "documents_total": sum(ingest_docs.values()) if ingest_docs else 0.0,
             "chunks_total": sum(ingest_chunks.values()) if ingest_chunks else 0.0,
             "files_total": sum(ingest_files.values()) if ingest_files else 0.0,
@@ -98,7 +98,7 @@ class MetricsService:
         # HTTP requests
         http_requests_raw = reg.collect_counter("http_requests")
         total_requests = sum(http_requests_raw.values())
-        http_requests = {
+        http_requests: dict[str, object] = {
             "total": total_requests,
             "by_endpoint": http_requests_raw,
         }

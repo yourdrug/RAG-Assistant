@@ -33,6 +33,7 @@ log = logging.getLogger(__name__)
 
 def to_document_dto(doc: Document, **overrides) -> DocumentDTO:
     """Convert a Document entity to a DocumentDTO."""
+    assert doc.id is not None
     return DocumentDTO(
         id=doc.id,
         filename=doc.filename,
@@ -105,8 +106,8 @@ class DocumentService:
         uow,
         existing,
         filename: str,
-        owner_id: int,
-        effective_group_id,
+        owner_id: int | None,
+        effective_group_id: int | None,
         rename_on_conflict: bool,
     ) -> tuple[str, int | None]:
         replace_id = None
@@ -147,6 +148,7 @@ class DocumentService:
             validate_document_visibility(vis, group_id, user_kind_enum, user_role_enum, user_group_ids)
 
             if vis == DocumentVisibility.INTERNAL_GROUP:
+                assert group_id is not None
                 groups = await uow.groups.list_by_ids([group_id])
                 if not groups:
                     raise EntityNotFound("Group", group_id)
@@ -194,11 +196,13 @@ class DocumentService:
                     ) from exc
                 raise
 
+            assert saved_doc.id is not None
             key = self._storage_key(owner_id, effective_group_id, saved_doc.id, filename)
             await self._file_storage.upload_file(key, file_data)
             await uow.documents.set_source_path(saved_doc.id, key)
 
             final_doc = await uow.documents.get_by_id(saved_doc.id)
+            assert final_doc is not None
             return to_document_dto(final_doc, storage_key=key, replace_id=replace_id)
 
     async def list_uploadable_clients(self, user_id: int, user_kind: str, user_role: str) -> list[dict]:

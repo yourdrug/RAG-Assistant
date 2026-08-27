@@ -43,7 +43,7 @@ class ApiKeyProvider:
 
     def __init__(self) -> None:
         self._pubsub_started = False
-        self._pubsub_task: asyncio.Task | None = None  # type: ignore[type-arg]
+        self._pubsub_task: asyncio.Task[None] | None = None
 
     @staticmethod
     def generate_key() -> str:

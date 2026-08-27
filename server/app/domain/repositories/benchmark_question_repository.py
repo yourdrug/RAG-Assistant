@@ -11,7 +11,7 @@ from domain.entities.benchmark_question import BenchmarkQuestion
 class BenchmarkQuestionRepository(Protocol):
     async def get_by_id(self, question_id: int) -> BenchmarkQuestion | None: ...
 
-    async def list(
+    async def list_items(
         self,
         *,
         dataset: str | None = None,

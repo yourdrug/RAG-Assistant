@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 
 from domain.entities.benchmark_question import BenchmarkQuestion
 from domain.entities.benchmark_sweep import BenchmarkSweep
@@ -20,7 +21,7 @@ class BenchmarkQuestionService:
 
     async def list(self, dataset=None, tag=None, search=None, is_active=None, limit=50, offset=0):
         async with self._uow_factory.create() as uow:
-            questions = await uow.benchmark_questions.list(
+            questions = await uow.benchmark_questions.list_items(
                 dataset=dataset, tag=tag, search=search, is_active=is_active, limit=limit, offset=offset
             )
             total = await uow.benchmark_questions.count(
@@ -72,7 +73,7 @@ class BenchmarkQuestionService:
 
     async def export(self, dataset=None):
         async with self._uow_factory.create() as uow:
-            return await uow.benchmark_questions.list(dataset=dataset, limit=10000)
+            return await uow.benchmark_questions.list_items(dataset=dataset, limit=10000)
 
 
 class BenchmarkSweepService:
@@ -101,7 +102,7 @@ class BenchmarkSweepService:
 
     async def list(self, limit=50, offset=0):
         async with self._uow_factory.create() as uow:
-            sweeps = await uow.benchmark_sweeps.list(limit=limit, offset=offset)
+            sweeps = await uow.benchmark_sweeps.list_items(limit=limit, offset=offset)
             total = await uow.benchmark_sweeps.count()
             return sweeps, total
 
@@ -111,7 +112,7 @@ class BenchmarkSweepService:
             if sweep is None:
                 raise EntityNotFound("BenchmarkSweep", sweep_id)
             if sweep.status not in (BenchmarkSweepStatus.PENDING.value, BenchmarkSweepStatus.RUNNING.value):
-                raise ValidationError(detail=f"Cannot cancel sweep in '{sweep.status}' status")
+                raise ValidationError(f"Cannot cancel sweep in '{sweep.status}' status")
             await uow.benchmark_sweeps.update_status(sweep_id, BenchmarkSweepStatus.CANCELLED.value)
 
     async def update_status(self, sweep_id: int, status: str):
@@ -133,7 +134,7 @@ class BenchmarkRunService:
         offset=0,
     ):
         async with self._uow_factory.create() as uow:
-            runs = await uow.benchmark_runs.list(
+            runs = await uow.benchmark_runs.list_items(
                 sweep_id=sweep_id,
                 dataset=dataset,
                 sort_by=sort_by,
@@ -151,21 +152,21 @@ class BenchmarkRunService:
             raise EntityNotFound("BenchmarkRun", run_id)
         return run
 
-    async def get_by_ids(self, ids: list[int]):
+    async def get_by_ids(self, ids: Sequence[int]):
         async with self._uow_factory.create() as uow:
-            return await uow.benchmark_runs.get_by_ids(ids)
+            return await uow.benchmark_runs.get_by_ids(list(ids))
 
-    async def compare(self, ids: list[int]):
+    async def compare(self, ids: Sequence[int]):
         if len(ids) < 2:
-            raise ValidationError(detail="Provide at least 2 run IDs")
+            raise ValidationError("Provide at least 2 run IDs")
         if len(ids) > 10:
-            raise ValidationError(detail="Maximum 10 runs for comparison")
+            raise ValidationError("Maximum 10 runs for comparison")
 
         runs = await self.get_by_ids(ids)
         if len(runs) != len(ids):
             found_ids = {r.id for r in runs}
             missing = [i for i in ids if i not in found_ids]
-            raise EntityNotFound("BenchmarkRuns", missing)
+            raise EntityNotFound("BenchmarkRuns", str(missing))
 
         diff = {}
         all_keys = set()

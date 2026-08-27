@@ -47,10 +47,13 @@ def _get_all_qdrant_doc_ids() -> set[int]:
 
 async def _get_all_postgres_doc_ids() -> set[int]:
     """Query Postgres for all document IDs with status != 'failed'."""
+    from sqlalchemy import text
+
     await database.connect()
     try:
-        rows = await database.fetch_all("SELECT id FROM documents WHERE status != 'failed'")
-        return {row["id"] for row in rows}
+        session = database.get_read_session()
+        result = await session.execute(text("SELECT id FROM documents WHERE status != 'failed'"))
+        return {row[0] for row in result.fetchall()}
     finally:
         await database.disconnect()
 

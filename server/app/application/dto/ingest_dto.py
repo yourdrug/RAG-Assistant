@@ -19,8 +19,8 @@ class IngestRegistryItemDTO:
     filename: str
     chunks: int
     chars: int
-    indexed_at: str
-    source: str
+    indexed_at: str | None = None
+    source: str = ""
 
 
 @dataclass(frozen=True)

@@ -135,10 +135,20 @@ class InfrastructureContainer:
         """
         from infrastructure.services.ingestion_service import IngestionService
 
+        vsr = self.vector_store_repo
+        if vsr is None:
+            raise RuntimeError("InfrastructureContainer.init() must be called first")
+        fs = self.file_storage
+        if fs is None:
+            raise RuntimeError("InfrastructureContainer.init() must be called first")
+        resolved_uow = uow_factory if uow_factory is not None else self.uow_factory
+        if resolved_uow is None:
+            raise RuntimeError("InfrastructureContainer.init() must be called first")
+
         return IngestionService(
-            vector_store_repo=self.vector_store_repo,
-            file_storage=self.file_storage,
-            uow_factory=uow_factory if uow_factory is not None else self.uow_factory,
+            vector_store_repo=vsr,
+            file_storage=fs,
+            uow_factory=resolved_uow,
         )
 
     def create_document_processor(
@@ -149,15 +159,40 @@ class InfrastructureContainer:
         from application.services.document_processor import DocumentProcessor
         from config import settings
 
+        vsr = self.vector_store_repo
+        if vsr is None:
+            raise RuntimeError("InfrastructureContainer.init() must be called first")
+        fs = self.file_storage
+        if fs is None:
+            raise RuntimeError("InfrastructureContainer.init() must be called first")
+        resolved_uow = uow_factory if uow_factory is not None else self.uow_factory
+        if resolved_uow is None:
+            raise RuntimeError("InfrastructureContainer.init() must be called first")
+        parser = self.document_parser
+        if parser is None:
+            raise RuntimeError("InfrastructureContainer.init() must be called first")
+        splitter = self.document_splitter
+        if splitter is None:
+            raise RuntimeError("InfrastructureContainer.init() must be called first")
+        extractor = self.content_extractor
+        if extractor is None:
+            raise RuntimeError("InfrastructureContainer.init() must be called first")
+        pdf_qa = self.pdf_quality_assessor
+        if pdf_qa is None:
+            raise RuntimeError("InfrastructureContainer.init() must be called first")
+        metrics = self.metrics_collector
+        if metrics is None:
+            raise RuntimeError("InfrastructureContainer.init() must be called first")
+
         return DocumentProcessor(
-            uow_factory=uow_factory if uow_factory is not None else self.uow_factory,
-            vector_store_repo=self.vector_store_repo,
-            file_storage=self.file_storage,
-            document_parser=self.document_parser,
-            document_splitter=self.document_splitter,
-            content_extractor=self.content_extractor,
-            pdf_quality_assessor=self.pdf_quality_assessor,
-            metrics=self.metrics_collector,
+            uow_factory=resolved_uow,
+            vector_store_repo=vsr,
+            file_storage=fs,
+            document_parser=parser,
+            document_splitter=splitter,
+            content_extractor=extractor,
+            pdf_quality_assessor=pdf_qa,
+            metrics=metrics,
             domain_marker_threshold=settings.document_domain_marker_threshold,
         )
 

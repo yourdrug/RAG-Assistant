@@ -43,7 +43,7 @@ class ChatService:
         self._rag_service = rag_service
         self._settings = chat_settings
         self._summary_updater = summary_updater
-        self._background_tasks: set[asyncio.Task] = set()  # type: ignore[type-arg]
+        self._background_tasks: set[asyncio.Task[None]] = set()
 
     # ------------------------------------------------------------------
     # Managed background tasks
@@ -161,6 +161,7 @@ class ChatService:
         # UoW 1: get/create conversation + history (get_or_create may INSERT)
         async with self._uow_factory.create(master=True) as uow:
             conv = await uow.conversations.get_or_create(conversation_id, user_id)
+            assert conv.id is not None
             history = await uow.messages.get_history(conv.id, window=self._settings.history_window)
             if history and history[-1].role == MessageRole.USER:
                 history = history[:-1]
@@ -256,6 +257,7 @@ class ChatService:
         # UoW 1: get/create conversation + history (get_or_create may INSERT)
         async with self._uow_factory.create(master=True) as uow:
             conv = await uow.conversations.get_or_create(conversation_id, user_id)
+            assert conv.id is not None
             history = await uow.messages.get_history(conv.id, window=self._settings.history_window)
             if history and history[-1].role == MessageRole.USER:
                 history = history[:-1]

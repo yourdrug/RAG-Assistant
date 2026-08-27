@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import sys
+from collections.abc import Sequence
 
 from arq.connections import RedisSettings
 from arq.worker import Worker
@@ -30,7 +31,7 @@ def worker(
     try:
         redis_settings = RedisSettings.from_dsn(settings.redis_url)
 
-        functions = [
+        functions: Sequence = [
             process_document,
             run_full_ingest,
             run_single_ingest,
@@ -78,6 +79,7 @@ async def _on_startup(ctx: dict) -> None:
     ctx["container"] = container
 
     listener = container.infrastructure.config_listener
+    assert listener is not None
 
     await listener.resync(trigger="worker_startup")
     logger.info("Worker: config synced from database")

@@ -70,7 +70,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     container.init(database)
     app.state.container = container
 
+    assert container.infrastructure.uow_factory is not None
     await initialize_app(container.infrastructure.uow_factory)
+    assert container.infrastructure.config_listener is not None
+    assert container.infrastructure.api_key_provider is not None
     await container.infrastructure.config_listener.start()
     await container.infrastructure.api_key_provider.start_pubsub_listener()
     await scheduler.startup(
@@ -83,6 +86,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     yield
 
     # --- Shutdown (reverse order) ---
+    assert container.infrastructure.config_listener is not None
+    assert container.infrastructure.api_key_provider is not None
     await container.infrastructure.config_listener.stop()
     await container.infrastructure.api_key_provider.stop_pubsub_listener()
     await container.dispose()
@@ -113,11 +118,11 @@ class Application:
         add_metrics_middleware(self.app)
 
     def add_exception_handlers(self) -> None:
-        self.app.add_exception_handler(ClientException, handle_client_exception)  # type: ignore[arg-type]
-        self.app.add_exception_handler(ServerException, handle_server_exception)  # type: ignore[arg-type]
-        self.app.add_exception_handler(HTTPException, handle_http_exception)  # type: ignore[arg-type]
-        self.app.add_exception_handler(RequestValidationError, handle_validation_exception)  # type: ignore[arg-type]
-        self.app.add_exception_handler(Exception, handle_unexpected_exception)  # type: ignore[arg-type]
+        self.app.add_exception_handler(ClientException, handle_client_exception)
+        self.app.add_exception_handler(ServerException, handle_server_exception)
+        self.app.add_exception_handler(HTTPException, handle_http_exception)
+        self.app.add_exception_handler(RequestValidationError, handle_validation_exception)
+        self.app.add_exception_handler(Exception, handle_unexpected_exception)
 
     def add_middlewares(self) -> None:
         self.app.add_middleware(

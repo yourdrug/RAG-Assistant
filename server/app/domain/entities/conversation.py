@@ -18,6 +18,7 @@ class Conversation:
     user_id: int = 0
     creation_date: datetime = field(default_factory=lambda: datetime.now(UTC))
     messages: list[Message] = field(default_factory=list)
+    summary: str | None = None
 
     def is_owned_by(self, user_id: int) -> bool:
         return self.user_id == user_id

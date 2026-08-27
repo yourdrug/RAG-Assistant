@@ -15,6 +15,7 @@ import itertools
 import logging
 import random
 from collections.abc import Callable
+from pathlib import Path
 
 from config import settings
 from domain.entities.benchmark_sweep import BenchmarkSweep
@@ -279,7 +280,7 @@ class SweepEngine:
             try:
                 self._apply_config(cfg["config"])
                 full_result = self._run_full_benchmark(
-                    questions_path or str(settings.data_dir / "test_questions.json"),
+                    questions_path or str(Path(settings.data_dir) / "test_questions.json"),
                     judge_model,
                 )
                 cfg["full_metrics"] = full_result
@@ -304,7 +305,9 @@ class SweepEngine:
         """Load questions from DB, falling back to file."""
         try:
             async with self._uow_factory.create() as uow:
-                questions = await uow.benchmark_questions.list(dataset=dataset, is_active=True, limit=1000)
+                questions = await uow.benchmark_questions.list_items(
+                    dataset=dataset, is_active=True, limit=1000
+                )
             if questions:
                 return [
                     {
@@ -319,7 +322,7 @@ class SweepEngine:
             logger.warning("Failed to load questions from DB: %s", e)
 
         # Fallback to file
-        path = questions_path or str(settings.data_dir / "test_questions.json")
+        path = questions_path or str(Path(settings.data_dir) / "test_questions.json")
         return load_questions(path)
 
     async def _cache_candidates(self, questions: list[dict], max_fetch_k: int) -> tuple[dict, dict, dict]:
@@ -494,7 +497,7 @@ class SweepEngine:
 
             self._benchmark_service = BenchmarkService()
 
-        out_dir = str(settings.data_dir / "benchmark_results")
+        out_dir = str(Path(settings.data_dir) / "benchmark_results")
         result = self._benchmark_service.run(
             questions_path=questions_path,
             out_dir=out_dir,

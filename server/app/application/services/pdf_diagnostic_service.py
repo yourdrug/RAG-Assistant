@@ -99,12 +99,12 @@ class PDFDiagnosticService:
             self._pdf.close(doc)
 
             types = [p.type for p in page_diagnostics]
-            summary = {
-                PageContentType.TEXT: types.count(PageContentType.TEXT),
-                PageContentType.SCAN: types.count(PageContentType.SCAN),
-                PageContentType.GARBLED: types.count(PageContentType.GARBLED),
-                PageContentType.EMPTY: types.count(PageContentType.EMPTY),
-                PageContentType.TABLE: types.count(PageContentType.TABLE),
+            summary: dict[str, int] = {
+                PageContentType.TEXT.value: types.count(PageContentType.TEXT),
+                PageContentType.SCAN.value: types.count(PageContentType.SCAN),
+                PageContentType.GARBLED.value: types.count(PageContentType.GARBLED),
+                PageContentType.EMPTY.value: types.count(PageContentType.EMPTY),
+                PageContentType.TABLE.value: types.count(PageContentType.TABLE),
             }
 
             return DocumentDiagnoseResult(
@@ -139,6 +139,7 @@ class PDFDiagnosticService:
             if page is not None:
                 has_table = self._pdf.find_tables(page)
 
+            ptype: str
             if has_table:
                 ptype = PageContentType.TABLE
             else:

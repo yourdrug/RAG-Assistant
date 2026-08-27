@@ -10,7 +10,7 @@ from domain.value_objects.document_status import DocumentStatus
 from domain.value_objects.owner_match import OwnerMatch
 from domain.value_objects.roles import UserKind
 from domain.value_objects.visibility import DocumentVisibility
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, distinct, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.database.models import DocumentModel
@@ -170,8 +170,6 @@ class SQLAlchemyDocumentRepository:
             await self._db.flush()
 
     async def list_distinct_filenames(self, search: str | None = None, limit: int = 100) -> list[str]:
-        from sqlalchemy import distinct
-
         stmt = select(distinct(DocumentModel.filename)).where(
             DocumentModel.status == DocumentStatus.DONE.value
         )

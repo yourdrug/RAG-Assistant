@@ -74,9 +74,7 @@ def _error(message: str, errors: dict | None = None) -> dict:
 
 async def handle_client_exception(request: Request, exc: Exception) -> JSONResponse:
     """4xx — client errors (validation, not found, auth, permissions)."""
-    if not isinstance(exc, ClientException):
-        logger.error("Unexpected exception in client handler", exc_info=exc)
-        return _json(_error("Internal Server Error"), status.HTTP_500_INTERNAL_SERVER_ERROR)
+    assert isinstance(exc, ClientException)
 
     status_code = status.HTTP_400_BAD_REQUEST
     for exc_type, code in _CLIENT_STATUS_MAP.items():
@@ -94,9 +92,7 @@ async def handle_client_exception(request: Request, exc: Exception) -> JSONRespo
 
 async def handle_server_exception(request: Request, exc: Exception) -> JSONResponse:
     """5xx — server errors (database, infrastructure)."""
-    if not isinstance(exc, ServerException):
-        logger.critical("Unexpected exception in server handler", exc_info=exc)
-        return _json(_error("Internal Server Error"), status.HTTP_500_INTERNAL_SERVER_ERROR)
+    assert isinstance(exc, ServerException)
 
     logger.error("Server exception: %s", exc, exc_info=True)
 
@@ -116,9 +112,7 @@ async def handle_server_exception(request: Request, exc: Exception) -> JSONRespo
 
 async def handle_http_exception(request: Request, exc: Exception) -> JSONResponse:
     """Handle standard FastAPI HTTPException."""
-    if not isinstance(exc, HTTPException):
-        logger.critical("Unexpected exception in HTTP handler", exc_info=exc)
-        return _json(_error("Internal Server Error"), status.HTTP_500_INTERNAL_SERVER_ERROR)
+    assert isinstance(exc, HTTPException)
 
     _AUTH_MESSAGES = {
         "Not authenticated": "Не авторизован",
@@ -135,9 +129,7 @@ async def handle_http_exception(request: Request, exc: Exception) -> JSONRespons
 
 async def handle_validation_exception(request: Request, exc: Exception) -> JSONResponse:
     """Handle Pydantic RequestValidationError (422)."""
-    if not isinstance(exc, RequestValidationError):
-        logger.critical("Unexpected exception in validation handler", exc_info=exc)
-        return _json(_error("Internal Server Error"), status.HTTP_500_INTERNAL_SERVER_ERROR)
+    assert isinstance(exc, RequestValidationError)
 
     _MESSAGES = {
         "missing": "Обязательное поле",

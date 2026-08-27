@@ -19,7 +19,7 @@ class BenchmarkSweepRepository(Protocol):
 
     async def set_best_run(self, sweep_id: int, run_id: int) -> None: ...
 
-    async def list(
+    async def list_items(
         self,
         *,
         limit: int = 50,

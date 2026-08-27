@@ -41,7 +41,10 @@ async def list_chunks(
         limit=limit,
         offset=offset,
     )
-    return ChunkListResponse(chunks=chunks, total=total, document_id=document_id)
+    chunk_responses = [ChunkResponse(**c) for c in chunks]
+    return ChunkListResponse(
+        chunks=chunk_responses, total=total, document_id=document_id,
+    )
 
 
 @router.post("/documents/{document_id}/chunks", response_model=ChunkResponse)

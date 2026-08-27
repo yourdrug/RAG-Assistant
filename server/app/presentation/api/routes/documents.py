@@ -115,7 +115,7 @@ async def upload_document(
 
     await enqueue_document_processing(
         document_id=result.id,
-        storage_key=result.storage_key,
+        storage_key=result.storage_key or "",
         filename=result.filename,
         visibility=visibility,
         owner_id=result.owner_id,

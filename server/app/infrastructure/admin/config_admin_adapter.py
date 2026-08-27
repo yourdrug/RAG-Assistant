@@ -36,6 +36,18 @@ class QdrantInfo:
                 info = client.get_collection(col.name)
                 vectors_cfg = info.config.params.vectors if info.config.params.vectors else None
                 hnsw_cfg = info.config.hnsw_config
+                vector_size = None
+                vector_distance = None
+                if isinstance(vectors_cfg, dict):
+                    if vectors_cfg:
+                        first = next(iter(vectors_cfg.values()))
+                        vector_size = first.size
+                        d = first.distance
+                        vector_distance = str(d.value) if hasattr(d, "value") else str(d)
+                elif vectors_cfg is not None:
+                    vector_size = vectors_cfg.size
+                    d = vectors_cfg.distance
+                    vector_distance = str(d.value) if hasattr(d, "value") else str(d)
                 result.append(
                     {
                         "name": col.name,
@@ -54,14 +66,8 @@ class QdrantInfo:
                         "hnsw_m": hnsw_cfg.m if hnsw_cfg else None,
                         "hnsw_ef_construct": hnsw_cfg.ef_construct if hnsw_cfg else None,
                         "on_disk_payload": info.config.params.on_disk_payload if info.config.params else None,
-                        "vector_size": vectors_cfg.size if vectors_cfg else None,
-                        "distance": (
-                            str(vectors_cfg.distance.value)
-                            if vectors_cfg and hasattr(vectors_cfg.distance, "value")
-                            else str(vectors_cfg.distance)
-                            if vectors_cfg
-                            else None
-                        ),
+                        "vector_size": vector_size,
+                        "distance": vector_distance,
                     }
                 )
             return result

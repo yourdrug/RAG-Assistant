@@ -25,6 +25,7 @@ class JobService:
         )
         async with self._uow_factory.create(master=True) as uow:
             created = await uow.background_jobs.create(job)
+            assert created.id is not None
             return created.id
 
     async def list_recent(self, limit: int = 50, offset: int = 0):

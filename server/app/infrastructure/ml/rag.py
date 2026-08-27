@@ -262,7 +262,7 @@ def format_docs(docs, max_context_tokens: int = 6000) -> str:
     Respects context budget: truncates docs list if total estimated tokens exceed limit.
     qwen2.5:14b supports ~32k context, but we reserve space for system prompt + history + response.
     """
-    parts = []
+    parts: list[str] = []
     total_chars = 0
     max_chars = max_context_tokens * CHARS_PER_TOKEN
 
@@ -314,7 +314,7 @@ def format_docs(docs, max_context_tokens: int = 6000) -> str:
 
 def history_to_messages(history: list[dict]):
     """Конвертирует историю из БД в LangChain-сообщения."""
-    messages = []
+    messages: list[HumanMessage | AIMessage] = []
     for msg in history:
         if msg["role"] == MessageRole.USER.value:
             messages.append(HumanMessage(content=msg["content"]))
@@ -350,7 +350,7 @@ def _collect_source_metadata(
     if pages_list:
         pages_set.update(pages_list)
     elif page_start is not None and page_end is not None:
-        pages_set.update(range(page_start, page_end + 1))
+        pages_set.update(str(p) for p in range(page_start, page_end + 1))
     elif page is not None:
         pages_set.add(page)
 

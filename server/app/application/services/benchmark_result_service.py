@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
 
@@ -22,7 +23,7 @@ class BenchmarkResultSummary:
     llm_evaluated: bool = False
     dataset: str = "main"
     sweep_id: int | None = None
-    creation_date: object = None
+    creation_date: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -49,7 +50,7 @@ class BenchmarkResultService:
         offset: int = 0,
     ) -> BenchmarkResultsList:
         async with self._uow_factory.create() as uow:
-            runs = await uow.benchmark_runs.list(
+            runs = await uow.benchmark_runs.list_items(
                 dataset=dataset,
                 limit=limit,
                 offset=offset,
@@ -68,6 +69,7 @@ class BenchmarkResultService:
                 creation_date=r.creation_date,
             )
             for r in runs
+            if r.id is not None
         ]
         return BenchmarkResultsList(results=summaries, total=total)
 
@@ -78,8 +80,9 @@ class BenchmarkResultService:
         if run is None:
             return None
 
+        assert run.id is not None
         summary = BenchmarkResultSummary(
-            id=run.id,
+            id=run.id or 0,
             config_json=run.config_json,
             summary_metrics=run.summary_metrics,
             duration_sec=run.duration_sec,
@@ -89,7 +92,7 @@ class BenchmarkResultService:
             creation_date=run.creation_date,
         )
         return BenchmarkResultDetail(
-            id=run.id,
+            id=run.id or 0,
             summary=summary,
             per_question_results=run.per_question_results,
         )

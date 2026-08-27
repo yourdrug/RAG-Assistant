@@ -39,6 +39,7 @@ class AuthService:
             if not await self._hasher.verify(command.password, user.hashed_password):
                 raise ValidationError("Invalid email or password")
 
+            assert user.id is not None
             token = self._tokens.create_token(user_id=user.id, role=user.role)
             return LoginResult(access_token=token, role=user.role, kind=user.kind)
 
@@ -63,6 +64,7 @@ class AuthService:
             user.hashed_password = await self._hasher.hash(command.password)
             saved = await uow.users.save(user)
 
+            assert saved.id is not None
             return UserDTO(
                 id=saved.id,
                 email=saved.email,
@@ -76,7 +78,7 @@ class AuthService:
             users = await uow.users.list_all()
             return [
                 UserDTO(
-                    id=u.id,
+                    id=u.id if u.id is not None else 0,
                     email=u.email,
                     role=u.role,
                     kind=u.kind,

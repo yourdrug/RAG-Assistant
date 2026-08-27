@@ -184,6 +184,7 @@ class IngestionService:
                 src = info.get("source", "")
                 existing = await uow.documents.find_active_slot(None, fname, None)
                 if existing:
+                    assert existing.id is not None
                     doc_id = existing.id
                     file_chunks = sum(1 for c in chunks if c.metadata.get("source") == src)
                     file_chars = source_chars.get(src, 0)
@@ -193,6 +194,7 @@ class IngestionService:
                 else:
                     doc = DocEntity(filename=fname, visibility=DocumentVisibility.INTERNAL_PUBLIC)
                     saved = await uow.documents.save(doc)
+                    assert saved.id is not None
                     doc_id = saved.id
                     file_chunks = info.get("chunks", 0)
                     file_chars = info.get("chars", 0)
@@ -494,6 +496,7 @@ class IngestionService:
         force: bool = False,
         prefix: str | None = None,
     ) -> tuple[list, int]:
+        items: list = []
         if settings.file_backend == FileBackend.S3.value:
             s3_prefix = prefix or "docs/"
             items = self._file_storage.list_files(s3_prefix)
@@ -503,7 +506,6 @@ class IngestionService:
             if not docs_path.exists():
                 log.error("Folder not found: %s", docs_dir)
                 return [], 0
-            items = None
             local_files = sorted(
                 f
                 for f in docs_path.rglob("*")

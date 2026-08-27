@@ -41,7 +41,7 @@ class LevelMinFilter(logging.Filter):
 
 class RequestIDFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
-        record.request_id = request_id_ctx.get("-")  # type: ignore[attr-defined]
+        vars(record)["request_id"] = request_id_ctx.get("-")
         return True
 
 

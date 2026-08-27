@@ -90,7 +90,7 @@ class SQLAlchemyBackgroundJobRepository:
             delete(BackgroundJobModel).where(BackgroundJobModel.creation_date < cutoff)
         )
         await self._db.flush()
-        return result.rowcount  # type: ignore[return-value]
+        return result.rowcount or 0
 
     async def list_recent(self, limit: int = 50, offset: int = 0) -> list[BackgroundJob]:
         result = await self._db.execute(

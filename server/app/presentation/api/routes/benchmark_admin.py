@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 
@@ -13,6 +14,7 @@ from application.services.benchmark_services import (
 from application.services.config_service import ConfigService
 from application.services.document_service import DocumentService
 from application.services.job_service import JobService
+from config import settings
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from infrastructure.worker.queue import enqueue_sweep
@@ -39,6 +41,7 @@ from presentation.api.schemas import (
     BenchmarkRunsListResponse,
     RegressionCheckResponse,
     RegressionCheckResult,
+    RunApplyFailed,
     RunApplyResponse,
     RunCompareResponse,
     SweepCreateRequest,
@@ -280,9 +283,6 @@ async def sweep_progress_stream(
     admin: dict = Depends(require_admin),
 ):
     """SSE stream: live progress + new results as they complete."""
-    import asyncio
-
-    from config import settings
 
     async def event_generator():
         try:
@@ -407,7 +407,7 @@ async def apply_run_config(
 
     config = run.config_json
     applied_keys = []
-    failed_keys = []
+    failed_keys: list[RunApplyFailed] = []
 
     key_mapping = {
         "top_k": "retriever_top_k",
@@ -428,7 +428,7 @@ async def apply_run_config(
                 applied_keys.append(param_key)
             except Exception as e:
                 logger.warning("Failed to apply %s=%s: %s", param_key, config[config_key], e)
-                failed_keys.append({"key": param_key, "error": str(e)})
+                failed_keys.append(RunApplyFailed(key=param_key, error=str(e)))
 
     return RunApplyResponse(applied=len(applied_keys), keys=applied_keys, failed=failed_keys)
 

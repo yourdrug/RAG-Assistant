@@ -28,6 +28,7 @@ from domain.value_objects.llm_provider import Breadth, LLMProvider
 from langchain.schema import Document
 from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
+from pydantic import SecretStr
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -202,9 +203,9 @@ def build_llm(model: str, base_url: str, provider: str = LLMProvider.OLLAMA):
     """Build LLM instance based on provider."""
     if provider == LLMProvider.OPENROUTER:
         return ChatOpenAI(
-            model=model,
-            api_key=settings.openrouter_api_key,
-            base_url=settings.openrouter_base_url,
+            model_name=model,
+            openai_api_key=SecretStr(settings.openrouter_api_key) if settings.openrouter_api_key else None,
+            openai_api_base=settings.openrouter_base_url,
             temperature=0.0,
         )
     return ChatOllama(
@@ -242,7 +243,8 @@ def get_rag_answer(llm: ChatOllama, docs_with_scores: list[tuple[Document, float
     for attempt in range(1, JUDGE_MAX_RETRIES + 1):
         try:
             response = llm.invoke(full_prompt)
-            return response.content.strip()
+            content = response.content
+            return content.strip() if isinstance(content, str) else str(content).strip()
         except Exception as exc:
             last_exc = exc
             if attempt < JUDGE_MAX_RETRIES:
@@ -257,7 +259,8 @@ def get_rag_answer(llm: ChatOllama, docs_with_scores: list[tuple[Document, float
                 time.sleep(delay)
             else:
                 logger.error("RAG LLM invoke failed after %d attempts: %s", JUDGE_MAX_RETRIES, exc)
-    raise last_exc  # type: ignore[misc]
+    assert last_exc is not None
+    raise last_exc
 
 
 # ---------------------------------------------------------------------------
@@ -409,7 +412,7 @@ def judge_answer(
             question=question, expected=expected_answer, answer=answer
         )
 
-    scores = {}
+    scores: dict[str, float | str | None] = {}
     for key, prompt in prompts.items():
         try:
             result = _judge_with_structured_output(client, prompt, model)
@@ -449,16 +452,17 @@ async def judge_answer_async(
     async def _judge_one(prompt: str) -> JudgeScore:
         import asyncio as _asyncio
 
+        def _call() -> JudgeScore:
+            return client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                response_model=JudgeScore,
+                max_retries=3,
+            )
+
         for attempt in range(1, JUDGE_MAX_RETRIES + 1):
             try:
-                result = await _asyncio.to_thread(
-                    lambda p=prompt: client.chat.completions.create(
-                        model=model,
-                        messages=[{"role": "user", "content": p}],
-                        response_model=JudgeScore,
-                        max_retries=3,
-                    )
-                )
+                result = await _asyncio.to_thread(_call)
                 return result
             except Exception as exc:
                 if attempt == JUDGE_MAX_RETRIES:
@@ -477,7 +481,7 @@ async def judge_answer_async(
     keys = list(prompts.keys())
     raw_results = await asyncio.gather(*[_judge_one(prompts[k]) for k in keys])
 
-    scores = {}
+    scores: dict[str, float | str | None] = {}
     for key, result in zip(keys, raw_results, strict=False):
         scores[key] = max(0.0, min(10.0, result.score))
         scores[f"{key}_reason"] = result.reason
@@ -558,7 +562,11 @@ def compute_context_precision_recall(
 
     context = "\n\n---\n\n".join(d.page_content for d, _ in docs_with_scores)
 
-    result = {"context_precision": None, "context_precision_reason": "", "context_recall": None}
+    result: dict[str, float | str | None] = {
+        "context_precision": None,
+        "context_precision_reason": "",
+        "context_recall": None,
+    }
 
     # Context precision
     try:
@@ -1067,4 +1075,4 @@ async def run_benchmark_async(
         log_summary(list(results), total_time)
         all_results.extend(results)
 
-    save_results(all_results, out_dir, model_name=settings.llm_model, run_id="all" if n_runs > 1 else None)
+    save_results(all_results, out_dir, model_name=settings.llm_model, run_id="all" if n_runs > 1 else "")

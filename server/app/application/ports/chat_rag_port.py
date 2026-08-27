@@ -18,7 +18,7 @@ from application.dto.chat_dto import RagResult
 
 @runtime_checkable
 class ChatRAGPort(Protocol):
-    async def stream(
+    def stream(
         self,
         question: str,
         history: list,

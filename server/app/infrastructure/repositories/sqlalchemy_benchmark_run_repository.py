@@ -35,7 +35,7 @@ class SQLAlchemyBenchmarkRunRepository:
         await self._db.refresh(orm)
         return self._to_entity(orm)
 
-    async def list(
+    async def list_items(
         self,
         *,
         sweep_id: int | None = None,

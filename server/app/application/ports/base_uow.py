@@ -50,7 +50,7 @@ class BaseUnitOfWork(ABC):  # noqa: B024
             with suppress(Exception):
                 await self._session.close()
 
-    async def publish_event(self, event: object) -> None:  # type: ignore[override]  # noqa: B027
+    async def publish_event(self, event: object) -> None:  # noqa: B027
         """Publish a domain event within the current transaction.
 
         Subclasses can override this to send notifications (e.g. pg_notify)

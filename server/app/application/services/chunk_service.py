@@ -52,7 +52,7 @@ class ChunkService:
         user_role: str,
         limit: int = 50,
         offset: int = 0,
-    ) -> list[dict]:
+    ) -> tuple[list[dict], int]:
         """List chunks for a document with pagination."""
         async with self._uow_factory.create() as uow:
             doc = await uow.documents.get_by_id(document_id)

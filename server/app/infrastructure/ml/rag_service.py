@@ -11,12 +11,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+import uuid
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING
 
 from application.dto.chat_dto import RagResult
 from config import settings
 from domain.services.rag_policy import classify_query_domain, has_exact_reference
+from domain.utils import compute_reranker_score
 from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.llm_provider import BREADTH_ALIASES, Breadth, LLMProvider
@@ -448,8 +450,6 @@ class RagService:
             "Если нет — верни needs_decomposition=false."
         )
 
-        import asyncio
-
         result = await asyncio.to_thread(
             lambda: client.chat.completions.create(
                 model=model,
@@ -487,8 +487,6 @@ class RagService:
         )
         user_msg = f"Вопрос: {question}\n\nКонтекст:\n{context}"
 
-        import asyncio
-
         result = await asyncio.to_thread(
             lambda: llm_client.chat.completions.create(
                 model=model,
@@ -503,8 +501,8 @@ class RagService:
         return result
 
     def _resolve_breadth(self, ctx: ChatContext, query_for_search: str) -> Breadth:
-        breadth = ctx.depth if ctx.depth in BREADTH_ALIASES else classify_question_breadth(query_for_search)
-        breadth = BREADTH_ALIASES.get(breadth) or breadth
+        raw = ctx.depth if ctx.depth in BREADTH_ALIASES else classify_question_breadth(query_for_search)
+        breadth = BREADTH_ALIASES.get(raw) or Breadth(raw)
         RAG_BREADTH_TOTAL.labels(breadth=breadth).inc()
         return breadth
 
@@ -599,8 +597,6 @@ class RagService:
         # Set request_id for tracing through the pipeline
         req_id = request_id_ctx.get("")
         if not req_id:
-            import uuid
-
             req_id = uuid.uuid4().hex[:12]
             request_id_ctx.set(req_id)
 
@@ -860,14 +856,12 @@ class RagService:
         # Extract metadata from the last stream call for logging
         query_for_search = question
         try:
-            breadth = classify_question_breadth(query_for_search)
+            breadth = Breadth(classify_question_breadth(query_for_search))
         except Exception:
             pass
         domain = classify_query_domain(query_for_search)
         retrieval_count = len(sources)
         if sources:
-            from domain.utils import compute_reranker_score
-
             reranker_score = compute_reranker_score(sources)
 
         return RagResult(

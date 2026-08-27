@@ -22,6 +22,7 @@ from application.ports.document_processing import (
     ContentExtractorPort,
     MetricsCollectorPort,
     PDFQualityAssessorPort,
+    PDFQualityReport,
 )
 from application.ports.file_storage import FileStorage
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
@@ -54,7 +55,7 @@ class DocumentProcessor:
 
     def _assess_pdf_quality_for_docs(
         self, temp_path: Path, original_filename: str, document_id: int, docs: list
-    ) -> tuple[object | None, str | None]:
+    ) -> tuple[PDFQualityReport | None, str | None]:
         if Path(original_filename).suffix.lower() != ".pdf":
             return None, None
         quality = self._pdf_assessor.assess(temp_path, docs)
@@ -117,7 +118,7 @@ class DocumentProcessor:
         raw_chunks: list,
         docs: list,
         warning_message: str | None,
-        quality,
+        quality: PDFQualityReport | None,
     ) -> None:
         total_chars = sum(len(d.page_content) for d in docs)
         await uow.documents.update_status(
