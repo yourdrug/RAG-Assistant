@@ -1,0 +1,12 @@
+.initialized
+.env
+.venv
+.data
+.profiling
+.mypy_cache
+.ruff_cache
+**_rst/
+__pycache__
+__*.*
+__*
+!__init__.py

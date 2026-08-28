@@ -19,30 +19,22 @@ export VERSION
 export STAGE=production
 export BUILD_TARGET=$( [[ "$GPU" == true ]] && echo "gpu" || echo "cpu" )
 
+COMPOSE_FILES="-f docker-compose.yml -f docker-compose.prod.yml"
+[[ "$GPU" == true ]] && COMPOSE_FILES="$COMPOSE_FILES -f docker-compose.gpu.yml"
+
 echo "==> Deploying ${VERSION} (target: ${BUILD_TARGET})"
 
 # Pull from GHCR
-docker compose \
-  -f docker-compose.yml \
-  -f docker-compose.prod.yml \
-  ${GPU:+-f docker-compose.gpu.yml} \
-  pull server worker
+docker compose $COMPOSE_FILES pull server worker
 
-# Tag so compose doesn't try to rebuild (build: is in base compose)
-docker tag ghcr.io/yourdrug/rag-assistant:${VERSION} rag-server:${STAGE}-${BUILD_TARGET}-${VERSION}
-docker tag ghcr.io/yourdrug/rag-assistant:${VERSION} rag-server:${STAGE}-${BUILD_TARGET}-latest
-docker tag ghcr.io/yourdrug/rag-assistant:${VERSION} rag-worker:${STAGE}-${BUILD_TARGET}-${VERSION}
-docker tag ghcr.io/yourdrug/rag-assistant:${VERSION} rag-worker:${STAGE}-${BUILD_TARGET}-latest
+# Stop old containers (avoids GPU reservation conflicts when switching modes)
+docker compose $COMPOSE_FILES down --remove-orphans 2>/dev/null || true
 
 # Start
-docker compose \
-  -f docker-compose.yml \
-  -f docker-compose.prod.yml \
-  ${GPU:+-f docker-compose.gpu.yml} \
-  up -d --remove-orphans
+docker compose $COMPOSE_FILES up -d --remove-orphans
 
 # Migrations
-docker compose exec -T server alembic upgrade head 2>/dev/null || true
+docker compose $COMPOSE_FILES exec -T server alembic upgrade head 2>/dev/null || true
 
 # Cleanup
 docker image prune -f
