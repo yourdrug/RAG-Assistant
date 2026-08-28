@@ -403,7 +403,7 @@ services:
       - name: minio-console
         target: 9001
         published: 9001
-        host_ip: 127.0.0.1
+        host_ip: 0.0.0.0
         protocol: tcp
         mode: host
     env_file:
@@ -475,13 +475,7 @@ services:
     ports:
       - name: caddy-http
         target: 80
-        published: 80
-        host_ip: 0.0.0.0
-        protocol: tcp
-        mode: host
-      - name: caddy-https
-        target: 443
-        published: 443
+        published: 8080
         host_ip: 0.0.0.0
         protocol: tcp
         mode: host

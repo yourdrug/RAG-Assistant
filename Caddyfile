@@ -1,10 +1,4 @@
-{
-    email {$ACME_EMAIL}
-    local_certs
-}
-
-"{$DOMAIN}" {
-    tls /etc/caddy/certs/{$DOMAIN}.crt /etc/caddy/certs/{$DOMAIN}.key
+http://{$DOMAIN}:80 {
 
     handle /openapi.json {
         reverse_proxy server:8001
@@ -36,7 +30,6 @@
     }
 
     header {
-        Strict-Transport-Security "max-age=31536000; includeSubDomains"
         X-Content-Type-Options "nosniff"
         X-Frame-Options "DENY"
         -Server
