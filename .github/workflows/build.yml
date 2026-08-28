@@ -61,7 +61,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          target: production-${{ inputs.build_target || 'cpu' }}
+          target: prod-${{ inputs.build_target || 'cpu' }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
