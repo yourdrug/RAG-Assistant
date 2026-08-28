@@ -43,7 +43,9 @@ async def list_chunks(
     )
     chunk_responses = [ChunkResponse(**c) for c in chunks]
     return ChunkListResponse(
-        chunks=chunk_responses, total=total, document_id=document_id,
+        chunks=chunk_responses,
+        total=total,
+        document_id=document_id,
     )
 
 

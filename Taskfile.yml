@@ -80,6 +80,7 @@ tasks:
       - >
         {{.COMPOSE}} -f docker-compose.yml
         {{if not (contains "prod" .CLI_ARGS)}}-f docker-compose.dev.yml{{end}}
+        {{if contains "prod" .CLI_ARGS}}-f docker-compose.prod.yml{{end}}
         {{if contains "gpu" .CLI_ARGS}}-f docker-compose.gpu.yml{{end}}
         {{if contains "public" .CLI_ARGS}}--profile domain{{end}}
         up -d
@@ -129,6 +130,18 @@ tasks:
     cmds:
       - |
         echo "Current version: $(cat VERSION)"
+
+  release:
+    desc: "Тегировать и запушить релиз (task release -- 0.6.0) — CI соберёт и запушит образ в GHCR"
+    cmds:
+      - git tag v{{.CLI_ARGS}}
+      - git push origin v{{.CLI_ARGS}}
+      - 'echo "Tag v{{.CLI_ARGS}} pushed — CI build.yml will push ghcr.io/yourdrug/rag-assistant:v{{.CLI_ARGS}}"'
+
+  deploy:
+    desc: "Деплой на сервер (task deploy -- v0.6.0 [--gpu])"
+    cmds:
+      - ./deploy.sh {{.CLI_ARGS}}
 
   restart:
     desc: "Перезапустить сервис (task restart -- server)"

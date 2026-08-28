@@ -131,9 +131,9 @@ services:
         - |
           host=postgres
           port=5432
-          user=postgres
-          password=${DB_PASSWORD}
-          dbname=${DB_NAME}
+          user=raguser
+          password=ragpassword
+          dbname=ragdb
         - "-c"
         - "SELECT 'OK'"
       interval: 30s

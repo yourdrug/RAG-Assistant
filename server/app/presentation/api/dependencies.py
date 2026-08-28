@@ -64,9 +64,7 @@ def _get_or_raise(value: T | None, name: str) -> T:
 
 
 def create_ingestion_port(request: Request) -> IngestionService:
-    return _get_or_raise(
-        _create_container(request).application.ingestion_service, "IngestionService"
-    )
+    return _get_or_raise(_create_container(request).application.ingestion_service, "IngestionService")
 
 
 def create_preview_cache(request: Request):
@@ -89,9 +87,7 @@ def create_auth_service(request: Request) -> AuthService:
 
 
 def create_document_service(request: Request) -> DocumentService:
-    return _get_or_raise(
-        _create_container(request).application.document_service, "DocumentService"
-    )
+    return _get_or_raise(_create_container(request).application.document_service, "DocumentService")
 
 
 def create_chunk_service(request: Request) -> ChunkService:
@@ -99,9 +95,7 @@ def create_chunk_service(request: Request) -> ChunkService:
 
 
 def create_ingest_service(request: Request) -> IngestAppService:
-    return _get_or_raise(
-        _create_container(request).application.ingest_app_service, "IngestAppService"
-    )
+    return _get_or_raise(_create_container(request).application.ingest_app_service, "IngestAppService")
 
 
 def create_config_service(request: Request) -> ConfigService:
@@ -113,15 +107,11 @@ def create_health_service(request: Request) -> HealthService:
 
 
 def create_metrics_service(request: Request) -> MetricsService:
-    return _get_or_raise(
-        _create_container(request).application.metrics_service, "MetricsService"
-    )
+    return _get_or_raise(_create_container(request).application.metrics_service, "MetricsService")
 
 
 def create_config_admin_service(request: Request) -> ConfigAdminService:
-    return _get_or_raise(
-        _create_container(request).application.config_admin_service, "ConfigAdminService"
-    )
+    return _get_or_raise(_create_container(request).application.config_admin_service, "ConfigAdminService")
 
 
 def create_pdf_diagnostic_service(request: Request) -> PDFDiagnosticService:
@@ -137,15 +127,11 @@ def create_benchmark_result_service(request: Request) -> BenchmarkResultService:
 
 
 def create_search_service(request: Request) -> SearchService:
-    return _get_or_raise(
-        _create_container(request).application.search_service, "SearchService"
-    )
+    return _get_or_raise(_create_container(request).application.search_service, "SearchService")
 
 
 def create_conversation_service(request: Request) -> ConversationService:
-    return _get_or_raise(
-        _create_container(request).application.conversation_service, "ConversationService"
-    )
+    return _get_or_raise(_create_container(request).application.conversation_service, "ConversationService")
 
 
 def create_group_service(request: Request) -> GroupService:
@@ -153,9 +139,7 @@ def create_group_service(request: Request) -> GroupService:
 
 
 def create_quality_service(request: Request) -> QualityService:
-    return _get_or_raise(
-        _create_container(request).application.quality_service, "QualityService"
-    )
+    return _get_or_raise(_create_container(request).application.quality_service, "QualityService")
 
 
 def create_benchmark_question_service(request: Request) -> BenchmarkQuestionService:
@@ -172,9 +156,7 @@ def create_benchmark_sweep_service(request: Request) -> BenchmarkSweepService:
 
 
 def create_benchmark_run_service(request: Request) -> BenchmarkRunService:
-    return _get_or_raise(
-        _create_container(request).application.benchmark_run_service, "BenchmarkRunService"
-    )
+    return _get_or_raise(_create_container(request).application.benchmark_run_service, "BenchmarkRunService")
 
 
 def create_job_service(request: Request) -> JobService:
@@ -182,9 +164,7 @@ def create_job_service(request: Request) -> JobService:
 
 
 def create_chat_log_service(request: Request) -> ChatLogService:
-    return _get_or_raise(
-        _create_container(request).application.chat_log_service, "ChatLogService"
-    )
+    return _get_or_raise(_create_container(request).application.chat_log_service, "ChatLogService")
 
 
 def create_api_key_provider(request: Request) -> ApiKeyProvider:
