@@ -17,7 +17,7 @@ import httpx
 
 log = logging.getLogger("default")
 
-TEI_TIMEOUT = 120.0
+TEI_TIMEOUT = 600.0
 RERANK_BATCH_SIZE = 16
 
 
@@ -72,7 +72,7 @@ class TEIRerankerClient:
         all_scores: list[float] = []
         async with httpx.AsyncClient(timeout=TEI_TIMEOUT) as client:
             for i in range(0, len(texts), RERANK_BATCH_SIZE):
-                batch = texts[i : i + RERANK_BATCH_SIZE]
+                batch = texts[i: i + RERANK_BATCH_SIZE]
                 payload = {"query": query, "texts": batch}
                 r = await client.post(f"{self._base_url}/rerank", json=payload)
                 r.raise_for_status()
@@ -88,7 +88,7 @@ class TEIRerankerClient:
         all_scores: list[float] = []
         with httpx.Client(timeout=TEI_TIMEOUT) as client:
             for i in range(0, len(texts), RERANK_BATCH_SIZE):
-                batch = texts[i : i + RERANK_BATCH_SIZE]
+                batch = texts[i: i + RERANK_BATCH_SIZE]
                 payload = {"query": query, "texts": batch}
                 r = client.post(f"{self._base_url}/rerank", json=payload)
                 r.raise_for_status()
