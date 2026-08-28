@@ -1,0 +1,16 @@
+auth_modules:
+  raguser:
+    username: raguser
+    password: ragpassword
+
+pg_stat_statements:
+  exclude_databases: ""
+  include_databases: ""
+
+pg_replication:
+  master:
+    host: postgres
+    port: 5432
+    user: raguser
+    password: ragpassword
+    database: ragdb

@@ -1,0 +1,14 @@
+apiVersion: 1
+
+datasources:
+  - name: Loki
+    type: loki
+    uid: P001
+    access: proxy
+    url: ${LOKI_URL}
+    jsonData:
+      tlsSkipVerify: true
+    editable: false
+    isDefault: true
+    orgId: 1
+    version: 1

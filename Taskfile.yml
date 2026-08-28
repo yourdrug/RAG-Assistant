@@ -27,6 +27,7 @@ tasks:
       - task: build
       - 'echo "Готово. Дальше:  task up  →  task pull-model  →  task login email=... password=...  →  task ingest  →  task chat -- \"вопрос\""'
       - 'echo "Свой домен вместо localhost:8001?  task up -- public  (нужен DOMAIN в .env — см. README)"'
+      - 'echo "Мониторинг (Grafana/Prometheus/pgAdmin/RedisInsight):  task up -- monitoring"'
       - 'echo "(Для GPU: task up -- gpu, для prod: task up -- prod)"'
 
   env:
@@ -42,7 +43,7 @@ tasks:
   data:create:
     desc: Создать все data-директории, необходимые для Docker-сервисов
     cmds:
-      - mkdir -p data/qdrant_storage data/ollama_models data/postgres data/minio data/nginx_certs data/paddleocr_cache data/db/postgres data/redis
+      - mkdir -p data/qdrant_storage data/ollama_models data/postgres data/minio data/nginx_certs data/paddleocr_cache data/db/postgres data/redis data/grafana data/prometheus data/loki data/promtail data/pgadmin
       - test -f data/redis/redis.conf || echo '# See data/redis/redis.conf in repo' > data/redis/redis.conf
       - 'echo "Data-директории созданы"'
 
@@ -74,7 +75,7 @@ tasks:
       VITE_API_URL: ${VITE_API_URL}
 
   up:
-    desc: "Поднять стек (task up -- [gpu] [prod] [public])"
+    desc: "Поднять стек (task up -- [gpu] [prod] [public] [monitoring])"
     cmds:
       - task: data:create
       - >
@@ -82,6 +83,7 @@ tasks:
         {{if not (contains "prod" .CLI_ARGS)}}-f docker-compose.dev.yml{{end}}
         {{if contains "gpu" .CLI_ARGS}}-f docker-compose.gpu.yml{{end}}
         {{if contains "public" .CLI_ARGS}}--profile domain{{end}}
+        {{if contains "monitoring" .CLI_ARGS}}--profile monitoring{{end}}
         up -d
       - task: ps
     env:
@@ -93,9 +95,9 @@ tasks:
       VITE_API_URL: ${VITE_API_URL}
 
   down:
-    desc: Остановить и удалить контейнеры, включая Caddy если был поднят (данные в data/ сохраняются)
+    desc: Остановить и удалить контейнеры, включая Caddy/monitoring если были подняты (данные в data/ сохраняются)
     cmds:
-      - "{{.COMPOSE}} --profile domain down"
+      - "{{.COMPOSE}} --profile domain --profile monitoring down"
     env:
       STAGE: development
       BUILD_TARGET: cpu
@@ -158,11 +160,11 @@ tasks:
       VERSION: "{{.VERSION}}"
 
   clean:
-    desc: Остановить стек и удалить data/postgres, data/qdrant_storage, data/ollama_models, data/caddy_*, data/redis — ОПАСНО
-    prompt: Удалить все локальные данные (Postgres/Qdrant/Ollama/Caddy/Redis)?
+    desc: Остановить стек и удалить data/postgres, data/qdrant_storage, data/ollama_models, data/caddy_*, data/redis, data/grafana, data/prometheus, data/loki, data/promtail, data/pgadmin — ОПАСНО
+    prompt: Удалить все локальные данные (Postgres/Qdrant/Ollama/Caddy/Redis/Monitoring)?
     cmds:
-      - "{{.COMPOSE}} --profile domain down -v"
-      - rm -rf data/postgres data/qdrant_storage data/ollama_models data/caddy_data data/caddy_config data/redis
+      - "{{.COMPOSE}} --profile domain --profile monitoring down -v"
+      - rm -rf data/postgres data/qdrant_storage data/ollama_models data/caddy_data data/caddy_config data/redis data/grafana data/prometheus data/loki data/promtail data/pgadmin
     env:
       STAGE: development
       BUILD_TARGET: cpu
@@ -482,6 +484,54 @@ tasks:
     dir: server
     cmds:
       - uv run pytest -v
+
+  # -------------------------------------------------------------------------
+  # Мониторинг и админ-панели (profile: monitoring)
+  # -------------------------------------------------------------------------
+
+  monitoring:up:
+    desc: "Поднять мониторинг (task monitoring:up)"
+    cmds:
+      - task: data:create
+      - >
+        {{.COMPOSE}} --profile monitoring up -d
+      - 'echo ""'
+      - 'echo "Monitoring services started:"'
+      - 'echo "  Grafana:       http://localhost:16506  (grafana / password)"'
+      - 'echo "  Prometheus:    http://localhost:16507"'
+      - 'echo "  pgAdmin:       http://localhost:16502  (pgadmin@email.com / password)"'
+      - 'echo "  RedisInsight:  http://localhost:16503"'
+    env:
+      STAGE: development
+      BUILD_TARGET: cpu
+      VERSION: "{{.VERSION}}"
+
+  monitoring:down:
+    desc: Остановить сервисы мониторинга
+    cmds:
+      - "{{.COMPOSE}} --profile monitoring down"
+    env:
+      STAGE: development
+      BUILD_TARGET: cpu
+      VERSION: "{{.VERSION}}"
+
+  monitoring:ps:
+    desc: Статус контейнеров мониторинга
+    cmds:
+      - "{{.COMPOSE}} --profile monitoring ps"
+    env:
+      STAGE: development
+      BUILD_TARGET: cpu
+      VERSION: "{{.VERSION}}"
+
+  monitoring:logs:
+    desc: "Логи сервиса мониторинга (task monitoring:logs -- grafana)"
+    cmds:
+      - "{{.COMPOSE}} --profile monitoring logs -f {{.CLI_ARGS | default \"grafana\"}}"
+    env:
+      STAGE: development
+      BUILD_TARGET: cpu
+      VERSION: "{{.VERSION}}"
 
   # -------------------------------------------------------------------------
   # Нагрузочное тестирование

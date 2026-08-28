@@ -1,0 +1,102 @@
+auth_enabled: false
+
+server:
+  http_listen_address: "0.0.0.0"
+  http_listen_port: 3100
+
+common:
+  path_prefix: /loki
+
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+
+  replication_factor: 1
+
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2020-10-24
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+
+      index:
+        prefix: loki_index_
+        period: 24h
+
+limits_config:
+  retention_period: 168h
+  max_query_lookback: 168h
+  max_query_parallelism: 2048
+  split_queries_by_interval: "0"
+  query_timeout: 5m
+
+analytics:
+  reporting_enabled: false
+
+compactor:
+  working_directory: /loki/retention
+  compaction_interval: 15m
+  retention_enabled: true
+  retention_delete_delay: 2h
+  retention_delete_worker_count: 150
+  delete_request_store: filesystem
+
+  compactor_ring:
+    kvstore:
+      store: inmemory
+
+querier:
+  max_concurrent: 2048
+
+  engine:
+    max_look_back_period: 168h
+
+query_range:
+  cache_results: true
+  parallelise_shardable_queries: false
+
+frontend:
+  max_outstanding_per_tenant: 4096
+  compress_responses: true
+
+ingester:
+  chunk_encoding: snappy
+  chunk_idle_period: 2h
+  chunk_target_size: 1536000
+  max_chunk_age: 2h
+
+  lifecycler:
+    final_sleep: 0s
+
+    ring:
+      kvstore:
+        store: inmemory
+
+      replication_factor: 1
+
+storage_config:
+  tsdb_shipper:
+    active_index_directory: /loki/tsdb-index
+    cache_location: /loki/tsdb-cache
+    cache_ttl: 24h
+
+ruler:
+  storage:
+    type: local
+    local:
+      directory: /loki/rules
+
+  rule_path: /loki/rules-temp
+
+  ring:
+    kvstore:
+      store: inmemory
+
+  enable_api: true
+  enable_alertmanager_v2: true

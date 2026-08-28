@@ -20,6 +20,12 @@ task down             # Stop stack
 task build            # Rebuild server image (supports -- gpu, -- prod)
 task restart -- server  # Restart single service
 
+# Monitoring & Admin UIs (profile: monitoring)
+task monitoring:up              # Start monitoring stack (Grafana, Prometheus, Loki, pgAdmin, RedisInsight)
+task monitoring:down            # Stop monitoring stack
+task monitoring:ps              # Status of monitoring containers
+task monitoring:logs -- grafana # Logs for specific service
+
 # CLI commands (via Docker)
 docker compose exec server python main.py runserver --host 0.0.0.0 --port 8001
 docker compose exec server python main.py ingest run --docs-dir /code/project/data/docs_sample
@@ -63,6 +69,7 @@ server/pyproject.toml    ← Dependencies (uv)
 server/uv.lock           ← Locked versions (committed to git)
 data/docs_sample/        ← Documents for indexing
 loadtest/                ← Load testing (k6 + Locust)
+infrastructure/monitoring/ ← Monitoring configs (Prometheus, Grafana, Loki, Promtail, exporters)
 ```
 
 ## CLI Commands
@@ -94,6 +101,14 @@ Both `.env.example` files exist as templates. Taskfile reads `server/.env` via `
 - Applied in `lifespan` via `logging.config.dictConfig()`
 - All modules use `logging.getLogger("default")` or `logging.getLogger("detailed")`
 - No `print()` calls — everything goes through logger
+
+## Monitoring
+
+- Prometheus scrapes: node-exporter (host), cadvisor (containers), postgres-exporter (PostgreSQL), rag-server (app metrics)
+- Grafana: auto-provisioned datasources (Prometheus + Loki), pre-built dashboards (host-metrics, cadvisor)
+- Loki + Promtail: centralized log aggregation from all Docker containers
+- All monitoring data stored in `data/grafana/`, `data/prometheus/`, `data/loki/`, `data/promtail/`
+- Credentials in `.env`: `GRAFANA_USER`, `GRAFANA_PASS`, `PGADMIN_EMAIL`, `PGADMIN_PASSWORD`
 
 ## Model Preloading
 
@@ -132,3 +147,13 @@ Both `.env.example` files exist as templates. Taskfile reads `server/.env` via `
 - Production image: `docker build --target production -t rag-server:prod .`
 - Server command: `python main.py runserver` (not direct uvicorn)
 - Services: qdrant, ollama, postgres, server, minio (S3), client (web UI)
+- Monitoring (profile: `monitoring`): Grafana, Prometheus, Loki, Promtail, pgAdmin, RedisInsight, node-exporter, cadvisor, postgres-exporter
+
+### Monitoring Ports (localhost only)
+
+| Port | Service | Credentials |
+|------|---------|-------------|
+| 16502 | pgAdmin | pgadmin@email.com / password |
+| 16503 | RedisInsight | — |
+| 16506 | Grafana | grafana / password |
+| 16507 | Prometheus | — |
