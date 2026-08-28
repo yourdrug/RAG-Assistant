@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { apiClient } from "@/shared/api/client";
 import type { ConversationHistoryResponse, Source } from "@/shared/api/types";
+import type { PipelineStage } from "@/shared/lib/sse";
 import { streamChat } from "@/shared/lib/sse";
 import { useAuthStore } from "@/stores/auth-store";
 import { ChatInput, type DepthOption } from "@/widgets/chat/chat-input";
@@ -15,6 +16,12 @@ interface Message {
   content: string;
   sources?: Source[];
 }
+
+const STAGE_LABELS: Record<PipelineStage, string> = {
+  searching: "Searching documents",
+  reranking: "Reranking results",
+  generating: "Generating answer",
+};
 
 export function ChatPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -28,6 +35,7 @@ export function ChatPage() {
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [selectedSources, setSelectedSources] = useState<Source[]>([]);
   const [depth, setDepth] = useState<DepthOption>(null);
+  const [pipelineStage, setPipelineStage] = useState<PipelineStage | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const token = useAuthStore((s) => s.token);
@@ -101,6 +109,10 @@ export function ChatPage() {
         hadChunksRef.current = true;
         streamingContentRef.current += text;
         setStreamingMsg(streamingContentRef.current);
+        setPipelineStage(null);
+      },
+      onStatus: (stage) => {
+        setPipelineStage(stage);
       },
       onDone: (data) => {
         setMessages((p) => [
@@ -115,11 +127,13 @@ export function ChatPage() {
         setSearchParams({ id: String(data.conversation_id) });
         setStreamingMsg(null);
         setIsStreaming(false);
+        setPipelineStage(null);
       },
       onError: (err) => {
         setMessages((p) => [...p, { role: "assistant", content: `Error: ${err}` }]);
         setStreamingMsg(null);
         setIsStreaming(false);
+        setPipelineStage(null);
       },
       signal: abortRef.current.signal,
     });
@@ -134,6 +148,7 @@ export function ChatPage() {
     }
     setStreamingMsg(null);
     setIsStreaming(false);
+    setPipelineStage(null);
   };
 
   const handleNew = () => {
@@ -190,6 +205,18 @@ export function ChatPage() {
           ))}
           {streamingMsg !== null && (
             <MessageBubble role="assistant" content={streamingMsg} streaming />
+          )}
+          {isStreaming && pipelineStage && !streamingMsg && (
+            <div className="flex items-center gap-3 pl-11">
+              <div className="flex items-center gap-1.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50 animate-bounce [animation-delay:-0.3s]" />
+                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50 animate-bounce [animation-delay:-0.15s]" />
+                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50 animate-bounce" />
+              </div>
+              <span className="text-xs text-muted-foreground/60">
+                {STAGE_LABELS[pipelineStage]}...
+              </span>
+            </div>
           )}
           <div ref={endRef} />
         </div>

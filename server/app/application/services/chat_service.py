@@ -20,7 +20,7 @@ from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.llm_provider import Breadth
 from domain.value_objects.message_role import MessageRole
 from domain.value_objects.roles import UserKind
-from domain.value_objects.stream_events import MetaEvent, SourcesEvent, StreamEvent, TextChunk
+from domain.value_objects.stream_events import MetaEvent, SourcesEvent, StatusEvent, StreamEvent, TextChunk
 
 from application.dto.chat_dto import ChatResult
 from application.ports.chat_rag_port import ChatRAGPort
@@ -182,6 +182,8 @@ class ChatService:
                 sources = event.sources
                 confidence = event.confidence
                 usage = event.usage
+            elif isinstance(event, StatusEvent):
+                yield event
             elif isinstance(event, TextChunk):
                 if not user_msg_saved:
                     user_msg_saved = True

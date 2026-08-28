@@ -181,11 +181,12 @@ export function DocumentsPage() {
       header: "Visibility",
       cell: ({ row }) => {
         const vis = row.original.visibility;
-        const isClientDoc = vis === "client_private" && isAdmin;
+        const ownerId = row.original.owner_id;
+        const notInSearch = ownerId != null && user != null && ownerId !== user.id;
         return (
           <div className="flex items-center gap-1.5">
             <Badge variant="secondary">{vis.replace(/_/g, " ")}</Badge>
-            {isClientDoc && (
+            {notInSearch && (
               <Badge variant="outline" className="text-xs text-muted-foreground">
                 not in your search
               </Badge>

@@ -24,7 +24,13 @@ from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.llm_provider import BREADTH_ALIASES, Breadth, LLMProvider
 from domain.value_objects.rag_settings import RagSettings
 from domain.value_objects.search_mode import SearchMode
-from domain.value_objects.stream_events import SourcesEvent, StreamEvent, TextChunk, UsageReport
+from domain.value_objects.stream_events import (
+    SourcesEvent,
+    StatusEvent,
+    StreamEvent,
+    TextChunk,
+    UsageReport,
+)
 from langchain.schema import Document as LCDocument
 from qdrant_client.models import FieldCondition, Filter, MatchValue
 
@@ -627,6 +633,8 @@ class RagService:
 
         breadth = self._resolve_breadth(ctx, query_for_search)
 
+        yield StatusEvent(stage="searching")
+
         fetch_k, top_k = self._resolve_fetch_top_k(rag, breadth)
 
         # --- Dense/sparse weight boost for exact references ---
@@ -653,6 +661,7 @@ class RagService:
             await self._apply_exact_search(query_for_search, candidates, user, ctx)
 
         # --- Reranking ---
+        yield StatusEvent(stage="reranking")
         t0 = time.monotonic()
         docs = await rerank_documents(
             query_for_search,
@@ -758,6 +767,7 @@ class RagService:
             question=question,
         )
 
+        yield StatusEvent(stage="generating")
         t0 = time.monotonic()
         answer_parts: list[str] = []
         last_chunk = None

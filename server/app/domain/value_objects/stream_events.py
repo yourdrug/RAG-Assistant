@@ -36,6 +36,13 @@ class UsageReport:
 
 
 @dataclass(frozen=True, slots=True)
+class StatusEvent:
+    """Pipeline status update for the frontend progress indicator."""
+
+    stage: str
+
+
+@dataclass(frozen=True, slots=True)
 class MetaEvent:
     """Final metadata: conversation_id and sources, yielded after the answer."""
 
@@ -45,4 +52,4 @@ class MetaEvent:
     usage: UsageReport | None = None
 
 
-StreamEvent = TextChunk | SourcesEvent | MetaEvent
+StreamEvent = TextChunk | SourcesEvent | StatusEvent | MetaEvent

@@ -6,6 +6,8 @@ export interface SSEDone {
   confidence?: number | null;
 }
 
+export type PipelineStage = "searching" | "reranking" | "generating";
+
 interface StreamChatParams {
   question: string;
   conversationId?: number | null;
@@ -14,6 +16,7 @@ interface StreamChatParams {
   onChunk: (text: string) => void;
   onDone: (data: SSEDone) => void;
   onError: (error: string) => void;
+  onStatus?: (stage: PipelineStage) => void;
   signal?: AbortSignal;
 }
 
@@ -27,6 +30,7 @@ export async function streamChat({
   onChunk,
   onDone,
   onError,
+  onStatus,
   signal,
 }: StreamChatParams): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/chat`, {
@@ -70,6 +74,7 @@ export async function streamChat({
             const parsed = JSON.parse(line.slice(6));
             if (currentEvent === "done") onDone(parsed as SSEDone);
             else if (currentEvent === "error") onError(parsed.error);
+            else if (currentEvent === "status") onStatus?.(parsed.stage as PipelineStage);
             else onChunk(parsed.text || "");
           } catch {
             /* non-JSON */

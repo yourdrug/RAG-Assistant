@@ -6,7 +6,7 @@ import json
 import uuid
 
 from application.services.chat_service import ChatService
-from domain.value_objects.stream_events import MetaEvent, TextChunk
+from domain.value_objects.stream_events import MetaEvent, StatusEvent, TextChunk
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from infrastructure.logging.actions import log_action
@@ -61,6 +61,9 @@ async def chat_stream(
                             "request_id": req_id,
                         }
                         yield f"event: done\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                    elif isinstance(event, StatusEvent):
+                        stage_payload = json.dumps({"stage": event.stage}, ensure_ascii=False)
+                        yield f"event: status\ndata: {stage_payload}\n\n"
                     elif isinstance(event, TextChunk):
                         yield f"data: {json.dumps({'text': event.text}, ensure_ascii=False)}\n\n"
             except Exception as e:
