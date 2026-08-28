@@ -134,9 +134,9 @@ tasks:
   release:
     desc: "Тегировать и запушить релиз (task release -- 0.6.0) — CI соберёт и запушит образ в GHCR"
     cmds:
-      - git tag v{{.CLI_ARGS}}
-      - git push origin v{{.CLI_ARGS}}
-      - 'echo "Tag v{{.CLI_ARGS}} pushed — CI build.yml will push ghcr.io/yourdrug/rag-assistant:v{{.CLI_ARGS}}"'
+      - git tag {{.CLI_ARGS}}
+      - git push origin {{.CLI_ARGS}}
+      - 'echo "Tag {{.CLI_ARGS}} pushed — CI build.yml will push ghcr.io/yourdrug/rag-assistant:{{.CLI_ARGS}}"'
 
   deploy:
     desc: "Деплой на сервер (task deploy -- v0.6.0 [--gpu])"

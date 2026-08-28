@@ -1,14 +1,11 @@
 # docker-compose.prod.yml — deploy from GHCR image, no local build.
-# Usage:
-#   docker compose -f docker-compose.yml -f docker-compose.prod.yml pull server worker
-#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
-#   or: task up -- prod
+# Usage: task deploy -- 0.6.0
 
 services:
   server:
-    image: ghcr.io/yourdrug/rag-assistant:${VERSION}
-    pull_policy: always
+    image: ghcr.io/yourdrug/rag-assistant:production-cpu-${VERSION}
+    pull_policy: missing
 
   worker:
-    image: ghcr.io/yourdrug/rag-assistant:${VERSION}
-    pull_policy: always
+    image: ghcr.io/yourdrug/rag-assistant:production-cpu-${VERSION}
+    pull_policy: missing
