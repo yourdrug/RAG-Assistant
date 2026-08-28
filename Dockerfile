@@ -74,7 +74,7 @@ SHELL ["/bin/bash", "-c"]
 FROM builder-base AS uv-base-cpu
 
 # Copy uv binary from official image (faster and more reliable than curl install)
-COPY --from=ghcr.io/astral-sh/uv:0.7.2 /uv $UV_INSTALL_DIR/uv
+COPY --from=ghcr.io/astral-sh/uv:0.9.0 /uv $UV_INSTALL_DIR/uv
 
 # Set working directory to project root
 WORKDIR $PYSETUP_PATH
@@ -103,7 +103,7 @@ RUN                                                                             
 FROM builder-base AS uv-base-gpu
 
 # Copy uv binary from official image
-COPY --from=ghcr.io/astral-sh/uv:0.7.2 /uv $UV_INSTALL_DIR/uv
+COPY --from=ghcr.io/astral-sh/uv:0.9.0 /uv $UV_INSTALL_DIR/uv
 
 # Set working directory to project root
 WORKDIR $PYSETUP_PATH

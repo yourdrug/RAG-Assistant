@@ -54,7 +54,7 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=${{ steps.tag.outputs.version }}
-            type=raw,value=prod-cpu-${{ steps.tag.outputs.version }}
+            type=raw,value=production-cpu-${{ steps.tag.outputs.version }}
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push
