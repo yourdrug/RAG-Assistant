@@ -210,6 +210,7 @@ class ChunkModel(BaseModel):
     edited_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     edited_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     manual: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    content_hash: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
 
 class ChatLogModel(BaseModel):
@@ -303,3 +304,17 @@ class BenchmarkRunModel(BaseModel):
     dataset: Mapped[str] = mapped_column(String(100), nullable=False, server_default="main")
     per_question_results: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+
+class IngestionRegistryModel(BaseModel):
+    """Tracks which files have been indexed — replaces JSON-file registry."""
+
+    __tablename__ = "ingestion_registry"
+    __table_args__ = (Index("idx_ingestion_registry_filename", "filename", unique=True),)
+
+    filename: Mapped[str] = mapped_column(String(500), nullable=False)
+    file_hash: Mapped[str] = mapped_column(String(255), nullable=False, server_default="")
+    source: Mapped[str] = mapped_column(String(1000), nullable=False, server_default="")
+    chunks: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    chars: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    indexed_at: Mapped[str | None] = mapped_column(String(50), nullable=True)

@@ -12,8 +12,8 @@ export const queryKeys = {
   },
   chunks: {
     all: (documentId: number) => ["chunks", documentId] as const,
-    list: (documentId: number, limit?: number, offset?: number) =>
-      [...queryKeys.chunks.all(documentId), "list", { limit, offset }] as const,
+    list: (documentId: number, limit?: number, offset?: number, highlight?: string) =>
+      [...queryKeys.chunks.all(documentId), "list", { limit, offset, highlight }] as const,
   },
   conversations: {
     all: ["conversations"] as const,

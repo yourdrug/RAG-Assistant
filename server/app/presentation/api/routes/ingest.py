@@ -1,9 +1,8 @@
-"""Ingestion endpoints — thin wrappers around IngestAppService."""
+"""Ingestion endpoints — thin wrappers around IngestAppService (S3-only)."""
 
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
 from application.ports.ingestion_port import IngestionPort
 from application.services.ingest_service import IngestAppService
@@ -29,7 +28,7 @@ router = APIRouter(tags=["ingest"])
 
 @router.post("/ingest", response_model=IngestStatusResponse, dependencies=[Depends(ingest_rate_limit)])
 async def ingest_documents(
-    docs_dir: str = "/code/project/data/docs_sample",
+    docs_dir: str = "docs/",
     reset: bool = False,
     domain: str = "auto",
     admin: dict = Depends(require_admin),
@@ -37,7 +36,7 @@ async def ingest_documents(
     job_service: JobService = Depends(create_job_service),
 ):
     try:
-        resolved_dir = service.resolve_docs_dir(docs_dir)
+        resolved = service.resolve_docs_dir(docs_dir)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
@@ -46,17 +45,17 @@ async def ingest_documents(
     log_action(
         "ingest.full",
         user_id=admin["id"],
-        details={"docs_dir": resolved_dir, "reset": reset, "domain": domain},
+        details={"docs_dir": resolved, "reset": reset, "domain": domain},
     )
 
     await enqueue_ingest(
-        resolved_dir=resolved_dir,
+        resolved_dir=resolved,
         reset=reset,
         domain=domain,
         job_id=job_id,
     )
     mode = "RESET + full reindex" if reset else "APPEND (new files only)"
-    return IngestStatusResponse(status="started", mode=mode, docs_dir=resolved_dir)
+    return IngestStatusResponse(status="started", mode=mode, docs_dir=resolved)
 
 
 @router.post("/ingest/file", response_model=IngestStatusResponse, dependencies=[Depends(ingest_rate_limit)])
@@ -72,11 +71,9 @@ async def ingest_single_file(
         resolved = service.resolve_ingest_target(file_path)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
 
     if force:
-        service.force_reindex(Path(resolved).name)
+        await service.force_reindex(file_path.split("/")[-1])
 
     job_id = await job_service.create_job("ingest", related_id=None)
 
@@ -97,7 +94,7 @@ async def get_ingest_registry(
     admin: dict = Depends(require_admin),
     service: IngestAppService = Depends(create_ingest_service),
 ):
-    result = service.get_registry()
+    result = await service.get_registry()
     return IngestRegistryResponse(
         total_files=result.total_files,
         total_chunks=result.total_chunks,

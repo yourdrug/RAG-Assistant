@@ -10,13 +10,14 @@ import type {
   ManualDocumentRequest,
 } from "../types";
 
-export function useChunks(documentId: number, limit?: number, offset?: number) {
+export function useChunks(documentId: number, limit?: number, offset?: number, highlight?: string) {
   return useQuery({
-    queryKey: queryKeys.chunks.list(documentId, limit, offset),
+    queryKey: queryKeys.chunks.list(documentId, limit, offset, highlight),
     queryFn: async () => {
       const params = new URLSearchParams();
       if (limit) params.set("limit", String(limit));
       if (offset) params.set("offset", String(offset));
+      if (highlight) params.set("highlight", highlight);
       const qs = params.toString();
       return (
         await apiClient.get<ChunkListResponse>(

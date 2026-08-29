@@ -492,6 +492,7 @@ class ChunkResponse(BaseModel):
     manual: bool = False
     creation_date: str | None = None
     warning: str | None = None
+    content_hash: str | None = None
 
 
 class ChunkCreateRequest(BaseModel):

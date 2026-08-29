@@ -330,10 +330,11 @@ def _clean_source_name(source: str) -> str:
 
 def _collect_source_metadata(
     doc, score: float | None
-) -> tuple[str, set[str], float | None, str | None, bool, bool, str | None]:
-    """Extract pages, score, articles, flags from a single doc.
+) -> tuple[str, set[str], float | None, str | None, bool, bool, str | None, int | None, str | None]:
+    """Extract pages, score, articles, flags, document_id, content_hash from a single doc.
 
-    Returns (clean_name, pages_set, score, article_number, is_edited, is_manual, edited_at).
+    Returns (clean_name, pages_set, score, article_number, is_edited,
+    is_manual, edited_at, document_id, content_hash).
     """
     src = doc.metadata.get("source", "unknown")
     clean_name = _clean_source_name(src)
@@ -345,6 +346,8 @@ def _collect_source_metadata(
     is_edited = doc.metadata.get("edited", False)
     is_manual = doc.metadata.get("manual", False)
     edited_at = doc.metadata.get("edited_at")
+    document_id = doc.metadata.get("document_id")
+    content_hash = doc.metadata.get("content_hash")
 
     pages_set: set[str] = set()
     if pages_list:
@@ -354,7 +357,17 @@ def _collect_source_metadata(
     elif page is not None:
         pages_set.add(page)
 
-    return clean_name, pages_set, score, article_number, is_edited, is_manual, edited_at
+    return (
+        clean_name,
+        pages_set,
+        score,
+        article_number,
+        is_edited,
+        is_manual,
+        edited_at,
+        document_id,
+        content_hash,
+    )
 
 
 def _build_source_entry(
@@ -365,6 +378,8 @@ def _build_source_entry(
     edited_by_source: dict[str, bool],
     manual_by_source: dict[str, bool],
     edited_at_by_source: dict[str, str | None],
+    document_ids_by_source: dict[str, int | None],
+    content_hashes_by_source: dict[str, list[str]],
 ) -> dict:
     """Build the entry dict for a single source."""
     sorted_pages = sorted(pages) if pages else []
@@ -372,6 +387,10 @@ def _build_source_entry(
         "source": src,
         "pages": sorted_pages,
     }
+    if src in document_ids_by_source:
+        entry["document_id"] = document_ids_by_source[src]
+    if src in content_hashes_by_source and content_hashes_by_source[src]:
+        entry["content_hashes"] = content_hashes_by_source[src]
     if src in articles_by_source:
         entry["articles"] = articles_by_source[src]
     if scores_by_source:
@@ -399,7 +418,7 @@ def _update_edited_at(edited_at_by_source: dict[str, str | None], clean_name: st
         edited_at_by_source[clean_name] = edited_at
 
 
-def _aggregate_source_metadata(
+def _aggregate_source_metadata(  # noqa: C901
     item,
     pages_by_source: dict[str, set[str]],
     scores_by_source: dict[str, float],
@@ -407,10 +426,12 @@ def _aggregate_source_metadata(
     edited_by_source: dict[str, bool],
     manual_by_source: dict[str, bool],
     edited_at_by_source: dict[str, str | None],
+    document_ids_by_source: dict[str, int | None],
+    content_hashes_by_source: dict[str, list[str]],
 ) -> None:
     doc = item[0] if isinstance(item, tuple) else item
     score = item[1] if isinstance(item, tuple) else None
-    clean_name, pages_set, doc_score, article_number, is_edited, is_manual, edited_at = (
+    clean_name, pages_set, doc_score, article_number, is_edited, is_manual, edited_at, document_id, ch = (
         _collect_source_metadata(doc, score)
     )
 
@@ -430,6 +451,12 @@ def _aggregate_source_metadata(
         manual_by_source[clean_name] = True
     if edited_at:
         _update_edited_at(edited_at_by_source, clean_name, edited_at)
+    if document_id is not None and clean_name not in document_ids_by_source:
+        document_ids_by_source[clean_name] = document_id
+    if ch is not None:
+        content_hashes_by_source.setdefault(clean_name, [])
+        if ch not in content_hashes_by_source[clean_name]:
+            content_hashes_by_source[clean_name].append(ch)
 
 
 def _filter_sources_by_min_score(
@@ -438,7 +465,12 @@ def _filter_sources_by_min_score(
     scores_by_source: dict[str, float],
 ) -> list[dict]:
     if min_score is not None and sources and scores_by_source:
-        return [s for s in sources if s.get("max_score", 0.0) >= min_score]
+        filtered = [s for s in sources if s.get("max_score", 0.0) >= min_score]
+        if filtered:
+            return filtered
+        # All sources below threshold — keep the best one so the answer
+        # always has at least one source reference.
+        return [sources[0]]
     return sources
 
 
@@ -457,6 +489,8 @@ def extract_sources(docs, min_score: float | None = None) -> list[dict]:
     edited_by_source: dict[str, bool] = {}
     manual_by_source: dict[str, bool] = {}
     edited_at_by_source: dict[str, str | None] = {}
+    document_ids_by_source: dict[str, int | None] = {}
+    content_hashes_by_source: dict[str, list[str]] = {}
 
     for item in docs:
         _aggregate_source_metadata(
@@ -467,6 +501,8 @@ def extract_sources(docs, min_score: float | None = None) -> list[dict]:
             edited_by_source,
             manual_by_source,
             edited_at_by_source,
+            document_ids_by_source,
+            content_hashes_by_source,
         )
 
     sources = []
@@ -479,6 +515,8 @@ def extract_sources(docs, min_score: float | None = None) -> list[dict]:
             edited_by_source,
             manual_by_source,
             edited_at_by_source,
+            document_ids_by_source,
+            content_hashes_by_source,
         )
         sources.append(entry)
 

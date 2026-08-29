@@ -136,7 +136,7 @@ tasks:
     cmds:
       - git tag {{.CLI_ARGS}}
       - git push origin {{.CLI_ARGS}}
-      - 'echo "Tag {{.CLI_ARGS}} pushed — CI build.yml will push ghcr.io/yourdrug/rag-assistant:{{.CLI_ARGS}}"'
+      - 'echo "Tag {{.CLI_ARGS}} pushed — CI will push ghcr.io/yourdrug/rag-assistant:{{.CLI_ARGS}} and ghcr.io/yourdrug/rag-assistant/client:{{.CLI_ARGS}}"'
 
   deploy:
     desc: "Деплой на сервер (task deploy -- v0.6.0 [--gpu])"

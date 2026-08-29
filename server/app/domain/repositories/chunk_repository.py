@@ -27,6 +27,7 @@ class ChunkSearchResult:
     edited_by: int | None = None
     manual: bool = False
     creation_date: datetime | None = None
+    content_hash: str | None = None
 
 
 @dataclass(frozen=True)
@@ -50,6 +51,7 @@ class ChunkRepository(Protocol):
         owner_id: int | None = None,
         group_id: int | None = None,
         doc_domain: str = DocDomain.GENERAL.value,
+        content_hashes: list[str] | None = None,
     ) -> None:
         """Insert chunks for a document. Replaces existing chunks for this document."""
         ...

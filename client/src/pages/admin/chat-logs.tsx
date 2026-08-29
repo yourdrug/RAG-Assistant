@@ -55,11 +55,42 @@ export function AdminChatLogsPage() {
     {
       accessorKey: "answer",
       header: "Answer",
-      cell: ({ row }) => (
-        <span className="text-sm text-muted-foreground line-clamp-2 max-w-lg">
-          {row.original.answer}
-        </span>
-      ),
+      cell: ({ row }) => {
+        const sources = row.original.sources ?? [];
+        return (
+          <div className="max-w-lg">
+            <span className="text-sm text-muted-foreground line-clamp-2 block">
+              {row.original.answer}
+            </span>
+            {sources.length > 0 && (
+              <div className="flex gap-1 flex-wrap mt-1">
+                {sources.map((s, i) => {
+                  const label = `[${i + 1}] ${s.source}`;
+                  if (s.document_id) {
+                    const hashes = s.content_hashes?.join(",") ?? "";
+                    return (
+                      <a
+                        key={i}
+                        href={`/admin/documents?docId=${s.document_id}&highlight=${hashes}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs px-1.5 py-0.5 rounded bg-muted hover:bg-muted/70"
+                      >
+                        {label}
+                      </a>
+                    );
+                  }
+                  return (
+                    <span key={i} className="text-xs px-1.5 py-0.5 rounded bg-muted/50 text-muted-foreground">
+                      {label}
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      },
     },
     {
       accessorKey: "domain",

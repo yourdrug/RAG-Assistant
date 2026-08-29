@@ -49,6 +49,8 @@ export interface Source {
   edited?: boolean;
   edited_at?: string | null;
   manual?: boolean;
+  document_id?: number;
+  content_hashes?: string[];
 }
 
 // ─── Conversations ───────────────────────────────────────────────────────────
@@ -102,6 +104,7 @@ export interface DocumentResponse {
   doc_domain: DocumentDomain;
   source_type?: "file" | "manual";
   has_manual_edits?: boolean;
+  in_search_scope?: boolean;
   error_message?: string | null;
   warning_message?: string | null;
   quality_score?: number | null;
@@ -133,6 +136,7 @@ export interface ChunkResponse {
   edited_by?: number | null;
   manual?: boolean;
   creation_date?: string | null;
+  content_hash?: string | null;
   warning?: string | null;
 }
 
@@ -362,7 +366,7 @@ export interface ChatLogEntry {
   conversation_id?: number | null;
   question: string;
   answer: string;
-  sources?: { source: string; pages?: number[]; articles?: string[]; max_score?: number }[] | null;
+  sources?: Source[] | null;
   latency_ms?: number | null;
   model_used?: string | null;
   breadth?: string | null;

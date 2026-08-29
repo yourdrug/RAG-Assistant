@@ -6,7 +6,7 @@ import logging
 
 from application.services.config_admin_service import ConfigAdminService
 from application.services.config_service import ConfigService
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from infrastructure.logging.actions import log_action
 
 from presentation.api.auth_dependencies import require_admin
@@ -24,6 +24,9 @@ from presentation.api.schemas import (
 logger = logging.getLogger("default")
 
 router = APIRouter(tags=["admin-config"])
+
+# Keys managed via .env only — not editable through admin UI or API
+_STATIC_KEYS = {"file_backend", "data_dir"}
 
 
 @router.get("/admin/config", response_model=list[ConfigParamResponse])
@@ -43,6 +46,7 @@ async def list_config(
             max_value=r.max_value,
         )
         for r in rows
+        if r.key not in _STATIC_KEYS
     ]
 
 
@@ -53,6 +57,11 @@ async def update_config(
     admin: dict = Depends(require_admin),
     config_service: ConfigService = Depends(create_config_service),
 ):
+    if key in _STATIC_KEYS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"'{key}' is a static parameter — set it in server/.env and restart",
+        )
     param = await config_service.update_parameter(key, body.value, changed_by=admin["id"])
     log_action("config.update", user_id=admin["id"], details={"key": key, "value": body.value[:100]})
     return ConfigParamResponse(

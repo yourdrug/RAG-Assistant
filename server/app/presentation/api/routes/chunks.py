@@ -29,10 +29,12 @@ async def list_chunks(
     document_id: int,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    highlight: str | None = Query(None, description="Comma-separated content_hashes to filter"),
     current_user: dict = Depends(get_current_user),
     chunk_service: ChunkService = Depends(create_chunk_service),
 ):
-    """List all chunks for a document with pagination."""
+    """List chunks for a document. When highlight is set, only matching chunks are returned."""
+    content_hashes = [h.strip() for h in highlight.split(",") if h.strip()] if highlight else None
     chunks, total = await chunk_service.list_chunks(
         document_id=document_id,
         user_id=current_user["id"],
@@ -40,6 +42,7 @@ async def list_chunks(
         user_role=current_user["role"],
         limit=limit,
         offset=offset,
+        content_hashes=content_hashes,
     )
     chunk_responses = [ChunkResponse(**c) for c in chunks]
     return ChunkListResponse(

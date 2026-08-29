@@ -25,7 +25,7 @@ COMPOSE_FILES="-f docker-compose.yml -f docker-compose.prod.yml"
 echo "==> Deploying ${VERSION} (target: ${BUILD_TARGET})"
 
 # Pull from GHCR
-docker compose $COMPOSE_FILES pull server worker
+docker compose $COMPOSE_FILES pull server worker client
 
 # Stop old containers (avoids GPU reservation conflicts when switching modes)
 docker compose $COMPOSE_FILES down --remove-orphans 2>/dev/null || true

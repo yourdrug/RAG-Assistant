@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 from infrastructure.ml.ingestion import clean_pdf_text  # noqa: E402
-from infrastructure.registry import file_hash, is_already_indexed  # noqa: E402
+from infrastructure.registry import file_hash  # noqa: E402
 
 
 def test_clean_pdf_text_dehyphenates_line_breaks():
@@ -36,32 +36,45 @@ def test_clean_pdf_text_drops_blank_lines_between_paragraphs():
     assert clean_pdf_text(raw) == "Абзац 1\nАбзац 2"
 
 
-def test_file_hash_changes_when_file_modified(tmp_path):
-    f = tmp_path / "doc.txt"
-    f.write_text("версия 1", encoding="utf-8")
-    h1 = file_hash(f)
+def test_file_hash_changes_when_file_modified():
+    from infrastructure.storage import FileItem
 
-    f.write_text("совсем другая по размеру версия текста", encoding="utf-8")
-    h2 = file_hash(f)
+    item1 = FileItem(
+        key="doc.txt",
+        filename="doc.txt",
+        size_bytes=100,
+        last_modified="1000",
+        extension=".txt",
+    )
+    h1 = file_hash(item1)
+
+    item2 = FileItem(
+        key="doc.txt",
+        filename="doc.txt",
+        size_bytes=200,
+        last_modified="2000",
+        extension=".txt",
+    )
+    h2 = file_hash(item2)
 
     assert h1 != h2
 
 
-def test_is_already_indexed_true_when_hash_matches(tmp_path):
-    f = tmp_path / "doc.txt"
-    f.write_text("контент", encoding="utf-8")
-    registry = {"doc.txt": {"hash": file_hash(f)}}
-    assert is_already_indexed(f, registry) is True
+def test_file_hash_same_for_identical_items():
+    from infrastructure.storage import FileItem
 
-
-def test_is_already_indexed_false_when_hash_differs(tmp_path):
-    f = tmp_path / "doc.txt"
-    f.write_text("контент", encoding="utf-8")
-    registry = {"doc.txt": {"hash": "0_0"}}
-    assert is_already_indexed(f, registry) is False
-
-
-def test_is_already_indexed_false_when_not_in_registry(tmp_path):
-    f = tmp_path / "doc.txt"
-    f.write_text("контент", encoding="utf-8")
-    assert is_already_indexed(f, {}) is False
+    item1 = FileItem(
+        key="doc.txt",
+        filename="doc.txt",
+        size_bytes=100,
+        last_modified="1000",
+        extension=".txt",
+    )
+    item2 = FileItem(
+        key="doc.txt",
+        filename="doc.txt",
+        size_bytes=100,
+        last_modified="1000",
+        extension=".txt",
+    )
+    assert file_hash(item1) == file_hash(item2)

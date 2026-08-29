@@ -1,7 +1,8 @@
 "use client";
 import { type ColumnDef } from "@tanstack/react-table";
-import { Edit3, FileText, Loader2, Plus, Puzzle, Save, Trash2, X } from "lucide-react";
-import { useState } from "react";
+import { Edit3, FileText, Info, Loader2, Plus, Puzzle, Save, Trash2, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import toast from "react-hot-toast";
 import {
   useAddChunk,
@@ -32,13 +33,26 @@ import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
 import { ScrollArea } from "@/shared/ui/scroll-area";
 import { Textarea } from "@/shared/ui/textarea";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/shared/ui/tooltip";
 
 export function AdminDocumentsPage() {
+  const [searchParams] = useSearchParams();
   const { data: documents } = useDocuments();
   const deleteMut = useDeleteDocument();
   const [deleteId, setDeleteId] = useState<number | null>(null);
-  const [selectedDocId, setSelectedDocId] = useState<number | null>(null);
+  const initialDocId = searchParams.get("docId");
+  const highlightHashes = searchParams.get("highlight")?.split(",").filter(Boolean) ?? [];
+  const [selectedDocId, setSelectedDocId] = useState<number | null>(
+    initialDocId ? Number(initialDocId) : null,
+  );
   const [showManualDocDialog, setShowManualDocDialog] = useState(false);
+
+  useEffect(() => {
+    const docId = searchParams.get("docId");
+    if (docId) {
+      setSelectedDocId(Number(docId));
+    }
+  }, [searchParams]);
 
   const handleDelete = async () => {
     if (deleteId === null) return;
@@ -79,9 +93,31 @@ export function AdminDocumentsPage() {
     {
       accessorKey: "visibility",
       header: "Visibility",
-      cell: ({ row }) => (
-        <Badge variant="secondary">{row.original.visibility.replace(/_/g, " ")}</Badge>
-      ),
+      cell: ({ row }) => {
+        const doc = row.original;
+        return (
+          <div className="flex items-center gap-1.5">
+            <Badge variant="secondary">{doc.visibility.replace(/_/g, " ")}</Badge>
+            {doc.in_search_scope === false && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger>
+                    <Badge variant="warning" className="text-xs gap-1">
+                      <Info className="h-3 w-3" />
+                      Not in search
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    Document is visible for admin review but not used in RAG search
+                    for this administrator — either another admin's private document or
+                    a client document not assigned to you.
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+          </div>
+        );
+      },
     },
     {
       accessorKey: "doc_domain",
@@ -165,7 +201,7 @@ export function AdminDocumentsPage() {
         </CardContent>
       </Card>
 
-      {selectedDocId && <ChunkManager documentId={selectedDocId} />}
+      {selectedDocId && <ChunkManager documentId={selectedDocId} highlightHashes={highlightHashes} />}
 
       <AlertDialog open={deleteId !== null} onOpenChange={() => setDeleteId(null)}>
         <AlertDialogContent>
@@ -195,8 +231,16 @@ export function AdminDocumentsPage() {
   );
 }
 
-function ChunkManager({ documentId }: { documentId: number }) {
-  const { data: chunkData, isLoading } = useChunks(documentId);
+function ChunkManager({
+  documentId,
+  highlightHashes,
+}: {
+  documentId: number;
+  highlightHashes?: string[];
+}) {
+  const hasHighlight = (highlightHashes?.length ?? 0) > 0;
+  const highlightParam = hasHighlight ? highlightHashes!.join(",") : undefined;
+  const { data: chunkData, isLoading } = useChunks(documentId, undefined, undefined, highlightParam);
   const [editingChunk, setEditingChunk] = useState<ChunkResponse | null>(null);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [deleteChunkId, setDeleteChunkId] = useState<number | null>(null);
@@ -225,23 +269,32 @@ function ChunkManager({ documentId }: { documentId: number }) {
     {
       accessorKey: "content",
       header: "Content",
-      cell: ({ row }) => (
-        <div className="max-w-md">
-          <p className="text-sm line-clamp-2">{row.original.content}</p>
-          <div className="flex gap-1 mt-1">
-            {row.original.manual && (
-              <Badge variant="outline" className="text-xs">
-                Manual
-              </Badge>
-            )}
-            {row.original.edited_at && (
-              <Badge variant="warning" className="text-xs">
-                Edited
-              </Badge>
-            )}
+      cell: ({ row }) => {
+        return (
+          <div className="max-w-md">
+            <p className={`text-sm line-clamp-2 ${hasHighlight ? "bg-yellow-100 dark:bg-yellow-900/30 rounded px-1 -mx-1" : ""}`}>
+              {row.original.content}
+            </p>
+            <div className="flex gap-1 mt-1">
+              {hasHighlight && (
+                <Badge variant="warning" className="text-xs">
+                  Source
+                </Badge>
+              )}
+              {row.original.manual && (
+                <Badge variant="outline" className="text-xs">
+                  Manual
+                </Badge>
+              )}
+              {row.original.edited_at && (
+                <Badge variant="warning" className="text-xs">
+                  Edited
+                </Badge>
+              )}
+            </div>
           </div>
-        </div>
-      ),
+        );
+      },
     },
     {
       accessorKey: "id",

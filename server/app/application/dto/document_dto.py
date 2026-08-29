@@ -30,6 +30,7 @@ class DocumentDTO:
     doc_domain: str = DocDomain.GENERAL.value
     source_type: str = "file"
     has_manual_edits: bool = False
+    in_search_scope: bool = True
 
 
 @dataclass(frozen=True)

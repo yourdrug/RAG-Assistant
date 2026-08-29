@@ -81,14 +81,12 @@ _DYNAMIC_FIELDS: dict[str, tuple[str, type]] = {
     "ocr_min_chars": ("ocr_min_chars", int),
     "ocr_lang_surya": ("ocr_lang_surya", list),
     "ocr_lang_paddle": ("ocr_lang_paddle", str),
-    # --- Storage ---
-    "file_backend": ("file_backend", str),
+    # --- Storage (s3_endpoint..region are dynamic via cache invalidation) ---
     "s3_endpoint": ("s3_endpoint", str),
     "s3_bucket": ("s3_bucket", str),
     "s3_access_key": ("s3_access_key", str),
     "s3_secret_key": ("s3_secret_key", str),
     "s3_region": ("s3_region", str),
-    "data_dir": ("data_dir", str),
 }
 
 

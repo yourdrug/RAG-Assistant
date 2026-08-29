@@ -11,12 +11,11 @@ import logging
 import time
 from collections.abc import Callable
 from functools import wraps
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from config import settings
-from infrastructure.ml.hybrid import BM25Index, save_bm25_index
+from infrastructure.ml.hybrid import BM25Index, save_bm25_index_to_s3
 from infrastructure.ml.metrics import collect_infra_metrics
 
 if TYPE_CHECKING:
@@ -170,6 +169,8 @@ class Scheduler:
         if self._uow_factory is None:
             return
 
+        from infrastructure.storage import get_storage
+
         t0 = time.monotonic()
 
         async with self._uow_factory.create(master=True) as uow:
@@ -180,8 +181,8 @@ class Scheduler:
             return
 
         bm25_index = BM25Index(all_texts)
-        bm25_path = Path(settings.data_dir) / "bm25_index.json"
-        save_bm25_index(bm25_index, bm25_path)
+        storage = get_storage()
+        await save_bm25_index_to_s3(bm25_index, storage)
 
         # BM25 cache is now managed by MLClientRegistry — no manual clear needed
 

@@ -1,7 +1,7 @@
-"""Tests for IngestService path guard functions.
+"""Tests for IngestService S3 key validation.
 
-Tests _resolve_within_data_dir / resolve_ingest_target / resolve_docs_dir --
-protections for POST /ingest and POST /ingest/file against path traversal.
+Tests resolve_ingest_target / resolve_docs_dir — protections for
+POST /ingest and POST /ingest/file against invalid S3 keys.
 """
 
 import sys
@@ -10,61 +10,44 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 import pytest  # noqa: E402
-from config import settings  # noqa: E402
 from infrastructure.services.ingestion_service import IngestionService  # noqa: E402
 
 
 @pytest.fixture
-def service(tmp_path, monkeypatch):
+def service():
     from unittest.mock import MagicMock
 
-    monkeypatch.setattr(settings, "data_dir", str(tmp_path))
-    monkeypatch.setattr(settings, "file_backend", "local")
-    (tmp_path / "docs_sample").mkdir()
     return IngestionService(
         vector_store_repo=MagicMock(),
         file_storage=MagicMock(),
     )
 
 
-def test_relative_docs_dir_inside_data_dir_resolves(service, tmp_path):
-    resolved = service.resolve_docs_dir("docs_sample")
-    assert resolved == str((tmp_path / "docs_sample").resolve())
+def test_valid_s3_key_resolves(service):
+    resolved = service.resolve_ingest_target("docs/report.pdf")
+    assert resolved == "docs/report.pdf"
 
 
-def test_absolute_docs_dir_inside_data_dir_resolves(service, tmp_path):
-    inside = tmp_path / "docs_sample"
-    assert service.resolve_docs_dir(str(inside)) == str(inside.resolve())
+def test_nested_s3_key_resolves(service):
+    resolved = service.resolve_ingest_target("docs/subfolder/report.pdf")
+    assert resolved == "docs/subfolder/report.pdf"
 
 
-def test_docs_dir_traversal_outside_data_dir_is_rejected(service):
+def test_s3_key_with_slash_prefix_is_rejected(service):
     with pytest.raises(ValueError):
-        service.resolve_docs_dir("../../../etc")
+        service.resolve_ingest_target("/docs/report.pdf")
 
 
-def test_docs_dir_absolute_outside_data_dir_is_rejected(service):
+def test_s3_key_with_dotdot_is_rejected(service):
     with pytest.raises(ValueError):
-        service.resolve_docs_dir("/etc")
+        service.resolve_ingest_target("docs/../etc/passwd")
 
 
-def test_docs_dir_sibling_with_shared_prefix_is_rejected(service, tmp_path):
-    """'<data_dir>-evil' не должен проходить только из-за строкового префикса."""
-    sibling = tmp_path.parent / (tmp_path.name + "-evil")
-    with pytest.raises(ValueError):
-        service.resolve_docs_dir(str(sibling))
+def test_resolve_docs_dir_passes_prefix(service):
+    resolved = service.resolve_docs_dir("my-prefix/")
+    assert resolved == "my-prefix/"
 
 
-def test_file_path_traversal_outside_data_dir_is_rejected(service):
-    with pytest.raises(ValueError):
-        service.resolve_ingest_target("../../../etc/passwd")
-
-
-def test_file_path_inside_data_dir_resolves_when_it_exists(service, tmp_path):
-    target = tmp_path / "docs_sample" / "report.pdf"
-    target.write_bytes(b"%PDF-1.4")
-    assert service.resolve_ingest_target(str(target)) == str(target.resolve())
-
-
-def test_file_path_inside_data_dir_but_missing_raises_not_found(service):
-    with pytest.raises(FileNotFoundError):
-        service.resolve_ingest_target("docs_sample/does-not-exist.pdf")
+def test_resolve_docs_dir_default_prefix(service):
+    resolved = service.resolve_docs_dir("docs/")
+    assert resolved == "docs/"

@@ -52,6 +52,7 @@ class ChunkService:
         user_role: str,
         limit: int = 50,
         offset: int = 0,
+        content_hashes: list[str] | None = None,
     ) -> tuple[list[dict], int]:
         """List chunks for a document with pagination."""
         async with self._uow_factory.create() as uow:
@@ -61,7 +62,12 @@ class ChunkService:
 
             await check_document_access(uow, doc, user_id, user_kind, user_role)
 
-            chunks, total = await uow.chunks.list_for_document(document_id, limit=limit, offset=offset)
+            chunks, total = await uow.chunks.list_for_document(
+                document_id,
+                limit=limit,
+                offset=offset,
+                content_hashes=content_hashes,
+            )
 
             return [
                 {
@@ -78,6 +84,7 @@ class ChunkService:
                     "edited_by": c.edited_by,
                     "manual": c.manual,
                     "creation_date": c.creation_date.isoformat() if c.creation_date else None,
+                    "content_hash": c.content_hash,
                 }
                 for c in chunks
             ], total

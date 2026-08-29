@@ -7,7 +7,6 @@ is handled by ``MLClientRegistry`` (infrastructure.ml.client_registry).
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
 import httpx
 from config import settings
@@ -132,13 +131,18 @@ def create_qdrant_client() -> QdrantClient:
 
 
 def load_bm25_index():
-    """Load BM25 index from disk. Returns None if not found."""
-    from infrastructure.ml.hybrid import load_bm25_index as _load
+    """Load BM25 index from S3. Returns None if not found."""
+    from infrastructure.ml.hybrid import load_bm25_index_from_s3_sync
+    from infrastructure.storage import get_storage
 
-    bm25_path = Path(settings.data_dir) / "bm25_index.json"
-    index = _load(bm25_path)
+    storage = get_storage()
+    if not hasattr(storage, "download_bytes"):
+        log.warning("BM25 index loading requires S3 storage (no download_bytes support)")
+        return None
+
+    index = load_bm25_index_from_s3_sync(storage)
     if index is None:
-        log.info("No BM25 index found at %s — hybrid search disabled for this run", bm25_path)
+        log.info("No BM25 index found in S3 — hybrid search disabled for this run")
     return index
 
 

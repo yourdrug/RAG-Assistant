@@ -40,6 +40,7 @@ class SQLAlchemyChunkRepository:
             edited_by=orm.edited_by,
             manual=orm.manual,
             creation_date=orm.creation_date,
+            content_hash=orm.content_hash,
         )
 
     async def bulk_insert(
@@ -51,6 +52,7 @@ class SQLAlchemyChunkRepository:
         owner_id: int | None = None,
         group_id: int | None = None,
         doc_domain: str = DocDomain.GENERAL.value,
+        content_hashes: list[str] | None = None,
     ) -> None:
         # Delete existing chunks for this document (re-index)
         await self._session.execute(delete(ChunkModel).where(ChunkModel.document_id == document_id))
@@ -68,6 +70,7 @@ class SQLAlchemyChunkRepository:
                 doc_domain=doc_domain,
                 owner_id=owner_id,
                 group_id=group_id,
+                content_hash=content_hashes[i] if content_hashes and i < len(content_hashes) else None,
             )
             for i, content in enumerate(chunks)
         ]
@@ -246,18 +249,22 @@ class SQLAlchemyChunkRepository:
         await self._session.execute(delete(ChunkModel).where(ChunkModel.document_id == document_id))
 
     async def list_for_document(
-        self, document_id: int, limit: int = 50, offset: int = 0
+        self,
+        document_id: int,
+        limit: int = 50,
+        offset: int = 0,
+        content_hashes: list[str] | None = None,
     ) -> tuple[list[ChunkSearchResult], int]:
-        count_stmt = select(func.count()).select_from(ChunkModel).where(ChunkModel.document_id == document_id)
+        conditions = [ChunkModel.document_id == document_id]
+        if content_hashes:
+            conditions.append(ChunkModel.content_hash.in_(content_hashes))
+
+        count_stmt = select(func.count()).select_from(ChunkModel).where(*conditions)
         total_result = await self._session.execute(count_stmt)
         total = total_result.scalar() or 0
 
         stmt = (
-            select(ChunkModel)
-            .where(ChunkModel.document_id == document_id)
-            .order_by(ChunkModel.chunk_index)
-            .limit(limit)
-            .offset(offset)
+            select(ChunkModel).where(*conditions).order_by(ChunkModel.chunk_index).limit(limit).offset(offset)
         )
         result = await self._session.execute(stmt)
         chunks = result.scalars().all()

@@ -176,3 +176,37 @@ def can_view_document(
         return doc_owner_id == user_id
 
     return False
+
+
+def is_in_search_scope(
+    doc_visibility: str,
+    doc_owner_id: int | None,
+    doc_group_id: int | None,
+    user_kind: str,
+    user_id: int,
+    user_group_ids: list[int],
+    user_role: str | None = None,
+) -> bool:
+    """Check if a document participates in the user's RAG search.
+
+    Uses ``get_visibility_conditions(for_list=False)`` — the same filter
+    that ``build_qdrant_filter`` applies.  Admin does NOT get the
+    ``CLIENT_PRIVATE`` bonus in search mode, so cross-client private docs
+    are excluded from their search scope.
+    """
+    conditions = get_visibility_conditions(
+        UserKind(user_kind),
+        user_id,
+        user_group_ids,
+        for_list=False,
+        user_role=UserRole(user_role) if user_role else None,
+    )
+    for cond in conditions:
+        if cond.visibility.value != doc_visibility:
+            continue
+        if cond.owner_match == "self" and doc_owner_id != user_id:
+            continue
+        if cond.group_match and (doc_group_id is None or doc_group_id not in user_group_ids):
+            continue
+        return True
+    return False

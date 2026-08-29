@@ -17,6 +17,7 @@ from domain.repositories.vector_store_repository import VectorStoreRepository
 from domain.services.access_control import (
     can_view_document,
     compute_owner_and_group,
+    is_in_search_scope,
     validate_document_visibility,
 )
 from domain.value_objects.doc_domain import DocDomain
@@ -220,6 +221,22 @@ class DocumentService:
         async with self._uow_factory.create() as uow:
             if user_role == UserRole.ADMIN:
                 docs = await uow.documents.list_all()
+                admin_group_ids = await uow.groups.get_user_group_ids(user_id)
+                return [
+                    to_document_dto(
+                        d,
+                        in_search_scope=is_in_search_scope(
+                            d.visibility,
+                            d.owner_id,
+                            d.group_id,
+                            user_kind,
+                            user_id,
+                            admin_group_ids,
+                            user_role,
+                        ),
+                    )
+                    for d in docs
+                ]
             elif user_kind == UserKind.CLIENT:
                 docs = await uow.documents.list_visible(
                     user_kind=user_kind,

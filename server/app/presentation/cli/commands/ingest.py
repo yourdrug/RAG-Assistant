@@ -1,21 +1,19 @@
-"""CLI command: Document indexing in Qdrant."""
+"""CLI command: Document indexing in Qdrant (S3-only)."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
 import sys
-from pathlib import Path
 
 import typer
 from config import settings
-from infrastructure.registry import load_registry
 from infrastructure.services.ingestion_service import IngestionService
 from infrastructure.storage import get_storage
 
 logger = logging.getLogger("cli")
 
-ingest_app = typer.Typer(help="Document indexing in Qdrant")
+ingest_app = typer.Typer(help="Document indexing in Qdrant (S3 storage)")
 
 
 def _create_service(uow_factory=None) -> IngestionService:
@@ -32,24 +30,14 @@ def _create_service(uow_factory=None) -> IngestionService:
 
 @ingest_app.command("run")
 def ingest_run(
-    docs_dir: str = typer.Option(
-        str(Path("/code/project/data") / "docs_sample"),
-        "--docs-dir",
-        "-d",
-        help="Document folder (local mode)",
-    ),
+    docs_dir: str = typer.Option("docs/", "--docs-dir", "-d", help="S3 prefix (default: docs/)"),
     reset: bool = typer.Option(False, "--reset", help="Reset collection and registry, reindex everything"),
-    s3: bool = typer.Option(False, "--s3", help="Index from S3 (instead of local folder)"),
-    prefix: str = typer.Option("docs/", "--prefix", "-p", help="S3 prefix (default: docs/)"),
     domain: str = typer.Option("auto", "--domain", help="Document domain: auto, legal, general"),
 ) -> None:
-    """Full indexing of document folder."""
+    """Full indexing of documents from S3 bucket."""
     try:
-        if s3:
-            settings.file_backend = "s3"
-
         service = _create_service()
-        asyncio.run(service.run_full_ingestion(docs_dir, reset=reset, prefix=prefix, domain=domain))
+        asyncio.run(service.run_full_ingestion(docs_dir=docs_dir, reset=reset, domain=domain))
     except Exception as exc:
         logger.error("Indexing error", exc_info=exc)
         sys.exit(1)
@@ -57,22 +45,20 @@ def ingest_run(
 
 @ingest_app.command("file")
 def ingest_file(
-    file_path: str = typer.Argument(..., help="File path (local) or S3 key (docs/report.pdf)"),
+    file_path: str = typer.Argument(..., help="S3 key (e.g. docs/report.pdf)"),
     force: bool = typer.Option(False, "--force", help="Reindex even if file is already in registry"),
-    s3: bool = typer.Option(False, "--s3", help="Treat path as S3 key"),
     domain: str = typer.Option("auto", "--domain", help="Document domain: auto, legal, general"),
 ) -> None:
-    """Add a single file to existing collection."""
+    """Add a single file from S3 to existing collection."""
     try:
-        if s3:
-            settings.file_backend = "s3"
-
         service = _create_service()
 
-        if force:
-            service.force_reindex(Path(file_path).name)
+        async def _run():
+            if force:
+                await service.force_reindex(file_path.split("/")[-1])
+            await service.run_single_file(file_path, domain=domain)
 
-        asyncio.run(service.run_single_file(file_path, domain=domain))
+        asyncio.run(_run())
     except Exception as exc:
         logger.error("File indexing error", exc_info=exc)
         sys.exit(1)
@@ -85,10 +71,11 @@ def ingest_upload(
 ) -> None:
     """Upload a local file to S3 storage."""
     try:
-        settings.file_backend = "s3"
+        from pathlib import Path as _Path
+
         storage = get_storage()
 
-        path = Path(file_path)
+        path = _Path(file_path)
         if not path.exists():
             logger.error("File not found: %s", file_path)
             sys.exit(1)
@@ -106,7 +93,8 @@ def ingest_upload(
 def ingest_list() -> None:
     """Show list of indexed files."""
     try:
-        registry = load_registry(settings.data_dir)
+        service = _create_service()
+        registry = asyncio.run(service._registry_list_all())
 
         if not registry:
             logger.info("Registry empty — no files indexed.")
@@ -121,7 +109,7 @@ def ingest_list() -> None:
                 name[:50],
                 meta.get("chunks", "?"),
                 f"{meta.get('chars', 0):,}",
-                meta.get("indexed_at", "?")[:19],
+                meta.get("indexed_at", "?")[:19] if meta.get("indexed_at") else "?",
             )
     except Exception as exc:
         logger.error("Registry listing error", exc_info=exc)

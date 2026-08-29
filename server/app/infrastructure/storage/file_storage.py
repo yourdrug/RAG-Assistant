@@ -162,6 +162,15 @@ class S3Storage:
     def delete_file(self, key: str) -> None:
         self.client.delete_object(Bucket=self.bucket, Key=key)
 
+    def download_bytes(self, key: str) -> bytes:
+        """Download an entire object as bytes synchronously.
+
+        Used by BM25 index loading which runs synchronously from
+        ``MLClientRegistry.bm25_index()``.
+        """
+        resp = self.client.get_object(Bucket=self.bucket, Key=key)
+        return resp["Body"].read()
+
 
 class LazyStorage:
     """Lazy proxy — calls get_storage() on first attribute access.

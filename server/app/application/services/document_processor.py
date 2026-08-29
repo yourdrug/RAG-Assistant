@@ -16,6 +16,7 @@ from domain.entities.chunk import Chunk
 from domain.repositories.vector_store_repository import VectorStoreRepository
 from domain.services.document_domain_classifier import classify_document_domain
 from domain.services.document_parser import DocumentParser, DocumentSplitter
+from domain.utils import content_hash
 from domain.value_objects.document_status import DocumentStatus
 
 from application.ports.document_processing import (
@@ -230,6 +231,7 @@ class DocumentProcessor:
                     owner_id=owner_id,
                     group_id=group_id,
                     doc_domain=doc_domain,
+                    content_hashes=[content_hash(rc.page_content) for rc in raw_chunks],
                 )
 
                 if replace_id is not None:

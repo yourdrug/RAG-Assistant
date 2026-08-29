@@ -17,7 +17,7 @@ export function AdminIngestPage() {
   const { data: registry, refetch } = useIngestRegistry();
   const allMut = useIngestAll();
   const fileMut = useIngestFile();
-  const [docsDir, setDocsDir] = useState("data/docs_sample");
+  const [docsDir, setDocsDir] = useState("docs/");
   const [filePath, setFilePath] = useState("");
   const [domain, setDomain] = useState("auto");
 
@@ -84,16 +84,16 @@ export function AdminIngestPage() {
       <Card>
         <CardHeader>
           <CardTitle>Ingest Directory</CardTitle>
-          <CardDescription>Trigger ingestion for all files in a directory</CardDescription>
+          <CardDescription>Trigger ingestion for all files under an S3 prefix</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex gap-2">
             <div className="flex-1">
-              <Label>Directory Path</Label>
+              <Label>S3 Prefix</Label>
               <Input
                 value={docsDir}
                 onChange={(e) => setDocsDir(e.target.value)}
-                placeholder="data/docs_sample"
+                placeholder="docs/"
               />
             </div>
             <div className="w-40">
@@ -135,11 +135,11 @@ export function AdminIngestPage() {
         <CardContent className="space-y-4">
           <div className="flex gap-2">
             <div className="flex-1">
-              <Label>File Path</Label>
+              <Label>File Path (S3 key)</Label>
               <Input
                 value={filePath}
                 onChange={(e) => setFilePath(e.target.value)}
-                placeholder="data/docs_sample/example.pdf"
+                placeholder="docs/report.pdf"
               />
             </div>
             <div className="w-40">

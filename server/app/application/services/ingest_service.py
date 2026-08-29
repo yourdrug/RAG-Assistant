@@ -22,11 +22,13 @@ class IngestAppService:
         self._uow_factory = uow_factory
         self._ingestion = ingestion_service
 
-    async def run_full(self, docs_dir: str, reset: bool = False, domain: str = "auto") -> IngestStatusResult:
-        resolved_dir = self._ingestion.resolve_docs_dir(docs_dir)
-        await self._ingestion.run_full_ingestion(resolved_dir, reset=reset, domain=domain)
+    async def run_full(
+        self, docs_dir: str | None = None, reset: bool = False, domain: str = "auto"
+    ) -> IngestStatusResult:
+        resolved = self._ingestion.resolve_docs_dir(docs_dir or "docs/")
+        await self._ingestion.run_full_ingestion(resolved, reset=reset, domain=domain)
         mode = "RESET + full reindex" if reset else "APPEND (new files only)"
-        return IngestStatusResult(status="started", mode=mode, docs_dir=resolved_dir)
+        return IngestStatusResult(status="started", mode=mode, docs_dir=resolved)
 
     async def run_single(
         self, file_path: str, force: bool = False, domain: str = "auto"
@@ -35,8 +37,8 @@ class IngestAppService:
         await self._ingestion.run_single_file(resolved, domain=domain)
         return IngestStatusResult(status="started", file=resolved, force=force)
 
-    def get_registry(self) -> IngestRegistryResult:
-        raw = self._ingestion.get_registry()
+    async def get_registry(self) -> IngestRegistryResult:
+        raw = await self._ingestion.get_registry()
         items = []
         for filename, info in raw.items():
             items.append(
@@ -56,14 +58,14 @@ class IngestAppService:
             files=items,
         )
 
-    def resolve_docs_dir(self, docs_dir: str) -> str:
-        return self._ingestion.resolve_docs_dir(docs_dir)
+    def resolve_docs_dir(self, prefix: str) -> str:
+        return self._ingestion.resolve_docs_dir(prefix)
 
     def resolve_ingest_target(self, file_path: str) -> str:
         return self._ingestion.resolve_ingest_target(file_path)
 
-    def force_reindex(self, filename: str) -> None:
-        self._ingestion.force_reindex(filename)
+    async def force_reindex(self, filename: str) -> None:
+        await self._ingestion.force_reindex(filename)
 
     async def upload_files(self, files, prefix: str = "docs/") -> list[str]:
         return await self._ingestion.upload_files(files, prefix)

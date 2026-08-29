@@ -128,7 +128,7 @@ class Settings(BaseSettings):
         return f"redis://{auth}{self.redis_host}:{self.redis_port}/{self.redis_db}"
 
     # --- Файловое хранилище ---
-    file_backend: str = "local"  # "local" | "s3"
+    file_backend: str = "s3"
 
     # S3 / MinIO
     s3_endpoint: str = "http://minio:9000"
@@ -229,7 +229,10 @@ class Settings(BaseSettings):
     # Upload limits
     max_upload_size_mb: int = 50
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=str(Path(__file__).resolve().parent.parent / ".env"),
+        extra="ignore",
+    )
 
     @model_validator(mode="after")
     def _check_security_defaults(self) -> "Settings":
@@ -276,6 +279,10 @@ class Settings(BaseSettings):
             errors.append(
                 "CORS allowed_origins contains '*' which is insecure in production. "
                 "Set ALLOWED_ORIGINS to specific origins in server/.env"
+            )
+        if self.file_backend == "local":
+            errors.append(
+                "file_backend='local' is not allowed in production. " "Set FILE_BACKEND=s3 in server/.env"
             )
         return errors
 
