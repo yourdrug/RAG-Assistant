@@ -32,7 +32,7 @@ export function DryRunPageDetail({ page, previewId }: DryRunPageDetailProps) {
 
   if (!page) {
     return (
-      <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+      <div className="flex items-center justify-center min-h-100 p-6 text-muted-foreground text-sm">
         Select a page to view details
       </div>
     );
@@ -41,7 +41,7 @@ export function DryRunPageDetail({ page, previewId }: DryRunPageDetailProps) {
   return (
     <div className="space-y-3 p-3">
       {/* Page header */}
-      <div className="flex items-center gap-2 flex-wrap">
+      <div className="flex items-center gap-2 flex-wrap ">
         <span className="font-mono text-sm font-medium">Page {page.page}</span>
         <Badge
           variant={
@@ -85,13 +85,17 @@ export function DryRunPageDetail({ page, previewId }: DryRunPageDetailProps) {
 
       {/* Page image — full natural size */}
       {page.image_available && (
-        <div className="rounded-md border overflow-hidden bg-muted/30">
+        <div className="rounded-md border bg-muted/30">
           {pageImage.isPending ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
           ) : imageSrc ? (
-            <img src={imageSrc} alt={`Page ${page.page}`} className="w-full h-auto" />
+            <img
+              src={imageSrc}
+              alt={`Page ${page.page}`}
+              className="w-2/3 h-auto mx-auto"
+            />
           ) : (
             <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">
               Image not available
@@ -105,7 +109,7 @@ export function DryRunPageDetail({ page, previewId }: DryRunPageDetailProps) {
         <span className="text-xs font-medium text-muted-foreground mb-1 block">
           Extracted text
         </span>
-        <pre className="text-xs whitespace-pre-wrap font-mono p-3 bg-muted/30 rounded-md max-h-96 overflow-auto">
+        <pre className="text-xs whitespace-pre-wrap font-mono p-3 bg-muted rounded-md max-h-96 overflow-auto scrollbar-thin">
           {page.full_text || page.preview || "No text extracted."}
         </pre>
       </div>

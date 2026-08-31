@@ -66,16 +66,19 @@ export function DryRunResultPage() {
         onSelectPage={setSelectedPage}
       />
 
-      {/* Split view: page list + detail — height determined by right column */}
+      {/* Split view: page list + detail */}
       <div className="flex gap-4 items-stretch">
-        <div className="w-64 border rounded-md overflow-y-auto shrink-0">
-          <DryRunPageList
-            pages={result.pages}
-            selectedPage={selectedPage}
-            onSelectPage={setSelectedPage}
-          />
+        <div className="relative w-64 border rounded-md shrink-0">
+          <div className="absolute inset-0 overflow-y-auto scrollbar-thin">
+            <DryRunPageList
+              pages={result.pages}
+              selectedPage={selectedPage}
+              onSelectPage={setSelectedPage}
+            />
+          </div>
         </div>
-        <div className="flex-1 border rounded-md">
+
+        <div className="flex-1 border rounded-md overflow-y-auto ">
           <DryRunPageDetail
             page={selectedPageData}
             previewId={result.preview_id}
