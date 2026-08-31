@@ -17,12 +17,6 @@ interface Message {
   sources?: Source[];
 }
 
-const STAGE_LABELS: Record<PipelineStage, string> = {
-  searching: "Searching documents",
-  reranking: "Reranking results",
-  generating: "Generating answer",
-};
-
 export function ChatPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -35,14 +29,19 @@ export function ChatPage() {
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [selectedSources, setSelectedSources] = useState<Source[]>([]);
   const [depth, setDepth] = useState<DepthOption>(null);
-  const [pipelineStage, setPipelineStage] = useState<PipelineStage | null>(null);
+  const [pipelineStage, setPipelineStage] = useState<PipelineStage | null>(
+    null,
+  );
   const abortRef = useRef<AbortController | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const token = useAuthStore((s) => s.token);
   const streamingContentRef = useRef("");
   const hadChunksRef = useRef(false);
 
-  const scroll = useCallback(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), []);
+  const scroll = useCallback(
+    () => endRef.current?.scrollIntoView({ behavior: "smooth" }),
+    [],
+  );
   useEffect(() => {
     scroll();
   }, [messages, streamingMsg, scroll]);
@@ -130,7 +129,10 @@ export function ChatPage() {
         setPipelineStage(null);
       },
       onError: (err) => {
-        setMessages((p) => [...p, { role: "assistant", content: `Error: ${err}` }]);
+        setMessages((p) => [
+          ...p,
+          { role: "assistant", content: `Error: ${err}` },
+        ]);
         setStreamingMsg(null);
         setIsStreaming(false);
         setPipelineStage(null);
@@ -142,7 +144,10 @@ export function ChatPage() {
   const handleStop = () => {
     abortRef.current?.abort();
     if (hadChunksRef.current && streamingContentRef.current) {
-      setMessages((p) => [...p, { role: "assistant", content: streamingContentRef.current }]);
+      setMessages((p) => [
+        ...p,
+        { role: "assistant", content: streamingContentRef.current },
+      ]);
     } else if (!hadChunksRef.current) {
       setMessages((p) => p.slice(0, -1));
     }
@@ -182,7 +187,9 @@ export function ChatPage() {
             <div className="flex h-full items-center justify-center">
               <div className="text-center space-y-2">
                 <MessageSquare className="h-12 w-12 mx-auto text-muted-foreground/50" />
-                <p className="text-lg font-medium text-muted-foreground">Start a conversation</p>
+                <p className="text-lg font-medium text-muted-foreground">
+                  Start a conversation
+                </p>
                 <p className="text-sm text-muted-foreground/70">
                   Ask questions about your documents
                 </p>
@@ -191,7 +198,9 @@ export function ChatPage() {
           )}
           {isLoadingHistory && (
             <div className="flex h-full items-center justify-center">
-              <p className="text-sm text-muted-foreground">Loading history...</p>
+              <p className="text-sm text-muted-foreground">
+                Loading history...
+              </p>
             </div>
           )}
           {messages.map((m, i) => (
@@ -204,20 +213,14 @@ export function ChatPage() {
             />
           ))}
           {streamingMsg !== null && (
-            <MessageBubble role="assistant" content={streamingMsg} streaming />
+            <MessageBubble
+              role="assistant"
+              content={streamingMsg}
+              streaming
+              stage={pipelineStage}
+            />
           )}
-          {isStreaming && pipelineStage && !streamingMsg && (
-            <div className="flex items-center gap-3 pl-11">
-              <div className="flex items-center gap-1.5">
-                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50 animate-bounce [animation-delay:-0.3s]" />
-                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50 animate-bounce [animation-delay:-0.15s]" />
-                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50 animate-bounce" />
-              </div>
-              <span className="text-xs text-muted-foreground/60">
-                {STAGE_LABELS[pipelineStage]}...
-              </span>
-            </div>
-          )}
+
           <div ref={endRef} />
         </div>
         <ChatInput
@@ -229,7 +232,10 @@ export function ChatPage() {
         />
       </div>
       {selectedSources.length > 0 && (
-        <SourcePanel sources={selectedSources} onClose={() => setSelectedSources([])} />
+        <SourcePanel
+          sources={selectedSources}
+          onClose={() => setSelectedSources([])}
+        />
       )}
     </div>
   );
