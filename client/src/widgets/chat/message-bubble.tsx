@@ -4,6 +4,7 @@ import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Source } from "@/shared/api/types";
+import type { PipelineStage } from "@/shared/lib/sse";
 import { cn } from "@/shared/lib/utils";
 import { Avatar, AvatarFallback } from "@/shared/ui/avatar";
 import { Button } from "@/shared/ui/button";
@@ -13,13 +14,47 @@ interface Props {
   content: string;
   sources?: Source[];
   streaming?: boolean;
+  stage?: PipelineStage | null;
   onSourcesClick?: (s: Source[]) => void;
 }
 
-export function MessageBubble({ role, content, sources, streaming, onSourcesClick }: Props) {
+const STAGE_LABELS: Record<PipelineStage, string> = {
+  searching: "Searching documents",
+  reranking: "Reranking results",
+  generating: "Generating answer",
+};
+
+function ThinkingDots({ stage }: { stage?: PipelineStage | null }) {
+  return (
+    <div
+      className="flex items-center justify-center gap-2.5 py-0.5"
+      role="status"
+      aria-live="polite"
+    >
+      <div className="flex items-center gap-1">
+        <span className="h-1.5 w-1.5 animate-dot-pulse rounded-full bg-foreground/50 [animation-delay:0ms]" />
+        <span className="h-1.5 w-1.5 animate-dot-pulse rounded-full bg-foreground/50 [animation-delay:150ms]" />
+        <span className="h-1.5 w-1.5 animate-dot-pulse rounded-full bg-foreground/50 [animation-delay:300ms]" />
+      </div>
+      <span className="animate-shimmer bg-size-[200%_100%] bg-linear-to-r from-foreground/40 via-foreground to-foreground/40 bg-clip-text text-xs leading-none">
+        {stage ? `${STAGE_LABELS[stage]}...` : "Thinking..."}
+      </span>
+    </div>
+  );
+}
+
+export function MessageBubble({
+  role,
+  content,
+  sources,
+  streaming,
+  stage,
+  onSourcesClick,
+}: Props) {
   const [copied, setCopied] = useState(false);
   const [liked, setLiked] = useState<"like" | "dislike" | null>(null);
   const isUser = role === "user";
+  const isPending = streaming && content.length === 0;
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(content);
@@ -31,7 +66,10 @@ export function MessageBubble({ role, content, sources, streaming, onSourcesClic
     <div className={cn("group flex gap-3", isUser && "flex-row-reverse")}>
       <Avatar className="h-8 w-8 shrink-0">
         <AvatarFallback
-          className={cn("text-xs", isUser ? "bg-primary text-primary-foreground" : "bg-muted")}
+          className={cn(
+            "text-xs",
+            isUser ? "bg-primary text-primary-foreground" : "bg-muted",
+          )}
         >
           {isUser ? "U" : "AI"}
         </AvatarFallback>
@@ -45,12 +83,20 @@ export function MessageBubble({ role, content, sources, streaming, onSourcesClic
         >
           {isUser ? (
             <p className="whitespace-pre-wrap">{content}</p>
+          ) : isPending ? (
+            <ThinkingDots stage={stage} />
           ) : (
-            <div className="prose prose-sm dark:prose-invert max-w-none">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
-              {streaming && content.length > 0 && (
-                <span className="inline-block h-4 w-2 animate-pulse bg-foreground/70" />
+            <div
+              className={cn(
+                "prose prose-sm dark:prose-invert max-w-none",
+                streaming &&
+                  content.length > 0 &&
+                  "[&>*:last-child]:after:ml-1.5 [&>*:last-child]:after:inline-block [&>*:last-child]:after:h-4 [&>*:last-child]:after:w-2 [&>*:last-child]:after:translate-y-0.5 [&>*:last-child]:after:animate-pulse [&>*:last-child]:after:bg-foreground/70 [&>*:last-child]:after:content-['']",
               )}
+            >
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {content}
+              </ReactMarkdown>
             </div>
           )}
         </div>
@@ -72,7 +118,11 @@ export function MessageBubble({ role, content, sources, streaming, onSourcesClic
               onClick={handleCopy}
               aria-label={copied ? "Copied" : "Copy message"}
             >
-              {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+              {copied ? (
+                <Check className="h-3 w-3" />
+              ) : (
+                <Copy className="h-3 w-3" />
+              )}
             </Button>
             <Button
               variant="ghost"
