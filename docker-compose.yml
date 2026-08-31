@@ -268,8 +268,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      tei-embed:
-        condition: service_healthy
     restart: unless-stopped
     networks:
       - default
@@ -282,6 +280,8 @@ services:
     env_file:
       - path: server/.env
         required: true
+    environment:
+      SKIP_MIGRATIONS: "1"
     volumes:
       - type: bind
         source: ./data
@@ -305,15 +305,13 @@ services:
         condition: service_healthy
       ollama:
         condition: service_healthy
-      tei-embed:
-        condition: service_healthy
     deploy:
       resources:
         limits:
-          cpus: "2"
-          memory: 3G
+          cpus: "4"
+          memory: 4G
         reservations:
-          cpus: "0.5"
+          cpus: "1"
           memory: 1G
     restart: unless-stopped
     networks:
@@ -323,6 +321,7 @@ services:
 
   tei-embed:
     image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.5
+    profiles: ["tei"]
     hostname: tei-embed
     container_name: rag-tei-embed
     command: --model-id /data/bge-m3 --port 8080
@@ -340,8 +339,8 @@ services:
       test: [ "CMD-SHELL", "bash -c '</dev/tcp/localhost/8080' || exit 1" ]
       interval: 10s
       timeout: 5s
-      retries: 10
-      start_period: 120s
+      retries: 15
+      start_period: 60s
     deploy:
       resources:
         limits:
@@ -356,9 +355,13 @@ services:
 
   tei-rerank:
     image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.5
+    profiles: ["tei"]
     hostname: tei-rerank
     container_name: rag-tei-rerank
     command: --model-id /data/bge-reranker-v2-m3 --port 8080
+    environment:
+      OMP_NUM_THREADS: "4"
+      ORT_NUM_THREADS: "4"
     expose:
       - "8080/tcp"
     volumes:
@@ -373,8 +376,8 @@ services:
       test: [ "CMD-SHELL", "bash -c '</dev/tcp/localhost/8080' || exit 1" ]
       interval: 10s
       timeout: 5s
-      retries: 10
-      start_period: 120s
+      retries: 15
+      start_period: 60s
     deploy:
       resources:
         limits:

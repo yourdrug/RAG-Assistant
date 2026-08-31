@@ -30,11 +30,8 @@ docker compose $COMPOSE_FILES pull server worker client
 # Stop old containers (avoids GPU reservation conflicts when switching modes)
 docker compose $COMPOSE_FILES down --remove-orphans 2>/dev/null || true
 
-# Start
-docker compose $COMPOSE_FILES up -d --remove-orphans
-
-# Migrations
-docker compose $COMPOSE_FILES exec -T server alembic upgrade head 2>/dev/null || true
+# Start (migrations are handled by server entrypoint.sh)
+docker compose $COMPOSE_FILES up -d --remove-orphans --wait
 
 # Cleanup
 docker image prune -f

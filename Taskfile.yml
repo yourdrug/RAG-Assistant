@@ -77,14 +77,13 @@ tasks:
     desc: "Поднять стек (task up -- [gpu] [prod] [public])"
     cmds:
       - task: data:create
-      - >
-        {{.COMPOSE}} -f docker-compose.yml
-        {{if not (contains "prod" .CLI_ARGS)}}-f docker-compose.dev.yml{{end}}
-        {{if contains "prod" .CLI_ARGS}}-f docker-compose.prod.yml{{end}}
-        {{if contains "gpu" .CLI_ARGS}}-f docker-compose.gpu.yml{{end}}
-        {{if contains "public" .CLI_ARGS}}--profile domain{{end}}
-        up -d
+      - task: _up_compose
       - task: ps
+
+  _up_compose:
+    internal: true
+    cmds:
+      - cmd: bash -c 'source <(grep ML_PROVIDER server/.env) && docker compose -f docker-compose.yml -f docker-compose.dev.yml --profile ${ML_PROVIDER:-tei} {{if contains "public" .CLI_ARGS}}--profile domain{{end}} {{if not (contains "prod" .CLI_ARGS)}}-f docker-compose.dev.yml{{end}} {{if contains "prod" .CLI_ARGS}}-f docker-compose.prod.yml{{end}} {{if contains "gpu" .CLI_ARGS}}-f docker-compose.gpu.yml{{end}} up -d'
     env:
       BUILD_TARGET: '{{if contains "gpu" .CLI_ARGS}}gpu{{else}}cpu{{end}}'
       DEVICE: '{{if contains "gpu" .CLI_ARGS}}cuda{{else}}cpu{{end}}'
@@ -96,7 +95,7 @@ tasks:
   down:
     desc: Остановить и удалить контейнеры, включая Caddy если был поднят (данные в data/ сохраняются)
     cmds:
-      - "{{.COMPOSE}} --profile domain down"
+      - "{{.COMPOSE}} --profile domain --profile tei down"
     env:
       STAGE: development
       BUILD_TARGET: cpu

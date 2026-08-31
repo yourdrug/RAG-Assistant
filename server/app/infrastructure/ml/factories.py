@@ -25,6 +25,15 @@ log = logging.getLogger("default")
 
 
 def create_embeddings():
+    if settings.ml_provider == "deepinfra":
+        from infrastructure.ml.deepinfra_clients import DeepInfraEmbeddingsClient
+
+        log.info("Creating DeepInfra embeddings client (model=%s) ...", settings.deepinfra_embed_model)
+        return DeepInfraEmbeddingsClient(
+            api_key=settings.deepinfra_api_key,
+            base_url=f"{settings.deepinfra_base_url}/openai",
+            model=settings.deepinfra_embed_model,
+        )
     from infrastructure.ml.tei_clients import TEIEmbeddingsClient
 
     log.info("Creating TEI embeddings client (%s) ...", settings.tei_embed_url)
@@ -37,6 +46,15 @@ def create_embeddings():
 
 
 def create_reranker():
+    if settings.ml_provider == "deepinfra":
+        from infrastructure.ml.deepinfra_clients import DeepInfraRerankerClient
+
+        log.info("Creating DeepInfra reranker client (model=%s) ...", settings.deepinfra_rerank_model)
+        return DeepInfraRerankerClient(
+            api_key=settings.deepinfra_api_key,
+            base_url=settings.deepinfra_base_url,
+            model=settings.deepinfra_rerank_model,
+        )
     from infrastructure.ml.tei_clients import TEIRerankerClient
 
     log.info("Creating TEI reranker client (%s) ...", settings.tei_rerank_url)

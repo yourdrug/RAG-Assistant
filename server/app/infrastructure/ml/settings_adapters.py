@@ -64,6 +64,18 @@ class LiveConfigAdminSettings:
         return settings.tei_rerank_url
 
     @property
+    def ml_provider(self) -> str:
+        return settings.ml_provider
+
+    @property
+    def deepinfra_embed_model(self) -> str:
+        return settings.deepinfra_embed_model
+
+    @property
+    def deepinfra_rerank_model(self) -> str:
+        return settings.deepinfra_rerank_model
+
+    @property
     def ocr_engine(self) -> str:
         return settings.ocr_engine
 

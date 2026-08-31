@@ -309,6 +309,7 @@ class ModelsInfoResponse(BaseModel):
     ocr_enabled: bool
     ollama_models: list[str]
     openrouter_model: str | None = None
+    ml_provider: str = "tei"
 
 
 class OpenRouterModelInfo(BaseModel):

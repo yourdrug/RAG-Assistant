@@ -21,6 +21,7 @@ class ModelsInfo:
     ocr_enabled: bool
     ollama_models: list[str] = field(default_factory=list)
     openrouter_model: str | None = None
+    ml_provider: str = "tei"
 
 
 @dataclass(frozen=True)
@@ -78,6 +79,7 @@ class ConfigAdminService:
             openrouter_model=self._settings.openrouter_model
             if self._settings.llm_provider == LLMProvider.OPENROUTER.value
             else None,
+            ml_provider=self._settings.ml_provider,
         )
 
     def get_vectordb_info(self) -> VectorDBInfo:

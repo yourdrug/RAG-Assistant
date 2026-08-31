@@ -78,9 +78,18 @@ class Settings(BaseSettings):
         return [o.strip() for o in self.allowed_origins.split(",") if o.strip()]
 
     # --- TEI (Text Embeddings Inference) ---
-    # Обязательные URL сервисов. Пустые = ошибка при старте.
+    # Обязательные URL сервисов. Пустые = ошибка при старте (если ml_provider=tei).
     tei_embed_url: str = ""  # e.g. "http://tei-embed:8080"
     tei_rerank_url: str = ""  # e.g. "http://tei-rerank:8080"
+
+    # --- ML Provider Selection (tei | deepinfra) ---
+    ml_provider: str = "tei"  # "tei" (self-hosted) | "deepinfra" (managed API)
+
+    # --- DeepInfra (managed embedding + reranking API) ---
+    deepinfra_api_key: str = ""
+    deepinfra_base_url: str = "https://api.deepinfra.com/v1"
+    deepinfra_embed_model: str = "BAAI/bge-m3"
+    deepinfra_rerank_model: str = "BAAI/bge-reranker-v2-m3"
 
     # --- LLM ---
     llm_provider: str = "ollama"  # "ollama" | "openrouter"
@@ -288,10 +297,18 @@ class Settings(BaseSettings):
 
     def _check_required_urls(self) -> list[str]:
         errors: list[str] = []
-        if not self.tei_embed_url:
-            errors.append("TEI_EMBED_URL is required — set it in server/.env")
-        if not self.tei_rerank_url:
-            errors.append("TEI_RERANK_URL is required — set it in server/.env")
+        if self.ml_provider == "tei":
+            if not self.tei_embed_url:
+                errors.append("TEI_EMBED_URL is required when ml_provider=tei — set it in server/.env")
+            if not self.tei_rerank_url:
+                errors.append("TEI_RERANK_URL is required when ml_provider=tei — set it in server/.env")
+        elif self.ml_provider == "deepinfra":
+            if not self.deepinfra_api_key:
+                errors.append(
+                    "DEEPINFRA_API_KEY is required when ml_provider=deepinfra" " — set it in server/.env"
+                )
+        else:
+            errors.append(f"ML_PROVIDER must be 'tei' or 'deepinfra', got '{self.ml_provider}'")
         return errors
 
     @property

@@ -110,7 +110,11 @@ class ChunkRepository(Protocol):
         ...
 
     async def list_for_document(
-        self, document_id: int, limit: int = 50, offset: int = 0
+        self,
+        document_id: int,
+        limit: int = 50,
+        offset: int = 0,
+        content_hashes: list[str] | None = None,
     ) -> tuple[list[ChunkSearchResult], int]:
         """List chunks for a document with pagination. Returns (chunks, total_count)."""
         ...

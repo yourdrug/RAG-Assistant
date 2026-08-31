@@ -84,7 +84,7 @@ WORKDIR $PYSETUP_PATH
 COPY server/pyproject.toml server/uv.lock ./
 
 # Install dependencies — uv resolves torch from pytorch-cpu index via [tool.uv.sources]
-RUN                                                                                 \
+RUN --mount=type=cache,target=/root/.cache/uv                                       \
     uv sync --frozen --no-dev --extra cpu &&                                        \
     # Remove __pycache__ directories (saves ~50-100MB)
     find /code/.venv -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null      \
@@ -136,7 +136,7 @@ COPY --from=uv-base-cpu $VENV_PATH $VENV_PATH
 COPY server/pyproject.toml server/uv.lock ./
 
 # Re-sync to add dev dependencies (testing, linting, etc.)
-RUN                                                                                 \
+RUN --mount=type=cache,target=/root/.cache/uv                                       \
     uv sync --frozen --extra cpu &&                                                 \
     # Clean up __pycache__ and .pyc files
     find /code/.venv -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null      \

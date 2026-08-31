@@ -2,6 +2,8 @@
 .env
 .venv
 .data
+data/
+.git
 .profiling
 .mypy_cache
 .ruff_cache

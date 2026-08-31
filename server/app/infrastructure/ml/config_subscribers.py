@@ -74,6 +74,11 @@ _DYNAMIC_FIELDS: dict[str, tuple[str, type]] = {
     "llm_num_predict_broad": ("llm_num_predict_broad", int),
     # --- OpenRouter ---
     "openrouter_model": ("openrouter_model", str),
+    # --- ML Provider ---
+    "ml_provider": ("ml_provider", str),
+    "deepinfra_api_key": ("deepinfra_api_key", str),
+    "deepinfra_embed_model": ("deepinfra_embed_model", str),
+    "deepinfra_rerank_model": ("deepinfra_rerank_model", str),
     # --- OCR ---
     "ocr_enabled": ("ocr_enabled", bool),
     "ocr_engine": ("ocr_engine", str),

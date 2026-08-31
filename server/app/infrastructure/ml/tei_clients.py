@@ -18,7 +18,7 @@ import httpx
 log = logging.getLogger("default")
 
 TEI_TIMEOUT = 600.0
-RERANK_BATCH_SIZE = 16
+RERANK_BATCH_SIZE = 8
 
 
 class TEIEmbeddingsClient:
@@ -69,29 +69,21 @@ class TEIRerankerClient:
             return []
         query = pairs[0][0]
         texts = [p[1] for p in pairs]
-        all_scores: list[float] = []
+        payload = {"query": query, "texts": texts}
         async with httpx.AsyncClient(timeout=TEI_TIMEOUT) as client:
-            for i in range(0, len(texts), RERANK_BATCH_SIZE):
-                batch = texts[i : i + RERANK_BATCH_SIZE]
-                payload = {"query": query, "texts": batch}
-                r = await client.post(f"{self._base_url}/rerank", json=payload)
-                r.raise_for_status()
-                data = r.json()
-                all_scores.extend(item["score"] for item in data)
-        return all_scores
+            r = await client.post(f"{self._base_url}/rerank", json=payload)
+            r.raise_for_status()
+            data = r.json()
+            return [item["score"] for item in data]
 
     def predict_sync(self, pairs: list[tuple[str, str]]) -> list[float]:
         if not pairs:
             return []
         query = pairs[0][0]
         texts = [p[1] for p in pairs]
-        all_scores: list[float] = []
+        payload = {"query": query, "texts": texts}
         with httpx.Client(timeout=TEI_TIMEOUT) as client:
-            for i in range(0, len(texts), RERANK_BATCH_SIZE):
-                batch = texts[i : i + RERANK_BATCH_SIZE]
-                payload = {"query": query, "texts": batch}
-                r = client.post(f"{self._base_url}/rerank", json=payload)
-                r.raise_for_status()
-                data = r.json()
-                all_scores.extend(item["score"] for item in data)
-        return all_scores
+            r = client.post(f"{self._base_url}/rerank", json=payload)
+            r.raise_for_status()
+            data = r.json()
+            return [item["score"] for item in data]
