@@ -5,6 +5,16 @@ import { useState } from "react";
 import toast from "react-hot-toast";
 import { useIngestAll, useIngestFile, useIngestRegistry } from "@/shared/api/hooks";
 import type { IngestRegistryItem } from "@/shared/api/types";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/shared/ui/alert-dialog";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
@@ -22,11 +32,26 @@ export function AdminIngestPage() {
   const [domain, setDomain] = useState("auto");
 
   const [resetAll, setResetAll] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   const handleAll = async () => {
+    if (resetAll) {
+      setShowResetConfirm(true);
+      return;
+    }
     try {
-      await allMut.mutateAsync({ docsDir, reset: resetAll, domain });
-      toast.success("Ingestion started" + (resetAll ? " (reset mode)" : ""));
+      await allMut.mutateAsync({ docsDir, reset: false, domain });
+      toast.success("Ingestion started");
+    } catch {
+      toast.error("Failed");
+    }
+  };
+
+  const confirmResetIngest = async () => {
+    setShowResetConfirm(false);
+    try {
+      await allMut.mutateAsync({ docsDir, reset: true, domain });
+      toast.success("Ingestion started (reset mode)");
     } catch {
       toast.error("Failed");
     }
@@ -183,6 +208,30 @@ export function AdminIngestPage() {
           />
         </CardContent>
       </Card>
+
+      <AlertDialog open={showResetConfirm} onOpenChange={setShowResetConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reset Ingestion</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <p>
+                This will <strong>delete all public documents</strong> (both CLI-ingested and
+                UI-uploaded with "Public" visibility) and re-index files from scratch.
+              </p>
+              <p>
+                Private and group documents will be preserved. Manual documents will not be
+                affected.
+              </p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmResetIngest}>
+              Reset and Re-index
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

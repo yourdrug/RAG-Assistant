@@ -32,28 +32,31 @@ from application.ports.unit_of_work_factory import UnitOfWorkFactory
 log = logging.getLogger(__name__)
 
 
-def to_document_dto(doc: Document, **overrides) -> DocumentDTO:
+def to_document_dto(doc: Document, **overrides: object) -> DocumentDTO:
     """Convert a Document entity to a DocumentDTO."""
     assert doc.id is not None
+    defaults: dict[str, object] = {
+        "source_path": doc.source_path,
+        "creation_date": doc.creation_date,
+        "indexed_at": doc.indexed_at,
+        "error_message": doc.error_message,
+        "warning_message": doc.warning_message,
+        "quality_score": doc.quality_score,
+        "chunks": doc.chunks,
+        "chars": doc.chars,
+        "owner_id": doc.owner_id,
+        "group_id": doc.group_id,
+        "doc_domain": doc.doc_domain,
+        "source_type": doc.source_type,
+        "has_manual_edits": doc.has_manual_edits,
+    }
+    defaults.update(overrides)
     return DocumentDTO(
         id=doc.id,
         filename=doc.filename,
         visibility=doc.visibility,
         status=doc.status,
-        source_path=doc.source_path,
-        creation_date=doc.creation_date,
-        indexed_at=doc.indexed_at,
-        error_message=doc.error_message,
-        warning_message=doc.warning_message,
-        quality_score=doc.quality_score,
-        chunks=doc.chunks,
-        chars=doc.chars,
-        owner_id=doc.owner_id,
-        group_id=doc.group_id,
-        doc_domain=doc.doc_domain,
-        source_type=doc.source_type,
-        has_manual_edits=doc.has_manual_edits,
-        **overrides,
+        **defaults,  # type: ignore[arg-type]
     )
 
 

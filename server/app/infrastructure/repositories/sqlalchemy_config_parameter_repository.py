@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from domain.repositories.config_parameter_repository import ConfigParameter
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.database.models import ConfigParameterModel
@@ -32,6 +32,24 @@ class SQLAlchemyConfigParameterRepository:
         if orm:
             orm.value = value
             await self._db.flush()
+
+    async def save(self, entity: ConfigParameter) -> None:
+        orm = ConfigParameterModel(
+            key=entity.key,
+            value=entity.value,
+            value_type=entity.value_type,
+            category=entity.category,
+            description=entity.description,
+            min_value=entity.min_value,
+            max_value=entity.max_value,
+            allowed_values={"values": entity.allowed_values} if entity.allowed_values else None,
+        )
+        self._db.add(orm)
+        await self._db.flush()
+
+    async def count(self) -> int:
+        result = await self._db.execute(select(func.count()))
+        return result.scalar_one()
 
     @staticmethod
     def _to_entity(orm: ConfigParameterModel) -> ConfigParameter:

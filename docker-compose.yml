@@ -229,52 +229,11 @@ services:
     env_file:
       - path: server/.env
         required: true
-    working_dir: /code/project
-    entrypoint: [ "python", "-c" ]
-    command:
-      - |
-        import asyncio, os, sys
-        sys.path.insert(0, 'app')
-        from sqlalchemy.ext.asyncio import create_async_engine
-        from config import settings
-
-        DSN = f"postgresql+psycopg://{settings.db_user}:{settings.db_password}@{settings.db_host}:{settings.db_port}/{settings.db_name}"
-
-        async def run():
-            engine = create_async_engine(DSN)
-            async with engine.connect() as conn:
-                await conn.execute(
-                    __import__('sqlalchemy').text("SELECT pg_advisory_lock(727271)")
-                )
-                print("Advisory lock acquired")
-            await engine.dispose()
-
-            rc = os.system("alembic upgrade head")
-            if rc != 0:
-                print(f"alembic upgrade head failed with exit code {rc}")
-                sys.exit(1)
-
-            engine = create_async_engine(DSN)
-            async with engine.connect() as conn:
-                await conn.execute(
-                    __import__('sqlalchemy').text("SELECT pg_advisory_unlock(727271)")
-                )
-                print("Advisory lock released")
-            await engine.dispose()
-            print("Migrations completed.")
-
-        asyncio.run(run())
+    working_dir: /code/project/app
+    command: ["python", "scripts/migrate.py"]
     depends_on:
       postgres:
         condition: service_healthy
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 512M
-        reservations:
-          cpus: "0.1"
-          memory: 128M
     restart: "no"
     networks:
       - backend

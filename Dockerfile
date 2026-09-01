@@ -151,7 +151,7 @@ RUN --mount=type=cache,target=/root/.cache/uv                                   
 # Copy Alembic config (for database migrations)
 COPY server/alembic.ini ./
 
-# Copy entrypoint script (runs migrations on startup)
+# Copy entrypoint script (sets up env vars, then exec's CMD)
 COPY server/entrypoint.sh ./
 
 # Copy VERSION file (displayed on startup)
@@ -160,7 +160,7 @@ COPY VERSION ./
 # Copy application source code
 COPY server/app ./app
 
-# Entrypoint runs Alembic migrations then executes the CMD
+# Entrypoint sets up env vars and exec's the CMD
 ENTRYPOINT ["./entrypoint.sh"]
 
 # Dev server with hot-reload on port 8001
@@ -214,7 +214,7 @@ COPY VERSION ./
 # Copy application source code
 COPY server/app ./app
 
-# Entrypoint runs Alembic migrations then executes the CMD
+# Entrypoint sets up env vars and exec's the CMD
 ENTRYPOINT ["./entrypoint.sh"]
 
 # Dev server with hot-reload on port 8001
@@ -284,7 +284,7 @@ COPY --chown=1001:1001 server/app ./app
 # Switch to non-root user
 USER 1001
 
-# Entrypoint runs Alembic migrations then executes the CMD
+# Entrypoint sets up env vars and exec's the CMD
 ENTRYPOINT ["./entrypoint.sh"]
 
 # Production server (no hot-reload, single worker)
@@ -355,7 +355,7 @@ COPY --chown=1001:1001 server/app ./app
 # Switch to non-root user
 USER 1001
 
-# Entrypoint runs Alembic migrations then executes the CMD
+# Entrypoint sets up env vars and exec's the CMD
 ENTRYPOINT ["./entrypoint.sh"]
 
 # Production server (no hot-reload, single worker)

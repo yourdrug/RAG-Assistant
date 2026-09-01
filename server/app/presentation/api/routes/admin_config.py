@@ -86,6 +86,8 @@ async def models_info(
         llm_model=info.llm_model,
         tei_embed_url=info.tei_embed_url,
         tei_rerank_url=info.tei_rerank_url,
+        embed_model=info.embed_model,
+        rerank_model=info.rerank_model,
         ocr_engine=info.ocr_engine,
         ocr_enabled=info.ocr_enabled,
         ollama_models=info.ollama_models,

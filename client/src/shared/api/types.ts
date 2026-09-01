@@ -246,10 +246,11 @@ export interface HealthResponse {
   status: string;
   version: string;
   uptime_seconds: number;
+  llm_provider: string;
   checks: {
     api: HealthCheck;
     qdrant: HealthCheck;
-    ollama: HealthCheck;
+    llm: HealthCheck;
     postgres: HealthCheck;
   };
   background_jobs: { running: number };

@@ -124,7 +124,7 @@ export function DashboardPage() {
 
   const apiStatus = health?.checks?.api?.status || "—";
   const qdrantStatus = health?.checks?.qdrant?.status || "—";
-  const ollamaStatus = health?.checks?.ollama?.status || "—";
+  const llmStatus = health?.checks?.llm?.status || "—";
   const postgresStatus = health?.checks?.postgres?.status || "—";
 
   const docsDone = documents?.filter((d) => d.status === "done").length || 0;
@@ -234,11 +234,11 @@ export function DashboardPage() {
             latency={health.checks?.qdrant?.latency_ms}
           />
           <ServiceCard
-            title="Ollama"
+            title={health?.llm_provider === "openrouter" ? "OpenRouter" : "Ollama"}
             icon={<Cpu className="h-5 w-5 text-orange-600 dark:text-orange-400" />}
-            status={ollamaStatus}
-            latency={health.checks?.ollama?.latency_ms}
-            details={health.checks?.ollama?.models || undefined}
+            status={llmStatus}
+            latency={health.checks?.llm?.latency_ms}
+            details={health.checks?.llm?.models || undefined}
           />
         </div>
       ) : null}

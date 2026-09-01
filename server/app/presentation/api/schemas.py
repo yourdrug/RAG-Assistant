@@ -305,6 +305,8 @@ class ModelsInfoResponse(BaseModel):
     llm_model: str
     tei_embed_url: str
     tei_rerank_url: str
+    embed_model: str
+    rerank_model: str
     ocr_engine: str
     ocr_enabled: bool
     ollama_models: list[str]

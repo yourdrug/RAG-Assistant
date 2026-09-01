@@ -190,6 +190,18 @@ class IngestionService:
             chunks_count = sum(1 for c in chunks if c.metadata.get("source") == src)
             await self._registry_upsert(fname, h, src, chunks_count, chars)
 
+    async def _delete_internal_documents(self) -> None:
+        """Delete all internal documents (owner_id=NULL, non-manual) from DB.
+
+        Called during reset to remove stale document records whose vectors
+        have already been deleted from Qdrant. Manual documents are preserved.
+        """
+        if self._uow_factory is None:
+            return
+        async with self._uow_factory.create(master=True) as uow:
+            deleted = await uow.documents.delete_internal_documents()
+            log.info("Deleted %d internal documents from database", deleted)
+
     async def run_full_ingestion(
         self, docs_dir: str | None = None, reset: bool = False, domain: str = "auto"
     ) -> None:
@@ -202,6 +214,9 @@ class IngestionService:
 
         vector_size = len(await self._vector_store.generate_embeddings("test"))
         await self._vector_store.ensure_collection(vector_size, reset=reset)
+
+        if reset:
+            await self._delete_internal_documents()
 
         docs, cached = await self._load_documents(registry, force=reset, prefix=docs_dir)
         if not docs:
@@ -220,7 +235,7 @@ class IngestionService:
             src = chunk.metadata.get("source", "")
             _tag_domain([chunk], source_domain.get(src, DocDomain.GENERAL.value))
 
-        await self._upload_chunks_to_vector_store(chunks)
+        await self._upload_chunks_to_vector_store(chunks, reset=reset)
 
         source_chars: dict[str, int] = {}
         for doc in docs:
@@ -288,13 +303,15 @@ class IngestionService:
                         doc_domain=chunk_domain,
                         content_hashes=file_content_hashes,
                     )
+                    await self._vector_store.set_document_id_by_source(src, doc_id)
             log.info("Synced %d documents to database", len(registry))
 
-    async def _upload_chunks_to_vector_store(self, chunks: list) -> None:
+    async def _upload_chunks_to_vector_store(self, chunks: list, reset: bool = False) -> None:
         """Convert LangChain Documents to domain Chunks and upload via repository.
 
         Also builds and persists the BM25 index for hybrid search.
         When adding to an existing index, merges new texts instead of overwriting.
+        On reset, rebuilds BM25 from scratch to avoid duplicates.
         """
         domain_chunks = [Chunk(content=c.page_content, metadata=c.metadata) for c in chunks]
         await self._vector_store.upload_documents(domain_chunks)
@@ -302,11 +319,15 @@ class IngestionService:
         if settings.hybrid_enabled:
             new_texts = [c.page_content for c in chunks]
 
-            existing = await load_bm25_index_from_s3(self._file_storage)
-            if existing is not None:
-                all_texts = existing.texts + new_texts
-            else:
+            if reset:
                 all_texts = new_texts
+                log.info("BM25: reset mode — rebuilding index from scratch (%d texts)", len(all_texts))
+            else:
+                existing = await load_bm25_index_from_s3(self._file_storage)
+                if existing is not None:
+                    all_texts = existing.texts + new_texts
+                else:
+                    all_texts = new_texts
 
             bm25_index = BM25Index(all_texts)
             await save_bm25_index_to_s3(bm25_index, self._file_storage)

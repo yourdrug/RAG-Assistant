@@ -420,18 +420,18 @@ export function DocumentsPage() {
 
       {/* Conflict resolution dialog */}
       <Dialog open={conflictOpen} onOpenChange={setConflictOpen}>
-        <DialogContent className="overflow-hidden w-full max-w-lg">
+        <DialogContent className="w-full max-w-lg overflow-hidden [&>div]:min-w-0">
           <DialogHeader>
             <DialogTitle>File Already Exists</DialogTitle>
-            <DialogDescription className="break-all">
-              A document named <strong>{conflictFile?.name}</strong> already exists. What would you
-              like to do?
+            <DialogDescription className="break-words">
+              A document named <strong className="break-words">{conflictFile?.name}</strong> already
+              exists. What would you like to do?
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter className="gap-2 sm:gap-0">
+          <DialogFooter className="gap-2 sm:gap-0 min-w-0">
             <Button
               variant="outline"
-              className="min-w-0"
+              className="min-w-0 max-w-full"
               onClick={() => handleConflictChoice("add_new")}
             >
               <span className="truncate">

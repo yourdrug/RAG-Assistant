@@ -85,6 +85,7 @@ class ChunkRepository(Protocol):
         owner_id: int | None = None,
         group_id: int | None = None,
         manual: bool = False,
+        content_hash: str | None = None,
     ) -> int:
         """Insert a single chunk. Returns the generated chunk_id."""
         ...

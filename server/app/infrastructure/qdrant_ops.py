@@ -11,7 +11,15 @@ import uuid
 
 from config import settings
 from langchain.schema import Document
-from qdrant_client.models import Distance, PayloadSchemaType, PointStruct, VectorParams
+from qdrant_client.models import (
+    Distance,
+    FieldCondition,
+    Filter,
+    MatchValue,
+    PayloadSchemaType,
+    PointStruct,
+    VectorParams,
+)
 
 from infrastructure.ml.factories import create_qdrant_client
 from infrastructure.ml.hybrid import content_hash
@@ -19,12 +27,50 @@ from infrastructure.ml.hybrid import content_hash
 log = logging.getLogger("default")
 
 
+def _delete_internal_points(client) -> int:
+    """Delete CLI-ingested and public UI points, but preserve manual document chunks.
+
+    Deletes points where owner_id=None AND manual != True.
+    Returns the number of points deleted.
+    """
+    info = client.get_collection(settings.collection_name)
+    total_before = info.points_count or 0
+
+    client.delete(
+        collection_name=settings.collection_name,
+        points_selector=Filter(
+            must=[
+                FieldCondition(
+                    key="metadata.owner_id",
+                    match=MatchValue(value=None),  # type: ignore[arg-type]
+                )
+            ],
+            must_not=[
+                FieldCondition(
+                    key="metadata.manual",
+                    match=MatchValue(value=True),
+                )
+            ],
+        ),
+    )
+
+    info_after = client.get_collection(settings.collection_name)
+    total_after = info_after.points_count or 0
+    deleted = total_before - total_after
+    return deleted
+
+
 def ensure_collection(client, vector_size: int, reset: bool = False) -> None:
     existing = [c.name for c in client.get_collections().collections]
     if settings.collection_name in existing:
         if reset:
-            log.info("Deleting collection '%s' ...", settings.collection_name)
-            client.delete_collection(settings.collection_name)
+            log.info(
+                "Smart reset: deleting CLI-ingested points (owner_id=None) " "from collection '%s' ...",
+                settings.collection_name,
+            )
+            deleted = _delete_internal_points(client)
+            log.info("Deleted %d internal points. API-uploaded points preserved.", deleted)
+            _ensure_payload_indexes(client)
         else:
             info = client.get_collection(settings.collection_name)
             count = info.points_count or 0
@@ -34,7 +80,7 @@ def ensure_collection(client, vector_size: int, reset: bool = False) -> None:
                 count,
             )
             _ensure_payload_indexes(client)
-            return
+        return
     log.info("Creating collection '%s' (dim=%d) ...", settings.collection_name, vector_size)
     try:
         client.create_collection(

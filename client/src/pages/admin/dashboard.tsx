@@ -137,7 +137,7 @@ export function AdminDashboardPage() {
 
   const apiStatus = health?.checks?.api?.status || "—";
   const qdrantStatus = health?.checks?.qdrant?.status || "—";
-  const ollamaStatus = health?.checks?.ollama?.status || "—";
+  const llmStatus = health?.checks?.llm?.status || "—";
   const postgresStatus = health?.checks?.postgres?.status || "—";
 
   const docsDone = documents?.filter((d) => d.status === "done").length || 0;
@@ -247,11 +247,11 @@ export function AdminDashboardPage() {
             latency={health.checks?.qdrant?.latency_ms}
           />
           <ServiceCard
-            title="Ollama"
+            title={health?.llm_provider === "openrouter" ? "OpenRouter" : "Ollama"}
             icon={<Cpu className="h-5 w-5 text-orange-600 dark:text-orange-400" />}
-            status={ollamaStatus}
-            latency={health.checks?.ollama?.latency_ms}
-            details={health.checks?.ollama?.models || undefined}
+            status={llmStatus}
+            latency={health.checks?.llm?.latency_ms}
+            details={health.checks?.llm?.models || undefined}
           />
         </div>
       ) : null}
@@ -557,20 +557,32 @@ export function AdminDashboardPage() {
         </div>
       )}
 
-      {/* Ollama + HTTP Requests + Ingestion by Status */}
+      {/* LLM Models + HTTP Requests + Ingestion by Status */}
       {metrics && (
         <div className="grid gap-4 md:grid-cols-3">
-          {/* Ollama Models */}
+          {/* LLM Models */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Cpu className="h-5 w-5" />
-                Ollama LLM
+                {health?.llm_provider === "openrouter" ? "OpenRouter LLM" : "Ollama LLM"}
               </CardTitle>
-              <CardDescription>Loaded models</CardDescription>
+              <CardDescription>
+                {health?.llm_provider === "openrouter" ? "Cloud model" : "Loaded models"}
+              </CardDescription>
             </CardHeader>
             <CardContent>
-              {metrics.ollama && metrics.ollama.length > 0 ? (
+              {health?.llm_provider === "openrouter" ? (
+                <div className="space-y-3">
+                  <Badge variant="secondary" className="text-xs">
+                    {health.checks?.llm?.models?.[0] || "—"}
+                  </Badge>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Provider</span>
+                    <span className="font-mono">OpenRouter</span>
+                  </div>
+                </div>
+              ) : metrics.ollama && metrics.ollama.length > 0 ? (
                 <div className="space-y-3">
                   {metrics.ollama.map((m) => (
                     <div key={m.model} className="space-y-1">

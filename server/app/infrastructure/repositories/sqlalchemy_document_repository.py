@@ -24,11 +24,17 @@ class SQLAlchemyDocumentRepository:
         orm = DocumentModel(
             filename=document.filename,
             source_path=document.source_path,
-            visibility=document.visibility,
+            visibility=document.visibility.value
+            if hasattr(document.visibility, "value")
+            else document.visibility,
             owner_id=document.owner_id,
             group_id=document.group_id,
+            status=document.status.value if hasattr(document.status, "value") else document.status,
             doc_domain=document.doc_domain,
             source_type=document.source_type,
+            has_manual_edits=document.has_manual_edits,
+            chunks=document.chunks,
+            chars=document.chars,
         )
         self._db.add(orm)
         await self._db.flush()
@@ -178,6 +184,24 @@ class SQLAlchemyDocumentRepository:
         stmt = stmt.order_by(DocumentModel.filename).limit(limit)
         result = await self._db.execute(stmt)
         return [row[0] for row in result.all() if row[0]]
+
+    async def delete_internal_documents(self) -> int:
+        """Delete all documents with owner_id IS NULL (CLI-ingested + public UI docs).
+
+        Manual documents (source_type='manual') are preserved.
+        Returns the number of deleted documents.
+        """
+        result = await self._db.execute(
+            select(DocumentModel).where(
+                DocumentModel.owner_id.is_(None),
+                DocumentModel.source_type != "manual",
+            )
+        )
+        orms = result.scalars().all()
+        for orm in orms:
+            await self._db.delete(orm)
+        await self._db.flush()
+        return len(orms)
 
     @staticmethod
     def _to_entity(orm: DocumentModel) -> Document:

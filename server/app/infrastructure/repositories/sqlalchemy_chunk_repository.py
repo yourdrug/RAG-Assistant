@@ -119,6 +119,7 @@ class SQLAlchemyChunkRepository:
         owner_id: int | None = None,
         group_id: int | None = None,
         manual: bool = False,
+        content_hash: str | None = None,
     ) -> int:
         orm = ChunkModel(
             document_id=document_id,
@@ -130,6 +131,7 @@ class SQLAlchemyChunkRepository:
             owner_id=owner_id,
             group_id=group_id,
             manual=manual,
+            content_hash=content_hash,
         )
         self._session.add(orm)
         await self._session.flush()

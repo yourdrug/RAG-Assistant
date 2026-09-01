@@ -109,6 +109,16 @@ def apply_to_settings(event: ConfigParameterChanged) -> None:
             setattr(settings, attr, float(event.new_value))
         elif expected_type is list:
             setattr(settings, attr, json.loads(event.new_value))
+        elif expected_type is str:
+            # DB stores JSON strings with quotes: "\"deepinfra\"" — unwrap
+            raw = event.new_value
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, str):
+                    raw = parsed
+            except (json.JSONDecodeError, TypeError):
+                pass
+            setattr(settings, attr, raw)
         else:
             setattr(settings, attr, event.new_value)
         log.info("Config applied: %s = %s (was %s)", event.key, event.new_value, event.old_value)

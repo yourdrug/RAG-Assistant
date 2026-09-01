@@ -117,3 +117,16 @@ class QdrantVectorStoreRepository:
             )
 
         await asyncio.to_thread(_delete)
+
+    async def set_document_id_by_source(self, source: str, document_id: int) -> None:
+        """Update document_id in metadata for all points with matching source."""
+        client = self._get_qdrant_client()
+
+        def _update() -> None:
+            client.set_payload(
+                collection_name=settings.collection_name,
+                payload={"metadata": {"document_id": document_id}},
+                points=Filter(must=[FieldCondition(key="metadata.source", match=MatchValue(value=source))]),
+            )
+
+        await asyncio.to_thread(_update)

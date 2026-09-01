@@ -115,7 +115,7 @@ class ChunkService:
             if chunk.document_id != document_id:
                 raise BusinessRuleViolation("Chunk does not belong to this document")
 
-            self._validate_chunk_content(content)
+            self._validate_chunk_content(content, is_manual=(doc.source_type == "manual"))
 
             warning = await self._check_duplicate_content(uow, content, document_id, chunk_id)
 
@@ -201,12 +201,14 @@ class ChunkService:
             if not doc.can_edit_chunks(user_id, role):
                 raise BusinessRuleViolation("No permission to add chunks for this document")
 
-            self._validate_chunk_content(content)
+            self._validate_chunk_content(content, is_manual=(doc.source_type == "manual"))
 
             warning = await self._check_duplicate_content(uow, content, document_id)
 
             max_index = await uow.chunks.get_max_chunk_index(document_id)
             next_index = max_index + 1
+
+            new_hash = content_hash(content)
 
             chunk_id = await uow.chunks.insert_one(
                 document_id=document_id,
@@ -218,11 +220,8 @@ class ChunkService:
                 owner_id=doc.owner_id,
                 group_id=doc.group_id,
                 manual=True,
+                content_hash=new_hash,
             )
-
-            vector = await self._vector_store.generate_embeddings(content)
-
-            new_hash = content_hash(content)
             metadata = {
                 "document_id": document_id,
                 "visibility": doc.visibility.value if hasattr(doc.visibility, "value") else doc.visibility,
@@ -237,6 +236,8 @@ class ChunkService:
                 metadata["page"] = page
             if section is not None:
                 metadata["section"] = section
+
+            vector = await self._vector_store.generate_embeddings(content)
 
             await self._vector_store.upsert_point(
                 point_id=chunk_id,
@@ -346,13 +347,14 @@ class ChunkService:
 
             return to_document_dto(saved_doc, chunks=0, chars=0, source_type="manual")
 
-    def _validate_chunk_content(self, content: str) -> None:
+    def _validate_chunk_content(self, content: str, *, is_manual: bool = False) -> None:
         """Validate chunk content length."""
         if not content or not content.strip():
             raise ValidationError("Chunk content cannot be empty")
 
         chunk_size = self._settings.chunk_size
-        min_len = int(self._chunk_min_len_ratio * chunk_size)
+        min_ratio = 0.05 if is_manual else self._chunk_min_len_ratio
+        min_len = int(min_ratio * chunk_size)
         max_len = int(self._chunk_max_len_ratio * chunk_size)
 
         if len(content) < min_len:

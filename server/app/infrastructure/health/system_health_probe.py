@@ -27,6 +27,44 @@ class SystemHealthProbe:
         except Exception as e:
             return HealthCheckResult(status=f"error: {e}")
 
+    async def check_openrouter(self) -> HealthCheckResult:
+        try:
+            t0 = time.perf_counter()
+            async with httpx.AsyncClient(timeout=5) as client:
+                r = await client.head(
+                    settings.openrouter_base_url,
+                    headers={"Authorization": f"Bearer {settings.openrouter_api_key}"},
+                )
+                latency_ms = round((time.perf_counter() - t0) * 1000, 1)
+                if r.status_code < 400:
+                    return HealthCheckResult(
+                        status=HealthStatus.OK.value,
+                        latency_ms=latency_ms,
+                        models=[settings.openrouter_model],
+                    )
+                return HealthCheckResult(status=f"error: HTTP {r.status_code}")
+        except Exception as e:
+            return HealthCheckResult(status=f"error: {e}")
+
+    async def check_deepinfra(self) -> HealthCheckResult:
+        try:
+            t0 = time.perf_counter()
+            async with httpx.AsyncClient(timeout=5) as client:
+                r = await client.head(
+                    settings.deepinfra_base_url,
+                    headers={"Authorization": f"Bearer {settings.deepinfra_api_key}"},
+                )
+                latency_ms = round((time.perf_counter() - t0) * 1000, 1)
+                if r.status_code < 400:
+                    return HealthCheckResult(
+                        status=HealthStatus.OK.value,
+                        latency_ms=latency_ms,
+                        models=[settings.deepinfra_embed_model, settings.deepinfra_rerank_model],
+                    )
+                return HealthCheckResult(status=f"error: HTTP {r.status_code}")
+        except Exception as e:
+            return HealthCheckResult(status=f"error: {e}")
+
     def check_qdrant(self) -> HealthCheckResult:
         try:
             t0 = time.perf_counter()

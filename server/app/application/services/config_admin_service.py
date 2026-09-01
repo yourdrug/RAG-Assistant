@@ -17,6 +17,8 @@ class ModelsInfo:
     llm_model: str
     tei_embed_url: str
     tei_rerank_url: str
+    embed_model: str
+    rerank_model: str
     ocr_engine: str
     ocr_enabled: bool
     ollama_models: list[str] = field(default_factory=list)
@@ -68,11 +70,19 @@ class ConfigAdminService:
 
     async def get_models_info(self) -> ModelsInfo:
         ollama_models = await self._ollama.get_models()
+        if self._settings.ml_provider == "deepinfra":
+            embed_model = self._settings.deepinfra_embed_model
+            rerank_model = self._settings.deepinfra_rerank_model
+        else:
+            embed_model = self._settings.tei_embed_url
+            rerank_model = self._settings.tei_rerank_url
         return ModelsInfo(
             llm_provider=self._settings.llm_provider,
             llm_model=self._settings.llm_model,
             tei_embed_url=self._settings.tei_embed_url,
             tei_rerank_url=self._settings.tei_rerank_url,
+            embed_model=embed_model,
+            rerank_model=rerank_model,
             ocr_engine=self._settings.ocr_engine,
             ocr_enabled=self._settings.ocr_enabled,
             ollama_models=ollama_models,
