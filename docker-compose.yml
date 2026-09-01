@@ -229,8 +229,10 @@ services:
     env_file:
       - path: server/.env
         required: true
-    working_dir: /code/project/app
-    command: ["python", "scripts/migrate.py"]
+    entrypoint: []
+    command: ["python", "app/scripts/migrate.py"]
+    environment:
+      PYTHONPATH: /code/project/app
     depends_on:
       postgres:
         condition: service_healthy
