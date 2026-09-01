@@ -51,7 +51,7 @@ export function AdminSettingsPage() {
   const { data: modelsInfo } = useQuery({
     queryKey: ["admin", "models"],
     queryFn: async () =>
-      (await apiClient.get<{ ollama_models: string[] | null }>("/admin/models/info")).data,
+      (await apiClient.get<{ ollama_models: string[] | null; llm_provider: string }>("/admin/models/info")).data,
   });
 
   const { data: openrouterData, isLoading: isLoadingOpenRouter } = useQuery({
@@ -60,7 +60,7 @@ export function AdminSettingsPage() {
       (await apiClient.get<{ models: OpenRouterModel[] }>("/admin/models/openrouter")).data,
     enabled: (() => {
       const providerParam = params?.find((p) => p.key === "llm_provider");
-      const currentProvider = edits["llm_provider"] || providerParam?.value;
+      const currentProvider = edits["llm_provider"] || providerParam?.value || modelsInfo?.llm_provider;
       return currentProvider === "openrouter";
     })(),
   });
@@ -103,7 +103,7 @@ export function AdminSettingsPage() {
 
   // Get current provider value
   const providerParam = params?.find((p) => p.key === "llm_provider");
-  const currentProvider = edits["llm_provider"] || providerParam?.value || "ollama";
+  const currentProvider = edits["llm_provider"] || providerParam?.value || modelsInfo?.llm_provider || "ollama";
 
   const renderValue = (p: ConfigParam) => {
     const isEdited = edits[p.key] !== undefined;

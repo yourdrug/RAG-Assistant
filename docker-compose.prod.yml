@@ -8,6 +8,10 @@
 # For remote deploy (`./deploy.sh`), `docker compose pull` fetches from GHCR.
 
 services:
+  migrate:
+    image: ghcr.io/yourdrug/rag-assistant:production-cpu-${VERSION}
+    pull_policy: missing
+
   server:
     image: ghcr.io/yourdrug/rag-assistant:production-cpu-${VERSION}
     pull_policy: missing

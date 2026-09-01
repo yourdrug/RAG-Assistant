@@ -16,15 +16,17 @@ logger = logging.getLogger("cli")
 ingest_app = typer.Typer(help="Document indexing in Qdrant (S3 storage)")
 
 
-def _create_service(uow_factory=None) -> IngestionService:
-    """Create IngestionService with proper dependencies (no DB in CLI mode)."""
+def _create_service() -> IngestionService:
+    """Create IngestionService with proper dependencies."""
+    from infrastructure.database.database import database
     from infrastructure.repositories.qdrant_vector_store_repository import QdrantVectorStoreRepository
     from infrastructure.storage import LazyStorage
+    from infrastructure.uow_factory import UnitOfWorkFactory
 
     return IngestionService(
         vector_store_repo=QdrantVectorStoreRepository(),
         file_storage=LazyStorage(),
-        uow_factory=uow_factory,
+        uow_factory=UnitOfWorkFactory(database=database),
     )
 
 

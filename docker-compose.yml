@@ -224,6 +224,61 @@ services:
     networks:
       - backend
 
+  migrate:
+    image: rag-server:${STAGE}-${BUILD_TARGET}-${VERSION}
+    env_file:
+      - path: server/.env
+        required: true
+    working_dir: /code/project
+    entrypoint: [ "python", "-c" ]
+    command:
+      - |
+        import asyncio, os, sys
+        sys.path.insert(0, 'app')
+        from sqlalchemy.ext.asyncio import create_async_engine
+        from config import settings
+
+        DSN = f"postgresql+psycopg://{settings.db_user}:{settings.db_password}@{settings.db_host}:{settings.db_port}/{settings.db_name}"
+
+        async def run():
+            engine = create_async_engine(DSN)
+            async with engine.connect() as conn:
+                await conn.execute(
+                    __import__('sqlalchemy').text("SELECT pg_advisory_lock(727271)")
+                )
+                print("Advisory lock acquired")
+            await engine.dispose()
+
+            rc = os.system("alembic upgrade head")
+            if rc != 0:
+                print(f"alembic upgrade head failed with exit code {rc}")
+                sys.exit(1)
+
+            engine = create_async_engine(DSN)
+            async with engine.connect() as conn:
+                await conn.execute(
+                    __import__('sqlalchemy').text("SELECT pg_advisory_unlock(727271)")
+                )
+                print("Advisory lock released")
+            await engine.dispose()
+            print("Migrations completed.")
+
+        asyncio.run(run())
+    depends_on:
+      postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          cpus: "0.1"
+          memory: 128M
+    restart: "no"
+    networks:
+      - backend
+
   server:
     image: rag-server:${STAGE}-${BUILD_TARGET}-${VERSION}
     build:
@@ -260,6 +315,8 @@ services:
           cpus: "0.5"
           memory: 2G
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       qdrant:
         condition: service_healthy
       ollama:
@@ -280,8 +337,6 @@ services:
     env_file:
       - path: server/.env
         required: true
-    environment:
-      SKIP_MIGRATIONS: "1"
     volumes:
       - type: bind
         source: ./data
@@ -297,6 +352,8 @@ services:
           create_host_path: true
           selinux: Z
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
@@ -455,8 +512,11 @@ services:
         mode: host
     environment:
       VITE_API_URL: ${VITE_API_URL}
+    depends_on:
+      server:
+        condition: service_healthy
     healthcheck:
-      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:80" ]
+      test: [ "CMD", "wget", "--spider", "-q", "http://127.0.0.1:80" ]
       interval: 30s
       timeout: 5s
       retries: 5

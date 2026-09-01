@@ -24,18 +24,8 @@ def upgrade() -> None:
         sa.Column("quality_score", sa.Float(), nullable=True),
     )
 
-    # config_parameters: add ocr_min_chars for threshold-based OCR triggering
-    op.execute(
-        """
-        INSERT INTO config_parameters (key, value, value_type, category, description, min_value, max_value)
-        VALUES ('ocr_min_chars', '40', 'int', 'ocr',
-                'Minimum characters for text layer to be considered valid (pages below this threshold also get OCR)',
-                0, 500)
-        ON CONFLICT (key) DO NOTHING
-        """
-    )
+    # Default values are seeded at startup from settings (initialization.py)
 
 
 def downgrade() -> None:
-    op.execute("DELETE FROM config_parameters WHERE key = 'ocr_min_chars'")
     op.drop_column("documents", "quality_score")

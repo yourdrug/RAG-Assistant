@@ -21,10 +21,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute("""
-        INSERT INTO config_parameters (key, value, value_type, category, description, min_value, max_value)
-        VALUES
-            ('file_backend', 'local',  'str', 'storage', 'File backend: local | s3',              NULL, NULL),
-            ('data_dir',     '/code/project/data', 'str', 'storage', 'Root data directory (local mode)', NULL, NULL)
-        ON CONFLICT (key) DO NOTHING
-    """)
+    # Default values are seeded at startup from settings (initialization.py)
+    pass

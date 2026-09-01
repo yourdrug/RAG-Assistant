@@ -40,23 +40,7 @@ def upgrade() -> None:
 
     op.create_index("idx_config_parameters_category", "config_parameters", ["category"])
 
-    # Seed default values for dynamic parameters
-    op.execute("""
-        INSERT INTO config_parameters (key, value, value_type, category, description, min_value, max_value) VALUES
-        ('retriever_fetch_k',    '25',  'int',   'rag',       'Candidates from Qdrant before rerank (narrow)', 1, 100),
-        ('retriever_top_k',      '4',   'int',   'rag',       'Chunks after rerank (narrow)',                  1, 50),
-        ('retriever_fetch_k_broad','40','int',   'rag',       'Candidates from Qdrant before rerank (broad)',  1, 200),
-        ('retriever_top_k_broad','10',  'int',   'rag',       'Chunks after rerank (broad)',                   1, 50),
-        ('history_window',       '8',   'int',   'rag',       'History messages sent to LLM',                  0, 50),
-        ('chunk_size',           '550', 'int',   'rag',       'Chunk size for document splitting',            100, 5000),
-        ('chunk_overlap',        '200', 'int',   'rag',       'Overlap between chunks',                         0, 1000),
-        ('hybrid_enabled',       'true','bool',  'hybrid',    'Enable BM25 + dense hybrid search',           NULL, NULL),
-        ('bm25_fetch_k',         '25',  'int',   'hybrid',    'BM25 candidates before RRF',                    1, 100),
-        ('rrf_k',                '30',  'int',   'hybrid',    'RRF constant',                                  1, 200),
-        ('dense_weight',         '1.5', 'float', 'hybrid',    'Dense weight in RRF',                          0.0, 10.0),
-        ('sparse_weight',        '0.5', 'float', 'hybrid',    'Sparse weight in RRF',                         0.0, 10.0),
-        ('embed_batch_size',     '32',  'int',   'ingestion', 'Embedding batch size',                           1, 256)
-    """)
+    # Default values are seeded at startup from settings (initialization.py)
 
 
 def downgrade() -> None:

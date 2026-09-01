@@ -8,7 +8,6 @@ Create Date: 2026-08-31 12:00:00.000000
 
 from collections.abc import Sequence
 
-from alembic import op
 
 revision: str = "j7k8l9m0n1o2"
 down_revision: str | Sequence[str] | None = "q6r7s8t9u0v1"
@@ -17,12 +16,9 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.execute("""
-        INSERT INTO config_parameters (key, value, value_type, category, description, min_value, max_value, allowed_values) VALUES
-        ('ml_provider',         'tei',  'str', 'ml', 'ML provider for embeddings+reranking: tei | deepinfra', NULL, NULL, '{"values": ["tei", "deepinfra"]}')
-    ON CONFLICT (key) DO NOTHING
-    """)
+    # Default values are seeded at startup from settings (initialization.py)
+    pass
 
 
 def downgrade() -> None:
-    op.execute("DELETE FROM config_parameters WHERE key = 'ml_provider'")
+    pass
