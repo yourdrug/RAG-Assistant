@@ -177,15 +177,20 @@ async def update_rolling_summary(llm, existing_summary: str | None, new_turns: l
 # ---------------------------------------------------------------------------
 
 
-def build_prompt(breadth: str = "narrow", has_legal_context: bool = False) -> ChatPromptTemplate:
+def build_prompt(
+    breadth: str = "narrow",
+    has_legal_context: bool = False,
+    summary: str | None = None,
+) -> ChatPromptTemplate:
     system_text = build_system_prompt(breadth, has_legal_context=has_legal_context)
-    return ChatPromptTemplate.from_messages(
-        [
-            ("system", system_text),
-            MessagesPlaceholder(variable_name="history"),
-            ("human", "{question}"),
-        ]
-    )
+    messages = [
+        ("system", system_text),
+    ]
+    if summary:
+        messages.append(("system", f"Резюме предыдущей части диалога:\n{summary}"))
+    messages.append(MessagesPlaceholder(variable_name="history"))
+    messages.append(("human", "{question}"))
+    return ChatPromptTemplate.from_messages(messages)
 
 
 # ---------------------------------------------------------------------------

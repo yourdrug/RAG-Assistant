@@ -194,6 +194,7 @@ class InfrastructureContainer:
             pdf_quality_assessor=pdf_qa,
             metrics=metrics,
             domain_marker_threshold=settings.document_domain_marker_threshold,
+            ml_registry=self.ml_clients,
         )
 
     async def dispose(self) -> None:

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from domain.entities.document import Document
 from domain.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
@@ -26,6 +27,9 @@ from application.services.document_service import check_document_access, to_docu
 from application.ports.chunk_settings import ChunkSettingsPort
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
 
+if TYPE_CHECKING:
+    from infrastructure.ml.client_registry import MLClientRegistry
+
 log = logging.getLogger(__name__)
 
 
@@ -37,12 +41,14 @@ class ChunkService:
         chunk_settings: ChunkSettingsPort,
         chunk_min_len_ratio: float = 0.3,
         chunk_max_len_ratio: float = 2.0,
+        ml_registry: MLClientRegistry | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._vector_store = vector_store_repo
         self._settings = chunk_settings
         self._chunk_min_len_ratio = chunk_min_len_ratio
         self._chunk_max_len_ratio = chunk_max_len_ratio
+        self._ml_registry = ml_registry
 
     async def list_chunks(
         self,
@@ -148,6 +154,12 @@ class ChunkService:
                 payload=payload,
             )
 
+            # --- Incremental BM25 update ---
+            if self._ml_registry is not None:
+                from infrastructure.ml.bm25_updater import bm25_replace
+
+                bm25_replace(self._ml_registry, chunk.content_hash, content, new_hash=new_hash)
+
             await uow.chunks.update_content(
                 chunk_id=chunk_id,
                 content=content,
@@ -245,6 +257,12 @@ class ChunkService:
                 payload={"page_content": content, "metadata": metadata},
             )
 
+            # --- Incremental BM25 update ---
+            if self._ml_registry is not None:
+                from infrastructure.ml.bm25_updater import bm25_add
+
+                bm25_add(self._ml_registry, content, text_hash=new_hash)
+
             await uow.documents.set_has_manual_edits(document_id, True)
             await self._update_document_stats(uow, document_id)
 
@@ -294,6 +312,12 @@ class ChunkService:
             await uow.chunks.delete_one(chunk_id)
 
             await self._vector_store.delete_by_ids([chunk_id])
+
+            # --- Incremental BM25 update ---
+            if self._ml_registry is not None:
+                from infrastructure.ml.bm25_updater import bm25_remove
+
+                bm25_remove(self._ml_registry, chunk.content_hash)
 
             await self._update_document_stats(uow, document_id)
 

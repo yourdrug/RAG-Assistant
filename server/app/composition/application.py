@@ -178,7 +178,10 @@ class ApplicationContainer:
             file_storage=fs,
         )
         self.chunk_service = ChunkService(
-            uow_factory=uow, vector_store_repo=vsr, chunk_settings=LiveChunkSettings()
+            uow_factory=uow,
+            vector_store_repo=vsr,
+            chunk_settings=LiveChunkSettings(),
+            ml_registry=ml,
         )
         self.ingest_app_service = IngestAppService(
             uow_factory=uow,

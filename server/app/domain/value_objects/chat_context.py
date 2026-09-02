@@ -23,3 +23,4 @@ class ChatContext:
     user_kind: str
     user_group_ids: list[int] = field(default_factory=list)
     depth: str | None = None
+    summary: str | None = None

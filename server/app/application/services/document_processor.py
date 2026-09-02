@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from domain.entities.chunk import Chunk
 from domain.repositories.vector_store_repository import VectorStoreRepository
@@ -28,6 +29,9 @@ from application.ports.document_processing import (
 from application.ports.file_storage import FileStorage
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
 
+if TYPE_CHECKING:
+    from infrastructure.ml.client_registry import MLClientRegistry
+
 log = logging.getLogger("default")
 
 
@@ -43,6 +47,7 @@ class DocumentProcessor:
         pdf_quality_assessor: PDFQualityAssessorPort,
         metrics: MetricsCollectorPort,
         domain_marker_threshold: float = 1.0,
+        ml_registry: MLClientRegistry | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._vector_store = vector_store_repo
@@ -53,6 +58,7 @@ class DocumentProcessor:
         self._pdf_assessor = pdf_quality_assessor
         self._metrics = metrics
         self._domain_marker_threshold = domain_marker_threshold
+        self._ml_registry = ml_registry
 
     def _assess_pdf_quality_for_docs(
         self, temp_path: Path, original_filename: str, document_id: int, docs: list
@@ -104,6 +110,13 @@ class DocumentProcessor:
         vector_size = len(await self._vector_store.generate_embeddings("test"))
         await self._vector_store.ensure_collection(vector_size, reset=False)
         await self._vector_store.upload_documents(domain_chunks)
+
+        # --- Incremental BM25 update ---
+        if self._ml_registry is not None:
+            from infrastructure.ml.bm25_updater import bm25_add
+
+            for chunk in domain_chunks:
+                bm25_add(self._ml_registry, chunk.content, text_hash=chunk.metadata.get("content_hash"))
 
     async def _replace_existing_document(self, uow, replace_id: int) -> None:
         await self._vector_store.delete_by_document_id(replace_id)

@@ -151,12 +151,6 @@ class ChatService:
         depth: str | None = None,
     ) -> AsyncIterator[StreamEvent]:
         group_ids = await self._get_user_context(user_id, user_kind)
-        ctx = ChatContext(
-            user_id=user_id,
-            user_kind=user_kind,
-            user_group_ids=group_ids,
-            depth=depth,
-        )
 
         # UoW 1: get/create conversation + history (get_or_create may INSERT)
         async with self._uow_factory.create(master=True) as uow:
@@ -165,6 +159,15 @@ class ChatService:
             history = await uow.messages.get_history(conv.id, window=self._settings.history_window)
             if history and history[-1].role == MessageRole.USER:
                 history = history[:-1]
+            conv_summary = getattr(conv, "summary", None)
+
+        ctx = ChatContext(
+            user_id=user_id,
+            user_kind=user_kind,
+            user_group_ids=group_ids,
+            depth=depth,
+            summary=conv_summary,
+        )
 
         full_answer = ""
         sources: list[dict] = []
@@ -249,12 +252,6 @@ class ChatService:
         depth: str | None = None,
     ) -> ChatResult:
         group_ids = await self._get_user_context(user_id, user_kind)
-        ctx = ChatContext(
-            user_id=user_id,
-            user_kind=user_kind,
-            user_group_ids=group_ids,
-            depth=depth,
-        )
 
         # UoW 1: get/create conversation + history (get_or_create may INSERT)
         async with self._uow_factory.create(master=True) as uow:
@@ -263,6 +260,15 @@ class ChatService:
             history = await uow.messages.get_history(conv.id, window=self._settings.history_window)
             if history and history[-1].role == MessageRole.USER:
                 history = history[:-1]
+            conv_summary = getattr(conv, "summary", None)
+
+        ctx = ChatContext(
+            user_id=user_id,
+            user_kind=user_kind,
+            user_group_ids=group_ids,
+            depth=depth,
+            summary=conv_summary,
+        )
 
         # I/O: call LLM (no transaction needed)
         t_start = time.monotonic()

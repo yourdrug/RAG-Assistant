@@ -751,7 +751,7 @@ class RagService:
 
         # --- Prompt adaptation based on actual context composition ---
         has_legal_context = any((doc.metadata.get("doc_domain") == DocDomain.LEGAL.value) for doc, _ in docs)
-        prompt = build_prompt(breadth, has_legal_context=has_legal_context)
+        prompt = build_prompt(breadth, has_legal_context=has_legal_context, summary=ctx.summary)
 
         # --- Dynamic context budget ---
         num_ctx = settings.llm_num_ctx_broad if breadth == Breadth.BROAD else settings.llm_num_ctx_narrow

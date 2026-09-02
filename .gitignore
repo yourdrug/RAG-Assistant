@@ -25,8 +25,9 @@ server/app/results/
 # Auth tokens
 .auth_token
 
-# Mimocode
-.mimocode/
+# opencode
+.opencode/
+opencode.json
 
 # coverage
 server/.coverage

@@ -278,6 +278,36 @@ def merge_pdf_pages(pages: list[Document]) -> list[Document]:
     return merged
 
 
+TABLE_BATCH_ROWS = 15  # max data rows per table chunk (excl. header+separator)
+
+
+def _split_table_into_batches(table_doc: Document, max_rows: int) -> list[Document]:
+    """Split a large markdown table into batched chunks with repeated headers.
+
+    Each batch contains at most *max_rows* data rows plus the header and
+    separator line repeated.  Small tables (≤ max_rows) are returned as-is.
+    """
+    lines = table_doc.page_content.split("\n")
+    if len(lines) < 3:
+        return [table_doc]
+
+    header_line = lines[0]
+    separator_line = lines[1]
+    data_lines = lines[2:]
+
+    if len(data_lines) <= max_rows:
+        return [table_doc]
+
+    batches: list[Document] = []
+    for i in range(0, len(data_lines), max_rows):
+        batch_rows = data_lines[i : i + max_rows]
+        batch_text = "\n".join([header_line, separator_line] + batch_rows)
+        batches.append(
+            Document(page_content=batch_text, metadata={**table_doc.metadata})
+        )
+    return batches
+
+
 def split_documents(docs: list[Document], domain: str = "general") -> list[Document]:
     """Split documents into chunks using structure-aware separators.
 
@@ -285,14 +315,16 @@ def split_documents(docs: list[Document], domain: str = "general") -> list[Docum
     - legal: articles, sections, clauses (larger chunks)
     - general: markdown headers, paragraphs (standard chunks)
 
-    Table chunks (content_type=table) are kept atomic — not split further.
+    Table chunks (content_type=table) are split into row batches
+    (TABLE_BATCH_ROWS per chunk) with header repetition, so that large
+    tables don't produce oversized embeddings.
     """
     if domain == DocDomain.LEGAL.value:
         return split_documents_legal(docs)
 
     separators = GENERAL_SEPARATORS
 
-    # Separate table chunks (atomic) from text chunks
+    # Separate table chunks from text chunks
     tables = [d for d in docs if d.metadata.get("content_type") == PageContentType.TABLE.value]
     text_docs = [d for d in docs if d.metadata.get("content_type") != PageContentType.TABLE.value]
 
@@ -303,8 +335,11 @@ def split_documents(docs: list[Document], domain: str = "general") -> list[Docum
         separators=separators,
     )
     chunks = splitter.split_documents(text_docs)
-    # Tables pass through unsplit
-    chunks.extend(tables)
+
+    # Split large tables into row batches with repeated headers
+    for table_doc in tables:
+        chunks.extend(_split_table_into_batches(table_doc, TABLE_BATCH_ROWS))
+
     # Filter out empty/whitespace-only chunks that cause TEI errors
     before = len(chunks)
     chunks = [c for c in chunks if c.page_content.strip()]
