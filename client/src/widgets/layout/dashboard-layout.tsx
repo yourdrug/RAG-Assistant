@@ -1,4 +1,5 @@
 "use client";
+import { useQueryClient } from "@tanstack/react-query";
 import { History, LogOut, Menu, MessageSquare, Plus, Shield, User, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate, useSearchParams } from "react-router-dom";
@@ -24,6 +25,7 @@ export function DashboardLayout() {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const { token, user, isAuthenticated, logout } = useAuthStore();
+  const queryClient = useQueryClient();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [convPanelOpen, setConvPanelOpen] = useState(false);
   const convPanelRef = useRef<HTMLDivElement>(null);
@@ -56,6 +58,7 @@ export function DashboardLayout() {
   }, [convPanelOpen]);
 
   const handleLogout = () => {
+    queryClient.clear();
     logout();
     navigate("/login");
   };

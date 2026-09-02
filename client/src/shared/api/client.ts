@@ -16,10 +16,17 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
+let _queryClientRef: { clear: () => void } | null = null;
+
+export function setQueryClientRef(qc: { clear: () => void }) {
+  _queryClientRef = qc;
+}
+
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
+      _queryClientRef?.clear();
       useAuthStore.getState().logout();
       window.location.href = "/login";
     }
