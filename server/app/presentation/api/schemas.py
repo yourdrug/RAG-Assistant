@@ -715,7 +715,7 @@ class DocumentDiagnoseResponse(BaseModel):
 
 class DryRunPageResult(BaseModel):
     page: int
-    type: str  # text, scan, garbled, empty, table
+    type: str  # text, scan, garbled, empty, table, image_only
     content_type: str  # text, table, ocr
     chars: int
     preview: str  # first 200 chars
@@ -723,6 +723,8 @@ class DryRunPageResult(BaseModel):
     problem_spans: list[tuple[int, int]] = Field(default_factory=list)
     previous_type: str | None = None  # type before OCR, for diff badge
     image_available: bool = False
+    unit_kind: str = "page"  # page, section, document
+    label: str = ""  # "Стр. 3" / "Раздел: Оплата" / "Документ целиком"
 
 
 class DryRunResponse(BaseModel):

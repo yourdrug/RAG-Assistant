@@ -6,7 +6,7 @@ import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from domain.value_objects.page_content_type import PageContentType
+from domain.value_objects.page_content_type import PageContentType, PreviewUnitKind
 
 from application.ports.pdf_diagnostics import (
     PDFDocumentPort,
@@ -47,6 +47,8 @@ class DryRunPageResult:
     full_text: str = ""
     problem_spans: list[tuple[int, int]] = field(default_factory=list)
     previous_type: str | None = None
+    unit_kind: str = PreviewUnitKind.PAGE
+    label: str = ""
 
 
 @dataclass(frozen=True)

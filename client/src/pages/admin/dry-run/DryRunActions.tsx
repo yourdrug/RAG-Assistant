@@ -1,16 +1,17 @@
-import { Loader2, FileText, Upload } from "lucide-react";
-import { Button } from "@/shared/ui/button";
-import { useDryRunOcr, useIndexFromPreview } from "@/shared/api/hooks";
-import type { DryRunResponse } from "@/shared/api/types";
+import { FileText, Loader2, Upload } from "lucide-react";
 import { useState } from "react";
 import toast from "react-hot-toast";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/shared/ui/dialog";
+  useDryRunOcr,
+  useGroups,
+  useIndexFromPreview,
+  useUploadableClients,
+} from "@/shared/api/hooks";
+import type { DocumentDomain, DocumentVisibility, DryRunResponse } from "@/shared/api/types";
+import { Button } from "@/shared/ui/button";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/shared/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
+import { useAuthStore } from "@/stores/auth-store";
 
 interface DryRunActionsProps {
   result: DryRunResponse;
@@ -18,19 +19,25 @@ interface DryRunActionsProps {
   onReset: () => void;
 }
 
-export function DryRunActions({
-  result,
-  onResultUpdate,
-  onReset,
-}: DryRunActionsProps) {
+export function DryRunActions({ result, onResultUpdate, onReset }: DryRunActionsProps) {
   const dryRunOcr = useDryRunOcr();
   const indexFromPreview = useIndexFromPreview();
+  const { data: groups } = useGroups();
+  const { data: uploadableClients } = useUploadableClients();
+  const user = useAuthStore((s) => s.user);
+  const isClient = user?.kind === "client";
+  const isAdmin = user?.role === "admin";
+
   const [showIndexDialog, setShowIndexDialog] = useState(false);
-  const [indexVisibility, setIndexVisibility] = useState("internal_public");
-  const [indexDocDomain, setIndexDocDomain] = useState<string>("");
+  const [indexVisibility, setIndexVisibility] = useState<DocumentVisibility>("internal_public");
+  const [indexGroupId, setIndexGroupId] = useState<number | null>(null);
+  const [indexClientId, setIndexClientId] = useState<number | null>(null);
+  const [indexDocDomain, setIndexDocDomain] = useState<DocumentDomain | "auto">("auto");
+
+  const isRtf = result.pages.length === 1 && result.pages[0].unit_kind === "document";
 
   const ocrTargetPages = result.pages
-    .filter((p) => p.type === "scan" || p.type === "empty")
+    .filter((p) => p.type === "scan" || p.type === "empty" || p.type === "image_only")
     .map((p) => p.page);
 
   const allPages = result.pages.map((p) => p.page);
@@ -43,7 +50,7 @@ export function DryRunActions({
         pages,
       });
       onResultUpdate(updated);
-      toast.success(`OCR completed on ${pages.length} pages`);
+      toast.success(`OCR completed on ${pages.length} unit${pages.length > 1 ? "s" : ""}`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "OCR failed";
       toast.error(msg);
@@ -59,7 +66,9 @@ export function DryRunActions({
       const res = await indexFromPreview.mutateAsync({
         previewId: result.preview_id,
         visibility: indexVisibility,
-        docDomain: indexDocDomain || null,
+        groupId: indexVisibility === "internal_group" ? indexGroupId : undefined,
+        clientId: indexVisibility === "client_private" ? indexClientId : undefined,
+        docDomain: indexDocDomain === "auto" ? undefined : indexDocDomain,
       });
       toast.success(
         <span>
@@ -86,31 +95,23 @@ export function DryRunActions({
   return (
     <>
       <div className="flex items-center gap-2 pt-2 border-t flex-wrap">
-        {ocrTargetPages.length > 0 && (
+        {!isRtf && ocrTargetPages.length > 0 && (
           <Button
             onClick={() => handleRunOcr(ocrTargetPages)}
             disabled={dryRunOcr.isPending}
             size="sm"
           >
-            {dryRunOcr.isPending && (
-              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-            )}
-            Run OCR on {ocrTargetPages.length} page
+            {dryRunOcr.isPending && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
+            Run OCR on {ocrTargetPages.length} image
             {ocrTargetPages.length > 1 ? "s" : ""}
           </Button>
         )}
-        <Button
-          onClick={() => handleRunOcr(allPages)}
-          variant="outline"
-          size="sm"
-        >
-          Run OCR on all pages
-        </Button>
-        <Button
-          onClick={() => setShowIndexDialog(true)}
-          variant="default"
-          size="sm"
-        >
+        {!isRtf && (
+          <Button onClick={() => handleRunOcr(allPages)} variant="outline" size="sm">
+            Run OCR on all
+          </Button>
+        )}
+        <Button onClick={() => setShowIndexDialog(true)} variant="default" size="sm">
           <FileText className="h-4 w-4 mr-1" />
           Index this file
         </Button>
@@ -133,42 +134,102 @@ export function DryRunActions({
             </p>
             <div className="space-y-2">
               <label className="text-sm font-medium">Visibility</label>
-              <select
+              <Select
                 value={indexVisibility}
-                onChange={(e) => setIndexVisibility(e.target.value)}
-                className="w-full border rounded-md px-3 py-1.5 text-sm bg-background"
+                onValueChange={(v) => {
+                  setIndexVisibility(v as DocumentVisibility);
+                  if (v !== "internal_group") setIndexGroupId(null);
+                  if (v !== "client_private") setIndexClientId(null);
+                }}
               >
-                <option value="internal_public">Internal Public</option>
-                <option value="internal_group">Internal Group</option>
-              </select>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {isClient ? (
+                    <SelectItem value="client_private">Client Private</SelectItem>
+                  ) : isAdmin ? (
+                    <>
+                      <SelectItem value="internal_private">Private</SelectItem>
+                      <SelectItem value="internal_public">Public</SelectItem>
+                      <SelectItem value="internal_group">Group</SelectItem>
+                      <SelectItem value="client_private">Client Private</SelectItem>
+                    </>
+                  ) : (
+                    <>
+                      <SelectItem value="internal_private">Private</SelectItem>
+                      <SelectItem value="internal_group">Group</SelectItem>
+                    </>
+                  )}
+                </SelectContent>
+              </Select>
             </div>
+            {indexVisibility === "internal_group" && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Group</label>
+                <Select
+                  value={indexGroupId != null ? String(indexGroupId) : ""}
+                  onValueChange={(v) => setIndexGroupId(Number(v))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a group" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {groups?.map((g) => (
+                      <SelectItem key={g.id} value={String(g.id)}>
+                        {g.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            {indexVisibility === "client_private" && !isClient && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Client</label>
+                <Select
+                  value={indexClientId != null ? String(indexClientId) : ""}
+                  onValueChange={(v) => setIndexClientId(Number(v))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a client" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {uploadableClients?.map((c) => (
+                      <SelectItem key={c.id} value={String(c.id)}>
+                        {c.email}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {(!uploadableClients || uploadableClients.length === 0) && (
+                  <p className="text-xs text-muted-foreground">No clients assigned to you</p>
+                )}
+              </div>
+            )}
             <div className="space-y-2">
               <label className="text-sm font-medium">Document Domain</label>
-              <select
+              <Select
                 value={indexDocDomain}
-                onChange={(e) => setIndexDocDomain(e.target.value)}
-                className="w-full border rounded-md px-3 py-1.5 text-sm bg-background"
+                onValueChange={(v) => setIndexDocDomain(v as DocumentDomain | "auto")}
               >
-                <option value="">Auto-detect</option>
-                <option value="general">General</option>
-                <option value="legal">Legal</option>
-              </select>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">Auto-detect</SelectItem>
+                  <SelectItem value="general">General</SelectItem>
+                  <SelectItem value="legal">Legal</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowIndexDialog(false)}
-            >
+            <Button variant="outline" onClick={() => setShowIndexDialog(false)}>
               Cancel
             </Button>
-            <Button
-              onClick={handleIndex}
-              disabled={indexFromPreview.isPending}
-            >
-              {indexFromPreview.isPending && (
-                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-              )}
+            <Button onClick={handleIndex} disabled={indexFromPreview.isPending}>
+              {indexFromPreview.isPending && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
               Index
             </Button>
           </DialogFooter>

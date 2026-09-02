@@ -1,6 +1,6 @@
-import { TYPE_COLORS } from "./DryRunSummaryBar";
-import type { DryRunPageResult } from "@/shared/api/types";
 import { RefreshCw } from "lucide-react";
+import type { DryRunPageResult } from "@/shared/api/types";
+import { TYPE_COLORS } from "./DryRunSummaryBar";
 
 interface DryRunPageListProps {
   pages: DryRunPageResult[];
@@ -14,6 +14,7 @@ export function DryRunPageList({ pages, selectedPage, onSelectPage }: DryRunPage
       {pages.map((p) => {
         const color = TYPE_COLORS[p.type] || "bg-gray-300";
         const isActive = selectedPage === p.page;
+        const displayLabel = p.label || `Unit ${p.page}`;
         return (
           <button
             key={p.page}
@@ -23,9 +24,8 @@ export function DryRunPageList({ pages, selectedPage, onSelectPage }: DryRunPage
             }`}
           >
             <span className={`w-2 h-2 rounded-full shrink-0 ${color}`} />
-            <span className="font-mono text-muted-foreground w-8 shrink-0">{p.page}</span>
             <span className="truncate flex-1">
-              {p.type}
+              {displayLabel}
               {p.previous_type && <RefreshCw className="inline h-3 w-3 ml-1 text-blue-500" />}
             </span>
             <span className="text-muted-foreground shrink-0">{p.chars.toLocaleString()}</span>

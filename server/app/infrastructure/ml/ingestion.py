@@ -302,9 +302,7 @@ def _split_table_into_batches(table_doc: Document, max_rows: int) -> list[Docume
     for i in range(0, len(data_lines), max_rows):
         batch_rows = data_lines[i : i + max_rows]
         batch_text = "\n".join([header_line, separator_line] + batch_rows)
-        batches.append(
-            Document(page_content=batch_text, metadata={**table_doc.metadata})
-        )
+        batches.append(Document(page_content=batch_text, metadata={**table_doc.metadata}))
     return batches
 
 
@@ -673,7 +671,7 @@ def parse_docx_sections(file_path: Path) -> list[tuple[str | None, str]]:
         if md_table:
             table_lines.append(md_table)
     if table_lines:
-        sections.append((None, "\n\n".join(table_lines)))
+        sections.append((None, "\x00TABLE:" + "\n\n".join(table_lines)))
 
     if not sections:
         text, _meta = _parse_docx(file_path)

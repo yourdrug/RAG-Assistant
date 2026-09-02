@@ -356,6 +356,15 @@ wheels = [
 ]
 
 [[package]]
+name = "cobble"
+version = "0.1.4"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/54/7a/a507c709be2c96e1bb6102eb7b7f4026c5e5e223ef7d745a17d239e9d844/cobble-0.1.4.tar.gz", hash = "sha256:de38be1539992c8a06e569630717c485a5f91be2192c461ea2b220607dfa78aa", size = 3805, upload-time = "2024-06-01T18:11:09.528Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d5/e1/3714a2f371985215c219c2a70953d38e3eed81ef165aed061d21de0e998b/cobble-0.1.4-py3-none-any.whl", hash = "sha256:36c91b1655e599fd428e2b95fdd5f0da1ca2e9f1abb0bc871dec21a0e78a2b44", size = 3984, upload-time = "2024-06-01T18:11:07.911Z" },
+]
+
+[[package]]
 name = "contourpy"
 version = "1.3.3"
 source = { registry = "https://pypi.org/simple" }
@@ -1259,6 +1268,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/00/62/791b31e69ae182791ec67f04850f2f062716bbd205483d63a215f3e062d3/mako-1.3.12.tar.gz", hash = "sha256:9f778e93289bd410bb35daadeb4fc66d95a746f0b75777b942088b7fd7af550a", size = 400219, upload-time = "2026-04-28T19:01:08.512Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/bc/b1/a0ec7a5a9db730a08daef1fdfb8090435b82465abbf758a596f0ea88727e/mako-1.3.12-py3-none-any.whl", hash = "sha256:8f61569480282dbf557145ce441e4ba888be453c30989f879f0d652e39f53ea9", size = 78521, upload-time = "2026-04-28T19:01:10.393Z" },
+]
+
+[[package]]
+name = "mammoth"
+version = "1.12.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cobble", marker = "sys_platform == 'linux' or (extra == 'extra-7-rag-api-cpu' and extra == 'extra-7-rag-api-gpu')" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/46/92/aca6c4208b3a8e56a788b224e6c9b7bb70fc68e6641124fcf784008338e1/mammoth-1.12.1.tar.gz", hash = "sha256:40521e02568583b671d9976b0fbeed50be734b40f73ca8e1939ab7146bf69bbe", size = 53797, upload-time = "2026-08-09T14:11:20.096Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/be/b4/e7907b278386ffec0cf631db93836e02de9a6386add4653a52d7ac6b43ae/mammoth-1.12.1-py2.py3-none-any.whl", hash = "sha256:2af047e3e796faa25740112310ddf11f8de2a24c96dc57de3c87dfd7cb6543b3", size = 55091, upload-time = "2026-08-09T14:11:18.854Z" },
 ]
 
 [[package]]
@@ -2386,6 +2407,7 @@ dependencies = [
     { name = "langchain", marker = "sys_platform == 'linux' or (extra == 'extra-7-rag-api-cpu' and extra == 'extra-7-rag-api-gpu')" },
     { name = "langchain-ollama", marker = "sys_platform == 'linux' or (extra == 'extra-7-rag-api-cpu' and extra == 'extra-7-rag-api-gpu')" },
     { name = "langchain-openai", marker = "sys_platform == 'linux' or (extra == 'extra-7-rag-api-cpu' and extra == 'extra-7-rag-api-gpu')" },
+    { name = "mammoth", marker = "sys_platform == 'linux' or (extra == 'extra-7-rag-api-cpu' and extra == 'extra-7-rag-api-gpu')" },
     { name = "paddleocr", marker = "sys_platform == 'linux' or (extra == 'extra-7-rag-api-cpu' and extra == 'extra-7-rag-api-gpu')" },
     { name = "paddlepaddle", marker = "sys_platform == 'linux' or (extra == 'extra-7-rag-api-cpu' and extra == 'extra-7-rag-api-gpu')" },
     { name = "pillow", marker = "sys_platform == 'linux' or (extra == 'extra-7-rag-api-cpu' and extra == 'extra-7-rag-api-gpu')" },
@@ -2446,6 +2468,7 @@ requires-dist = [
     { name = "langchain", specifier = "==0.3.7" },
     { name = "langchain-ollama", specifier = "==0.2.1" },
     { name = "langchain-openai", specifier = ">=0.2.0" },
+    { name = "mammoth", specifier = ">=1.8.0" },
     { name = "paddleocr", specifier = "==2.9.1" },
     { name = "paddlepaddle", specifier = "==2.6.2" },
     { name = "pillow", specifier = "==10.4.0" },

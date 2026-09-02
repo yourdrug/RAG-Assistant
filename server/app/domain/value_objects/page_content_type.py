@@ -1,4 +1,4 @@
-"""PDF page content type classification."""
+"""Page content type classification for dry-run preview."""
 
 from __future__ import annotations
 
@@ -12,3 +12,10 @@ class PageContentType(StrEnum):
     EMPTY = "empty"
     TABLE = "table"
     OCR = "ocr"
+    IMAGE_ONLY = "image_only"
+
+
+class PreviewUnitKind(StrEnum):
+    PAGE = "page"
+    SECTION = "section"
+    DOCUMENT = "document"

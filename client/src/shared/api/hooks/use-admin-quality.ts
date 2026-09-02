@@ -21,11 +21,8 @@ export function useDocumentDiagnosis(documentId: number) {
   return useQuery({
     queryKey: queryKeys.quality.diagnose(documentId),
     queryFn: async () =>
-      (
-        await apiClient.post<DocumentDiagnoseResponse>(
-          `/admin/documents/${documentId}/diagnose`,
-        )
-      ).data,
+      (await apiClient.post<DocumentDiagnoseResponse>(`/admin/documents/${documentId}/diagnose`))
+        .data,
     enabled: !!documentId,
   });
 }
@@ -78,11 +75,9 @@ export function usePageImage() {
       fd.append("preview_id", previewId);
       fd.append("page", String(page));
       return (
-        await apiClient.post<PageImageResponse>(
-          "/admin/documents/preview/page-image",
-          fd,
-          { headers: { "Content-Type": "multipart/form-data" } },
-        )
+        await apiClient.post<PageImageResponse>("/admin/documents/preview/page-image", fd, {
+          headers: { "Content-Type": "multipart/form-data" },
+        })
       ).data;
     },
   });
@@ -95,16 +90,19 @@ export function useIndexFromPreview() {
       previewId,
       visibility = "internal_public",
       groupId,
+      clientId,
       docDomain,
     }: {
       previewId: string;
       visibility?: string;
       groupId?: number | null;
+      clientId?: number | null;
       docDomain?: string | null;
     }) => {
       const fd = new FormData();
       fd.append("visibility", visibility);
       if (groupId != null) fd.append("group_id", String(groupId));
+      if (clientId != null) fd.append("client_id", String(clientId));
       if (docDomain) fd.append("doc_domain", docDomain);
       return (
         await apiClient.post<IndexFromPreviewResponse>(

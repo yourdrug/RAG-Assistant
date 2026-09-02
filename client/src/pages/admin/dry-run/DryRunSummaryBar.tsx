@@ -1,5 +1,5 @@
-import { Badge } from "@/shared/ui/badge";
 import type { DryRunResponse } from "@/shared/api/types";
+import { Badge } from "@/shared/ui/badge";
 
 const TYPE_COLORS: Record<string, string> = {
   text: "bg-green-500",
@@ -7,6 +7,7 @@ const TYPE_COLORS: Record<string, string> = {
   scan: "bg-yellow-500",
   garbled: "bg-red-500",
   empty: "bg-gray-300 dark:bg-gray-600",
+  image_only: "bg-purple-500",
 };
 
 const TYPE_LABELS: Record<string, string> = {
@@ -15,13 +16,15 @@ const TYPE_LABELS: Record<string, string> = {
   garbled: "Garbled",
   empty: "Empty",
   table: "Table",
+  image_only: "Image (no text)",
 };
 
 export { TYPE_COLORS, TYPE_LABELS };
 
 export function DryRunSummaryBar({ result }: { result: DryRunResponse }) {
   const { summary, total_pages, total_chars, quality_score } = result;
-  const okCount = summary.text + summary.table;
+  const imageOnlyCount = summary.image_only ?? 0;
+  const okCount = summary.text + summary.table + imageOnlyCount;
   const okPct = total_pages > 0 ? Math.round((okCount / total_pages) * 100) : 0;
   const avgChars = total_pages > 0 ? Math.round(total_chars / total_pages) : 0;
   const estimatedChunks = Math.ceil(total_chars / 1500);
@@ -45,11 +48,11 @@ export function DryRunSummaryBar({ result }: { result: DryRunResponse }) {
         <span className="text-sm text-muted-foreground">OK</span>
         <span className="text-muted-foreground">&middot;</span>
         <span className="text-sm">
-          {total_pages} pages &middot; {total_chars.toLocaleString()} chars
+          {total_pages} units &middot; {total_chars.toLocaleString()} chars
         </span>
         <span className="text-muted-foreground">&middot;</span>
         <span className="text-sm text-muted-foreground">
-          avg {avgChars.toLocaleString()} chars/page
+          avg {avgChars.toLocaleString()} chars/unit
         </span>
         <span className="text-muted-foreground">&middot;</span>
         <span className="text-sm text-muted-foreground">
@@ -59,7 +62,7 @@ export function DryRunSummaryBar({ result }: { result: DryRunResponse }) {
           <>
             <span className="text-muted-foreground">&middot;</span>
             <Badge variant={badPct <= 10 ? "warning" : "destructive"}>
-              bad: {(quality_score * 100).toFixed(1)}% &middot; {problemCount} pages
+              bad: {(quality_score * 100).toFixed(1)}% &middot; {problemCount} units
             </Badge>
           </>
         )}
@@ -75,6 +78,12 @@ export function DryRunSummaryBar({ result }: { result: DryRunResponse }) {
           <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
             <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
             {summary.table} table{summary.table > 1 ? "s" : ""}
+          </span>
+        )}
+        {imageOnlyCount > 0 && (
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-purple-50 text-purple-700 dark:bg-purple-950 dark:text-purple-300">
+            <span className="w-1.5 h-1.5 rounded-full bg-purple-500" />
+            {imageOnlyCount} image
           </span>
         )}
         {summary.scan > 0 && (

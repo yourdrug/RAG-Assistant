@@ -1,10 +1,12 @@
 "use client";
-import { useCallback, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { Loader2, Upload } from "lucide-react";
+import { useCallback, useState } from "react";
 import toast from "react-hot-toast";
+import { useNavigate } from "react-router-dom";
 import { useDryRun } from "@/shared/api/hooks";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/shared/ui/dialog";
+
+const ALLOWED_EXTENSIONS = [".pdf", ".docx", ".rtf"];
 
 export function DryRunDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const dryRun = useDryRun();
@@ -13,8 +15,10 @@ export function DryRunDialog({ open, onClose }: { open: boolean; onClose: () => 
 
   const processFile = useCallback(
     async (file: File) => {
-      if (!file.name.toLowerCase().endsWith(".pdf")) {
-        toast.error("Only PDF files are supported");
+      const name = file.name.toLowerCase();
+      const ext = name.slice(name.lastIndexOf("."));
+      if (!ALLOWED_EXTENSIONS.includes(ext)) {
+        toast.error("Supported formats: PDF, DOCX, RTF");
         return;
       }
       try {
@@ -65,7 +69,8 @@ export function DryRunDialog({ open, onClose }: { open: boolean; onClose: () => 
         </DialogHeader>
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Upload a PDF to preview extracted text and quality assessment without indexing.
+            Upload a document (PDF, DOCX, RTF) to preview extracted text and quality assessment
+            without indexing.
           </p>
           <label
             onDrop={handleDrop}
@@ -87,12 +92,17 @@ export function DryRunDialog({ open, onClose }: { open: boolean; onClose: () => 
                 {dryRun.isPending
                   ? "Analyzing..."
                   : isDragging
-                    ? "Drop PDF here"
-                    : "Drop PDF or click to browse"}
+                    ? "Drop file here"
+                    : "Drop file or click to browse"}
               </span>
-              <span className="text-xs text-muted-foreground">PDF files only, max 50 MB</span>
+              <span className="text-xs text-muted-foreground">PDF, DOCX, RTF — max 50 MB</span>
             </div>
-            <input type="file" accept=".pdf" onChange={handleFileInput} className="hidden" />
+            <input
+              type="file"
+              accept=".pdf,.docx,.rtf"
+              onChange={handleFileInput}
+              className="hidden"
+            />
           </label>
         </div>
       </DialogContent>

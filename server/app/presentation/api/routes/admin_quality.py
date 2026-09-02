@@ -1,4 +1,4 @@
-"""Admin quality / diagnostics endpoints — PDF extraction quality, dry-run preview."""
+"""Admin quality / diagnostics endpoints — document extraction quality, dry-run preview."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from application.services.pdf_diagnostic_service import PDFDiagnosticService
 from application.services.quality_service import QualityService
+from infrastructure.ml.preview.factory import PreviewStrategyFactory
 from infrastructure.worker.queue import enqueue_document_processing
 
 from presentation.api.auth_dependencies import require_admin
@@ -38,18 +39,31 @@ router = APIRouter(tags=["admin-quality"])
 
 IMAGE_AVAILABLE = settings.file_backend == FileBackend.S3.value
 
+_DRY_RUN_EXTENSIONS = {".pdf", ".docx", ".doc", ".rtf"}
+
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-async def _validate_pdf_upload(file: UploadFile, diag_service: PDFDiagnosticService) -> bytes:
-    """Validate uploaded file is PDF and within size limits. Returns file data."""
+async def _validate_upload(file: UploadFile, diag_service: PDFDiagnosticService) -> bytes:
+    """Validate uploaded file is a supported format and within size limits. Returns file data."""
     filename = file.filename or "unnamed"
     ext = Path(filename).suffix.lower()
-    if ext != ".pdf":
-        raise HTTPException(status_code=400, detail="Dry-run currently only supports PDF files")
+    if ext not in _DRY_RUN_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type: {ext}. Supported: {', '.join(sorted(_DRY_RUN_EXTENSIONS))}",
+        )
+    if ext == ".doc":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Файлы .doc (старый формат Word 97-2003) не поддерживаются. "
+                "Конвертируйте файл в .docx и повторите попытку."
+            ),
+        )
     data = await file.read()
     if len(data) > diag_service._max_bytes:
         raise HTTPException(status_code=413, detail="File too large for dry-run (max 50 MB)")
@@ -58,15 +72,15 @@ async def _validate_pdf_upload(file: UploadFile, diag_service: PDFDiagnosticServ
 
 def _compute_quality_warning(page_results: list, types_count: dict, warning_prefix: str) -> str | None:
     """Compute quality warning from page analysis results."""
-    total_pages = len(page_results)
+    total = len(page_results)
     bad = types_count.get("scan", 0) + types_count.get("garbled", 0) + types_count.get("empty", 0)
-    bad_ratio = bad / total_pages if total_pages else 0.0
+    bad_ratio = bad / total if total else 0.0
     if bad_ratio > 0.3:
         return (
             f"{warning_prefix}: {types_count.get('scan', 0)} scan + "
             f"{types_count.get('garbled', 0)} garbled + "
             f"{types_count.get('empty', 0)} empty "
-            f"out of {total_pages} pages ({bad_ratio:.0%} bad)"
+            f"out of {total} units ({bad_ratio:.0%} bad)"
         )
     return None
 
@@ -99,7 +113,9 @@ def _build_dry_run_response(
                 full_text=p.full_text,
                 problem_spans=p.problem_spans,
                 previous_type=p.previous_type,
-                image_available=IMAGE_AVAILABLE,
+                image_available=IMAGE_AVAILABLE and p.unit_kind == "page",
+                unit_kind=p.unit_kind,
+                label=p.label,
             )
             for p in page_results
         ],
@@ -109,31 +125,6 @@ def _build_dry_run_response(
         full_text_preview=full_text_preview,
         summary=types_count,
         preview_id=preview_id,
-        suggestion=suggestion,
-    )
-
-
-def _handle_ocr_analysis(
-    tmp_path: Path,
-    effective_preview_id: str,
-    preview_cache,
-    diag_service: PDFDiagnosticService,
-    file: UploadFile | None,
-) -> DryRunResponse:
-    """Run OCR analysis on *tmp_path* and build the response."""
-    page_results, _types_count, _total_chars = diag_service.analyze_text_layer(tmp_path)
-    page_results, types_count, total_chars = diag_service.ocr_problem_pages(tmp_path, page_results)
-    warning = _compute_quality_warning(page_results, types_count, "Still low quality after OCR")
-    suggestion = PDFDiagnosticService.suggest_action(page_results, types_count)
-
-    filename = (file.filename or (tmp_path.stem + ".pdf")) if file else (tmp_path.stem + ".pdf")
-    return _build_dry_run_response(
-        filename,
-        page_results,
-        types_count,
-        total_chars,
-        warning,
-        preview_id=effective_preview_id,
         suggestion=suggestion,
     )
 
@@ -208,18 +199,26 @@ async def dry_run_preview(
     preview_cache=Depends(create_preview_cache),
 ):
     """Phase 1: Fast dry-run — text layer only, no OCR."""
-    data = await _validate_pdf_upload(file, diag_service)
+    data = await _validate_upload(file, diag_service)
 
-    preview_id = await preview_cache.store(data)
+    filename = file.filename or "unnamed"
+    ext = Path(filename).suffix.lower()
+
+    try:
+        strategy = PreviewStrategyFactory.for_extension(ext, diag_service=diag_service)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    preview_id = await preview_cache.store(data, suffix=ext, original_filename=filename)
 
     async with preview_cache.get_path(preview_id) as tmp_path:
         if tmp_path is None:
             raise HTTPException(status_code=500, detail="Failed to store preview")
-        page_results, types_count, total_chars = diag_service.analyze_text_layer(tmp_path)
+        page_results, types_count, total_chars = strategy.analyze(tmp_path)
         warning = _compute_quality_warning(page_results, types_count, "Low quality")
         suggestion = PDFDiagnosticService.suggest_action(page_results, types_count)
         return _build_dry_run_response(
-            file.filename or "unnamed",
+            filename,
             page_results,
             types_count,
             total_chars,
@@ -243,7 +242,7 @@ async def dry_run_ocr_phase2(
     diag_service: PDFDiagnosticService = Depends(create_pdf_diagnostic_service),
     preview_cache=Depends(create_preview_cache),
 ):
-    """Phase 2: Run OCR on specific problem pages and return updated results.
+    """Phase 2: Run OCR on specific problem units and return updated results.
 
     Accepts either a fresh file upload OR a ``preview_id`` from a previous
     ``/preview`` call (avoids re-uploading the file from the client).
@@ -251,16 +250,44 @@ async def dry_run_ocr_phase2(
     try:
         page_nums = [int(p.strip()) for p in pages.split(",") if p.strip()]
     except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid page numbers") from None
+        raise HTTPException(status_code=400, detail="Invalid unit IDs") from None
 
     if not page_nums:
-        raise HTTPException(status_code=400, detail="No pages specified for OCR")
+        raise HTTPException(status_code=400, detail="No units specified for OCR")
 
-    # Resolve the PDF: cached file takes precedence over a fresh upload
+    async def _run_ocr(tmp_path: Path, effective_preview_id: str, fname: str) -> DryRunResponse:
+        ext = Path(fname).suffix.lower()
+        try:
+            strategy = PreviewStrategyFactory.for_extension(ext, diag_service=diag_service)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+
+        page_results, types_count, total_chars = strategy.analyze(tmp_path)
+        try:
+            page_results, types_count, total_chars = strategy.ocr_problem_units(
+                tmp_path, page_results, page_nums
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+
+        warning = _compute_quality_warning(page_results, types_count, "Still low quality after OCR")
+        suggestion = PDFDiagnosticService.suggest_action(page_results, types_count)
+        return _build_dry_run_response(
+            fname,
+            page_results,
+            types_count,
+            total_chars,
+            warning,
+            preview_id=effective_preview_id,
+            suggestion=suggestion,
+        )
+
+    # Resolve the file: cached file takes precedence over a fresh upload
     if preview_id:
         async with preview_cache.get_path(preview_id) as cached_path:
             if cached_path is not None:
-                return _handle_ocr_analysis(cached_path, preview_id, preview_cache, diag_service, file)
+                fname = preview_cache.get_filename(preview_id)
+                return await _run_ocr(cached_path, preview_id, fname)
 
     # No cached file — require a fresh upload
     if file is None:
@@ -268,17 +295,19 @@ async def dry_run_ocr_phase2(
             status_code=400,
             detail="Provide either a file upload or a valid preview_id",
         )
-    data = await _validate_pdf_upload(file, diag_service)
-    new_preview_id = await preview_cache.store(data)
+    data = await _validate_upload(file, diag_service)
+    fname = file.filename or "unnamed"
+    ext = Path(fname).suffix.lower()
+    new_preview_id = await preview_cache.store(data, suffix=ext, original_filename=fname)
 
     async with preview_cache.get_path(new_preview_id) as tmp_path:
         if tmp_path is None:
             raise HTTPException(status_code=500, detail="Failed to store preview")
-        return _handle_ocr_analysis(tmp_path, new_preview_id, preview_cache, diag_service, file)
+        return await _run_ocr(tmp_path, new_preview_id, fname)
 
 
 # ---------------------------------------------------------------------------
-# Page image rendering (Variant A)
+# Page image rendering (PDF only)
 # ---------------------------------------------------------------------------
 
 
@@ -332,13 +361,14 @@ async def index_from_preview(
     preview_id: str,
     visibility: str = Form("internal_public"),
     group_id: int | None = Form(None),
+    client_id: int | None = Form(None),
     doc_domain: str | None = Form(None),
     admin: dict = Depends(require_admin),
     preview_cache=Depends(create_preview_cache),
     document_service=Depends(create_document_service),
     job_service=Depends(create_job_service),
 ):
-    """Index the cached PDF through the standard ingestion pipeline.
+    """Index the cached document through the standard ingestion pipeline.
 
     The uploaded file is passed through the same upload + processing flow as
     a normal document upload.  Any OCR results from the dry-run are *not*
@@ -356,7 +386,7 @@ async def index_from_preview(
         file_data=file_data,
         visibility=visibility,
         group_id=group_id,
-        client_id=None,
+        client_id=client_id,
         user_id=admin["id"],
         user_kind=admin["kind"],
         user_role=admin["role"],

@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
-import { Badge } from "@/shared/ui/badge";
+import { useEffect, useState } from "react";
 import { usePageImage } from "@/shared/api/hooks";
 import type { DryRunPageResult } from "@/shared/api/types";
+import { Badge } from "@/shared/ui/badge";
 
 interface DryRunPageDetailProps {
   page: DryRunPageResult | null;
@@ -33,16 +33,18 @@ export function DryRunPageDetail({ page, previewId }: DryRunPageDetailProps) {
   if (!page) {
     return (
       <div className="flex items-center justify-center min-h-100 p-6 text-muted-foreground text-sm">
-        Select a page to view details
+        Select a unit to view details
       </div>
     );
   }
 
+  const displayLabel = page.label || `Unit ${page.page}`;
+
   return (
     <div className="space-y-3 p-3">
-      {/* Page header */}
+      {/* Unit header */}
       <div className="flex items-center gap-2 flex-wrap ">
-        <span className="font-mono text-sm font-medium">Page {page.page}</span>
+        <span className="font-mono text-sm font-medium">{displayLabel}</span>
         <Badge
           variant={
             page.type === "text"
@@ -57,9 +59,7 @@ export function DryRunPageDetail({ page, previewId }: DryRunPageDetailProps) {
         >
           {page.type}
         </Badge>
-        <span className="text-xs text-muted-foreground">
-          {page.chars.toLocaleString()} chars
-        </span>
+        <span className="text-xs text-muted-foreground">{page.chars.toLocaleString()} chars</span>
         {page.previous_type && (
           <span className="inline-flex items-center gap-1 text-xs">
             <RefreshCw className="h-3 w-3 text-blue-500" />
@@ -72,9 +72,7 @@ export function DryRunPageDetail({ page, previewId }: DryRunPageDetailProps) {
             </Badge>
             <span
               className={
-                page.chars > 0
-                  ? "text-green-600 dark:text-green-400"
-                  : "text-muted-foreground"
+                page.chars > 0 ? "text-green-600 dark:text-green-400" : "text-muted-foreground"
               }
             >
               (+{page.chars} chars)
@@ -83,19 +81,15 @@ export function DryRunPageDetail({ page, previewId }: DryRunPageDetailProps) {
         )}
       </div>
 
-      {/* Page image — full natural size */}
-      {page.image_available && (
+      {/* Page image — only for PDF pages */}
+      {page.unit_kind === "page" && page.image_available && (
         <div className="rounded-md border bg-muted/30">
           {pageImage.isPending ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
           ) : imageSrc ? (
-            <img
-              src={imageSrc}
-              alt={`Page ${page.page}`}
-              className="w-2/3 h-auto mx-auto"
-            />
+            <img src={imageSrc} alt={displayLabel} className="w-2/3 h-auto mx-auto" />
           ) : (
             <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">
               Image not available
@@ -106,9 +100,7 @@ export function DryRunPageDetail({ page, previewId }: DryRunPageDetailProps) {
 
       {/* Extracted text */}
       <div>
-        <span className="text-xs font-medium text-muted-foreground mb-1 block">
-          Extracted text
-        </span>
+        <span className="text-xs font-medium text-muted-foreground mb-1 block">Extracted text</span>
         <pre className="text-xs whitespace-pre-wrap font-mono p-3 bg-muted rounded-md max-h-96 overflow-auto scrollbar-thin">
           {page.full_text || page.preview || "No text extracted."}
         </pre>

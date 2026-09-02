@@ -1,15 +1,15 @@
 "use client";
+import { ArrowLeft } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { ArrowLeft } from "lucide-react";
-import { Button } from "@/shared/ui/button";
 import type { DryRunResponse } from "@/shared/api/types";
-import { DryRunSummaryBar } from "./DryRunSummaryBar";
-import { DryRunSuggestion } from "./DryRunSuggestion";
-import { DryRunCharsChart } from "./DryRunCharsChart";
-import { DryRunPageList } from "./DryRunPageList";
-import { DryRunPageDetail } from "./DryRunPageDetail";
+import { Button } from "@/shared/ui/button";
 import { DryRunActions } from "./DryRunActions";
+import { DryRunCharsChart } from "./DryRunCharsChart";
+import { DryRunPageDetail } from "./DryRunPageDetail";
+import { DryRunPageList } from "./DryRunPageList";
+import { DryRunSuggestion } from "./DryRunSuggestion";
+import { DryRunSummaryBar } from "./DryRunSummaryBar";
 
 export function DryRunResultPage() {
   const location = useLocation();
@@ -79,10 +79,7 @@ export function DryRunResultPage() {
         </div>
 
         <div className="flex-1 border rounded-md overflow-y-auto ">
-          <DryRunPageDetail
-            page={selectedPageData}
-            previewId={result.preview_id}
-          />
+          <DryRunPageDetail page={selectedPageData} previewId={result.preview_id} />
         </div>
       </div>
 

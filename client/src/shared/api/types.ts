@@ -556,7 +556,7 @@ export interface DocumentDiagnoseResponse {
 
 export interface DryRunPageResult {
   page: number;
-  type: "text" | "scan" | "garbled" | "empty" | "table";
+  type: "text" | "scan" | "garbled" | "empty" | "table" | "image_only";
   content_type: string;
   chars: number;
   preview: string;
@@ -564,6 +564,8 @@ export interface DryRunPageResult {
   problem_spans: [number, number][];
   previous_type: string | null;
   image_available: boolean;
+  unit_kind: "page" | "section" | "document";
+  label: string;
 }
 
 export interface DryRunResponse {
@@ -580,6 +582,7 @@ export interface DryRunResponse {
     garbled: number;
     empty: number;
     table: number;
+    image_only?: number;
   };
   suggestion: string | null;
   preview_id: string;

@@ -7,6 +7,7 @@ const CHART_COLORS: Record<string, string> = {
   scan: "#eab308",
   garbled: "#ef4444",
   empty: "#9ca3af",
+  image_only: "#a855f7",
 };
 
 interface DryRunCharsChartProps {
@@ -16,18 +17,30 @@ interface DryRunCharsChartProps {
 }
 
 export function DryRunCharsChart({ pages, selectedPage, onSelectPage }: DryRunCharsChartProps) {
+  if (pages.length <= 1) {
+    const p = pages[0];
+    if (!p) return null;
+    return (
+      <div className="p-3 rounded-lg border">
+        <span className="text-xs font-medium text-muted-foreground">
+          {p.label || "Single unit"} — {p.chars.toLocaleString()} chars
+        </span>
+      </div>
+    );
+  }
+
   const data = pages.map((p) => ({
     page: p.page,
     chars: p.chars,
     type: p.type,
-    label: p.type,
+    label: p.label || `Unit ${p.page}`,
   }));
 
   return (
     <div>
       <div className="flex items-center justify-between mb-1.5">
-        <span className="text-xs font-medium text-muted-foreground">Characters per page</span>
-        <span className="text-xs text-muted-foreground">{pages.length} pages</span>
+        <span className="text-xs font-medium text-muted-foreground">Characters per unit</span>
+        <span className="text-xs text-muted-foreground">{pages.length} units</span>
       </div>
       <div className="h-32">
         <ResponsiveContainer width="100%" height="100%">
@@ -41,21 +54,21 @@ export function DryRunCharsChart({ pages, selectedPage, onSelectPage }: DryRunCh
             }}
           >
             <XAxis
-              dataKey="page"
-              tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))" }}
+              dataKey="label"
+              tick={{ fontSize: 8, fill: "hsl(var(--muted-foreground))" }}
               interval={Math.max(0, Math.floor(pages.length / 20))}
+              angle={-30}
+              textAnchor="end"
+              height={50}
             />
-            <YAxis
-              tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))" }}
-              width={40}
-            />
+            <YAxis tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))" }} width={40} />
             <Tooltip
               content={({ active, payload }) => {
                 if (!active || !payload?.length) return null;
                 const d = payload[0].payload;
                 return (
                   <div className="bg-popover text-popover-foreground px-2 py-1 rounded shadow-md text-xs">
-                    p.{d.page} &middot; {d.chars.toLocaleString()} chars &middot; {d.label}
+                    {d.label} &middot; {d.chars.toLocaleString()} chars &middot; {d.type}
                   </div>
                 );
               }}

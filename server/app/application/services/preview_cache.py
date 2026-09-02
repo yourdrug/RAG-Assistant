@@ -33,19 +33,22 @@ class PreviewCache:
 
     def __init__(self, storage: FileStorage, ttl_seconds: int = DEFAULT_TTL_SECONDS) -> None:
         self._storage = storage
-        self._cache: dict[str, tuple[str, float]] = {}  # preview_id -> (s3_key, timestamp)
+        self._cache: dict[str, tuple[str, float, str | None]] = {}
+        # preview_id -> (s3_key, timestamp, original_filename)
         self._ttl = ttl_seconds
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    async def store(self, file_data: bytes, suffix: str = ".pdf") -> str:
+    async def store(
+        self, file_data: bytes, suffix: str = ".pdf", original_filename: str | None = None
+    ) -> str:
         """Upload *file_data* to storage and return its ``preview_id``."""
         preview_id = uuid.uuid4().hex
         key = f"{PREVIEW_PREFIX}{preview_id}{suffix}"
         await self._storage.upload_file(key, file_data)
-        self._cache[preview_id] = (key, time.monotonic())
+        self._cache[preview_id] = (key, time.monotonic(), original_filename)
         self._cleanup_expired()
         return preview_id
 
@@ -61,7 +64,7 @@ class PreviewCache:
             yield None
             return
 
-        key, ts = entry
+        key, ts, _ = entry
         if time.monotonic() - ts > self._ttl:
             self._evict(preview_id)
             yield None
@@ -79,7 +82,7 @@ class PreviewCache:
         if entry is None:
             return None
 
-        key, ts = entry
+        key, ts, _ = entry
         if time.monotonic() - ts > self._ttl:
             self._evict(preview_id)
             return None
@@ -94,9 +97,11 @@ class PreviewCache:
         """Return a filename derived from the preview_id."""
         entry = self._cache.get(preview_id)
         if entry is not None:
-            key, _ = entry
+            key, _, original_filename = entry
+            if original_filename:
+                return original_filename
             return Path(key).name
-        return f"{preview_id}.pdf"
+        return f"{preview_id}.bin"
 
     # ------------------------------------------------------------------
     # Internals
@@ -105,7 +110,7 @@ class PreviewCache:
     def _evict(self, preview_id: str) -> None:
         entry = self._cache.pop(preview_id, None)
         if entry is not None:
-            key, _ = entry
+            key, _, _ = entry
             try:
                 self._storage.delete_file(key)
             except Exception:
@@ -113,6 +118,6 @@ class PreviewCache:
 
     def _cleanup_expired(self) -> None:
         now = time.monotonic()
-        expired = [pid for pid, (_, ts) in self._cache.items() if now - ts > self._ttl]
+        expired = [pid for pid, (_, ts, _) in self._cache.items() if now - ts > self._ttl]
         for pid in expired:
             self._evict(pid)
