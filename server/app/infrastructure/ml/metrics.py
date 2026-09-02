@@ -167,13 +167,7 @@ BM25_INDEX_SIZE = Gauge(
 
 OLLAMA_GPU_MEMORY_BYTES = Gauge(
     "ollama_gpu_memory_bytes",
-    "Ollama GPU memory usage in bytes",
-    ["model"],
-)
-
-OLLAMA_RAM_MEMORY_BYTES = Gauge(
-    "ollama_ram_memory_bytes",
-    "Ollama RAM memory usage in bytes",
+    "Ollama GPU VRAM usage in bytes (from /api/ps)",
     ["model"],
 )
 
@@ -261,6 +255,10 @@ def extract_usage_from_langchain(response) -> tuple[int | None, int | None]:
 # Helper: record RAG pipeline answer metrics (called after generation)
 # ---------------------------------------------------------------------------
 
+# IMPORTANT: The canonical phrase "Информация не найдена в документах." from
+# domain/services/rag_policy.py SYSTEM_PROMPT rule 2 must be covered by at
+# least one of these substrings.  If you change the prompt phrase, update
+# this tuple (and the test below) to keep metrics and benchmark judge in sync.
 _NOT_FOUND_PATTERNS = (
     "не найден",
     "не найдена",
@@ -332,14 +330,14 @@ async def _collect_bm25_metrics(ml_clients: MLClientRegistry | None) -> None:
 
 async def _collect_ollama_metrics() -> None:
     async with httpx.AsyncClient(timeout=3) as http:
-        r = await http.get(f"{settings.ollama_base_url}/api/tags")
+        # /api/ps returns actually loaded models with real VRAM usage
+        r = await http.get(f"{settings.ollama_base_url}/api/ps")
         if r.status_code == 200:
             data = r.json()
             for model in data.get("models", []):
                 model_name = model.get("name", "unknown")
-                model_size = model.get("size", 0)
-                OLLAMA_GPU_MEMORY_BYTES.labels(model=model_name).set(model_size)
-                OLLAMA_RAM_MEMORY_BYTES.labels(model=model_name).set(model_size)
+                vram = model.get("size_vram", 0)
+                OLLAMA_GPU_MEMORY_BYTES.labels(model=model_name).set(vram)
 
 
 async def collect_infra_metrics(ml_clients: MLClientRegistry | None = None) -> None:

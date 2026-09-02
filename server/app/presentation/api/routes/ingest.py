@@ -12,6 +12,7 @@ from infrastructure.logging.actions import log_action
 from infrastructure.worker.queue import enqueue_ingest, enqueue_ingest_file
 
 from presentation.api.auth_dependencies import require_admin
+from presentation.api.constants import JobType
 from presentation.api.dependencies import create_ingest_service, create_ingestion_port, create_job_service
 from presentation.api.rate_limits import ingest_rate_limit
 from presentation.api.schemas import (
@@ -40,7 +41,7 @@ async def ingest_documents(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
-    job_id = await job_service.create_job("ingest")
+    job_id = await job_service.create_job(JobType.INGEST)
 
     log_action(
         "ingest.full",
@@ -75,7 +76,7 @@ async def ingest_single_file(
     if force:
         await service.force_reindex(file_path.split("/")[-1])
 
-    job_id = await job_service.create_job("ingest", related_id=None)
+    job_id = await job_service.create_job(JobType.INGEST, related_id=None)
 
     log_action(
         "ingest.file", user_id=admin["id"], details={"file": resolved, "force": force, "domain": domain}

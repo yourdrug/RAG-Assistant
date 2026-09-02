@@ -17,7 +17,7 @@ import random
 from collections.abc import Callable
 from pathlib import Path
 
-from config import settings
+from config import _settings_overrides, settings
 from domain.entities.benchmark_sweep import BenchmarkSweep
 from domain.value_objects.benchmark_strategy import BenchmarkStrategy
 from langchain.schema import Document as LCDocument
@@ -276,9 +276,9 @@ class SweepEngine:
                 cfg["config"],
             )
 
-            orig = self._snapshot_settings()
+            overrides = self._build_overrides(cfg["config"])
+            token = _settings_overrides.set(overrides)
             try:
-                self._apply_config(cfg["config"])
                 full_result = self._run_full_benchmark(
                     questions_path or str(Path(settings.data_dir) / "test_questions.json"),
                     judge_model,
@@ -296,7 +296,7 @@ class SweepEngine:
                     weights,
                 )
             finally:
-                self._restore_settings(orig)
+                _settings_overrides.reset(token)
 
         results.sort(key=lambda x: x.get("composite_score", 0), reverse=True)
         return results
@@ -451,47 +451,27 @@ class SweepEngine:
         metrics["composite_score"] = compute_composite_score({"hit_rate": avg_hr, "mrr": avg_mrr}, weights)
         return metrics
 
-    def _snapshot_settings(self) -> dict:
-        """Snapshot current settings for later restoration."""
-        return {
-            "top_k": settings.retriever_top_k,
-            "fetch_k": settings.retriever_fetch_k,
-            "dense": settings.dense_weight,
-            "sparse": settings.sparse_weight,
-            "rrf": settings.rrf_k,
-            "min_score": settings.rerank_min_score,
-            "gap_ratio": settings.rerank_score_gap_ratio,
+    def _build_overrides(self, config: dict) -> dict[str, object]:
+        """Build a settings override dict from a sweep config point."""
+        overrides: dict[str, object] = {}
+        _map = {
+            "top_k": "retriever_top_k",
+            "fetch_k": "retriever_fetch_k",
+            "dense_weight": "dense_weight",
+            "sparse_weight": "sparse_weight",
+            "rrf_k": "rrf_k",
+            "rerank_min_score": "rerank_min_score",
+            "rerank_score_gap_ratio": "rerank_score_gap_ratio",
         }
-
-    def _apply_config(self, config: dict) -> None:
-        """Temporarily apply a config to global settings."""
-        if "top_k" in config:
-            settings.retriever_top_k = config["top_k"]
-        if "fetch_k" in config:
-            settings.retriever_fetch_k = config["fetch_k"]
-        if "dense_weight" in config:
-            settings.dense_weight = config["dense_weight"]
-        if "sparse_weight" in config:
-            settings.sparse_weight = config["sparse_weight"]
-        if "rrf_k" in config:
-            settings.rrf_k = config["rrf_k"]
-        if "rerank_min_score" in config:
-            settings.rerank_min_score = config["rerank_min_score"]
-        if "rerank_score_gap_ratio" in config:
-            settings.rerank_score_gap_ratio = config["rerank_score_gap_ratio"]
-
-    def _restore_settings(self, snapshot: dict) -> None:
-        """Restore settings from snapshot."""
-        settings.retriever_top_k = snapshot["top_k"]
-        settings.retriever_fetch_k = snapshot["fetch_k"]
-        settings.dense_weight = snapshot["dense"]
-        settings.sparse_weight = snapshot["sparse"]
-        settings.rrf_k = snapshot["rrf"]
-        settings.rerank_min_score = snapshot["min_score"]
-        settings.rerank_score_gap_ratio = snapshot["gap_ratio"]
+        for sweep_key, setting_key in _map.items():
+            if sweep_key in config:
+                overrides[setting_key] = config[sweep_key]
+        return overrides
 
     def _run_full_benchmark(self, questions_path: str, judge_model: str) -> dict:
         """Run a full benchmark with LLM judge (blocking)."""
+        from config import get_setting
+
         if self._benchmark_service is None:
             from infrastructure.services.benchmark_service import BenchmarkService
 
@@ -501,7 +481,7 @@ class SweepEngine:
         result = self._benchmark_service.run(
             questions_path=questions_path,
             out_dir=out_dir,
-            top_k=settings.retriever_top_k,
+            top_k=get_setting("retriever_top_k"),
             judge_model=judge_model,
         )
         return result

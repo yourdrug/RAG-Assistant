@@ -7,7 +7,8 @@ from datetime import datetime
 from domain.value_objects.benchmark_strategy import BenchmarkStrategy
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.search_mode import SearchMode
-from pydantic import BaseModel, Field
+from domain.value_objects.visibility import DocumentVisibility
+from pydantic import BaseModel, ConfigDict, Field
 
 # ---------------------------------------------------------------------------
 # Health
@@ -90,7 +91,7 @@ class DocumentResponse(BaseModel):
     owner_id: int | None
     group_id: int | None
     status: str
-    doc_domain: str = "general"
+    doc_domain: str = DocDomain.GENERAL.value
     error_message: str | None
     warning_message: str | None
     quality_score: float | None = None
@@ -193,7 +194,8 @@ class GroupResponse(BaseModel):
 
 
 class GroupMemberResponse(BaseModel):
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
+
     id: int = Field(validation_alias="user_id")
     email: str
 
@@ -426,7 +428,7 @@ class LogsResponse(BaseModel):
 
 
 class ChatLogEntry(BaseModel):
-    model_config = {"protected_namespaces": ()}
+    model_config = ConfigDict(protected_namespaces=())
 
     id: int
     creation_date: str
@@ -751,6 +753,6 @@ class PageImageResponse(BaseModel):
 
 
 class IndexFromPreviewRequest(BaseModel):
-    visibility: str = "internal_public"
+    visibility: str = DocumentVisibility.INTERNAL_PUBLIC.value
     group_id: int | None = None
     doc_domain: str | None = None

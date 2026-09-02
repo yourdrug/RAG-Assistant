@@ -22,7 +22,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from config import settings
+from config import get_setting, settings
 from domain.services.rag_policy import build_system_prompt
 from domain.value_objects.llm_provider import Breadth, LLMProvider
 from langchain.schema import Document
@@ -135,9 +135,9 @@ def _merge_and_dedup(
         merged_hashes = rrf_merge(
             [(k, v[0]) for k, v in dense_by_hash.items()],
             sparse_results,
-            k=settings.rrf_k,
-            dense_weight=settings.dense_weight,
-            sparse_weight=settings.sparse_weight,
+            k=get_setting("rrf_k"),
+            dense_weight=get_setting("dense_weight"),
+            sparse_weight=get_setting("sparse_weight"),
         )
     else:
         merged_hashes = [h for h, _ in [(k, v[0]) for k, v in dense_by_hash.items()]]
@@ -160,12 +160,15 @@ def _apply_rerank_filters(
     ranked: list[tuple[Document, float]],
 ) -> list[tuple[Document, float]]:
     """Apply min_score and score_gap_ratio filters to ranked results."""
-    if settings.rerank_min_score is not None:
-        ranked = [(d, s) for d, s in ranked if s >= settings.rerank_min_score]
+    min_score = get_setting("rerank_min_score")
+    gap_ratio = get_setting("rerank_score_gap_ratio")
 
-    if settings.rerank_score_gap_ratio is not None and ranked:
+    if min_score is not None:
+        ranked = [(d, s) for d, s in ranked if s >= min_score]
+
+    if gap_ratio is not None and ranked:
         top_score = ranked[0][1]
-        cutoff = top_score * settings.rerank_score_gap_ratio
+        cutoff = top_score * gap_ratio
         ranked = [(d, s) for d, s in ranked if s >= cutoff]
 
     return ranked
@@ -284,6 +287,10 @@ FAITHFULNESS_PROMPT = """\
 {{"score": <число от 0 до 10>, "reason": "<одно предложение>"}}
 """
 
+# NOTE: The "not found" phrases below must stay in sync with:
+#   - domain/services/rag_policy.py SYSTEM_PROMPT rule 2
+#   - infrastructure/ml/metrics.py _NOT_FOUND_PATTERNS
+# If you change the canonical phrase in the prompt, update this prompt too.
 RELEVANCY_PROMPT = """\
 Ты — строгий эксперт по оценке качества ответов AI-ассистентов.
 
@@ -833,7 +840,7 @@ def run_benchmark(
 
     questions = load_questions(questions_path)
 
-    fetch_k = settings.retriever_fetch_k
+    fetch_k = get_setting("retriever_fetch_k")
 
     logger.info("Подключаюсь к RAG LLM (%s) ...", settings.llm_model)
     rag_llm = build_llm(settings.llm_model, settings.ollama_base_url, provider=settings.llm_provider)
@@ -998,7 +1005,7 @@ async def run_benchmark_async(
     logger.info("  n_runs    : %d", n_runs)
 
     questions = load_questions(questions_path)
-    fetch_k = settings.retriever_fetch_k
+    fetch_k = get_setting("retriever_fetch_k")
 
     rag_llm = build_llm(settings.llm_model, settings.ollama_base_url, provider=settings.llm_provider)
     if seed is not None:

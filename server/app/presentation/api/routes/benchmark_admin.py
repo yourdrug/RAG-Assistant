@@ -20,6 +20,13 @@ from fastapi.responses import StreamingResponse
 from infrastructure.worker.queue import enqueue_sweep
 
 from presentation.api.auth_dependencies import require_admin
+from presentation.api.constants import (
+    HISTORY_CONFIG_KEYS,
+    JobType,
+    RUN_CONFIG_KEY_MAP,
+    SSE_HEADERS,
+    SSE_MEDIA_TYPE,
+)
 from presentation.api.dependencies import (
     create_benchmark_question_service,
     create_benchmark_run_service,
@@ -55,6 +62,57 @@ router = APIRouter(tags=["benchmark-admin"])
 
 
 # ---------------------------------------------------------------------------
+# Helpers — response mapping
+# ---------------------------------------------------------------------------
+
+
+def _question_to_response(q: object) -> BenchmarkQuestionResponse:
+    return BenchmarkQuestionResponse(
+        id=q.id,
+        question=q.question,
+        expected_answer=q.expected_answer,
+        source_hint=q.source_hint,
+        tags=q.tags,
+        dataset=q.dataset,
+        is_active=q.is_active,
+        created_by=q.created_by,
+        notes=q.notes,
+        creation_date=q.creation_date,
+    )
+
+
+def _run_to_response(r: object) -> BenchmarkRunResponse:
+    return BenchmarkRunResponse(
+        id=r.id,
+        sweep_id=r.sweep_id,
+        config_json=r.config_json,
+        summary_metrics=r.summary_metrics,
+        duration_sec=r.duration_sec,
+        llm_evaluated=r.llm_evaluated,
+        dataset=r.dataset,
+        filename=r.filename,
+        creation_date=r.creation_date,
+    )
+
+
+def _sweep_to_response(s: object, *, job_id: int | None = None) -> SweepResponse:
+    return SweepResponse(
+        id=s.id,
+        status=s.status,
+        strategy=s.strategy,
+        search_space=s.search_space,
+        objective_weights=s.objective_weights,
+        dataset=s.dataset,
+        top_n_llm=s.top_n_llm,
+        total_configs=s.total_configs,
+        evaluated_configs=s.evaluated_configs,
+        best_run_id=s.best_run_id,
+        job_id=job_id if job_id is not None else s.job_id,
+        creation_date=s.creation_date,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Questions CRUD
 # ---------------------------------------------------------------------------
 
@@ -74,21 +132,7 @@ async def list_questions(
         dataset=dataset, tag=tag, search=search, is_active=is_active, limit=limit, offset=offset
     )
     return BenchmarkQuestionsListResponse(
-        questions=[
-            BenchmarkQuestionResponse(
-                id=q.id,
-                question=q.question,
-                expected_answer=q.expected_answer,
-                source_hint=q.source_hint,
-                tags=q.tags,
-                dataset=q.dataset,
-                is_active=q.is_active,
-                created_by=q.created_by,
-                notes=q.notes,
-                creation_date=q.creation_date,
-            )
-            for q in questions
-        ],
+        questions=[_question_to_response(q) for q in questions],
         total=total,
     )
 
@@ -100,18 +144,7 @@ async def create_question(
     service: BenchmarkQuestionService = Depends(create_benchmark_question_service),
 ):
     created = await service.create(body, created_by=admin["id"])
-    return BenchmarkQuestionResponse(
-        id=created.id,
-        question=created.question,
-        expected_answer=created.expected_answer,
-        source_hint=created.source_hint,
-        tags=created.tags,
-        dataset=created.dataset,
-        is_active=created.is_active,
-        created_by=created.created_by,
-        notes=created.notes,
-        creation_date=created.creation_date,
-    )
+    return _question_to_response(created)
 
 
 @router.put("/admin/benchmark/questions/{question_id}", response_model=BenchmarkQuestionResponse)
@@ -123,18 +156,7 @@ async def update_question(
 ):
     fields = body.model_dump(exclude_unset=True)
     updated = await service.update(question_id, fields)
-    return BenchmarkQuestionResponse(
-        id=updated.id,
-        question=updated.question,
-        expected_answer=updated.expected_answer,
-        source_hint=updated.source_hint,
-        tags=updated.tags,
-        dataset=updated.dataset,
-        is_active=updated.is_active,
-        created_by=updated.created_by,
-        notes=updated.notes,
-        creation_date=updated.creation_date,
-    )
+    return _question_to_response(updated)
 
 
 @router.delete("/admin/benchmark/questions/{question_id}")
@@ -202,26 +224,13 @@ async def create_sweep(
 ):
     sweep = await service.create(body)
 
-    job_id = await job_service.create_job("sweep", related_id=sweep.id)
+    job_id = await job_service.create_job(JobType.SWEEP, related_id=sweep.id)
 
     await service.update_status(sweep.id, "pending")
 
     await enqueue_sweep(sweep_id=sweep.id, job_id=job_id)
 
-    return SweepResponse(
-        id=sweep.id,
-        status="pending",
-        strategy=sweep.strategy,
-        search_space=sweep.search_space,
-        objective_weights=sweep.objective_weights,
-        dataset=sweep.dataset,
-        top_n_llm=sweep.top_n_llm,
-        total_configs=sweep.total_configs,
-        evaluated_configs=sweep.evaluated_configs,
-        best_run_id=sweep.best_run_id,
-        job_id=job_id,
-        creation_date=sweep.creation_date,
-    )
+    return _sweep_to_response(sweep, job_id=job_id)
 
 
 @router.get("/admin/benchmark/sweep/{sweep_id}", response_model=SweepResponse)
@@ -231,20 +240,7 @@ async def get_sweep(
     service: BenchmarkSweepService = Depends(create_benchmark_sweep_service),
 ):
     sweep = await service.get(sweep_id)
-    return SweepResponse(
-        id=sweep.id,
-        status=sweep.status,
-        strategy=sweep.strategy,
-        search_space=sweep.search_space,
-        objective_weights=sweep.objective_weights,
-        dataset=sweep.dataset,
-        top_n_llm=sweep.top_n_llm,
-        total_configs=sweep.total_configs,
-        evaluated_configs=sweep.evaluated_configs,
-        best_run_id=sweep.best_run_id,
-        job_id=sweep.job_id,
-        creation_date=sweep.creation_date,
-    )
+    return _sweep_to_response(sweep)
 
 
 @router.get("/admin/benchmark/sweeps", response_model=SweepsListResponse)
@@ -256,23 +252,7 @@ async def list_sweeps(
 ):
     sweeps, total = await service.list(limit=limit, offset=offset)
     return SweepsListResponse(
-        sweeps=[
-            SweepResponse(
-                id=s.id,
-                status=s.status,
-                strategy=s.strategy,
-                search_space=s.search_space,
-                objective_weights=s.objective_weights,
-                dataset=s.dataset,
-                top_n_llm=s.top_n_llm,
-                total_configs=s.total_configs,
-                evaluated_configs=s.evaluated_configs,
-                best_run_id=s.best_run_id,
-                job_id=s.job_id,
-                creation_date=s.creation_date,
-            )
-            for s in sweeps
-        ],
+        sweeps=[_sweep_to_response(s) for s in sweeps],
         total=total,
     )
 
@@ -317,8 +297,8 @@ async def sweep_progress_stream(
 
     return StreamingResponse(
         event_generator(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        media_type=SSE_MEDIA_TYPE,
+        headers=SSE_HEADERS,
     )
 
 
@@ -357,20 +337,7 @@ async def list_runs(
         offset=offset,
     )
     return BenchmarkRunsListResponse(
-        runs=[
-            BenchmarkRunResponse(
-                id=r.id,
-                sweep_id=r.sweep_id,
-                config_json=r.config_json,
-                summary_metrics=r.summary_metrics,
-                duration_sec=r.duration_sec,
-                llm_evaluated=r.llm_evaluated,
-                dataset=r.dataset,
-                filename=r.filename,
-                creation_date=r.creation_date,
-            )
-            for r in runs
-        ],
+        runs=[_run_to_response(r) for r in runs],
         total=total,
     )
 
@@ -382,17 +349,7 @@ async def get_run(
     service: BenchmarkRunService = Depends(create_benchmark_run_service),
 ):
     run = await service.get(run_id)
-    return BenchmarkRunResponse(
-        id=run.id,
-        sweep_id=run.sweep_id,
-        config_json=run.config_json,
-        summary_metrics=run.summary_metrics,
-        duration_sec=run.duration_sec,
-        llm_evaluated=run.llm_evaluated,
-        dataset=run.dataset,
-        filename=run.filename,
-        creation_date=run.creation_date,
-    )
+    return _run_to_response(run)
 
 
 @router.post("/admin/benchmark/runs/{run_id}/apply", response_model=RunApplyResponse)
@@ -409,17 +366,7 @@ async def apply_run_config(
     applied_keys = []
     failed_keys: list[RunApplyFailed] = []
 
-    key_mapping = {
-        "top_k": "retriever_top_k",
-        "fetch_k": "retriever_fetch_k",
-        "dense_weight": "dense_weight",
-        "sparse_weight": "sparse_weight",
-        "rrf_k": "rrf_k",
-        "rerank_min_score": "rerank_min_score",
-        "rerank_score_gap_ratio": "rerank_score_gap_ratio",
-    }
-
-    for config_key, param_key in key_mapping.items():
+    for config_key, param_key in RUN_CONFIG_KEY_MAP.items():
         if config_key in config:
             try:
                 await config_service.update_parameter(
@@ -445,20 +392,7 @@ async def compare_runs(
     runs, diff = await service.compare(id_list)
 
     return RunCompareResponse(
-        runs=[
-            BenchmarkRunResponse(
-                id=r.id,
-                sweep_id=r.sweep_id,
-                config_json=r.config_json,
-                summary_metrics=r.summary_metrics,
-                duration_sec=r.duration_sec,
-                llm_evaluated=r.llm_evaluated,
-                dataset=r.dataset,
-                filename=r.filename,
-                creation_date=r.creation_date,
-            )
-            for r in runs
-        ],
+        runs=[_run_to_response(r) for r in runs],
         diff=diff,
     )
 
@@ -483,11 +417,7 @@ async def benchmark_history(
     points = []
     for r in runs:
         metrics = r.summary_metrics or {}
-        config_summary = {
-            k: r.config_json.get(k)
-            for k in ("top_k", "fetch_k", "dense_weight", "sparse_weight", "rrf_k")
-            if k in r.config_json
-        }
+        config_summary = {k: r.config_json.get(k) for k in HISTORY_CONFIG_KEYS if k in r.config_json}
         points.append(
             BenchmarkHistoryPoint(
                 run_id=r.id,

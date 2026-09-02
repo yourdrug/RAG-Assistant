@@ -8,6 +8,7 @@ from application.services.chat_log_service import ChatLogService
 from fastapi import APIRouter, Depends, Query
 
 from presentation.api.auth_dependencies import require_admin
+from presentation.api.constants import DEFAULT_PAGE_LIMIT, DEFAULT_PAGE_OFFSET, MAX_PAGE_LIMIT
 from presentation.api.dependencies import create_chat_log_service
 from presentation.api.schemas import ChatLogEntry, ChatLogsResponse
 
@@ -21,8 +22,8 @@ async def list_chat_logs(
     date_from: datetime | None = Query(None),
     date_to: datetime | None = Query(None),
     search: str | None = Query(None),
-    limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
+    limit: int = Query(DEFAULT_PAGE_LIMIT, ge=1, le=MAX_PAGE_LIMIT),
+    offset: int = Query(DEFAULT_PAGE_OFFSET, ge=0),
     admin: dict = Depends(require_admin),
     service: ChatLogService = Depends(create_chat_log_service),
 ):

@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 import typer
-from config import settings
+from config import _settings_overrides, settings
 from infrastructure.ml.benchmark import (
     load_questions,
     run_benchmark_async,
@@ -180,22 +180,22 @@ def _score_retrieval_combos(
     return results_summary
 
 
-def _apply_config_to_settings(cfg: dict) -> None:
-    settings.retriever_top_k = cfg["top_k"]
-    settings.retriever_fetch_k = cfg["fetch_k"]
-    settings.dense_weight = cfg["dense_weight"]
-    settings.sparse_weight = cfg["sparse_weight"]
-    settings.rrf_k = cfg["rrf_k"]
-
-
-def _restore_settings(orig: dict) -> None:
-    settings.retriever_top_k = orig["top_k"]
-    settings.retriever_fetch_k = orig["fetch_k"]
-    settings.dense_weight = orig["dense"]
-    settings.sparse_weight = orig["sparse"]
-    settings.rrf_k = orig["rrf"]
-    settings.rerank_min_score = orig["min_score"]
-    settings.rerank_score_gap_ratio = orig["gap_ratio"]
+def _build_overrides(cfg: dict) -> dict[str, object]:
+    """Build settings overrides from a config dict."""
+    overrides: dict[str, object] = {}
+    _map = {
+        "top_k": "retriever_top_k",
+        "fetch_k": "retriever_fetch_k",
+        "dense_weight": "dense_weight",
+        "sparse_weight": "sparse_weight",
+        "rrf_k": "rrf_k",
+        "rerank_min_score": "rerank_min_score",
+        "rerank_score_gap_ratio": "rerank_score_gap_ratio",
+    }
+    for sweep_key, setting_key in _map.items():
+        if sweep_key in cfg:
+            overrides[setting_key] = cfg[sweep_key]
+    return overrides
 
 
 def _collect_candidate_docs(
@@ -363,73 +363,63 @@ def _evaluate_top_configs(
     service,
     reranker,
 ) -> None:
-    orig = {
-        "top_k": settings.retriever_top_k,
-        "fetch_k": settings.retriever_fetch_k,
-        "dense": settings.dense_weight,
-        "sparse": settings.sparse_weight,
-        "rrf": settings.rrf_k,
-        "min_score": settings.rerank_min_score,
-        "gap_ratio": settings.rerank_score_gap_ratio,
-    }
+    for config_idx, cfg in enumerate(top_configs, 1):
+        logger.info(
+            "\n--- LLM evaluation #%d: top_k=%d fetch_k=%d dw=%.1f sw=%.1f rrf_k=%d ---",
+            config_idx,
+            cfg["top_k"],
+            cfg["fetch_k"],
+            cfg["dense_weight"],
+            cfg["sparse_weight"],
+            cfg["rrf_k"],
+        )
 
-    try:
-        for config_idx, cfg in enumerate(top_configs, 1):
-            logger.info(
-                "\n--- LLM evaluation #%d: top_k=%d fetch_k=%d dw=%.1f sw=%.1f rrf_k=%d ---",
-                config_idx,
-                cfg["top_k"],
-                cfg["fetch_k"],
-                cfg["dense_weight"],
-                cfg["sparse_weight"],
-                cfg["rrf_k"],
-            )
-
-            _apply_config_to_settings(cfg)
-
+        overrides = _build_overrides(cfg)
+        token = _settings_overrides.set(overrides)
+        try:
             result = service.run(
                 questions_path=questions,
                 out_dir=out,
                 top_k=cfg["top_k"],
                 judge_model=judge_model,
             )
+        finally:
+            _settings_overrides.reset(token)
 
-            avg_faith = result.get("avg_faithfulness", 0) or 0
-            avg_rel = result.get("avg_relevancy", 0) or 0
+        avg_faith = result.get("avg_faithfulness", 0) or 0
+        avg_rel = result.get("avg_relevancy", 0) or 0
 
-            cfg["avg_faithfulness"] = round(avg_faith, 1)
-            cfg["avg_relevancy"] = round(avg_rel, 1)
+        cfg["avg_faithfulness"] = round(avg_faith, 1)
+        cfg["avg_relevancy"] = round(avg_rel, 1)
 
-            eval_questions = [q for q in questions_data if q.get("source_hint") is not None]
+        eval_questions = [q for q in questions_data if q.get("source_hint") is not None]
 
-            best_composite, best_params = _find_best_rerank_params(
-                eval_questions,
-                cfg,
-                avg_faith,
-                avg_rel,
-                rerank_min_list,
-                rerank_gap_list,
-                dense_cache,
-                sparse_cache,
-                all_candidates_by_hash,
-                reranker,
-            )
+        best_composite, best_params = _find_best_rerank_params(
+            eval_questions,
+            cfg,
+            avg_faith,
+            avg_rel,
+            rerank_min_list,
+            rerank_gap_list,
+            dense_cache,
+            sparse_cache,
+            all_candidates_by_hash,
+            reranker,
+        )
 
-            cfg["rerank_min_score"] = best_params["rerank_min_score"]
-            cfg["rerank_score_gap_ratio"] = best_params["rerank_score_gap_ratio"]
-            cfg["composite_score"] = round(best_composite, 3)
+        cfg["rerank_min_score"] = best_params["rerank_min_score"]
+        cfg["rerank_score_gap_ratio"] = best_params["rerank_score_gap_ratio"]
+        cfg["composite_score"] = round(best_composite, 3)
 
-            logger.info(
-                "  HR=%.3f  Faith=%.1f  Rel=%.1f  min_sc=%.2f  gap=%.2f  Composite=%.3f",
-                cfg["avg_hit_rate"],
-                avg_faith,
-                avg_rel,
-                best_params["rerank_min_score"] or 0,
-                best_params["rerank_score_gap_ratio"] or 0,
-                best_composite,
-            )
-    finally:
-        _restore_settings(orig)
+        logger.info(
+            "  HR=%.3f  Faith=%.1f  Rel=%.1f  min_sc=%.2f  gap=%.2f  Composite=%.3f",
+            cfg["avg_hit_rate"],
+            avg_faith,
+            avg_rel,
+            best_params["rerank_min_score"] or 0,
+            best_params["rerank_score_gap_ratio"] or 0,
+            best_composite,
+        )
 
 
 @benchmark_app.command("run")

@@ -9,16 +9,17 @@ from application.services.document_service import DocumentService
 from application.services.job_service import JobService
 from config import settings
 from domain.value_objects.doc_domain import DocDomain
-from domain.value_objects.document_status import DocumentStatus
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from infrastructure.logging.actions import log_action
 from infrastructure.worker.queue import enqueue_document_processing
 
 from presentation.api.auth_dependencies import get_current_user
+from presentation.api.constants import FILE_TOO_LARGE_STATUS, MAGIC_BYTES
 from presentation.api.dependencies import (
     create_document_service,
     create_job_service,
 )
+from presentation.api.helpers import upload_and_enqueue
 from presentation.api.rate_limits import upload_rate_limit
 from presentation.api.schemas import DocumentRenameRequest, DocumentResponse, UploadStatusResponse
 
@@ -26,22 +27,12 @@ logger = logging.getLogger("default")
 
 router = APIRouter(tags=["documents"])
 
-# Magic-byte signatures for supported extensions
-_MAGIC_BYTES: dict[str, list[bytes]] = {
-    ".pdf": [b"%PDF"],
-    ".docx": [b"PK\x03\x04"],  # ZIP-based
-    ".doc": [b"\xd0\xcf\x11\xe0"],  # OLE2
-    ".rtf": [b"{\\rtf"],
-    ".md": [],  # plain text, no reliable magic
-    ".txt": [],  # plain text
-}
-
 
 def _validate_mime(file_data: bytes, extension: str) -> None:
     """Verify file contents match declared extension using magic bytes."""
-    if extension not in _MAGIC_BYTES:
+    if extension not in MAGIC_BYTES:
         raise HTTPException(status_code=400, detail=f"Unsupported file extension: {extension}")
-    expected = _MAGIC_BYTES[extension]
+    expected = MAGIC_BYTES[extension]
     if not expected:
         return  # plain text — no magic to check
     if not any(file_data[: len(sig)] == sig for sig in expected):
@@ -84,7 +75,7 @@ async def upload_document(
     data = await file.read()
     if len(data) > max_bytes:
         raise HTTPException(
-            status_code=413,
+            status_code=FILE_TOO_LARGE_STATUS,
             detail=(
                 f"File too large: {len(data) / 1024 / 1024:.1f} MB (limit {settings.max_upload_size_mb} MB)"
             ),
@@ -92,9 +83,9 @@ async def upload_document(
 
     _validate_mime(data, ext)
 
-    result = await document_service.upload(
-        filename=filename,
+    result = await upload_and_enqueue(
         file_data=data,
+        filename=filename,
         visibility=visibility,
         group_id=group_id,
         client_id=client_id,
@@ -103,31 +94,13 @@ async def upload_document(
         user_role=current_user["role"],
         rename_on_conflict=rename_on_conflict,
         doc_domain=doc_domain,
+        document_service=document_service,
+        job_service=job_service,
+        enqueue_fn=enqueue_document_processing,
+        action_name="document.upload",
     )
 
-    log_action(
-        "document.upload",
-        user_id=current_user["id"],
-        details={"filename": filename, "visibility": visibility},
-    )
-
-    job_id = await job_service.create_job("document_processing", related_id=result.id)
-
-    await enqueue_document_processing(
-        document_id=result.id,
-        storage_key=result.storage_key or "",
-        filename=result.filename,
-        visibility=visibility,
-        owner_id=result.owner_id,
-        group_id=group_id,
-        replace_id=result.replace_id,
-        doc_domain=doc_domain,
-        job_id=job_id,
-    )
-
-    return UploadStatusResponse(
-        status=DocumentStatus.PROCESSING.value, document_id=result.id, filename=filename
-    )
+    return UploadStatusResponse(status=result["status"], document_id=result["document_id"], filename=filename)
 
 
 @router.get("/documents", response_model=list[DocumentResponse])

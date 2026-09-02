@@ -68,9 +68,7 @@ def create_ingestion_port(request: Request) -> IngestionService:
 
 
 def create_preview_cache(request: Request):
-    result = _create_container(request).infrastructure.preview_cache
-    assert result is not None, "Container not initialized"
-    return result
+    return _get_or_raise(_create_container(request).infrastructure.preview_cache, "PreviewCache")
 
 
 # ---------------------------------------------------------------------------
@@ -168,6 +166,4 @@ def create_chat_log_service(request: Request) -> ChatLogService:
 
 
 def create_api_key_provider(request: Request) -> ApiKeyProvider:
-    result = _create_container(request).infrastructure.api_key_provider
-    assert result is not None, "Container not initialized"
-    return result
+    return _get_or_raise(_create_container(request).infrastructure.api_key_provider, "ApiKeyProvider")

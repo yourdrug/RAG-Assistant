@@ -27,6 +27,7 @@ class DocumentRepository(Protocol):
     async def find_active_slot(
         self, owner_id: int | None, filename: str, group_id: int | None, for_update: bool = False
     ) -> Document | None: ...
+    async def find_active_slots_by_filenames(self, filenames: list[str]) -> list[Document]: ...
 
     async def list_visible(
         self,

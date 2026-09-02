@@ -124,6 +124,37 @@ class SQLAlchemyDocumentRepository:
         orm = result.scalar_one_or_none()
         return self._to_entity(orm) if orm else None
 
+    async def find_active_slots_by_filenames(self, filenames: list[str]) -> list[Document]:
+        """Batch prefetch: one query for multiple filenames (owner=None, group=None)."""
+        if not filenames:
+            return []
+        from sqlalchemy import func
+
+        subq = (
+            select(
+                DocumentModel.filename,
+                func.max(DocumentModel.id).label("max_id"),
+            )
+            .where(
+                DocumentModel.filename.in_(filenames),
+                DocumentModel.owner_id.is_(None),
+                DocumentModel.group_id.is_(None),
+                DocumentModel.status.in_(
+                    [
+                        DocumentStatus.PENDING.value,
+                        DocumentStatus.PROCESSING.value,
+                        DocumentStatus.DONE.value,
+                        DocumentStatus.FAILED.value,
+                    ]
+                ),
+            )
+            .group_by(DocumentModel.filename)
+            .subquery()
+        )
+        stmt = select(DocumentModel).join(subq, DocumentModel.id == subq.c.max_id)
+        result = await self._db.execute(stmt)
+        return [self._to_entity(orm) for orm in result.scalars().all()]
+
     async def list_visible(
         self,
         user_kind: str,

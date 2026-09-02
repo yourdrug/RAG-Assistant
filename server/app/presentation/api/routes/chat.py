@@ -13,7 +13,15 @@ from infrastructure.logging.actions import log_action
 from shared import request_id_ctx
 
 from presentation.api.auth_dependencies import get_current_user
+from presentation.api.constants import (
+    CONFIDENCE_KEY,
+    QUESTION_LOG_MAX_CHARS,
+    SSE_HEARTBEAT,
+    SSE_HEADERS,
+    SSE_MEDIA_TYPE,
+)
 from presentation.api.dependencies import create_chat_service
+from presentation.api.helpers import filter_sources
 from presentation.api.rate_limits import chat_rate_limit
 from presentation.api.schemas import ChatRequest, ChatResponse
 
@@ -36,14 +44,14 @@ async def chat_stream(
             "chat",
             user_id=current_user["id"],
             details={
-                "question": req.question[:100],
+                "question": req.question[:QUESTION_LOG_MAX_CHARS],
                 "request_id": req_id,
             },
         )
 
         async def event_generator():
             try:
-                yield ": heartbeat\n\n"
+                yield SSE_HEARTBEAT
                 async for event in chat_service.stream_chat(
                     req.question,
                     req.conversation_id,
@@ -53,7 +61,7 @@ async def chat_stream(
                     depth=req.depth,
                 ):
                     if isinstance(event, MetaEvent):
-                        sources = [s for s in event.sources if "_confidence" not in s]
+                        sources = filter_sources(event.sources, exclude_keys=frozenset({CONFIDENCE_KEY}))
                         payload = {
                             "conversation_id": event.conversation_id,
                             "sources": sources,
@@ -71,8 +79,8 @@ async def chat_stream(
 
         return StreamingResponse(
             event_generator(),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            media_type=SSE_MEDIA_TYPE,
+            headers=SSE_HEADERS,
         )
     finally:
         request_id_ctx.reset(token)
@@ -94,7 +102,7 @@ async def chat_sync(
             "chat.sync",
             user_id=current_user["id"],
             details={
-                "question": req.question[:100],
+                "question": req.question[:QUESTION_LOG_MAX_CHARS],
                 "request_id": req_id,
             },
         )

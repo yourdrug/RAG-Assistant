@@ -28,6 +28,28 @@ from infrastructure.storage import get_storage
 
 log = logging.getLogger("default")
 
+SENSITIVE_KEYS: frozenset[str] = frozenset(
+    {
+        "s3_access_key",
+        "s3_secret_key",
+        "openrouter_api_key",
+        "deepinfra_api_key",
+        "jwt_secret_key",
+        "db_password",
+        "redis_password",
+    }
+)
+
+
+def _mask_value(value: str | None) -> str:
+    """Return masked representation for sensitive values."""
+    if value is None:
+        return "None"
+    if len(value) <= 4:
+        return "****"
+    return value[:2] + "*" * (len(value) - 4) + value[-2:]
+
+
 _DYNAMIC_FIELDS: dict[str, tuple[str, type]] = {
     # --- RAG ---
     "retriever_fetch_k": ("retriever_fetch_k", int),
@@ -76,7 +98,6 @@ _DYNAMIC_FIELDS: dict[str, tuple[str, type]] = {
     "openrouter_model": ("openrouter_model", str),
     # --- ML Provider ---
     "ml_provider": ("ml_provider", str),
-    "deepinfra_api_key": ("deepinfra_api_key", str),
     "deepinfra_embed_model": ("deepinfra_embed_model", str),
     "deepinfra_rerank_model": ("deepinfra_rerank_model", str),
     # --- OCR ---
@@ -89,38 +110,42 @@ _DYNAMIC_FIELDS: dict[str, tuple[str, type]] = {
     # --- Storage (s3_endpoint..region are dynamic via cache invalidation) ---
     "s3_endpoint": ("s3_endpoint", str),
     "s3_bucket": ("s3_bucket", str),
-    "s3_access_key": ("s3_access_key", str),
-    "s3_secret_key": ("s3_secret_key", str),
     "s3_region": ("s3_region", str),
 }
 
 
+def _coerce_and_set(attr: str, expected_type: type | None, new_value: str) -> None:
+    """Coerce *new_value* to *expected_type* and set it on the global settings."""
+    if expected_type is bool:
+        setattr(settings, attr, parse_bool(new_value))
+    elif expected_type is int:
+        setattr(settings, attr, int(new_value))
+    elif expected_type is float:
+        setattr(settings, attr, float(new_value))
+    elif expected_type is list:
+        setattr(settings, attr, json.loads(new_value))
+    elif expected_type is str:
+        raw = new_value
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, str):
+                raw = parsed
+        except (json.JSONDecodeError, TypeError):
+            pass
+        setattr(settings, attr, raw)
+    else:
+        setattr(settings, attr, new_value)
+
+
 def apply_to_settings(event: ConfigParameterChanged) -> None:
     """Применить новое значение к in-memory settings."""
+    if event.key in SENSITIVE_KEYS:
+        return
     attr, expected_type = _DYNAMIC_FIELDS.get(event.key, (event.key, None))
     if not hasattr(settings, attr):
         return
     try:
-        if expected_type is bool:
-            setattr(settings, attr, parse_bool(event.new_value))
-        elif expected_type is int:
-            setattr(settings, attr, int(event.new_value))
-        elif expected_type is float:
-            setattr(settings, attr, float(event.new_value))
-        elif expected_type is list:
-            setattr(settings, attr, json.loads(event.new_value))
-        elif expected_type is str:
-            # DB stores JSON strings with quotes: "\"deepinfra\"" — unwrap
-            raw = event.new_value
-            try:
-                parsed = json.loads(raw)
-                if isinstance(parsed, str):
-                    raw = parsed
-            except (json.JSONDecodeError, TypeError):
-                pass
-            setattr(settings, attr, raw)
-        else:
-            setattr(settings, attr, event.new_value)
+        _coerce_and_set(attr, expected_type, event.new_value)
         log.info("Config applied: %s = %s (was %s)", event.key, event.new_value, event.old_value)
     except (ValueError, TypeError) as e:
         log.warning("Failed to apply config %s=%r: %s", event.key, event.new_value, e)
@@ -147,19 +172,32 @@ def invalidate_storage_cache(event: ConfigParameterChanged) -> None:
         return
 
     get_storage.cache_clear()
-    log.info("Storage cache invalidated (%s -> %s)", event.key, event.new_value)
+    if event.key in SENSITIVE_KEYS:
+        log.info("Storage cache invalidated (%s -> %s)", event.key, _mask_value(event.new_value))
+    else:
+        log.info("Storage cache invalidated (%s -> %s)", event.key, event.new_value)
 
 
 def audit_log_config_change(event: ConfigParameterChanged) -> None:
     """Независимый аудит-лог — не зависит от settings/кэшей."""
-    log.info(
-        "AUDIT config_change key=%s old=%r new=%r by_user=%s at=%s",
-        event.key,
-        event.old_value,
-        event.new_value,
-        event.changed_by,
-        event.occurred_at,
-    )
+    if event.key in SENSITIVE_KEYS:
+        log.info(
+            "AUDIT config_change key=%s old=%s new=%s by_user=%s at=%s",
+            event.key,
+            _mask_value(event.old_value),
+            _mask_value(event.new_value),
+            event.changed_by,
+            event.occurred_at,
+        )
+    else:
+        log.info(
+            "AUDIT config_change key=%s old=%r new=%r by_user=%s at=%s",
+            event.key,
+            event.old_value,
+            event.new_value,
+            event.changed_by,
+            event.occurred_at,
+        )
 
 
 def invalidate_pii_detector_cache(event: ConfigParameterChanged) -> None:

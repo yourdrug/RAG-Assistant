@@ -11,6 +11,7 @@ import json
 import logging
 
 from domain.events.config_events import ConfigParameterChanged
+from infrastructure.ml.config_subscribers import SENSITIVE_KEYS
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,15 +22,26 @@ _MAX_PAYLOAD_BYTES = 7500
 
 
 def _build_payload(event: ConfigParameterChanged) -> str:
-    payload = json.dumps(
-        {
-            "key": event.key,
-            "old_value": event.old_value,
-            "new_value": event.new_value,
-            "value_type": event.value_type,
-            "changed_by": event.changed_by,
-        }
-    )
+    value_type = event.value_type
+    if event.key in SENSITIVE_KEYS:
+        payload = json.dumps(
+            {
+                "key": event.key,
+                "value_type": value_type,
+                "changed_by": event.changed_by,
+                "refetch": True,
+            }
+        )
+    else:
+        payload = json.dumps(
+            {
+                "key": event.key,
+                "old_value": event.old_value,
+                "new_value": event.new_value,
+                "value_type": value_type,
+                "changed_by": event.changed_by,
+            }
+        )
     if len(payload.encode("utf-8")) > _MAX_PAYLOAD_BYTES:
         payload = json.dumps({"key": event.key, "refetch": True})
     return payload

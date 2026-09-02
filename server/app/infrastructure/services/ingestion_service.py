@@ -254,11 +254,17 @@ class IngestionService:
         if self._uow_factory is None:
             return
         async with self._uow_factory.create(master=True) as uow:
+            # Batch prefetch: one query for all filenames instead of N+1
+            filenames = list(registry.keys())
+            existing_docs = await uow.documents.find_active_slots_by_filenames(filenames)
+            existing_by_name = {d.filename: d for d in existing_docs}
+
             for fname, info in registry.items():
                 src = info.get("source", "")
-                existing = await uow.documents.find_active_slot(None, fname, None)
+                existing = existing_by_name.get(fname)
                 if existing:
-                    assert existing.id is not None
+                    if existing.id is None:
+                        raise RuntimeError(f"Document {fname} has None id after find_active_slot")
                     doc_id = existing.id
                     file_chunks = sum(1 for c in chunks if c.metadata.get("source") == src)
                     file_chars = source_chars.get(src, 0)
@@ -268,7 +274,8 @@ class IngestionService:
                 else:
                     doc = DocEntity(filename=fname, visibility=DocumentVisibility.INTERNAL_PUBLIC)
                     saved = await uow.documents.save(doc)
-                    assert saved.id is not None
+                    if saved.id is None:
+                        raise RuntimeError(f"Document {fname} has None id after save")
                     doc_id = saved.id
                     file_chunks = info.get("chunks", 0)
                     file_chars = info.get("chars", 0)

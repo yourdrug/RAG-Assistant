@@ -14,6 +14,7 @@ import time
 from config import settings
 
 from infrastructure.ml.hybrid import content_hash
+from infrastructure.persistence.redis_client import redis_client
 
 log = logging.getLogger("default")
 
@@ -41,17 +42,6 @@ def _cache_key(question_hash: str, visibility_scope_hash: str) -> str:
     return f"{CACHE_PREFIX}{question_hash}:{visibility_scope_hash}"
 
 
-async def _get_redis():
-    """Get Redis connection from the shared pool."""
-    import redis.asyncio as aioredis
-
-    return aioredis.from_url(
-        settings.redis_url,
-        encoding="utf-8",
-        decode_responses=True,
-    )
-
-
 async def find_cached_answer(
     question_hash: str,
     visibility_scope_hash: str,
@@ -64,22 +54,19 @@ async def find_cached_answer(
         return None
 
     try:
-        r = await _get_redis()
-        try:
-            key = _cache_key(question_hash, visibility_scope_hash)
-            raw = await r.get(key)
-            if raw is None:
-                return None
+        r = redis_client.async_redis
+        key = _cache_key(question_hash, visibility_scope_hash)
+        raw = await r.get(key)
+        if raw is None:
+            return None
 
-            entry = json.loads(raw)
-            entry["hit_count"] = entry.get("hit_count", 0) + 1
+        entry = json.loads(raw)
+        entry["hit_count"] = entry.get("hit_count", 0) + 1
 
-            # Update hit count (don't extend TTL on hit)
-            await r.set(key, json.dumps(entry), ex=CACHE_TTL_SECONDS)
+        # Update hit count (don't extend TTL on hit)
+        await r.set(key, json.dumps(entry), ex=CACHE_TTL_SECONDS)
 
-            return entry
-        finally:
-            await r.aclose()
+        return entry
     except Exception:
         log.exception("Cache lookup failed")
         return None
@@ -98,20 +85,17 @@ async def store_cached_answer(
         return
 
     try:
-        r = await _get_redis()
-        try:
-            key = _cache_key(question_hash, visibility_scope_hash)
-            entry = {
-                "question_text": question_text,
-                "answer": answer,
-                "sources": sources,
-                "document_ids": document_ids or [],
-                "hit_count": 0,
-                "created_at": time.time(),
-            }
-            await r.set(key, json.dumps(entry), ex=CACHE_TTL_SECONDS)
-            log.info("Cached answer for question hash=%s (ttl=%ds)", question_hash[:12], CACHE_TTL_SECONDS)
-        finally:
-            await r.aclose()
+        r = redis_client.async_redis
+        key = _cache_key(question_hash, visibility_scope_hash)
+        entry = {
+            "question_text": question_text,
+            "answer": answer,
+            "sources": sources,
+            "document_ids": document_ids or [],
+            "hit_count": 0,
+            "created_at": time.time(),
+        }
+        await r.set(key, json.dumps(entry), ex=CACHE_TTL_SECONDS)
+        log.info("Cached answer for question hash=%s (ttl=%ds)", question_hash[:12], CACHE_TTL_SECONDS)
     except Exception:
         log.exception("Failed to store cached answer")

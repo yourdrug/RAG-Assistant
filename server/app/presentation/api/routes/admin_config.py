@@ -8,8 +8,10 @@ from application.services.config_admin_service import ConfigAdminService
 from application.services.config_service import ConfigService
 from fastapi import APIRouter, Depends, HTTPException
 from infrastructure.logging.actions import log_action
+from infrastructure.ml.config_subscribers import SENSITIVE_KEYS, _mask_value
 
 from presentation.api.auth_dependencies import require_admin
+from presentation.api.constants import QUESTION_LOG_MAX_CHARS, STATIC_CONFIG_KEYS
 from presentation.api.dependencies import create_config_admin_service, create_config_service
 from presentation.api.schemas import (
     ConfigParamResponse,
@@ -25,9 +27,6 @@ logger = logging.getLogger("default")
 
 router = APIRouter(tags=["admin-config"])
 
-# Keys managed via .env only — not editable through admin UI or API
-_STATIC_KEYS = {"file_backend", "data_dir"}
-
 
 @router.get("/admin/config", response_model=list[ConfigParamResponse])
 async def list_config(
@@ -38,7 +37,7 @@ async def list_config(
     return [
         ConfigParamResponse(
             key=r.key,
-            value=r.value,
+            value=_mask_value(r.value) if r.key in SENSITIVE_KEYS else r.value,
             value_type=r.value_type,
             category=r.category,
             description=r.description,
@@ -46,7 +45,7 @@ async def list_config(
             max_value=r.max_value,
         )
         for r in rows
-        if r.key not in _STATIC_KEYS
+        if r.key not in STATIC_CONFIG_KEYS
     ]
 
 
@@ -57,16 +56,21 @@ async def update_config(
     admin: dict = Depends(require_admin),
     config_service: ConfigService = Depends(create_config_service),
 ):
-    if key in _STATIC_KEYS:
+    if key in STATIC_CONFIG_KEYS:
         raise HTTPException(
             status_code=400,
             detail=f"'{key}' is a static parameter — set it in server/.env and restart",
         )
     param = await config_service.update_parameter(key, body.value, changed_by=admin["id"])
-    log_action("config.update", user_id=admin["id"], details={"key": key, "value": body.value[:100]})
+    masked_value = _mask_value(body.value) if key in SENSITIVE_KEYS else body.value[:QUESTION_LOG_MAX_CHARS]
+    log_action(
+        "config.update",
+        user_id=admin["id"],
+        details={"key": key, "value": masked_value},
+    )
     return ConfigParamResponse(
         key=param.key,
-        value=param.value,
+        value=_mask_value(param.value) if param.key in SENSITIVE_KEYS else param.value,
         value_type=param.value_type,
         category=param.category,
         description=param.description,

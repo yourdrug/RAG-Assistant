@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from infrastructure.worker.queue import enqueue_benchmark
 
 from presentation.api.auth_dependencies import require_admin
+from presentation.api.constants import JobType
 from presentation.api.dependencies import create_benchmark_result_service, create_job_service
 from presentation.api.schemas import (
     BenchmarkRequest,
@@ -23,13 +24,26 @@ from presentation.api.schemas import (
 router = APIRouter(tags=["benchmark"])
 
 
+def _summary_to_response(s: object) -> BenchmarkResultSummary:
+    return BenchmarkResultSummary(
+        id=s.id,
+        config_json=s.config_json,
+        summary_metrics=s.summary_metrics,
+        duration_sec=s.duration_sec,
+        llm_evaluated=s.llm_evaluated,
+        dataset=s.dataset,
+        sweep_id=s.sweep_id,
+        creation_date=s.creation_date,
+    )
+
+
 @router.post("/benchmark", response_model=BenchmarkResponse)
 async def run_benchmark(
     req: BenchmarkRequest,
     admin: dict = Depends(require_admin),
     job_service: JobService = Depends(create_job_service),
 ):
-    job_id = await job_service.create_job("benchmark")
+    job_id = await job_service.create_job(JobType.BENCHMARK)
 
     q_path = req.questions_path or str(Path(settings.data_dir) / "test_questions.json")
     o_dir = req.out_dir or str(Path(settings.data_dir) / "benchmark_results")
@@ -53,19 +67,7 @@ async def list_benchmark_results(
 ):
     result = await service.list_results()
     return BenchmarkResultsListResponse(
-        results=[
-            BenchmarkResultSummary(
-                id=s.id,
-                config_json=s.config_json,
-                summary_metrics=s.summary_metrics,
-                duration_sec=s.duration_sec,
-                llm_evaluated=s.llm_evaluated,
-                dataset=s.dataset,
-                sweep_id=s.sweep_id,
-                creation_date=s.creation_date,
-            )
-            for s in result.results
-        ],
+        results=[_summary_to_response(s) for s in result.results],
         total=result.total,
     )
 
@@ -82,15 +84,6 @@ async def get_benchmark_result(
 
     return BenchmarkResultDetail(
         id=detail.id,
-        summary=BenchmarkResultSummary(
-            id=detail.summary.id,
-            config_json=detail.summary.config_json,
-            summary_metrics=detail.summary.summary_metrics,
-            duration_sec=detail.summary.duration_sec,
-            llm_evaluated=detail.summary.llm_evaluated,
-            dataset=detail.summary.dataset,
-            sweep_id=detail.summary.sweep_id,
-            creation_date=detail.summary.creation_date,
-        ),
+        summary=_summary_to_response(detail.summary),
         per_question_results=detail.per_question_results,
     )

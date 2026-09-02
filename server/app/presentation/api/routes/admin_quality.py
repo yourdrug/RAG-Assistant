@@ -16,6 +16,12 @@ from infrastructure.ml.preview.factory import PreviewStrategyFactory
 from infrastructure.worker.queue import enqueue_document_processing
 
 from presentation.api.auth_dependencies import require_admin
+from presentation.api.constants import (
+    FILE_TOO_LARGE_STATUS,
+    PAGE_IMAGE_DPI,
+    PAGE_PREVIEW_MAX_CHARS,
+    QUALITY_BAD_RATIO_THRESHOLD,
+)
 from presentation.api.dependencies import (
     create_document_service,
     create_job_service,
@@ -23,6 +29,7 @@ from presentation.api.dependencies import (
     create_preview_cache,
     create_quality_service,
 )
+from presentation.api.helpers import upload_and_enqueue
 from presentation.api.schemas import (
     DocumentDiagnoseResponse,
     DocumentQualityItem,
@@ -66,7 +73,10 @@ async def _validate_upload(file: UploadFile, diag_service: PDFDiagnosticService)
         )
     data = await file.read()
     if len(data) > diag_service._max_bytes:
-        raise HTTPException(status_code=413, detail="File too large for dry-run (max 50 MB)")
+        raise HTTPException(
+            status_code=FILE_TOO_LARGE_STATUS,
+            detail="File too large for dry-run (max 50 MB)",
+        )
     return data
 
 
@@ -75,7 +85,7 @@ def _compute_quality_warning(page_results: list, types_count: dict, warning_pref
     total = len(page_results)
     bad = types_count.get("scan", 0) + types_count.get("garbled", 0) + types_count.get("empty", 0)
     bad_ratio = bad / total if total else 0.0
-    if bad_ratio > 0.3:
+    if bad_ratio > QUALITY_BAD_RATIO_THRESHOLD:
         return (
             f"{warning_prefix}: {types_count.get('scan', 0)} scan + "
             f"{types_count.get('garbled', 0)} garbled + "
@@ -99,7 +109,8 @@ def _build_dry_run_response(
     total_pages = len(page_results)
     bad = types_count.get("scan", 0) + types_count.get("garbled", 0) + types_count.get("empty", 0)
     bad_ratio = bad / total_pages if total_pages else 0.0
-    full_text_preview = "\n\n".join(p.preview for p in page_results if p.type == "text")[:2000]
+    text_previews = (p.preview for p in page_results if p.type == "text")
+    full_text_preview = "\n\n".join(text_previews)[:PAGE_PREVIEW_MAX_CHARS]
     return DryRunResponse(
         filename=filename,
         total_pages=total_pages,
@@ -341,7 +352,7 @@ async def get_page_image(
                     status_code=400,
                     detail=f"Page {page} out of range (document has {total} pages)",
                 )
-            image_bytes = diag_service._pdf.render_page_image(doc, page - 1, dpi=120)
+            image_bytes = diag_service._pdf.render_page_image(doc, page - 1, dpi=PAGE_IMAGE_DPI)
         finally:
             diag_service._pdf.close(doc)
 
@@ -381,9 +392,9 @@ async def index_from_preview(
 
     filename = preview_cache.get_filename(preview_id)
 
-    result = await document_service.upload(
-        filename=filename,
+    result = await upload_and_enqueue(
         file_data=file_data,
+        filename=filename,
         visibility=visibility,
         group_id=group_id,
         client_id=client_id,
@@ -392,20 +403,10 @@ async def index_from_preview(
         user_role=admin["role"],
         rename_on_conflict=False,
         doc_domain=doc_domain,
+        document_service=document_service,
+        job_service=job_service,
+        enqueue_fn=enqueue_document_processing,
+        action_name="document.upload_from_preview",
     )
 
-    job_id = await job_service.create_job("document_processing", related_id=result.id)
-
-    await enqueue_document_processing(
-        document_id=result.id,
-        storage_key=result.storage_key,
-        filename=result.filename,
-        visibility=visibility,
-        owner_id=result.owner_id,
-        group_id=group_id,
-        replace_id=result.replace_id,
-        doc_domain=doc_domain,
-        job_id=job_id,
-    )
-
-    return {"document_id": result.id, "filename": filename, "status": "processing"}
+    return {"document_id": result["document_id"], "filename": filename, "status": result["status"]}

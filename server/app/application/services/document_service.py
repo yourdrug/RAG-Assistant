@@ -279,11 +279,13 @@ class DocumentService:
             if not doc.can_be_deleted_by(user_id, role, user_group_ids):
                 raise BusinessRuleViolation("Can only delete your own documents")
 
+            # Delete from vector store FIRST — if this fails, document stays in DB
             await self._vector_store.delete_by_document_id(document_id)
 
             if doc.source_path:
                 self._file_storage.delete_file(doc.source_path)
 
+            # DB delete cascades to chunks via FK
             await uow.documents.delete(document_id)
 
     async def rename_document(

@@ -5,14 +5,12 @@ users only. Unlike JWT, the key is verified against the database (via a
 short-TTL cache) and can be revoked instantly without cryptography -- similar
 to Stripe/OpenAI key schemes.
 
-Cache is backed by Redis with TTL-based expiry and a ``Pub/Sub`` channel
-(``api_key_revoked``) for instant cross-instance invalidation on key
-revocation.  Redis is a mandatory component.
+Cache is backed by Redis with TTL-based expiry (30 s). Redis is a mandatory
+component.
 """
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 import logging
@@ -35,15 +33,9 @@ class ApiKeyProvider:
     """Кэширует sha256(ключ) -> данные пользователя на несколько секунд.
 
     Cache is stored in Redis with TTL (SETEX/GET).
-    ``invalidate_by_id`` publishes to ``api_key_revoked`` Pub/Sub channel
-    so ALL instances drop the entry immediately (not within TTL).
     """
 
     MISS = MISS
-
-    def __init__(self) -> None:
-        self._pubsub_started = False
-        self._pubsub_task: asyncio.Task[None] | None = None
 
     @staticmethod
     def generate_key() -> str:
@@ -121,54 +113,6 @@ class ApiKeyProvider:
             )
         except Exception:
             logger.warning("Redis invalidation failed for api_key id=%d", api_key_id)
-
-    # ------------------------------------------------------------------
-    # Pub/Sub listener — call from lifespan startup
-    # ------------------------------------------------------------------
-
-    async def start_pubsub_listener(self) -> None:
-        """Subscribe to ``api_key_revoked`` channel for cross-instance invalidation."""
-        if self._pubsub_started:
-            return
-
-        try:
-            pubsub = redis_client.async_redis.pubsub()
-            await pubsub.subscribe(_REDIS_REVOKED_CHANNEL)
-            self._pubsub_started = True
-            self._pubsub_task = asyncio.create_task(self._pubsub_listen(pubsub))
-            logger.info("ApiKeyProvider: Pub/Sub listener started on channel %s", _REDIS_REVOKED_CHANNEL)
-        except Exception:
-            logger.exception("Failed to start Pub/Sub listener")
-
-    async def _pubsub_listen(self, pubsub) -> None:
-        """Background task that processes revocation messages."""
-        try:
-            async for message in pubsub.listen():
-                if message["type"] != "message":
-                    continue
-                try:
-                    data = json.loads(message["data"])
-                    api_key_id = data.get("api_key_id")
-                    if api_key_id is not None:
-                        logger.debug("ApiKeyProvider: Pub/Sub revocation for id=%d", api_key_id)
-                except Exception:
-                    logger.warning("Failed to process Pub/Sub message: %s", message)
-        except asyncio.CancelledError:
-            pass
-        except Exception:
-            logger.exception("Pub/Sub listener crashed")
-
-    async def stop_pubsub_listener(self) -> None:
-        """Cancel the Pub/Sub listener background task."""
-        if self._pubsub_task is not None:
-            self._pubsub_task.cancel()
-            try:
-                await self._pubsub_task
-            except asyncio.CancelledError:
-                pass
-            self._pubsub_task = None
-            self._pubsub_started = False
-            logger.info("ApiKeyProvider: Pub/Sub listener stopped")
 
 
 api_key_provider = ApiKeyProvider()

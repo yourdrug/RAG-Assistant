@@ -72,12 +72,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     container.init(database)
     app.state.container = container
 
-    assert container.infrastructure.uow_factory is not None
+    if container.infrastructure.uow_factory is None:
+        raise RuntimeError("UnitOfWorkFactory failed to initialize")
     await initialize_app(container.infrastructure.uow_factory)
-    assert container.infrastructure.config_listener is not None
-    assert container.infrastructure.api_key_provider is not None
+    if container.infrastructure.config_listener is None:
+        raise RuntimeError("ConfigListener failed to initialize")
+    if container.infrastructure.api_key_provider is None:
+        raise RuntimeError("ApiKeyProvider failed to initialize")
     await container.infrastructure.config_listener.start()
-    await container.infrastructure.api_key_provider.start_pubsub_listener()
     await scheduler.startup(
         uow_factory=container.infrastructure.uow_factory,
         config_listener=container.infrastructure.config_listener,
@@ -90,9 +92,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     # --- Shutdown (reverse order) ---
     if container.infrastructure.config_listener is not None:
         await container.infrastructure.config_listener.stop()
-
-    if container.infrastructure.api_key_provider is not None:
-        await container.infrastructure.api_key_provider.stop_pubsub_listener()
 
     if container.infrastructure.ml_clients is not None:
         await container.infrastructure.ml_clients.close()

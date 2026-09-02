@@ -47,13 +47,20 @@ class QdrantVectorStoreRepository:
         await upload_to_qdrant(lcdocs, self._get_embeddings())
 
     async def delete_by_document_id(self, document_id: int) -> None:
-        await asyncio.to_thread(
-            self._get_qdrant_client().delete,
-            collection_name=settings.collection_name,
-            points_selector=Filter(
-                must=[FieldCondition(key="metadata.document_id", match=MatchValue(value=document_id))]
-            ),
-        )
+        try:
+            await asyncio.to_thread(
+                self._get_qdrant_client().delete,
+                collection_name=settings.collection_name,
+                points_selector=Filter(
+                    must=[FieldCondition(key="metadata.document_id", match=MatchValue(value=document_id))]
+                ),
+            )
+            log.info("Qdrant: deleted points for document_id=%d", document_id)
+        except Exception as e:
+            log.exception("Qdrant: failed to delete points for document_id=%d", document_id)
+            raise RuntimeError(
+                f"Failed to delete vector data for document {document_id}: {e}"
+            ) from e
 
     async def generate_embeddings(self, text: str) -> list[float]:
         return await self._get_embeddings().embed_query(text)

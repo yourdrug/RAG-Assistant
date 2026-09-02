@@ -6,7 +6,9 @@ from application.services.conversation_service import ConversationService
 from fastapi import APIRouter, Depends, Query
 
 from presentation.api.auth_dependencies import get_current_user
+from presentation.api.constants import CONFIDENCE_KEY, DEFAULT_PAGE_LIMIT, DEFAULT_PAGE_OFFSET
 from presentation.api.dependencies import create_conversation_service
+from presentation.api.helpers import filter_sources
 from presentation.api.schemas import (
     ConversationHistoryResponse,
     ConversationListItem,
@@ -22,8 +24,8 @@ router = APIRouter(prefix="/conversations", tags=["conversations"])
 async def list_conversations(
     current_user: dict = Depends(get_current_user),
     service: ConversationService = Depends(create_conversation_service),
-    limit: int = Query(default=50, ge=1, le=100),
-    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=DEFAULT_PAGE_LIMIT, ge=1, le=100),
+    offset: int = Query(default=DEFAULT_PAGE_OFFSET, ge=0),
 ):
     items = await service.list_by_user(current_user["id"], limit=limit, offset=offset)
     return ConversationListResponse(
@@ -60,7 +62,7 @@ async def get_conversation_history(
             id=m.id,
             role=m.role,
             content=m.content,
-            sources=[s for s in m.sources if "_confidence" not in s] if m.sources else None,
+            sources=filter_sources(m.sources, exclude_keys=frozenset({CONFIDENCE_KEY})),
             creation_date=m.creation_date,
         )
         for m in messages

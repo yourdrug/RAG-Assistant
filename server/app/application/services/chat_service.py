@@ -12,6 +12,7 @@ import logging
 import time
 from collections.abc import AsyncIterator
 
+from config import settings
 from domain.entities.chat_log import ChatLog
 from domain.entities.message import Message
 from domain.utils import compute_reranker_score
@@ -116,6 +117,20 @@ class ChatService:
             output_tokens=output_tokens,
         )
 
+    @staticmethod
+    def _redact_pii(text: str) -> str:
+        """Redact PII from text if guardrail is enabled. Returns original on disabled."""
+        if not settings.pii_redaction_enabled:
+            return text
+        from infrastructure.ml.guardrails import get_pii_detector
+
+        detector = get_pii_detector()
+        pii_found = detector.scan(text)
+        if pii_found:
+            redacted, _ = detector.scan_and_redact(text)
+            return redacted
+        return text
+
     async def _handle_rolling_summary(
         self, conv_id: int, question: str, full_answer: str, history: list
     ) -> None:
@@ -176,6 +191,8 @@ class ChatService:
         user_msg_saved = False
         t_start = time.monotonic()
 
+        pii_question = self._redact_pii(question)
+
         async for event in self._rag_service.stream(
             question=question,
             history=history,
@@ -190,7 +207,7 @@ class ChatService:
             elif isinstance(event, TextChunk):
                 if not user_msg_saved:
                     user_msg_saved = True
-                    await self._save_user_message(conv.id, question)
+                    await self._save_user_message(conv.id, pii_question)
 
                 full_answer += event.text
                 yield event
@@ -213,7 +230,7 @@ class ChatService:
             chat_log = self._build_chat_log(
                 user_id=user_id,
                 conv_id=conv.id,
-                question=question,
+                question=pii_question,
                 full_answer=full_answer,
                 sources=sources,
                 latency_ms=latency_ms,
@@ -272,6 +289,7 @@ class ChatService:
 
         # I/O: call LLM (no transaction needed)
         t_start = time.monotonic()
+        pii_question = self._redact_pii(question)
         rag_result = await self._rag_service.invoke(
             question=question,
             history=history,
@@ -285,7 +303,7 @@ class ChatService:
                 user_msg = Message(
                     conversation_id=conv.id,
                     role=MessageRole.USER,
-                    content=question,
+                    content=pii_question,
                 )
                 await uow.messages.save(user_msg)
 
@@ -300,7 +318,7 @@ class ChatService:
             chat_log = ChatLog(
                 user_id=user_id,
                 conversation_id=conv.id,
-                question=question,
+                question=pii_question,
                 answer=rag_result.answer,
                 sources=rag_result.sources,
                 latency_ms=latency_ms,

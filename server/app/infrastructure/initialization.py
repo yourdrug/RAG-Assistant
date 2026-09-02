@@ -232,13 +232,6 @@ def _build_defaults() -> list[ConfigParameter]:
             allowed=["tei", "deepinfra"],
         ),
         _param(
-            "deepinfra_api_key",
-            json.dumps(s.deepinfra_api_key),
-            "str",
-            "ml",
-            "DeepInfra API key (stored in DB)",
-        ),
-        _param(
             "deepinfra_embed_model",
             json.dumps(s.deepinfra_embed_model),
             "str",
@@ -265,8 +258,6 @@ def _build_defaults() -> list[ConfigParameter]:
         # --- Storage ---
         _param("s3_endpoint", json.dumps(s.s3_endpoint), "str", "storage", "S3 endpoint URL"),
         _param("s3_bucket", json.dumps(s.s3_bucket), "str", "storage", "S3 bucket name"),
-        _param("s3_access_key", json.dumps(s.s3_access_key), "str", "storage", "S3 access key"),
-        _param("s3_secret_key", json.dumps(s.s3_secret_key), "str", "storage", "S3 secret key"),
         _param("s3_region", json.dumps(s.s3_region), "str", "storage", "S3 region"),
     ]
 

@@ -6,6 +6,7 @@ from application.services.job_service import JobService
 from fastapi import APIRouter, Depends, Query
 
 from presentation.api.auth_dependencies import require_admin
+from presentation.api.constants import DEFAULT_PAGE_LIMIT, DEFAULT_PAGE_OFFSET, MAX_PAGE_LIMIT
 from presentation.api.dependencies import create_job_service
 from presentation.api.schemas import JobResponse, JobsListResponse, JobsStatsResponse
 
@@ -14,8 +15,8 @@ router = APIRouter(tags=["admin-jobs"])
 
 @router.get("/admin/jobs", response_model=JobsListResponse)
 async def list_jobs(
-    limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
+    limit: int = Query(DEFAULT_PAGE_LIMIT, ge=1, le=MAX_PAGE_LIMIT),
+    offset: int = Query(DEFAULT_PAGE_OFFSET, ge=0),
     admin: dict = Depends(require_admin),
     service: JobService = Depends(create_job_service),
 ):

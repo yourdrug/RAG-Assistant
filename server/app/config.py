@@ -6,12 +6,27 @@ cause an immediate startup error, preventing silent misconfiguration.
 
 import logging
 import sys
+from contextvars import ContextVar
 from datetime import UTC, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_settings_overrides: ContextVar[dict[str, object] | None] = ContextVar("settings_overrides", default=None)
+
+
+def get_setting(key: str) -> object:
+    """Read a setting, preferring per-context overrides over the global singleton.
+
+    Used by benchmark/sweep code paths that need isolated config without
+    mutating the process-wide ``settings`` object.
+    """
+    overrides = _settings_overrides.get()
+    if overrides is not None and key in overrides:
+        return overrides[key]
+    return getattr(settings, key)
 
 
 def _read_version() -> str:
@@ -263,3 +278,5 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+__all__ = ["Settings", "settings", "get_setting", "_settings_overrides"]

@@ -104,6 +104,7 @@ def _ensure_payload_indexes(client) -> None:
         ("metadata.owner_id", PayloadSchemaType.INTEGER),
         ("metadata.group_id", PayloadSchemaType.INTEGER),
         ("metadata.doc_domain", PayloadSchemaType.KEYWORD),
+        ("metadata.document_id", PayloadSchemaType.INTEGER),
     ]
     for field_name, field_type in acl_fields:
         try:

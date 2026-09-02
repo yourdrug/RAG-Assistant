@@ -17,6 +17,7 @@ from config import settings
 from domain.entities.benchmark_run import BenchmarkRun
 from domain.value_objects.sweep_status import BenchmarkSweepStatus
 from infrastructure.ml.sweep_engine import SweepEngine
+from infrastructure.ml.benchmark import run_benchmark_async
 from infrastructure.services.benchmark_service import BenchmarkService
 
 logger = logging.getLogger("default")
@@ -151,15 +152,13 @@ async def run_benchmark(
     judge_model: str,
     job_id: int,
 ) -> None:
-    """Run RAG quality benchmark."""
+    """Run RAG quality benchmark (non-blocking async version)."""
     uow_factory = ctx["container"].infrastructure.uow_factory
-
-    service = BenchmarkService()
 
     try:
         async with uow_factory.create(master=True) as uow:
             await uow.background_jobs.mark_running(job_id)
-        service.run(
+        await run_benchmark_async(
             questions_path=questions_path,
             out_dir=out_dir,
             top_k=top_k,
