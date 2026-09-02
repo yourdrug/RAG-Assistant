@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any
 
 from application.services.ingest_service import IngestAppService
@@ -289,3 +290,57 @@ async def run_sweep(
                 await uow.background_jobs.mark_failed(job_id, str(e)[:500])
         except Exception:
             logger.exception("Worker: failed to mark sweep/job as failed")
+
+
+# ---------------------------------------------------------------------------
+# Cron tasks — periodic maintenance, run by Arq worker on schedule
+# ---------------------------------------------------------------------------
+
+
+async def cron_job_cleanup(ctx: dict[str, Any]) -> None:
+    """Delete old background job records (runs every hour)."""
+    uow_factory = ctx["container"].infrastructure.uow_factory
+    async with uow_factory.create(master=True) as uow:
+        deleted = await uow.background_jobs.delete_old(days=settings.job_cleanup_days)
+        if deleted:
+            logger.info("Cron: cleaned up %d old background jobs", deleted)
+
+
+async def cron_recover_orphaned_jobs(ctx: dict[str, Any]) -> None:
+    """Recover background jobs stuck in 'running' state (runs every 5 min)."""
+    uow_factory = ctx["container"].infrastructure.uow_factory
+    async with uow_factory.create(master=True) as uow:
+        orphaned_ids = await uow.background_jobs.recover_orphaned(timeout_minutes=15)
+        if orphaned_ids:
+            logger.warning("Cron: recovered %d orphaned jobs: %s", len(orphaned_ids), orphaned_ids)
+
+
+async def cron_bm25_rebuild(ctx: dict[str, Any]) -> None:
+    """Rebuild BM25 index from scratch (runs daily at 3:00 AM UTC)."""
+    if not settings.hybrid_enabled:
+        logger.debug("Cron: BM25 rebuild skipped — hybrid search disabled")
+        return
+
+    from infrastructure.ml.hybrid import BM25Index, save_bm25_index_to_s3
+    from infrastructure.storage import get_storage
+
+    uow_factory = ctx["container"].infrastructure.uow_factory
+    t0 = time.monotonic()
+
+    async with uow_factory.create(master=True) as uow:
+        all_texts = await uow.chunks.get_all_contents()
+
+    if not all_texts:
+        logger.info("Cron: BM25 rebuild — no chunks found, skipping")
+        return
+
+    bm25_index = BM25Index(all_texts)
+    storage = get_storage()
+    await save_bm25_index_to_s3(bm25_index, storage)
+
+    elapsed = time.monotonic() - t0
+    logger.info(
+        "Cron: BM25 rebuild completed — %d chunks indexed in %.1fs",
+        len(all_texts),
+        elapsed,
+    )

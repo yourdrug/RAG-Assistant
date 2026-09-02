@@ -133,3 +133,7 @@ class ChunkRepository(Protocol):
     async def get_all_contents(self) -> list[str]:
         """Return all chunk contents ordered by document_id, chunk_index (for BM25 rebuild)."""
         ...
+
+    async def update_filename_by_document_id(self, document_id: int, new_filename: str) -> int:
+        """Update filename for all chunks of a document. Returns count of updated rows."""
+        ...

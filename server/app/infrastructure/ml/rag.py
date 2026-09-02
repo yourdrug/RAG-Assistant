@@ -183,7 +183,7 @@ def build_prompt(
     summary: str | None = None,
 ) -> ChatPromptTemplate:
     system_text = build_system_prompt(breadth, has_legal_context=has_legal_context)
-    messages = [
+    messages: list = [
         ("system", system_text),
     ]
     if summary:

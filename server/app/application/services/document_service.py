@@ -286,6 +286,48 @@ class DocumentService:
 
             await uow.documents.delete(document_id)
 
+    async def rename_document(
+        self, document_id: int, new_filename: str, user_id: int, user_role: str
+    ) -> DocumentDTO:
+        async with self._uow_factory.create(master=True) as uow:
+            doc = await uow.documents.get_by_id(document_id)
+            if doc is None:
+                raise EntityNotFound("Document", document_id)
+
+            role = UserRole(user_role)
+            user_group_ids = await uow.groups.get_user_group_ids(user_id)
+            if not doc.can_be_deleted_by(user_id, role, user_group_ids):
+                raise BusinessRuleViolation("Can only rename your own documents")
+
+            ext = Path(new_filename).suffix.lower()
+            if ext not in self._file_storage.supported_extensions:
+                raise ValidationError(f"Unsupported file format: {ext}")
+
+            owner_id, effective_group_id = doc.owner_id, doc.group_id
+            existing = await uow.documents.find_active_slot(
+                owner_id, new_filename, effective_group_id, for_update=True
+            )
+            if existing and existing.id != document_id:
+                if existing.status in (DocumentStatus.PENDING, DocumentStatus.PROCESSING):
+                    raise BusinessRuleViolation("This document name is already being processed")
+                if existing.status in (DocumentStatus.DONE, DocumentStatus.FAILED):
+                    new_filename = await self._unique_filename(
+                        uow, owner_id, effective_group_id, new_filename
+                    )
+
+            new_source_path = self._storage_key(owner_id, effective_group_id, document_id, new_filename)
+
+            if doc.source_path and doc.source_path != new_source_path:
+                self._file_storage.rename_file(doc.source_path, new_source_path)
+
+            await uow.documents.update_filename(document_id, new_filename, new_source_path)
+            await uow.chunks.update_filename_by_document_id(document_id, new_filename)
+            await self._vector_store.update_filename_by_document_id(document_id, new_filename)
+
+            final_doc = await uow.documents.get_by_id(document_id)
+            assert final_doc is not None
+            return to_document_dto(final_doc)
+
     async def list_source_files(self, search: str | None = None) -> list[str]:
         async with self._uow_factory.create() as uow:
             return await uow.documents.list_distinct_filenames(search=search, limit=100)

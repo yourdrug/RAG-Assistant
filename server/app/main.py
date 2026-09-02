@@ -6,13 +6,14 @@ import logging.config
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from composition.container import Container
-from config import settings
-from domain.exceptions import ClientException, ServerException
 from fastapi import FastAPI
 from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi_limiter import FastAPILimiter
+
+from composition.container import Container
+from config import settings
+from domain.exceptions import ClientException, ServerException
 from infrastructure.database.database import database
 from infrastructure.initialization import initialize_app
 from infrastructure.logging import logging_config
@@ -51,6 +52,7 @@ from presentation.api.routes.ingest import router as ingest_router
 from presentation.api.routes.search import router as search_router
 from presentation.cli.cli import cli
 
+
 # ---------------------------------------------------------------------------
 # Lifespan
 # ---------------------------------------------------------------------------
@@ -86,10 +88,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     yield
 
     # --- Shutdown (reverse order) ---
-    assert container.infrastructure.config_listener is not None
-    assert container.infrastructure.api_key_provider is not None
-    await container.infrastructure.config_listener.stop()
-    await container.infrastructure.api_key_provider.stop_pubsub_listener()
+    if container.infrastructure.config_listener is not None:
+        await container.infrastructure.config_listener.stop()
+
+    if container.infrastructure.api_key_provider is not None:
+        await container.infrastructure.api_key_provider.stop_pubsub_listener()
+
+    if container.infrastructure.ml_clients is not None:
+        await container.infrastructure.ml_clients.close()
+
     await container.dispose()
     await scheduler.shutdown()
     await database.disconnect()

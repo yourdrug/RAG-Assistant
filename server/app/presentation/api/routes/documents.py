@@ -20,7 +20,7 @@ from presentation.api.dependencies import (
     create_job_service,
 )
 from presentation.api.rate_limits import upload_rate_limit
-from presentation.api.schemas import DocumentResponse, UploadStatusResponse
+from presentation.api.schemas import DocumentRenameRequest, DocumentResponse, UploadStatusResponse
 
 logger = logging.getLogger("default")
 
@@ -160,3 +160,24 @@ async def delete_document(
     await document_service.delete_document(document_id, current_user["id"], current_user["role"])
     log_action("document.delete", user_id=current_user["id"], details={"document_id": document_id})
     return {"status": "deleted", "document_id": document_id}
+
+
+@router.patch("/documents/{document_id}/rename", response_model=DocumentResponse)
+async def rename_document(
+    document_id: int,
+    body: DocumentRenameRequest,
+    current_user: dict = Depends(get_current_user),
+    document_service: DocumentService = Depends(create_document_service),
+):
+    result = await document_service.rename_document(
+        document_id=document_id,
+        new_filename=body.filename,
+        user_id=current_user["id"],
+        user_role=current_user["role"],
+    )
+    log_action(
+        "document.rename",
+        user_id=current_user["id"],
+        details={"document_id": document_id, "new_filename": body.filename},
+    )
+    return result

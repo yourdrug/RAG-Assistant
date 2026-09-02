@@ -68,3 +68,12 @@ export function useDeleteDocument() {
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.documents.all }),
   });
 }
+
+export function useRenameDocument() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, filename }: { id: number; filename: string }) =>
+      (await apiClient.patch<DocumentResponse>(`/documents/${id}/rename`, { filename })).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.documents.all }),
+  });
+}

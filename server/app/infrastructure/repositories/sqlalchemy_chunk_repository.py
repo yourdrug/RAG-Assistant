@@ -250,6 +250,19 @@ class SQLAlchemyChunkRepository:
     async def delete_by_document_id(self, document_id: int) -> None:
         await self._session.execute(delete(ChunkModel).where(ChunkModel.document_id == document_id))
 
+    async def update_filename_by_document_id(self, document_id: int, new_filename: str) -> int:
+        """Update filename for all chunks belonging to a document. Returns count of updated rows."""
+        from sqlalchemy import update as sa_update
+
+        stmt = (
+            sa_update(ChunkModel)
+            .where(ChunkModel.document_id == document_id)
+            .values(filename=new_filename)
+        )
+        result = await self._session.execute(stmt)
+        await self._session.flush()
+        return result.rowcount
+
     async def list_for_document(
         self,
         document_id: int,

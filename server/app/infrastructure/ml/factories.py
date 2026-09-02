@@ -25,6 +25,10 @@ log = logging.getLogger("default")
 
 
 def create_embeddings():
+    pool_limits = httpx.Limits(
+        max_connections=settings.http_pool_max_connections,
+        max_keepalive_connections=settings.http_pool_max_keepalive,
+    )
     if settings.ml_provider == "deepinfra":
         from infrastructure.ml.deepinfra_clients import DeepInfraEmbeddingsClient
 
@@ -33,11 +37,12 @@ def create_embeddings():
             api_key=settings.deepinfra_api_key,
             base_url=f"{settings.deepinfra_base_url}/openai",
             model=settings.deepinfra_embed_model,
+            pool_limits=pool_limits,
         )
     from infrastructure.ml.tei_clients import TEIEmbeddingsClient
 
     log.info("Creating TEI embeddings client (%s) ...", settings.tei_embed_url)
-    return TEIEmbeddingsClient(settings.tei_embed_url)
+    return TEIEmbeddingsClient(settings.tei_embed_url, pool_limits=pool_limits)
 
 
 # ---------------------------------------------------------------------------
@@ -46,6 +51,10 @@ def create_embeddings():
 
 
 def create_reranker():
+    pool_limits = httpx.Limits(
+        max_connections=settings.http_pool_max_connections // 2,
+        max_keepalive_connections=settings.http_pool_max_keepalive // 2,
+    )
     if settings.ml_provider == "deepinfra":
         from infrastructure.ml.deepinfra_clients import DeepInfraRerankerClient
 
@@ -54,11 +63,12 @@ def create_reranker():
             api_key=settings.deepinfra_api_key,
             base_url=settings.deepinfra_base_url,
             model=settings.deepinfra_rerank_model,
+            pool_limits=pool_limits,
         )
     from infrastructure.ml.tei_clients import TEIRerankerClient
 
     log.info("Creating TEI reranker client (%s) ...", settings.tei_rerank_url)
-    return TEIRerankerClient(settings.tei_rerank_url)
+    return TEIRerankerClient(settings.tei_rerank_url, pool_limits=pool_limits)
 
 
 # ---------------------------------------------------------------------------

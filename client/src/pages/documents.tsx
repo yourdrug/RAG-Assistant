@@ -1,6 +1,6 @@
 "use client";
 import { type ColumnDef } from "@tanstack/react-table";
-import { CloudUpload, FileText, Trash2 } from "lucide-react";
+import { CloudUpload, FileText, Pencil, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import toast from "react-hot-toast";
@@ -8,6 +8,7 @@ import {
   useDeleteDocument,
   useDocuments,
   useGroups,
+  useRenameDocument,
   useUploadableClients,
   useUploadDocument,
 } from "@/shared/api/hooks";
@@ -36,14 +37,18 @@ import {
 } from "@/shared/ui/dialog";
 import { Progress } from "@/shared/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
+import { Input } from "@/shared/ui/input";
 import { useAuthStore } from "@/stores/auth-store";
 
 export function DocumentsPage() {
   const { data: documents } = useDocuments();
   const uploadMut = useUploadDocument();
   const deleteMut = useDeleteDocument();
+  const renameMut = useRenameDocument();
   const [uploadOpen, setUploadOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<number | null>(null);
+  const [renameId, setRenameId] = useState<number | null>(null);
+  const [renameValue, setRenameValue] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const user = useAuthStore((s) => s.user);
   const isClient = user?.kind === "client";
@@ -165,6 +170,18 @@ export function DocumentsPage() {
     setDeleteId(null);
   };
 
+  const handleRename = async () => {
+    if (renameId === null || !renameValue.trim()) return;
+    try {
+      await renameMut.mutateAsync({ id: renameId, filename: renameValue.trim() });
+      toast.success("Renamed");
+    } catch {
+      toast.error("Failed to rename");
+    }
+    setRenameId(null);
+    setRenameValue("");
+  };
+
   const columns: ColumnDef<DocumentResponse>[] = [
     {
       accessorKey: "filename",
@@ -208,8 +225,12 @@ export function DocumentsPage() {
       header: "Owner",
       cell: ({ row }) => {
         const owner = uploadableClients?.find((c) => c.id === row.original.owner_id);
-        if (!owner) return <span className="text-muted-foreground">—</span>;
-        return <span className="text-sm">{owner.email}</span>;
+        if (owner) return <span className="text-sm">{owner.email}</span>;
+        if (row.original.owner_id === user?.id)
+          return <span className="text-sm text-muted-foreground">You</span>;
+        if (row.original.owner_id != null)
+          return <span className="text-sm text-muted-foreground">#{row.original.owner_id}</span>;
+        return <span className="text-muted-foreground">—</span>;
       },
     },
     {
@@ -241,14 +262,27 @@ export function DocumentsPage() {
       id: "actions",
       header: "",
       cell: ({ row }) => (
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8"
-          onClick={() => setDeleteId(row.original.id)}
-        >
-          <Trash2 className="h-4 w-4 text-destructive" />
-        </Button>
+        <div className="flex gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => {
+              setRenameId(row.original.id);
+              setRenameValue(row.original.filename);
+            }}
+          >
+            <Pencil className="h-4 w-4 text-muted-foreground" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => setDeleteId(row.original.id)}
+          >
+            <Trash2 className="h-4 w-4 text-destructive" />
+          </Button>
+        </div>
       ),
     },
   ];
@@ -460,6 +494,32 @@ export function DocumentsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={renameId !== null} onOpenChange={() => setRenameId(null)}>
+        <DialogContent className="overflow-hidden w-full max-w-md">
+          <DialogHeader>
+            <DialogTitle>Rename Document</DialogTitle>
+            <DialogDescription>Enter a new filename for this document.</DialogDescription>
+          </DialogHeader>
+          <Input
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            placeholder="filename.pdf"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleRename();
+            }}
+            autoFocus
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenameId(null)}>
+              Cancel
+            </Button>
+            <Button onClick={handleRename} disabled={!renameValue.trim() || renameMut.isPending}>
+              {renameMut.isPending ? "Renaming..." : "Rename"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

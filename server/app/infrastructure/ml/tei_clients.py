@@ -24,32 +24,32 @@ RERANK_BATCH_SIZE = 8
 class TEIEmbeddingsClient:
     """Embedding client that calls a TEI /embed endpoint over HTTP."""
 
-    def __init__(self, base_url: str) -> None:
+    def __init__(self, base_url: str, pool_limits: httpx.Limits | None = None) -> None:
         self._base_url = base_url.rstrip("/")
+        limits = pool_limits or httpx.Limits(max_connections=20, max_keepalive_connections=10)
+        self._client = httpx.AsyncClient(timeout=TEI_TIMEOUT, limits=limits)
 
     async def embed_query(self, text: str) -> list[float]:
-        async with httpx.AsyncClient(timeout=TEI_TIMEOUT) as client:
-            r = await client.post(f"{self._base_url}/embed", json={"inputs": text})
-            r.raise_for_status()
-            return r.json()[0]
+        r = await self._client.post(f"{self._base_url}/embed", json={"inputs": text})
+        r.raise_for_status()
+        return r.json()[0]
 
     async def embed_documents(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
-        async with httpx.AsyncClient(timeout=TEI_TIMEOUT) as client:
-            r = await client.post(f"{self._base_url}/embed", json={"inputs": texts})
-            r.raise_for_status()
-            data = r.json()
-            if not isinstance(data, list):
-                short = repr(data)[:200]
-                raise RuntimeError(f"TEI /embed returned unexpected type {type(data).__name__}: {short}")
-            none_indices = [i for i, v in enumerate(data) if v is None]
-            if none_indices:
-                raise RuntimeError(
-                    f"TEI /embed returned None for {len(none_indices)}/{len(data)} texts "
-                    f"(indices: {none_indices[:10]}{'...' if len(none_indices) > 10 else ''})"
-                )
-            return data
+        r = await self._client.post(f"{self._base_url}/embed", json={"inputs": texts})
+        r.raise_for_status()
+        data = r.json()
+        if not isinstance(data, list):
+            short = repr(data)[:200]
+            raise RuntimeError(f"TEI /embed returned unexpected type {type(data).__name__}: {short}")
+        none_indices = [i for i, v in enumerate(data) if v is None]
+        if none_indices:
+            raise RuntimeError(
+                f"TEI /embed returned None for {len(none_indices)}/{len(data)} texts "
+                f"(indices: {none_indices[:10]}{'...' if len(none_indices) > 10 else ''})"
+            )
+        return data
 
     def embed_query_sync(self, text: str) -> list[float]:
         with httpx.Client(timeout=TEI_TIMEOUT) as client:
@@ -57,12 +57,17 @@ class TEIEmbeddingsClient:
             r.raise_for_status()
             return r.json()[0]
 
+    async def close(self) -> None:
+        await self._client.aclose()
+
 
 class TEIRerankerClient:
     """Reranking client that calls a TEI /rerank endpoint over HTTP."""
 
-    def __init__(self, base_url: str) -> None:
+    def __init__(self, base_url: str, pool_limits: httpx.Limits | None = None) -> None:
         self._base_url = base_url.rstrip("/")
+        limits = pool_limits or httpx.Limits(max_connections=10, max_keepalive_connections=5)
+        self._client = httpx.AsyncClient(timeout=TEI_TIMEOUT, limits=limits)
 
     async def predict(self, pairs: list[tuple[str, str]]) -> list[float]:
         if not pairs:
@@ -70,11 +75,10 @@ class TEIRerankerClient:
         query = pairs[0][0]
         texts = [p[1] for p in pairs]
         payload = {"query": query, "texts": texts}
-        async with httpx.AsyncClient(timeout=TEI_TIMEOUT) as client:
-            r = await client.post(f"{self._base_url}/rerank", json=payload)
-            r.raise_for_status()
-            data = r.json()
-            return [item["score"] for item in data]
+        r = await self._client.post(f"{self._base_url}/rerank", json=payload)
+        r.raise_for_status()
+        data = r.json()
+        return [item["score"] for item in data]
 
     def predict_sync(self, pairs: list[tuple[str, str]]) -> list[float]:
         if not pairs:
@@ -87,3 +91,6 @@ class TEIRerankerClient:
             r.raise_for_status()
             data = r.json()
             return [item["score"] for item in data]
+
+    async def close(self) -> None:
+        await self._client.aclose()

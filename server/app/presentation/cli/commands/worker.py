@@ -7,9 +7,13 @@ import sys
 from collections.abc import Sequence
 
 from arq.connections import RedisSettings
+from arq.cron import cron
 from arq.worker import Worker
 from config import settings
 from infrastructure.worker.tasks import (
+    cron_bm25_rebuild,
+    cron_job_cleanup,
+    cron_recover_orphaned_jobs,
     process_document,
     run_benchmark,
     run_full_ingest,
@@ -26,6 +30,7 @@ def worker(
     """Запустить Arq worker для обработки фоновых задач.
 
     Слушает очереди: document_processing, ingest, benchmark.
+    Cron-задачи: job_cleanup (2x/day), recover_orphaned (15 мин), bm25_rebuild (3:00 UTC).
     Использует Redis как брокер.
     """
     try:
@@ -36,6 +41,15 @@ def worker(
             run_full_ingest,
             run_single_ingest,
             run_benchmark,
+            cron_job_cleanup,
+            cron_recover_orphaned_jobs,
+            cron_bm25_rebuild,
+        ]
+
+        cron_jobs = [
+            cron(cron_job_cleanup, hour={1, 13}),
+            cron(cron_recover_orphaned_jobs, minute={0, 15, 30, 45}),
+            cron(cron_bm25_rebuild, hour=3, minute=0),
         ]
 
         if max_jobs is None:
@@ -43,6 +57,7 @@ def worker(
 
         w = Worker(
             functions=functions,
+            cron_jobs=cron_jobs,
             redis_settings=redis_settings,
             max_jobs=max_jobs,
             health_check_interval=health_check_interval,
@@ -52,7 +67,8 @@ def worker(
         )
 
         logger.info(
-            "Arq worker starting — queues: document_processing, ingest, benchmark max_jobs=%d redis=%s",
+            "Arq worker starting — queues: document_processing, ingest, benchmark "
+            "cron: cleanup/recover/bm25 max_jobs=%d redis=%s",
             max_jobs,
             settings.redis_host,
         )

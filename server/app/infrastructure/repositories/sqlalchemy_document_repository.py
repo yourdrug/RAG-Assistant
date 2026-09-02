@@ -185,6 +185,14 @@ class SQLAlchemyDocumentRepository:
         result = await self._db.execute(stmt)
         return [row[0] for row in result.all() if row[0]]
 
+    async def update_filename(self, document_id: int, new_filename: str, new_source_path: str) -> None:
+        result = await self._db.execute(select(DocumentModel).where(DocumentModel.id == document_id))
+        orm = result.scalar_one_or_none()
+        if orm:
+            orm.filename = new_filename
+            orm.source_path = new_source_path
+            await self._db.flush()
+
     async def delete_internal_documents(self) -> int:
         """Delete all documents with owner_id IS NULL (CLI-ingested + public UI docs).
 

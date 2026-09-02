@@ -46,6 +46,7 @@ export {
   useDeleteDocument,
   useDocument,
   useDocuments,
+  useRenameDocument,
   useUploadableClients,
   useUploadDocument,
 } from "./use-documents";

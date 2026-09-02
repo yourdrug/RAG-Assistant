@@ -190,6 +190,13 @@ class Settings(BaseSettings):
     supported_extensions: tuple = (".pdf", ".docx", ".doc", ".rtf", ".md", ".txt")
     max_upload_size_mb: int = 50
 
+    # --- HTTP connection pools ---
+    http_pool_max_connections: int = 20
+    http_pool_max_keepalive: int = 10
+
+    # --- LLM concurrency ---
+    llm_max_concurrent: int = 4
+
     # --- Cost rate limiting ---
     cost_rate_limit_enabled: bool = False
     cost_hourly_limit: float = 1.0

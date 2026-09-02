@@ -1,8 +1,10 @@
 "use client";
+import { useQueryClient } from "@tanstack/react-query";
 import { MessageSquare } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { apiClient } from "@/shared/api/client";
+import { queryKeys } from "@/shared/api/query-keys";
 import type { ConversationHistoryResponse, Source } from "@/shared/api/types";
 import type { PipelineStage } from "@/shared/lib/sse";
 import { streamChat } from "@/shared/lib/sse";
@@ -37,6 +39,7 @@ export function ChatPage() {
   const token = useAuthStore((s) => s.token);
   const streamingContentRef = useRef("");
   const hadChunksRef = useRef(false);
+  const queryClient = useQueryClient();
 
   const scroll = useCallback(
     () => endRef.current?.scrollIntoView({ behavior: "smooth" }),
@@ -127,6 +130,7 @@ export function ChatPage() {
         setStreamingMsg(null);
         setIsStreaming(false);
         setPipelineStage(null);
+        queryClient.invalidateQueries({ queryKey: queryKeys.conversations.list() });
       },
       onError: (err) => {
         setMessages((p) => [

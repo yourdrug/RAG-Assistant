@@ -364,7 +364,8 @@ class RagService:
         if not rag.relevance_gate_enabled:
             return True
         t0 = time.monotonic()
-        is_relevant, reason = await check_relevance(self._ml.llm(), query_for_search, docs)
+        async with self._ml.llm_semaphore:
+            is_relevant, reason = await check_relevance(self._ml.llm(), query_for_search, docs)
         RAG_STAGE_DURATION.labels("relevance_gate").observe(time.monotonic() - t0)
         if not is_relevant:
             RAG_RELEVANCE_GATE_TOTAL.labels(result="rejected").inc()
@@ -456,17 +457,18 @@ class RagService:
             "Если нет — верни needs_decomposition=false."
         )
 
-        result = await asyncio.to_thread(
-            lambda: client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": system_msg},
-                    {"role": "user", "content": question},
-                ],
-                response_model=DecompositionCheck,
-                max_retries=3,
+        async with self._ml.llm_semaphore:
+            result = await asyncio.to_thread(
+                lambda: client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": system_msg},
+                        {"role": "user", "content": question},
+                    ],
+                    response_model=DecompositionCheck,
+                    max_retries=3,
+                )
             )
-        )
         return result.needs_decomposition, result.sub_queries
 
     async def _assess_sufficiency(
@@ -493,17 +495,18 @@ class RagService:
         )
         user_msg = f"Вопрос: {question}\n\nКонтекст:\n{context}"
 
-        result = await asyncio.to_thread(
-            lambda: llm_client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": system_msg},
-                    {"role": "user", "content": user_msg},
-                ],
-                response_model=SufficiencyAssessment,
-                max_retries=3,
+        async with self._ml.llm_semaphore:
+            result = await asyncio.to_thread(
+                lambda: llm_client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": system_msg},
+                        {"role": "user", "content": user_msg},
+                    ],
+                    response_model=SufficiencyAssessment,
+                    max_retries=3,
+                )
             )
-        )
         return result
 
     def _resolve_breadth(self, ctx: ChatContext, query_for_search: str) -> Breadth:
@@ -614,7 +617,8 @@ class RagService:
 
         t0 = time.monotonic()
         if rag.condense_enabled:
-            query_for_search = await condense_question(self._ml.llm(), question, history_messages)
+            async with self._ml.llm_semaphore:
+                query_for_search = await condense_question(self._ml.llm(), question, history_messages)
         else:
             query_for_search = question
         RAG_STAGE_DURATION.labels("condense").observe(time.monotonic() - t0)
@@ -771,13 +775,14 @@ class RagService:
         t0 = time.monotonic()
         answer_parts: list[str] = []
         last_chunk = None
-        async for chunk in self._ml.llm_for_breadth(breadth).astream(messages):
-            # Track every chunk — the final one (empty content) carries usage_metadata
-            last_chunk = chunk
-            text = chunk.content
-            if text:
-                answer_parts.append(text)
-                yield TextChunk(text=text)
+        async with self._ml.llm_semaphore:
+            async for chunk in self._ml.llm_for_breadth(breadth).astream(messages):
+                # Track every chunk — the final one (empty content) carries usage_metadata
+                last_chunk = chunk
+                text = chunk.content
+                if text:
+                    answer_parts.append(text)
+                    yield TextChunk(text=text)
         RAG_STAGE_DURATION.labels("generate").observe(time.monotonic() - t0)
 
         # --- Extract token usage from last chunk ---

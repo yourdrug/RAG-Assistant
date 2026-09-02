@@ -1,6 +1,6 @@
 "use client";
 import {type ColumnDef} from "@tanstack/react-table";
-import {Edit3, FileText, Hash, Info, Loader2, Plus, Puzzle, Save, Trash2, X} from "lucide-react";
+import {Edit3, FileText, Hash, Info, Loader2, Pencil, Plus, Puzzle, Save, Trash2, X} from "lucide-react";
 import {useEffect, useState} from "react";
 import {useSearchParams} from "react-router-dom";
 import toast from "react-hot-toast";
@@ -11,6 +11,7 @@ import {
     useDeleteChunk,
     useDeleteDocument,
     useDocuments,
+    useRenameDocument,
     useUpdateChunk,
 } from "@/shared/api/hooks";
 import type {ChunkResponse, DocumentResponse} from "@/shared/api/types";
@@ -40,7 +41,10 @@ export function AdminDocumentsPage() {
     const [searchParams] = useSearchParams();
     const {data: documents} = useDocuments();
     const deleteMut = useDeleteDocument();
+    const renameMut = useRenameDocument();
     const [deleteId, setDeleteId] = useState<number | null>(null);
+    const [renameId, setRenameId] = useState<number | null>(null);
+    const [renameValue, setRenameValue] = useState("");
     const initialDocId = searchParams.get("docId");
     const highlightHashes = searchParams.get("highlight")?.split(",").filter(Boolean) ?? [];
     const [selectedDocId, setSelectedDocId] = useState<number | null>(
@@ -64,6 +68,18 @@ export function AdminDocumentsPage() {
             toast.error("Failed");
         }
         setDeleteId(null);
+    };
+
+    const handleRename = async () => {
+        if (renameId === null || !renameValue.trim()) return;
+        try {
+            await renameMut.mutateAsync({ id: renameId, filename: renameValue.trim() });
+            toast.success("Renamed");
+        } catch {
+            toast.error("Failed to rename");
+        }
+        setRenameId(null);
+        setRenameValue("");
     };
 
     const columns: ColumnDef<DocumentResponse>[] = [
@@ -170,6 +186,16 @@ export function AdminDocumentsPage() {
                                 {selectedDocId === doc.id ? "Hide" : "Chunks"}
                             </Button>
                         )}
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                                setRenameId(doc.id);
+                                setRenameValue(doc.filename);
+                            }}
+                        >
+                            <Pencil className="h-4 w-4 text-muted-foreground"/>
+                        </Button>
                         <Button variant="ghost" size="icon" onClick={() => setDeleteId(doc.id)}>
                             <Trash2 className="h-4 w-4 text-destructive"/>
                         </Button>
@@ -222,6 +248,36 @@ export function AdminDocumentsPage() {
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
+
+            <Dialog open={renameId !== null} onOpenChange={() => setRenameId(null)}>
+                <DialogContent className="w-full max-w-md overflow-hidden">
+                    <DialogHeader>
+                        <DialogTitle>Rename Document</DialogTitle>
+                    </DialogHeader>
+                    <Input
+                        value={renameValue}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        placeholder="filename.pdf"
+                        onKeyDown={(e) => {
+                            if (e.key === "Enter") handleRename();
+                        }}
+                        autoFocus
+                    />
+                    <div className="flex justify-end gap-2 pt-2">
+                        <Button variant="outline" onClick={() => setRenameId(null)}>
+                            Cancel
+                        </Button>
+                        <Button onClick={handleRename} disabled={!renameValue.trim() || renameMut.isPending}>
+                            {renameMut.isPending ? (
+                                <Loader2 className="h-4 w-4 mr-1 animate-spin"/>
+                            ) : (
+                                <Save className="h-4 w-4 mr-1"/>
+                            )}
+                            Rename
+                        </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
 
             {showManualDocDialog && (
                 <ManualDocumentDialog

@@ -78,6 +78,10 @@ class UploadStatusResponse(BaseModel):
     filename: str
 
 
+class DocumentRenameRequest(BaseModel):
+    filename: str = Field(..., min_length=1, max_length=255)
+
+
 class DocumentResponse(BaseModel):
     id: int
     filename: str
@@ -86,6 +90,7 @@ class DocumentResponse(BaseModel):
     owner_id: int | None
     group_id: int | None
     status: str
+    doc_domain: str = "general"
     error_message: str | None
     warning_message: str | None
     quality_score: float | None = None

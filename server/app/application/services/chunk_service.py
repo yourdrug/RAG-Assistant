@@ -155,7 +155,7 @@ class ChunkService:
             )
 
             # --- Incremental BM25 update ---
-            if self._ml_registry is not None:
+            if self._ml_registry is not None and chunk.content_hash is not None:
                 from infrastructure.ml.bm25_updater import bm25_replace
 
                 bm25_replace(self._ml_registry, chunk.content_hash, content, new_hash=new_hash)
@@ -314,7 +314,7 @@ class ChunkService:
             await self._vector_store.delete_by_ids([chunk_id])
 
             # --- Incremental BM25 update ---
-            if self._ml_registry is not None:
+            if self._ml_registry is not None and chunk.content_hash is not None:
                 from infrastructure.ml.bm25_updater import bm25_remove
 
                 bm25_remove(self._ml_registry, chunk.content_hash)

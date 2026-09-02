@@ -95,6 +95,13 @@ class LocalStorage:
         if f.exists():
             f.unlink()
 
+    def rename_file(self, old_key: str, new_key: str) -> None:
+        src = self.base_dir / old_key
+        dst = self.base_dir / new_key
+        if src.exists():
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            src.rename(dst)
+
 
 class S3Storage:
     def __init__(self):
@@ -161,6 +168,19 @@ class S3Storage:
 
     def delete_file(self, key: str) -> None:
         self.client.delete_object(Bucket=self.bucket, Key=key)
+
+    def rename_file(self, old_key: str, new_key: str) -> None:
+        try:
+            self.client.copy_object(
+                Bucket=self.bucket, CopySource=f"{self.bucket}/{old_key}", Key=new_key
+            )
+            self.client.delete_object(Bucket=self.bucket, Key=old_key)
+        except self.client.exceptions.ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code")
+            if error_code == "NoSuchKey":
+                log.warning("S3 rename: source key '%s' does not exist, skipping", old_key)
+            else:
+                raise
 
     def download_bytes(self, key: str) -> bytes:
         """Download an entire object as bytes synchronously.

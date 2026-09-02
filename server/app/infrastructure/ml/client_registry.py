@@ -11,8 +11,11 @@ The registry calls factory functions on first access and caches the result.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
+
+from config import settings
 
 log = logging.getLogger("default")
 
@@ -39,6 +42,7 @@ class MLClientRegistry:
         self._qdrant_client: Any = None
         self._bm25_index: Any = None
         self._bm25_loaded: bool = False
+        self._llm_semaphore: asyncio.Semaphore | None = None
 
     # ------------------------------------------------------------------
     # Accessors (lazy init via factories)
@@ -87,6 +91,12 @@ class MLClientRegistry:
             self._bm25_loaded = True
         return self._bm25_index
 
+    @property
+    def llm_semaphore(self) -> asyncio.Semaphore:
+        if self._llm_semaphore is None:
+            self._llm_semaphore = asyncio.Semaphore(settings.llm_max_concurrent)
+        return self._llm_semaphore
+
     # ------------------------------------------------------------------
     # Invalidation (with dependency cascades)
     # ------------------------------------------------------------------
@@ -120,3 +130,19 @@ class MLClientRegistry:
         """Clear cached Qdrant client."""
         self._qdrant_client = None
         log.info("MLClientRegistry: Qdrant client cache invalidated")
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    async def close(self) -> None:
+        """Close all HTTP connection pools. Call during app shutdown."""
+        for client in (self._embeddings, self._reranker):
+            if client is not None and hasattr(client, "close"):
+                try:
+                    await client.close()
+                except Exception:
+                    pass
+        self._embeddings = None
+        self._reranker = None
+        log.info("MLClientRegistry: connection pools closed")

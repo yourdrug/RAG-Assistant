@@ -18,6 +18,8 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("default")
 
+_BATCH_SIZE = 100
+
 
 class QdrantVectorStoreRepository:
     def __init__(self, ml_clients: MLClientRegistry | None = None) -> None:
@@ -123,10 +125,55 @@ class QdrantVectorStoreRepository:
         client = self._get_qdrant_client()
 
         def _update() -> None:
-            client.set_payload(
-                collection_name=settings.collection_name,
-                payload={"metadata": {"document_id": document_id}},
-                points=Filter(must=[FieldCondition(key="metadata.source", match=MatchValue(value=source))]),
+            self._patch_metadata(
+                client,
+                Filter(must=[FieldCondition(key="metadata.source", match=MatchValue(value=source))]),
+                {"document_id": document_id},
             )
 
         await asyncio.to_thread(_update)
+
+    async def update_filename_by_document_id(self, document_id: int, new_filename: str) -> None:
+        """Update filename in metadata for all points belonging to a document."""
+        client = self._get_qdrant_client()
+
+        def _update() -> None:
+            self._patch_metadata(
+                client,
+                Filter(
+                    must=[FieldCondition(key="metadata.document_id", match=MatchValue(value=document_id))]
+                ),
+                {"filename": new_filename, "source": new_filename},
+            )
+
+        await asyncio.to_thread(_update)
+
+    @staticmethod
+    def _patch_metadata(client, points_filter: Filter, metadata_updates: dict) -> None:
+        """Read matching points, merge metadata_updates, and write back."""
+        offset = None
+        while True:
+            result, offset = client.scroll(
+                collection_name=settings.collection_name,
+                scroll_filter=points_filter,
+                limit=_BATCH_SIZE,
+                offset=offset,
+                with_payload=True,
+                with_vectors=False,
+            )
+            if not result:
+                break
+
+            for point in result:
+                payload = point.payload or {}
+                metadata = payload.get("metadata", {})
+                metadata.update(metadata_updates)
+                payload["metadata"] = metadata
+                client.set_payload(
+                    collection_name=settings.collection_name,
+                    payload=payload,
+                    points=[point.id],
+                )
+
+            if offset is None:
+                break
