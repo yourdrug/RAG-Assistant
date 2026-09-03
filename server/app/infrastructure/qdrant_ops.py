@@ -14,7 +14,9 @@ from qdrant_client.models import (
     Distance,
     FieldCondition,
     Filter,
+    IsNullCondition,
     MatchValue,
+    PayloadField,
     PayloadSchemaType,
     PointStruct,
     VectorParams,
@@ -39,9 +41,8 @@ def _delete_internal_points(client) -> int:
         collection_name=settings.collection_name,
         points_selector=Filter(
             must=[
-                FieldCondition(
-                    key="metadata.owner_id",
-                    match=MatchValue(value=None),  # type: ignore[arg-type]
+                IsNullCondition(
+                    is_null=PayloadField(key="metadata.owner_id"),
                 )
             ],
             must_not=[

@@ -54,6 +54,7 @@ async def process_chunks(
     doc_domain: str,
     *,
     set_indexing: bool = True,
+    _existing_uow: Any | None = None,
 ) -> None:
     """Единый pipeline: bulk_insert → outbox enqueue → status update.
 
@@ -67,63 +68,91 @@ async def process_chunks(
         group_id: ID группы.
         doc_domain: домен документа (general/legal).
         set_indexing: ставить ли статус indexing (True для API, False для CLI).
+        _existing_uow: если передан — используется вместо создания нового
+                       (нужно, чтобы chunks попали в ту же транзакцию, что и документ).
 
     """
     hashes = [content_hash(rc.page_content) for rc in chunks]
 
+    if _existing_uow is not None:
+        uow = _existing_uow
+        await _process_chunks_in_uow(
+            uow, document_id, filename, chunks, visibility,
+            owner_id, group_id, doc_domain, hashes, set_indexing,
+        )
+        return
+
     async with uow_factory.create(master=True) as uow:
-        # 1. Bulk insert → получаем chunk_ids
-        chunk_ids = await uow.chunks.bulk_insert(
-            document_id=document_id,
-            filename=filename,
-            visibility=visibility,
-            chunks=[rc.page_content for rc in chunks],
-            owner_id=owner_id,
-            group_id=group_id,
-            doc_domain=doc_domain,
-            content_hashes=hashes,
+        await _process_chunks_in_uow(
+            uow, document_id, filename, chunks, visibility,
+            owner_id, group_id, doc_domain, hashes, set_indexing,
         )
 
-        # 2. Enrich metadata с chunk_ids
-        for chunk_id, rc in zip(chunk_ids, chunks, strict=True):
-            rc.metadata["chunk_id"] = chunk_id
 
-        # 3. Enqueue outbox для Qdrant
-        await uow.vector_outbox.enqueue(
-            VectorOutboxEntry(
-                operation=OutboxOperation.UPSERT_CHUNKS,
-                aggregate_type="document",
-                aggregate_id=document_id,
-                payload={
-                    "points": [
-                        {
-                            "chunk_id": cid,
-                            "page_content": rc.page_content,
-                            "metadata": rc.metadata,
-                        }
-                        for cid, rc in zip(chunk_ids, chunks, strict=True)
-                    ]
-                },
-            )
+async def _process_chunks_in_uow(
+    uow: Any,
+    document_id: int,
+    filename: str,
+    chunks: list[Any],
+    visibility: str,
+    owner_id: int | None,
+    group_id: int | None,
+    doc_domain: str,
+    hashes: list[str],
+    set_indexing: bool,
+) -> None:
+    # 1. Bulk insert → получаем chunk_ids
+    chunk_ids = await uow.chunks.bulk_insert(
+        document_id=document_id,
+        filename=filename,
+        visibility=visibility,
+        chunks=[rc.page_content for rc in chunks],
+        owner_id=owner_id,
+        group_id=group_id,
+        doc_domain=doc_domain,
+        content_hashes=hashes,
+    )
+
+    # 2. Enrich metadata с chunk_ids
+    for chunk_id, rc in zip(chunk_ids, chunks, strict=True):
+        rc.metadata["chunk_id"] = chunk_id
+
+    # 3. Enqueue outbox для Qdrant
+    await uow.vector_outbox.enqueue(
+        VectorOutboxEntry(
+            operation=OutboxOperation.UPSERT_CHUNKS,
+            aggregate_type="document",
+            aggregate_id=document_id,
+            payload={
+                "points": [
+                    {
+                        "chunk_id": cid,
+                        "page_content": rc.page_content,
+                        "metadata": rc.metadata,
+                    }
+                    for cid, rc in zip(chunk_ids, chunks, strict=True)
+                ]
+            },
         )
+    )
 
-        # 4. Status update
-        total_chars = sum(len(rc.page_content) for rc in chunks)
-        if set_indexing:
-            await uow.documents.update_status(
-                document_id,
-                DocumentStatus.INDEXING.value,
-                chunks=len(chunks),
-                chars=total_chars,
-            )
-        else:
-            # CLI: сразу done (outbox applying async, но CLI не ждёт)
-            await uow.documents.update_status(
-                document_id,
-                DocumentStatus.DONE.value,
-                chunks=len(chunks),
-                chars=total_chars,
-            )
+    # 4. Status update
+    total_chars = sum(len(rc.page_content) for rc in chunks)
+    if set_indexing:
+        await uow.documents.update_status(
+            document_id,
+            DocumentStatus.INDEXING.value,
+            chunks=len(chunks),
+            chars=total_chars,
+        )
+    else:
+        # CLI: сразу done (outbox applying async, но CLI не ждёт)
+        await uow.documents.update_status(
+            document_id,
+            DocumentStatus.DONE.value,
+            chunks=len(chunks),
+            chars=total_chars,
+        )
 
     log.info(
         "Pipeline: doc %d — %d chunks enqueued (%d chars)",

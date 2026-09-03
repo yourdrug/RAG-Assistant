@@ -351,6 +351,7 @@ class IngestionService:
                     group_id=group,
                     doc_domain=chunk_domain,
                     set_indexing=False,  # CLI: done immediately (outbox async)
+                    _existing_uow=uow,
                 )
 
                 # Link vectors to document ID
