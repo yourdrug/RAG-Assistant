@@ -28,11 +28,11 @@ task chat -- "Вопрос"
 
 | Команда | Что делает |
 |---|---|
-| `task init` | .env + собрать образ |
+| `task init` | server/.env + client/.env + собрать образ |
 | `task up` / `task down` | Поднять / остановить стек |
-| `task up:cpu:public` | + Caddy с авто-HTTPS, CPU (нужен `DOMAIN` в `.env`) |
-| `task up:gpu:public` | + Caddy с авто-HTTPS, GPU (нужен `DOMAIN` в `.env`) |
-| `task build` | Пересобрать образ server |
+| `task up -- gpu` | Поднять с GPU |
+| `task build` | Пересобрать образы |
+| `task build -- gpu` | Пересобрать с GPU |
 | `task pull-model` | Скачать LLM в Ollama |
 | `task login email=... password=...` | Залогиниться → `.auth_token` |
 | `task ingest` | Проиндексировать `data/docs_sample/` [admin] |
@@ -40,7 +40,7 @@ task chat -- "Вопрос"
 | `task bench` | Оценка качества |
 | `task test` / `task lint` / `task fmt` | pytest / ruff |
 | `task db:shell` / `task db:backup` | psql / дамп |
-| `task clean` | ⚠️ Удалить все данные |
+| `task clean` | Удалить все данные |
 
 Полный список: `task --list`
 
@@ -50,8 +50,10 @@ task chat -- "Вопрос"
 
 Два `.env` файла:
 
-- **`.env`** (корень) — `DOCKER_MTU`, `DOMAIN` (для `task up:cpu:public` / `task up:gpu:public`)
 - **`server/.env`** — настройки приложения (БД, LLM, OCR, JWT и т.д.)
+- **`client/.env`** — `VITE_API_URL` (билд Vite)
+
+Оба `.env.example` — шаблоны. `task init` создаёт оба из шаблонов.
 
 Ключевые переменные в `server/.env`:
 
@@ -59,11 +61,11 @@ task chat -- "Вопрос"
 LLM_MODEL=qwen2.5:7b           # или qwen2.5:14b, mistral-nemo:12b
 EMBED_MODEL=BAAI/bge-m3
 RERANK_MODEL=BAAI/bge-reranker-v2-m3
-DEVICE=cpu                        # cuda если есть GPU
 OCR_ENGINE=paddleocr            # paddleocr | surya | auto
 JWT_SECRET_KEY=change-me        # openssl rand -hex 32
 ADMIN_EMAIL=admin@example.com
 ADMIN_PASSWORD=change-me-please
+ALLOWED_ORIGINS=*               # Указать конкретный домен для прода
 ```
 
 Динамические параметры (hot-reload без рестарта) хранятся в БД и управляются через `PUT /admin/config/{key}`.
@@ -82,6 +84,35 @@ presentation/  ← FastAPI routes
 **Пайплайн:** вопрос → Qdrant (top-25) → реранкер (top-6) → LLM (стриминг)
 
 **Порты:** Application зависит от протоколов (`application/ports/`), infrastructure предоставляет реализации. DI через конструктор.
+
+---
+
+## Продакшн (домен + TLS)
+
+Стек внутри Docker **неterminate TLS** — это делает внешний nginx на хосте с certbot/letsencrypt.
+
+Клиентский контейнер уже запускает свой nginx, который проксирует `/api/*` на `server:8001` с таймаутами 600s для SSE-стриминга. Внешнему nginx достаточно проксировать один upstream:
+
+```nginx
+upstream rag { server 127.0.0.1:3001; }
+
+server {
+    listen 443 ssl;
+    server_name rag.example.com;
+    ssl_certificate     /etc/letsencrypt/live/rag.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/rag.example.com/privkey.pem;
+
+    location / {
+        proxy_pass http://rag;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+Деплой на сервер: `./deploy.sh 0.6.0` (или `./deploy.sh 0.6.0 --gpu`). Образы тянутся из GHCR.
 
 ---
 
@@ -111,10 +142,8 @@ presentation/  ← FastAPI routes
 
 ## Troubleshooting
 
-**`Error: EOF` при ollama pull** → MTU слишком низкий (VPN). `echo "DOCKER_MTU=1400" >> .env && task down && task up`
+**`Error: EOF` при ollama pull** → MTU слишком низкий (VPN). `export DOCKER_MTU=1400 && task down && task up`
 
 **`401 Unauthorized`** → Токен истёк. `task login email=... password=...` заново.
 
 **`403 Forbidden` на /ingest** → Нужна роль admin. `task me` проверить роль.
-
-**Caddy не получает сертификат** → Проверь DNS (`dig +short домен`), порты 80/443 открыты, нет rate limit Let's Encrypt.

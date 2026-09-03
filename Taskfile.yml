@@ -5,7 +5,7 @@ vars:
   VERSION:
     sh: cat VERSION
 
-dotenv: [ "server/.env" ]
+dotenv: [ "server/.env", "client/.env" ]
 
 tasks:
 
@@ -19,37 +19,35 @@ tasks:
   # -------------------------------------------------------------------------
 
   init:
-    desc: Первоначальная настройка — .env файлы + права на data/ + сборка образа
+    desc: Первоначальная настройка — server/.env + client/.env + права на data/ + сборка образа
     cmds:
       - task: env
       - task: data:create
       - task: data:perms
       - task: build
       - 'echo "Готово. Дальше:  task up  →  task pull-model  →  task login email=... password=...  →  task ingest  →  task chat -- \"вопрос\""'
-      - 'echo "Свой домен вместо localhost:8001?  task up -- public  (нужен DOMAIN в .env — см. README)"'
       - 'echo "(Для GPU: task up -- gpu, для prod: task up -- prod)"'
 
   env:
-    desc: Создать .env и server/.env из соответствующих .env.example, если ещё не созданы
+    desc: Создать server/.env и client/.env из .env.example, если ещё не созданы
     status:
-      - test -f .env
       - test -f server/.env
+      - test -f client/.env
     cmds:
-      - test -f .env || cp .env.example .env
       - test -f server/.env || cp server/.env.example server/.env
-      - 'echo ".env и server/.env готовы"'
+      - test -f client/.env || cp client/.env.example client/.env
+      - 'echo "server/.env и client/.env готовы"'
 
   data:create:
     desc: Создать все data-директории, необходимые для Docker-сервисов
     cmds:
-      - mkdir -p data/qdrant_storage data/ollama_models data/postgres data/minio data/nginx_certs data/paddleocr_cache data/db/postgres data/redis
+      - mkdir -p data/qdrant_storage data/ollama_models data/postgres data/minio data/paddleocr_cache data/db/postgres data/redis
       - test -f data/redis/redis.conf || echo '# See data/redis/redis.conf in repo' > data/redis/redis.conf
       - 'echo "Data-директории созданы"'
 
   data:perms:
-    desc: "Права на data/ для записи любым UID контейнера (нужно для task prod:up / production-стадии)"
+    desc: "Права на data/ для записи любым UID контейнера"
     cmds:
-      - task: data:create
       - chmod -R a+rwX data
       - 'echo "data/ доступна на запись"'
 
@@ -58,23 +56,23 @@ tasks:
   # -------------------------------------------------------------------------
 
   build:
-    desc: "Собрать образы (task build -- [gpu] [prod])"
+    desc: "Собрать образы (task build -- [gpu])"
     cmds:
       - >
         {{.COMPOSE}} -f docker-compose.yml
-        {{if not (contains "prod" .CLI_ARGS)}}-f docker-compose.dev.yml{{end}}
+        -f docker-compose.override.yml
         {{if contains "gpu" .CLI_ARGS}}-f docker-compose.gpu.yml{{end}}
         build server client
     env:
       BUILD_TARGET: '{{if contains "gpu" .CLI_ARGS}}gpu{{else}}cpu{{end}}'
       DEVICE: '{{if contains "gpu" .CLI_ARGS}}cuda{{else}}cpu{{end}}'
       GPU_COUNT: '{{if contains "gpu" .CLI_ARGS}}all{{else}}0{{end}}'
-      STAGE: '{{if contains "prod" .CLI_ARGS}}prod{{else}}development{{end}}'
+      STAGE: development
       VERSION: "{{.VERSION}}"
       VITE_API_URL: ${VITE_API_URL}
 
   up:
-    desc: "Поднять стек (task up -- [gpu] [prod] [public])"
+    desc: "Поднять стек (task up -- [gpu])"
     cmds:
       - task: data:create
       - task: _up_compose
@@ -83,19 +81,19 @@ tasks:
   _up_compose:
     internal: true
     cmds:
-      - cmd: bash -c 'source <(grep ML_PROVIDER server/.env) && docker compose -f docker-compose.yml --profile ${ML_PROVIDER:-tei} {{if contains "public" .CLI_ARGS}}--profile domain{{end}} {{if not (contains "prod" .CLI_ARGS)}}-f docker-compose.dev.yml{{end}} {{if contains "prod" .CLI_ARGS}}-f docker-compose.prod.yml{{end}} {{if contains "gpu" .CLI_ARGS}}-f docker-compose.gpu.yml{{end}} up -d'
+      - cmd: bash -c 'source <(grep ML_PROVIDER server/.env) && docker compose -f docker-compose.yml --profile ${ML_PROVIDER:-tei} -f docker-compose.override.yml {{if contains "gpu" .CLI_ARGS}}-f docker-compose.gpu.yml{{end}} up -d'
     env:
       BUILD_TARGET: '{{if contains "gpu" .CLI_ARGS}}gpu{{else}}cpu{{end}}'
       DEVICE: '{{if contains "gpu" .CLI_ARGS}}cuda{{else}}cpu{{end}}'
       GPU_COUNT: '{{if contains "gpu" .CLI_ARGS}}all{{else}}0{{end}}'
-      STAGE: '{{if contains "prod" .CLI_ARGS}}prod{{else}}development{{end}}'
+      STAGE: development
       VERSION: "{{.VERSION}}"
       VITE_API_URL: ${VITE_API_URL}
 
   down:
-    desc: Остановить и удалить контейнеры, включая Caddy если был поднят (данные в data/ сохраняются)
+    desc: Остановить и удалить контейнеры (данные в data/ сохраняются)
     cmds:
-      - "{{.COMPOSE}} --profile domain --profile tei down"
+      - "{{.COMPOSE}} --profile tei down"
     env:
       STAGE: development
       BUILD_TARGET: cpu
@@ -170,11 +168,11 @@ tasks:
       VERSION: "{{.VERSION}}"
 
   clean:
-    desc: Остановить стек и удалить data/postgres, data/qdrant_storage, data/ollama_models, data/caddy_*, data/redis — ОПАСНО
-    prompt: Удалить все локальные данные (Postgres/Qdrant/Ollama/Caddy/Redis)?
+    desc: Остановить стек и удалить data/postgres, data/qdrant_storage, data/ollama_models, data/redis — ОПАСНО
+    prompt: Удалить все локальные данные (Postgres/Qdrant/Ollama/Redis)?
     cmds:
-      - "{{.COMPOSE}} --profile domain down -v"
-      - rm -rf data/postgres data/qdrant_storage data/ollama_models data/caddy_data data/caddy_config data/redis
+      - "{{.COMPOSE}} --profile tei down -v"
+      - rm -rf data/postgres data/qdrant_storage data/ollama_models data/redis
     env:
       STAGE: development
       BUILD_TARGET: cpu
@@ -194,110 +192,8 @@ tasks:
       VERSION: "{{.VERSION}}"
 
   # -------------------------------------------------------------------------
-  # Авторизация
-  # -------------------------------------------------------------------------
-
-  login:
-    desc: "Залогиниться и сохранить токен в .auth_token (task login email=admin@example.com password=...)"
-    cmds:
-      - >
-        curl -sX POST http://localhost:8001/auth/login
-        -H "Content-Type: application/json"
-        -d "{\"email\": \"{{.email}}\", \"password\": \"{{.password}}\"}"
-        -o /tmp/rag_login_response.json
-      - cat /tmp/rag_login_response.json | jq .
-      - jq -er .access_token /tmp/rag_login_response.json > .auth_token
-      - 'echo "Токен сохранён в .auth_token — остальные task-команды подхватят его сами"'
-
-  me:
-    desc: Показать текущего авторизованного пользователя
-    cmds:
-      - >
-        curl -s http://localhost:8001/auth/me
-        -H "Authorization: Bearer $(cat .auth_token)" | jq .
-
-  user:add:
-    desc: "[admin] Завести пользователя (task user:add email=vasya@company.com password=... role=user)"
-    cmds:
-      - >
-        curl -sX POST http://localhost:8001/auth/users
-        -H "Authorization: Bearer $(cat .auth_token)"
-        -H "Content-Type: application/json"
-        -d "{\"email\": \"{{.email}}\", \"password\": \"{{.password}}\", \"role\": \"{{.role | default `user`}}\"}" | jq .
-
-  user:list:
-    desc: "[admin] Список всех пользователей"
-    cmds:
-      - >
-        curl -s http://localhost:8001/auth/users
-        -H "Authorization: Bearer $(cat .auth_token)" | jq .
-
-  user:toggle:
-    desc: "[admin] Активировать/деактивировать пользователя (task user:toggle -- id=1 active=false)"
-    cmds:
-      - >
-        curl -sX PATCH "http://localhost:8001/auth/users/{{.id}}/active"
-        -H "Authorization: Bearer $(cat .auth_token)"
-        -H "Content-Type: application/json"
-        -d "{\"is_active\": {{.active | default `true`}}}" | jq .
-
-  # -------------------------------------------------------------------------
-  # Индексация документов (только admin — нужен токен из task login)
-  # -------------------------------------------------------------------------
-
-  ingest:
-    desc: "[admin] Проиндексировать data/docs_sample/ (только новые/изменённые файлы)"
-    cmds:
-      - >
-        curl -sX POST "http://localhost:8001/ingest?reset=false"
-        -H "Authorization: Bearer $(cat .auth_token)" | jq .
-
-  ingest:reset:
-    desc: "[admin] Полная переиндексация data/docs_sample/ с нуля"
-    cmds:
-      - >
-        curl -sX POST "http://localhost:8001/ingest?reset=true"
-        -H "Authorization: Bearer $(cat .auth_token)" | jq .
-
-  ingest:file:
-    desc: "[admin] Проиндексировать один файл (task ingest:file -- /code/project/data/docs_sample/report.pdf)"
-    cmds:
-      - >
-        curl -sX POST "http://localhost:8001/ingest/file?file_path={{.CLI_ARGS}}"
-        -H "Authorization: Bearer $(cat .auth_token)" | jq .
-
-  ingest:list:
-    desc: "[admin] Реестр уже проиндексированных файлов"
-    cmds:
-      - >
-        curl -s http://localhost:8001/ingest/registry
-        -H "Authorization: Bearer $(cat .auth_token)" | jq .
-
-  ingest:upload:
-    desc: "[admin] Загрузить файлы в хранилище (task ingest:upload -- file1.pdf file2.docx)"
-    cmds:
-      - >
-        curl -sX POST http://localhost:8001/ingest/upload
-        -H "Authorization: Bearer $(cat .auth_token)"
-        -F "files=@{{.CLI_ARGS}}" | jq .
-
-  # -------------------------------------------------------------------------
   # Проверка и использование
   # -------------------------------------------------------------------------
-
-  health:
-    desc: Проверить статус всех сервисов через /health (без авторизации)
-    cmds:
-      - curl -s http://localhost:8001/health | jq .
-
-  chat:
-    desc: "Задать вопрос синхронно, нужен предварительный task login (task chat -- \"Твой вопрос\")"
-    cmds:
-      - >
-        curl -sX POST http://localhost:8001/chat/sync
-        -H "Authorization: Bearer $(cat .auth_token)"
-        -H "Content-Type: application/json"
-        -d "{\"question\": \"{{.CLI_ARGS}}\"}" | jq .
 
   bench:
     desc: Запустить оценку качества (retriever + LLM-судья) по data/test_questions.json
@@ -326,15 +222,6 @@ tasks:
       BUILD_TARGET: cpu
       VERSION: "{{.VERSION}}"
 
-  pdf:diag:
-    desc: "Диагностика PDF-файла (task pdf:diag -- /path/to/file.pdf)"
-    cmds:
-      - "{{.COMPOSE}} exec server bash -c 'cd app && python -m presentation.cli pdf-diag check {{.CLI_ARGS}}'"
-    env:
-      STAGE: development
-      BUILD_TARGET: cpu
-      VERSION: "{{.VERSION}}"
-
   # -------------------------------------------------------------------------
   # База данных
   # -------------------------------------------------------------------------
@@ -347,62 +234,6 @@ tasks:
       STAGE: development
       BUILD_TARGET: cpu
       VERSION: "{{.VERSION}}"
-
-  db:backup:
-    desc: Сделать дамп БД в data/db/postgres/backups/
-    cmds:
-      - mkdir -p data/db/postgres/backups
-      - "{{.COMPOSE}} exec -T postgres pg_dump -U raguser ragdb > data/db/postgres/backups/backup_$(date +%F_%H%M%S).sql"
-      - 'echo "Дамп сохранён в data/db/postgres/backups/"'
-    env:
-      STAGE: development
-      BUILD_TARGET: cpu
-      VERSION: "{{.VERSION}}"
-
-  db:backup:qdrant:
-    desc: Создать снимок Qdrant (snapshot API) в data/qdrant_backups/
-    cmds:
-      - mkdir -p data/qdrant_backups
-      - >
-        {{.COMPOSE}} exec -T qdrant curl -s http://localhost:6333/collections
-        | jq -r '.result.collections[].name'
-      - >
-        TIMESTAMP=$(date +%F_%H%M%S) &&
-        for COLL in $({{.COMPOSE}} exec -T qdrant curl -s http://localhost:6333/collections | jq -r '.result.collections[].name'); do
-          echo "Снимок коллекции $COLL..." &&
-          {{.COMPOSE}} exec -T qdrant curl -s -X POST
-            "http://localhost:6333/collections/$COLL/snapshots"
-            -o "/qdrant/storage/../snapshots/$COLL" 2>/dev/null || true;
-        done &&
-        {{.COMPOSE}} exec -T qdrant tar czf - /qdrant/snapshots/ > "data/qdrant_backups/qdrant_snapshots_$TIMESTAMP.tar.gz" &&
-        echo "Снимки Qdrant сохранены в data/qdrant_backups/"
-    env:
-      STAGE: development
-      BUILD_TARGET: cpu
-      VERSION: "{{.VERSION}}"
-
-  db:backup:minio:
-    desc: Скопировать бакеты MinIO в data/minio_backups/ (через mc)
-    cmds:
-      - mkdir -p data/minio_backups
-      - >
-        TIMESTAMP=$(date +%F_%H%M%S) &&
-        {{.COMPOSE}} exec -T minio mc alias set local http://localhost:9000
-          "${MINIO_ROOT_USER:-minioadmin}" "${MINIO_ROOT_PASSWORD:-minioadmin}" &&
-        for BUCKET in $({{.COMPOSE}} exec -T minio mc ls local/ --summarize | awk '{print $NF}' | grep -v '/$'); do
-          echo "Копирование бакета $BUCKET..." &&
-          {{.COMPOSE}} exec -T minio mc mirror --overwrite "local/$BUCKET" "/data/$BUCKET" 2>/dev/null || true;
-        done &&
-        tar czf "data/minio_backups/minio_$TIMESTAMP.tar.gz" -C data minio/ &&
-        echo "Бакеты MinIO сохранены в data/minio_backups/"
-
-  db:backup:all:
-    desc: Бэкап всех данных (Postgres + Qdrant + MinIO)
-    cmds:
-      - task: db:backup
-      - task: db:backup:qdrant
-      - task: db:backup:minio
-      - 'echo "Полный бэкап завершён"'
 
   # -------------------------------------------------------------------------
   # Alembic миграции

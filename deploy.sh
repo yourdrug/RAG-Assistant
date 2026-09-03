@@ -18,11 +18,15 @@ cd "$DEPLOY_DIR"
 export VERSION
 export STAGE=production
 export BUILD_TARGET=$( [[ "$GPU" == true ]] && echo "gpu" || echo "cpu" )
+export SERVER_IMAGE="ghcr.io/yourdrug/rag-assistant:production-${BUILD_TARGET}-${VERSION}"
+export CLIENT_IMAGE="ghcr.io/yourdrug/rag-assistant/client:${VERSION}"
 
-COMPOSE_FILES="-f docker-compose.yml -f docker-compose.prod.yml"
+COMPOSE_FILES="-f docker-compose.yml"
 [[ "$GPU" == true ]] && COMPOSE_FILES="$COMPOSE_FILES -f docker-compose.gpu.yml"
 
 echo "==> Deploying ${VERSION} (target: ${BUILD_TARGET})"
+echo "    SERVER_IMAGE=${SERVER_IMAGE}"
+echo "    CLIENT_IMAGE=${CLIENT_IMAGE}"
 
 # Pull from GHCR
 docker compose $COMPOSE_FILES pull server worker client

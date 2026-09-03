@@ -1,11 +1,13 @@
-# Dev-override: live-reload bind-mounts for local development.
-# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
-#
-# Production image (target: production-*) does NOT use this file —
-# code runs from inside the image, not from the host.
+# Dev-override: local builds + live-reload bind-mounts.
+# Auto-loaded by `docker compose up` (Compose convention for override files).
+# Production deploys skip this file by using explicit -f flags.
 
 services:
   server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: ${STAGE}-${BUILD_TARGET}
     volumes:
       - type: bind
         source: server/app
@@ -29,3 +31,10 @@ services:
           propagation: rprivate
           create_host_path: false
           selinux: Z
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL}

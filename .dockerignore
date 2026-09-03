@@ -1,5 +1,4 @@
 .initialized
-.env
 .venv
 .data
 data/

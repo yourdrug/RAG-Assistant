@@ -10,14 +10,11 @@ task lint             # ruff check
 task fmt              # ruff format + auto-fix
 
 # Docker stack
-task init             # First setup: .env + build image
-task up               # Start all services (qdrant, ollama, postgres, server)
-task up -- public     # Start with Caddy HTTPS (needs DOMAIN in .env)
+task init             # First setup: .env files + build image
+task up               # Start all services (qdrant, ollama, postgres, server, client)
 task up -- gpu        # Start with GPU support
-task up -- prod       # Start production mode
-task up -- gpu prod public  # All flags combined
 task down             # Stop stack
-task build            # Rebuild server image (supports -- gpu, -- prod)
+task build            # Rebuild images (supports -- gpu)
 task restart -- server  # Restart single service
 
 # CLI commands (via Docker)
@@ -81,11 +78,12 @@ loadtest/                ← Load testing (k6 + Locust)
 Two `.env` files:
 
 ```
-.env              → POSTGRES_*, DOMAIN, ACME_EMAIL, DOCKER_MTU (docker-compose)
-server/.env       → Qdrant, Ollama, JWT, CORS, OCR, DATA_DIR (application)
+server/.env       → Qdrant, Ollama, JWT, CORS, OCR, DATA_DIR (application config)
+client/.env       → VITE_API_URL (Vite build arg)
 ```
 
-Both `.env.example` files exist as templates. Taskfile reads `server/.env` via `dotenv:`.
+Both `.env.example` files exist as templates. Taskfile reads both via `dotenv:`.
+Root-level `QDRANT_API_KEY` and `VITE_API_URL` for docker-compose interpolation are resolved from these files via Task's `dotenv:` loading into shell environment.
 
 ## Logging
 
@@ -126,9 +124,12 @@ Both `.env.example` files exist as templates. Taskfile reads `server/.env` via `
 
 ## Docker
 
+- **Compose files**: `docker-compose.yml` (base) + `docker-compose.override.yml` (dev: build + bind-mounts) + `docker-compose.gpu.yml` (GPU)
+- Base file is pull-only (no `build:` blocks) — production deploys use `SERVER_IMAGE`/`CLIENT_IMAGE` env vars to point at GHCR images
+- Dev override adds `build:` blocks and live-reload bind-mounts; auto-loaded by `docker compose up`
 - Multi-stage build: python-base → builder-base → uv-base → development/production
-- Dev mode bind-mounts `server/app/` for live reload
 - venv lives at `/code/.venv` (separate from code, survives bind-mount)
-- Production image: `docker build --target production -t rag-server:prod .`
 - Server command: `python main.py runserver` (not direct uvicorn)
-- Services: qdrant, ollama, postgres, server, minio (S3), client (web UI)
+- Services: qdrant, ollama, postgres, redis, server, worker, minio (S3), client (web UI), tei-embed, tei-rerank (optional profile)
+- Client runs nginx that proxies `/api/*` to `server:8001` — external nginx can proxy to `client:3001` as a single upstream
+- No TLS termination inside the stack — use external nginx with certbot/letsencrypt
