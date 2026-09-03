@@ -48,7 +48,7 @@ class SQLAlchemyConfigParameterRepository:
         await self._db.flush()
 
     async def count(self) -> int:
-        result = await self._db.execute(select(func.count()))
+        result = await self._db.execute(select(func.count()).select_from(ConfigParameterModel))
         return result.scalar_one()
 
     @staticmethod
