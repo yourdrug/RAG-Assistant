@@ -89,7 +89,7 @@ class DocumentModel(BaseModel):
             name="documents_visibility_check",
         ),
         CheckConstraint(
-            "status IN ('pending', 'processing', 'done', 'failed')",
+            "status IN ('pending', 'processing', 'indexing', 'done', 'failed')",
             name="documents_status_check",
         ),
         CheckConstraint(
@@ -304,6 +304,39 @@ class BenchmarkRunModel(BaseModel):
     dataset: Mapped[str] = mapped_column(String(100), nullable=False, server_default="main")
     per_question_results: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+
+class VectorStoreOutboxModel(BaseModel):
+    """Outbox for applying changes to Qdrant after Postgres transaction commits.
+
+    Part of the Transactional Outbox pattern ensuring Postgres ↔ Qdrant consistency.
+    """
+
+    __tablename__ = "vector_store_outbox"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'in_progress', 'done', 'failed', 'dead_letter')",
+            name="vector_store_outbox_status_check",
+        ),
+        CheckConstraint(
+            "operation IN ('upsert_chunks', 'delete_by_document', 'delete_chunks')",
+            name="vector_store_outbox_operation_check",
+        ),
+        Index("idx_outbox_aggregate", "aggregate_type", "aggregate_id"),
+    )
+
+    operation: Mapped[str] = mapped_column(String(30), nullable=False)
+    aggregate_type: Mapped[str] = mapped_column(String(20), nullable=False, default="document")
+    aggregate_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=8)
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    locked_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class IngestionRegistryModel(BaseModel):

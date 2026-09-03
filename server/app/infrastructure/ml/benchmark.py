@@ -135,9 +135,9 @@ def _merge_and_dedup(
         merged_hashes = rrf_merge(
             [(k, v[0]) for k, v in dense_by_hash.items()],
             sparse_results,
-            k=get_setting("rrf_k"),
-            dense_weight=get_setting("dense_weight"),
-            sparse_weight=get_setting("sparse_weight"),
+            k=int(get_setting("rrf_k")),
+            dense_weight=float(get_setting("dense_weight")),
+            sparse_weight=float(get_setting("sparse_weight")),
         )
     else:
         merged_hashes = [h for h, _ in [(k, v[0]) for k, v in dense_by_hash.items()]]
@@ -164,9 +164,11 @@ def _apply_rerank_filters(
     gap_ratio = get_setting("rerank_score_gap_ratio")
 
     if min_score is not None:
+        min_score = float(min_score)
         ranked = [(d, s) for d, s in ranked if s >= min_score]
 
     if gap_ratio is not None and ranked:
+        gap_ratio = float(gap_ratio)
         top_score = ranked[0][1]
         cutoff = top_score * gap_ratio
         ranked = [(d, s) for d, s in ranked if s >= cutoff]
@@ -840,7 +842,7 @@ def run_benchmark(
 
     questions = load_questions(questions_path)
 
-    fetch_k = get_setting("retriever_fetch_k")
+    fetch_k = int(get_setting("retriever_fetch_k"))
 
     logger.info("Подключаюсь к RAG LLM (%s) ...", settings.llm_model)
     rag_llm = build_llm(settings.llm_model, settings.ollama_base_url, provider=settings.llm_provider)
@@ -1005,7 +1007,7 @@ async def run_benchmark_async(
     logger.info("  n_runs    : %d", n_runs)
 
     questions = load_questions(questions_path)
-    fetch_k = get_setting("retriever_fetch_k")
+    fetch_k = int(get_setting("retriever_fetch_k"))
 
     rag_llm = build_llm(settings.llm_model, settings.ollama_base_url, provider=settings.llm_provider)
     if seed is not None:

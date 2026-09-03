@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from application.services.preview_cache import PreviewCache
@@ -62,6 +62,8 @@ class InfrastructureContainer:
     pdf_quality_assessor: MLPDFQualityAssessor | None = field(default=None)
     metrics_collector: PrometheusMetricsCollector | None = field(default=None)
     preview_cache: PreviewCache | None = field(default=None)
+    outbox_dispatcher: Any = field(default=None)
+    outbox_listener: Any = field(default=None)
 
     def init(self, database_manager: DatabaseManager) -> None:
         """Create all infrastructure-layer objects.
@@ -121,6 +123,28 @@ class InfrastructureContainer:
         self.config_listener = PostgresConfigListener(
             event_bus=event_bus,
             uow_factory=self.uow_factory,
+        )
+
+        # Outbox dispatcher and listener for Postgres ↔ Qdrant consistency
+        from infrastructure.outbox_dispatcher import OutboxDispatcher
+
+        self.outbox_dispatcher = OutboxDispatcher(
+            uow_factory=self.uow_factory,
+            vector_store=self.vector_store_repo,
+        )
+
+        from config import settings as app_settings
+        from infrastructure.events.postgres_outbox_listener import PostgresOutboxListener
+
+        self.outbox_listener = PostgresOutboxListener(
+            dispatcher=self.outbox_dispatcher,
+            db_config={
+                "db_host": app_settings.db_host,
+                "db_port": app_settings.db_port,
+                "db_user": app_settings.db_user,
+                "db_password": app_settings.db_password,
+                "db_name": app_settings.db_name,
+            },
         )
 
     def create_ingestion_service(

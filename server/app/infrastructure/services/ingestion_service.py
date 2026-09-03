@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from config import settings
-from domain.entities.chunk import Chunk
 from domain.entities.document import Document as DocEntity
 from domain.repositories.vector_store_repository import VectorStoreRepository
 from domain.services.document_domain_classifier import classify_document_domain
@@ -235,24 +234,60 @@ class IngestionService:
             src = chunk.metadata.get("source", "")
             _tag_domain([chunk], source_domain.get(src, DocDomain.GENERAL.value))
 
-        await self._upload_chunks_to_vector_store(chunks, reset=reset)
-
+        # Build registry entries BEFORE sync (needed for document creation)
         source_chars: dict[str, int] = {}
         for doc in docs:
             src = doc.metadata["source"]
             source_chars[src] = source_chars.get(src, 0) + len(doc.page_content)
         await self._build_registry_entries(docs, chunks, source_chars)
         registry = await self._registry_list_all()
+
+        # Sync to Postgres + enqueue outbox (Qdrant via dispatcher)
         await self._sync_documents_to_db(registry, source_chars, chunks)
+
+        # BM25 index (separate concern, not via outbox)
+        await self._build_bm25_index(chunks, reset=reset)
 
         total_elapsed = time.monotonic() - t_start
         log.info("=" * 55)
         log.info("DONE  |  %d chunks  |  %.1fs total", len(chunks), total_elapsed)
         log.info("=" * 55)
 
+    async def _build_bm25_index(self, chunks: list, reset: bool = False) -> None:
+        """Build and persist BM25 index for hybrid search."""
+        if not settings.hybrid_enabled:
+            return
+
+        new_texts = [c.page_content for c in chunks]
+
+        if reset:
+            all_texts = new_texts
+            log.info("BM25: reset mode — rebuilding index from scratch (%d texts)", len(all_texts))
+        else:
+            existing = await load_bm25_index_from_s3(self._file_storage)
+            if existing is not None:
+                all_texts = existing.texts + new_texts
+            else:
+                all_texts = new_texts
+
+        bm25_index = BM25Index(all_texts)
+        await save_bm25_index_to_s3(bm25_index, self._file_storage)
+
     async def _sync_documents_to_db(self, registry: dict, source_chars: dict, chunks: list) -> None:
+        """Sync documents and chunks to Postgres, enqueue outbox for Qdrant.
+
+        This replaces the old _upload_chunks_to_vector_store + _sync_documents_to_db pair.
+        Postgres is now written FIRST, Qdrant via outbox (async).
+        """
         if self._uow_factory is None:
             return
+
+        # Group chunks by source for per-document processing
+        chunks_by_source: dict[str, list] = {}
+        for c in chunks:
+            src = c.metadata.get("source", "")
+            chunks_by_source.setdefault(src, []).append(c)
+
         async with self._uow_factory.create(master=True) as uow:
             # Batch prefetch: one query for all filenames instead of N+1
             filenames = list(registry.keys())
@@ -262,82 +297,66 @@ class IngestionService:
             for fname, info in registry.items():
                 src = info.get("source", "")
                 existing = existing_by_name.get(fname)
+
+                # Get or create document
                 if existing:
                     if existing.id is None:
                         raise RuntimeError(f"Document {fname} has None id after find_active_slot")
                     doc_id = existing.id
-                    file_chunks = sum(1 for c in chunks if c.metadata.get("source") == src)
-                    file_chars = source_chars.get(src, 0)
-                    await uow.documents.update_status(
-                        existing.id, "done", chunks=file_chunks, chars=file_chars
-                    )
                 else:
                     doc = DocEntity(filename=fname, visibility=DocumentVisibility.INTERNAL_PUBLIC)
                     saved = await uow.documents.save(doc)
                     if saved.id is None:
                         raise RuntimeError(f"Document {fname} has None id after save")
                     doc_id = saved.id
-                    file_chunks = info.get("chunks", 0)
-                    file_chars = info.get("chars", 0)
-                    await uow.documents.update_status(saved.id, "done", chunks=file_chunks, chars=file_chars)
 
-                file_chunks_list = [c for c in chunks if c.metadata.get("source") == src]
-                file_chunk_texts = [c.page_content for c in file_chunks_list]
-                if file_chunk_texts and doc_id is not None:
-                    first_chunk = file_chunks_list[0] if file_chunks_list else None
-                    vis = (
-                        first_chunk.metadata.get("visibility", "internal_public")
-                        if first_chunk
-                        else "internal_public"
-                    )
-                    owner = first_chunk.metadata.get("owner_id") if first_chunk else None
-                    group = first_chunk.metadata.get("group_id") if first_chunk else None
-                    chunk_domain = (
-                        first_chunk.metadata.get("doc_domain", DocDomain.GENERAL.value)
-                        if first_chunk
-                        else DocDomain.GENERAL.value
-                    )
-                    from domain.utils import content_hash as _content_hash
+                # Get chunks for this source
+                file_chunks = chunks_by_source.get(src, [])
+                if not file_chunks:
+                    continue
 
-                    file_content_hashes = [_content_hash(t) for t in file_chunk_texts]
-                    await uow.chunks.bulk_insert(
-                        document_id=doc_id,
-                        filename=fname,
-                        visibility=vis,
-                        chunks=file_chunk_texts,
-                        owner_id=owner,
-                        group_id=group,
-                        doc_domain=chunk_domain,
-                        content_hashes=file_content_hashes,
-                    )
-                    await self._vector_store.set_document_id_by_source(src, doc_id)
-            log.info("Synced %d documents to database", len(registry))
+                # Enrich metadata with chunk_id placeholder (will be set by pipeline)
+                first_chunk = file_chunks[0]
+                vis = first_chunk.metadata.get("visibility", "internal_public")
+                owner = first_chunk.metadata.get("owner_id")
+                group = first_chunk.metadata.get("group_id")
+                chunk_domain = first_chunk.metadata.get("doc_domain", DocDomain.GENERAL.value)
 
-    async def _upload_chunks_to_vector_store(self, chunks: list, reset: bool = False) -> None:
-        """Convert LangChain Documents to domain Chunks and upload via repository.
+                # Use shared pipeline: bulk_insert → outbox enqueue
+                from application.services.document_pipeline import enrich_chunks_metadata, process_chunks
 
-        Also builds and persists the BM25 index for hybrid search.
-        When adding to an existing index, merges new texts instead of overwriting.
-        On reset, rebuilds BM25 from scratch to avoid duplicates.
-        """
-        domain_chunks = [Chunk(content=c.page_content, metadata=c.metadata) for c in chunks]
-        await self._vector_store.upload_documents(domain_chunks)
+                # Convert LangChain Documents to RawChunks
+                from domain.entities.raw_chunk import RawChunk
 
-        if settings.hybrid_enabled:
-            new_texts = [c.page_content for c in chunks]
+                raw_chunks = [
+                    RawChunk(page_content=c.page_content, metadata=dict(c.metadata)) for c in file_chunks
+                ]
 
-            if reset:
-                all_texts = new_texts
-                log.info("BM25: reset mode — rebuilding index from scratch (%d texts)", len(all_texts))
-            else:
-                existing = await load_bm25_index_from_s3(self._file_storage)
-                if existing is not None:
-                    all_texts = existing.texts + new_texts
-                else:
-                    all_texts = new_texts
+                enrich_chunks_metadata(
+                    raw_chunks,
+                    doc_id,
+                    vis,
+                    owner,
+                    group,
+                    chunk_domain,
+                )
 
-            bm25_index = BM25Index(all_texts)
-            await save_bm25_index_to_s3(bm25_index, self._file_storage)
+                await process_chunks(
+                    uow_factory=self._uow_factory,
+                    document_id=doc_id,
+                    filename=fname,
+                    chunks=raw_chunks,
+                    visibility=vis,
+                    owner_id=owner,
+                    group_id=group,
+                    doc_domain=chunk_domain,
+                    set_indexing=False,  # CLI: done immediately (outbox async)
+                )
+
+                # Link vectors to document ID
+                await self._vector_store.set_document_id_by_source(src, doc_id)
+
+        log.info("Synced %d documents to database via outbox", len(registry))
 
     @staticmethod
     def _classify_file_domain(docs: list, domain: str) -> str:
@@ -408,9 +427,7 @@ class IngestionService:
         return chunks
 
     async def _index_docs(self, docs: list, domain: str = "general") -> list:
-        vector_size = len(await self._vector_store.generate_embeddings("test"))
-        await self._vector_store.ensure_collection(vector_size, reset=False)
-
+        """Parse and split documents into chunks. No direct Qdrant upload."""
         merged = merge_pdf_pages(docs)
         if domain == DocDomain.LEGAL.value:
             chunks = split_documents_legal(merged)
@@ -418,7 +435,6 @@ class IngestionService:
             chunks = split_documents(merged)
         _tag_internal_public(chunks)
         _tag_domain(chunks, domain)
-        await self._upload_chunks_to_vector_store(chunks)
         return chunks
 
     async def upload_files(self, files, prefix: str = "docs/") -> list[str]:

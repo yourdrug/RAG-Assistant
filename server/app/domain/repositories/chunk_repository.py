@@ -52,8 +52,8 @@ class ChunkRepository(Protocol):
         group_id: int | None = None,
         doc_domain: str = DocDomain.GENERAL.value,
         content_hashes: list[str] | None = None,
-    ) -> None:
-        """Insert chunks for a document. Replaces existing chunks for this document."""
+    ) -> list[int]:
+        """Insert chunks for a document. Replaces existing chunks. Returns chunk IDs."""
         ...
 
     async def get_by_id(self, chunk_id: int) -> ChunkSearchResult | None:

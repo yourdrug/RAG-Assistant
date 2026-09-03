@@ -86,30 +86,36 @@ export function AdminDocumentsPage() {
         {
             accessorKey: "id",
             header: "ID",
+            size: 60,
+            minSize: 50,
             cell: ({row}) => <span className="text-muted-foreground">#{row.original.id}</span>,
         },
         {
             accessorKey: "filename",
             header: "Filename",
             cell: ({row}) => (
-                <div className="flex items-center gap-2 max-w-xs">
+                <div className="flex items-start gap-2">
                     {row.original.source_type === "manual" ? (
-                        <Puzzle className="h-4 w-4 shrink-0 text-muted-foreground"/>
+                        <Puzzle className="h-4 w-4 shrink-0 text-muted-foreground mt-0.5"/>
                     ) : (
-                        <FileText className="h-4 w-4 shrink-0 text-muted-foreground"/>
+                        <FileText className="h-4 w-4 shrink-0 text-muted-foreground mt-0.5"/>
                     )}
-                    <span className="font-medium truncate">{row.original.filename}</span>
-                    {row.original.has_manual_edits && (
-                        <Badge variant="warning" className="text-xs">
-                            Edited
-                        </Badge>
-                    )}
+                    <div className="flex flex-col gap-1">
+                        <span className="font-medium break-words">{row.original.filename}</span>
+                        {row.original.has_manual_edits && (
+                            <Badge variant="warning" className="text-xs w-fit">
+                                Edited
+                            </Badge>
+                        )}
+                    </div>
                 </div>
             ),
         },
         {
             accessorKey: "visibility",
             header: "Visibility",
+            size: 120,
+            minSize: 100,
             cell: ({row}) => {
                 const doc = row.original;
                 return (
@@ -139,6 +145,8 @@ export function AdminDocumentsPage() {
         {
             accessorKey: "doc_domain",
             header: "Domain",
+            size: 80,
+            minSize: 70,
             cell: ({row}) => (
                 <Badge variant={row.original.doc_domain === "legal" ? "default" : "secondary"}>
                     {row.original.doc_domain}
@@ -148,36 +156,116 @@ export function AdminDocumentsPage() {
         {
             accessorKey: "status",
             header: "Status",
-            cell: ({row}) => (
-                <Badge
-                    variant={
-                        row.original.status === "done"
-                            ? "success"
-                            : row.original.status === "failed"
-                                ? "destructive"
-                                : "secondary"
+            size: 75,
+            minSize: 65,
+            maxSize: 90,
+            cell: ({row}) => {
+                const doc = row.original;
+                const isIndexing = doc.status === "indexing";
+                const hasOutboxInfo = isIndexing && ((doc.outbox_pending ?? 0) > 0 || (doc.outbox_failed ?? 0) > 0);
+
+                const badge = (
+                    <Badge
+                        className="w-fit"
+                        variant={
+                            doc.status === "done"
+                                ? "success"
+                                : doc.status === "failed"
+                                    ? "destructive"
+                                    : isIndexing
+                                        ? "default"
+                                        : "secondary"
+                        }
+                    >
+                        {doc.status}
+                    </Badge>
+                );
+
+                if (!hasOutboxInfo) {
+                    return badge;
+                }
+
+                const pending = doc.outbox_pending ?? 0;
+                const failed = doc.outbox_failed ?? 0;
+                const details = doc.outbox_failed_details;
+
+                const shortLabel = [
+                    pending > 0 && `${pending} в очереди`,
+                    failed > 0 && `${failed} ошибок`,
+                ]
+                    .filter(Boolean)
+                    .join(", ");
+
+                const tooltipLines: string[] = [];
+                if (pending > 0) {
+                    tooltipLines.push(`Очередь индексации: ${pending} операций ожидают обработки в векторной базе`);
+                }
+                if (failed > 0) {
+                    tooltipLines.push(
+                        `Ошибки: ${failed} операций завершились ошибкой и будут повторены`,
+                    );
+                    if (details && details.length > 0) {
+                        for (const d of details.slice(0, 3)) {
+                            const opLabel = d.operation === "upsert_chunks" ? "Индексация" : "Удаление";
+                            const errPreview = d.last_error
+                                ? ` — ${d.last_error.slice(0, 100)}`
+                                : "";
+                            tooltipLines.push(
+                                `• ${opLabel}: попытка ${d.attempts} из ${d.max_attempts}${errPreview}`,
+                            );
+                        }
+                        if (details.length > 3) {
+                            tooltipLines.push(`• … и ещё ${details.length - 3}`);
+                        }
                     }
-                >
-                    {row.original.status}
-                </Badge>
-            ),
+                }
+
+                return (
+                    <div className="flex flex-col gap-0.5">
+                        {badge}
+                        <TooltipProvider>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <span className="text-xs text-muted-foreground whitespace-nowrap cursor-help underline decoration-dotted underline-offset-2">
+                                        {shortLabel}
+                                    </span>
+                                </TooltipTrigger>
+                                <TooltipContent className="max-w-xs whitespace-pre-line">
+                                    {tooltipLines.join("\n")}
+                                </TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
+                    </div>
+                );
+            },
         },
-        {accessorKey: "chunks", header: "Chunks", cell: ({row}) => row.original.chunks ?? "—"},
+        {
+            accessorKey: "chunks",
+            header: "Chunks",
+            size: 80,
+            minSize: 60,
+            cell: ({row}) => row.original.chunks ?? "—",
+        },
         {
             accessorKey: "chars",
             header: "Chars",
+            size: 100,
+            minSize: 80,
             cell: ({row}) => row.original.chars?.toLocaleString() ?? "—",
         },
         {
             id: "actions",
             header: "",
+            size: 140,
+            minSize: 120,
             cell: ({row}) => {
                 const doc = row.original;
                 const canManageChunks =
-                    doc.status === "done" && ((doc.chunks ?? 0) > 0 || doc.source_type === "manual");
+                    (doc.status === "done" || doc.status === "indexing") &&
+                    ((doc.chunks ?? 0) > 0 || doc.source_type === "manual");
                 return (
                     <div className="flex gap-1">
-                        {canManageChunks && (
+                        {canManageChunks ? (
                             <Button
                                 variant={selectedDocId === doc.id ? "default" : "outline"}
                                 size="sm"
@@ -185,6 +273,8 @@ export function AdminDocumentsPage() {
                             >
                                 {selectedDocId === doc.id ? "Hide" : "Chunks"}
                             </Button>
+                        ) : (
+                            <div className="w-[72px]" />
                         )}
                         <Button
                             variant="ghost"

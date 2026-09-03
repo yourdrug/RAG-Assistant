@@ -15,6 +15,9 @@ from application.services.config_service import ConfigService
 from application.services.document_service import DocumentService
 from application.services.job_service import JobService
 from config import settings
+from domain.entities.benchmark_question import BenchmarkQuestion
+from domain.entities.benchmark_run import BenchmarkRun
+from domain.entities.benchmark_sweep import BenchmarkSweep
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from infrastructure.worker.queue import enqueue_sweep
@@ -66,7 +69,8 @@ router = APIRouter(tags=["benchmark-admin"])
 # ---------------------------------------------------------------------------
 
 
-def _question_to_response(q: object) -> BenchmarkQuestionResponse:
+def _question_to_response(q: BenchmarkQuestion) -> BenchmarkQuestionResponse:
+    assert q.id is not None
     return BenchmarkQuestionResponse(
         id=q.id,
         question=q.question,
@@ -81,7 +85,8 @@ def _question_to_response(q: object) -> BenchmarkQuestionResponse:
     )
 
 
-def _run_to_response(r: object) -> BenchmarkRunResponse:
+def _run_to_response(r: BenchmarkRun) -> BenchmarkRunResponse:
+    assert r.id is not None
     return BenchmarkRunResponse(
         id=r.id,
         sweep_id=r.sweep_id,
@@ -95,7 +100,8 @@ def _run_to_response(r: object) -> BenchmarkRunResponse:
     )
 
 
-def _sweep_to_response(s: object, *, job_id: int | None = None) -> SweepResponse:
+def _sweep_to_response(s: BenchmarkSweep, *, job_id: int | None = None) -> SweepResponse:
+    assert s.id is not None
     return SweepResponse(
         id=s.id,
         status=s.status,

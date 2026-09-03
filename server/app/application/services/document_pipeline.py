@@ -1,0 +1,133 @@
+"""DocumentPipeline — единый shared-слой для обработки чанков.
+
+Используется и API (DocumentProcessor), и CLI (IngestionService).
+Гарантирует одинаковое повужение: bulk_insert → outbox enqueue → status update.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import TYPE_CHECKING, Any
+
+from domain.entities.vector_outbox_entry import OutboxOperation, VectorOutboxEntry
+from domain.utils import content_hash
+from domain.value_objects.document_status import DocumentStatus
+
+if TYPE_CHECKING:
+    from application.ports.unit_of_work_factory import UnitOfWorkFactory
+
+log = logging.getLogger("default")
+
+
+def enrich_chunks_metadata(
+    chunks: list[Any],
+    document_id: int,
+    visibility: str,
+    owner_id: int | None,
+    group_id: int | None,
+    doc_domain: str,
+) -> None:
+    """Обогащает metadata каждого чанка стандартными полями.
+
+    Вызывать ПОСЛЕ split и ПЕРЕД process_chunks.
+    """
+    for rc in chunks:
+        rc.metadata.update(
+            {
+                "document_id": document_id,
+                "visibility": visibility,
+                "owner_id": owner_id,
+                "group_id": group_id,
+                "doc_domain": doc_domain,
+            }
+        )
+
+
+async def process_chunks(
+    uow_factory: UnitOfWorkFactory,
+    document_id: int,
+    filename: str,
+    chunks: list[Any],
+    visibility: str,
+    owner_id: int | None,
+    group_id: int | None,
+    doc_domain: str,
+    *,
+    set_indexing: bool = True,
+) -> None:
+    """Единый pipeline: bulk_insert → outbox enqueue → status update.
+
+    Args:
+        uow_factory: фабрика UoW.
+        document_id: ID документа в Postgres.
+        filename: имя файла.
+        chunks: список RawChunk с page_content и metadata.
+        visibility: видимость документа.
+        owner_id: ID владельца.
+        group_id: ID группы.
+        doc_domain: домен документа (general/legal).
+        set_indexing: ставить ли статус indexing (True для API, False для CLI).
+
+    """
+    hashes = [content_hash(rc.page_content) for rc in chunks]
+
+    async with uow_factory.create(master=True) as uow:
+        # 1. Bulk insert → получаем chunk_ids
+        chunk_ids = await uow.chunks.bulk_insert(
+            document_id=document_id,
+            filename=filename,
+            visibility=visibility,
+            chunks=[rc.page_content for rc in chunks],
+            owner_id=owner_id,
+            group_id=group_id,
+            doc_domain=doc_domain,
+            content_hashes=hashes,
+        )
+
+        # 2. Enrich metadata с chunk_ids
+        for chunk_id, rc in zip(chunk_ids, chunks, strict=True):
+            rc.metadata["chunk_id"] = chunk_id
+
+        # 3. Enqueue outbox для Qdrant
+        await uow.vector_outbox.enqueue(
+            VectorOutboxEntry(
+                operation=OutboxOperation.UPSERT_CHUNKS,
+                aggregate_type="document",
+                aggregate_id=document_id,
+                payload={
+                    "points": [
+                        {
+                            "chunk_id": cid,
+                            "page_content": rc.page_content,
+                            "metadata": rc.metadata,
+                        }
+                        for cid, rc in zip(chunk_ids, chunks, strict=True)
+                    ]
+                },
+            )
+        )
+
+        # 4. Status update
+        total_chars = sum(len(rc.page_content) for rc in chunks)
+        if set_indexing:
+            await uow.documents.update_status(
+                document_id,
+                DocumentStatus.INDEXING.value,
+                chunks=len(chunks),
+                chars=total_chars,
+            )
+        else:
+            # CLI: сразу done (outbox applying async, но CLI не ждёт)
+            await uow.documents.update_status(
+                document_id,
+                DocumentStatus.DONE.value,
+                chunks=len(chunks),
+                chars=total_chars,
+            )
+
+    log.info(
+        "Pipeline: doc %d — %d chunks enqueued (%d chars)",
+        document_id,
+        len(chunks),
+        total_chars,
+    )

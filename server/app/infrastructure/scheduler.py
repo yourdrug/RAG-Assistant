@@ -47,6 +47,7 @@ class Scheduler:
         self.scheduler = AsyncIOScheduler(timezone="UTC")
         self._config_listener: Any = None
         self._ml_clients: Any = None
+        self._outbox_dispatcher: Any = None
 
     def add_interval_job(
         self,
@@ -80,6 +81,21 @@ class Scheduler:
             seconds=300,
         )
 
+        # Outbox dispatch — safety net for missed NOTIFYs (every 30s)
+        if self._outbox_dispatcher is not None:
+            self.add_interval_job(
+                job_id="vector_outbox_dispatch",
+                func=self._periodic_outbox_dispatch,
+                seconds=30,
+            )
+
+            # Reconcile stuck documents (every 60s)
+            self.add_interval_job(
+                job_id="outbox_reconcile_stuck",
+                func=self._periodic_reconcile_stuck,
+                seconds=60,
+            )
+
     @handle_exceptions
     async def _periodic_infra_collector(self) -> None:
         """Periodically update infrastructure Prometheus gauges."""
@@ -95,15 +111,35 @@ class Scheduler:
         if self._config_listener is not None and self._config_listener.is_connected:
             await self._config_listener.resync(trigger="periodic")
 
+    @handle_exceptions
+    async def _periodic_outbox_dispatch(self) -> None:
+        """Safety net: process pending outbox entries if NOTIFY was missed."""
+        if self._outbox_dispatcher is None:
+            return
+        processed = await self._outbox_dispatcher.run_once(batch_size=50)
+        if processed:
+            logger.info("Outbox dispatch (periodic): processed %d entries", processed)
+
+    @handle_exceptions
+    async def _periodic_reconcile_stuck(self) -> None:
+        """Fix documents stuck in 'indexing' with no pending outbox entries."""
+        if self._outbox_dispatcher is None:
+            return
+        fixed = await self._outbox_dispatcher.reconcile_stuck_documents()
+        if fixed:
+            logger.info("Outbox reconcile: fixed %d stuck documents", fixed)
+
     async def startup(
         self,
         uow_factory: Any = None,
         config_listener: Any = None,
         ml_clients: Any = None,
+        outbox_dispatcher: Any = None,
     ) -> None:
         """Configure and start the scheduler with required dependencies."""
         self._config_listener = config_listener
         self._ml_clients = ml_clients
+        self._outbox_dispatcher = outbox_dispatcher
         self._configure()
         self.scheduler.start()
         logger.info("Scheduler started.")

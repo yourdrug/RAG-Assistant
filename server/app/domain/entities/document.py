@@ -45,6 +45,10 @@ class Document:
     def mark_processing(self) -> None:
         self.status = DocumentStatus.PROCESSING
 
+    def mark_indexing(self) -> None:
+        """Postgres committed, waiting for Qdrant indexing by outbox dispatcher."""
+        self.status = DocumentStatus.INDEXING
+
     def mark_done(
         self, chunks: int, chars: int, warning_message: str | None = None, quality_score: float | None = None
     ) -> None:

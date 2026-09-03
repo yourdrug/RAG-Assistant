@@ -171,9 +171,7 @@ class S3Storage:
 
     def rename_file(self, old_key: str, new_key: str) -> None:
         try:
-            self.client.copy_object(
-                Bucket=self.bucket, CopySource=f"{self.bucket}/{old_key}", Key=new_key
-            )
+            self.client.copy_object(Bucket=self.bucket, CopySource=f"{self.bucket}/{old_key}", Key=new_key)
             self.client.delete_object(Bucket=self.bucket, Key=old_key)
         except self.client.exceptions.ClientError as e:
             error_code = e.response.get("Error", {}).get("Code")

@@ -101,6 +101,9 @@ class DocumentResponse(BaseModel):
     indexed_at: datetime | None
     source_type: str = "file"
     has_manual_edits: bool = False
+    outbox_pending: int = 0
+    outbox_failed: int = 0
+    outbox_failed_details: list[dict[str, object]] | None = None
 
 
 # ---------------------------------------------------------------------------

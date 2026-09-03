@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from domain.entities.document import Document
+from domain.entities.vector_outbox_entry import OutboxOperation, VectorOutboxEntry
 from domain.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
 from domain.repositories.vector_store_repository import VectorStoreRepository
 from domain.services.access_control import (
@@ -103,7 +104,7 @@ class ChunkService:
         user_id: int,
         user_role: str,
     ) -> dict:
-        """Edit an existing chunk's content with automatic re-embedding."""
+        """Edit an existing chunk's content. Embedding is done async by outbox dispatcher."""
         role = UserRole(user_role)
 
         async with self._uow_factory.create(master=True) as uow:
@@ -125,40 +126,8 @@ class ChunkService:
 
             warning = await self._check_duplicate_content(uow, content, document_id, chunk_id)
 
-            new_vector = await self._vector_store.generate_embeddings(content)
-
             new_hash = content_hash(content)
-            existing_payload = await self._vector_store.get_point_payload(chunk_id)
-            existing_metadata = (existing_payload or {}).get("metadata") or {}
             now = datetime.now(UTC)
-            metadata = {
-                **existing_metadata,
-                "document_id": document_id,
-                "visibility": doc.visibility.value if hasattr(doc.visibility, "value") else doc.visibility,
-                "owner_id": doc.owner_id,
-                "group_id": doc.group_id,
-                "source": doc.filename,
-                "content_hash": new_hash,
-                "doc_domain": doc.doc_domain,
-                "edited": True,
-                "edited_at": now.isoformat(),
-            }
-            payload = {
-                "page_content": content,
-                "metadata": metadata,
-            }
-
-            await self._vector_store.upsert_point(
-                point_id=chunk_id,
-                vector=new_vector,
-                payload=payload,
-            )
-
-            # --- Incremental BM25 update ---
-            if self._ml_registry is not None and chunk.content_hash is not None:
-                from infrastructure.ml.bm25_updater import bm25_replace
-
-                bm25_replace(self._ml_registry, chunk.content_hash, content, new_hash=new_hash)
 
             await uow.chunks.update_content(
                 chunk_id=chunk_id,
@@ -169,6 +138,41 @@ class ChunkService:
 
             await uow.documents.set_has_manual_edits(document_id, True)
             await self._update_document_stats(uow, document_id)
+
+            # Enqueue outbox entry for async embedding + upsert
+            metadata = {
+                "document_id": document_id,
+                "visibility": doc.visibility.value if hasattr(doc.visibility, "value") else doc.visibility,
+                "owner_id": doc.owner_id,
+                "group_id": doc.group_id,
+                "source": doc.filename,
+                "content_hash": new_hash,
+                "doc_domain": doc.doc_domain,
+                "edited": True,
+                "edited_at": now.isoformat(),
+            }
+            await uow.vector_outbox.enqueue(
+                VectorOutboxEntry(
+                    operation=OutboxOperation.UPSERT_CHUNKS,
+                    aggregate_type="document",
+                    aggregate_id=document_id,
+                    payload={
+                        "points": [
+                            {
+                                "chunk_id": chunk_id,
+                                "page_content": content,
+                                "metadata": metadata,
+                            }
+                        ]
+                    },
+                )
+            )
+
+            # --- Incremental BM25 update (local, fast) ---
+            if self._ml_registry is not None and chunk.content_hash is not None:
+                from infrastructure.ml.bm25_updater import bm25_replace
+
+                bm25_replace(self._ml_registry, chunk.content_hash, content, new_hash=new_hash)
 
             log.info(
                 "Chunk %d edited by user %d in document %d",
@@ -199,7 +203,7 @@ class ChunkService:
         page: int | None = None,
         section: str | None = None,
     ) -> dict:
-        """Add a new chunk to an existing document."""
+        """Add a new chunk to an existing document. Embedding is done async by outbox dispatcher."""
         role = UserRole(user_role)
 
         async with self._uow_factory.create(master=True) as uow:
@@ -207,8 +211,10 @@ class ChunkService:
             if doc is None:
                 raise EntityNotFound("Document", document_id)
 
-            if doc.status != DocumentStatus.DONE:
-                raise BusinessRuleViolation("Can only add chunks to documents with status 'done'")
+            if doc.status not in (DocumentStatus.DONE, DocumentStatus.INDEXING):
+                raise BusinessRuleViolation(
+                    "Can only add chunks to documents with status 'done' or 'indexing'"
+                )
 
             if not doc.can_edit_chunks(user_id, role):
                 raise BusinessRuleViolation("No permission to add chunks for this document")
@@ -249,15 +255,25 @@ class ChunkService:
             if section is not None:
                 metadata["section"] = section
 
-            vector = await self._vector_store.generate_embeddings(content)
-
-            await self._vector_store.upsert_point(
-                point_id=chunk_id,
-                vector=vector,
-                payload={"page_content": content, "metadata": metadata},
+            # Enqueue outbox entry for async embedding + upsert
+            await uow.vector_outbox.enqueue(
+                VectorOutboxEntry(
+                    operation=OutboxOperation.UPSERT_CHUNKS,
+                    aggregate_type="document",
+                    aggregate_id=document_id,
+                    payload={
+                        "points": [
+                            {
+                                "chunk_id": chunk_id,
+                                "page_content": content,
+                                "metadata": metadata,
+                            }
+                        ]
+                    },
+                )
             )
 
-            # --- Incremental BM25 update ---
+            # --- Incremental BM25 update (local, fast) ---
             if self._ml_registry is not None:
                 from infrastructure.ml.bm25_updater import bm25_add
 
@@ -311,9 +327,17 @@ class ChunkService:
 
             await uow.chunks.delete_one(chunk_id)
 
-            await self._vector_store.delete_by_ids([chunk_id])
+            # Enqueue vector store deletion via outbox
+            await uow.vector_outbox.enqueue(
+                VectorOutboxEntry(
+                    operation=OutboxOperation.DELETE_CHUNKS,
+                    aggregate_type="document",
+                    aggregate_id=document_id,
+                    payload={"chunk_ids": [chunk_id]},
+                )
+            )
 
-            # --- Incremental BM25 update ---
+            # --- Incremental BM25 update (local, fast) ---
             if self._ml_registry is not None and chunk.content_hash is not None:
                 from infrastructure.ml.bm25_updater import bm25_remove
 

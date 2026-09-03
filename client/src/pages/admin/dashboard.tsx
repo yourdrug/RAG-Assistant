@@ -141,7 +141,7 @@ export function AdminDashboardPage() {
   const postgresStatus = health?.checks?.postgres?.status || "—";
 
   const docsDone = documents?.filter((d) => d.status === "done").length || 0;
-  const docsProcessing = documents?.filter((d) => d.status === "processing").length || 0;
+  const docsProcessing = documents?.filter((d) => d.status === "processing" || d.status === "indexing").length || 0;
   const docsFailed = documents?.filter((d) => d.status === "failed").length || 0;
   const totalChunks = documents?.reduce((sum, d) => sum + (d.chunks || 0), 0) || 0;
 
@@ -354,7 +354,9 @@ export function AdminDashboardPage() {
                             ? "success"
                             : d.status === "failed"
                               ? "destructive"
-                              : "secondary"
+                              : d.status === "indexing"
+                                ? "default"
+                                : "secondary"
                         }
                       >
                         {d.status}

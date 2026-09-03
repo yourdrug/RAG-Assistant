@@ -22,6 +22,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from domain.entities.message import Message
+from domain.entities.vector_outbox_entry import OutboxStatus, VectorOutboxEntry
 from domain.value_objects.stream_events import SourcesEvent, TextChunk
 
 # ---------------------------------------------------------------------------
@@ -104,6 +105,31 @@ class FakeGroupRepository:
 
 
 class FakeChunkRepository:
+    def __init__(self) -> None:
+        self._chunks: list[dict] = []
+        self._next_id = 1
+
+    async def bulk_insert(
+        self,
+        document_id: int,
+        filename: str,
+        visibility: str,
+        chunks: list[str],
+        owner_id: int | None = None,
+        group_id: int | None = None,
+        doc_domain: str = "general",
+        content_hashes: list[str] | None = None,
+    ) -> list[int]:
+        # Remove existing chunks for this document
+        self._chunks = [c for c in self._chunks if c["document_id"] != document_id]
+        ids = []
+        for _i, content in enumerate(chunks):
+            chunk_id = self._next_id
+            self._next_id += 1
+            self._chunks.append({"id": chunk_id, "document_id": document_id, "content": content})
+            ids.append(chunk_id)
+        return ids
+
     async def search_substring(self, **kwargs):
         return []
 
@@ -122,6 +148,84 @@ class FakeDocumentRepository:
 class FakeChatLogRepository:
     async def save(self, log) -> None:
         pass
+
+
+class FakeVectorOutboxRepository:
+    """In-memory outbox repository for testing SAGA/Outbox pattern."""
+
+    def __init__(self) -> None:
+        self._entries: dict[int, VectorOutboxEntry] = {}
+        self._next_id = 1
+        self._notifications: list[dict] = []
+
+    async def enqueue(self, entry: VectorOutboxEntry) -> VectorOutboxEntry:
+        entry.id = self._next_id
+        self._next_id += 1
+        self._entries[entry.id] = entry
+        self._notifications.append({"id": entry.id, "op": entry.operation.value})
+        return entry
+
+    async def claim_batch(self, worker_id: str, limit: int = 20) -> list[VectorOutboxEntry]:
+        claimed = []
+        for entry in list(self._entries.values()):
+            if len(claimed) >= limit:
+                break
+            if entry.status in (OutboxStatus.PENDING, OutboxStatus.FAILED):
+                entry.status = OutboxStatus.IN_PROGRESS
+                claimed.append(entry)
+        return claimed
+
+    async def mark_done(self, entry_id: int) -> None:
+        if entry_id in self._entries:
+            self._entries[entry_id].status = OutboxStatus.DONE
+
+    async def mark_failed(self, entry_id: int, error: str, backoff_seconds: int) -> None:
+        if entry_id in self._entries:
+            entry = self._entries[entry_id]
+            entry.attempts += 1
+            entry.last_error = error
+            if entry.attempts >= entry.max_attempts:
+                entry.status = OutboxStatus.DEAD_LETTER
+            else:
+                entry.status = OutboxStatus.FAILED
+
+    async def mark_dead_letter(self, entry_id: int, error: str) -> None:
+        if entry_id in self._entries:
+            self._entries[entry_id].status = OutboxStatus.DEAD_LETTER
+            self._entries[entry_id].last_error = error
+
+    async def count_pending(self) -> int:
+        return sum(
+            1
+            for e in self._entries.values()
+            if e.status in (OutboxStatus.PENDING, OutboxStatus.FAILED, OutboxStatus.IN_PROGRESS)
+        )
+
+    async def recover_stuck(self, stuck_timeout_minutes: int = 5) -> int:
+        recovered = 0
+        for entry in self._entries.values():
+            if entry.status == OutboxStatus.IN_PROGRESS:
+                entry.status = OutboxStatus.FAILED
+                entry.last_error = "Recovered from stuck in_progress"
+                recovered += 1
+        return recovered
+
+    async def count_by_document(self, document_id: int) -> dict[str, int]:
+        pending_statuses = {OutboxStatus.PENDING, OutboxStatus.FAILED, OutboxStatus.IN_PROGRESS}
+        failed_statuses = {OutboxStatus.FAILED, OutboxStatus.DEAD_LETTER}
+
+        pending = sum(
+            1
+            for e in self._entries.values()
+            if e.aggregate_id == document_id and e.status in pending_statuses
+        )
+        failed = sum(
+            1 for e in self._entries.values() if e.aggregate_id == document_id and e.status in failed_statuses
+        )
+        return {"pending": pending, "failed": failed}
+
+    async def list_dead_letters(self, limit: int = 50) -> list[VectorOutboxEntry]:
+        return [e for e in self._entries.values() if e.status == OutboxStatus.DEAD_LETTER][:limit]
 
 
 class FakeUserRepository:
@@ -259,6 +363,7 @@ class FakeUnitOfWork:
         self.benchmark_questions = FakeBenchmarkQuestionRepository()
         self.benchmark_sweeps = FakeBenchmarkSweepRepository()
         self.benchmark_runs = FakeBenchmarkRunRepository()
+        self.vector_outbox = FakeVectorOutboxRepository()
         self._event_handlers: list = []
         self._committed = False
         self._rolled_back = False
@@ -283,8 +388,8 @@ class FakeUnitOfWork:
 class FakeUnitOfWorkFactory:
     """In-memory UnitOfWorkFactory for unit tests."""
 
-    def __init__(self) -> None:
-        self._uow = FakeUnitOfWork()
+    def __init__(self, uow: FakeUnitOfWork | None = None) -> None:
+        self._uow = uow or FakeUnitOfWork()
 
     @asynccontextmanager
     async def create(self, master: bool = False) -> AsyncGenerator[FakeUnitOfWork, None]:

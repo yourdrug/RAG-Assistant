@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from application.services.benchmark_result_service import BenchmarkResultService
+from application.services.benchmark_result_service import (
+    BenchmarkResultService,
+    BenchmarkResultSummary as ResultSummaryDTO,
+)
 from application.services.job_service import JobService
 from config import settings
 from fastapi import APIRouter, Depends, HTTPException
@@ -24,7 +27,7 @@ from presentation.api.schemas import (
 router = APIRouter(tags=["benchmark"])
 
 
-def _summary_to_response(s: object) -> BenchmarkResultSummary:
+def _summary_to_response(s: ResultSummaryDTO) -> BenchmarkResultSummary:
     return BenchmarkResultSummary(
         id=s.id,
         config_json=s.config_json,

@@ -53,12 +53,13 @@ class SQLAlchemyChunkRepository:
         group_id: int | None = None,
         doc_domain: str = DocDomain.GENERAL.value,
         content_hashes: list[str] | None = None,
-    ) -> None:
+    ) -> list[int]:
+        """Insert chunks for a document. Replaces existing chunks. Returns chunk IDs."""
         # Delete existing chunks for this document (re-index)
         await self._session.execute(delete(ChunkModel).where(ChunkModel.document_id == document_id))
 
         if not chunks:
-            return
+            return []
 
         models = [
             ChunkModel(
@@ -76,6 +77,7 @@ class SQLAlchemyChunkRepository:
         ]
         self._session.add_all(models)
         await self._session.flush()
+        return [m.id for m in models]
 
     async def get_by_id(self, chunk_id: int) -> ChunkSearchResult | None:
         stmt = select(ChunkModel).where(ChunkModel.id == chunk_id)
@@ -255,9 +257,7 @@ class SQLAlchemyChunkRepository:
         from sqlalchemy import update as sa_update
 
         stmt = (
-            sa_update(ChunkModel)
-            .where(ChunkModel.document_id == document_id)
-            .values(filename=new_filename)
+            sa_update(ChunkModel).where(ChunkModel.document_id == document_id).values(filename=new_filename)
         )
         result = await self._session.execute(stmt)
         await self._session.flush()

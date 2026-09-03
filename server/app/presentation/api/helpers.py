@@ -55,7 +55,19 @@ def filter_sources(sources: list | None, *, exclude_keys: frozenset[str]) -> lis
 
 @runtime_checkable
 class _UploadableService(Protocol):
-    async def upload(self, **kwargs: Any) -> Any: ...
+    async def upload(
+        self,
+        filename: str,
+        file_data: bytes,
+        visibility: str,
+        group_id: int | None,
+        user_id: int,
+        user_kind: str,
+        user_role: str,
+        client_id: int | None = ...,
+        rename_on_conflict: bool = ...,
+        doc_domain: str | None = ...,
+    ) -> Any: ...
 
 
 @runtime_checkable

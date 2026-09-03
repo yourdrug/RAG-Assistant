@@ -58,9 +58,7 @@ class QdrantVectorStoreRepository:
             log.info("Qdrant: deleted points for document_id=%d", document_id)
         except Exception as e:
             log.exception("Qdrant: failed to delete points for document_id=%d", document_id)
-            raise RuntimeError(
-                f"Failed to delete vector data for document {document_id}: {e}"
-            ) from e
+            raise RuntimeError(f"Failed to delete vector data for document {document_id}: {e}") from e
 
     async def generate_embeddings(self, text: str) -> list[float]:
         return await self._get_embeddings().embed_query(text)

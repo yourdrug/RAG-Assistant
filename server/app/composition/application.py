@@ -176,6 +176,7 @@ class ApplicationContainer:
             uow_factory=uow,
             vector_store_repo=vsr,
             file_storage=fs,
+            ml_registry=ml,
         )
         self.chunk_service = ChunkService(
             uow_factory=uow,

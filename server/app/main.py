@@ -80,16 +80,22 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     if container.infrastructure.api_key_provider is None:
         raise RuntimeError("ApiKeyProvider failed to initialize")
     await container.infrastructure.config_listener.start()
+    if container.infrastructure.outbox_listener is not None:
+        await container.infrastructure.outbox_listener.start()
     await scheduler.startup(
         uow_factory=container.infrastructure.uow_factory,
         config_listener=container.infrastructure.config_listener,
         ml_clients=container.infrastructure.ml_clients,
+        outbox_dispatcher=container.infrastructure.outbox_dispatcher,
     )
     await collect_infra_metrics(ml_clients=container.infrastructure.ml_clients)
 
     yield
 
     # --- Shutdown (reverse order) ---
+    if container.infrastructure.outbox_listener is not None:
+        await container.infrastructure.outbox_listener.stop()
+
     if container.infrastructure.config_listener is not None:
         await container.infrastructure.config_listener.stop()
 

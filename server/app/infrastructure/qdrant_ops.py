@@ -7,7 +7,6 @@ module to keep concerns separated.
 
 import logging
 import time
-import uuid
 
 from config import settings
 from langchain.schema import Document
@@ -168,9 +167,10 @@ async def upload_to_qdrant(chunks: list[Document], embeddings) -> None:
         log.info("  Embedded in %.1fs", time.monotonic() - t_embed)
 
         for doc, vector in zip(batch_chunks_slice, batch_vectors, strict=False):
+            point_id = doc.metadata["chunk_id"]
             pending_points.append(
                 PointStruct(
-                    id=uuid.uuid4().hex,
+                    id=point_id,
                     vector=vector,
                     payload={
                         "page_content": doc.page_content,

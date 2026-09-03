@@ -1,9 +1,9 @@
 """Application service for processing uploaded documents end-to-end.
 
-Orchestrates the pipeline: download from storage, parse, split, generate
-embeddings, upload to vector store, and persist chunk metadata to Postgres.
-Reports quality warnings for low-fidelity PDF extractions and records
-Prometheus metrics for each processing stage.
+Orchestrates the pipeline: download from storage, parse, split, persist
+chunk metadata to Postgres, and enqueue vector-store operations via the
+Transactional Outbox pattern.  The outbox dispatcher applies changes to
+Qdrant asynchronously after the Postgres transaction commits.
 """
 
 from __future__ import annotations
@@ -11,13 +11,13 @@ from __future__ import annotations
 import logging
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from domain.entities.chunk import Chunk
+from application.services.document_pipeline import enrich_chunks_metadata, process_chunks
+from domain.entities.vector_outbox_entry import OutboxOperation, VectorOutboxEntry
 from domain.repositories.vector_store_repository import VectorStoreRepository
 from domain.services.document_domain_classifier import classify_document_domain
 from domain.services.document_parser import DocumentParser, DocumentSplitter
-from domain.utils import content_hash
 from domain.value_objects.document_status import DocumentStatus
 
 from application.ports.document_processing import (
@@ -87,62 +87,18 @@ class DocumentProcessor:
         return quality, warning_message
 
     @staticmethod
-    def _enrich_chunks(
-        raw_chunks,
-        doc_domain: str,
-        document_id: int,
-        visibility: str,
-        owner_id: int | None,
-        group_id: int | None,
-    ) -> None:
-        for rc in raw_chunks:
-            rc.metadata.update(
-                {
-                    "document_id": document_id,
-                    "visibility": visibility,
-                    "owner_id": owner_id,
-                    "group_id": group_id,
-                    "doc_domain": doc_domain,
-                }
-            )
+    def _enrich_chunk_with_section(rc: Any, doc_domain: str) -> None:
+        section = rc.metadata.get("section")
+        if section:
+            rc.page_content = f"[Раздел: {section}]\n{rc.page_content}"
 
-    async def _upload_to_vector_store(self, domain_chunks: list) -> None:
-        vector_size = len(await self._vector_store.generate_embeddings("test"))
-        await self._vector_store.ensure_collection(vector_size, reset=False)
-        await self._vector_store.upload_documents(domain_chunks)
-
-        # --- Incremental BM25 update ---
-        if self._ml_registry is not None:
-            from infrastructure.ml.bm25_updater import bm25_add
-
-            for chunk in domain_chunks:
-                bm25_add(self._ml_registry, chunk.content, text_hash=chunk.metadata.get("content_hash"))
-
-    async def _replace_existing_document(self, uow, replace_id: int) -> None:
-        await self._vector_store.delete_by_document_id(replace_id)
-        old = await uow.documents.get_by_id(replace_id)
-        if old and old.source_path:
-            self._file_storage.delete_file(old.source_path)
-        await uow.documents.delete(replace_id)
-
-    async def _update_document_status(
-        self,
-        uow,
-        document_id: int,
-        raw_chunks: list,
-        docs: list,
-        warning_message: str | None,
-        quality: PDFQualityReport | None,
-    ) -> None:
-        total_chars = sum(len(d.page_content) for d in docs)
-        await uow.documents.update_status(
-            document_id,
-            DocumentStatus.DONE.value,
-            chunks=len(raw_chunks),
-            chars=total_chars,
-            warning=warning_message,
-            quality_score=quality.bad_ratio if quality else None,
-        )
+    @staticmethod
+    def _attach_metadata_to_docs(docs: list, original_filename: str, extractor) -> None:
+        doc_date = extractor.extract_date_from_filename(original_filename)
+        for doc in docs:
+            doc.metadata["source"] = original_filename
+            if doc_date:
+                doc.metadata["doc_date"] = doc_date
 
     async def _handle_processing_failure(self, document_id: int, e: Exception) -> None:
         log.exception("Document processing failed for doc %d: %s", document_id, e)
@@ -165,20 +121,6 @@ class DocumentProcessor:
             temp_path.unlink(missing_ok=True)
         if raw_chunks:
             self._metrics.inc_chunks(len(raw_chunks))
-
-    @staticmethod
-    def _enrich_chunk_with_section(rc, doc_domain: str) -> None:
-        section = rc.metadata.get("section")
-        if section:
-            rc.page_content = f"[Раздел: {section}]\n{rc.page_content}"
-
-    @staticmethod
-    def _attach_metadata_to_docs(docs: list, original_filename: str, extractor) -> None:
-        doc_date = extractor.extract_date_from_filename(original_filename)
-        for doc in docs:
-            doc.metadata["source"] = original_filename
-            if doc_date:
-                doc.metadata["doc_date"] = doc_date
 
     async def process(
         self,
@@ -224,42 +166,63 @@ class DocumentProcessor:
             self._attach_metadata_to_docs(docs, original_filename, self._extractor)
 
             raw_chunks = self._splitter.split(docs, domain=doc_domain)
-            self._enrich_chunks(raw_chunks, doc_domain, document_id, visibility, owner_id, group_id)
 
+            # API-specific: section enrichment
             for rc in raw_chunks:
                 self._enrich_chunk_with_section(rc, doc_domain)
 
-            domain_chunks = [Chunk(content=rc.page_content, metadata=rc.metadata) for rc in raw_chunks]
-            await self._upload_to_vector_store(domain_chunks)
-
-            # --- Short transaction: persist chunks + mark DONE ---
+            # --- Shared pipeline: Postgres + outbox ---
             async with self._uow_factory.create(master=True) as uow:
                 await uow.documents.set_domain(document_id, doc_domain)
 
-                await uow.chunks.bulk_insert(
+                # Enrich metadata
+                enrich_chunks_metadata(
+                    raw_chunks,
+                    document_id,
+                    visibility,
+                    owner_id,
+                    group_id,
+                    doc_domain,
+                )
+
+                # Pipeline: bulk_insert → outbox → indexing status
+                await process_chunks(
+                    uow_factory=self._uow_factory,
                     document_id=document_id,
                     filename=original_filename,
+                    chunks=raw_chunks,
                     visibility=visibility,
-                    chunks=[rc.page_content for rc in raw_chunks],
                     owner_id=owner_id,
                     group_id=group_id,
                     doc_domain=doc_domain,
-                    content_hashes=[content_hash(rc.page_content) for rc in raw_chunks],
+                    set_indexing=True,
                 )
 
+                # Handle document replacement (API-specific)
                 if replace_id is not None:
-                    await self._replace_existing_document(uow, replace_id)
+                    await uow.vector_outbox.enqueue(
+                        VectorOutboxEntry(
+                            operation=OutboxOperation.DELETE_BY_DOCUMENT,
+                            aggregate_type="document",
+                            aggregate_id=replace_id,
+                            payload={"document_id": replace_id},
+                        )
+                    )
+                    old = await uow.documents.get_by_id(replace_id)
+                    if old and old.source_path:
+                        self._file_storage.delete_file(old.source_path)
+                    await uow.documents.delete(replace_id)
 
-                await self._update_document_status(
-                    uow,
-                    document_id,
-                    raw_chunks,
-                    docs,
-                    warning_message,
-                    quality,
-                )
+                # Update stats with quality warning
+                if warning_message:
+                    await uow.documents.update_status(
+                        document_id,
+                        DocumentStatus.INDEXING.value,
+                        warning=warning_message,
+                        quality_score=quality.bad_ratio if quality else None,
+                    )
 
-            status = DocumentStatus.DONE.value
+            status = DocumentStatus.INDEXING.value
 
         except Exception as e:
             await self._handle_processing_failure(document_id, e)

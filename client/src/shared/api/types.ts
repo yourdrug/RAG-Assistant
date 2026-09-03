@@ -89,7 +89,7 @@ export type DocumentVisibility =
   | "internal_private"
   | "client_private";
 
-export type DocumentStatus = "pending" | "processing" | "done" | "failed";
+export type DocumentStatus = "pending" | "processing" | "indexing" | "done" | "failed";
 
 export type DocumentDomain = "legal" | "general";
 
@@ -112,6 +112,14 @@ export interface DocumentResponse {
   chars?: number | null;
   creation_date?: string | null;
   indexed_at?: string | null;
+  outbox_pending?: number;
+  outbox_failed?: number;
+  outbox_failed_details?: {
+    operation: string;
+    attempts: number;
+    max_attempts: number;
+    last_error: string | null;
+  }[];
 }
 
 export interface UploadStatusResponse {

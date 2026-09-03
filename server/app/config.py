@@ -9,6 +9,7 @@ import sys
 from contextvars import ContextVar
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from pydantic import model_validator
@@ -17,7 +18,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 _settings_overrides: ContextVar[dict[str, object] | None] = ContextVar("settings_overrides", default=None)
 
 
-def get_setting(key: str) -> object:
+def get_setting(key: str) -> Any:
     """Read a setting, preferring per-context overrides over the global singleton.
 
     Used by benchmark/sweep code paths that need isolated config without

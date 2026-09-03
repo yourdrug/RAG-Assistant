@@ -187,15 +187,17 @@ export function DocumentsPage() {
       accessorKey: "filename",
       header: "Filename",
       cell: ({ row }) => (
-        <div className="flex items-center gap-2 max-w-xs">
-          <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <span className="font-medium truncate">{row.original.filename}</span>
+        <div className="flex items-start gap-2">
+          <FileText className="h-4 w-4 shrink-0 text-muted-foreground mt-0.5" />
+          <span className="font-medium break-words">{row.original.filename}</span>
         </div>
       ),
     },
     {
       accessorKey: "visibility",
       header: "Visibility",
+      size: 120,
+      minSize: 100,
       cell: ({ row }) => {
         const vis = row.original.visibility;
         const ownerId = row.original.owner_id;
@@ -215,6 +217,8 @@ export function DocumentsPage() {
     {
       accessorKey: "doc_domain",
       header: "Domain",
+      size: 80,
+      minSize: 70,
       cell: ({ row }) => {
         const domain = row.original.doc_domain;
         return <Badge variant={domain === "legal" ? "default" : "secondary"}>{domain}</Badge>;
@@ -223,6 +227,8 @@ export function DocumentsPage() {
     {
       accessorKey: "owner_id",
       header: "Owner",
+      size: 120,
+      minSize: 100,
       cell: ({ row }) => {
         const owner = uploadableClients?.find((c) => c.id === row.original.owner_id);
         if (owner) return <span className="text-sm">{owner.email}</span>;
@@ -236,6 +242,9 @@ export function DocumentsPage() {
     {
       accessorKey: "status",
       header: "Status",
+      size: 90,
+      minSize: 70,
+      maxSize: 120,
       cell: ({ row }) => (
         <Badge
           variant={
@@ -243,7 +252,7 @@ export function DocumentsPage() {
               ? "success"
               : row.original.status === "failed"
                 ? "destructive"
-                : row.original.status === "processing"
+                : row.original.status === "processing" || row.original.status === "indexing"
                   ? "warning"
                   : "secondary"
           }
@@ -252,15 +261,25 @@ export function DocumentsPage() {
         </Badge>
       ),
     },
-    { accessorKey: "chunks", header: "Chunks", cell: ({ row }) => row.original.chunks ?? "—" },
+    {
+      accessorKey: "chunks",
+      header: "Chunks",
+      size: 80,
+      minSize: 60,
+      cell: ({ row }) => row.original.chunks ?? "—",
+    },
     {
       accessorKey: "chars",
       header: "Chars",
+      size: 100,
+      minSize: 80,
       cell: ({ row }) => row.original.chars?.toLocaleString() ?? "—",
     },
     {
       id: "actions",
       header: "",
+      size: 100,
+      minSize: 80,
       cell: ({ row }) => (
         <div className="flex gap-1">
           <Button

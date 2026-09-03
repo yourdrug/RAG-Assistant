@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from domain.entities.document import Document
+from domain.entities.vector_outbox_entry import OutboxOperation, VectorOutboxEntry
 from domain.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
 from domain.repositories.vector_store_repository import VectorStoreRepository
 from domain.services.access_control import (
@@ -28,6 +30,9 @@ from domain.value_objects.visibility import DocumentVisibility
 from application.dto.document_dto import DocumentDTO
 from application.ports.file_storage import FileStorage
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
+
+if TYPE_CHECKING:
+    from infrastructure.ml.client_registry import MLClientRegistry
 
 log = logging.getLogger(__name__)
 
@@ -81,10 +86,23 @@ class DocumentService:
         uow_factory: UnitOfWorkFactory,
         vector_store_repo: VectorStoreRepository,
         file_storage: FileStorage,
+        ml_registry: MLClientRegistry | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._vector_store = vector_store_repo
         self._file_storage = file_storage
+        self._ml_registry = ml_registry
+
+    async def _remove_document_from_bm25(self, uow, document_id: int) -> None:
+        """Remove all chunks of a document from the in-memory BM25 index."""
+        if self._ml_registry is None:
+            return
+        from infrastructure.ml.bm25_updater import bm25_remove
+
+        chunks, _ = await uow.chunks.list_for_document(document_id, limit=10000)
+        for chunk in chunks:
+            if chunk.content_hash is not None:
+                bm25_remove(self._ml_registry, chunk.content_hash)
 
     async def _resolve_effective_owner_id(
         self,
@@ -117,14 +135,28 @@ class DocumentService:
         replace_id = None
         if not existing:
             return filename, replace_id
-        if existing.status in (DocumentStatus.PENDING, DocumentStatus.PROCESSING):
+        if existing.status in (
+            DocumentStatus.PENDING,
+            DocumentStatus.PROCESSING,
+            DocumentStatus.INDEXING,
+        ):
             raise BusinessRuleViolation("This document is already being processed")
         if existing.status in (DocumentStatus.DONE, DocumentStatus.FAILED):
             if rename_on_conflict:
                 filename = await self._unique_filename(uow, owner_id, effective_group_id, filename)
             else:
                 replace_id = existing.id
-                await self._vector_store.delete_by_document_id(existing.id)
+                # Remove old chunks from BM25 index before DB cascade delete
+                await self._remove_document_from_bm25(uow, existing.id)
+                # Enqueue delete via outbox (atomic with Postgres transaction)
+                await uow.vector_outbox.enqueue(
+                    VectorOutboxEntry(
+                        operation=OutboxOperation.DELETE_BY_DOCUMENT,
+                        aggregate_type="document",
+                        aggregate_id=existing.id,
+                        payload={"document_id": existing.id},
+                    )
+                )
                 if existing.source_path:
                     self._file_storage.delete_file(existing.source_path)
                 await uow.documents.delete(existing.id)
@@ -225,7 +257,7 @@ class DocumentService:
             if user_role == UserRole.ADMIN:
                 docs = await uow.documents.list_all()
                 admin_group_ids = await uow.groups.get_user_group_ids(user_id)
-                return [
+                dtos = [
                     to_document_dto(
                         d,
                         in_search_scope=is_in_search_scope(
@@ -246,6 +278,7 @@ class DocumentService:
                     user_id=user_id,
                     group_ids=[],
                 )
+                dtos = [to_document_dto(d) for d in docs]
             else:
                 group_ids = await uow.groups.get_user_group_ids(user_id)
                 docs = await uow.documents.list_visible(
@@ -253,8 +286,47 @@ class DocumentService:
                     user_id=user_id,
                     group_ids=group_ids or [],
                 )
+                dtos = [to_document_dto(d) for d in docs]
 
-            return [to_document_dto(d) for d in docs]
+            # Enrich with outbox status for indexing documents
+            enriched = []
+            for dto in dtos:
+                if dto.status == DocumentStatus.INDEXING.value:
+                    outbox_status = await uow.vector_outbox.count_by_document(dto.id)
+                    failed_details = None
+                    if outbox_status["failed"] > 0:
+                        failed_details = await uow.vector_outbox.get_failed_details(dto.id)
+                    enriched.append(
+                        DocumentDTO(
+                            id=dto.id,
+                            filename=dto.filename,
+                            visibility=dto.visibility,
+                            status=dto.status,
+                            source_path=dto.source_path,
+                            creation_date=dto.creation_date,
+                            indexed_at=dto.indexed_at,
+                            error_message=dto.error_message,
+                            warning_message=dto.warning_message,
+                            quality_score=dto.quality_score,
+                            chunks=dto.chunks,
+                            chars=dto.chars,
+                            storage_key=dto.storage_key,
+                            replace_id=dto.replace_id,
+                            owner_id=dto.owner_id,
+                            group_id=dto.group_id,
+                            doc_domain=dto.doc_domain,
+                            source_type=dto.source_type,
+                            has_manual_edits=dto.has_manual_edits,
+                            in_search_scope=dto.in_search_scope,
+                            outbox_pending=outbox_status["pending"],
+                            outbox_failed=outbox_status["failed"],
+                            outbox_failed_details=failed_details,
+                        )
+                    )
+                else:
+                    enriched.append(dto)
+
+            return enriched
 
     async def get_document(
         self, document_id: int, user_id: int, user_kind: str, user_role: str
@@ -266,7 +338,41 @@ class DocumentService:
 
             await check_document_access(uow, doc, user_id, user_kind, user_role)
 
-            return to_document_dto(doc)
+            dto = to_document_dto(doc)
+
+            # Enrich with outbox status for indexing documents
+            if dto.status == DocumentStatus.INDEXING.value:
+                outbox_status = await uow.vector_outbox.count_by_document(dto.id)
+                failed_details = None
+                if outbox_status["failed"] > 0:
+                    failed_details = await uow.vector_outbox.get_failed_details(dto.id)
+                return DocumentDTO(
+                    id=dto.id,
+                    filename=dto.filename,
+                    visibility=dto.visibility,
+                    status=dto.status,
+                    source_path=dto.source_path,
+                    creation_date=dto.creation_date,
+                    indexed_at=dto.indexed_at,
+                    error_message=dto.error_message,
+                    warning_message=dto.warning_message,
+                    quality_score=dto.quality_score,
+                    chunks=dto.chunks,
+                    chars=dto.chars,
+                    storage_key=dto.storage_key,
+                    replace_id=dto.replace_id,
+                    owner_id=dto.owner_id,
+                    group_id=dto.group_id,
+                    doc_domain=dto.doc_domain,
+                    source_type=dto.source_type,
+                    has_manual_edits=dto.has_manual_edits,
+                    in_search_scope=dto.in_search_scope,
+                    outbox_pending=outbox_status["pending"],
+                    outbox_failed=outbox_status["failed"],
+                    outbox_failed_details=failed_details,
+                )
+
+            return dto
 
     async def delete_document(self, document_id: int, user_id: int, user_role: str) -> None:
         async with self._uow_factory.create(master=True) as uow:
@@ -279,8 +385,18 @@ class DocumentService:
             if not doc.can_be_deleted_by(user_id, role, user_group_ids):
                 raise BusinessRuleViolation("Can only delete your own documents")
 
-            # Delete from vector store FIRST — if this fails, document stays in DB
-            await self._vector_store.delete_by_document_id(document_id)
+            # Enqueue vector store deletion via outbox (atomic with Postgres)
+            await uow.vector_outbox.enqueue(
+                VectorOutboxEntry(
+                    operation=OutboxOperation.DELETE_BY_DOCUMENT,
+                    aggregate_type="document",
+                    aggregate_id=document_id,
+                    payload={"document_id": document_id},
+                )
+            )
+
+            # Remove chunks from BM25 index before DB cascade delete
+            await self._remove_document_from_bm25(uow, document_id)
 
             if doc.source_path:
                 self._file_storage.delete_file(doc.source_path)
@@ -310,7 +426,11 @@ class DocumentService:
                 owner_id, new_filename, effective_group_id, for_update=True
             )
             if existing and existing.id != document_id:
-                if existing.status in (DocumentStatus.PENDING, DocumentStatus.PROCESSING):
+                if existing.status in (
+                    DocumentStatus.PENDING,
+                    DocumentStatus.PROCESSING,
+                    DocumentStatus.INDEXING,
+                ):
                     raise BusinessRuleViolation("This document name is already being processed")
                 if existing.status in (DocumentStatus.DONE, DocumentStatus.FAILED):
                     new_filename = await self._unique_filename(
@@ -324,7 +444,34 @@ class DocumentService:
 
             await uow.documents.update_filename(document_id, new_filename, new_source_path)
             await uow.chunks.update_filename_by_document_id(document_id, new_filename)
-            await self._vector_store.update_filename_by_document_id(document_id, new_filename)
+
+            # Enqueue vector store metadata update via outbox
+            await uow.vector_outbox.enqueue(
+                VectorOutboxEntry(
+                    operation=OutboxOperation.UPSERT_CHUNKS,
+                    aggregate_type="document",
+                    aggregate_id=document_id,
+                    payload={
+                        "points": [
+                            {
+                                "chunk_id": c.chunk_id,
+                                "page_content": c.content,
+                                "metadata": {
+                                    "document_id": document_id,
+                                    "visibility": c.visibility,
+                                    "owner_id": c.owner_id,
+                                    "group_id": c.group_id,
+                                    "source": new_filename,
+                                    "filename": new_filename,
+                                    "doc_domain": c.doc_domain,
+                                    "content_hash": c.content_hash,
+                                },
+                            }
+                            for c in (await uow.chunks.list_for_document(document_id, limit=10000))[0]
+                        ]
+                    },
+                )
+            )
 
             final_doc = await uow.documents.get_by_id(document_id)
             assert final_doc is not None

@@ -23,6 +23,7 @@ from domain.repositories.document_repository import DocumentRepository
 from domain.repositories.group_repository import GroupRepository
 from domain.repositories.message_repository import MessageRepository
 from domain.repositories.user_repository import UserRepository
+from domain.repositories.vector_outbox_repository import VectorOutboxRepository
 
 from application.ports.base_uow import BaseUnitOfWork
 from application.ports.session_protocol import SessionProtocol
@@ -51,6 +52,7 @@ class UnitOfWork(BaseUnitOfWork):
     benchmark_questions: BenchmarkQuestionRepository
     benchmark_sweeps: BenchmarkSweepRepository
     benchmark_runs: BenchmarkRunRepository
+    vector_outbox: VectorOutboxRepository
 
     def __init__(
         self,
@@ -68,6 +70,7 @@ class UnitOfWork(BaseUnitOfWork):
         benchmark_questions: BenchmarkQuestionRepository,
         benchmark_sweeps: BenchmarkSweepRepository,
         benchmark_runs: BenchmarkRunRepository,
+        vector_outbox: VectorOutboxRepository,
     ) -> None:
         super().__init__(session)
         self.users = users
@@ -83,6 +86,7 @@ class UnitOfWork(BaseUnitOfWork):
         self.benchmark_questions = benchmark_questions
         self.benchmark_sweeps = benchmark_sweeps
         self.benchmark_runs = benchmark_runs
+        self.vector_outbox = vector_outbox
         self._event_handlers: list[Callable[[object], Coroutine[Any, Any, None]]] = []
 
     def on_event(self, handler: Callable[[object], Coroutine[Any, Any, None]]) -> None:
