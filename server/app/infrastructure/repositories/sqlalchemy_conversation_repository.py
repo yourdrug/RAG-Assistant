@@ -35,9 +35,7 @@ class SQLAlchemyConversationRepository:
 
     async def get_for_update(self, conversation_id: int) -> Conversation | None:
         result = await self._db.execute(
-            select(ConversationModel)
-            .where(ConversationModel.id == conversation_id)
-            .with_for_update()
+            select(ConversationModel).where(ConversationModel.id == conversation_id).with_for_update()
         )
         orm = result.scalar_one_or_none()
         if orm is None:

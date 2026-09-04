@@ -39,7 +39,6 @@ def _read_version() -> str:
 
 
 class Settings(BaseSettings):
-
     # ── PostgreSQL ──────────────────────────────────────────────────────────
     db_host: str
     db_port: str

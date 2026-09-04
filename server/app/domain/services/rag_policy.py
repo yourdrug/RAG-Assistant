@@ -223,9 +223,7 @@ _OUT_OF_DOMAIN_PATTERNS = [
     r"(прогноз\s+погод|гороскоп|как\s+похудеть)",
 ]
 
-_OUT_OF_DOMAIN_RE = re.compile(
-    "|".join(_OUT_OF_DOMAIN_PATTERNS), re.IGNORECASE
-)
+_OUT_OF_DOMAIN_RE = re.compile("|".join(_OUT_OF_DOMAIN_PATTERNS), re.IGNORECASE)
 
 
 def is_out_of_domain(question: str) -> bool:

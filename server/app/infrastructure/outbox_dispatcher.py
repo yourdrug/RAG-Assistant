@@ -134,6 +134,7 @@ class OutboxDispatcher:
         # Ensure collection exists (no-op if it does)
         if chunks:
             from config import settings
+
             await self._vector_store.ensure_collection(settings.embed_dim, reset=False)
         await self._vector_store.upload_documents(chunks)
 

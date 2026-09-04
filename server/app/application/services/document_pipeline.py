@@ -105,15 +105,31 @@ async def process_chunks(
     if _existing_uow is not None:
         uow = _existing_uow
         await _process_chunks_in_uow(
-            uow, document_id, filename, chunks, visibility,
-            owner_id, group_id, doc_domain, hashes, set_indexing,
+            uow,
+            document_id,
+            filename,
+            chunks,
+            visibility,
+            owner_id,
+            group_id,
+            doc_domain,
+            hashes,
+            set_indexing,
         )
         return
 
     async with uow_factory.create(master=True) as uow:
         await _process_chunks_in_uow(
-            uow, document_id, filename, chunks, visibility,
-            owner_id, group_id, doc_domain, hashes, set_indexing,
+            uow,
+            document_id,
+            filename,
+            chunks,
+            visibility,
+            owner_id,
+            group_id,
+            doc_domain,
+            hashes,
+            set_indexing,
         )
 
 

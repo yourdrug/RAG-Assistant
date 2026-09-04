@@ -649,9 +649,7 @@ class RagService:
         if is_out_of_domain(query_for_search):
             log.info("Out-of-domain question rejected: %s", query_for_search[:100])
             RAG_RELEVANCE_GATE_TOTAL.labels(result="out_of_domain").inc()
-            yield TextChunk(
-                text="Информация не найдена в документах."
-            )
+            yield TextChunk(text="Информация не найдена в документах.")
             record_rag_answer(
                 breadth=Breadth.NARROW.value,
                 answer="",

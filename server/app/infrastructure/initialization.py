@@ -171,13 +171,13 @@ def _build_defaults() -> list[ConfigParameter]:
         # --- LLM ---
         _param(
             "llm_provider",
-            s.llm.provider,
+            s.llm_provider,
             "str",
             "llm",
             "LLM provider",
             allowed=["ollama", "openrouter"],
         ),
-        _param("llm_model", s.llm.model, "str", "llm", "LLM model name"),
+        _param("llm_model", s.llm_model, "str", "llm", "LLM model name"),
         _param("llm_temperature", str(s.llm_temperature), "float", "llm", "LLM temperature", 0.0, 2.0),
         _param("llm_top_p", str(s.llm_top_p), "float", "llm", "LLM top-p", 0.0, 1.0),
         _param(
@@ -217,9 +217,7 @@ def _build_defaults() -> list[ConfigParameter]:
             16384,
         ),
         # --- OpenRouter ---
-        _param(
-            "openrouter_model", s.openrouter_model, "str", "openrouter", "OpenRouter model name"
-        ),
+        _param("openrouter_model", s.openrouter_model, "str", "openrouter", "OpenRouter model name"),
         # --- ML Provider ---
         _param(
             "ml_provider",
@@ -245,18 +243,16 @@ def _build_defaults() -> list[ConfigParameter]:
         ),
         # --- OCR ---
         _param("ocr_enabled", json.dumps(s.ocr_enabled), "bool", "ocr", "Enable OCR processing"),
-        _param(
-            "ocr_engine", s.ocr_engine, "str", "ocr", "OCR engine", allowed=["paddleocr", "surya"]
-        ),
+        _param("ocr_engine", s.ocr_engine, "str", "ocr", "OCR engine", allowed=["paddleocr", "surya"]),
         _param("ocr_dpi", str(s.ocr_dpi), "int", "ocr", "OCR DPI for scanned pages", 72, 600),
         _param(
             "ocr_min_chars", str(s.ocr_min_chars), "int", "ocr", "Minimum chars to consider page text", 0, 500
         ),
         _param("ocr_lang_paddle", s.ocr_lang_paddle, "str", "ocr", "PaddleOCR language"),
         # --- Storage ---
-        _param("s3_endpoint", s.storage.s3.endpoint, "str", "storage", "S3 endpoint URL"),
-        _param("s3_bucket", s.storage.s3.bucket, "str", "storage", "S3 bucket name"),
-        _param("s3_region", s.storage.s3.region, "str", "storage", "S3 region"),
+        _param("s3_endpoint", s.s3_endpoint, "str", "storage", "S3 endpoint URL"),
+        _param("s3_bucket", s.s3_bucket, "str", "storage", "S3 bucket name"),
+        _param("s3_region", s.s3_region, "str", "storage", "S3 region"),
     ]
 
 
