@@ -481,7 +481,7 @@ class SweepEngine:
         result = self._benchmark_service.run(
             questions_path=questions_path,
             out_dir=out_dir,
-            top_k=get_setting("retriever_top_k"),
+            top_k=get_setting("rag.retriever_top_k"),
             judge_model=judge_model,
         )
         return result

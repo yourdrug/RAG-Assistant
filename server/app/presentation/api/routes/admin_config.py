@@ -37,7 +37,7 @@ async def list_config(
     return [
         ConfigParamResponse(
             key=r.key,
-            value=_mask_value(r.value) if r.key in SENSITIVE_KEYS else r.value,
+            value=_mask_value(r.value) if r.key in SENSITIVE_KEYS else r.value.strip('"').strip("'"),
             value_type=r.value_type,
             category=r.category,
             description=r.description,

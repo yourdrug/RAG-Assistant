@@ -134,8 +134,8 @@ async def test_resync_publishes_only_changed_params():
 
     import config
 
-    original_chunk_size = getattr(config.settings, "chunk_size", None)
-    original_hybrid = getattr(config.settings, "hybrid_enabled", None)
+    original_chunk_size = getattr(config.settings.rag, "chunk_size", None)
+    original_hybrid = getattr(config.settings.rag, "hybrid_enabled", None)
     try:
         config.settings.chunk_size = 500
         config.settings.hybrid_enabled = False
@@ -174,8 +174,8 @@ async def test_resync_skips_unchanged_params():
 
     import config
 
-    original_chunk_size = getattr(config.settings, "chunk_size", None)
-    original_hybrid = getattr(config.settings, "hybrid_enabled", None)
+    original_chunk_size = getattr(config.settings.rag, "chunk_size", None)
+    original_hybrid = getattr(config.settings.rag, "hybrid_enabled", None)
     try:
         config.settings.chunk_size = 500
         config.settings.hybrid_enabled = False

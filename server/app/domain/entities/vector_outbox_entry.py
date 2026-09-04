@@ -38,3 +38,24 @@ class VectorOutboxEntry:
     max_attempts: int = 8
     last_error: str | None = None
     creation_date: datetime | None = None
+
+    def mark_running(self) -> None:
+        """Transition to IN_PROGRESS status."""
+        self.status = OutboxStatus.IN_PROGRESS
+
+    def mark_done(self) -> None:
+        """Transition to DONE status."""
+        self.status = OutboxStatus.DONE
+
+    def mark_failed(self, error: str) -> bool:
+        """Transition to FAILED or DEAD_LETTER status.
+
+        Returns True if promoted to DEAD_LETTER (max attempts exceeded).
+        """
+        self.attempts += 1
+        self.last_error = error
+        if self.attempts >= self.max_attempts:
+            self.status = OutboxStatus.DEAD_LETTER
+            return True
+        self.status = OutboxStatus.FAILED
+        return False

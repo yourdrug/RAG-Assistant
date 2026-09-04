@@ -153,28 +153,27 @@ def can_view_document(
     user_group_ids: list[int],
     user_role: str | None = None,
 ) -> bool:
-    """Determine if the user can view the document."""
-    vis = DocumentVisibility(doc_visibility)
-    kind = UserKind(user_kind)
+    """Determine if the user can view the document.
 
-    if vis == DocumentVisibility.INTERNAL_PUBLIC:
-        return kind == UserKind.INTERNAL
-
-    if vis == DocumentVisibility.INTERNAL_GROUP:
-        return kind == UserKind.INTERNAL and doc_group_id in user_group_ids
-
-    if vis == DocumentVisibility.INTERNAL_PRIVATE:
-        return kind == UserKind.INTERNAL and doc_owner_id == user_id
-
-    if vis == DocumentVisibility.CLIENT_PRIVATE:
-        if kind == UserKind.CLIENT:
-            return doc_owner_id == user_id
-        # Admin can view any client_private document
-        if user_role == UserRole.ADMIN:
-            return True
-        # Regular internal user can view if they own the doc
-        return doc_owner_id == user_id
-
+    Uses ``get_visibility_conditions(for_list=True)`` — the same canonical
+    source of truth used by ``is_in_search_scope`` (for_list=False) and
+    ``build_qdrant_filter``.
+    """
+    conditions = get_visibility_conditions(
+        UserKind(user_kind),
+        user_id,
+        user_group_ids,
+        for_list=True,
+        user_role=UserRole(user_role) if user_role else None,
+    )
+    for cond in conditions:
+        if cond.visibility.value != doc_visibility:
+            continue
+        if cond.owner_match == OwnerMatch.SELF and doc_owner_id != user_id:
+            continue
+        if cond.group_match and (doc_group_id is None or doc_group_id not in user_group_ids):
+            continue
+        return True
     return False
 
 
@@ -204,7 +203,7 @@ def is_in_search_scope(
     for cond in conditions:
         if cond.visibility.value != doc_visibility:
             continue
-        if cond.owner_match == "self" and doc_owner_id != user_id:
+        if cond.owner_match == OwnerMatch.SELF and doc_owner_id != user_id:
             continue
         if cond.group_match and (doc_group_id is None or doc_group_id not in user_group_ids):
             continue

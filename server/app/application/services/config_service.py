@@ -40,15 +40,16 @@ class ConfigService:
             if param is None:
                 raise EntityNotFound("ConfigParameter", key)
 
-            param.validate(raw_value)
+            normalized = raw_value.strip('"').strip("'")
+            param.validate(normalized)
             old_value = param.value
-            await uow.config_parameters.update_value(key, raw_value)
-            param.value = raw_value
+            await uow.config_parameters.update_value(key, normalized)
+            param.value = normalized
 
             event = ConfigParameterChanged(
                 key=key,
                 old_value=old_value,
-                new_value=raw_value,
+                new_value=normalized,
                 value_type=param.value_type,
                 changed_by=changed_by,
             )

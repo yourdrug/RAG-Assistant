@@ -23,6 +23,8 @@ from domain.value_objects.document_status import DocumentStatus
 from domain.value_objects.roles import UserKind, UserRole
 from domain.value_objects.visibility import DocumentVisibility
 
+from application.services.document_pipeline import build_outbox_metadata
+
 from application.dto.document_dto import DocumentDTO
 from application.services.document_service import check_document_access, to_document_dto
 from application.ports.chunk_settings import ChunkSettingsPort
@@ -140,17 +142,17 @@ class ChunkService:
             await self._update_document_stats(uow, document_id)
 
             # Enqueue outbox entry for async embedding + upsert
-            metadata = {
-                "document_id": document_id,
-                "visibility": doc.visibility.value if hasattr(doc.visibility, "value") else doc.visibility,
-                "owner_id": doc.owner_id,
-                "group_id": doc.group_id,
-                "source": doc.filename,
-                "content_hash": new_hash,
-                "doc_domain": doc.doc_domain,
-                "edited": True,
-                "edited_at": now.isoformat(),
-            }
+            metadata = build_outbox_metadata(
+                document_id=document_id,
+                visibility=doc.visibility,
+                owner_id=doc.owner_id,
+                group_id=doc.group_id,
+                filename=doc.filename,
+                doc_domain=doc.doc_domain,
+                content_hash=new_hash,
+                edited=True,
+                edited_at=now.isoformat(),
+            )
             await uow.vector_outbox.enqueue(
                 VectorOutboxEntry(
                     operation=OutboxOperation.UPSERT_CHUNKS,
@@ -240,16 +242,16 @@ class ChunkService:
                 manual=True,
                 content_hash=new_hash,
             )
-            metadata = {
-                "document_id": document_id,
-                "visibility": doc.visibility.value if hasattr(doc.visibility, "value") else doc.visibility,
-                "owner_id": doc.owner_id,
-                "group_id": doc.group_id,
-                "source": doc.filename,
-                "content_hash": new_hash,
-                "doc_domain": doc.doc_domain,
-                "manual": True,
-            }
+            metadata = build_outbox_metadata(
+                document_id=document_id,
+                visibility=doc.visibility,
+                owner_id=doc.owner_id,
+                group_id=doc.group_id,
+                filename=doc.filename,
+                doc_domain=doc.doc_domain,
+                content_hash=new_hash,
+                manual=True,
+            )
             if page is not None:
                 metadata["page"] = page
             if section is not None:

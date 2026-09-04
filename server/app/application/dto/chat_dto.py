@@ -13,6 +13,7 @@ class ChatResult:
     answer: str
     conversation_id: int
     sources: list[dict] = field(default_factory=list)
+    confidence: float | None = None
     input_tokens: int | None = None
     output_tokens: int | None = None
 
@@ -27,6 +28,7 @@ class RagResult:
     domain: str = DocDomain.GENERAL.value
     retrieval_count: int = 0
     reranker_score: float | None = None
+    confidence: float | None = None
     model_used: str | None = None
     input_tokens: int | None = None
     output_tokens: int | None = None

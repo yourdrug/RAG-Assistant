@@ -10,9 +10,26 @@ from domain.entities.benchmark_sweep import BenchmarkSweep
 from domain.exceptions import EntityNotFound, ValidationError
 from domain.value_objects.sweep_status import BenchmarkSweepStatus
 
+from application.dto.benchmark_dto import ApplyConfigResult
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
 
 log = logging.getLogger("default")
+
+
+# ---------------------------------------------------------------------------
+# Benchmark run config → live config parameter mapping
+# ---------------------------------------------------------------------------
+RUN_CONFIG_KEY_MAP: dict[str, str] = {
+    "top_k": "retriever_top_k",
+    "fetch_k": "retriever_fetch_k",
+    "dense_weight": "dense_weight",
+    "sparse_weight": "sparse_weight",
+    "rrf_k": "rrf_k",
+    "rerank_min_score": "rerank_min_score",
+    "rerank_score_gap_ratio": "rerank_score_gap_ratio",
+}
+
+HISTORY_CONFIG_KEYS: tuple[str, ...] = ("top_k", "fetch_k", "dense_weight", "sparse_weight", "rrf_k")
 
 
 class BenchmarkQuestionService:
@@ -176,3 +193,28 @@ class BenchmarkRunService:
             diff[key] = [{"run_id": r.id, "value": r.config_json.get(key)} for r in runs]
 
         return runs, diff
+
+    async def apply_config(
+        self,
+        run_id: int,
+        changed_by: int,
+        config_service,
+    ) -> ApplyConfigResult:
+        """Apply a run's config_json to the live system via ConfigService."""
+        run = await self.get(run_id)
+        config = run.config_json
+        applied_keys: list[str] = []
+        failed_keys: list[dict] = []
+
+        for config_key, param_key in RUN_CONFIG_KEY_MAP.items():
+            if config_key in config:
+                try:
+                    await config_service.update_parameter(
+                        param_key, str(config[config_key]), changed_by=changed_by
+                    )
+                    applied_keys.append(param_key)
+                except Exception as e:
+                    log.warning("Failed to apply %s=%s: %s", param_key, config[config_key], e)
+                    failed_keys.append({"key": param_key, "error": str(e)})
+
+        return ApplyConfigResult(applied=len(applied_keys), keys=applied_keys, failed=failed_keys)

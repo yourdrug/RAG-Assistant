@@ -101,7 +101,14 @@ class SQLAlchemyVectorOutboxRepository:
         )
         orm = result.scalar_one_or_none()
         if orm:
-            orm.status = OutboxStatus.DONE.value
+            entity = VectorOutboxEntry(
+                id=orm.id,
+                status=OutboxStatus(orm.status),
+                attempts=orm.attempts,
+                max_attempts=orm.max_attempts,
+            )
+            entity.mark_done()
+            orm.status = entity.status.value
             orm.completed_at = datetime.now(tz=UTC)
             await self._db.flush()
 
@@ -112,12 +119,17 @@ class SQLAlchemyVectorOutboxRepository:
         orm = result.scalar_one_or_none()
         if orm is None:
             return
-        orm.attempts += 1
-        orm.last_error = error[:2000]
-        if orm.attempts >= orm.max_attempts:
-            orm.status = OutboxStatus.DEAD_LETTER.value
-        else:
-            orm.status = OutboxStatus.FAILED.value
+        entity = VectorOutboxEntry(
+            id=orm.id,
+            status=OutboxStatus(orm.status),
+            attempts=orm.attempts,
+            max_attempts=orm.max_attempts,
+        )
+        is_dead_letter = entity.mark_failed(error[:2000])
+        orm.attempts = entity.attempts
+        orm.last_error = entity.last_error
+        orm.status = entity.status.value
+        if not is_dead_letter:
             orm.next_attempt_at = datetime.now(tz=UTC) + timedelta(seconds=backoff_seconds)
         await self._db.flush()
 

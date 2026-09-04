@@ -33,6 +33,17 @@ class SQLAlchemyConversationRepository:
     async def get(self, conversation_id: int) -> Conversation | None:
         return await self.get_by_id(conversation_id)
 
+    async def get_for_update(self, conversation_id: int) -> Conversation | None:
+        result = await self._db.execute(
+            select(ConversationModel)
+            .where(ConversationModel.id == conversation_id)
+            .with_for_update()
+        )
+        orm = result.scalar_one_or_none()
+        if orm is None:
+            return None
+        return Conversation(id=orm.id, user_id=orm.user_id, creation_date=orm.creation_date)
+
     async def save(self, conversation: Conversation) -> Conversation:
         if conversation.id is not None:
             result = await self._db.execute(

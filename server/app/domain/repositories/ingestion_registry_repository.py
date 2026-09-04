@@ -7,6 +7,7 @@ concurrent access and durability across container restarts.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Protocol, runtime_checkable
 
 
@@ -17,7 +18,7 @@ class IngestionRegistryEntry:
     source: str
     chunks: int
     chars: int
-    indexed_at: str | None = None
+    indexed_at: datetime | None = None
 
 
 @runtime_checkable

@@ -92,22 +92,8 @@ STATIC_CONFIG_KEYS: frozenset[str] = frozenset({"file_backend", "data_dir"})
 
 # ---------------------------------------------------------------------------
 # Benchmark run config → live config parameter mapping
+# (canonical location: application.services.benchmark_services)
 # ---------------------------------------------------------------------------
-RUN_CONFIG_KEY_MAP: dict[str, str] = {
-    "top_k": "retriever_top_k",
-    "fetch_k": "retriever_fetch_k",
-    "dense_weight": "dense_weight",
-    "sparse_weight": "sparse_weight",
-    "rrf_k": "rrf_k",
-    "rerank_min_score": "rerank_min_score",
-    "rerank_score_gap_ratio": "rerank_score_gap_ratio",
-}
-
-
-# ---------------------------------------------------------------------------
-# History config summary keys
-# ---------------------------------------------------------------------------
-HISTORY_CONFIG_KEYS: tuple[str, ...] = ("top_k", "fetch_k", "dense_weight", "sparse_weight", "rrf_k")
 
 
 # ---------------------------------------------------------------------------

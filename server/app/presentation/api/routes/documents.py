@@ -77,7 +77,8 @@ async def upload_document(
         raise HTTPException(
             status_code=FILE_TOO_LARGE_STATUS,
             detail=(
-                f"File too large: {len(data) / 1024 / 1024:.1f} MB (limit {settings.max_upload_size_mb} MB)"
+                f"File too large: {len(data) / 1024 / 1024:.1f} MB"
+                f" (limit {settings.max_upload_size_mb} MB)"
             ),
         )
 

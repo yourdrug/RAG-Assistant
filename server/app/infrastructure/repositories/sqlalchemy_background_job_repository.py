@@ -48,25 +48,31 @@ class SQLAlchemyBackgroundJobRepository:
         result = await self._db.execute(select(BackgroundJobModel).where(BackgroundJobModel.id == job_id))
         orm = result.scalar_one_or_none()
         if orm:
-            orm.status = BackgroundJobStatus.RUNNING.value
-            orm.started_at = datetime.now(tz=UTC)
+            entity = self._to_entity(orm)
+            entity.mark_running()
+            orm.status = entity.status
+            orm.started_at = entity.started_at
             await self._db.flush()
 
     async def mark_done(self, job_id: int) -> None:
         result = await self._db.execute(select(BackgroundJobModel).where(BackgroundJobModel.id == job_id))
         orm = result.scalar_one_or_none()
         if orm:
-            orm.status = BackgroundJobStatus.DONE.value
-            orm.finished_at = datetime.now(tz=UTC)
+            entity = self._to_entity(orm)
+            entity.mark_done()
+            orm.status = entity.status
+            orm.finished_at = entity.finished_at
             await self._db.flush()
 
     async def mark_failed(self, job_id: int, error: str) -> None:
         result = await self._db.execute(select(BackgroundJobModel).where(BackgroundJobModel.id == job_id))
         orm = result.scalar_one_or_none()
         if orm:
-            orm.status = BackgroundJobStatus.FAILED.value
-            orm.finished_at = datetime.now(tz=UTC)
-            orm.error_message = error
+            entity = self._to_entity(orm)
+            entity.mark_failed(error)
+            orm.status = entity.status
+            orm.finished_at = entity.finished_at
+            orm.error_message = entity.error_message
             await self._db.flush()
 
     async def count_active(self) -> int:

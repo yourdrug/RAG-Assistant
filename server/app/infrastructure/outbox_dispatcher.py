@@ -133,18 +133,9 @@ class OutboxDispatcher:
         ]
         # Ensure collection exists (no-op if it does)
         if chunks:
-            vector_size = len(await self._vector_store.generate_embeddings("test"))
-            await self._vector_store.ensure_collection(vector_size, reset=False)
+            from config import settings
+            await self._vector_store.ensure_collection(settings.embed_dim, reset=False)
         await self._vector_store.upload_documents(chunks)
-
-    async def mark_document_indexed(self, document_id: int) -> None:
-        """Mark a document as fully indexed (status=done) after all outbox entries are applied."""
-        async with self._uow_factory.create(master=True) as uow:
-            await uow.documents.update_status(
-                document_id,
-                DocumentStatus.DONE.value,
-            )
-        log.info("Document %d marked as done (fully indexed)", document_id)
 
     async def reconcile_stuck_documents(self) -> int:
         """Find documents stuck in 'indexing' with no pending outbox entries and mark them done.

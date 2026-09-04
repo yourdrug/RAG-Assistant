@@ -106,7 +106,7 @@ class DocumentModel(BaseModel):
             "owner_id",
             "filename",
             unique=True,
-            postgresql_where="status IN ('pending', 'processing', 'done')",
+            postgresql_where="status IN ('pending', 'processing', 'done', 'failed')",
         ),
     )
 
@@ -350,4 +350,4 @@ class IngestionRegistryModel(BaseModel):
     source: Mapped[str] = mapped_column(String(1000), nullable=False, server_default="")
     chunks: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     chars: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
-    indexed_at: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    indexed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

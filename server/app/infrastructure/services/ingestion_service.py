@@ -100,7 +100,7 @@ class IngestionService:
                 source=source,
                 chunks=chunks_count,
                 chars=chars,
-                indexed_at=_dt.now().isoformat(timespec="seconds"),
+                indexed_at=_dt.now(),
             )
             await repo.upsert(entry)
 
@@ -211,8 +211,7 @@ class IngestionService:
         if reset:
             registry = {}
 
-        vector_size = len(await self._vector_store.generate_embeddings("test"))
-        await self._vector_store.ensure_collection(vector_size, reset=reset)
+        await self._vector_store.ensure_collection(settings.embed_dim, reset=reset)
 
         if reset:
             await self._delete_internal_documents()
@@ -363,7 +362,8 @@ class IngestionService:
     def _classify_file_domain(docs: list, domain: str) -> str:
         if domain == "auto":
             full_text = "\n".join(d.page_content for d in docs)
-            return classify_document_domain(full_text, threshold=settings.document_domain_marker_threshold)
+            threshold = settings.document_domain_marker_threshold
+            return classify_document_domain(full_text, threshold=threshold)
         return domain
 
     async def run_single_file(self, file_path: str, domain: str = "auto") -> None:
@@ -391,7 +391,7 @@ class IngestionService:
         if file_info is None:
             log.error("File not found in S3: %s", key)
             return None
-        if file_info.extension.lower() not in settings.supported_extensions:
+        if file_info.extension.lower() not in self._file_storage.supported_extensions:
             log.error("Unsupported format: %s", file_info.extension)
             return None
 

@@ -1,7 +1,7 @@
 """DocumentPipeline — единый shared-слой для обработки чанков.
 
 Используется и API (DocumentProcessor), и CLI (IngestionService).
-Гарантирует одинаковое повужение: bulk_insert → outbox enqueue → status update.
+Гарантирует одинаковое поведение: bulk_insert → outbox enqueue → status update.
 """
 
 from __future__ import annotations
@@ -12,11 +12,39 @@ from typing import TYPE_CHECKING, Any
 from domain.entities.vector_outbox_entry import OutboxOperation, VectorOutboxEntry
 from domain.utils import content_hash
 from domain.value_objects.document_status import DocumentStatus
+from domain.value_objects.visibility import DocumentVisibility
 
 if TYPE_CHECKING:
     from application.ports.unit_of_work_factory import UnitOfWorkFactory
 
 log = logging.getLogger("default")
+
+
+def build_outbox_metadata(
+    document_id: int,
+    visibility,
+    owner_id: int | None,
+    group_id: int | None,
+    filename: str,
+    doc_domain: str,
+    **extra,
+) -> dict:
+    """Build a standard metadata dict for vector outbox entries.
+
+    Centralizes the metadata construction to avoid duplication across
+    chunk_service, document_service, and document_pipeline.
+    """
+    vis = visibility.value if isinstance(visibility, DocumentVisibility) else visibility
+    base = {
+        "document_id": document_id,
+        "visibility": vis,
+        "owner_id": owner_id,
+        "group_id": group_id,
+        "source": filename,
+        "doc_domain": doc_domain,
+    }
+    base.update(extra)
+    return base
 
 
 def enrich_chunks_metadata(

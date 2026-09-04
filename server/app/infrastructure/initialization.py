@@ -10,14 +10,12 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
 
-from bootstrap import bootstrap_admin
 from config import settings
-from domain.entities.benchmark_question import BenchmarkQuestion
 from domain.entities.config_parameter import ConfigParameter
 from domain.events.config_events import ConfigParameterChanged
-
+from domain.value_objects.roles import UserKind, UserRole
+from infrastructure.auth.password_hasher import BCryptPasswordHasher
 from infrastructure.events.in_process_event_bus import event_bus
 
 logger = logging.getLogger("default")
@@ -173,13 +171,13 @@ def _build_defaults() -> list[ConfigParameter]:
         # --- LLM ---
         _param(
             "llm_provider",
-            json.dumps(s.llm_provider),
+            s.llm.provider,
             "str",
             "llm",
             "LLM provider",
             allowed=["ollama", "openrouter"],
         ),
-        _param("llm_model", json.dumps(s.llm_model), "str", "llm", "LLM model name"),
+        _param("llm_model", s.llm.model, "str", "llm", "LLM model name"),
         _param("llm_temperature", str(s.llm_temperature), "float", "llm", "LLM temperature", 0.0, 2.0),
         _param("llm_top_p", str(s.llm_top_p), "float", "llm", "LLM top-p", 0.0, 1.0),
         _param(
@@ -220,12 +218,12 @@ def _build_defaults() -> list[ConfigParameter]:
         ),
         # --- OpenRouter ---
         _param(
-            "openrouter_model", json.dumps(s.openrouter_model), "str", "openrouter", "OpenRouter model name"
+            "openrouter_model", s.openrouter_model, "str", "openrouter", "OpenRouter model name"
         ),
         # --- ML Provider ---
         _param(
             "ml_provider",
-            json.dumps(s.ml_provider),
+            s.ml_provider,
             "str",
             "ml",
             "ML provider for embedding/reranking",
@@ -233,14 +231,14 @@ def _build_defaults() -> list[ConfigParameter]:
         ),
         _param(
             "deepinfra_embed_model",
-            json.dumps(s.deepinfra_embed_model),
+            s.deepinfra_embed_model,
             "str",
             "ml",
             "DeepInfra embedding model",
         ),
         _param(
             "deepinfra_rerank_model",
-            json.dumps(s.deepinfra_rerank_model),
+            s.deepinfra_rerank_model,
             "str",
             "ml",
             "DeepInfra reranker model",
@@ -248,17 +246,17 @@ def _build_defaults() -> list[ConfigParameter]:
         # --- OCR ---
         _param("ocr_enabled", json.dumps(s.ocr_enabled), "bool", "ocr", "Enable OCR processing"),
         _param(
-            "ocr_engine", json.dumps(s.ocr_engine), "str", "ocr", "OCR engine", allowed=["paddleocr", "surya"]
+            "ocr_engine", s.ocr_engine, "str", "ocr", "OCR engine", allowed=["paddleocr", "surya"]
         ),
         _param("ocr_dpi", str(s.ocr_dpi), "int", "ocr", "OCR DPI for scanned pages", 72, 600),
         _param(
             "ocr_min_chars", str(s.ocr_min_chars), "int", "ocr", "Minimum chars to consider page text", 0, 500
         ),
-        _param("ocr_lang_paddle", json.dumps(s.ocr_lang_paddle), "str", "ocr", "PaddleOCR language"),
+        _param("ocr_lang_paddle", s.ocr_lang_paddle, "str", "ocr", "PaddleOCR language"),
         # --- Storage ---
-        _param("s3_endpoint", json.dumps(s.s3_endpoint), "str", "storage", "S3 endpoint URL"),
-        _param("s3_bucket", json.dumps(s.s3_bucket), "str", "storage", "S3 bucket name"),
-        _param("s3_region", json.dumps(s.s3_region), "str", "storage", "S3 region"),
+        _param("s3_endpoint", s.storage.s3.endpoint, "str", "storage", "S3 endpoint URL"),
+        _param("s3_bucket", s.storage.s3.bucket, "str", "storage", "S3 bucket name"),
+        _param("s3_region", s.storage.s3.region, "str", "storage", "S3 region"),
     ]
 
 
@@ -267,34 +265,65 @@ async def initialize_app(uow_factory) -> None:
     await _bootstrap_admin(uow_factory)
     await _seed_config_defaults(uow_factory)
     await _load_config_from_db(uow_factory)
-    await _migrate_test_questions(uow_factory)
 
 
 async def _bootstrap_admin(uow_factory) -> None:
     """Ensure default admin user exists."""
     try:
-        await bootstrap_admin(uow_factory)
+        if not settings.admin_email or not settings.admin_password:
+            logger.warning(
+                "No admin exists and ADMIN_EMAIL/ADMIN_PASSWORD not set — "
+                "you won't be able to log in. Set them in server/.env and restart."
+            )
+            return
+
+        hasher = BCryptPasswordHasher()
+        hashed = await hasher.hash(settings.admin_password)
+        async with uow_factory.create(master=True) as uow:
+            await uow.users.ensure_admin(
+                email=settings.admin_email,
+                hashed_password=hashed,
+                role=UserRole.ADMIN,
+                kind=UserKind.INTERNAL,
+            )
+            logger.info("Admin ensured: %s", settings.admin_email)
     except Exception as e:
         logger.warning("Failed to bootstrap admin: %s", e)
 
 
 async def _seed_config_defaults(uow_factory) -> None:
-    """Seed config_parameters table with defaults from env if empty.
+    """Seed config_parameters table with defaults from env.
 
-    On a fresh database the table has no rows.  This function inserts
-    all dynamic parameters with values taken from the current env-based
-    settings so that the admin UI is immediately usable.
+    Uses upsert: existing parameters keep their DB values,
+    missing parameters are added from env defaults.
+    Category is always synced to the current definition.
     """
     try:
         async with uow_factory.create(master=True) as uow:
-            count = await uow.config_parameters.count()
-            if count > 0:
-                return
+            existing = await uow.config_parameters.get_all()
+            existing_keys = {p.key for p in existing}
+            existing_categories = {p.key: p.category for p in existing}
 
             defaults = _build_defaults()
+            added = 0
+            updated = 0
             for entity in defaults:
-                await uow.config_parameters.save(entity)
-            logger.info("Seeded %d config parameters from env defaults", len(defaults))
+                if entity.key not in existing_keys:
+                    await uow.config_parameters.save(entity)
+                    added += 1
+                elif existing_categories.get(entity.key) != entity.category:
+                    await uow.config_parameters.update_category(entity.key, entity.category)
+                    updated += 1
+
+            if added or updated:
+                logger.info(
+                    "Config parameters: added %d, category fixed %d (total: %d)",
+                    added,
+                    updated,
+                    len(defaults),
+                )
+            else:
+                logger.info("All %d config parameters already present", len(defaults))
     except Exception as e:
         logger.warning("Failed to seed config defaults: %s", e)
 
@@ -313,52 +342,10 @@ async def _load_config_from_db(uow_factory) -> None:
                     ConfigParameterChanged(
                         key=r.key,
                         old_value=None,
-                        new_value=r.value,
+                        new_value=r.value.strip('"').strip("'"),
                         value_type=r.value_type,
                     )
                 )
             logger.info("Loaded %d config parameters via event bus", len(rows))
     except Exception as e:
         logger.warning("Failed to load config from DB: %s", e)
-
-
-async def _migrate_test_questions(uow_factory) -> None:
-    """One-time migration: load test_questions.json into benchmark_questions table.
-
-    If the table already has questions, this is a no-op.
-    """
-    try:
-        async with uow_factory.create() as uow:
-            count = await uow.benchmark_questions.count()
-
-        if count > 0:
-            return
-
-        questions_file = Path(settings.data_dir) / "test_questions.json"
-        if not questions_file.exists():
-            return
-
-        data = json.loads(questions_file.read_text(encoding="utf-8"))
-        if not data:
-            return
-
-        entities = [
-            BenchmarkQuestion(
-                question=q.get("question", ""),
-                expected_answer=q.get("expected_answer"),
-                source_hint=q.get("source_hint"),
-                dataset="main",
-            )
-            for q in data
-            if q.get("question")
-        ]
-
-        if entities:
-            async with uow_factory.create(master=True) as uow:
-                imported = await uow.benchmark_questions.bulk_create(entities)
-            logger.info(
-                "Migrated %d questions from test_questions.json to benchmark_questions table",
-                imported,
-            )
-    except Exception as e:
-        logger.warning("Failed to migrate test_questions.json: %s", e)

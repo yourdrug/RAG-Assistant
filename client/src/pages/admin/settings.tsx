@@ -28,16 +28,19 @@ interface OpenRouterModel {
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
+  toggles: "Feature Toggles",
   rag: "RAG Pipeline",
   hybrid: "Hybrid Search",
+  reranker: "Reranker",
   ingestion: "Ingestion",
   llm: "LLM",
   openrouter: "OpenRouter",
+  ml: "ML Provider",
   ocr: "OCR",
   storage: "Storage",
 };
 
-const CATEGORY_ORDER = ["rag", "hybrid", "ingestion", "llm", "openrouter", "ocr", "storage"];
+const CATEGORY_ORDER = ["toggles", "rag", "hybrid", "reranker", "ingestion", "llm", "openrouter", "ml", "ocr", "storage"];
 
 export function AdminSettingsPage() {
   const queryClient = useQueryClient();

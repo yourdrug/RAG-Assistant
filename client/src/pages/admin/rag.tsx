@@ -50,6 +50,7 @@ export function AdminRAGPage() {
 
   const ragParams = params?.filter((p) => p.category === "rag") ?? [];
   const hybridParams = params?.filter((p) => p.category === "hybrid") ?? [];
+  const togglesParams = params?.filter((p) => p.category === "toggles") ?? [];
 
   const handleSave = (key: string) => {
     const val = edits[key];
@@ -214,6 +215,37 @@ export function AdminRAGPage() {
           </Table>
         </CardContent>
       </Card>
+
+      {togglesParams.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Feature Toggles</CardTitle>
+            <CardDescription>Enable or disable RAG pipeline features</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[200px]">Parameter</TableHead>
+                  <TableHead className="w-[300px]">Value</TableHead>
+                  <TableHead>Description</TableHead>
+                  <TableHead className="w-[100px]"></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {togglesParams.map((p) => (
+                  <TableRow key={p.key}>
+                    <TableCell className="font-mono text-sm">{p.key}</TableCell>
+                    <TableCell>{renderValue(p)}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{p.description}</TableCell>
+                    <TableCell>{renderActions(p)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

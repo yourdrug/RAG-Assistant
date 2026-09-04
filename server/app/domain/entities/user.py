@@ -31,7 +31,7 @@ class User:
         if isinstance(self.kind, str):
             self.kind = UserKind.validate(self.kind)
 
-    def can_be_created_by(self, creator_role: UserRole) -> None:
+    def ensure_can_be_created_by(self, creator_role: UserRole) -> None:
         """Enforce rule: only admin can create users."""
         if creator_role != UserRole.ADMIN:
             raise BusinessRuleViolation("Only admin can create users")

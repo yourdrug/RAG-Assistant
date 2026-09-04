@@ -222,7 +222,7 @@ class ApiKeyResponse(BaseModel):
     id: int
     key_prefix: str
     name: str | None
-    created_at: datetime | None
+    creation_date: datetime | None
     last_used_at: datetime | None
     revoked_at: datetime | None
     is_active: bool

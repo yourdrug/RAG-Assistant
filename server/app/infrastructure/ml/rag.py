@@ -12,6 +12,7 @@ from pathlib import Path
 from domain.services.rag_policy import (  # noqa: F401
     build_system_prompt,
     classify_question_breadth,
+    is_out_of_domain,
     needs_decomposition,
 )
 from domain.value_objects.message_role import MessageRole

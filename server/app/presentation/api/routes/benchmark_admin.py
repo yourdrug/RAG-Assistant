@@ -10,7 +10,9 @@ from application.services.benchmark_services import (
     BenchmarkQuestionService,
     BenchmarkRunService,
     BenchmarkSweepService,
+    HISTORY_CONFIG_KEYS,
 )
+from application.services.benchmark_result_service import BenchmarkResultService
 from application.services.config_service import ConfigService
 from application.services.document_service import DocumentService
 from application.services.job_service import JobService
@@ -24,14 +26,14 @@ from infrastructure.worker.queue import enqueue_sweep
 
 from presentation.api.auth_dependencies import require_admin
 from presentation.api.constants import (
-    HISTORY_CONFIG_KEYS,
     JobType,
-    RUN_CONFIG_KEY_MAP,
     SSE_HEADERS,
     SSE_MEDIA_TYPE,
 )
 from presentation.api.dependencies import (
+    create_benchmark_history_port,
     create_benchmark_question_service,
+    create_benchmark_result_service,
     create_benchmark_run_service,
     create_benchmark_sweep_service,
     create_config_service,
@@ -366,24 +368,12 @@ async def apply_run_config(
     config_service: ConfigService = Depends(create_config_service),
 ):
     """Apply a run's config_json to the live system via ConfigService."""
-    run = await service.get(run_id)
-
-    config = run.config_json
-    applied_keys = []
-    failed_keys: list[RunApplyFailed] = []
-
-    for config_key, param_key in RUN_CONFIG_KEY_MAP.items():
-        if config_key in config:
-            try:
-                await config_service.update_parameter(
-                    param_key, str(config[config_key]), changed_by=admin["id"]
-                )
-                applied_keys.append(param_key)
-            except Exception as e:
-                logger.warning("Failed to apply %s=%s: %s", param_key, config[config_key], e)
-                failed_keys.append(RunApplyFailed(key=param_key, error=str(e)))
-
-    return RunApplyResponse(applied=len(applied_keys), keys=applied_keys, failed=failed_keys)
+    result = await service.apply_config(run_id, admin["id"], config_service)
+    return RunApplyResponse(
+        applied=result.applied,
+        keys=result.keys,
+        failed=[RunApplyFailed(**f) for f in result.failed],
+    )
 
 
 @router.get("/admin/benchmark/runs/compare", response_model=RunCompareResponse)
@@ -445,42 +435,26 @@ async def regression_check(
         description="DB run ID to check; if omitted, compares last two history entries",
     ),
     admin: dict = Depends(require_admin),
-    service: BenchmarkRunService = Depends(create_benchmark_run_service),
+    result_service: BenchmarkResultService = Depends(create_benchmark_result_service),
+    history_port=Depends(create_benchmark_history_port),
 ):
     """Check for regression: compare a run (or latest) against the last baseline."""
     from config import settings
-    from infrastructure.ml.benchmark_history import compare_runs, get_last_baseline, load_history
 
     data_dir = str(settings.data_dir)
-    baseline = get_last_baseline(data_dir)
-    if baseline is None:
-        return RegressionCheckResponse(passed=True, results=[])
-
-    if run_id is not None:
-        run = await service.get(run_id)
-        current = {
-            "metrics": run.summary_metrics or {},
-            "config": run.config_json,
-        }
-    else:
-        history = load_history(data_dir)
-        if len(history) < 2:
-            return RegressionCheckResponse(passed=True, results=[])
-        current = history[-1]
-
-    result = compare_runs(current, baseline)
+    output = await result_service.check_regression(run_id, history_port, data_dir)
     return RegressionCheckResponse(
-        passed=result["passed"],
+        passed=output.passed,
         results=[
             RegressionCheckResult(
-                metric=r["metric"],
-                baseline=r.get("baseline"),
-                current=r.get("current"),
-                delta=r.get("delta"),
-                threshold=r["threshold"],
-                failed=r["failed"],
-                note=r.get("note"),
+                metric=r.metric,
+                baseline=r.baseline,
+                current=r.current,
+                delta=r.delta,
+                threshold=r.threshold,
+                failed=r.failed,
+                note=r.note,
             )
-            for r in result["results"]
+            for r in output.results
         ],
     )

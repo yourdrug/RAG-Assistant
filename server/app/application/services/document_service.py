@@ -28,6 +28,8 @@ from domain.value_objects.roles import UserKind, UserRole
 from domain.value_objects.visibility import DocumentVisibility
 
 from application.dto.document_dto import DocumentDTO
+
+from application.services.document_pipeline import build_outbox_metadata
 from application.ports.file_storage import FileStorage
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
 
@@ -277,6 +279,7 @@ class DocumentService:
                     user_kind=user_kind,
                     user_id=user_id,
                     group_ids=[],
+                    user_role=user_role,
                 )
                 dtos = [to_document_dto(d) for d in docs]
             else:
@@ -285,6 +288,7 @@ class DocumentService:
                     user_kind=user_kind,
                     user_id=user_id,
                     group_ids=group_ids or [],
+                    user_role=user_role,
                 )
                 dtos = [to_document_dto(d) for d in docs]
 
@@ -456,16 +460,15 @@ class DocumentService:
                             {
                                 "chunk_id": c.chunk_id,
                                 "page_content": c.content,
-                                "metadata": {
-                                    "document_id": document_id,
-                                    "visibility": c.visibility,
-                                    "owner_id": c.owner_id,
-                                    "group_id": c.group_id,
-                                    "source": new_filename,
-                                    "filename": new_filename,
-                                    "doc_domain": c.doc_domain,
-                                    "content_hash": c.content_hash,
-                                },
+                                "metadata": build_outbox_metadata(
+                                    document_id=document_id,
+                                    visibility=c.visibility,
+                                    owner_id=c.owner_id,
+                                    group_id=c.group_id,
+                                    filename=new_filename,
+                                    doc_domain=c.doc_domain,
+                                    content_hash=c.content_hash,
+                                ),
                             }
                             for c in (await uow.chunks.list_for_document(document_id, limit=10000))[0]
                         ]

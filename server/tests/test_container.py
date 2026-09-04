@@ -9,13 +9,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 import pytest
-from composition.application import _ChunkSearchAdapter
 from composition.container import (
     ApplicationContainer,
     Container,
     InfrastructureContainer,
-    _subscribe_config_events,
 )
+from infrastructure.adapters.chunk_search_adapter import ChunkSearchAdapter
 from infrastructure.database.database import DatabaseManager
 
 # ---------------------------------------------------------------------------
@@ -53,25 +52,26 @@ def container() -> Container:
 class TestInfrastructureContainer:
     def test_fields_default_to_none(self):
         infra = InfrastructureContainer()
-        assert infra.database is None
-        assert infra.uow_factory is None
-        assert infra.vector_store_repo is None
-        assert infra.file_storage is None
-        assert infra.document_parser is None
-        assert infra.document_splitter is None
-        assert infra.ml_clients is None
-        assert infra.config_listener is None
-        assert infra.health_probe is None
-        assert infra.metrics_registry is None
-        assert infra.ollama_probe is None
-        assert infra.qdrant_info is None
-        assert infra.benchmark_service is None
-        assert infra.summary_updater is None
-        assert infra.api_key_provider is None
-        assert infra.config_broadcaster is None
-        assert infra.content_extractor is None
-        assert infra.pdf_quality_assessor is None
-        assert infra.metrics_collector is None
+        # Check raw dataclass fields via sub-containers (before init, all are None)
+        assert infra.db.database is None
+        assert infra.db.uow_factory is None
+        assert infra.ml.vector_store_repo is None
+        assert infra.ml.file_storage is None
+        assert infra.ml.document_parser is None
+        assert infra.ml.document_splitter is None
+        assert infra.ml.ml_clients is None
+        assert infra.events.config_listener is None
+        assert infra.services.health_probe is None
+        assert infra.ml.metrics_registry is None
+        assert infra.services.ollama_probe is None
+        assert infra.services.qdrant_info is None
+        assert infra.ml.benchmark_service is None
+        assert infra.ml.summary_updater is None
+        assert infra.services.api_key_provider is None
+        assert infra.db.config_broadcaster is None
+        assert infra.ml.content_extractor is None
+        assert infra.ml.pdf_quality_assessor is None
+        assert infra.ml.metrics_collector is None
 
     @patch("composition.container.InfrastructureContainer.init")
     def test_init_sets_fields(self, mock_init, mock_database_manager):
@@ -100,13 +100,10 @@ class TestInfrastructureContainer:
         import dataclasses
 
         field_names = [f.name for f in dataclasses.fields(infra)]
-        assert "database" in field_names
-        assert "uow_factory" in field_names
-        assert "config_broadcaster" in field_names
-        assert "api_key_provider" in field_names
-        assert "content_extractor" in field_names
-        assert "pdf_quality_assessor" in field_names
-        assert "metrics_collector" in field_names
+        assert "db" in field_names
+        assert "ml" in field_names
+        assert "events" in field_names
+        assert "services" in field_names
 
 
 # ===========================================================================
@@ -117,6 +114,7 @@ class TestInfrastructureContainer:
 class TestApplicationContainer:
     def test_fields_default_to_none(self):
         app = ApplicationContainer()
+        assert app.rag_service is None
         assert app.chat_service is None
         assert app.auth_service is None
         assert app.document_service is None
@@ -142,7 +140,7 @@ class TestApplicationContainer:
     def test_init_requires_infra_initialized(self):
         app = ApplicationContainer()
         infra = InfrastructureContainer()
-        with pytest.raises(RuntimeError, match="InfrastructureContainer.init\\(\\) must be called"):
+        with pytest.raises(RuntimeError, match="Container.init\\(\\) must be called"):
             app.init(infra)
 
     @pytest.mark.asyncio
@@ -170,6 +168,7 @@ class TestApplicationContainer:
         import dataclasses
 
         expected = {
+            "rag_service",
             "chat_service",
             "auth_service",
             "document_service",
@@ -223,8 +222,8 @@ class TestContainer:
         with (
             patch.object(InfrastructureContainer, "init"),
             patch.object(ApplicationContainer, "init"),
-            patch("composition.container._subscribe_config_events"),
-            patch("composition.container._unsubscribe_config_events"),
+            patch.object(Container, "_subscribe_config_events"),
+            patch.object(Container, "_unsubscribe_config_events"),
         ):
             c.init(mock_db)
             with pytest.raises(RuntimeError, match="exactly once"):
@@ -244,8 +243,8 @@ class TestContainer:
             patch.object(ApplicationContainer, "init"),
             patch.object(ApplicationContainer, "dispose", new_callable=AsyncMock),
             patch.object(InfrastructureContainer, "dispose", new_callable=AsyncMock),
-            patch("composition.container._subscribe_config_events"),
-            patch("composition.container._unsubscribe_config_events"),
+            patch.object(Container, "_subscribe_config_events"),
+            patch.object(Container, "_unsubscribe_config_events"),
         ):
             c.init(mock_db)
             assert c._initialized is True
@@ -282,7 +281,7 @@ class TestContainer:
 
 
 # ===========================================================================
-# _ChunkSearchAdapter
+# ChunkSearchAdapter
 # ===========================================================================
 
 
@@ -300,7 +299,7 @@ class TestChunkSearchAdapter:
         mock_cm.__aexit__.return_value = False
         mock_uow_factory.create.return_value = mock_cm
 
-        adapter = _ChunkSearchAdapter(uow_factory=mock_uow_factory)
+        adapter = ChunkSearchAdapter(uow_factory=mock_uow_factory)
 
         result = await adapter.search_substring(
             query="test",
@@ -321,7 +320,7 @@ class TestChunkSearchAdapter:
 
     def test_stores_uow_factory(self):
         mock_uow_factory = MagicMock()
-        adapter = _ChunkSearchAdapter(uow_factory=mock_uow_factory)
+        adapter = ChunkSearchAdapter(uow_factory=mock_uow_factory)
         assert adapter._uow_factory is mock_uow_factory
 
 
@@ -334,30 +333,30 @@ class TestSubscribeConfigEvents:
     def test_subscribes_handlers_to_event_bus(self):
         from domain.events.config_events import ConfigParameterChanged
 
-        infra = InfrastructureContainer()
-        infra.ml_clients = MagicMock()
+        c = Container()
+        c.infrastructure.ml.ml_clients = MagicMock()
 
         with patch("infrastructure.events.in_process_event_bus.event_bus") as mock_bus:
-            _subscribe_config_events(infra)
+            c._subscribe_config_events()
             assert mock_bus.subscribe.call_count == 7
             for call_args in mock_bus.subscribe.call_args_list:
                 event_type = call_args[0][0]
                 assert event_type is ConfigParameterChanged
 
     def test_requires_ml_clients(self):
-        infra = InfrastructureContainer()
-        with pytest.raises(RuntimeError, match="InfrastructureContainer must be initialized"):
-            _subscribe_config_events(infra)
+        c = Container()
+        with pytest.raises(RuntimeError, match="ml_clients not initialized"):
+            c._subscribe_config_events()
 
     def test_invalidation_handlers_are_callable(self):
         from domain.events.config_events import ConfigParameterChanged
 
-        infra = InfrastructureContainer()
+        c = Container()
         mock_ml = MagicMock()
-        infra.ml_clients = mock_ml
+        c.infrastructure.ml.ml_clients = mock_ml
 
         with patch("infrastructure.events.in_process_event_bus.event_bus") as mock_bus:
-            _subscribe_config_events(infra)
+            c._subscribe_config_events()
 
             handlers = [call[0][1] for call in mock_bus.subscribe.call_args_list]
 
@@ -391,8 +390,8 @@ class TestContainerIntegration:
             patch.object(ApplicationContainer, "init"),
             patch.object(ApplicationContainer, "dispose", new_callable=AsyncMock),
             patch.object(InfrastructureContainer, "dispose", new_callable=AsyncMock),
-            patch("composition.container._subscribe_config_events"),
-            patch("composition.container._unsubscribe_config_events"),
+            patch.object(Container, "_subscribe_config_events"),
+            patch.object(Container, "_unsubscribe_config_events"),
         ):
             c.init(mock_database_manager)
             mock_infra_init.assert_called_once_with(mock_database_manager)

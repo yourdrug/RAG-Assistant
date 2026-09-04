@@ -13,6 +13,7 @@ import time
 from typing import Any
 
 from application.services.ingest_service import IngestAppService
+from composition.service_providers import create_document_processor, create_ingestion_service
 from config import settings
 from domain.entities.benchmark_run import BenchmarkRun
 from domain.value_objects.sweep_status import BenchmarkSweepStatus
@@ -44,7 +45,7 @@ async def process_document(
         async with uow_factory.create(master=True) as uow:
             await uow.background_jobs.mark_running(job_id)
 
-        processor = infra.create_document_processor(uow_factory=uow_factory)
+        processor = create_document_processor(infra, uow_factory=uow_factory)
 
         logger.info(
             "Worker: background upload started: %s (doc %d, job %d)",
@@ -96,7 +97,7 @@ async def run_full_ingest(
     infra = ctx["container"].infrastructure
     uow_factory = infra.uow_factory
 
-    ingestion_svc = infra.create_ingestion_service(uow_factory=uow_factory)
+    ingestion_svc = create_ingestion_service(infra, uow_factory=uow_factory)
     service = IngestAppService(uow_factory=uow_factory, ingestion_service=ingestion_svc)
 
     try:
@@ -125,7 +126,7 @@ async def run_single_ingest(
     infra = ctx["container"].infrastructure
     uow_factory = infra.uow_factory
 
-    ingestion_svc = infra.create_ingestion_service(uow_factory=uow_factory)
+    ingestion_svc = create_ingestion_service(infra, uow_factory=uow_factory)
     service = IngestAppService(uow_factory=uow_factory, ingestion_service=ingestion_svc)
 
     try:

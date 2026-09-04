@@ -45,7 +45,7 @@ class PdfPreviewStrategy:
         unit_ids: list[int],
     ) -> tuple[list[DryRunPageResult], dict[str, int], int]:
         filtered = [u for u in units if u.page in unit_ids]
-        result, types_count, total_chars = self._svc.ocr_problem_pages(path, filtered)
+        result, ocr_types_count, _total_chars = self._svc.ocr_problem_pages(path, filtered)
         merged = []
         by_page = {u.page: u for u in result}
         for u in units:
@@ -68,20 +68,19 @@ class PdfPreviewStrategy:
             else:
                 merged.append(u)
 
-        # If ocr_problem_pages returned empty summary, compute from merged units
-        if not types_count:
-            from domain.value_objects.page_content_type import PageContentType
+        # Recompute types_count from ALL merged units (not just OCR'd ones)
+        from domain.value_objects.page_content_type import PageContentType
 
-            types_count = {
-                PageContentType.TEXT: 0,
-                PageContentType.SCAN: 0,
-                PageContentType.GARBLED: 0,
-                PageContentType.EMPTY: 0,
-                PageContentType.TABLE: 0,
-            }
-            total_chars = 0
-            for u in merged:
-                types_count[u.type] = types_count.get(u.type, 0) + 1
-                total_chars += u.chars
+        types_count: dict[str, int] = {
+            PageContentType.TEXT: 0,
+            PageContentType.SCAN: 0,
+            PageContentType.GARBLED: 0,
+            PageContentType.EMPTY: 0,
+            PageContentType.TABLE: 0,
+        }
+        total_chars = 0
+        for u in merged:
+            types_count[u.type] = types_count.get(u.type, 0) + 1
+            total_chars += u.chars
 
         return merged, types_count, total_chars

@@ -28,6 +28,7 @@ server/app/results/
 # opencode
 .opencode/
 opencode.json
+.zvec-grep
 
 # coverage
 server/.coverage

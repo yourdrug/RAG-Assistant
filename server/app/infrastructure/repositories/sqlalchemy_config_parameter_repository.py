@@ -33,6 +33,15 @@ class SQLAlchemyConfigParameterRepository:
             orm.value = value
             await self._db.flush()
 
+    async def update_category(self, key: str, category: str) -> None:
+        result = await self._db.execute(
+            select(ConfigParameterModel).where(ConfigParameterModel.key == key).with_for_update()
+        )
+        orm = result.scalar_one_or_none()
+        if orm and orm.category != category:
+            orm.category = category
+            await self._db.flush()
+
     async def save(self, entity: ConfigParameter) -> None:
         orm = ConfigParameterModel(
             key=entity.key,

@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING
+
+from composition._utils import _require
+from composition.service_providers import create_ingestion_service
+from infrastructure.adapters.chunk_search_adapter import ChunkSearchAdapter
 
 if TYPE_CHECKING:
     from application.services.auth_service import AuthService
@@ -29,12 +33,10 @@ if TYPE_CHECKING:
     from application.services.pdf_diagnostic_service import PDFDiagnosticService
     from application.services.quality_service import QualityService
     from application.services.search_service import SearchService
+    from infrastructure.ml.rag_service import RagService
     from infrastructure.services.ingestion_service import IngestionService
-    from infrastructure.uow_factory import UnitOfWorkFactory
 
     from composition.infrastructure import InfrastructureContainer
-
-T = TypeVar("T")
 
 log = logging.getLogger("default")
 
@@ -46,29 +48,6 @@ def _get_openrouter_fetcher():
     return fetch_openrouter_models
 
 
-def _require(value: T | None, name: str) -> T:
-    if value is None:
-        raise RuntimeError(f"{name} not initialized — InfrastructureContainer.init() must be called first")
-    return value
-
-
-class _ChunkSearchAdapter:
-    """Bridges UoW.chunks to the ChunkSearchPort expected by RagService."""
-
-    def __init__(self, uow_factory: UnitOfWorkFactory) -> None:
-        self._uow_factory = uow_factory
-
-    async def search_substring(self, query, user, group_ids, limit=20, mode="exact"):
-        async with self._uow_factory.create() as uow:
-            return await uow.chunks.search_substring(
-                query=query,
-                user=user,
-                group_ids=group_ids,
-                limit=limit,
-                mode=mode,
-            )
-
-
 @dataclass
 class ApplicationContainer:
     """Application-layer services — all wired via constructor injection.
@@ -76,6 +55,7 @@ class ApplicationContainer:
     All fields are assigned in ``init()``.
     """
 
+    rag_service: RagService | None = field(default=None)
     chat_service: ChatService | None = field(default=None)
     auth_service: AuthService | None = field(default=None)
     document_service: DocumentService | None = field(default=None)
@@ -147,10 +127,13 @@ class ApplicationContainer:
         fs = _require(infra.file_storage, "file_storage")
         ml = _require(infra.ml_clients, "ml_clients")
 
-        chunk_search = _ChunkSearchAdapter(uow_factory=uow)
+        chunk_search = ChunkSearchAdapter(uow_factory=uow)
+        self.rag_service = RagService(ml_clients=ml, chunk_search=chunk_search)
 
-        self.ingestion_service = infra.create_ingestion_service(uow_factory=uow)
-        assert self.ingestion_service is not None
+        self.ingestion_service = _require(
+            create_ingestion_service(infra, uow_factory=uow),
+            "ingestion_service",
+        )
 
         summary_updater = _require(infra.summary_updater, "summary_updater")
         api_key_provider = _require(infra.api_key_provider, "api_key_provider")
@@ -162,7 +145,7 @@ class ApplicationContainer:
 
         self.chat_service = ChatService(
             uow_factory=uow,
-            rag_service=RagService(ml_clients=ml, chunk_search=chunk_search),
+            rag_service=self.rag_service,
             chat_settings=LiveChatSettings(),
             summary_updater=summary_updater,
         )
@@ -223,6 +206,11 @@ class ApplicationContainer:
         self.chat_log_service = ChatLogService(uow_factory=uow)
 
     async def dispose(self) -> None:
-        """Shutdown application services that have explicit shutdown methods."""
+        """Shutdown application services that have explicit shutdown methods.
+
+        Other services (job_service, ingestion_service, etc.) are stateless
+        and require no shutdown — they hold no resources beyond references
+        to infrastructure singletons that are disposed separately.
+        """
         if self.chat_service is not None and hasattr(self.chat_service, "shutdown"):
             await self.chat_service.shutdown()

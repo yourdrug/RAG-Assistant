@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 
 
 @dataclass(frozen=True)
@@ -19,7 +20,7 @@ class IngestRegistryItemDTO:
     filename: str
     chunks: int
     chars: int
-    indexed_at: str | None = None
+    indexed_at: datetime | None = None
     source: str = ""
 
 

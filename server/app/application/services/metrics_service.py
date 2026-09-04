@@ -42,14 +42,11 @@ class MetricsService:
         # Ollama GPU/RAM
         ollama = []
         gpu_vals = reg.collect_gauge("ollama_gpu_memory_bytes")
-        ram_vals = reg.collect_gauge("ollama_ram_memory_bytes")
-        all_models = set(list(gpu_vals.keys()) + list(ram_vals.keys()))
-        for model in all_models:
+        for model, gpu_bytes in gpu_vals.items():
             ollama.append(
                 {
                     "model": model,
-                    "gpu_bytes": gpu_vals.get(model, 0.0),
-                    "ram_bytes": ram_vals.get(model, 0.0),
+                    "gpu_bytes": gpu_bytes,
                 }
             )
 

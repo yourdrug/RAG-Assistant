@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import logging.config
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -52,6 +53,8 @@ from presentation.api.routes.ingest import router as ingest_router
 from presentation.api.routes.search import router as search_router
 from presentation.cli.cli import cli
 
+logger = logging.getLogger("default")
+
 
 # ---------------------------------------------------------------------------
 # Lifespan
@@ -82,6 +85,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     await container.infrastructure.config_listener.start()
     if container.infrastructure.outbox_listener is not None:
         await container.infrastructure.outbox_listener.start()
+
+    # Ensure Qdrant collection exists
+    if container.infrastructure.vector_store_repo is not None:
+        try:
+            await container.infrastructure.vector_store_repo.ensure_collection(
+                vector_size=settings.embed_dim,
+                reset=False,
+            )
+            logger.info("Qdrant collection ensured (dim=%d)", settings.embed_dim)
+        except Exception as e:
+            logger.warning("Failed to ensure Qdrant collection: %s", e)
+
     await scheduler.startup(
         uow_factory=container.infrastructure.uow_factory,
         config_listener=container.infrastructure.config_listener,

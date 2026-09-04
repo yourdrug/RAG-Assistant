@@ -68,11 +68,24 @@ from infrastructure.ml.rag import (
     filter_cited_sources,
     format_docs,
     history_to_messages,
+    is_out_of_domain,
     needs_decomposition,
     rerank_documents,
 )
 from infrastructure.ml.llm_schemas import DecompositionCheck, SufficiencyAssessment
 from shared import request_id_ctx
+
+_NOT_FOUND_PATTERNS = (
+    "Информация не найдена",
+    "не нашёл релевантной информации",
+    "не нашел релевантной информации",
+)
+
+
+def _is_not_found_answer(answer: str) -> bool:
+    """Return True if the LLM answer indicates information was not found."""
+    lower = answer.lower().strip()
+    return any(p in lower for p in _NOT_FOUND_PATTERNS)
 
 
 def _build_rag_settings() -> RagSettings:
@@ -632,6 +645,23 @@ class RagService:
                 yield event
             return
 
+        # --- Out-of-domain rejection (pre-retrieval filter) ---
+        if is_out_of_domain(query_for_search):
+            log.info("Out-of-domain question rejected: %s", query_for_search[:100])
+            RAG_RELEVANCE_GATE_TOTAL.labels(result="out_of_domain").inc()
+            yield TextChunk(
+                text="Информация не найдена в документах."
+            )
+            record_rag_answer(
+                breadth=Breadth.NARROW.value,
+                answer="",
+                retrieved_count=0,
+                avg_similarity=0.0,
+            )
+            RAG_STAGE_DURATION.labels("total").observe(time.monotonic() - t_pipeline_start)
+            yield SourcesEvent(sources=[], confidence=None)
+            return
+
         # --- Query decomposition ---
         await self._maybe_decompose(rag, query_for_search)
 
@@ -763,7 +793,6 @@ class RagService:
         max_context_tokens = max(num_ctx - reserved_for_system_and_history, 1000)
 
         context = format_docs(docs, max_context_tokens=max_context_tokens)
-        sources = extract_sources(docs, min_score=rag.source_min_score)
 
         messages = prompt.format_messages(
             context=context,
@@ -822,7 +851,13 @@ class RagService:
                     pii_found,
                 )
 
-        sources = self._apply_citation_filter(rag, full_answer, sources)
+        # Extract sources only if LLM found relevant information.
+        # When LLM says "not found", there's nothing to cite.
+        if _is_not_found_answer(full_answer):
+            sources: list[dict] = []
+        else:
+            sources = extract_sources(docs, min_score=rag.source_min_score)
+            sources = self._apply_citation_filter(rag, full_answer, sources)
 
         record_rag_answer(
             breadth=breadth.value,
@@ -859,11 +894,13 @@ class RagService:
         domain = DocDomain.GENERAL.value
         retrieval_count = 0
         reranker_score: float | None = None
+        confidence: float | None = None
         usage_report = None
 
         async for event in self.stream(question, history, ctx):
             if isinstance(event, SourcesEvent):
                 sources = event.sources
+                confidence = event.confidence
                 usage_report = event.usage
             elif isinstance(event, TextChunk):
                 answer_parts.append(event.text)
@@ -886,6 +923,7 @@ class RagService:
             domain=domain,
             retrieval_count=retrieval_count,
             reranker_score=reranker_score,
+            confidence=confidence,
             model_used=settings.llm_model,
             input_tokens=usage_report.input_tokens if usage_report else None,
             output_tokens=usage_report.output_tokens if usage_report else None,

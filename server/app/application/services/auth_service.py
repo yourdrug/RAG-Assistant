@@ -56,7 +56,7 @@ class AuthService:
                 kind=kind,
             )
             user.ensure_valid_for_creation()
-            user.can_be_created_by(UserRole(creator_role))
+            user.ensure_can_be_created_by(UserRole(creator_role))
 
             if await uow.users.get_by_email(command.email) is not None:
                 raise BusinessRuleViolation("User with this email already exists")
@@ -166,7 +166,7 @@ class AuthService:
                     "id": k.id,
                     "key_prefix": k.key_prefix,
                     "name": k.name,
-                    "created_at": k.creation_date,
+                    "creation_date": k.creation_date,
                     "revoked_at": k.revoked_at,
                     "last_used_at": k.last_used_at,
                     "is_active": k.is_active,

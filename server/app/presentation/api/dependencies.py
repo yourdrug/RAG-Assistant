@@ -167,3 +167,9 @@ def create_chat_log_service(request: Request) -> ChatLogService:
 
 def create_api_key_provider(request: Request) -> ApiKeyProvider:
     return _get_or_raise(_create_container(request).infrastructure.api_key_provider, "ApiKeyProvider")
+
+
+def create_benchmark_history_port():
+    from infrastructure.ml.benchmark_history_adapter import BenchmarkHistoryAdapter
+
+    return BenchmarkHistoryAdapter()

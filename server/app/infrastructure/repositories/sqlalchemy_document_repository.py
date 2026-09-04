@@ -8,7 +8,7 @@ from domain.entities.document import Document
 from domain.services.access_control import get_visibility_conditions
 from domain.value_objects.document_status import DocumentStatus
 from domain.value_objects.owner_match import OwnerMatch
-from domain.value_objects.roles import UserKind
+from domain.value_objects.roles import UserKind, UserRole
 from domain.value_objects.visibility import DocumentVisibility
 from sqlalchemy import and_, distinct, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -71,7 +71,7 @@ class SQLAlchemyDocumentRepository:
 
         orm.status = status
         orm.error_message = error
-        if status == DocumentStatus.DONE.value:
+        if warning is not None:
             orm.warning_message = warning
         if quality_score is not None:
             orm.quality_score = quality_score
@@ -160,11 +160,13 @@ class SQLAlchemyDocumentRepository:
         user_kind: str,
         user_id: int,
         group_ids: list[int],
+        user_role: str | None = None,
     ) -> list[Document]:
         conditions = get_visibility_conditions(
             UserKind(user_kind),
             user_id,
             group_ids,
+            user_role=UserRole(user_role) if user_role else None,
         )
 
         or_clauses = []

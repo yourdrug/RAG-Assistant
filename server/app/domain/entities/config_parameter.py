@@ -27,12 +27,13 @@ class ConfigParameter:
         """
         if self.value_type == ConfigValueType.BOOL:
             try:
-                parse_bool(raw_value)
+                parse_bool(raw_value.strip('"').strip("'"))
             except ValueError:
                 raise ValidationError(f"Value for '{self.key}' must be boolean") from None
             return
         if self.value_type == ConfigValueType.STR:
-            if self.allowed_values is not None and raw_value not in self.allowed_values:
+            normalized = raw_value.strip('"').strip("'")
+            if self.allowed_values is not None and normalized not in self.allowed_values:
                 allowed = ", ".join(self.allowed_values)
                 raise ValidationError(f"Value for '{self.key}' must be one of: {allowed}")
             return

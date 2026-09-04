@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from domain.entities.user import User
 from domain.value_objects.roles import UserKind, UserRole
-from sqlalchemy import select
+from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.database.models import UserModel
@@ -35,6 +35,15 @@ class SQLAlchemyUserRepository:
         await self._db.flush()
         await self._db.refresh(orm)
         return self._to_entity(orm)
+
+    async def ensure_admin(self, email: str, hashed_password: str, role: str, kind: str) -> None:
+        stmt = (
+            insert(UserModel)
+            .values(email=email.lower(), hashed_password=hashed_password, role=role, kind=kind)
+            .on_conflict_do_nothing(index_elements=["email"])  # type: ignore[attr-defined]
+        )
+        await self._db.execute(stmt)
+        await self._db.flush()
 
     async def exists_admin(self) -> bool:
         result = await self._db.execute(select(UserModel.id).where(UserModel.role == UserRole.ADMIN).limit(1))

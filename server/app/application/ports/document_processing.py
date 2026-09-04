@@ -30,7 +30,6 @@ class PDFQualityReport:
 class ContentExtractorPort(Protocol):
     """Extracts structured metadata from document content."""
 
-    def extract_article_number(self, text: str) -> str | None: ...
     def extract_date_from_filename(self, filename: str) -> str | None: ...
 
 

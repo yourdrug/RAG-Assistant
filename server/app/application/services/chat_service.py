@@ -77,15 +77,6 @@ class ChatService:
     # Streaming chat
     # ------------------------------------------------------------------
 
-    async def _save_user_message(self, conv_id: int, question: str) -> None:
-        async with self._uow_factory.create(master=True) as uow:
-            user_msg = Message(
-                conversation_id=conv_id,
-                role=MessageRole.USER,
-                content=question,
-            )
-            await uow.messages.save(user_msg)
-
     @staticmethod
     def _build_chat_log(
         *,
@@ -145,7 +136,7 @@ class ChatService:
         async def _bg_update_summary() -> None:
             try:
                 async with self._uow_factory.create(master=True) as uow:
-                    conv_model = await uow.conversations.get(conv_id)
+                    conv_model = await uow.conversations.get_for_update(conv_id)
                     if conv_model is not None and updater is not None:
                         existing = getattr(conv_model, "summary", None)
                         new_summary = await updater.update(existing, recent_turns)
@@ -188,7 +179,6 @@ class ChatService:
         sources: list[dict] = []
         confidence: float | None = None
         usage = None
-        user_msg_saved = False
         t_start = time.monotonic()
 
         pii_question = self._redact_pii(question)
@@ -205,10 +195,6 @@ class ChatService:
             elif isinstance(event, StatusEvent):
                 yield event
             elif isinstance(event, TextChunk):
-                if not user_msg_saved:
-                    user_msg_saved = True
-                    await self._save_user_message(conv.id, pii_question)
-
                 full_answer += event.text
                 yield event
 
@@ -219,6 +205,15 @@ class ChatService:
         reranker_score = compute_reranker_score(sources)
 
         async with self._uow_factory.create(master=True) as uow:
+            # 1. Save user message first (only if LLM succeeded)
+            user_msg = Message(
+                conversation_id=conv.id,
+                role=MessageRole.USER,
+                content=pii_question,
+            )
+            await uow.messages.save(user_msg)
+
+            # 2. Save assistant message
             assistant_msg = Message(
                 conversation_id=conv.id,
                 role=MessageRole.ASSISTANT,
@@ -227,6 +222,7 @@ class ChatService:
             )
             await uow.messages.save(assistant_msg)
 
+            # 3. Save chat log
             chat_log = self._build_chat_log(
                 user_id=user_id,
                 conv_id=conv.id,
@@ -336,6 +332,7 @@ class ChatService:
             answer=rag_result.answer,
             conversation_id=conv.id,
             sources=rag_result.sources,
+            confidence=rag_result.confidence,
             input_tokens=rag_result.input_tokens,
             output_tokens=rag_result.output_tokens,
         )

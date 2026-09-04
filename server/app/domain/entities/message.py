@@ -24,3 +24,5 @@ class Message:
     def __post_init__(self) -> None:
         if isinstance(self.role, str):
             self.role = MessageRole(self.role)
+        if self.sources is None:
+            self.sources = []

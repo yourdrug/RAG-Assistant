@@ -9,6 +9,8 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from application.dto.benchmark_dto import RegressionCheckOutput, RegressionCheckResult
+from application.ports.benchmark_history import BenchmarkHistoryPort
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
 
 logger = logging.getLogger("default")
@@ -95,4 +97,46 @@ class BenchmarkResultService:
             id=run.id or 0,
             summary=summary,
             per_question_results=run.per_question_results,
+        )
+
+    async def check_regression(
+        self,
+        run_id: int | None,
+        history_port: BenchmarkHistoryPort,
+        data_dir: str,
+    ) -> RegressionCheckOutput:
+        """Check for regression: compare a run (or latest) against the last baseline."""
+        baseline = history_port.get_last_baseline(data_dir)
+        if baseline is None:
+            return RegressionCheckOutput(passed=True, results=[])
+
+        if run_id is not None:
+            detail = await self.get_result(run_id)
+            if detail is None:
+                return RegressionCheckOutput(passed=True, results=[])
+            current = {
+                "metrics": detail.summary.summary_metrics,
+                "config": detail.summary.config_json,
+            }
+        else:
+            history = history_port.load_history(data_dir)
+            if len(history) < 2:
+                return RegressionCheckOutput(passed=True, results=[])
+            current = history[-1]
+
+        result = history_port.compare_runs(current, baseline)
+        return RegressionCheckOutput(
+            passed=result["passed"],
+            results=[
+                RegressionCheckResult(
+                    metric=r["metric"],
+                    baseline=r.get("baseline"),
+                    current=r.get("current"),
+                    delta=r.get("delta"),
+                    threshold=r["threshold"],
+                    failed=r["failed"],
+                    note=r.get("note"),
+                )
+                for r in result["results"]
+            ],
         )
