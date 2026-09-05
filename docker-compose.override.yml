@@ -32,6 +32,31 @@ services:
           create_host_path: false
           selinux: Z
 
+  worker:
+    volumes:
+      - type: bind
+        source: server/app
+        target: /code/project/app
+        bind:
+          propagation: rprivate
+          create_host_path: false
+          selinux: Z
+      - type: bind
+        source: server/entrypoint.sh
+        target: /code/project/entrypoint.sh
+        read_only: true
+        bind:
+          propagation: rprivate
+          create_host_path: false
+          selinux: Z
+      - type: bind
+        source: data
+        target: /code/project/data
+        bind:
+          propagation: rprivate
+          create_host_path: false
+          selinux: Z
+
   client:
     build:
       context: ./client

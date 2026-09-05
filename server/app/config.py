@@ -172,7 +172,7 @@ class Settings(BaseSettings):
     max_upload_size_mb: int = 50
 
     # ── Data paths ──────────────────────────────────────────────────────────
-    data_dir: str
+    data_dir: str = "/code/project/data"
     uploads_prefix: str = "uploads/"
 
     # ── CORS ────────────────────────────────────────────────────────────────

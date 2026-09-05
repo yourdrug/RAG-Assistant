@@ -207,6 +207,10 @@ class LazyStorage:
     def __getattr__(self, name):
         return getattr(self._ensure(), name)
 
+    def clear_cache(self):
+        self._resolved = None
+        get_storage.cache_clear()
+
 
 @functools.lru_cache(maxsize=1)
 def get_storage() -> FileStorage:

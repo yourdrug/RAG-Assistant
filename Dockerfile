@@ -33,6 +33,8 @@ ENV                                                                             
     VENV_PATH="/code/.venv"                                                         \
     # Tell uv to create venv at this path
     UV_PROJECT_ENVIRONMENT="/code/.venv"                                            \
+    # Increase download timeout for large packages (torch, paddlepaddle, etc.)
+    UV_HTTP_TIMEOUT=300                                                             \
     # Source version (passed from docker-compose or build arg)
     SOURCE_VERSION=${SOURCE_VERSION}
 
@@ -85,9 +87,10 @@ COPY server/pyproject.toml server/uv.lock ./
 
 # Install dependencies — uv resolves torch from pytorch-cpu index via [tool.uv.sources]
 RUN --mount=type=cache,target=/root/.cache/uv                                       \
+    set -e &&                                                                        \
     uv sync --frozen --no-dev --extra cpu &&                                        \
     # Remove __pycache__ directories (saves ~50-100MB)
-    find /code/.venv -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null      \
+    find /code/.venv -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null       \
         || true &&                                                                  \
     # Remove .pyc compiled bytecode files
     find /code/.venv -name "*.pyc" -delete 2>/dev/null || true &&                   \
@@ -113,6 +116,7 @@ COPY server/pyproject.toml server/uv.lock ./
 
 # Install dependencies with GPU extra (includes torch with CUDA)
 RUN --mount=type=cache,target=/root/.cache/uv                                       \
+    set -e &&                                                                        \
     uv sync --frozen --no-dev --extra gpu
 
 # -----------------------------------------------------------------------------------
@@ -137,6 +141,7 @@ COPY server/pyproject.toml server/uv.lock ./
 
 # Re-sync to add dev dependencies (testing, linting, etc.)
 RUN --mount=type=cache,target=/root/.cache/uv                                       \
+    set -e &&                                                                        \
     uv sync --frozen --extra cpu &&                                                 \
     # Clean up __pycache__ and .pyc files
     find /code/.venv -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null      \
@@ -200,6 +205,7 @@ COPY server/pyproject.toml server/uv.lock ./
 
 # Re-sync to add dev dependencies
 RUN --mount=type=cache,target=/root/.cache/uv                                       \
+    set -e &&                                                                        \
     uv sync --frozen --extra gpu
 
 # Copy Alembic config
