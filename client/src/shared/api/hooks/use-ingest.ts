@@ -18,14 +18,27 @@ export function useIngestAll() {
       docsDir,
       reset,
       domain,
+      visibility,
+      groupId,
+      clientId,
     }: {
       docsDir: string;
       reset?: boolean;
       domain?: string;
+      visibility?: string;
+      groupId?: number | null;
+      clientId?: number | null;
     }) =>
       (
         await apiClient.post<IngestStatusResponse>("/ingest", null, {
-          params: { docs_dir: docsDir, reset: reset ?? false, domain: domain ?? "auto" },
+          params: {
+            docs_dir: docsDir,
+            reset: reset ?? false,
+            domain: domain ?? "auto",
+            visibility: visibility ?? "internal_public",
+            group_id: groupId,
+            client_id: clientId,
+          },
         })
       ).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.ingest.all }),
@@ -39,14 +52,27 @@ export function useIngestFile() {
       filePath,
       force,
       domain,
+      visibility,
+      groupId,
+      clientId,
     }: {
       filePath: string;
       force?: boolean;
       domain?: string;
+      visibility?: string;
+      groupId?: number | null;
+      clientId?: number | null;
     }) =>
       (
         await apiClient.post<IngestStatusResponse>("/ingest/file", null, {
-          params: { file_path: filePath, force: force ?? false, domain: domain ?? "auto" },
+          params: {
+            file_path: filePath,
+            force: force ?? false,
+            domain: domain ?? "auto",
+            visibility: visibility ?? "internal_public",
+            group_id: groupId,
+            client_id: clientId,
+          },
         })
       ).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.ingest.all }),

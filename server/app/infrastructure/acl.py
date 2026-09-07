@@ -5,9 +5,14 @@ Translates canonical VisibilityCondition objects from the domain layer
 into Qdrant Filter objects. All business logic lives in domain/services/access_control.py.
 """
 
+from __future__ import annotations
+
+from datetime import date
+
 from domain.services.access_control import get_visibility_conditions
 from domain.value_objects.roles import UserKind
 from qdrant_client.models import (
+    DatetimeRange,
     FieldCondition,
     Filter,
     HasIdCondition,
@@ -16,6 +21,7 @@ from qdrant_client.models import (
     MatchAny,
     MatchValue,
     NestedCondition,
+    PayloadField,
 )
 
 
@@ -68,3 +74,56 @@ def with_domain_filter(access_filter: Filter, doc_domain: str) -> Filter:
     if access_filter and access_filter.should:
         return Filter(must=[access_filter, domain_condition])
     return Filter(must=[domain_condition])
+
+
+def with_temporal_filter(access_filter: Filter, as_of_date: date | None) -> Filter:
+    """Add temporal filtering for versioned documents.
+
+    When as_of_date is None: require is_current=True (current state).
+    When as_of_date is set: require effective_from <= date AND effective_to > date,
+    but chunks WITHOUT dates (NULL) are NEVER excluded — they pass through.
+
+    Args:
+        access_filter: existing ACL filter (may be empty)
+        as_of_date: date to filter by, or None for current state
+
+    """
+    ConditionType = (
+        FieldCondition | IsEmptyCondition | IsNullCondition | HasIdCondition | NestedCondition | Filter
+    )
+
+    if as_of_date is None:
+        temporal_condition: ConditionType = FieldCondition(
+            key="metadata.is_current",
+            match=MatchValue(value=True),
+        )
+    else:
+        as_of_str = as_of_date.isoformat()
+        # Chunks with NULL dates always pass (non-versioned content or
+        # dates not yet trusted — see TZ section 9.2/11.2).
+        temporal_condition = Filter(
+            must=[
+                Filter(
+                    should=[
+                        IsNullCondition(is_null=PayloadField(key="metadata.effective_from")),
+                        FieldCondition(
+                            key="metadata.effective_from",
+                            range=DatetimeRange(lte=as_of_str),
+                        ),
+                    ]
+                ),
+                Filter(
+                    should=[
+                        IsNullCondition(is_null=PayloadField(key="metadata.effective_to")),
+                        FieldCondition(
+                            key="metadata.effective_to",
+                            range=DatetimeRange(gt=as_of_str),
+                        ),
+                    ]
+                ),
+            ]
+        )
+
+    if access_filter and access_filter.should:
+        return Filter(must=[access_filter, temporal_condition])
+    return Filter(must=[temporal_condition])

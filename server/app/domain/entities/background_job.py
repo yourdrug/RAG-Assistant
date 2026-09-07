@@ -17,6 +17,7 @@ class BackgroundJob:
     request_id: str | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
+    heartbeat_at: datetime | None = None
     error_message: str | None = None
     creation_date: datetime | None = None
 
@@ -24,6 +25,7 @@ class BackgroundJob:
         """Transition to RUNNING status."""
         self.status = BackgroundJobStatus.RUNNING.value
         self.started_at = datetime.now(tz=UTC)
+        self.heartbeat_at = self.started_at
 
     def mark_done(self) -> None:
         """Transition to DONE status."""

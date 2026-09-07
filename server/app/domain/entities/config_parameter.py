@@ -19,6 +19,16 @@ class ConfigParameter:
     min_value: float | None = None
     max_value: float | None = None
     allowed_values: list[str] | None = None
+    domain_key: str | None = None  # NULL = global, set for domain-specific params
+
+    def normalize(self, raw_value: str) -> str:
+        """Strip whitespace and surrounding quotes from string values.
+
+        For non-string types (int, float, bool) returns the value unchanged.
+        """
+        if self.value_type != ConfigValueType.STR:
+            return raw_value
+        return raw_value.strip().strip('"').strip("'")
 
     def validate(self, raw_value: str) -> None:
         """Validate a raw value against this parameter's constraints.
@@ -27,12 +37,12 @@ class ConfigParameter:
         """
         if self.value_type == ConfigValueType.BOOL:
             try:
-                parse_bool(raw_value.strip('"').strip("'"))
+                parse_bool(raw_value)
             except ValueError:
                 raise ValidationError(f"Value for '{self.key}' must be boolean") from None
             return
         if self.value_type == ConfigValueType.STR:
-            normalized = raw_value.strip('"').strip("'")
+            normalized = self.normalize(raw_value)
             if self.allowed_values is not None and normalized not in self.allowed_values:
                 allowed = ", ".join(self.allowed_values)
                 raise ValidationError(f"Value for '{self.key}' must be one of: {allowed}")

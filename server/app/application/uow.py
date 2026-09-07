@@ -11,6 +11,7 @@ from collections.abc import Callable, Coroutine
 from typing import Any
 
 from domain.repositories import ApiKeyRepository
+from domain.repositories.act_version_repository import ActVersionRepository
 from domain.repositories.background_job_repository import BackgroundJobRepository
 from domain.repositories.benchmark_question_repository import BenchmarkQuestionRepository
 from domain.repositories.benchmark_run_repository import BenchmarkRunRepository
@@ -22,6 +23,7 @@ from domain.repositories.conversation_repository import ConversationRepository
 from domain.repositories.document_repository import DocumentRepository
 from domain.repositories.group_repository import GroupRepository
 from domain.repositories.message_repository import MessageRepository
+from domain.repositories.regulatory_act_repository import RegulatoryActRepository
 from domain.repositories.user_repository import UserRepository
 from domain.repositories.vector_outbox_repository import VectorOutboxRepository
 
@@ -53,6 +55,8 @@ class UnitOfWork(BaseUnitOfWork):
     benchmark_sweeps: BenchmarkSweepRepository
     benchmark_runs: BenchmarkRunRepository
     vector_outbox: VectorOutboxRepository
+    regulatory_acts: RegulatoryActRepository
+    act_versions: ActVersionRepository
 
     def __init__(
         self,
@@ -71,6 +75,8 @@ class UnitOfWork(BaseUnitOfWork):
         benchmark_sweeps: BenchmarkSweepRepository,
         benchmark_runs: BenchmarkRunRepository,
         vector_outbox: VectorOutboxRepository,
+        regulatory_acts: RegulatoryActRepository,
+        act_versions: ActVersionRepository,
     ) -> None:
         super().__init__(session)
         self.users = users
@@ -87,6 +93,8 @@ class UnitOfWork(BaseUnitOfWork):
         self.benchmark_sweeps = benchmark_sweeps
         self.benchmark_runs = benchmark_runs
         self.vector_outbox = vector_outbox
+        self.regulatory_acts = regulatory_acts
+        self.act_versions = act_versions
         self._event_handlers: list[Callable[[object], Coroutine[Any, Any, None]]] = []
 
     def on_event(self, handler: Callable[[object], Coroutine[Any, Any, None]]) -> None:

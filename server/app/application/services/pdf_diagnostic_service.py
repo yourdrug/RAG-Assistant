@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-
-from domain.value_objects.page_content_type import PageContentType, PreviewUnitKind
 
 from application.ports.pdf_diagnostics import (
     PDFDocumentPort,
@@ -16,6 +15,7 @@ from application.ports.pdf_diagnostics import (
     PDFTextCleanerPort,
 )
 from application.services.preview_cache import PreviewCache
+from domain.value_objects.page_content_type import PageContentType, PreviewUnitKind
 
 logger = logging.getLogger("default")
 
@@ -67,15 +67,15 @@ class DryRunResult:
 
 class PDFDiagnosticService:
     def __init__(
-        self,
-        classifier: PDFPageClassifierPort,
-        text_cleaner: PDFTextCleanerPort,
-        ocr: PDFOcrPort,
-        pdf_doc: PDFDocumentPort,
-        storage: PDFStoragePort,
-        *,
-        max_dry_run_bytes: int = 50 * 1024 * 1024,
-        preview_cache: PreviewCache | None = None,
+            self,
+            classifier: PDFPageClassifierPort,
+            text_cleaner: PDFTextCleanerPort,
+            ocr: PDFOcrPort,
+            pdf_doc: PDFDocumentPort,
+            storage: PDFStoragePort,
+            *,
+            max_dry_run_bytes: int = 50 * 1024 * 1024,
+            preview_cache: PreviewCache | None = None,
     ) -> None:
         self._classifier = classifier
         self._cleaner = text_cleaner
@@ -88,36 +88,39 @@ class PDFDiagnosticService:
     async def diagnose_document(self, document_id: int, source_path: str) -> DocumentDiagnoseResult | None:
         temp_path = await self._storage.download_to_temp(source_path)
         try:
-            doc = self._pdf.open(str(temp_path))
-            total_pages = self._pdf.get_page_count(doc)
-            page_diagnostics = []
-
-            for i in range(total_pages):
-                text = self._pdf.get_page_text(doc, i)
-                chars = len(text.strip())
-                ptype, desc = self._classifier.classify_page(text, chars)
-                page_diagnostics.append(PageDiagnostic(page=i + 1, type=ptype, chars=chars, description=desc))
-
-            self._pdf.close(doc)
-
-            types = [p.type for p in page_diagnostics]
-            summary: dict[str, int] = {
-                PageContentType.TEXT.value: types.count(PageContentType.TEXT),
-                PageContentType.SCAN.value: types.count(PageContentType.SCAN),
-                PageContentType.GARBLED.value: types.count(PageContentType.GARBLED),
-                PageContentType.EMPTY.value: types.count(PageContentType.EMPTY),
-                PageContentType.TABLE.value: types.count(PageContentType.TABLE),
-            }
-
-            return DocumentDiagnoseResult(
-                document_id=document_id,
-                filename=source_path,
-                total_pages=total_pages,
-                pages=page_diagnostics,
-                summary=summary,
-            )
+            return await asyncio.to_thread(self._diagnose_sync, document_id, source_path, temp_path)
         finally:
             temp_path.unlink(missing_ok=True)
+
+    def _diagnose_sync(self, document_id: int, source_path: str, temp_path: Path) -> DocumentDiagnoseResult:
+        doc = self._pdf.open(str(temp_path))
+        total_pages = self._pdf.get_page_count(doc)
+        page_diagnostics = []
+
+        for i in range(total_pages):
+            text = self._pdf.get_page_text(doc, i)
+            chars = len(text.strip())
+            ptype, desc = self._classifier.classify_page(text, chars)
+            page_diagnostics.append(PageDiagnostic(page=i + 1, type=ptype, chars=chars, description=desc))
+
+        self._pdf.close(doc)
+
+        types = [p.type for p in page_diagnostics]
+        summary: dict[str, int] = {
+            PageContentType.TEXT.value: types.count(PageContentType.TEXT),
+            PageContentType.SCAN.value: types.count(PageContentType.SCAN),
+            PageContentType.GARBLED.value: types.count(PageContentType.GARBLED),
+            PageContentType.EMPTY.value: types.count(PageContentType.EMPTY),
+            PageContentType.TABLE.value: types.count(PageContentType.TABLE),
+        }
+
+        return DocumentDiagnoseResult(
+            document_id=document_id,
+            filename=source_path,
+            total_pages=total_pages,
+            pages=page_diagnostics,
+            summary=summary,
+        )
 
     def analyze_text_layer(self, pdf_path: Path) -> tuple[list[DryRunPageResult], dict[str, int], int]:
         doc = self._pdf.open(str(pdf_path))
@@ -167,7 +170,7 @@ class PDFDiagnosticService:
         return page_results, types_count, total_chars
 
     def ocr_problem_pages(
-        self, pdf_path: Path, page_results: list[DryRunPageResult]
+            self, pdf_path: Path, page_results: list[DryRunPageResult]
     ) -> tuple[list[DryRunPageResult], dict[str, int], int]:
         problem_pages = [
             p.page for p in page_results if p.type in (PageContentType.SCAN, PageContentType.EMPTY)
@@ -269,9 +272,9 @@ class PDFDiagnosticService:
 
         if bad_ratio <= 0.15:
             return (
-                f"Документ в целом хороший. Рекомендуется точечный OCR по {bad_count} "
-                f"страницам: {', '.join(f'p.{p.page}' for p in bad_pages_sorted[:10])}"
-                + ("..." if bad_count > 10 else "")
+                    f"Документ в целом хороший. Рекомендуется точечный OCR по {bad_count} "
+                    f"страницам: {', '.join(f'p.{p.page}' for p in bad_pages_sorted[:10])}"
+                    + ("..." if bad_count > 10 else "")
             )
 
         return (

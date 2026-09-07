@@ -448,13 +448,13 @@ class TestDecomposeQuestion:
 
 
 # ---------------------------------------------------------------------------
-# _docx_table_to_markdown
+# docx_table_to_markdown
 # ---------------------------------------------------------------------------
 
 
 class TestDocxTableToMarkdown:
     def test_simple_table(self):
-        from infrastructure.ml.ingestion import _docx_table_to_markdown
+        from infrastructure.ml.ingestion import docx_table_to_markdown
 
         class MockCell:
             def __init__(self, text):
@@ -469,22 +469,22 @@ class TestDocxTableToMarkdown:
                 self.rows = [MockRow(r) for r in rows]
 
         table = MockTable([["Name", "Value"], ["A", "1"], ["B", "2"]])
-        result = _docx_table_to_markdown(table)
+        result = docx_table_to_markdown(table)
         assert "| Name | Value |" in result
         assert "|---|---|" in result
         assert "| A | 1 |" in result
         assert "| B | 2 |" in result
 
     def test_empty_table(self):
-        from infrastructure.ml.ingestion import _docx_table_to_markdown
+        from infrastructure.ml.ingestion import docx_table_to_markdown
 
         class MockTable:
             rows = []
 
-        assert _docx_table_to_markdown(MockTable()) == ""
+        assert docx_table_to_markdown(MockTable()) == ""
 
     def test_pipes_in_cells_escaped(self):
-        from infrastructure.ml.ingestion import _docx_table_to_markdown
+        from infrastructure.ml.ingestion import docx_table_to_markdown
 
         class MockCell:
             def __init__(self, text):
@@ -499,35 +499,35 @@ class TestDocxTableToMarkdown:
                 self.rows = [MockRow(r) for r in rows]
 
         table = MockTable([["Header"], ["value|with|pipes"]])
-        result = _docx_table_to_markdown(table)
+        result = docx_table_to_markdown(table)
         assert "value\\|with\\|pipes" in result
 
 
 # ---------------------------------------------------------------------------
-# _pymupdf_table_to_markdown
+# pymupdf_table_to_markdown
 # ---------------------------------------------------------------------------
 
 
 class TestPyMuPDFTableToMarkdown:
     def test_simple_table(self):
-        from infrastructure.ml.ingestion import _pymupdf_table_to_markdown
+        from infrastructure.ml.ingestion import pymupdf_table_to_markdown
 
         class MockTable:
             def extract(self):
                 return [["Name", "Value"], ["A", "1"], ["B", "2"]]
 
-        result = _pymupdf_table_to_markdown(MockTable())
+        result = pymupdf_table_to_markdown(MockTable())
         assert "| Name | Value |" in result
         assert "|---|---|" in result
 
     def test_extract_failure_returns_empty(self):
-        from infrastructure.ml.ingestion import _pymupdf_table_to_markdown
+        from infrastructure.ml.ingestion import pymupdf_table_to_markdown
 
         class MockTable:
             def extract(self):
                 raise Exception("not supported")
 
-        assert _pymupdf_table_to_markdown(MockTable()) == ""
+        assert pymupdf_table_to_markdown(MockTable()) == ""
 
 
 # ---------------------------------------------------------------------------
@@ -539,22 +539,31 @@ class TestAnswerCacheHelpers:
     def test_same_scope_same_hash(self):
         from infrastructure.ml.answer_cache import compute_visibility_scope_hash
 
-        h1 = compute_visibility_scope_hash("internal", [1, 2])
-        h2 = compute_visibility_scope_hash("internal", [1, 2])
+        h1 = compute_visibility_scope_hash("internal", 5, [1, 2])
+        h2 = compute_visibility_scope_hash("internal", 5, [1, 2])
         assert h1 == h2
 
     def test_different_scope_different_hash(self):
         from infrastructure.ml.answer_cache import compute_visibility_scope_hash
 
-        h1 = compute_visibility_scope_hash("internal", [1])
-        h2 = compute_visibility_scope_hash("client", [1])
+        h1 = compute_visibility_scope_hash("internal", 5, [1])
+        h2 = compute_visibility_scope_hash("client", 5, [1])
         assert h1 != h2
 
     def test_different_groups_different_hash(self):
         from infrastructure.ml.answer_cache import compute_visibility_scope_hash
 
-        h1 = compute_visibility_scope_hash("internal", [1, 2])
-        h2 = compute_visibility_scope_hash("internal", [1, 3])
+        h1 = compute_visibility_scope_hash("internal", 5, [1, 2])
+        h2 = compute_visibility_scope_hash("internal", 5, [1, 3])
+        assert h1 != h2
+
+    def test_different_users_same_scope_different_hash(self):
+        # identical kind + groups must NOT share a cache scope —
+        # answers/sources may reference the caller's own private documents.
+        from infrastructure.ml.answer_cache import compute_visibility_scope_hash
+
+        h1 = compute_visibility_scope_hash("internal", 1, [])
+        h2 = compute_visibility_scope_hash("internal", 2, [])
         assert h1 != h2
 
     def test_question_hash_deterministic(self):
@@ -589,7 +598,7 @@ class TestPromptMetricsSync:
         import re
 
         from domain.services.rag_policy import SYSTEM_PROMPT
-        from infrastructure.ml.metrics import _NOT_FOUND_PATTERNS
+        from infrastructure.metrics.metrics import _NOT_FOUND_PATTERNS
 
         match = re.search(r'ответь ТОЛЬКО: "(.+?)" и ничего больше\.', SYSTEM_PROMPT)
         assert match, "SYSTEM_PROMPT rule 2 must contain the quoted not-found phrase"

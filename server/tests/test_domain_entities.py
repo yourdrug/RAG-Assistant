@@ -79,23 +79,23 @@ class TestUserCreation:
         # Arrange
         user = _make_user()
         # Act & Assert — should not raise
-        user.can_be_created_by(UserRole.ADMIN)
+        user.ensure_can_be_created_by(UserRole.ADMIN)
 
     def test_non_admin_cannot_create_users(self):
         # Arrange
         user = _make_user()
         # Act & Assert
         with pytest.raises(BusinessRuleViolation, match="Only admin can create users"):
-            user.can_be_created_by(UserRole.USER)
+            user.ensure_can_be_created_by(UserRole.USER)
 
     def test_admin_role_can_create_users(self):
         # Arrange & Act & Assert
-        User().can_be_created_by(UserRole.ADMIN)
+        User().ensure_can_be_created_by(UserRole.ADMIN)
 
     def test_user_role_cannot_create_users(self):
         # Arrange & Act & Assert
         with pytest.raises(BusinessRuleViolation):
-            User().can_be_created_by(UserRole.USER)
+            User().ensure_can_be_created_by(UserRole.USER)
 
 
 class TestUserEnsureValidForCreation:

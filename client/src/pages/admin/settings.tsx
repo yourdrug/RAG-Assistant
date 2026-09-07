@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/sha
 import { Input } from "@/shared/ui/input";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/shared/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 
 interface ConfigParam {
   key: string;
@@ -18,6 +19,7 @@ interface ConfigParam {
   description: string | null;
   min_value: number | null;
   max_value: number | null;
+  domain_key: string | null;
 }
 
 interface OpenRouterModel {
@@ -40,7 +42,21 @@ const CATEGORY_LABELS: Record<string, string> = {
   storage: "Storage",
 };
 
+const DOMAIN_LABELS: Record<string, string> = {
+  legal: "Legal",
+  decree: "Decree",
+};
+
 const CATEGORY_ORDER = ["toggles", "rag", "hybrid", "reranker", "ingestion", "llm", "openrouter", "ml", "ocr", "storage"];
+
+const TAB_GROUPS = [
+  { id: "general", label: "General", categories: ["toggles", "storage"] },
+  { id: "rag", label: "RAG", categories: ["rag", "hybrid", "reranker", "ingestion"] },
+  { id: "llm", label: "LLM", categories: ["llm", "openrouter", "ml"] },
+  { id: "ocr", label: "OCR", categories: ["ocr"] },
+  { id: "legal", label: "Legal", domain: "legal", categories: ["legal"] },
+  { id: "decree", label: "Decree", domain: "decree" },
+];
 
 export function AdminSettingsPage() {
   const queryClient = useQueryClient();
@@ -69,8 +85,9 @@ export function AdminSettingsPage() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: async ({ key, value }: { key: string; value: string }) => {
-      return (await apiClient.put(`/admin/config/${key}`, { value })).data;
+    mutationFn: async ({ key, value, domain }: { key: string; value: string; domain?: string }) => {
+      const url = domain ? `/admin/config/${key}?domain=${domain}` : `/admin/config/${key}`;
+      return (await apiClient.put(url, { value })).data;
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["admin", "config"] });
@@ -88,10 +105,10 @@ export function AdminSettingsPage() {
     },
   });
 
-  const handleSave = (key: string) => {
+  const handleSave = (key: string, domain?: string) => {
     const val = edits[key];
     if (val === undefined) return;
-    updateMutation.mutate({ key, value: val });
+    updateMutation.mutate({ key, value: val, domain });
   };
 
   const handleReset = (key: string) => {
@@ -258,6 +275,12 @@ export function AdminSettingsPage() {
     );
   }
 
+  const availableTabs = TAB_GROUPS.filter((tab) => {
+    const hasDomainParams = tab.domain && params?.some((p) => p.domain_key === tab.domain);
+    const hasCategoryParams = tab.categories?.some((cat) => categories.includes(cat));
+    return hasDomainParams || hasCategoryParams;
+  });
+
   return (
     <div className="p-6 space-y-6">
       <div>
@@ -267,62 +290,138 @@ export function AdminSettingsPage() {
         </p>
       </div>
 
-      {categories.map((cat) => {
-        const catParams = params?.filter((p) => p.category === cat) ?? [];
-        return (
-          <Card key={cat}>
-            <CardHeader>
-              <CardTitle>{CATEGORY_LABELS[cat] ?? cat}</CardTitle>
-              <CardDescription>
-                {catParams.length} parameter{catParams.length !== 1 ? "s" : ""}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-[180px]">Key</TableHead>
-                    <TableHead className="w-[300px]">Value</TableHead>
-                    <TableHead>Description</TableHead>
-                    <TableHead className="w-[80px]"></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {catParams.map((p) => {
-                    const isEdited = edits[p.key] !== undefined;
-                    return (
-                      <TableRow key={p.key}>
-                        <TableCell className="font-mono text-sm">{p.key}</TableCell>
-                        <TableCell>{renderValue(p)}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {p.description}
-                        </TableCell>
-                        <TableCell>
-                          {isEdited && (
-                            <div className="flex items-center gap-1">
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => handleSave(p.key)}
-                                disabled={updateMutation.isPending}
-                              >
-                                <Save className="h-4 w-4" />
-                              </Button>
-                              <Button size="sm" variant="ghost" onClick={() => handleReset(p.key)}>
-                                <RotateCcw className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        );
-      })}
+      <Tabs defaultValue={availableTabs[0]?.id}>
+        <TabsList>
+          {availableTabs.map((tab) => (
+            <TabsTrigger key={tab.id} value={tab.id}>
+              {tab.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+
+        {availableTabs.map((tab) => (
+          <TabsContent key={tab.id} value={tab.id} className="space-y-6">
+            {/* Domain-specific params */}
+            {tab.domain && (() => {
+              const domainParams = params?.filter((p) => p.domain_key === tab.domain) ?? [];
+              if (domainParams.length === 0) return null;
+              const domainLabel = DOMAIN_LABELS[tab.domain] ?? tab.domain;
+              return (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>{domainLabel}</CardTitle>
+                    <CardDescription>
+                      {domainParams.length} parameter{domainParams.length !== 1 ? "s" : ""}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-[180px]">Key</TableHead>
+                          <TableHead className="w-[300px]">Value</TableHead>
+                          <TableHead>Description</TableHead>
+                          <TableHead className="w-[80px]"></TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {domainParams.map((p) => {
+                          const isEdited = edits[p.key] !== undefined;
+                          return (
+                            <TableRow key={p.key}>
+                              <TableCell className="font-mono text-sm">{p.key}</TableCell>
+                              <TableCell>{renderValue(p)}</TableCell>
+                              <TableCell className="text-sm text-muted-foreground">
+                                {p.description}
+                              </TableCell>
+                              <TableCell>
+                                {isEdited && (
+                                  <div className="flex items-center gap-1">
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => handleSave(p.key, tab.domain)}
+                                      disabled={updateMutation.isPending}
+                                    >
+                                      <Save className="h-4 w-4" />
+                                    </Button>
+                                    <Button size="sm" variant="ghost" onClick={() => handleReset(p.key)}>
+                                      <RotateCcw className="h-4 w-4" />
+                                    </Button>
+                                  </div>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+              );
+            })()}
+            {/* Category-based params */}
+            {tab.categories
+              ?.filter((cat) => categories.includes(cat))
+              .map((cat) => {
+                const catParams = params?.filter((p) => p.category === cat && !p.domain_key) ?? [];
+                return (
+                  <Card key={cat}>
+                    <CardHeader>
+                      <CardTitle>{CATEGORY_LABELS[cat] ?? cat}</CardTitle>
+                      <CardDescription>
+                        {catParams.length} parameter{catParams.length !== 1 ? "s" : ""}
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="w-[180px]">Key</TableHead>
+                            <TableHead className="w-[300px]">Value</TableHead>
+                            <TableHead>Description</TableHead>
+                            <TableHead className="w-[80px]"></TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {catParams.map((p) => {
+                            const isEdited = edits[p.key] !== undefined;
+                            return (
+                              <TableRow key={p.key}>
+                                <TableCell className="font-mono text-sm">{p.key}</TableCell>
+                                <TableCell>{renderValue(p)}</TableCell>
+                                <TableCell className="text-sm text-muted-foreground">
+                                  {p.description}
+                                </TableCell>
+                                <TableCell>
+                                  {isEdited && (
+                                    <div className="flex items-center gap-1">
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => handleSave(p.key)}
+                                        disabled={updateMutation.isPending}
+                                      >
+                                        <Save className="h-4 w-4" />
+                                      </Button>
+                                      <Button size="sm" variant="ghost" onClick={() => handleReset(p.key)}>
+                                        <RotateCcw className="h-4 w-4" />
+                                      </Button>
+                                    </div>
+                                  )}
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+          </TabsContent>
+        ))}
+      </Tabs>
     </div>
   );
 }

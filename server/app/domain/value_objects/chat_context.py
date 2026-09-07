@@ -8,6 +8,7 @@ the infrastructure layer.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date
 
 
 @dataclass(frozen=True)
@@ -24,3 +25,4 @@ class ChatContext:
     user_group_ids: list[int] = field(default_factory=list)
     depth: str | None = None
     summary: str | None = None
+    as_of_date: date | None = None  # temporal retrieval: None = current state

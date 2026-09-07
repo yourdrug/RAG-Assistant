@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
+from domain.value_objects.benchmark_dataset import BenchmarkDataset
+
 
 @dataclass
 class BenchmarkRun:
@@ -12,7 +14,7 @@ class BenchmarkRun:
     summary_metrics: dict = field(default_factory=dict)
     duration_sec: float = 0.0
     llm_evaluated: bool = False
-    dataset: str = "main"
+    dataset: str = BenchmarkDataset.MAIN.value
     sweep_id: int | None = None
     per_question_results: dict | None = None
     filename: str | None = None

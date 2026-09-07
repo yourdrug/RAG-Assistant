@@ -12,7 +12,7 @@ from pathlib import Path
 
 from config import settings
 
-from infrastructure.ml.benchmark import run_benchmark
+from infrastructure.benchmark.benchmark import run_benchmark
 
 log = logging.getLogger("default")
 

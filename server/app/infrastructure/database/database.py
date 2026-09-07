@@ -78,7 +78,15 @@ class DatabaseNode:
             future=True,
             pool_size=settings.db_pool_size,
             max_overflow=settings.db_max_overflow,
-            connect_args={"options": "-c timezone=Europe/Minsk"},
+            pool_pre_ping=True,
+            pool_recycle=settings.db_pool_recycle_sec,
+            connect_args={
+                "options": (
+                    "-c timezone=Europe/Minsk "
+                    f"-c statement_timeout={settings.db_statement_timeout_ms} "
+                    f"-c idle_in_transaction_session_timeout={settings.db_idle_in_transaction_timeout_ms}"
+                ),
+            },
         )
 
     async def _create_async_session_factory(

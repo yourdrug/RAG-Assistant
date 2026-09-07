@@ -10,12 +10,17 @@ from infrastructure.logging.actions import log_action
 
 from presentation.api.auth_dependencies import get_current_user, require_admin
 from presentation.api.dependencies import create_auth_service
+from presentation.api.rate_limits import login_email_rate_limit, login_rate_limit
 from presentation.api.schemas import CreateUserRequest, LoginRequest, TokenResponse, UserResponse
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post(
+    "/login",
+    response_model=TokenResponse,
+    dependencies=[Depends(login_rate_limit), Depends(login_email_rate_limit)],
+)
 async def login(req: LoginRequest, auth_service: AuthService = Depends(create_auth_service)):
     result = await auth_service.authenticate(LoginCommand(email=req.email, password=req.password))
     log_action("login", details={"email": req.email})
@@ -65,4 +70,4 @@ async def toggle_user_active(
     log_action(
         "user.toggle_active", user_id=admin["id"], details={"target_user": user_id, "is_active": is_active}
     )
-    return result
+    return {"id": result.id, "is_active": result.is_active}

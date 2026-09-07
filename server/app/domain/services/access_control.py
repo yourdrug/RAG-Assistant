@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from domain.exceptions import BusinessRuleViolation, ValidationError
 from domain.value_objects.owner_match import OwnerMatch
 from domain.value_objects.roles import UserKind, UserRole
+from domain.value_objects.user_context import UserContext
 from domain.value_objects.visibility import DocumentVisibility
 
 # Business rules: which visibility values each user kind can use
@@ -31,7 +32,7 @@ class VisibilityCondition:
     """A single AND-clause of a visibility filter.
 
     The full visible-to-user filter is OR of all returned conditions.
-    This is the canonical intermediate representation — SQL and Qdrant
+    This is the canonical intermediate representation -- SQL and Qdrant
     adapters translate these into their respective query languages.
     """
 
@@ -50,15 +51,7 @@ def get_visibility_conditions(
     """Return canonical filter conditions for documents visible to this user.
 
     Each condition is an AND-clause. The full filter is OR of all conditions.
-    This is the single source of truth — SQL and Qdrant adapters translate these.
-
-    Args:
-        user_kind: The kind of user (internal or client).
-        user_id: The ID of the user.
-        group_ids: List of group IDs the user belongs to.
-        for_list: True for document list (admin sees all client docs),
-                  False for RAG queries (admin should not search client docs).
-        user_role: Required for list mode to distinguish admin from regular users.
+    This is the single source of truth -- SQL and Qdrant adapters translate these.
 
     """
     if user_kind == UserKind.CLIENT:
@@ -91,6 +84,14 @@ def get_visibility_conditions(
             )
         )
 
+    # Admin can view ALL internal_group docs regardless of group membership
+    if user_role == UserRole.ADMIN:
+        conditions.append(
+            VisibilityCondition(
+                visibility=DocumentVisibility.INTERNAL_GROUP,
+            )
+        )
+
     # Admin can view ALL client_private docs in list mode (not search mode)
     if for_list and user_role == UserRole.ADMIN:
         conditions.append(
@@ -105,11 +106,11 @@ def get_visibility_conditions(
 def validate_document_visibility(
     visibility: DocumentVisibility,
     group_id: int | None,
-    user_kind: UserKind,
-    user_role: UserRole,
-    user_group_ids: list[int],
+    ctx: UserContext,
 ) -> None:
     """Validate that a user can use the given visibility."""
+    user_kind = UserKind(ctx.user_kind)
+    user_role = UserRole(ctx.user_role)
     allowed = ALLOWED_VISIBILITY_FOR_KIND.get(user_kind)
     if allowed is None or visibility not in allowed:
         raise ValidationError(f"visibility='{visibility}' not available for kind='{user_kind}'")
@@ -127,7 +128,7 @@ def validate_document_visibility(
     if visibility == DocumentVisibility.INTERNAL_GROUP:
         if group_id is None:
             raise ValidationError("group_id required for visibility='internal_group'")
-        if group_id not in user_group_ids:
+        if group_id not in ctx.group_ids:
             raise BusinessRuleViolation("You are not a member of this group")
 
 
@@ -144,68 +145,65 @@ def compute_owner_and_group(
     return user_id, None
 
 
-def can_view_document(
-    doc_visibility: str,
-    doc_owner_id: int | None,
-    doc_group_id: int | None,
-    user_kind: str,
-    user_id: int,
-    user_group_ids: list[int],
-    user_role: str | None = None,
-) -> bool:
+def can_view_document(doc, ctx: UserContext) -> bool:
     """Determine if the user can view the document.
 
-    Uses ``get_visibility_conditions(for_list=True)`` — the same canonical
+    Uses ``get_visibility_conditions(for_list=True)`` -- the same canonical
     source of truth used by ``is_in_search_scope`` (for_list=False) and
     ``build_qdrant_filter``.
     """
+    DocumentVisibility.validate(doc.visibility)
     conditions = get_visibility_conditions(
-        UserKind(user_kind),
-        user_id,
-        user_group_ids,
+        UserKind(ctx.user_kind),
+        ctx.user_id,
+        ctx.group_ids,
         for_list=True,
-        user_role=UserRole(user_role) if user_role else None,
+        user_role=UserRole(ctx.user_role),
     )
     for cond in conditions:
-        if cond.visibility.value != doc_visibility:
+        if cond.visibility.value != doc.visibility:
             continue
-        if cond.owner_match == OwnerMatch.SELF and doc_owner_id != user_id:
+        if cond.owner_match == OwnerMatch.SELF and doc.owner_id != ctx.user_id:
             continue
-        if cond.group_match and (doc_group_id is None or doc_group_id not in user_group_ids):
+        if cond.group_match and (doc.group_id is None or doc.group_id not in ctx.group_ids):
             continue
         return True
     return False
 
 
-def is_in_search_scope(
-    doc_visibility: str,
-    doc_owner_id: int | None,
-    doc_group_id: int | None,
-    user_kind: str,
-    user_id: int,
-    user_group_ids: list[int],
-    user_role: str | None = None,
-) -> bool:
+def is_in_search_scope(doc, ctx: UserContext) -> bool:
     """Check if a document participates in the user's RAG search.
 
-    Uses ``get_visibility_conditions(for_list=False)`` — the same filter
+    Uses ``get_visibility_conditions(for_list=False)`` -- the same filter
     that ``build_qdrant_filter`` applies.  Admin does NOT get the
     ``CLIENT_PRIVATE`` bonus in search mode, so cross-client private docs
     are excluded from their search scope.
     """
     conditions = get_visibility_conditions(
-        UserKind(user_kind),
-        user_id,
-        user_group_ids,
+        UserKind(ctx.user_kind),
+        ctx.user_id,
+        ctx.group_ids,
         for_list=False,
-        user_role=UserRole(user_role) if user_role else None,
+        user_role=UserRole(ctx.user_role),
     )
     for cond in conditions:
-        if cond.visibility.value != doc_visibility:
+        if cond.visibility.value != doc.visibility:
             continue
-        if cond.owner_match == OwnerMatch.SELF and doc_owner_id != user_id:
+        if cond.owner_match == OwnerMatch.SELF and doc.owner_id != ctx.user_id:
             continue
-        if cond.group_match and (doc_group_id is None or doc_group_id not in user_group_ids):
+        if cond.group_match and (doc.group_id is None or doc.group_id not in ctx.group_ids):
             continue
         return True
     return False
+
+
+async def check_document_access(uow, doc, ctx: UserContext) -> None:
+    """Raise BusinessRuleViolation if user cannot view the document."""
+    if not can_view_document(doc, ctx):
+        raise BusinessRuleViolation("No access to this document")
+
+
+def check_ownership(doc, ctx: UserContext, action: str = "modify") -> None:
+    """Raise BusinessRuleViolation if user cannot modify/delete the document."""
+    if not doc.can_be_deleted_by(ctx.user_id, UserRole(ctx.user_role), ctx.group_ids):
+        raise BusinessRuleViolation(f"Can only {action} your own documents")

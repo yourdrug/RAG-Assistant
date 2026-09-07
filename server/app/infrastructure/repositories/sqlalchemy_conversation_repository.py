@@ -72,6 +72,15 @@ class SQLAlchemyConversationRepository:
         )
         return result.scalar_one_or_none()
 
+    async def update_summary(self, conversation_id: int, summary: str | None) -> None:
+        result = await self._db.execute(
+            select(ConversationModel).where(ConversationModel.id == conversation_id)
+        )
+        orm = result.scalar_one_or_none()
+        if orm is not None:
+            orm.summary = summary
+            await self._db.flush()
+
     async def list_by_user(
         self, user_id: int, limit: int = 50, offset: int = 0
     ) -> list[ConversationListItem]:

@@ -21,6 +21,8 @@ class PreviewStrategyFactory:
         extension: str,
         *,
         diag_service: object | None = None,
+        domain_registry=None,
+        domain_settings=None,
     ) -> DocumentPreviewStrategy:
         ext = extension.lower()
         if ext == ".doc":
@@ -36,7 +38,10 @@ class PreviewStrategyFactory:
         if cls is DocxPreviewStrategy:
             return DocxPreviewStrategy()
         if cls is RtfPreviewStrategy:
-            return RtfPreviewStrategy()
+            return RtfPreviewStrategy(
+                domain_registry=domain_registry,
+                domain_settings=domain_settings,
+            )
         raise ValueError(f"No strategy for {ext}")
 
     @staticmethod

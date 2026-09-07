@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from domain.exceptions import EntityNotFound, ValidationError
-from domain.value_objects.roles import UserKind, UserRole
+from domain.value_objects.roles import UserKind
+from domain.value_objects.user_context import UserContext
 
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
 
@@ -14,13 +15,17 @@ class GroupService:
 
     async def list_for_user(self, user_id: int, user_role: str, user_kind: str):
         async with self._uow_factory.create() as uow:
-            if user_role == UserRole.ADMIN.value:
+            ctx = UserContext(
+                user_id=user_id, user_kind=user_kind, user_role=user_role,
+                group_ids=await uow.groups.get_user_group_ids(user_id)
+                if user_kind == UserKind.INTERNAL else [],
+            )
+            if ctx.is_admin:
                 return await uow.groups.list_all()
-            elif user_kind != UserKind.INTERNAL.value:
+            elif ctx.is_client:
                 return []
             else:
-                group_ids = await uow.groups.get_user_group_ids(user_id)
-                return await uow.groups.list_by_ids(group_ids) if group_ids else []
+                return await uow.groups.list_by_ids(ctx.group_ids) if ctx.group_ids else []
 
     async def create(self, name: str):
         async with self._uow_factory.create(master=True) as uow:

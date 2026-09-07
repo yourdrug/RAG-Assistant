@@ -1,6 +1,6 @@
 "use client";
 import { useQueryClient } from "@tanstack/react-query";
-import { MessageSquare } from "lucide-react";
+import { CalendarDays, MessageSquare } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { apiClient } from "@/shared/api/client";
@@ -19,6 +19,11 @@ interface Message {
   sources?: Source[];
 }
 
+function formatRuDate(iso: string): string {
+  const [y, m, d] = iso.split("-");
+  return `${d}.${m}.${y}`;
+}
+
 export function ChatPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -31,9 +36,9 @@ export function ChatPage() {
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [selectedSources, setSelectedSources] = useState<Source[]>([]);
   const [depth, setDepth] = useState<DepthOption>(null);
-  const [pipelineStage, setPipelineStage] = useState<PipelineStage | null>(
-    null,
-  );
+  // Temporal retrieval: explicit user-chosen date, never inferred (TZ 11.1)
+  const [asOfDate, setAsOfDate] = useState<string | null>(null);
+  const [pipelineStage, setPipelineStage] = useState<PipelineStage | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const token = useAuthStore((s) => s.token);
@@ -41,10 +46,7 @@ export function ChatPage() {
   const hadChunksRef = useRef(false);
   const queryClient = useQueryClient();
 
-  const scroll = useCallback(
-    () => endRef.current?.scrollIntoView({ behavior: "smooth" }),
-    [],
-  );
+  const scroll = useCallback(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), []);
   useEffect(() => {
     scroll();
   }, [messages, streamingMsg, scroll]);
@@ -107,6 +109,7 @@ export function ChatPage() {
       conversationId,
       token,
       depth,
+      asOfDate,
       onChunk: (text) => {
         hadChunksRef.current = true;
         streamingContentRef.current += text;
@@ -133,10 +136,7 @@ export function ChatPage() {
         queryClient.invalidateQueries({ queryKey: queryKeys.conversations.list() });
       },
       onError: (err) => {
-        setMessages((p) => [
-          ...p,
-          { role: "assistant", content: `Error: ${err}` },
-        ]);
+        setMessages((p) => [...p, { role: "assistant", content: `Error: ${err}` }]);
         setStreamingMsg(null);
         setIsStreaming(false);
         setPipelineStage(null);
@@ -148,10 +148,7 @@ export function ChatPage() {
   const handleStop = () => {
     abortRef.current?.abort();
     if (hadChunksRef.current && streamingContentRef.current) {
-      setMessages((p) => [
-        ...p,
-        { role: "assistant", content: streamingContentRef.current },
-      ]);
+      setMessages((p) => [...p, { role: "assistant", content: streamingContentRef.current }]);
     } else if (!hadChunksRef.current) {
       setMessages((p) => p.slice(0, -1));
     }
@@ -167,6 +164,7 @@ export function ChatPage() {
     setIsStreaming(false);
     setConversationId(null);
     setSelectedSources([]);
+    setAsOfDate(null);
     setSearchParams({});
   };
 
@@ -177,6 +175,15 @@ export function ChatPage() {
           <div className="flex items-center gap-2">
             <MessageSquare className="h-5 w-5" />
             <h1 className="font-semibold">Chat</h1>
+            {asOfDate && (
+              <span
+                className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                title="Ответы строятся по редакциям документов, действовавшим на эту дату"
+              >
+                <CalendarDays className="h-3 w-3" />
+                по состоянию на {formatRuDate(asOfDate)}
+              </span>
+            )}
           </div>
           <button
             onClick={handleNew}
@@ -191,9 +198,7 @@ export function ChatPage() {
             <div className="flex h-full items-center justify-center">
               <div className="text-center space-y-2">
                 <MessageSquare className="h-12 w-12 mx-auto text-muted-foreground/50" />
-                <p className="text-lg font-medium text-muted-foreground">
-                  Start a conversation
-                </p>
+                <p className="text-lg font-medium text-muted-foreground">Start a conversation</p>
                 <p className="text-sm text-muted-foreground/70">
                   Ask questions about your documents
                 </p>
@@ -202,9 +207,7 @@ export function ChatPage() {
           )}
           {isLoadingHistory && (
             <div className="flex h-full items-center justify-center">
-              <p className="text-sm text-muted-foreground">
-                Loading history...
-              </p>
+              <p className="text-sm text-muted-foreground">Loading history...</p>
             </div>
           )}
           {messages.map((m, i) => (
@@ -233,13 +236,12 @@ export function ChatPage() {
           disabled={isStreaming}
           depth={depth}
           onDepthChange={setDepth}
+          asOfDate={asOfDate}
+          onAsOfDateChange={setAsOfDate}
         />
       </div>
       {selectedSources.length > 0 && (
-        <SourcePanel
-          sources={selectedSources}
-          onClose={() => setSelectedSources([])}
-        />
+        <SourcePanel sources={selectedSources} onClose={() => setSelectedSources([])} />
       )}
     </div>
   );

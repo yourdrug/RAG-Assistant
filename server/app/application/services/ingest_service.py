@@ -11,6 +11,7 @@ from __future__ import annotations
 from application.dto.ingest_dto import IngestRegistryItemDTO, IngestRegistryResult, IngestStatusResult
 from application.ports.ingestion_port import IngestionPort
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
+from domain.value_objects.visibility import DocumentVisibility
 
 
 class IngestAppService:
@@ -23,18 +24,20 @@ class IngestAppService:
         self._ingestion = ingestion_service
 
     async def run_full(
-        self, docs_dir: str | None = None, reset: bool = False, domain: str = "auto"
+        self, docs_dir: str | None = None, reset: bool = False, domain: str = "auto",
+        visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC, group_id: int | None = None, client_id: int | None = None,
     ) -> IngestStatusResult:
         resolved = self._ingestion.resolve_docs_dir(docs_dir or "docs/")
-        await self._ingestion.run_full_ingestion(resolved, reset=reset, domain=domain)
+        await self._ingestion.run_full_ingestion(resolved, reset=reset, domain=domain, visibility=visibility, group_id=group_id, client_id=client_id)
         mode = "RESET + full reindex" if reset else "APPEND (new files only)"
         return IngestStatusResult(status="started", mode=mode, docs_dir=resolved)
 
     async def run_single(
-        self, file_path: str, force: bool = False, domain: str = "auto"
+        self, file_path: str, force: bool = False, domain: str = "auto",
+        visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC, group_id: int | None = None, client_id: int | None = None,
     ) -> IngestStatusResult:
         resolved = self._ingestion.resolve_ingest_target(file_path)
-        await self._ingestion.run_single_file(resolved, domain=domain)
+        await self._ingestion.run_single_file(resolved, domain=domain, visibility=visibility, group_id=group_id, client_id=client_id)
         return IngestStatusResult(status="started", file=resolved, force=force)
 
     async def get_registry(self) -> IngestRegistryResult:

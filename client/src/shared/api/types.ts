@@ -51,6 +51,10 @@ export interface Source {
   manual?: boolean;
   document_id?: number;
   content_hashes?: string[];
+  // Regulatory act versioning (versioned domains only)
+  act_number?: string;
+  effective_from?: string | null;
+  effective_to?: string | null;
 }
 
 // ─── Conversations ───────────────────────────────────────────────────────────

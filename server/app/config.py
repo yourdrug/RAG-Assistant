@@ -47,8 +47,12 @@ class Settings(BaseSettings):
     db_name: str
     db_slave_hosts: str = ""
     db_slave_ports: str = ""
-    db_pool_size: int = 100
+    db_pool_size: int = 40
     db_max_overflow: int = 20
+    # pool hardening (defaults generous enough for OCR/ingest queries)
+    db_pool_recycle_sec: int = 1800
+    db_statement_timeout_ms: int = 600000
+    db_idle_in_transaction_timeout_ms: int = 120000
 
     @property
     def db_slave_hosts_list(self) -> list[str]:
@@ -148,6 +152,8 @@ class Settings(BaseSettings):
     redis_password: str = ""
     redis_db: int = 0
     worker_max_concurrent: int = 4
+    redis_socket_timeout: int = 10
+    redis_max_connections: int = 50
 
     @property
     def redis_url(self) -> str:
@@ -181,6 +187,11 @@ class Settings(BaseSettings):
     @property
     def allowed_origins_list(self) -> list[str]:
         return [o.strip() for o in self.allowed_origins.split(",") if o.strip()]
+
+    # ── Trusted proxy ───────────────────────────────────────────────────────
+    # Networks/IPs from which uvicorn may rewrite request.client from
+    # X-Forwarded-For (the reverse proxy). Never trust client-supplied XFF.
+    forwarded_allow_ips: str = "127.0.0.1"
 
     # ── Auth ────────────────────────────────────────────────────────────────
     jwt_secret_key: str
@@ -250,6 +261,12 @@ class Settings(BaseSettings):
                 errors.append("JWT_SECRET_KEY must be changed in production")
             if self.file_backend == "local":
                 errors.append("FILE_BACKEND must be 's3' in production")
+            if self.admin_password in ("", "admin", "change-me-in-production"):
+                errors.append("ADMIN_PASSWORD must be changed in production")
+            if self.redis_password in ("", "password"):
+                errors.append("REDIS_PASSWORD must be changed in production")
+            if self.allowed_origins.strip() == "*":
+                errors.append("ALLOWED_ORIGINS must not be '*' in production — list explicit origins")
         return errors
 
     def _check_ml_provider(self) -> list[str]:

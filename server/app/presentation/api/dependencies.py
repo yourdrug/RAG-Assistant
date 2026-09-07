@@ -170,6 +170,6 @@ def create_api_key_provider(request: Request) -> ApiKeyProvider:
 
 
 def create_benchmark_history_port():
-    from infrastructure.ml.benchmark_history_adapter import BenchmarkHistoryAdapter
+    from infrastructure.benchmark.benchmark_history_adapter import BenchmarkHistoryAdapter
 
     return BenchmarkHistoryAdapter()

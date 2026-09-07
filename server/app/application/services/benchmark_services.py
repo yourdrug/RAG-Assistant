@@ -4,17 +4,23 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
-
-from domain.entities.benchmark_question import BenchmarkQuestion
-from domain.entities.benchmark_sweep import BenchmarkSweep
-from domain.exceptions import EntityNotFound, ValidationError
-from domain.value_objects.sweep_status import BenchmarkSweepStatus
+from typing import TYPE_CHECKING, TypeAlias
 
 from application.dto.benchmark_dto import ApplyConfigResult
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
+from application.services.config_service import ConfigService
+from domain.entities.benchmark_question import BenchmarkQuestion
+from domain.entities.benchmark_run import BenchmarkRun
+from domain.entities.benchmark_sweep import BenchmarkSweep
+from domain.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
+from domain.value_objects.sweep_status import BenchmarkSweepStatus
+
+if TYPE_CHECKING:
+    from presentation.api.schemas import BenchmarkQuestionCreate, SweepCreateRequest
+
+RunCompareResult: TypeAlias = tuple[list[BenchmarkRun], dict[str, list[dict]]]
 
 log = logging.getLogger("default")
-
 
 # ---------------------------------------------------------------------------
 # Benchmark run config → live config parameter mapping
@@ -36,7 +42,15 @@ class BenchmarkQuestionService:
     def __init__(self, uow_factory: UnitOfWorkFactory) -> None:
         self._uow_factory = uow_factory
 
-    async def list(self, dataset=None, tag=None, search=None, is_active=None, limit=50, offset=0):
+    async def list(
+            self,
+            dataset: str | None = None,
+            tag: str | None = None,
+            search: str | None = None,
+            is_active: bool | None = None,
+            limit: int = 50,
+            offset: int = 0,
+    ) -> tuple[list[BenchmarkQuestion], int]:
         async with self._uow_factory.create() as uow:
             questions = await uow.benchmark_questions.list_items(
                 dataset=dataset, tag=tag, search=search, is_active=is_active, limit=limit, offset=offset
@@ -46,7 +60,7 @@ class BenchmarkQuestionService:
             )
             return questions, total
 
-    async def create(self, body, created_by: int):
+    async def create(self, body: BenchmarkQuestionCreate, created_by: int) -> BenchmarkQuestion:
         entity = BenchmarkQuestion(
             question=body.question,
             expected_answer=body.expected_answer,
@@ -59,11 +73,13 @@ class BenchmarkQuestionService:
         async with self._uow_factory.create(master=True) as uow:
             return await uow.benchmark_questions.create(entity)
 
-    async def update(self, question_id: int, fields: dict):
+    async def update(self, question_id: int, fields: dict) -> BenchmarkQuestion:
         async with self._uow_factory.create(master=True) as uow:
             updated = await uow.benchmark_questions.update(question_id, **fields)
+
         if updated is None:
             raise EntityNotFound("BenchmarkQuestion", question_id)
+
         return updated
 
     async def delete(self, question_id: int) -> bool:
@@ -73,7 +89,7 @@ class BenchmarkQuestionService:
             raise EntityNotFound("BenchmarkQuestion", question_id)
         return True
 
-    async def bulk_create(self, bodies, created_by: int):
+    async def bulk_create(self, bodies: list[BenchmarkQuestionCreate], created_by: int) -> int:
         entities = [
             BenchmarkQuestion(
                 question=q.question,
@@ -88,7 +104,7 @@ class BenchmarkQuestionService:
         async with self._uow_factory.create(master=True) as uow:
             return await uow.benchmark_questions.bulk_create(entities)
 
-    async def export(self, dataset=None):
+    async def export(self, dataset: str | None = None) -> list[BenchmarkQuestion]:
         async with self._uow_factory.create() as uow:
             return await uow.benchmark_questions.list_items(dataset=dataset, limit=10000)
 
@@ -97,42 +113,50 @@ class BenchmarkSweepService:
     def __init__(self, uow_factory: UnitOfWorkFactory) -> None:
         self._uow_factory = uow_factory
 
-    async def create(self, body):
-        sweep_entity = BenchmarkSweep(
-            strategy=body.strategy,
-            search_space=body.search_space,
-            objective_weights=body.objective_weights,
-            dataset=body.dataset,
-            top_n_llm=body.top_n_llm,
-            status=BenchmarkSweepStatus.PENDING.value,
-        )
+    async def create(self, body: SweepCreateRequest) -> BenchmarkSweep:
         async with self._uow_factory.create(master=True) as uow:
+            if await uow.benchmark_sweeps.has_active():
+                raise BusinessRuleViolation(
+                    "Another sweep is pending or running — cancel it or wait for it to finish"
+                )
+            sweep_entity = BenchmarkSweep(
+                strategy=body.strategy,
+                search_space=body.search_space,
+                objective_weights=body.objective_weights,
+                dataset=body.dataset,
+                top_n_llm=body.top_n_llm,
+                status=BenchmarkSweepStatus.PENDING.value,
+            )
             sweep = await uow.benchmark_sweeps.create(sweep_entity)
         return sweep
 
-    async def get(self, sweep_id: int):
+    async def get(self, sweep_id: int) -> BenchmarkSweep:
         async with self._uow_factory.create() as uow:
             sweep = await uow.benchmark_sweeps.get_by_id(sweep_id)
+
         if sweep is None:
             raise EntityNotFound("BenchmarkSweep", sweep_id)
         return sweep
 
-    async def list(self, limit=50, offset=0):
+    async def list(self, limit: int = 50, offset: int = 0) -> tuple[list[BenchmarkSweep], int]:
         async with self._uow_factory.create() as uow:
             sweeps = await uow.benchmark_sweeps.list_items(limit=limit, offset=offset)
             total = await uow.benchmark_sweeps.count()
             return sweeps, total
 
-    async def cancel(self, sweep_id: int):
+    async def cancel(self, sweep_id: int) -> None:
         async with self._uow_factory.create(master=True) as uow:
             sweep = await uow.benchmark_sweeps.get_by_id(sweep_id)
+
             if sweep is None:
                 raise EntityNotFound("BenchmarkSweep", sweep_id)
+
             if sweep.status not in (BenchmarkSweepStatus.PENDING.value, BenchmarkSweepStatus.RUNNING.value):
                 raise ValidationError(f"Cannot cancel sweep in '{sweep.status}' status")
+
             await uow.benchmark_sweeps.update_status(sweep_id, BenchmarkSweepStatus.CANCELLED.value)
 
-    async def update_status(self, sweep_id: int, status: str):
+    async def update_status(self, sweep_id: int, status: str) -> None:
         async with self._uow_factory.create(master=True) as uow:
             await uow.benchmark_sweeps.update_status(sweep_id, status)
 
@@ -142,14 +166,14 @@ class BenchmarkRunService:
         self._uow_factory = uow_factory
 
     async def list(
-        self,
-        sweep_id=None,
-        dataset=None,
-        sort_by="creation_date",
-        sort_order="desc",
-        limit=50,
-        offset=0,
-    ):
+            self,
+            sweep_id: int | None = None,
+            dataset: str | None = None,
+            sort_by: str = "creation_date",
+            sort_order: str = "desc",
+            limit: int = 50,
+            offset: int = 0,
+    ) -> tuple[list[BenchmarkRun], int]:
         async with self._uow_factory.create() as uow:
             runs = await uow.benchmark_runs.list_items(
                 sweep_id=sweep_id,
@@ -162,18 +186,20 @@ class BenchmarkRunService:
             total = await uow.benchmark_runs.count(sweep_id=sweep_id, dataset=dataset)
             return runs, total
 
-    async def get(self, run_id: int):
+    async def get(self, run_id: int) -> BenchmarkRun:
         async with self._uow_factory.create() as uow:
             run = await uow.benchmark_runs.get_by_id(run_id)
+
         if run is None:
             raise EntityNotFound("BenchmarkRun", run_id)
+
         return run
 
-    async def get_by_ids(self, ids: Sequence[int]):
+    async def get_by_ids(self, ids: Sequence[int]) -> list[BenchmarkRun]:
         async with self._uow_factory.create() as uow:
             return await uow.benchmark_runs.get_by_ids(list(ids))
 
-    async def compare(self, ids: Sequence[int]):
+    async def compare(self, ids: Sequence[int]) -> RunCompareResult:
         if len(ids) < 2:
             raise ValidationError("Provide at least 2 run IDs")
         if len(ids) > 10:
@@ -185,8 +211,8 @@ class BenchmarkRunService:
             missing = [i for i in ids if i not in found_ids]
             raise EntityNotFound("BenchmarkRuns", str(missing))
 
-        diff = {}
-        all_keys = set()
+        diff: dict[str, list[dict]] = {}
+        all_keys: set[str] = set()
         for r in runs:
             all_keys.update(r.config_json.keys())
         for key in sorted(all_keys):
@@ -195,10 +221,10 @@ class BenchmarkRunService:
         return runs, diff
 
     async def apply_config(
-        self,
-        run_id: int,
-        changed_by: int,
-        config_service,
+            self,
+            run_id: int,
+            changed_by: int,
+            config_service: ConfigService,
     ) -> ApplyConfigResult:
         """Apply a run's config_json to the live system via ConfigService."""
         run = await self.get(run_id)

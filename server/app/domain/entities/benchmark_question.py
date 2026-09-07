@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
+from domain.value_objects.benchmark_dataset import BenchmarkDataset
+
 
 @dataclass
 class BenchmarkQuestion:
@@ -12,7 +14,7 @@ class BenchmarkQuestion:
     expected_answer: str | None = None
     source_hint: str | None = None
     tags: list[str] | None = None
-    dataset: str = "main"
+    dataset: str = BenchmarkDataset.MAIN.value
     is_active: bool = True
     created_by: int | None = None
     notes: str | None = None

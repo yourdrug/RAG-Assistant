@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
+
 from domain.events.config_events import ConfigParameterChanged
 from infrastructure.events.postgres_config_listener import PostgresConfigListener
 
@@ -70,7 +75,7 @@ async def test_refetch_and_publish_reads_from_db():
     fake_param.value_type = "int"
 
     fake_uow = AsyncMock()
-    fake_uow.config_parameters.get_by_key.return_value = fake_param
+    fake_uow.config_parameters.get_by_key_and_domain.return_value = fake_param
 
     fake_factory = MagicMock()
     fake_factory.create.return_value.__aenter__ = AsyncMock(return_value=fake_uow)
@@ -89,7 +94,7 @@ async def test_refetch_and_publish_reads_from_db():
 async def test_refetch_and_publish_param_not_found():
     bus = MagicMock()
     fake_uow = AsyncMock()
-    fake_uow.config_parameters.get_by_key.return_value = None
+    fake_uow.config_parameters.get_by_key_and_domain.return_value = None
 
     fake_factory = MagicMock()
     fake_factory.create.return_value.__aenter__ = AsyncMock(return_value=fake_uow)
@@ -121,8 +126,8 @@ async def test_stop_sets_stopped_flag():
 async def test_resync_publishes_only_changed_params():
     bus = MagicMock()
     fake_rows = [
-        MagicMock(key="chunk_size", value="900", value_type="int"),
-        MagicMock(key="hybrid_enabled", value="true", value_type="bool"),
+        MagicMock(key="chunk_size", value="900", value_type="int", domain_key=None),
+        MagicMock(key="hybrid_enabled", value="true", value_type="bool", domain_key=None),
     ]
 
     fake_uow = AsyncMock()
@@ -134,8 +139,8 @@ async def test_resync_publishes_only_changed_params():
 
     import config
 
-    original_chunk_size = getattr(config.settings.rag, "chunk_size", None)
-    original_hybrid = getattr(config.settings.rag, "hybrid_enabled", None)
+    original_chunk_size = getattr(config.settings, "chunk_size", None)
+    original_hybrid = getattr(config.settings, "hybrid_enabled", None)
     try:
         config.settings.chunk_size = 500
         config.settings.hybrid_enabled = False
@@ -161,8 +166,8 @@ async def test_resync_publishes_only_changed_params():
 async def test_resync_skips_unchanged_params():
     bus = MagicMock()
     fake_rows = [
-        MagicMock(key="chunk_size", value="500", value_type="int"),
-        MagicMock(key="hybrid_enabled", value="false", value_type="bool"),
+        MagicMock(key="chunk_size", value="500", value_type="int", domain_key=None),
+        MagicMock(key="hybrid_enabled", value="false", value_type="bool", domain_key=None),
     ]
 
     fake_uow = AsyncMock()
@@ -174,8 +179,8 @@ async def test_resync_skips_unchanged_params():
 
     import config
 
-    original_chunk_size = getattr(config.settings.rag, "chunk_size", None)
-    original_hybrid = getattr(config.settings.rag, "hybrid_enabled", None)
+    original_chunk_size = getattr(config.settings, "chunk_size", None)
+    original_hybrid = getattr(config.settings, "hybrid_enabled", None)
     try:
         config.settings.chunk_size = 500
         config.settings.hybrid_enabled = False

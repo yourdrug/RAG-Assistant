@@ -38,7 +38,8 @@ task loadtest:sse          # Locust SSE test (streaming /chat)
 ## Architecture
 
 - **Entry point**: `server/app/main.py` (FastAPI app)
-- **Clean architecture layers**: `server/app/domain/` → `server/app/application/` → `server/app/infrastructure/` → `server/app/presentation/`
+- **Clean architecture layers**: `server/app/domain/` → `server/app/application/` → `server/app/infrastructure/` →
+  `server/app/presentation/`
 - **CLI**: `server/app/presentation/cli/` — typer-based CLI, invoked via `python main.py <command>`
 - **Entrypoint**: `server/entrypoint.sh` does `alembic upgrade head`, then `cd app` then `exec "$@"`
 - **API port**: 8001 (not 8000)
@@ -64,14 +65,14 @@ loadtest/                ← Load testing (k6 + Locust)
 
 ## CLI Commands
 
-| Command | Description |
-|---------|-------------|
-| `runserver --host --port --reload` | Run uvicorn server |
-| `ingest run --docs-dir DIR --reset` | Full document ingestion |
-| `ingest file PATH --force` | Ingest single file |
-| `ingest list` | Show indexed files |
-| `benchmark run --questions --out --top-k --judge-model` | RAG quality benchmark |
-| `pdf-diag run PATH --dump` | Diagnose PDF before ingestion |
+| Command                                                 | Description                   |
+|---------------------------------------------------------|-------------------------------|
+| `runserver --host --port --reload`                      | Run uvicorn server            |
+| `ingest run --docs-dir DIR --reset`                     | Full document ingestion       |
+| `ingest file PATH --force`                              | Ingest single file            |
+| `ingest list`                                           | Show indexed files            |
+| `benchmark run --questions --out --top-k --judge-model` | RAG quality benchmark         |
+| `pdf-diag run PATH --dump`                              | Diagnose PDF before ingestion |
 
 ## Environment Variables
 
@@ -83,7 +84,8 @@ client/.env       → VITE_API_URL (Vite build arg)
 ```
 
 Both `.env.example` files exist as templates. Taskfile reads both via `dotenv:`.
-Root-level `QDRANT_API_KEY` and `VITE_API_URL` for docker-compose interpolation are resolved from these files via Task's `dotenv:` loading into shell environment.
+Root-level `QDRANT_API_KEY` and `VITE_API_URL` for docker-compose interpolation are resolved from these files via Task's
+`dotenv:` loading into shell environment.
 
 ## Logging
 
@@ -124,12 +126,193 @@ Root-level `QDRANT_API_KEY` and `VITE_API_URL` for docker-compose interpolation 
 
 ## Docker
 
-- **Compose files**: `docker-compose.yml` (base) + `docker-compose.override.yml` (dev: build + bind-mounts) + `docker-compose.gpu.yml` (GPU)
-- Base file is pull-only (no `build:` blocks) — production deploys use `SERVER_IMAGE`/`CLIENT_IMAGE` env vars to point at GHCR images
+- **Compose files**: `docker-compose.yml` (base) + `docker-compose.override.yml` (dev: build + bind-mounts) +
+  `docker-compose.gpu.yml` (GPU)
+- Base file is pull-only (no `build:` blocks) — production deploys use `SERVER_IMAGE`/`CLIENT_IMAGE` env vars to point
+  at GHCR images
 - Dev override adds `build:` blocks and live-reload bind-mounts; auto-loaded by `docker compose up`
 - Multi-stage build: python-base → builder-base → uv-base → development/production
 - venv lives at `/code/.venv` (separate from code, survives bind-mount)
 - Server command: `python main.py runserver` (not direct uvicorn)
-- Services: qdrant, ollama, postgres, redis, server, worker, minio (S3), client (web UI), tei-embed, tei-rerank (optional profile)
-- Client runs nginx that proxies `/api/*` to `server:8001` — external nginx can proxy to `client:3001` as a single upstream
+- Services: qdrant, ollama, postgres, redis, server, worker, minio (S3), client (web UI), tei-embed, tei-rerank (
+  optional profile)
+- Client runs nginx that proxies `/api/*` to `server:8001` — external nginx can proxy to `client:3001` as a single
+  upstream
 - No TLS termination inside the stack — use external nginx with certbot/letsencrypt
+
+# Project Engineering Rules
+
+## General
+
+This is a production-grade Python backend.
+
+The project must be treated as a potentially hostile and failure-prone system.
+
+When analyzing or modifying code:
+
+* understand the existing architecture before changing it
+* preserve domain invariants
+* preserve transaction boundaries
+* avoid leaking infrastructure concerns into the domain
+* prefer explicit dependencies
+* do not introduce abstractions without a concrete reason
+* do not silently change business behavior
+* do not hide errors
+* do not weaken security to make implementation easier
+
+## Architecture
+
+The intended architectural direction is:
+
+Presentation
+↓
+Application
+↓
+Domain
+
+Infrastructure implements abstractions required by Application/Domain.
+
+The Domain layer must not depend on:
+
+* FastAPI
+* SQLAlchemy
+* HTTP
+* Redis
+* Kafka
+* PostgreSQL
+* Pydantic
+* infrastructure implementations
+
+Application code should not contain infrastructure implementation details.
+
+Routers/controllers should remain thin.
+
+Business rules belong in the domain/application layer according to their nature.
+
+## Database
+
+Database constraints are part of correctness.
+
+Do not rely exclusively on application-level checks for:
+
+* uniqueness
+* referential integrity
+* state consistency
+* required fields
+
+Always consider concurrency between:
+
+READ → CHECK → WRITE
+
+## Transactions
+
+Every important use case must have an explicit transaction boundary.
+
+Be suspicious of:
+
+DB transaction
+→ external HTTP call
+→ message publishing
+→ DB commit
+
+Consider:
+
+* idempotency
+* retries
+* outbox pattern
+* optimistic locking
+* pessimistic locking
+* transaction isolation
+
+## Async
+
+Async code must not perform blocking I/O in the event loop.
+
+Be suspicious of:
+
+* synchronous HTTP clients
+* synchronous DB access
+* blocking filesystem operations
+* CPU-heavy operations
+* subprocesses
+* long-running loops
+
+## Security
+
+Every endpoint must be considered attacker-controlled.
+
+Never assume:
+
+* user IDs are trustworthy
+* object IDs belong to the authenticated user
+* frontend validation is sufficient
+* authentication implies authorization
+* internal APIs are automatically trusted
+
+Always consider:
+
+* BOLA/IDOR
+* privilege escalation
+* authentication bypass
+* mass assignment
+* excessive data exposure
+* injection
+* SSRF
+* resource exhaustion
+* race conditions
+* sensitive data leakage
+
+## Error handling
+
+Do not use broad exception handling to hide failures.
+
+Avoid patterns such as:
+
+```python
+try:
+    ...
+except Exception:
+    pass
+```
+
+or:
+
+```python
+try:
+    ...
+except Exception:
+    return None
+```
+
+unless there is a very explicit and documented reason.
+
+## Testing
+
+Every important business invariant should have a test.
+
+Security-sensitive behavior requires tests for both:
+
+* authorized behavior
+* unauthorized behavior
+
+Concurrency-sensitive behavior requires concurrency tests where practical.
+
+## Audit mode
+
+When an audit agent is active:
+
+* do not modify application source code
+* do not automatically fix findings
+* inspect the entire relevant execution path
+* distinguish confirmed issues from hypotheses
+* provide file and line references
+* explain reproducible failure/security scenarios
+* prioritize real impact over code-style preferences
+
+Prefer:
+
+10 proven findings
+
+over:
+
+50 speculative findings.

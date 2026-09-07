@@ -9,6 +9,8 @@ from typing import Literal, cast
 import typer
 import uvicorn
 
+from config import settings
+
 logger = logging.getLogger("cli")
 
 
@@ -31,7 +33,7 @@ def runserver(
             loop=loop,
             reload=reload,
             proxy_headers=proxy_headers,
-            forwarded_allow_ips=forwarded_allow_ips,
+            forwarded_allow_ips=forwarded_allow_ips or settings.forwarded_allow_ips,
             factory=True,
         )
     except Exception as exception:

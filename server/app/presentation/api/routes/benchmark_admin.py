@@ -284,10 +284,17 @@ async def sweep_progress_stream(
                 await pubsub.subscribe(f"sweep:{sweep_id}")
 
                 while True:
-                    message = await asyncio.wait_for(
-                        pubsub.get_message(ignore_subscribe_messages=True),
-                        timeout=30,
-                    )
+                    try:
+                        message = await asyncio.wait_for(
+                            pubsub.get_message(ignore_subscribe_messages=True),
+                            timeout=30,
+                        )
+                    except TimeoutError:
+                        # idle timeout must NOT end the stream — keep it
+                        # alive with a heartbeat and keep waiting for progress
+                        # / the final done event.
+                        yield ": heartbeat\n\n"
+                        continue
                     if message and message["type"] == "message":
                         data = message["data"].decode("utf-8")
                         yield f"data: {data}\n\n"
@@ -297,11 +304,9 @@ async def sweep_progress_stream(
             finally:
                 await pubsub.unsubscribe(f"sweep:{sweep_id}")
                 await pool.close()
-        except TimeoutError:
-            yield ": heartbeat\n\n"
         except Exception as e:
             logger.warning("SSE stream error for sweep %d: %s", sweep_id, e)
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            yield f"data: {json.dumps({'error': 'SSE stream error'})}\n\n"
 
     return StreamingResponse(
         event_generator(),

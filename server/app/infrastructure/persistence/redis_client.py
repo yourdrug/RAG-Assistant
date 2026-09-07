@@ -53,6 +53,9 @@ class RedisClient:
             settings.redis_url,
             decode_responses=True,
             socket_connect_timeout=3,
+            socket_timeout=settings.redis_socket_timeout,
+            max_connections=settings.redis_max_connections,
+            health_check_interval=30,
         )
         await self._redis.ping()
         logger.info("RedisClient: connection established to %s:%s", settings.redis_host, settings.redis_port)

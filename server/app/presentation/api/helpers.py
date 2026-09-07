@@ -87,6 +87,7 @@ async def upload_and_enqueue(
     user_role: str,
     rename_on_conflict: bool,
     doc_domain: str | None,
+    replaces_document_id: int | None = None,
     document_service: _UploadableService,
     job_service: _JobService,
     enqueue_fn: Any,
@@ -107,6 +108,7 @@ async def upload_and_enqueue(
         user_role=user_role,
         rename_on_conflict=rename_on_conflict,
         doc_domain=doc_domain,
+        replaces_document_id=replaces_document_id,
     )
 
     log_action(action_name, user_id=user_id, details={"filename": filename, "visibility": visibility})

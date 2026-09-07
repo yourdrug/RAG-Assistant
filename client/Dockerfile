@@ -58,6 +58,8 @@ RUN printf 'server {\n\
     root /usr/share/nginx/html;\n\
     index index.html;\n\
 \n\
+    client_max_body_size 64m;\n\
+\n\
     location /api/ {\n\
         proxy_pass http://%s/api/;\n\
         proxy_http_version 1.1;\n\

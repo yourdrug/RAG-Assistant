@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from domain.entities.document import Document
 from domain.services.access_control import get_visibility_conditions
@@ -57,7 +57,7 @@ class SQLAlchemyDocumentRepository:
     async def update_status(
         self,
         document_id: int,
-        status: str,
+        status: str | None = None,
         error: str | None = None,
         chunks: int | None = None,
         chars: int | None = None,
@@ -69,7 +69,8 @@ class SQLAlchemyDocumentRepository:
         if orm is None:
             return
 
-        orm.status = status
+        if status is not None:
+            orm.status = status
         orm.error_message = error
         if warning is not None:
             orm.warning_message = warning
@@ -161,6 +162,8 @@ class SQLAlchemyDocumentRepository:
         user_id: int,
         group_ids: list[int],
         user_role: str | None = None,
+        limit: int = 200,
+        offset: int = 0,
     ) -> list[Document]:
         conditions = get_visibility_conditions(
             UserKind(user_kind),
@@ -185,12 +188,21 @@ class SQLAlchemyDocumentRepository:
             return []
 
         result = await self._db.execute(
-            select(DocumentModel).where(or_(*or_clauses)).order_by(DocumentModel.creation_date.desc())
+            select(DocumentModel)
+            .where(or_(*or_clauses))
+            .order_by(DocumentModel.creation_date.desc())
+            .offset(offset)
+            .limit(limit)
         )
         return [self._to_entity(orm) for orm in result.scalars().all()]
 
-    async def list_all(self) -> list[Document]:
-        result = await self._db.execute(select(DocumentModel).order_by(DocumentModel.creation_date.desc()))
+    async def list_all(self, limit: int = 200, offset: int = 0) -> list[Document]:
+        result = await self._db.execute(
+            select(DocumentModel)
+            .order_by(DocumentModel.creation_date.desc())
+            .offset(offset)
+            .limit(limit)
+        )
         return [self._to_entity(orm) for orm in result.scalars().all()]
 
     async def set_has_manual_edits(self, document_id: int, value: bool) -> None:
@@ -243,6 +255,50 @@ class SQLAlchemyDocumentRepository:
             await self._db.delete(orm)
         await self._db.flush()
         return len(orms)
+
+    async def mark_done_if_indexing(self, document_id: int) -> bool:
+        """Mark document as DONE if it is currently INDEXING. Returns True if updated."""
+        result = await self._db.execute(
+            select(DocumentModel).where(
+                DocumentModel.id == document_id,
+                DocumentModel.status == DocumentStatus.INDEXING.value,
+            )
+        )
+        orm = result.scalar_one_or_none()
+        if orm:
+            orm.status = DocumentStatus.DONE.value
+            orm.indexed_at = datetime.now(tz=UTC)
+            await self._db.flush()
+            return True
+        return False
+
+    async def mark_stuck_processing_failed(self) -> list[int]:
+        """Mark documents stuck in PROCESSING for too long as FAILED."""
+        cutoff = datetime.now(tz=UTC) - timedelta(minutes=30)
+        result = await self._db.execute(
+            select(DocumentModel).where(
+                DocumentModel.status == DocumentStatus.PROCESSING.value,
+                DocumentModel.creation_date < cutoff,
+            )
+        )
+        orms = result.scalars().all()
+        ids = []
+        for orm in orms:
+            orm.status = DocumentStatus.FAILED.value
+            orm.error_message = "Processing timed out"
+            ids.append(orm.id)
+        await self._db.flush()
+        return ids
+
+    async def reconcile_indexing_documents(self) -> list[int]:
+        """Mark INDEXING documents as DONE if outbox is empty."""
+        result = await self._db.execute(
+            select(DocumentModel.id).where(
+                DocumentModel.status == DocumentStatus.INDEXING.value,
+            )
+        )
+        indexing_ids = [row[0] for row in result.fetchall()]
+        return indexing_ids
 
     @staticmethod
     def _to_entity(orm: DocumentModel) -> Document:

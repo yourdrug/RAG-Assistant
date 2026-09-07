@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import logging.config
 from collections.abc import AsyncGenerator
@@ -19,8 +20,8 @@ from infrastructure.database.database import database
 from infrastructure.initialization import initialize_app
 from infrastructure.logging import logging_config
 from infrastructure.logging.log_buffer import attach_log_buffer
-from infrastructure.ml.metrics import collect_infra_metrics
-from infrastructure.ml.metrics_middleware import add_metrics_middleware
+from infrastructure.metrics.metrics import collect_infra_metrics
+from infrastructure.metrics.metrics_middleware import add_metrics_middleware
 from infrastructure.persistence.redis_client import redis_client
 from infrastructure.scheduler import scheduler
 from infrastructure.utils import Singleton
@@ -39,6 +40,7 @@ from presentation.api.routes.admin_jobs import router as admin_jobs_router
 from presentation.api.routes.admin_logs import router as admin_logs_router
 from presentation.api.routes.admin_metrics import router as admin_metrics_router
 from presentation.api.routes.admin_quality import router as admin_quality_router
+from presentation.api.routes.admin_act_versions import router as admin_act_versions_router
 from presentation.api.routes.api_keys import router as api_keys_router
 from presentation.api.routes.auth import router as auth_router
 from presentation.api.routes.benchmark import router as benchmark_router
@@ -61,6 +63,18 @@ logger = logging.getLogger("default")
 # ---------------------------------------------------------------------------
 
 
+async def _seed_domain_config_defaults(container) -> None:
+    """Seed domain config defaults from DomainProfile.config_defaults() (TZ section 3)."""
+    if container.infrastructure.domain_registry is None:
+        return
+    from infrastructure.initialization import _seed_domain_config_defaults
+
+    await _seed_domain_config_defaults(
+        container.infrastructure.uow_factory,
+        container.infrastructure.domain_registry,
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator:
     logging.config.dictConfig(logging_config)
@@ -78,6 +92,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     if container.infrastructure.uow_factory is None:
         raise RuntimeError("UnitOfWorkFactory failed to initialize")
     await initialize_app(container.infrastructure.uow_factory)
+    await _seed_domain_config_defaults(container)
+
     if container.infrastructure.config_listener is None:
         raise RuntimeError("ConfigListener failed to initialize")
     if container.infrastructure.api_key_provider is None:
@@ -105,7 +121,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     )
     await collect_infra_metrics(ml_clients=container.infrastructure.ml_clients)
 
-    yield
+    # reload the in-memory BM25 index after the worker rebuilds/persists it
+    from infrastructure.bm25.bm25_invalidation import listen_for_bm25_invalidation
+
+    bm25_listener_task = asyncio.create_task(
+        listen_for_bm25_invalidation(container.infrastructure.ml_clients),
+        name="bm25-invalidation-listener",
+    )
+
+    try:
+        yield
+    finally:
+        bm25_listener_task.cancel()
+        await asyncio.gather(bm25_listener_task, return_exceptions=True)
 
     # --- Shutdown (reverse order) ---
     if container.infrastructure.outbox_listener is not None:
@@ -119,6 +147,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
 
     await container.dispose()
     await scheduler.shutdown()
+    from infrastructure.worker.queue import close_arq_pool
+
+    await close_arq_pool()
     await database.disconnect()
     await FastAPILimiter.close()
     await redis_client.aclose()
@@ -182,6 +213,7 @@ class Application:
             admin_metrics_router,
             admin_quality_router,
             admin_logs_router,
+            admin_act_versions_router,
         )
         for router in routers:
             self.app.include_router(router)

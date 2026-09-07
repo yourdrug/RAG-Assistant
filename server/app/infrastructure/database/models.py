@@ -5,12 +5,13 @@ Uses shared BaseModel (int PK + creation_date) and LinkedBaseModel (M2M join tab
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import (
     JSON,
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -18,7 +19,10 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
+    text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from infrastructure.database.basemodel import BaseModel, LinkedBaseModel
@@ -92,18 +96,18 @@ class DocumentModel(BaseModel):
             "status IN ('pending', 'processing', 'indexing', 'done', 'failed')",
             name="documents_status_check",
         ),
-        CheckConstraint(
-            "doc_domain IN ('legal', 'general')",
-            name="documents_doc_domain_check",
-        ),
         Index("idx_documents_owner", "owner_id"),
         Index("idx_documents_group", "group_id"),
         Index("idx_documents_visibility", "visibility"),
         Index("idx_documents_status", "status"),
         Index("idx_documents_doc_domain", "doc_domain"),
+        # COALESCE so public/group (NULL owner) rows collide too — NULLs are
+        # distinct in plain unique indexes, which let duplicate public uploads
+        # through.
         Index(
             "ux_documents_active_slot",
-            "owner_id",
+            text("COALESCE(owner_id, 0)"),
+            text("COALESCE(group_id, 0)"),
             "filename",
             unique=True,
             postgresql_where="status IN ('pending', 'processing', 'done', 'failed')",
@@ -116,15 +120,18 @@ class DocumentModel(BaseModel):
     owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     group_id: Mapped[int | None] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"))
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
-    doc_domain: Mapped[str] = mapped_column(String(16), nullable=False, default="general")
+    doc_domain: Mapped[str] = mapped_column(String(32), nullable=False, default="general")
     source_type: Mapped[str] = mapped_column(String(16), nullable=False, server_default="file")
     has_manual_edits: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    version_group_id: Mapped[int | None] = mapped_column(
+        ForeignKey("documents.id", ondelete="SET NULL"), nullable=True,
+    )
     error_message: Mapped[str | None] = mapped_column(Text)
     warning_message: Mapped[str | None] = mapped_column(Text)
     quality_score: Mapped[float | None] = mapped_column(Float)
     chunks: Mapped[int | None] = mapped_column(Integer)
     chars: Mapped[int | None] = mapped_column(Integer)
-    indexed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    indexed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class ConfigParameterModel(BaseModel):
@@ -137,9 +144,21 @@ class ConfigParameterModel(BaseModel):
     """
 
     __tablename__ = "config_parameters"
-    __table_args__ = (Index("idx_config_parameters_category", "category"),)
+    __table_args__ = (
+        # (key, domain_key) with NULLS NOT DISTINCT: NULLs-distinct let two
+        # concurrent seeding processes create duplicate rows, which made every
+        # get_by_key raise MultipleResultsFound forever.
+        UniqueConstraint(
+            "key",
+            "domain_key",
+            name="ux_config_parameters_key_domain",
+            postgresql_nulls_not_distinct=True,
+        ),
+        Index("idx_config_parameters_category", "category"),
+        Index("idx_config_parameters_domain_key", "domain_key", postgresql_where="domain_key IS NOT NULL"),
+    )
 
-    key: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    key: Mapped[str] = mapped_column(String(100), nullable=False)
     value: Mapped[str] = mapped_column(Text, nullable=False)
     value_type: Mapped[str] = mapped_column(String(20), nullable=False, default="str")
     category: Mapped[str] = mapped_column(String(50), nullable=False)
@@ -147,6 +166,7 @@ class ConfigParameterModel(BaseModel):
     min_value: Mapped[float | None] = mapped_column(nullable=True)
     max_value: Mapped[float | None] = mapped_column(nullable=True)
     allowed_values: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    domain_key: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
 class ApiKeyModel(BaseModel):
@@ -157,8 +177,8 @@ class ApiKeyModel(BaseModel):
     key_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     key_prefix: Mapped[str] = mapped_column(String(20), nullable=False)
     name: Mapped[str | None] = mapped_column(String(255))
-    revoked_at: Mapped[datetime | None] = mapped_column(DateTime)
-    last_used_at: Mapped[datetime | None] = mapped_column(DateTime)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class BackgroundJobModel(BaseModel):
@@ -171,15 +191,62 @@ class BackgroundJobModel(BaseModel):
         Index("idx_background_jobs_status", "status"),
         Index("idx_background_jobs_job_type", "job_type"),
         Index("idx_background_jobs_creation_date", "creation_date"),
+        Index("idx_background_jobs_heartbeat", "heartbeat_at"),
     )
 
     job_type: Mapped[str] = mapped_column(String(50), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     related_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     request_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class RegulatoryActModel(BaseModel):
+    """A legal act that may have multiple versions over time."""
+
+    __tablename__ = "regulatory_acts"
+    __table_args__ = (
+        # Backstop for the READ→CHECK→WRITE race in find_or_create_act
+        Index("ux_regulatory_acts_type_number", "act_type", "act_number", unique=True),
+    )
+
+    act_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    act_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    issuing_authority: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+
+class ActVersionModel(BaseModel):
+    """A specific version of a regulatory act, linked to a document."""
+
+    __tablename__ = "act_versions"
+    __table_args__ = (
+        Index("idx_act_versions_act_id", "act_id"),
+        # Guarantee: an act cannot have two "current" versions at once
+        Index(
+            "ux_act_versions_one_current",
+            "act_id",
+            unique=True,
+            postgresql_where=text("is_current"),
+        ),
+    )
+
+    act_id: Mapped[int | None] = mapped_column(
+        ForeignKey("regulatory_acts.id", ondelete="CASCADE"), nullable=True
+    )
+    document_id: Mapped[int] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
+    effective_from: Mapped[date | None] = mapped_column(Date, nullable=True)
+    effective_to: Mapped[date | None] = mapped_column(Date, nullable=True)
+    is_current: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    date_source: Mapped[str] = mapped_column(String(16), nullable=False, server_default="extracted")
+    date_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    verified_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class ChunkModel(BaseModel):
@@ -191,10 +258,11 @@ class ChunkModel(BaseModel):
 
     __tablename__ = "chunks"
     __table_args__ = (
-        CheckConstraint(
-            "doc_domain IN ('legal', 'general')",
-            name="chunks_doc_domain_check",
-        ),
+        UniqueConstraint("document_id", "chunk_index", name="ux_chunks_document_index"),
+        Index("ix_chunks_visibility", "visibility"),
+        Index("ix_chunks_owner_id", "owner_id"),
+        Index("ix_chunks_group_id", "group_id"),
+        Index("idx_chunks_content_hash", "content_hash"),
     )
 
     document_id: Mapped[int] = mapped_column(
@@ -204,13 +272,20 @@ class ChunkModel(BaseModel):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     filename: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     visibility: Mapped[str] = mapped_column(String(20), nullable=False)
-    doc_domain: Mapped[str] = mapped_column(String(16), nullable=False, default="general")
+    doc_domain: Mapped[str] = mapped_column(String(32), nullable=False, default="general")
     owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     group_id: Mapped[int | None] = mapped_column(ForeignKey("groups.id", ondelete="SET NULL"))
     edited_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     edited_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     manual: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     content_hash: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    domain_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    act_version_id: Mapped[int | None] = mapped_column(
+        ForeignKey("act_versions.id", ondelete="SET NULL"), nullable=True
+    )
+    effective_from: Mapped[date | None] = mapped_column(Date, nullable=True)
+    effective_to: Mapped[date | None] = mapped_column(Date, nullable=True)
+    is_current: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
 
 
 class ChatLogModel(BaseModel):
@@ -282,7 +357,9 @@ class BenchmarkSweepModel(BaseModel):
     )
     total_configs: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     evaluated_configs: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
-    best_run_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    best_run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("benchmark_runs.id", ondelete="SET NULL"), nullable=True
+    )
 
 
 class BenchmarkRunModel(BaseModel):
@@ -319,8 +396,15 @@ class VectorStoreOutboxModel(BaseModel):
             name="vector_store_outbox_status_check",
         ),
         CheckConstraint(
-            "operation IN ('upsert_chunks', 'delete_by_document', 'delete_chunks')",
+            "operation IN ('upsert_chunks', 'delete_by_document', 'delete_chunks', "
+            "'update_metadata', 'set_document_id')",
             name="vector_store_outbox_operation_check",
+        ),
+        Index(
+            "idx_outbox_dispatch",
+            "status",
+            "next_attempt_at",
+            postgresql_where="status IN ('pending', 'failed')",
         ),
         Index("idx_outbox_aggregate", "aggregate_type", "aggregate_id"),
     )
@@ -350,4 +434,4 @@ class IngestionRegistryModel(BaseModel):
     source: Mapped[str] = mapped_column(String(1000), nullable=False, server_default="")
     chunks: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     chars: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
-    indexed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    indexed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

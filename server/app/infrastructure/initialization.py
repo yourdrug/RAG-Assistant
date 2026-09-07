@@ -71,6 +71,8 @@ def _build_defaults() -> list[ConfigParameter]:
         _param("history_window", str(s.history_window), "int", "rag", "Chat history window", 0, 50),
         _param("chunk_size", str(s.chunk_size), "int", "rag", "Document chunk size (chars)", 100, 5000),
         _param("chunk_overlap", str(s.chunk_overlap), "int", "rag", "Chunk overlap (chars)", 0, 1000),
+        _param("legal_chunk_size", str(s.legal_chunk_size), "int", "legal", "Legal doc chunk size (chars)", 100, 5000),
+        _param("legal_chunk_overlap", str(s.legal_chunk_overlap), "int", "legal", "Legal doc chunk overlap (chars)", 0, 1000),
         _param(
             "source_min_score",
             str(s.source_min_score),
@@ -297,15 +299,18 @@ async def _seed_config_defaults(uow_factory) -> None:
     try:
         async with uow_factory.create(master=True) as uow:
             existing = await uow.config_parameters.get_all()
-            existing_keys = {p.key for p in existing}
+            existing_pairs = {(p.key, p.domain_key) for p in existing}
             existing_categories = {p.key: p.category for p in existing}
 
             defaults = _build_defaults()
             added = 0
             updated = 0
             for entity in defaults:
-                if entity.key not in existing_keys:
-                    await uow.config_parameters.save(entity)
+                pair = (entity.key, entity.domain_key)
+                if pair not in existing_pairs:
+                    # upsert: another process may seed the same row in parallel
+                    # at boot (M-2). upsert NOTIFYs other processes atomically.
+                    await uow.config_parameters.upsert(entity)
                     added += 1
                 elif existing_categories.get(entity.key) != entity.category:
                     await uow.config_parameters.update_category(entity.key, entity.category)
@@ -324,6 +329,62 @@ async def _seed_config_defaults(uow_factory) -> None:
         logger.warning("Failed to seed config defaults: %s", e)
 
 
+async def _seed_domain_config_defaults(uow_factory, registry) -> None:
+    """Seed domain-specific config defaults from DomainProfile.config_defaults().
+
+    Each profile declares its own defaults. Seeding is generic — adding a new
+    domain profile requires zero changes here.  Newly added parameters are
+    published via the event bus so the in-memory DomainSettingsAdapter picks
+    them up on first boot (the bulk _load_config_from_db pass ran before seeding),
+    and NOTIFYed via upsert so ALREADY-RUNNING processes resync immediately.
+    """
+    from domain.events.config_events import ConfigParameterChanged
+    from infrastructure.events.in_process_event_bus import event_bus
+
+    try:
+        async with uow_factory.create(master=True) as uow:
+            existing = await uow.config_parameters.get_all()
+            existing_pairs = {(p.key, p.domain_key) for p in existing}
+            added = 0
+            for profile in registry.all():
+                for default in profile.config_defaults():
+                    pair = (default.key, profile.key)
+                    if pair in existing_pairs:
+                        continue
+                    entity = ConfigParameter(
+                        key=default.key,
+                        value=default.value,
+                        value_type=default.value_type,
+                        category=f"domain:{profile.key}",
+                        description=default.description,
+                        min_value=default.min_value,
+                        max_value=default.max_value,
+                        domain_key=profile.key,
+                    )
+                    # upsert (not save): API and worker seed in parallel at
+                    # boot — plain INSERT under the race creates duplicates
+                    # (M-2) and then get_by_key_and_domain raises
+                    # MultipleResultsFound forever. upsert also NOTIFYs other
+                    # processes within the same transaction.
+                    await uow.config_parameters.upsert(entity)
+                    event_bus.publish(
+                        ConfigParameterChanged(
+                            key=entity.key,
+                            old_value=None,
+                            new_value=entity.value,
+                            value_type=entity.value_type,
+                            domain_key=entity.domain_key,
+                        )
+                    )
+                    added += 1
+            if added:
+                logger.info("Domain config parameters: added %d", added)
+            else:
+                logger.info("All domain config parameters already present")
+    except Exception as e:
+        logger.warning("Failed to seed domain config defaults: %s", e)
+
+
 async def _load_config_from_db(uow_factory) -> None:
     """При старте — прогнать все сохранённые параметры через событийную шину.
 
@@ -338,8 +399,9 @@ async def _load_config_from_db(uow_factory) -> None:
                     ConfigParameterChanged(
                         key=r.key,
                         old_value=None,
-                        new_value=r.value.strip('"').strip("'"),
+                        new_value=r.normalize(r.value),
                         value_type=r.value_type,
+                        domain_key=r.domain_key,
                     )
                 )
             logger.info("Loaded %d config parameters via event bus", len(rows))

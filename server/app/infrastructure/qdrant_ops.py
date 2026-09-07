@@ -5,10 +5,10 @@ and ACL-filtered search helpers.  Extracted from the original vector_store
 module to keep concerns separated.
 """
 
+import asyncio
 import logging
 import time
 
-from config import settings
 from langchain.schema import Document
 from qdrant_client.models import (
     Distance,
@@ -22,8 +22,9 @@ from qdrant_client.models import (
     VectorParams,
 )
 
+from config import settings
+from infrastructure.bm25.hybrid import content_hash
 from infrastructure.ml.factories import create_qdrant_client
-from infrastructure.ml.hybrid import content_hash
 
 log = logging.getLogger("default")
 
@@ -121,7 +122,7 @@ def _ensure_payload_indexes(client) -> None:
                 log.warning("Failed to create payload index %s: %s", field_name, e)
 
 
-async def upload_to_qdrant(chunks: list[Document], embeddings) -> None:
+async def upload_to_qdrant(chunks: list[Document], embeddings, client=None) -> None:
     embed_batch = settings.embed_batch_size
     qdrant_batch = 500
 
@@ -153,7 +154,9 @@ async def upload_to_qdrant(chunks: list[Document], embeddings) -> None:
     for doc, h in zip(chunks, hashes, strict=False):
         doc.metadata["content_hash"] = h
 
-    client = create_qdrant_client()
+    # Reuse the caller's client when provided (avoids a new TCP pool per call)
+    if client is None:
+        client = create_qdrant_client()
 
     # Embed + upsert in sub-batches to limit peak memory and give visible progress
     pending_points: list[PointStruct] = []
@@ -182,7 +185,8 @@ async def upload_to_qdrant(chunks: list[Document], embeddings) -> None:
 
         # Flush to Qdrant when we have enough for a qdrant_batch or at the end
         while len(pending_points) >= qdrant_batch:
-            client.upsert(
+            await asyncio.to_thread(
+                client.upsert,
                 collection_name=settings.collection_name,
                 points=pending_points[:qdrant_batch],
             )
@@ -202,7 +206,8 @@ async def upload_to_qdrant(chunks: list[Document], embeddings) -> None:
 
     # Flush remaining points
     if pending_points:
-        client.upsert(
+        await asyncio.to_thread(
+            client.upsert,
             collection_name=settings.collection_name,
             points=pending_points,
         )

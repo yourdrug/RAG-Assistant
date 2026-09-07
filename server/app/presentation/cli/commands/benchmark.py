@@ -12,18 +12,18 @@ from pathlib import Path
 
 import typer
 from config import _settings_overrides, settings
-from infrastructure.ml.benchmark import (
+from infrastructure.benchmark.benchmark import (
     load_questions,
     run_benchmark_async,
 )
-from infrastructure.ml.benchmark_history import (
+from infrastructure.benchmark.benchmark_history import (
     compare_runs,
     get_last_baseline,
     load_history,
     print_history,
 )
 from infrastructure.ml.factories import create_embeddings, create_qdrant_client, load_bm25_index
-from infrastructure.ml.hybrid import content_hash, rrf_merge
+from infrastructure.bm25.hybrid import content_hash, rrf_merge
 from infrastructure.services.benchmark_service import BenchmarkService
 from langchain.schema import Document as LCDocument
 

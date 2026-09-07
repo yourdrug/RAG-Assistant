@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.document_status import DocumentStatus
 from domain.value_objects.roles import UserRole
+from domain.value_objects.source_type import SourceType
 from domain.value_objects.visibility import DocumentVisibility
 
 
@@ -26,8 +27,9 @@ class Document:
     group_id: int | None = None
     status: DocumentStatus = DocumentStatus.PENDING
     doc_domain: str = DocDomain.GENERAL.value
-    source_type: str = "file"
+    source_type: str = SourceType.FILE.value
     has_manual_edits: bool = False
+    version_group_id: int | None = None  # anchor document of the version chain
     error_message: str | None = None
     warning_message: str | None = None
     quality_score: float | None = None

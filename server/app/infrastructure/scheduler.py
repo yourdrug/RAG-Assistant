@@ -17,7 +17,7 @@ from functools import wraps
 from typing import Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from infrastructure.ml.metrics import collect_infra_metrics
+from infrastructure.metrics.metrics import collect_infra_metrics
 
 logger = logging.getLogger("default")
 

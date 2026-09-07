@@ -10,12 +10,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 from infrastructure.ml.ingestion import (  # noqa: E402
     PARSERS,
-    _parse_markdown,
-    _parse_txt,
-    _split_markdown_tables,
     clean_pdf_text,
     merge_pdf_pages,
+    parse_markdown,
+    parse_txt,
     split_documents,
+    split_markdown_tables,
 )
 
 # ---------------------------------------------------------------------------
@@ -92,7 +92,7 @@ class TestCleanPdfText:
 
 
 # ---------------------------------------------------------------------------
-# _parse_markdown
+# parse_markdown
 # ---------------------------------------------------------------------------
 
 
@@ -104,14 +104,14 @@ class TestParseMarkdown:
 
     def test_removes_h1_to_h6_headers(self, tmp_path):
         f = self._write_md(tmp_path, "# Title\n## Sub\n### Deep")
-        result = _parse_markdown(f)
+        result = parse_markdown(f)
         assert "#" not in result
         assert "Title" in result
         assert "Sub" in result
 
     def test_removes_image_syntax(self, tmp_path):
         f = self._write_md(tmp_path, "Text ![alt](img.png) more")
-        result = _parse_markdown(f)
+        result = parse_markdown(f)
         assert "![alt]" not in result
         assert "img.png" not in result
         assert "Text" in result
@@ -119,7 +119,7 @@ class TestParseMarkdown:
 
     def test_strips_link_syntax_keeps_text(self, tmp_path):
         f = self._write_md(tmp_path, "See [Google](https://google.com) for info")
-        result = _parse_markdown(f)
+        result = parse_markdown(f)
         assert "[Google]" not in result
         assert "(https://google.com)" not in result
         assert "Google" in result
@@ -127,7 +127,7 @@ class TestParseMarkdown:
 
     def test_removes_bold_italic_inline_code_markers(self, tmp_path):
         f = self._write_md(tmp_path, "**bold** *italic* `code` ~~strike~~")
-        result = _parse_markdown(f)
+        result = parse_markdown(f)
         assert "**" not in result
         assert "*" not in result
         assert "`" not in result
@@ -138,25 +138,25 @@ class TestParseMarkdown:
 
     def test_unescapes_html_entities(self, tmp_path):
         f = self._write_md(tmp_path, "5 &lt; 10 &amp; 20 &gt; 5")
-        result = _parse_markdown(f)
+        result = parse_markdown(f)
         assert "<" in result
         assert "&" in result
         assert ">" in result
 
     def test_empty_file(self, tmp_path):
         f = self._write_md(tmp_path, "")
-        result = _parse_markdown(f)
+        result = parse_markdown(f)
         assert result == ""
 
     def test_plain_text_preserved(self, tmp_path):
         f = self._write_md(tmp_path, "Just plain text without markup.")
-        result = _parse_markdown(f)
+        result = parse_markdown(f)
         assert result == "Just plain text without markup."
 
     def test_multiple_images_removed(self, tmp_path):
         content = "![a](a.png) text ![b](b.jpg) end"
         f = self._write_md(tmp_path, content)
-        result = _parse_markdown(f)
+        result = parse_markdown(f)
         assert "a.png" not in result
         assert "b.jpg" not in result
         assert "text" in result
@@ -164,7 +164,7 @@ class TestParseMarkdown:
 
 
 # ---------------------------------------------------------------------------
-# _parse_txt
+# parse_txt
 # ---------------------------------------------------------------------------
 
 
@@ -172,19 +172,19 @@ class TestParseTxt:
     def test_reads_file(self, tmp_path):
         f = tmp_path / "test.txt"
         f.write_text("hello world", encoding="utf-8")
-        text, _meta = _parse_txt(f)
+        text, _meta = parse_txt(f)
         assert text == "hello world"
 
     def test_preserves_encoding(self, tmp_path):
         f = tmp_path / "ru.txt"
         f.write_text("Привет мир", encoding="utf-8")
-        text, _meta = _parse_txt(f)
+        text, _meta = parse_txt(f)
         assert text == "Привет мир"
 
     def test_empty_file(self, tmp_path):
         f = tmp_path / "empty.txt"
         f.write_text("", encoding="utf-8")
-        text, _meta = _parse_txt(f)
+        text, _meta = parse_txt(f)
         assert text == ""
 
 
@@ -359,31 +359,31 @@ class TestSplitDocumentsDomainAware:
 
 
 # ---------------------------------------------------------------------------
-# _split_markdown_tables
+# split_markdown_tables
 # ---------------------------------------------------------------------------
 
 
 class TestSplitMarkdownTables:
     def test_text_only(self):
-        result = _split_markdown_tables("Just plain text")
+        result = split_markdown_tables("Just plain text")
         assert len(result) == 1
         assert result[0] == ("text", "Just plain text")
 
     def test_table_only(self):
         content = "| A | B |\n|---|---|\n| 1 | 2 |"
-        result = _split_markdown_tables(content)
+        result = split_markdown_tables(content)
         assert len(result) == 1
         assert result[0][0] == "table"
 
     def test_text_table_text(self):
         content = "Before\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\nAfter"
-        result = _split_markdown_tables(content)
+        result = split_markdown_tables(content)
         types = [r[0] for r in result]
         assert types == ["text", "table", "text"]
 
     def test_multiple_tables(self):
         content = "Text1\n| A | B |\n|---|---|\n| 1 | 2 |\nMiddle\n| C | D |\n|---|---|\n| 3 | 4 |\nText2"
-        result = _split_markdown_tables(content)
+        result = split_markdown_tables(content)
         types = [r[0] for r in result]
         assert types == ["text", "table", "text", "table", "text"]
 

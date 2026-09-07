@@ -31,8 +31,8 @@ class SystemHealthProbe:
         try:
             t0 = time.perf_counter()
             async with httpx.AsyncClient(timeout=5) as client:
-                r = await client.head(
-                    settings.openrouter_base_url,
+                r = await client.get(
+                    f"{settings.openrouter_base_url}/models",
                     headers={"Authorization": f"Bearer {settings.openrouter_api_key}"},
                 )
                 latency_ms = round((time.perf_counter() - t0) * 1000, 1)

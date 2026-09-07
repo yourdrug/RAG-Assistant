@@ -20,6 +20,8 @@ if TYPE_CHECKING:
     from infrastructure.admin.config_admin_adapter import OllamaProbe, QdrantInfo
     from infrastructure.auth.api_key_provider import ApiKeyProvider
     from infrastructure.database.database import DatabaseManager
+    from infrastructure.domain_profile.registry import DomainProfileRegistry
+    from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
     from infrastructure.events.postgres_config_broadcaster import PostgresConfigBroadcaster
     from infrastructure.events.postgres_config_listener import PostgresConfigListener
     from infrastructure.health.system_health_probe import SystemHealthProbe
@@ -29,8 +31,8 @@ if TYPE_CHECKING:
         LangchainDocumentParser,
         LangchainDocumentSplitter,
     )
-    from infrastructure.ml.metrics_adapter import PrometheusMetricsCollector
-    from infrastructure.ml.prometheus_adapter import PrometheusMetricsRegistry
+    from infrastructure.metrics.metrics_adapter import PrometheusMetricsCollector
+    from infrastructure.metrics.prometheus_adapter import PrometheusMetricsRegistry
     from infrastructure.ml.summary_adapter import RollingSummaryUpdater
     from infrastructure.repositories.qdrant_vector_store_repository import (
         QdrantVectorStoreRepository,
@@ -98,15 +100,20 @@ class MLContainer:
     preview_cache: PreviewCache | None = field(default=None)
     benchmark_service: BenchmarkService | None = field(default=None)
 
-    def init(self, uow_factory: UnitOfWorkFactory) -> None:
+    def init(
+        self,
+        uow_factory: UnitOfWorkFactory,
+        domain_registry=None,
+        domain_settings=None,
+    ) -> None:
         from infrastructure.ml.client_registry import MLClientRegistry
         from infrastructure.ml.extraction_adapter import MLContentExtractor, MLPDFQualityAssessor
         from infrastructure.ml.langchain_document_parser import (
             LangchainDocumentParser,
             LangchainDocumentSplitter,
         )
-        from infrastructure.ml.metrics_adapter import PrometheusMetricsCollector
-        from infrastructure.ml.prometheus_adapter import PrometheusMetricsRegistry
+        from infrastructure.metrics.metrics_adapter import PrometheusMetricsCollector
+        from infrastructure.metrics.prometheus_adapter import PrometheusMetricsRegistry
         from infrastructure.ml.summary_adapter import RollingSummaryUpdater
         from infrastructure.repositories.qdrant_vector_store_repository import (
             QdrantVectorStoreRepository,
@@ -119,8 +126,14 @@ class MLContainer:
         self.vector_store_repo = QdrantVectorStoreRepository(ml_clients=self.ml_clients)
         self.file_storage = LazyStorage()
         self.preview_cache = PreviewCache(storage=self.file_storage)
-        self.document_parser = LangchainDocumentParser()
-        self.document_splitter = LangchainDocumentSplitter()
+        self.document_parser = LangchainDocumentParser(
+            domain_registry=domain_registry,
+            domain_settings=domain_settings,
+        )
+        self.document_splitter = LangchainDocumentSplitter(
+            domain_registry=domain_registry,
+            domain_settings=domain_settings,
+        )
         self.metrics_registry = PrometheusMetricsRegistry()
         self.benchmark_service = BenchmarkService()
         self.summary_updater = RollingSummaryUpdater(ml_clients=self.ml_clients)
@@ -130,18 +143,21 @@ class MLContainer:
 
     def dispose(self) -> None:
         """Clear ML-specific caches and release resources."""
-        if self.file_storage is not None:
-            self.file_storage.clear_cache()
+        # LazyStorage proxies the resolved backend; the cache lives on the
+        # get_storage() factory (lru_cache) — reset that, not the proxy.
+        from infrastructure.storage import get_storage
+
+        get_storage.cache_clear()
 
         # Clear OCR/lru_cache caches — import may fail if optional deps
         # (paddleocr, surya) are not installed.
         try:
-            from infrastructure.ml.ingestion import _get_paddle_ocr, _get_surya_predictors
+            from infrastructure.ml.ingestion import get_paddle_ocr, get_surya_predictors
         except ImportError:
             return
         try:
-            _get_paddle_ocr.cache_clear()
-            _get_surya_predictors.cache_clear()
+            get_paddle_ocr.cache_clear()
+            get_surya_predictors.cache_clear()
         except Exception:
             log.warning("Failed to clear OCR caches", exc_info=True)
 
@@ -261,23 +277,39 @@ class InfrastructureContainer:
     ml: MLContainer = field(default_factory=MLContainer)
     events: EventContainer = field(default_factory=EventContainer)
     services: ServiceContainer = field(default_factory=ServiceContainer)
+    domain_registry: DomainProfileRegistry | None = field(default=None, repr=False)
+    domain_settings: DomainSettingsAdapter | None = field(default=None, repr=False)
     _initialized: bool = field(default=False, repr=False)
 
     def init(self, database_manager: DatabaseManager) -> None:
         """Create all infrastructure-layer objects.
 
-        Order matters: DB → ML → Services → Events (events depend on others).
+        Order matters: domain registry → DB → ML → Services → Events
+        (ML parsing/splitting is domain-aware and consumes the registry).
         """
+        from infrastructure.domain_profile import register_all_profiles
+        from infrastructure.domain_profile.registry import DomainProfileRegistry
+        from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
         from infrastructure.events.in_process_event_bus import event_bus
 
+        # Domain profile registry — created first: ML parsing/splitting is domain-aware
+        self.domain_settings = DomainSettingsAdapter()
+        self.domain_registry = DomainProfileRegistry()
+        register_all_profiles(self.domain_registry, self.domain_settings)
+
         self.db.init(database_manager)
-        self.ml.init(uow_factory=self.db.uow)
+        self.ml.init(
+            uow_factory=self.db.uow,
+            domain_registry=self.domain_registry,
+            domain_settings=self.domain_settings,
+        )
         self.services.init()
         self.events.init(
             uow_factory=self.db.uow,
             vector_store_repo=self.ml.vector_store,
             event_bus=event_bus,
         )
+
         self._initialized = True
         log.info("Infrastructure container initialized")
 

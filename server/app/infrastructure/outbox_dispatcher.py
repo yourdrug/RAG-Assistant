@@ -13,13 +13,12 @@ import uuid
 from domain.entities.chunk import Chunk
 from domain.entities.vector_outbox_entry import OutboxOperation, VectorOutboxEntry
 from domain.repositories.vector_store_repository import VectorStoreRepository
-from domain.value_objects.document_status import DocumentStatus
 
 log = logging.getLogger("default")
 
 _BASE_BACKOFF_SEC = 5
 _MAX_BACKOFF_SEC = 900  # 15 minutes
-_STUCK_TIMEOUT_MINUTES = 5  # timeout for recovering in_progress entries after crash
+_STUCK_TIMEOUT_MINUTES = 30
 
 
 class OutboxDispatcher:
@@ -79,13 +78,8 @@ class OutboxDispatcher:
                 if entry.aggregate_type == "document":
                     outbox_status = await uow.vector_outbox.count_by_document(entry.aggregate_id)
                     if outbox_status["pending"] == 0:
-                        # All entries applied — mark document as done
-                        doc = await uow.documents.get_by_id(entry.aggregate_id)
-                        if doc and doc.status.value == DocumentStatus.INDEXING.value:
-                            await uow.documents.update_status(
-                                entry.aggregate_id,
-                                DocumentStatus.DONE.value,
-                            )
+                        transitioned = await uow.documents.mark_done_if_indexing(entry.aggregate_id)
+                        if transitioned:
                             log.info(
                                 "Document %d marked as done (all outbox entries applied)",
                                 entry.aggregate_id,
@@ -108,7 +102,7 @@ class OutboxDispatcher:
                 entry.attempts + 1,
                 e,
             )
-            backoff = min(_BASE_BACKOFF_SEC * (2**entry.attempts), _MAX_BACKOFF_SEC)
+            backoff = min(_BASE_BACKOFF_SEC * (2 ** entry.attempts), _MAX_BACKOFF_SEC)
             async with self._uow_factory.create(master=True) as uow:
                 await uow.vector_outbox.mark_failed(entry.id, str(e), backoff_seconds=backoff)
 
@@ -119,6 +113,16 @@ class OutboxDispatcher:
             await self._vector_store.delete_by_document_id(entry.payload["document_id"])
         elif entry.operation == OutboxOperation.DELETE_CHUNKS:
             await self._vector_store.delete_by_ids(entry.payload["chunk_ids"])
+        elif entry.operation == OutboxOperation.UPDATE_METADATA:
+            await self._vector_store.update_metadata_by_act_version(
+                entry.payload["act_version_id"],
+                {k: v for k, v in entry.payload.items() if k != "act_version_id"},
+            )
+        elif entry.operation == OutboxOperation.SET_DOCUMENT_ID:
+            await self._vector_store.set_document_id_by_source(
+                entry.payload["source"],
+                entry.payload["document_id"],
+            )
         else:
             raise ValueError(f"Unknown outbox operation: {entry.operation}")
 
@@ -143,22 +147,10 @@ class OutboxDispatcher:
 
         Returns the number of documents fixed.
         """
-        fixed = 0
         async with self._uow_factory.create(master=True) as uow:
-            docs = await uow.documents.list_all()
-            for doc in docs:
-                if doc.status.value != DocumentStatus.INDEXING.value:
-                    continue
-                outbox_status = await uow.vector_outbox.count_by_document(doc.id)
-                if outbox_status["pending"] == 0:
-                    await uow.documents.update_status(
-                        doc.id,
-                        DocumentStatus.DONE.value,
-                    )
-                    log.info(
-                        "Reconciled stuck document %d (%s) -> done",
-                        doc.id,
-                        doc.filename,
-                    )
-                    fixed += 1
-        return fixed
+            fixed_ids = await uow.documents.reconcile_indexing_documents()
+
+        if fixed_ids:
+            log.info("Reconciled stuck documents -> done: %s", fixed_ids)
+
+        return len(fixed_ids)

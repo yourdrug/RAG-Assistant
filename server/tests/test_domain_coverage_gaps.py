@@ -416,3 +416,58 @@ class TestClassifyDocumentDomain:
             "стороны договорились"
         )
         assert classify_document_domain(text, threshold=0.5) == DocDomain.LEGAL
+
+
+# ---------------------------------------------------------------------------
+# refs_to_metadata
+# ---------------------------------------------------------------------------
+
+
+class TestRefsToMetadata:
+    def test_dedup_same_kind_same_value(self):
+        from domain.domain_profile.protocol import ReferenceMatch, refs_to_metadata
+
+        refs = [
+            ReferenceMatch(kind="point", value="1"),
+            ReferenceMatch(kind="point", value="1"),  # duplicate
+        ]
+        result = refs_to_metadata(refs)
+        assert result == {"point": "1"}
+
+    def test_different_values_become_list(self):
+        from domain.domain_profile.protocol import ReferenceMatch, refs_to_metadata
+
+        refs = [
+            ReferenceMatch(kind="point", value="1"),
+            ReferenceMatch(kind="point", value="2"),
+        ]
+        result = refs_to_metadata(refs)
+        assert result == {"point": ["1", "2"]}
+
+    def test_empty_refs(self):
+        from domain.domain_profile.protocol import refs_to_metadata
+
+        assert refs_to_metadata([]) == {}
+
+    def test_mixed_kinds(self):
+        from domain.domain_profile.protocol import ReferenceMatch, refs_to_metadata
+
+        refs = [
+            ReferenceMatch(kind="article", value="15"),
+            ReferenceMatch(kind="chapter", value="2"),
+            ReferenceMatch(kind="article", value="16"),
+        ]
+        result = refs_to_metadata(refs)
+        assert result["article"] == ["15", "16"]
+        assert result["chapter"] == "2"
+
+    def test_three_values_become_list(self):
+        from domain.domain_profile.protocol import ReferenceMatch, refs_to_metadata
+
+        refs = [
+            ReferenceMatch(kind="point", value="1"),
+            ReferenceMatch(kind="point", value="2"),
+            ReferenceMatch(kind="point", value="3"),
+        ]
+        result = refs_to_metadata(refs)
+        assert result == {"point": ["1", "2", "3"]}

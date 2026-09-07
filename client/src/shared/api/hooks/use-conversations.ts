@@ -10,8 +10,12 @@ import type {
 
 export function useSyncChat() {
   return useMutation({
-    mutationFn: async (data: { question: string; conversation_id?: number | null }) =>
-      (await apiClient.post<ChatResponse>("/chat/sync", data)).data,
+    mutationFn: async (data: {
+      question: string;
+      conversation_id?: number | null;
+      /** Explicit "as of" date (ISO YYYY-MM-DD) for temporal retrieval. */
+      as_of_date?: string | null;
+    }) => (await apiClient.post<ChatResponse>("/chat/sync", data)).data,
   });
 }
 

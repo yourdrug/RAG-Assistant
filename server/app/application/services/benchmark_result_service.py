@@ -12,6 +12,7 @@ from datetime import datetime
 from application.dto.benchmark_dto import RegressionCheckOutput, RegressionCheckResult
 from application.ports.benchmark_history import BenchmarkHistoryPort
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
+from domain.value_objects.benchmark_dataset import BenchmarkDataset
 
 logger = logging.getLogger("default")
 
@@ -23,7 +24,7 @@ class BenchmarkResultSummary:
     summary_metrics: dict = field(default_factory=dict)
     duration_sec: float = 0.0
     llm_evaluated: bool = False
-    dataset: str = "main"
+    dataset: str = BenchmarkDataset.MAIN.value
     sweep_id: int | None = None
     creation_date: datetime | None = None
 

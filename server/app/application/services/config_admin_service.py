@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from domain.value_objects.health_status import HealthStatus
-from domain.value_objects.llm_provider import LLMProvider
-
 from application.ports.config_admin import OllamaProbePort, VectorDBInfoPort
 from application.ports.config_admin_settings import ConfigAdminSettingsPort
+from domain.value_objects.health_status import HealthStatus
+from domain.value_objects.llm_provider import LLMProvider
 
 
 @dataclass(frozen=True)
@@ -57,11 +56,11 @@ class OpenRouterModelsInfo:
 
 class ConfigAdminService:
     def __init__(
-        self,
-        ollama_probe: OllamaProbePort,
-        vectordb_info: VectorDBInfoPort,
-        admin_settings: ConfigAdminSettingsPort,
-        openrouter_models_fetcher=None,
+            self,
+            ollama_probe: OllamaProbePort,
+            vectordb_info: VectorDBInfoPort,
+            admin_settings: ConfigAdminSettingsPort,
+            openrouter_models_fetcher=None,
     ) -> None:
         self._ollama = ollama_probe
         self._vectordb = vectordb_info
@@ -70,12 +69,14 @@ class ConfigAdminService:
 
     async def get_models_info(self) -> ModelsInfo:
         ollama_models = await self._ollama.get_models()
+
         if self._settings.ml_provider == "deepinfra":
             embed_model = self._settings.deepinfra_embed_model
             rerank_model = self._settings.deepinfra_rerank_model
         else:
             embed_model = self._settings.tei_embed_url
             rerank_model = self._settings.tei_rerank_url
+
         return ModelsInfo(
             llm_provider=self._settings.llm_provider,
             llm_model=self._settings.llm_model,
@@ -123,5 +124,6 @@ class ConfigAdminService:
     async def get_openrouter_models(self) -> OpenRouterModelsInfo:
         if self._openrouter_fetcher is None:
             return OpenRouterModelsInfo(models=[], active_model=None)
+
         models = await self._openrouter_fetcher()
         return OpenRouterModelsInfo(models=models, active_model=self._settings.openrouter_model)

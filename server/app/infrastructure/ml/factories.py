@@ -30,7 +30,7 @@ def create_embeddings():
         max_keepalive_connections=settings.http_pool_max_keepalive,
     )
     if settings.ml_provider == "deepinfra":
-        from infrastructure.ml.deepinfra_clients import DeepInfraEmbeddingsClient
+        from infrastructure.llm.deepinfra_clients import DeepInfraEmbeddingsClient
 
         log.info("Creating DeepInfra embeddings client (model=%s) ...", settings.deepinfra_embed_model)
         return DeepInfraEmbeddingsClient(
@@ -39,7 +39,7 @@ def create_embeddings():
             model=settings.deepinfra_embed_model,
             pool_limits=pool_limits,
         )
-    from infrastructure.ml.tei_clients import TEIEmbeddingsClient
+    from infrastructure.llm.tei_clients import TEIEmbeddingsClient
 
     log.info("Creating TEI embeddings client (%s) ...", settings.tei_embed_url)
     return TEIEmbeddingsClient(settings.tei_embed_url, pool_limits=pool_limits)
@@ -56,7 +56,7 @@ def create_reranker():
         max_keepalive_connections=settings.http_pool_max_keepalive // 2,
     )
     if settings.ml_provider == "deepinfra":
-        from infrastructure.ml.deepinfra_clients import DeepInfraRerankerClient
+        from infrastructure.llm.deepinfra_clients import DeepInfraRerankerClient
 
         log.info("Creating DeepInfra reranker client (model=%s) ...", settings.deepinfra_rerank_model)
         return DeepInfraRerankerClient(
@@ -65,7 +65,7 @@ def create_reranker():
             model=settings.deepinfra_rerank_model,
             pool_limits=pool_limits,
         )
-    from infrastructure.ml.tei_clients import TEIRerankerClient
+    from infrastructure.llm.tei_clients import TEIRerankerClient
 
     log.info("Creating TEI reranker client (%s) ...", settings.tei_rerank_url)
     return TEIRerankerClient(settings.tei_rerank_url, pool_limits=pool_limits)
@@ -160,7 +160,7 @@ def create_qdrant_client() -> QdrantClient:
 
 def load_bm25_index():
     """Load BM25 index from S3. Returns None if not found."""
-    from infrastructure.ml.hybrid import load_bm25_index_from_s3_sync
+    from infrastructure.bm25.hybrid import load_bm25_index_from_s3_sync
     from infrastructure.storage import get_storage
 
     storage = get_storage()

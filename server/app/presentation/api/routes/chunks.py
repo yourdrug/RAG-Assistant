@@ -44,7 +44,22 @@ async def list_chunks(
         offset=offset,
         content_hashes=content_hashes,
     )
-    chunk_responses = [ChunkResponse(**c) for c in chunks]
+    chunk_responses = [ChunkResponse(
+        id=c.id,
+        document_id=c.document_id,
+        chunk_index=c.chunk_index,
+        content=c.content,
+        filename=c.filename,
+        visibility=c.visibility,
+        doc_domain=c.doc_domain,
+        owner_id=c.owner_id,
+        group_id=c.group_id,
+        edited_at=c.edited_at,
+        edited_by=c.edited_by,
+        manual=c.manual,
+        creation_date=c.creation_date,
+        content_hash=c.content_hash,
+    ) for c in chunks]
     return ChunkListResponse(
         chunks=chunk_responses,
         total=total,
@@ -72,10 +87,17 @@ async def add_chunk(
     log_action(
         "chunk.create",
         user_id=current_user["id"],
-        details={"document_id": document_id, "chunk_id": result["id"]},
+        details={"document_id": document_id, "chunk_id": result.id},
     )
 
-    return ChunkResponse(**result)
+    return ChunkResponse(
+        id=result.id,
+        document_id=result.document_id,
+        chunk_index=result.chunk_index,
+        content=result.content,
+        manual=result.manual,
+        warning=result.warning,
+    )
 
 
 @router.put("/documents/{document_id}/chunks/{chunk_id}", response_model=ChunkResponse)
@@ -101,7 +123,16 @@ async def edit_chunk(
         details={"document_id": document_id, "chunk_id": chunk_id},
     )
 
-    return ChunkResponse(**result)
+    return ChunkResponse(
+        id=result.id,
+        document_id=result.document_id,
+        chunk_index=result.chunk_index,
+        content=result.content,
+        edited_at=result.edited_at,
+        edited_by=result.edited_by,
+        manual=result.manual,
+        warning=result.warning,
+    )
 
 
 @router.delete("/documents/{document_id}/chunks/{chunk_id}")

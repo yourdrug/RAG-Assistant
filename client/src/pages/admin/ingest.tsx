@@ -3,7 +3,7 @@ import { type ColumnDef } from "@tanstack/react-table";
 import { RefreshCw, RotateCcw, Upload } from "lucide-react";
 import { useState } from "react";
 import toast from "react-hot-toast";
-import { useIngestAll, useIngestFile, useIngestRegistry } from "@/shared/api/hooks";
+import { useGroups, useIngestAll, useIngestFile, useIngestRegistry, useUploadableClients } from "@/shared/api/hooks";
 import type { IngestRegistryItem } from "@/shared/api/types";
 import {
   AlertDialog,
@@ -27,9 +27,14 @@ export function AdminIngestPage() {
   const { data: registry, refetch } = useIngestRegistry();
   const allMut = useIngestAll();
   const fileMut = useIngestFile();
+  const { data: groups } = useGroups();
+  const { data: uploadableClients } = useUploadableClients();
   const [docsDir, setDocsDir] = useState("docs/");
   const [filePath, setFilePath] = useState("");
   const [domain, setDomain] = useState("auto");
+  const [visibility, setVisibility] = useState("internal_public");
+  const [groupId, setGroupId] = useState<number | null>(null);
+  const [clientId, setClientId] = useState<number | null>(null);
 
   const [resetAll, setResetAll] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
@@ -40,7 +45,7 @@ export function AdminIngestPage() {
       return;
     }
     try {
-      await allMut.mutateAsync({ docsDir, reset: false, domain });
+      await allMut.mutateAsync({ docsDir, reset: false, domain, visibility, groupId, clientId });
       toast.success("Ingestion started");
     } catch {
       toast.error("Failed");
@@ -50,7 +55,7 @@ export function AdminIngestPage() {
   const confirmResetIngest = async () => {
     setShowResetConfirm(false);
     try {
-      await allMut.mutateAsync({ docsDir, reset: true, domain });
+      await allMut.mutateAsync({ docsDir, reset: true, domain, visibility, groupId, clientId });
       toast.success("Ingestion started (reset mode)");
     } catch {
       toast.error("Failed");
@@ -60,7 +65,7 @@ export function AdminIngestPage() {
   const handleFile = async () => {
     if (!filePath.trim()) return;
     try {
-      await fileMut.mutateAsync({ filePath, force: false, domain });
+      await fileMut.mutateAsync({ filePath, force: false, domain, visibility, groupId, clientId });
       toast.success("File ingestion started");
     } catch {
       toast.error("Failed");
@@ -139,6 +144,71 @@ export function AdminIngestPage() {
               {allMut.isPending ? "Starting..." : "Ingest All"}
             </Button>
           </div>
+          <div className="flex gap-2">
+            <div className="w-48">
+              <Label>Visibility</Label>
+              <Select
+                value={visibility}
+                onValueChange={(v) => {
+                  setVisibility(v);
+                  if (v !== "internal_group") setGroupId(null);
+                  if (v !== "client_private") setClientId(null);
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="internal_public">Public</SelectItem>
+                  <SelectItem value="internal_group">Group</SelectItem>
+                  <SelectItem value="client_private">Client Private</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {visibility === "internal_group" && (
+              <div className="w-48">
+                <Label>Group</Label>
+                <Select
+                  value={groupId != null ? String(groupId) : ""}
+                  onValueChange={(v) => setGroupId(Number(v))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a group" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {groups?.map((g) => (
+                      <SelectItem key={g.id} value={String(g.id)}>
+                        {g.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            {visibility === "client_private" && (
+              <div className="w-48">
+                <Label>Client</Label>
+                <Select
+                  value={clientId != null ? String(clientId) : ""}
+                  onValueChange={(v) => setClientId(Number(v))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a client" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {uploadableClients?.map((c) => (
+                      <SelectItem key={c.id} value={String(c.id)}>
+                        {c.email}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {(!uploadableClients || uploadableClients.length === 0) && (
+                  <p className="text-xs text-muted-foreground">No clients assigned</p>
+                )}
+              </div>
+            )}
+          </div>
           <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer select-none">
             <input
               type="checkbox"
@@ -187,6 +257,71 @@ export function AdminIngestPage() {
             >
               {fileMut.isPending ? "Starting..." : "Ingest File"}
             </Button>
+          </div>
+          <div className="flex gap-2">
+            <div className="w-48">
+              <Label>Visibility</Label>
+              <Select
+                value={visibility}
+                onValueChange={(v) => {
+                  setVisibility(v);
+                  if (v !== "internal_group") setGroupId(null);
+                  if (v !== "client_private") setClientId(null);
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="internal_public">Public</SelectItem>
+                  <SelectItem value="internal_group">Group</SelectItem>
+                  <SelectItem value="client_private">Client Private</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {visibility === "internal_group" && (
+              <div className="w-48">
+                <Label>Group</Label>
+                <Select
+                  value={groupId != null ? String(groupId) : ""}
+                  onValueChange={(v) => setGroupId(Number(v))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a group" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {groups?.map((g) => (
+                      <SelectItem key={g.id} value={String(g.id)}>
+                        {g.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            {visibility === "client_private" && (
+              <div className="w-48">
+                <Label>Client</Label>
+                <Select
+                  value={clientId != null ? String(clientId) : ""}
+                  onValueChange={(v) => setClientId(Number(v))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a client" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {uploadableClients?.map((c) => (
+                      <SelectItem key={c.id} value={String(c.id)}>
+                        {c.email}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {(!uploadableClients || uploadableClients.length === 0) && (
+                  <p className="text-xs text-muted-foreground">No clients assigned</p>
+                )}
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>

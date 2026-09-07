@@ -178,7 +178,7 @@ class DocxPreviewStrategy:
         units: list[DryRunPageResult],
         unit_ids: list[int],
     ) -> tuple[list[DryRunPageResult], dict[str, int], int]:
-        from infrastructure.ml.ingestion import _ocr_image_paddle, _ocr_image_surya
+        from infrastructure.ml.ingestion import ocr_image_paddle, ocr_image_surya
         from config import settings
         from PIL import Image
 
@@ -209,9 +209,9 @@ class DocxPreviewStrategy:
                 try:
                     img = Image.open(io.BytesIO(blob))
                     if settings.ocr_engine in ("paddleocr", "auto"):
-                        text = _ocr_image_paddle(img)
+                        text = ocr_image_paddle(img)
                     else:
-                        text = _ocr_image_surya(img)
+                        text = ocr_image_surya(img)
                     ocr_results[u.page] = text
                 except Exception:
                     logger.warning("OCR failed for image unit %d", u.page)

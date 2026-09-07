@@ -40,10 +40,14 @@ def mock_chunk_settings():
 @pytest.fixture
 def chunk_service(mock_uow_factory, mock_vector_store, mock_chunk_settings):
     """Create ChunkService with mocked dependencies."""
+    from unittest.mock import MagicMock
+
+    bm25_index = MagicMock()
     return ChunkService(
         uow_factory=mock_uow_factory,
         vector_store_repo=mock_vector_store,
         chunk_settings=mock_chunk_settings,
+        bm25_index=bm25_index,
     )
 
 

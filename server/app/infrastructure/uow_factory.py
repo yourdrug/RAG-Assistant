@@ -31,6 +31,8 @@ from infrastructure.repositories.sqlalchemy_conversation_repository import SQLAl
 from infrastructure.repositories.sqlalchemy_document_repository import SQLAlchemyDocumentRepository
 from infrastructure.repositories.sqlalchemy_group_repository import SQLAlchemyGroupRepository
 from infrastructure.repositories.sqlalchemy_message_repository import SQLAlchemyMessageRepository
+from infrastructure.repositories.sqlalchemy_regulatory_act_repository import SQLAlchemyRegulatoryActRepository
+from infrastructure.repositories.sqlalchemy_act_version_repository import SQLAlchemyActVersionRepository
 from infrastructure.repositories.sqlalchemy_user_repository import SQLAlchemyUserRepository
 from infrastructure.repositories.sqlalchemy_vector_outbox_repository import (
     SQLAlchemyVectorOutboxRepository,
@@ -66,6 +68,8 @@ class UnitOfWorkFactory:
             benchmark_sweeps=SQLAlchemyBenchmarkSweepRepository(session),
             benchmark_runs=SQLAlchemyBenchmarkRunRepository(session),
             vector_outbox=SQLAlchemyVectorOutboxRepository(session),
+            regulatory_acts=SQLAlchemyRegulatoryActRepository(session),
+            act_versions=SQLAlchemyActVersionRepository(session),
         )
         if self._config_broadcaster is not None:
             broadcaster = self._config_broadcaster

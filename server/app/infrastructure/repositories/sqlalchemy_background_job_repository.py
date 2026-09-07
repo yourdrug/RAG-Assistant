@@ -137,3 +137,32 @@ class SQLAlchemyBackgroundJobRepository:
             {"timeout": timeout_minutes},
         )
         return [row[0] for row in result.fetchall()]
+
+    async def touch_heartbeat(self, job_id: int) -> None:
+        result = await self._db.execute(
+            select(BackgroundJobModel).where(BackgroundJobModel.id == job_id)
+        )
+        orm = result.scalar_one_or_none()
+        if orm:
+            orm.heartbeat_at = datetime.now(tz=UTC)
+            await self._db.flush()
+
+    async def fail_stale_pending(self, timeout_minutes: int) -> list[BackgroundJob]:
+        cutoff = datetime.now(tz=UTC) - timedelta(minutes=timeout_minutes)
+        result = await self._db.execute(
+            select(BackgroundJobModel).where(
+                BackgroundJobModel.status == BackgroundJobStatus.PENDING.value,
+                BackgroundJobModel.creation_date < cutoff,
+            )
+        )
+        orms = result.scalars().all()
+        failed = []
+        for orm in orms:
+            entity = self._to_entity(orm)
+            entity.mark_failed("Stale pending — exceeded timeout")
+            orm.status = entity.status
+            orm.finished_at = entity.finished_at
+            orm.error_message = entity.error_message
+            failed.append(entity)
+        await self._db.flush()
+        return failed

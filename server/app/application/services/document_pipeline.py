@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import date, datetime
 from typing import TYPE_CHECKING, Any
 
 from domain.entities.vector_outbox_entry import OutboxOperation, VectorOutboxEntry
@@ -54,21 +55,50 @@ def enrich_chunks_metadata(
     owner_id: int | None,
     group_id: int | None,
     doc_domain: str,
+    domain_metadata: dict | None = None,
+    act_version_id: int | None = None,
+    act_id: int | None = None,
+    effective_from=None,
+    effective_to=None,
+    is_current: bool = True,
 ) -> None:
     """Обогащает metadata каждого чанка стандартными полями.
 
     Вызывать ПОСЛЕ split и ПЕРЕД process_chunks.
     """
     for rc in chunks:
-        rc.metadata.update(
-            {
-                "document_id": document_id,
-                "visibility": visibility,
-                "owner_id": owner_id,
-                "group_id": group_id,
-                "doc_domain": doc_domain,
-            }
-        )
+        meta = {
+            "document_id": document_id,
+            "visibility": visibility,
+            "owner_id": owner_id,
+            "group_id": group_id,
+            "doc_domain": doc_domain,
+            "is_current": is_current,
+        }
+        if domain_metadata:
+            # Chunk-level refs (set by content-based splitting) take precedence;
+            # doc-level refs (decree_number, decree_date, ...) fill the gaps so
+            # every chunk of a versioned document carries the document identity.
+            existing = rc.metadata.get("domain_metadata") or {}
+            merged = dict(existing)
+            for key, value in domain_metadata.items():
+                if key not in merged:
+                    merged[key] = value
+            if merged:
+                meta["domain_metadata"] = merged
+        if act_version_id is not None:
+            meta["act_version_id"] = act_version_id
+        if act_id is not None:
+            meta["act_id"] = act_id
+        if effective_from is not None:
+            meta["effective_from"] = (
+                effective_from.isoformat() if hasattr(effective_from, "isoformat") else effective_from
+            )
+        if effective_to is not None:
+            meta["effective_to"] = (
+                effective_to.isoformat() if hasattr(effective_to, "isoformat") else effective_to
+            )
+        rc.metadata.update(meta)
 
 
 async def process_chunks(
@@ -133,6 +163,25 @@ async def process_chunks(
         )
 
 
+def _parse_meta_datetime(value) -> "date | None":
+    """Parse an ISO date string from chunk metadata into a date (Date columns)."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    raw = str(value)
+    try:
+        return date.fromisoformat(raw)
+    except ValueError:
+        pass
+    try:
+        return datetime.fromisoformat(raw).date()
+    except ValueError:
+        return None
+
+
 async def _process_chunks_in_uow(
     uow: Any,
     document_id: int,
@@ -146,6 +195,8 @@ async def _process_chunks_in_uow(
     set_indexing: bool,
 ) -> None:
     # 1. Bulk insert → получаем chunk_ids
+    # Doc-level versioning fields live identically on every chunk's metadata.
+    first_meta = chunks[0].metadata if chunks else {}
     chunk_ids = await uow.chunks.bulk_insert(
         document_id=document_id,
         filename=filename,
@@ -155,6 +206,11 @@ async def _process_chunks_in_uow(
         group_id=group_id,
         doc_domain=doc_domain,
         content_hashes=hashes,
+        domain_metadata=first_meta.get("domain_metadata"),
+        act_version_id=first_meta.get("act_version_id"),
+        effective_from=_parse_meta_datetime(first_meta.get("effective_from")),
+        effective_to=_parse_meta_datetime(first_meta.get("effective_to")),
+        is_current=first_meta.get("is_current", True),
     )
 
     # 2. Enrich metadata с chunk_ids

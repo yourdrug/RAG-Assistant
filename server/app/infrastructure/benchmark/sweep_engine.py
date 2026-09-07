@@ -14,7 +14,7 @@ from __future__ import annotations
 import itertools
 import logging
 import random
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from config import _settings_overrides, settings
@@ -22,10 +22,15 @@ from domain.entities.benchmark_sweep import BenchmarkSweep
 from domain.value_objects.benchmark_strategy import BenchmarkStrategy
 from langchain.schema import Document as LCDocument
 
-from infrastructure.ml.benchmark import load_questions
-from infrastructure.ml.hybrid import content_hash, rrf_merge
+from infrastructure.benchmark.benchmark import load_questions
+from infrastructure.bm25.hybrid import content_hash, rrf_merge
 
 logger = logging.getLogger("default")
+
+
+class SweepCancelled(Exception):
+    """Raised between sweep configs when a cooperative cancel is detected (M-14)."""
+
 
 # Parameters that can be sweeped in Phase A (retrieval-time, no reindexing)
 CHEAP_PARAMS = frozenset(
@@ -140,6 +145,7 @@ class SweepEngine:
         questions_path: str | None = None,
         judge_model: str | None = None,
         progress_callback: Callable[[int, int, dict | None], None] | None = None,
+        should_cancel: Callable[[], Awaitable[bool]] | None = None,
     ) -> list[dict]:
         """Execute a parameter sweep.
 
@@ -148,9 +154,14 @@ class SweepEngine:
             questions_path: Path to questions JSON (fallback if DB empty).
             judge_model: Model for LLM judge.
             progress_callback: Called with (evaluated, total, latest_result) after each config.
+            should_cancel: Polled between configs; when it returns True the sweep
+                raises :class:`SweepCancelled` (cooperative cancellation, M-14).
 
         Returns:
             List of result dicts sorted by composite score (best first).
+
+        Raises:
+            SweepCancelled: when ``should_cancel`` returns True between configs.
 
         """
         search_space = sweep.search_space
@@ -195,13 +206,22 @@ class SweepEngine:
         dense_cache, sparse_cache, all_candidates = await self._cache_candidates(eval_questions, max_fetch_k)
 
         # Phase A: Cheap retrieval-only scoring
-        results = self._run_phase_a(
-            all_points, eval_questions, dense_cache, sparse_cache, all_candidates, weights, progress_callback
+        results = await self._run_phase_a(
+            all_points,
+            eval_questions,
+            dense_cache,
+            sparse_cache,
+            all_candidates,
+            weights,
+            progress_callback,
+            should_cancel,
         )
 
         # Phase B: Full LLM-judge on top-N (if judge_model provided)
         if judge_model and top_n_llm > 0:
-            results = self._run_phase_b(results, top_n_llm, judge_model, questions_path, weights)
+            results = await self._run_phase_b(
+                results, top_n_llm, judge_model, questions_path, weights, should_cancel
+            )
 
         return results
 
@@ -216,7 +236,7 @@ class SweepEngine:
         else:
             raise ValueError(f"Unknown strategy: {strategy}")
 
-    def _run_phase_a(
+    async def _run_phase_a(
         self,
         all_points: list[dict],
         eval_questions: list[dict],
@@ -225,12 +245,14 @@ class SweepEngine:
         all_candidates: dict,
         weights: dict,
         progress_callback,
+        should_cancel: Callable[[], Awaitable[bool]] | None = None,
     ) -> list[dict]:
         total_configs = len(all_points)
         logger.info("Sweep Phase A: Retrieval-scoring %d configs...", total_configs)
         results = []
 
         for idx, point in enumerate(all_points, 1):
+            await self._check_cancelled(should_cancel, f"phase A config {idx}/{total_configs}")
             result = self._score_config_cheap(
                 point, eval_questions, dense_cache, sparse_cache, all_candidates, weights
             )
@@ -257,13 +279,22 @@ class SweepEngine:
             )
         return results
 
-    def _run_phase_b(
+    async def _check_cancelled(self, should_cancel: Callable[[], Awaitable[bool]] | None, where: str) -> None:
+        """Cooperative cancellation point (M-14): stop when the sweep is cancelled."""
+        if should_cancel is None:
+            return
+        if await should_cancel():
+            logger.info("Sweep cancelled at %s", where)
+            raise SweepCancelled(where)
+
+    async def _run_phase_b(
         self,
         results: list[dict],
         top_n_llm: int,
         judge_model: str,
         questions_path: str | None,
         weights: dict,
+        should_cancel: Callable[[], Awaitable[bool]] | None = None,
     ) -> list[dict]:
         logger.info("Sweep Phase B: LLM-judge on top-%d configs...", top_n_llm)
         top_configs = results[:top_n_llm]
@@ -275,6 +306,7 @@ class SweepEngine:
                 top_n_llm,
                 cfg["config"],
             )
+            await self._check_cancelled(should_cancel, f"phase B config {cfg_idx}/{top_n_llm}")
 
             overrides = self._build_overrides(cfg["config"])
             token = _settings_overrides.set(overrides)
@@ -481,7 +513,7 @@ class SweepEngine:
         result = self._benchmark_service.run(
             questions_path=questions_path,
             out_dir=out_dir,
-            top_k=get_setting("rag.retriever_top_k"),
+            top_k=get_setting("retriever_top_k"),
             judge_model=judge_model,
         )
         return result

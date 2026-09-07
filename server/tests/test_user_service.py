@@ -130,7 +130,7 @@ class TestToggleActive:
         uow.users.get_by_id.return_value = user
 
         result = await service.toggle_active(user_id=5, is_active=False, admin_id=1)
-        assert result["is_active"] is False
+        assert result.is_active is False
 
     @pytest.mark.asyncio
     async def test_cannot_deactivate_self(self, auth_service):

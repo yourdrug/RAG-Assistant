@@ -14,16 +14,26 @@ from __future__ import annotations
 import asyncio
 import functools
 import logging
+import shutil
 import tempfile
 from pathlib import Path
 
 import boto3
+from botocore.config import Config as BotoConfig
 
 # Re-export from application layer for backward compatibility
 from application.ports.file_storage import FileItem, FileStorage  # noqa: F401, E402
 from config import settings
 
 log = logging.getLogger("default")
+
+# Explicit timeouts/retries — botocore defaults can hang for minutes, which
+# would pin a worker thread (and, historically, the event loop) per call.
+_S3_CONFIG = BotoConfig(
+    connect_timeout=10,
+    read_timeout=60,
+    retries={"max_attempts": 3, "mode": "standard"},
+)
 
 
 class LocalStorage:
@@ -90,17 +100,33 @@ class LocalStorage:
             extension=f.suffix.lower(),
         )
 
-    def delete_file(self, key: str) -> None:
-        f = self.base_dir / key
-        if f.exists():
-            f.unlink()
+    async def delete_file(self, key: str) -> None:
+        def _delete() -> None:
+            f = self.base_dir / key
+            if f.exists():
+                f.unlink()
 
-    def rename_file(self, old_key: str, new_key: str) -> None:
-        src = self.base_dir / old_key
-        dst = self.base_dir / new_key
-        if src.exists():
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            src.rename(dst)
+        await asyncio.to_thread(_delete)
+
+    async def rename_file(self, old_key: str, new_key: str) -> None:
+        def _rename() -> None:
+            src = self.base_dir / old_key
+            dst = self.base_dir / new_key
+            if src.exists():
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                src.rename(dst)
+
+        await asyncio.to_thread(_rename)
+
+    async def copy_file(self, old_key: str, new_key: str) -> None:
+        def _copy() -> None:
+            src = self.base_dir / old_key
+            dst = self.base_dir / new_key
+            if src.exists():
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dst)
+
+        await asyncio.to_thread(_copy)
 
 
 class S3Storage:
@@ -109,6 +135,7 @@ class S3Storage:
             "aws_access_key_id": settings.s3_access_key,
             "aws_secret_access_key": settings.s3_secret_key,
             "region_name": settings.s3_region,
+            "config": _S3_CONFIG,
         }
         if settings.s3_endpoint and not settings.s3_endpoint.startswith("https://s3.amazonaws.com"):
             kwargs["endpoint_url"] = settings.s3_endpoint
@@ -166,19 +193,34 @@ class S3Storage:
             extension=ext,
         )
 
-    def delete_file(self, key: str) -> None:
-        self.client.delete_object(Bucket=self.bucket, Key=key)
+    async def delete_file(self, key: str) -> None:
+        await asyncio.to_thread(
+            self.client.delete_object,
+            Bucket=self.bucket,
+            Key=key,
+        )
 
-    def rename_file(self, old_key: str, new_key: str) -> None:
-        try:
-            self.client.copy_object(Bucket=self.bucket, CopySource=f"{self.bucket}/{old_key}", Key=new_key)
-            self.client.delete_object(Bucket=self.bucket, Key=old_key)
-        except self.client.exceptions.ClientError as e:
-            error_code = e.response.get("Error", {}).get("Code")
-            if error_code == "NoSuchKey":
-                log.warning("S3 rename: source key '%s' does not exist, skipping", old_key)
-            else:
-                raise
+    async def rename_file(self, old_key: str, new_key: str) -> None:
+        async def _rename() -> None:
+            await self.copy_file(old_key, new_key)
+            await self.delete_file(old_key)
+
+        await _rename()
+
+    async def copy_file(self, old_key: str, new_key: str) -> None:
+        def _copy() -> None:
+            try:
+                self.client.copy_object(
+                    Bucket=self.bucket, CopySource=f"{self.bucket}/{old_key}", Key=new_key
+                )
+            except self.client.exceptions.ClientError as e:
+                error_code = e.response.get("Error", {}).get("Code")
+                if error_code == "NoSuchKey":
+                    log.warning("S3 copy: source key '%s' does not exist, skipping", old_key)
+                else:
+                    raise
+
+        await asyncio.to_thread(_copy)
 
     def download_bytes(self, key: str) -> bytes:
         """Download an entire object as bytes synchronously.

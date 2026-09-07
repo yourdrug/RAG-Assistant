@@ -97,7 +97,7 @@ services:
         required: true
     environment:
       POSTGRES_USER: raguser
-      POSTGRES_PASSWORD: ragpassword
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-ragpassword}
       POSTGRES_DB: ragdb
       POSTGRES_HOST_AUTH_METHOD: scram-sha-256
     volumes:
@@ -164,9 +164,9 @@ services:
       [
         "redis-server",
         "/etc/redis/redis.conf",
-        "--user redis on >password ~* &* +@all",
+        "--user redis on >${REDIS_PASSWORD:-password} ~* &* +@all",
         "--user default off nopass -@all",
-        "--requirepass password",
+        "--requirepass ${REDIS_PASSWORD:-password}",
       ]
     expose:
       - "6379/tcp"
@@ -200,7 +200,7 @@ services:
           "--user",
           "redis",
           "--pass",
-          "password",
+          "${REDIS_PASSWORD:-password}",
           "ping",
         ]
       interval: 30s
@@ -245,7 +245,7 @@ services:
     hostname: rag-server
     container_name: rag-server
     ports:
-      - "0.0.0.0:8001:8001"
+      - "127.0.0.1:8001:8001"
     env_file:
       - path: server/.env
         required: true
@@ -420,7 +420,7 @@ services:
       - name: minio-console
         target: 9001
         published: 9001
-        host_ip: 0.0.0.0
+        host_ip: 127.0.0.1
         protocol: tcp
         mode: host
     env_file:

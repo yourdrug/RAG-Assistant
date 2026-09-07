@@ -12,8 +12,7 @@ import logging
 import time
 
 from config import settings
-
-from infrastructure.ml.hybrid import content_hash
+from infrastructure.bm25.hybrid import content_hash
 from infrastructure.persistence.redis_client import redis_client
 
 log = logging.getLogger("default")
@@ -22,13 +21,9 @@ CACHE_TTL_SECONDS = 7 * 24 * 3600  # 7 days
 CACHE_PREFIX = "rag:cache:"
 
 
-def compute_visibility_scope_hash(user_kind: str, group_ids: list[int]) -> str:
-    """Deterministic hash of the user's ACL context.
-
-    Two users with different group_ids will produce different hashes,
-    preventing cross-tenant cache hits.
-    """
-    scope = f"{user_kind}:{sorted(group_ids)}"
+def compute_visibility_scope_hash(user_kind: str, user_id: int, group_ids: list[int]) -> str:
+    """Deterministic hash of the user's ACL context."""
+    scope = f"{user_kind}:{user_id}:{sorted(group_ids)}"
     return content_hash(scope)
 
 
@@ -43,8 +38,8 @@ def _cache_key(question_hash: str, visibility_scope_hash: str) -> str:
 
 
 async def find_cached_answer(
-    question_hash: str,
-    visibility_scope_hash: str,
+        question_hash: str,
+        visibility_scope_hash: str,
 ) -> dict | None:
     """Look up a cached answer by question hash + visibility scope.
 
@@ -63,8 +58,7 @@ async def find_cached_answer(
         entry = json.loads(raw)
         entry["hit_count"] = entry.get("hit_count", 0) + 1
 
-        # Update hit count (don't extend TTL on hit)
-        await r.set(key, json.dumps(entry), ex=CACHE_TTL_SECONDS)
+        await r.set(key, json.dumps(entry), keepttl=True)
 
         return entry
     except Exception:
@@ -73,12 +67,12 @@ async def find_cached_answer(
 
 
 async def store_cached_answer(
-    question_text: str,
-    question_hash: str,
-    answer: str,
-    sources: list[dict],
-    visibility_scope_hash: str,
-    document_ids: list[int] | None = None,
+        question_text: str,
+        question_hash: str,
+        answer: str,
+        sources: list[dict],
+        visibility_scope_hash: str,
+        document_ids: list[int] | None = None,
 ) -> None:
     """Store a question-answer pair in the cache."""
     if not settings.cache_enabled:

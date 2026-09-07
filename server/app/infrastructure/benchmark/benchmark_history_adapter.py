@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from infrastructure.ml.benchmark_history import compare_runs, get_last_baseline, load_history
+from infrastructure.benchmark.benchmark_history import compare_runs, get_last_baseline, load_history
 
 
 class BenchmarkHistoryAdapter:

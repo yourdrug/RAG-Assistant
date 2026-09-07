@@ -49,7 +49,7 @@ sys.modules.setdefault("surya.recognition", _surya_mock)
 @pytest.fixture
 def fake_uow_factory():
     """Fake UnitOfWorkFactory for testing application services."""
-    from tests.fakes import FakeUnitOfWorkFactory
+    from fakes import FakeUnitOfWorkFactory
 
     return FakeUnitOfWorkFactory()
 
@@ -57,7 +57,7 @@ def fake_uow_factory():
 @pytest.fixture
 def fake_chat_rag_port():
     """Fake ChatRAGPort for testing ChatService."""
-    from tests.fakes import FakeChatRAGPort
+    from fakes import FakeChatRAGPort
 
     return FakeChatRAGPort()
 
@@ -65,7 +65,7 @@ def fake_chat_rag_port():
 @pytest.fixture
 def fake_event_bus():
     """Fake EventBus for testing ConfigService."""
-    from tests.fakes import FakeEventBus
+    from fakes import FakeEventBus
 
     return FakeEventBus()
 
@@ -73,7 +73,7 @@ def fake_event_bus():
 @pytest.fixture
 def fake_ml_clients():
     """Fake MLClientRegistry for testing ML-dependent services."""
-    from tests.fakes import FakeMLClientRegistry
+    from fakes import FakeMLClientRegistry
 
     return FakeMLClientRegistry()
 

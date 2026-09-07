@@ -29,6 +29,7 @@ def _build_payload(event: ConfigParameterChanged) -> str:
                 "key": event.key,
                 "value_type": value_type,
                 "changed_by": event.changed_by,
+                "domain_key": event.domain_key,
                 "refetch": True,
             }
         )
@@ -40,10 +41,11 @@ def _build_payload(event: ConfigParameterChanged) -> str:
                 "new_value": event.new_value,
                 "value_type": value_type,
                 "changed_by": event.changed_by,
+                "domain_key": event.domain_key,
             }
         )
     if len(payload.encode("utf-8")) > _MAX_PAYLOAD_BYTES:
-        payload = json.dumps({"key": event.key, "refetch": True})
+        payload = json.dumps({"key": event.key, "domain_key": event.domain_key, "refetch": True})
     return payload
 
 

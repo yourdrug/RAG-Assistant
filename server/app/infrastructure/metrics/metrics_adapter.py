@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from infrastructure.ml.metrics import (
+from infrastructure.metrics.metrics import (
     INGEST_CHUNKS_TOTAL,
     INGEST_DOCUMENT_DURATION,
     INGEST_DOCUMENTS_TOTAL,
+    INGEST_DOMAIN_AMBIGUOUS_TOTAL,
+    INGEST_DOMAIN_CLASSIFICATION_CONFIDENCE,
     INGEST_PDF_BAD_RATIO,
     INGEST_PDF_PAGES_TOTAL,
 )
@@ -28,3 +30,9 @@ class PrometheusMetricsCollector:
 
     def observe_pdf_bad_ratio(self, ratio: float) -> None:
         INGEST_PDF_BAD_RATIO.observe(ratio)
+
+    def observe_domain_classification(self, domain: str, level: str, confidence: float) -> None:
+        INGEST_DOMAIN_CLASSIFICATION_CONFIDENCE.labels(domain=domain, level=level).observe(confidence)
+
+    def inc_domain_ambiguous(self, candidates: str) -> None:
+        INGEST_DOMAIN_AMBIGUOUS_TOTAL.labels(candidates=candidates).inc()

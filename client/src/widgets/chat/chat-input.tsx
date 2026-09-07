@@ -1,5 +1,5 @@
 "use client";
-import { Send, Square } from "lucide-react";
+import { CalendarDays, Send, Square, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/shared/ui/button";
 import { Textarea } from "@/shared/ui/textarea";
@@ -12,9 +12,20 @@ interface Props {
   disabled?: boolean;
   depth: DepthOption;
   onDepthChange: (d: DepthOption) => void;
+  /** ISO date (YYYY-MM-DD) or null for current state */
+  asOfDate: string | null;
+  onAsOfDateChange: (d: string | null) => void;
 }
 
-export function ChatInput({ onSend, onStop, disabled, depth, onDepthChange }: Props) {
+export function ChatInput({
+  onSend,
+  onStop,
+  disabled,
+  depth,
+  onDepthChange,
+  asOfDate,
+  onAsOfDateChange,
+}: Props) {
   const [value, setValue] = useState("");
   const ref = useRef<HTMLTextAreaElement>(null);
 
@@ -46,7 +57,7 @@ export function ChatInput({ onSend, onStop, disabled, depth, onDepthChange }: Pr
   return (
     <div className="border-t p-4">
       <div className="max-w-3xl mx-auto space-y-2">
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 flex-wrap">
           <span className="text-xs text-muted-foreground mr-1">Ответ:</span>
           {depthButtons.map((opt) => (
             <button
@@ -62,6 +73,31 @@ export function ChatInput({ onSend, onStop, disabled, depth, onDepthChange }: Pr
               {opt.label}
             </button>
           ))}
+          <span className="text-xs text-muted-foreground mr-1 ml-3 flex items-center gap-1">
+            <CalendarDays className="h-3 w-3" />
+            Редакция:
+          </span>
+          <input
+            type="date"
+            lang="ru"
+            value={asOfDate ?? ""}
+            max={new Date().toISOString().slice(0, 10)}
+            onChange={(e) => onAsOfDateChange(e.target.value || null)}
+            disabled={disabled}
+            title="Ответ по состоянию на дату (пусто = текущая редакция)"
+            className="text-xs px-2 py-1 rounded-md bg-muted text-muted-foreground hover:bg-muted/80 transition-colors outline-none"
+          />
+          {asOfDate && (
+            <button
+              onClick={() => onAsOfDateChange(null)}
+              disabled={disabled}
+              title="Вернуть текущую редакцию"
+              className="text-xs px-1.5 py-1 rounded-md bg-muted text-muted-foreground hover:bg-muted/80 transition-colors flex items-center gap-0.5"
+            >
+              <X className="h-3 w-3" />
+              сброс
+            </button>
+          )}
         </div>
         <div className="flex items-end gap-2">
           <Textarea

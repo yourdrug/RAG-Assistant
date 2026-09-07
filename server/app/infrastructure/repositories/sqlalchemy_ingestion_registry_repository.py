@@ -16,7 +16,7 @@ from infrastructure.database.models import IngestionRegistryModel
 log = logging.getLogger("default")
 
 
-class SQLAlchemyIngestionRegistryRepository(IngestionRegistryRepository):
+class SQLAlchemyIngestionRegistryRepository:
     def __init__(self, session: SessionProtocol) -> None:
         self._session = session
 

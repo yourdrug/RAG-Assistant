@@ -126,11 +126,20 @@ SYSTEM_PROMPT = """Ты — корпоративный ассистент. Ст�
 """
 
 
-def build_system_prompt(breadth: str = Breadth.NARROW, has_legal_context: bool = False) -> str:
+def build_system_prompt(
+    breadth: str = Breadth.NARROW,
+    has_legal_context: bool = False,
+    domain_addendum: str | None = None,
+) -> str:
     """Build the system prompt text based on question breadth and context composition.
 
     Returns the raw system prompt string. The LangChain ChatPromptTemplate
     construction is handled in infrastructure/ml/rag.py.
+
+    domain_addendum: extra rules from the DomainProfile for the active
+    document domain (e.g. temporal rules when as_of_date is set). When
+    provided it replaces the hard-coded legal rules — the profile is the
+    single source of domain prompt rules.
     """
     old_rule3 = (
         "3. Отвечай на том же языке, на котором задан вопрос.\n"
@@ -143,7 +152,6 @@ def build_system_prompt(breadth: str = Breadth.NARROW, has_legal_context: bool =
             "3. Отвечай РАЗВЁРНУТО по структуре:\n"
             "   - Начни с краткого прямого ответа (1 предложение)\n"
             "   - Затем раскрой тему по подпунктам: 1-2 предложения с деталями из контекста\n"
-            "   - Заверши нюансами/исключениями, если они есть в контексте\n"
             "   Не пересказывай весь документ — освещай аспекты заданного вопроса.\n"
             "   Отвечай на том же языке, на котором задан вопрос.\n"
             "   Исключение: если документ и вопрос на разных языках — переводи содержательную часть\n"
@@ -165,7 +173,7 @@ def build_system_prompt(breadth: str = Breadth.NARROW, has_legal_context: bool =
 
     prompt = SYSTEM_PROMPT.replace(old_rule3, new_rule3)
 
-    if has_legal_context:
+    if has_legal_context and not domain_addendum:
         legal_rules = (
             "\nДОПОЛНИТЕЛЬНЫЕ ПРАВИЛА ДЛЯ ЮРИДИЧЕСКОГО КОНТЕКСТА:\n"
             "13. ОБЯЗАТЕЛЬНО указывай номер статьи/пункта, если он есть в контексте "
@@ -173,6 +181,9 @@ def build_system_prompt(breadth: str = Breadth.NARROW, has_legal_context: bool =
             "14. НЕ ПЕРЕФРАЗИРУЙ формулировки нормативных актов — цитируй максимально близко к тексту.\n"
         )
         prompt = prompt.rstrip() + "\n" + legal_rules
+
+    if domain_addendum:
+        prompt = prompt.rstrip() + "\n\nДОПОЛНИТЕЛЬНЫЕ ПРАВИЛА ДОМЕНА ДОКУМЕНТОВ:\n" + domain_addendum
 
     return prompt
 

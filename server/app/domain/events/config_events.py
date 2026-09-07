@@ -20,3 +20,4 @@ class ConfigParameterChanged:
     value_type: str
     changed_by: int | None = None
     occurred_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    domain_key: str | None = None  # NULL = global, set for domain-specific params

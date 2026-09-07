@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
+from domain.value_objects.benchmark_dataset import BenchmarkDataset
 from domain.value_objects.benchmark_strategy import BenchmarkStrategy
 from domain.value_objects.sweep_status import BenchmarkSweepStatus
 
@@ -14,7 +15,7 @@ class BenchmarkSweep:
     strategy: str = BenchmarkStrategy.GRID.value
     search_space: dict = field(default_factory=dict)
     objective_weights: dict = field(default_factory=dict)
-    dataset: str = "main"
+    dataset: str = BenchmarkDataset.MAIN.value
     top_n_llm: int = 3
     status: str = BenchmarkSweepStatus.PENDING.value
     job_id: int | None = None

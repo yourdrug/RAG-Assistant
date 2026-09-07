@@ -338,7 +338,8 @@ class TestSubscribeConfigEvents:
 
         with patch("infrastructure.events.in_process_event_bus.event_bus") as mock_bus:
             c._subscribe_config_events()
-            assert mock_bus.subscribe.call_count == 7
+            # 5 core handlers + llm/bm25 invalidators + domain settings cache updater
+            assert mock_bus.subscribe.call_count == 8
             for call_args in mock_bus.subscribe.call_args_list:
                 event_type = call_args[0][0]
                 assert event_type is ConfigParameterChanged

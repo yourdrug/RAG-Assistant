@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime
+from datetime import date, datetime
 
 from domain.repositories.chunk_repository import ChunkSearchResult, ChunkStats
 from domain.services.access_control import get_visibility_conditions
@@ -53,6 +53,11 @@ class SQLAlchemyChunkRepository:
         group_id: int | None = None,
         doc_domain: str = DocDomain.GENERAL.value,
         content_hashes: list[str] | None = None,
+        domain_metadata: dict | None = None,
+        act_version_id: int | None = None,
+        effective_from: date | None = None,
+        effective_to: date | None = None,
+        is_current: bool = True,
     ) -> list[int]:
         """Insert chunks for a document. Replaces existing chunks. Returns chunk IDs."""
         # Delete existing chunks for this document (re-index)
@@ -72,6 +77,11 @@ class SQLAlchemyChunkRepository:
                 owner_id=owner_id,
                 group_id=group_id,
                 content_hash=content_hashes[i] if content_hashes and i < len(content_hashes) else None,
+                domain_metadata=domain_metadata,
+                act_version_id=act_version_id,
+                effective_from=effective_from,
+                effective_to=effective_to,
+                is_current=is_current,
             )
             for i, content in enumerate(chunks)
         ]
@@ -317,3 +327,34 @@ class SQLAlchemyChunkRepository:
         stmt = select(ChunkModel.content).order_by(ChunkModel.document_id, ChunkModel.chunk_index)
         result = await self._session.execute(stmt)
         return [row[0] for row in result.all()]
+
+    async def set_current_by_act_version_ids(self, act_version_ids: list[int], is_current: bool) -> int:
+        """Bulk-update the denormalized is_current flag for chunks of act versions."""
+        if not act_version_ids:
+            return 0
+        from sqlalchemy import update
+
+        result = await self._session.execute(
+            update(ChunkModel)
+            .where(ChunkModel.act_version_id.in_(act_version_ids))
+            .values(is_current=is_current)
+        )
+        await self._session.flush()
+        return result.rowcount or 0
+
+    async def update_temporal_by_act_version_id(
+        self,
+        act_version_id: int,
+        effective_from: date | None,
+        effective_to: date | None,
+    ) -> int:
+        """Update effective_from/to for all chunks linked to an act version."""
+        from sqlalchemy import update
+
+        result = await self._session.execute(
+            update(ChunkModel)
+            .where(ChunkModel.act_version_id == act_version_id)
+            .values(effective_from=effective_from, effective_to=effective_to)
+        )
+        await self._session.flush()
+        return result.rowcount or 0

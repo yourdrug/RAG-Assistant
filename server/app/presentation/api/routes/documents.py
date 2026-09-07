@@ -9,7 +9,7 @@ from application.services.document_service import DocumentService
 from application.services.job_service import JobService
 from config import settings
 from domain.value_objects.doc_domain import DocDomain
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from infrastructure.logging.actions import log_action
 from infrastructure.worker.queue import enqueue_document_processing
 
@@ -62,6 +62,7 @@ async def upload_document(
     client_id: int | None = Form(None),
     rename_on_conflict: bool = Form(False),
     doc_domain: str | None = Form(None),
+    replaces_document_id: int | None = Form(None),
     document_service: DocumentService = Depends(create_document_service),
     job_service: JobService = Depends(create_job_service),
 ):
@@ -95,6 +96,7 @@ async def upload_document(
         user_role=current_user["role"],
         rename_on_conflict=rename_on_conflict,
         doc_domain=doc_domain,
+        replaces_document_id=replaces_document_id,
         document_service=document_service,
         job_service=job_service,
         enqueue_fn=enqueue_document_processing,
@@ -106,11 +108,13 @@ async def upload_document(
 
 @router.get("/documents", response_model=list[DocumentResponse])
 async def list_documents(
+    limit: int = Query(200, ge=1, le=1000, description="Page size (M-6: unbounded lists are forbidden)"),
+    offset: int = Query(0, ge=0),
     current_user: dict = Depends(get_current_user),
     document_service: DocumentService = Depends(create_document_service),
 ):
     return await document_service.list_documents(
-        current_user["id"], current_user["kind"], current_user["role"]
+        current_user["id"], current_user["kind"], current_user["role"], limit=limit, offset=offset
     )
 
 

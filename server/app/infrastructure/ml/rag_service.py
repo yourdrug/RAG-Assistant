@@ -37,15 +37,15 @@ from qdrant_client.models import FieldCondition, Filter, MatchValue
 if TYPE_CHECKING:
     from infrastructure.ml.client_registry import MLClientRegistry
 
-from infrastructure.acl import build_qdrant_filter, with_domain_filter
+from infrastructure.acl import build_qdrant_filter, with_domain_filter, with_temporal_filter
 from infrastructure.ml.answer_cache import (
     compute_question_hash,
     compute_visibility_scope_hash,
     find_cached_answer,
     store_cached_answer,
 )
-from infrastructure.ml.hybrid import content_hash, rrf_merge
-from infrastructure.ml.metrics import (
+from infrastructure.bm25.hybrid import content_hash, rrf_merge
+from infrastructure.metrics.metrics import (
     RAG_BREADTH_TOTAL,
     RAG_CACHE_HITS_TOTAL,
     RAG_CACHE_MISSES_TOTAL,
@@ -53,6 +53,7 @@ from infrastructure.ml.metrics import (
     RAG_RELEVANCE_GATE_TOTAL,
     RAG_SELF_RAG_RETRIES,
     RAG_STAGE_DURATION,
+    RAG_TEMPORAL_VERSION_CONFLICT_TOTAL,
     extract_usage_from_langchain,
     record_llm_usage,
     record_rag_answer,
@@ -116,20 +117,27 @@ log = logging.getLogger("default")
 
 
 async def _resolve_hash_to_doc(h: str, access_filter, ml_clients: MLClientRegistry) -> LCDocument | None:
-    """Retrieve a document from Qdrant by its content_hash."""
+    """Retrieve a document from Qdrant by its content_hash.
+
+    The BM25 index is global, so a sparse hit may belong to a chunk outside
+    the caller's visibility scope. The ACL filter is combined with the hash
+    condition so that foreign chunks can never be resolved.
+    """
     client = ml_clients.qdrant_client()
+
+    must_conditions: list = [
+        FieldCondition(
+            key="metadata.content_hash",
+            match=MatchValue(value=h),
+        )
+    ]
+    if access_filter is not None and access_filter.should:
+        must_conditions.append(access_filter)
 
     results = await asyncio.to_thread(
         client.scroll,
         collection_name=settings.collection_name,
-        scroll_filter=Filter(
-            must=[
-                FieldCondition(
-                    key="metadata.content_hash",
-                    match=MatchValue(value=h),
-                )
-            ]
-        ),
+        scroll_filter=Filter(must=must_conditions),
         limit=1,
         with_payload=True,
     )
@@ -237,9 +245,10 @@ async def _run_hybrid_search(
 
 
 class RagService:
-    def __init__(self, ml_clients: MLClientRegistry, chunk_search=None) -> None:
+    def __init__(self, ml_clients: MLClientRegistry, chunk_search=None, domain_registry=None) -> None:
         self._ml = ml_clients
         self._chunk_search = chunk_search
+        self._domain_registry = domain_registry
 
     @staticmethod
     def _prepare_history_dicts(history: list) -> list[dict]:
@@ -460,7 +469,7 @@ class RagService:
 
     async def _llm_assess_decomposition(self, question: str) -> tuple[bool, list[str]]:
         """Use LLM to assess whether a query needs decomposition."""
-        from infrastructure.ml.instructor_client import create_llm_instructor_client
+        from infrastructure.llm.instructor_client import create_llm_instructor_client
 
         client, model = create_llm_instructor_client()
 
@@ -495,7 +504,7 @@ class RagService:
                 suggested_refinement=question,
             )
 
-        from infrastructure.ml.instructor_client import create_llm_instructor_client
+        from infrastructure.llm.instructor_client import create_llm_instructor_client
 
         if llm_client is None:
             llm_client, model = create_llm_instructor_client()
@@ -624,6 +633,9 @@ class RagService:
 
         user = {"id": ctx.user_id, "kind": ctx.user_kind}
         access_filter = build_qdrant_filter(user, ctx.user_group_ids)
+        # Temporal retrieval: as_of_date=None → only current versions; a set date
+        # filters by effective interval. Chunks without dates never excluded.
+        retrieval_filter = with_temporal_filter(access_filter, ctx.as_of_date)
 
         history_dicts = self._prepare_history_dicts(history)
         history_messages = history_to_messages(history_dicts)
@@ -637,7 +649,7 @@ class RagService:
         RAG_STAGE_DURATION.labels("condense").observe(time.monotonic() - t0)
 
         # --- Semantic answer cache ---
-        vis_hash = compute_visibility_scope_hash(ctx.user_kind, ctx.user_group_ids)
+        vis_hash = compute_visibility_scope_hash(ctx.user_kind, ctx.user_id, ctx.user_group_ids)
         q_hash = compute_question_hash(query_for_search)
         cached = await self._check_cache(rag, q_hash, vis_hash, t_pipeline_start)
         if cached is not None:
@@ -680,7 +692,7 @@ class RagService:
         candidates = await self._run_retrieval(
             query_for_search,
             fetch_k,
-            access_filter,
+            retrieval_filter,
             rag,
             breadth,
             query_domain,
@@ -705,6 +717,13 @@ class RagService:
         )
         RAG_STAGE_DURATION.labels("rerank").observe(time.monotonic() - t0)
 
+        # --- Temporal version conflict detection (TZ section 11.3) ---
+        # Multiple versions of the SAME act valid for the same as_of_date is a
+        # data anomaly (overlapping intervals) — never pick silently: count and
+        # surface for the admin review queue. Both versions stay in context.
+        if ctx.as_of_date is not None:
+            self._check_temporal_version_conflicts(docs)
+
         # --- Post-rerank fallback: if legal query got nothing useful after rerank ---
         docs = await self._post_rerank_adjustments(
             docs,
@@ -712,7 +731,7 @@ class RagService:
             query_for_search,
             fetch_k,
             top_k,
-            access_filter,
+            retrieval_filter,
             rag,
         )
 
@@ -749,7 +768,7 @@ class RagService:
                     candidates = await self._run_retrieval(
                         query_for_search,
                         fetch_k,
-                        access_filter,
+                        retrieval_filter,
                         rag,
                         breadth,
                         query_domain,
@@ -770,7 +789,7 @@ class RagService:
                         query_for_search,
                         fetch_k,
                         top_k,
-                        access_filter,
+                        retrieval_filter,
                         rag,
                     )
                     avg_sim = sum(s for _, s in docs) / len(docs) if docs else 0.0
@@ -783,7 +802,13 @@ class RagService:
 
         # --- Prompt adaptation based on actual context composition ---
         has_legal_context = any((doc.metadata.get("doc_domain") == DocDomain.LEGAL.value) for doc, _ in docs)
-        prompt = build_prompt(breadth, has_legal_context=has_legal_context, summary=ctx.summary)
+        domain_addendum = self._domain_prompt_addendum(query_domain, ctx, breadth)
+        prompt = build_prompt(
+            breadth,
+            has_legal_context=has_legal_context,
+            summary=ctx.summary,
+            domain_addendum=domain_addendum,
+        )
 
         # --- Dynamic context budget ---
         num_ctx = settings.llm_num_ctx_broad if breadth == Breadth.BROAD else settings.llm_num_ctx_narrow
@@ -879,6 +904,37 @@ class RagService:
             )
 
         yield SourcesEvent(sources=sources, confidence=confidence, usage=usage_report)
+
+    def _domain_prompt_addendum(self, query_domain: str, ctx: ChatContext, breadth: Breadth) -> str | None:
+        """Domain-profile prompt rules (e.g. temporal rules when as_of_date is set)."""
+        if self._domain_registry is None:
+            return None
+        try:
+            profile = self._domain_registry.get(query_domain)
+        except KeyError:
+            return None
+        return profile.prompt_addendum(
+            breadth.value if hasattr(breadth, "value") else breadth, as_of_date=ctx.as_of_date
+        )
+
+    @staticmethod
+    def _check_temporal_version_conflicts(docs: list) -> None:
+        """Detect several act versions of the same act among retrieved docs."""
+        versions_by_act: dict[int, set[int]] = {}
+        for doc, _score in docs:
+            act_id = doc.metadata.get("act_id")
+            act_version_id = doc.metadata.get("act_version_id")
+            if act_id is None or act_version_id is None:
+                continue
+            versions_by_act.setdefault(act_id, set()).add(act_version_id)
+        conflicts = {act_id: vs for act_id, vs in versions_by_act.items() if len(vs) > 1}
+        if conflicts:
+            RAG_TEMPORAL_VERSION_CONFLICT_TOTAL.inc()
+            log.warning(
+                "Temporal version conflict: multiple act versions valid for the same act: %s — "
+                "requires manual review of effective dates",
+                {k: sorted(v) for k, v in conflicts.items()},
+            )
 
     async def invoke(
         self,

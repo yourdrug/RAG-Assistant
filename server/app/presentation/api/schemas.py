@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
+from domain.value_objects.benchmark_dataset import BenchmarkDataset
 from domain.value_objects.benchmark_strategy import BenchmarkStrategy
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.search_mode import SearchMode
+from domain.value_objects.source_type import SourceType
 from domain.value_objects.visibility import DocumentVisibility
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -99,7 +101,7 @@ class DocumentResponse(BaseModel):
     chars: int | None
     creation_date: datetime | None
     indexed_at: datetime | None
-    source_type: str = "file"
+    source_type: str = SourceType.FILE.value
     has_manual_edits: bool = False
     outbox_pending: int = 0
     outbox_failed: int = 0
@@ -174,6 +176,9 @@ class ChatRequest(BaseModel):
     question: str
     conversation_id: int | None = None
     depth: str | None = None
+    # Temporal retrieval: explicit user-provided "as of" date (None = current
+    # state). Never inferred automatically from the question text.
+    as_of_date: date | None = None
 
 
 class ChatResponse(BaseModel):
@@ -304,6 +309,7 @@ class ConfigParamResponse(BaseModel):
     description: str | None = None
     min_value: float | None = None
     max_value: float | None = None
+    domain_key: str | None = None
 
 
 class ConfigParamUpdateRequest(BaseModel):
@@ -540,7 +546,7 @@ class BenchmarkQuestionCreate(BaseModel):
     expected_answer: str | None = None
     source_hint: str | None = None
     tags: list[str] | None = None
-    dataset: str = "main"
+    dataset: str = BenchmarkDataset.MAIN.value
     notes: str | None = None
 
 
@@ -591,7 +597,7 @@ class SweepCreateRequest(BaseModel):
     objective_weights: dict = Field(
         default_factory=lambda: {"hit_rate": 0.4, "faithfulness": 0.3, "relevancy": 0.3}
     )
-    dataset: str = "main"
+    dataset: str = BenchmarkDataset.MAIN.value
     top_n_llm: int = Field(3, ge=0, le=20)
 
 

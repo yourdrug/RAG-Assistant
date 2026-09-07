@@ -19,7 +19,7 @@ import typer
 from config import settings
 from infrastructure.database.database import database
 from infrastructure.ml.factories import create_embeddings, create_qdrant_client
-from infrastructure.ml.hybrid import content_hash
+from infrastructure.bm25.hybrid import content_hash
 from qdrant_client.models import PointStruct
 
 logger = logging.getLogger("cli")

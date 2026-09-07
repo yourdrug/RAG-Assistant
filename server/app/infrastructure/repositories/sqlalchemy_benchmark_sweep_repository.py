@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from domain.entities.benchmark_sweep import BenchmarkSweep
+from domain.value_objects.sweep_status import BenchmarkSweepStatus
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -80,6 +81,16 @@ class SQLAlchemyBenchmarkSweepRepository:
         stmt = select(func.count()).select_from(BenchmarkSweepModel)
         result = await self._db.execute(stmt)
         return result.scalar_one()
+
+    async def has_active(self) -> bool:
+        stmt = select(func.count()).select_from(BenchmarkSweepModel).where(
+            BenchmarkSweepModel.status.in_([
+                BenchmarkSweepStatus.PENDING.value,
+                BenchmarkSweepStatus.RUNNING.value,
+            ])
+        )
+        result = await self._db.execute(stmt)
+        return (result.scalar_one() or 0) > 0
 
     @staticmethod
     def _to_entity(orm: BenchmarkSweepModel) -> BenchmarkSweep:

@@ -23,7 +23,7 @@ from config import settings
 from domain.events.config_events import ConfigParameterChanged
 from domain.utils import parse_bool
 
-from infrastructure.ml.ingestion import _get_paddle_ocr
+from infrastructure.ml.ingestion import get_paddle_ocr
 from infrastructure.storage import get_storage
 
 log = logging.getLogger("default")
@@ -59,6 +59,8 @@ _DYNAMIC_FIELDS: dict[str, tuple[str, type]] = {
     "history_window": ("history_window", int),
     "chunk_size": ("chunk_size", int),
     "chunk_overlap": ("chunk_overlap", int),
+    "legal_chunk_size": ("legal_chunk_size", int),
+    "legal_chunk_overlap": ("legal_chunk_overlap", int),
     "source_min_score": ("source_min_score", float),
     # --- Hybrid search ---
     "hybrid_enabled": ("hybrid_enabled", bool),
@@ -141,7 +143,17 @@ def apply_to_settings(event: ConfigParameterChanged) -> None:
     """Применить новое значение к in-memory settings."""
     if event.key in SENSITIVE_KEYS:
         return
-    attr, expected_type = _DYNAMIC_FIELDS.get(event.key, (event.key, None))
+    # Domain-specific params don't touch global settings — they live in DomainSettingsPort
+    if getattr(event, "domain_key", None) is not None:
+        return
+    # Only declared hot-reloadable fields are applied. The startup resync
+    # republishes EVERY row in config_parameters (including static ones like
+    # embed_dim / file_backend); blindly setattr-ing those stored the DB's
+    # string form over typed settings (e.g. embed_dim "1024" as str broke
+    # every %-d log format that used it).
+    if event.key not in _DYNAMIC_FIELDS:
+        return
+    attr, expected_type = _DYNAMIC_FIELDS[event.key]
     if not hasattr(settings, attr):
         return
     try:
@@ -161,7 +173,7 @@ def invalidate_paddle_ocr_cache(event: ConfigParameterChanged) -> None:
     if event.key != "ocr_lang_paddle":
         return
 
-    _get_paddle_ocr.cache_clear()
+    get_paddle_ocr.cache_clear()
     log.info("PaddleOCR cache invalidated (ocr_lang_paddle -> %s)", event.new_value)
 
 

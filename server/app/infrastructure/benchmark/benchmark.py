@@ -36,14 +36,14 @@ from tenacity import (
     wait_exponential,
 )
 
-from infrastructure.ml.benchmark_history import save_summary_to_history
+from infrastructure.benchmark.benchmark_history import save_summary_to_history
 from infrastructure.ml.factories import (
     create_embeddings,
     create_qdrant_client,
     create_reranker,
     load_bm25_index,
 )
-from infrastructure.ml.hybrid import content_hash, rrf_merge
+from infrastructure.bm25.hybrid import content_hash, rrf_merge
 from infrastructure.ml.llm_schemas import JudgeScore
 from infrastructure.ml.rag import deduplicate_docs
 
@@ -370,7 +370,7 @@ CONTEXT_RECALL_PROMPT = """\
 
 def _get_judge_client(model: str):
     """Create an instructor-wrapped client for the judge model."""
-    from infrastructure.ml.instructor_client import create_llm_instructor_client
+    from infrastructure.llm.instructor_client import create_llm_instructor_client
 
     client, _resolved = create_llm_instructor_client(model=model)
     return client

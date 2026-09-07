@@ -40,6 +40,19 @@ def config_resync() -> None:
 
             applied = 0
             for r in rows:
+                if getattr(r, "domain_key", None) is not None:
+                    # Domain params don't map to global settings
+                    event_bus.publish(
+                        ConfigParameterChanged(
+                            key=r.key,
+                            old_value=None,
+                            new_value=r.value,
+                            value_type=r.value_type,
+                            domain_key=r.domain_key,
+                        )
+                    )
+                    applied += 1
+                    continue
                 current = getattr(settings, r.key, None)
                 current_str = (
                     str(current).lower()
@@ -54,6 +67,7 @@ def config_resync() -> None:
                         old_value=current_str,
                         new_value=r.value,
                         value_type=r.value_type,
+                        domain_key=r.domain_key,
                     )
                 )
                 applied += 1

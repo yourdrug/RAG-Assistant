@@ -84,3 +84,19 @@ def bm25_remove(registry: MLClientRegistry, old_hash: str) -> None:
             log.debug("BM25: hash %s not found, skip remove", old_hash)
     except Exception:
         log.exception("BM25: failed to remove text for hash %s", old_hash)
+
+
+class BM25IndexAdapter:
+    """Implements BM25IndexPort using MLClientRegistry."""
+
+    def __init__(self, registry: MLClientRegistry) -> None:
+        self._registry = registry
+
+    def remove(self, content_hash: str) -> None:
+        bm25_remove(self._registry, content_hash)
+
+    def add(self, text: str, *, text_hash: str) -> None:
+        bm25_add(self._registry, text, text_hash=text_hash)
+
+    def replace(self, old_hash: str, new_text: str, *, new_hash: str) -> None:
+        bm25_replace(self._registry, old_hash, new_text, new_hash=new_hash)

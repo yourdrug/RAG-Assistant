@@ -48,6 +48,17 @@ class FakeConversationRepository:
             return type("Conv", (), self._convs[conv_id])()
         return None
 
+    async def get_by_id(self, conv_id: int):
+        return await self.get(conv_id)
+
+    async def get_for_update(self, conv_id: int):
+        return await self.get(conv_id)
+
+    async def update_summary(self, conv_id: int, summary: str | None) -> None:
+        conv = self._convs.get(conv_id)
+        if conv is not None:
+            conv["summary"] = summary
+
     async def get_owner_id(self, conv_id: int) -> int | None:
         conv = self._convs.get(conv_id)
         return conv["user_id"] if conv else None
@@ -119,6 +130,11 @@ class FakeChunkRepository:
         group_id: int | None = None,
         doc_domain: str = "general",
         content_hashes: list[str] | None = None,
+        domain_metadata: dict | None = None,
+        act_version_id: int | None = None,
+        effective_from=None,
+        effective_to=None,
+        is_current: bool = True,
     ) -> list[int]:
         # Remove existing chunks for this document
         self._chunks = [c for c in self._chunks if c["document_id"] != document_id]
@@ -126,9 +142,39 @@ class FakeChunkRepository:
         for _i, content in enumerate(chunks):
             chunk_id = self._next_id
             self._next_id += 1
-            self._chunks.append({"id": chunk_id, "document_id": document_id, "content": content})
+            self._chunks.append(
+                {
+                    "id": chunk_id,
+                    "document_id": document_id,
+                    "content": content,
+                    "domain_metadata": domain_metadata,
+                    "act_version_id": act_version_id,
+                    "effective_from": effective_from,
+                    "effective_to": effective_to,
+                    "is_current": is_current,
+                }
+            )
             ids.append(chunk_id)
         return ids
+
+    async def set_current_by_act_version_ids(self, act_version_ids: list[int], is_current: bool) -> int:
+        updated = 0
+        for c in self._chunks:
+            if c.get("act_version_id") in act_version_ids:
+                c["is_current"] = is_current
+                updated += 1
+        return updated
+
+    async def update_temporal_by_act_version_id(
+        self, act_version_id: int, effective_from, effective_to
+    ) -> int:
+        updated = 0
+        for c in self._chunks:
+            if c.get("act_version_id") == act_version_id:
+                c["effective_from"] = effective_from
+                c["effective_to"] = effective_to
+                updated += 1
+        return updated
 
     async def search_substring(self, **kwargs):
         return []
@@ -138,10 +184,41 @@ class FakeChunkRepository:
 
 
 class FakeDocumentRepository:
+    def __init__(self) -> None:
+        self._documents: dict[int, object] = {}
+        self._next_id = 1
+
     async def get_by_id(self, doc_id: int):
+        return self._documents.get(doc_id)
+
+    async def list_all(self, limit: int = 200, offset: int = 0):
+        return list(self._documents.values())[offset : offset + limit]
+
+    async def save(self, doc):
+        doc.id = self._next_id
+        self._next_id += 1
+        self._documents[doc.id] = doc
+        return doc
+
+    async def find_active_slots_by_filenames(self, filenames: list[str]):
+        return [d for d in self._documents.values() if getattr(d, "filename", None) in filenames]
+
+    async def find_active_slot(self, owner_id, filename, group_id, for_update=False):
+        for d in self._documents.values():
+            if getattr(d, "filename", None) == filename and getattr(d, "owner_id", None) == owner_id and getattr(d, "group_id", None) == group_id:
+                return d
         return None
 
-    async def list_all(self):
+    async def update_status(self, document_id: int, status: str, **kwargs) -> None:
+        return None
+
+    async def mark_done_if_indexing(self, document_id: int) -> bool:
+        return True
+
+    async def mark_stuck_processing_failed(self) -> list[int]:
+        return []
+
+    async def reconcile_indexing_documents(self) -> list[int]:
         return []
 
 
@@ -234,14 +311,34 @@ class FakeUserRepository:
 
 
 class FakeConfigParameterRepository:
+    def __init__(self):
+        self._params: dict[tuple[str, str | None], object] = {}
+
     async def get_all(self):
-        return []
+        return list(self._params.values())
 
     async def get_by_key(self, key: str):
-        return None
+        return self._params.get((key, None))
 
-    async def update_value(self, key: str, value: str) -> None:
+    async def get_by_key_and_domain(self, key: str, domain_key=None):
+        return self._params.get((key, domain_key))
+
+    async def update_value(self, key: str, value: str, domain_key=None) -> None:
+        p = self._params.get((key, domain_key))
+        if p:
+            p.value = value
+
+    async def update_category(self, key: str, category: str) -> None:
         pass
+
+    async def save(self, entity) -> None:
+        self._params[(entity.key, getattr(entity, "domain_key", None))] = entity
+
+    async def upsert(self, entity) -> None:
+        self._params.setdefault((entity.key, getattr(entity, "domain_key", None)), entity)
+
+    async def count(self) -> int:
+        return len(self._params)
 
 
 class FakeBackgroundJobRepository:
@@ -255,6 +352,9 @@ class FakeBackgroundJobRepository:
         pass
 
     async def mark_failed(self, job_id: int, error: str) -> None:
+        pass
+
+    async def touch_heartbeat(self, job_id: int) -> None:
         pass
 
     async def count_active(self) -> int:
@@ -273,6 +373,9 @@ class FakeBackgroundJobRepository:
         return {}
 
     async def recover_orphaned(self, timeout_minutes: int = 15) -> list[int]:
+        return []
+
+    async def fail_stale_pending(self, timeout_minutes: int) -> list:
         return []
 
 
@@ -331,6 +434,9 @@ class FakeBenchmarkSweepRepository:
     async def count(self) -> int:
         return 0
 
+    async def has_active(self) -> bool:
+        return False
+
 
 class FakeBenchmarkRunRepository:
     async def get_by_id(self, run_id: int):
@@ -344,6 +450,66 @@ class FakeBenchmarkRunRepository:
 
     async def count(self, **kwargs) -> int:
         return 0
+
+
+class FakeRegulatoryActRepository:
+    def __init__(self):
+        self._acts: dict[int, object] = {}
+        self._next_id = 1
+
+    async def find_by_type_and_number(self, act_type: str, act_number: str):
+        for act in self._acts.values():
+            if act.act_type == act_type and act.act_number == act_number:
+                return act
+        return None
+
+    async def get_by_id(self, act_id: int):
+        return self._acts.get(act_id)
+
+    async def save(self, act):
+        act.id = self._next_id
+        self._next_id += 1
+        self._acts[act.id] = act
+        return act
+
+    async def list_all(self):
+        return list(self._acts.values())
+
+
+class FakeActVersionRepository:
+    def __init__(self):
+        self._versions: dict[int, object] = {}
+        self._next_id = 1
+
+    async def create(self, version):
+        version.id = self._next_id
+        self._next_id += 1
+        self._versions[version.id] = version
+        return version
+
+    async def get_by_id(self, version_id: int):
+        return self._versions.get(version_id)
+
+    async def get_by_document_id(self, document_id: int):
+        for v in self._versions.values():
+            if v.document_id == document_id:
+                return v
+        return None
+
+    async def unset_current(self, act_id: int) -> None:
+        for v in self._versions.values():
+            if v.act_id == act_id and v.is_current:
+                v.is_current = False
+
+    async def list_by_act(self, act_id: int):
+        return [v for v in self._versions.values() if v.act_id == act_id]
+
+    async def list_pending_review(self):
+        return [v for v in self._versions.values() if v.date_source == "extracted" or v.act_id is None]
+
+    async def update(self, version) -> None:
+        if version.id in self._versions:
+            self._versions[version.id] = version
 
 
 class FakeUnitOfWork:
@@ -364,6 +530,8 @@ class FakeUnitOfWork:
         self.benchmark_sweeps = FakeBenchmarkSweepRepository()
         self.benchmark_runs = FakeBenchmarkRunRepository()
         self.vector_outbox = FakeVectorOutboxRepository()
+        self.regulatory_acts = FakeRegulatoryActRepository()
+        self.act_versions = FakeActVersionRepository()
         self._event_handlers: list = []
         self._committed = False
         self._rolled_back = False

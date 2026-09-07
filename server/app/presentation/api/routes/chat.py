@@ -59,6 +59,7 @@ async def chat_stream(
                     current_user["kind"],
                     current_user["role"],
                     depth=req.depth,
+                    as_of_date=req.as_of_date,
                 ):
                     if isinstance(event, MetaEvent):
                         sources = filter_sources(event.sources, exclude_keys=frozenset({CONFIDENCE_KEY}))
@@ -114,6 +115,7 @@ async def chat_sync(
             current_user["kind"],
             current_user["role"],
             depth=req.depth,
+            as_of_date=req.as_of_date,
         )
         return ChatResponse(
             answer=result.answer,

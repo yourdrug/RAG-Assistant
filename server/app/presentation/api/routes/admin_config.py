@@ -37,12 +37,13 @@ async def list_config(
     return [
         ConfigParamResponse(
             key=r.key,
-            value=_mask_value(r.value) if r.key in SENSITIVE_KEYS else r.value.strip('"').strip("'"),
+            value=_mask_value(r.value) if r.key in SENSITIVE_KEYS else r.normalize(r.value),
             value_type=r.value_type,
             category=r.category,
             description=r.description,
             min_value=r.min_value,
             max_value=r.max_value,
+            domain_key=r.domain_key,
         )
         for r in rows
         if r.key not in STATIC_CONFIG_KEYS
@@ -55,18 +56,19 @@ async def update_config(
     body: ConfigParamUpdateRequest,
     admin: dict = Depends(require_admin),
     config_service: ConfigService = Depends(create_config_service),
+    domain: str | None = None,
 ):
     if key in STATIC_CONFIG_KEYS:
         raise HTTPException(
             status_code=400,
             detail=f"'{key}' is a static parameter — set it in server/.env and restart",
         )
-    param = await config_service.update_parameter(key, body.value, changed_by=admin["id"])
+    param = await config_service.update_parameter(key, body.value, changed_by=admin["id"], domain_key=domain)
     masked_value = _mask_value(body.value) if key in SENSITIVE_KEYS else body.value[:QUESTION_LOG_MAX_CHARS]
     log_action(
         "config.update",
         user_id=admin["id"],
-        details={"key": key, "value": masked_value},
+        details={"key": key, "value": masked_value, "domain": domain},
     )
     return ConfigParamResponse(
         key=param.key,
@@ -76,6 +78,7 @@ async def update_config(
         description=param.description,
         min_value=param.min_value,
         max_value=param.max_value,
+        domain_key=param.domain_key,
     )
 
 

@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from composition._utils import _require
 from composition.service_providers import create_ingestion_service
 from infrastructure.adapters.chunk_search_adapter import ChunkSearchAdapter
+from infrastructure.bm25.bm25_updater import BM25IndexAdapter
 
 if TYPE_CHECKING:
     from application.services.auth_service import AuthService
@@ -46,6 +47,33 @@ def _get_openrouter_fetcher():
     from infrastructure.admin.config_admin_adapter import fetch_openrouter_models
 
     return fetch_openrouter_models
+
+
+def _make_versioned_domain_checker(infra: "InfrastructureContainer"):
+    """Closure over the domain registry: True when the domain tracks act versions.
+
+    The application layer stays independent of the registry type — it only
+    sees a ``Callable[[str], bool]`` policy predicate.
+    """
+
+    def _is_versioned(domain: str) -> bool:
+        registry = infra.domain_registry
+        if registry is None:
+            return False
+        try:
+            return bool(registry.get(domain).is_versioned)
+        except KeyError:
+            return False
+
+    return _is_versioned
+
+
+def _make_act_versioning(infra: "InfrastructureContainer", uow_factory):
+    """Create ActVersioningService if domain registry and settings are available."""
+    if infra.domain_registry is None or infra.domain_settings is None:
+        return None
+    from application.services.act_versioning_service import ActVersioningService
+    return ActVersioningService(uow_factory=uow_factory, settings=infra.domain_settings)
 
 
 @dataclass
@@ -114,6 +142,7 @@ class ApplicationContainer:
             LiveConfigAdminSettings,
             LiveHealthSettings,
         )
+        from infrastructure.adapters.pii_redactor_adapter import PIIRedactorAdapter
         from infrastructure.ml.pdf_adapter import (
             FitzPDFDocument,
             MLOcrRunner,
@@ -128,7 +157,11 @@ class ApplicationContainer:
         ml = _require(infra.ml_clients, "ml_clients")
 
         chunk_search = ChunkSearchAdapter(uow_factory=uow)
-        self.rag_service = RagService(ml_clients=ml, chunk_search=chunk_search)
+        self.rag_service = RagService(
+            ml_clients=ml,
+            chunk_search=chunk_search,
+            domain_registry=infra.domain_registry,
+        )
 
         self.ingestion_service = _require(
             create_ingestion_service(infra, uow_factory=uow),
@@ -143,11 +176,20 @@ class ApplicationContainer:
         ollama_probe = _require(infra.ollama_probe, "ollama_probe")
         qdrant_info = _require(infra.qdrant_info, "qdrant_info")
 
+        self.chat_log_service = ChatLogService(uow_factory=uow)
+        self.conversation_service = ConversationService(
+            uow_factory=uow,
+            summary_updater=summary_updater,
+            chat_settings=LiveChatSettings(),
+        )
+
         self.chat_service = ChatService(
             uow_factory=uow,
             rag_service=self.rag_service,
             chat_settings=LiveChatSettings(),
-            summary_updater=summary_updater,
+            chat_log_service=self.chat_log_service,
+            conversation_service=self.conversation_service,
+            pii_redactor=PIIRedactorAdapter(),
         )
         self.auth_service = AuthService(
             uow_factory=uow,
@@ -159,13 +201,15 @@ class ApplicationContainer:
             uow_factory=uow,
             vector_store_repo=vsr,
             file_storage=fs,
-            ml_registry=ml,
+            bm25_index=BM25IndexAdapter(ml),
+            domain_registry=infra.domain_registry,
+            act_versioning_service=_make_act_versioning(infra, uow),
         )
         self.chunk_service = ChunkService(
             uow_factory=uow,
             vector_store_repo=vsr,
             chunk_settings=LiveChunkSettings(),
-            ml_registry=ml,
+            bm25_index=BM25IndexAdapter(ml),
         )
         self.ingest_app_service = IngestAppService(
             uow_factory=uow,
@@ -195,7 +239,6 @@ class ApplicationContainer:
         )
 
         self.search_service = SearchService(uow_factory=uow)
-        self.conversation_service = ConversationService(uow_factory=uow)
         self.group_service = GroupService(uow_factory=uow)
         self.quality_service = QualityService(uow_factory=uow)
         self.benchmark_question_service = BenchmarkQuestionService(uow_factory=uow)
@@ -203,7 +246,6 @@ class ApplicationContainer:
         self.benchmark_run_service = BenchmarkRunService(uow_factory=uow)
         self.benchmark_result_service = BenchmarkResultService(uow_factory=uow)
         self.job_service = JobService(uow_factory=uow)
-        self.chat_log_service = ChatLogService(uow_factory=uow)
 
     async def dispose(self) -> None:
         """Shutdown application services that have explicit shutdown methods.
@@ -214,3 +256,5 @@ class ApplicationContainer:
         """
         if self.chat_service is not None and hasattr(self.chat_service, "shutdown"):
             await self.chat_service.shutdown()
+        if self.conversation_service is not None and hasattr(self.conversation_service, "shutdown"):
+            await self.conversation_service.shutdown()

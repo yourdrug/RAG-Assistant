@@ -26,7 +26,7 @@ from tenacity import (
     wait_exponential,
 )
 
-from infrastructure.ml.hybrid import content_hash
+from infrastructure.bm25.hybrid import content_hash
 from infrastructure.ml.llm_schemas import RelevanceCheck
 
 log = logging.getLogger("default")
@@ -182,8 +182,13 @@ def build_prompt(
     breadth: str = "narrow",
     has_legal_context: bool = False,
     summary: str | None = None,
+    domain_addendum: str | None = None,
 ) -> ChatPromptTemplate:
-    system_text = build_system_prompt(breadth, has_legal_context=has_legal_context)
+    system_text = build_system_prompt(
+        breadth,
+        has_legal_context=has_legal_context,
+        domain_addendum=domain_addendum,
+    )
     messages: list = [
         ("system", system_text),
     ]
@@ -336,11 +341,14 @@ def _clean_source_name(source: str) -> str:
 
 def _collect_source_metadata(
     doc, score: float | None
-) -> tuple[str, set[str], float | None, str | None, bool, bool, str | None, int | None, str | None]:
-    """Extract pages, score, articles, flags, document_id, content_hash from a single doc.
+) -> tuple[
+    str, set[str], float | None, str | None, bool, bool, str | None, int | None, str | None, dict | None
+]:
+    """Extract pages, score, articles, flags, document_id, content_hash, act info from a doc.
 
     Returns (clean_name, pages_set, score, article_number, is_edited,
-    is_manual, edited_at, document_id, content_hash).
+    is_manual, edited_at, document_id, content_hash, act_info).
+    act_info carries versioning identity (act_number/effective dates) when present.
     """
     src = doc.metadata.get("source", "unknown")
     clean_name = _clean_source_name(src)
@@ -363,6 +371,18 @@ def _collect_source_metadata(
     elif page is not None:
         pages_set.add(page)
 
+    domain_meta = doc.metadata.get("domain_metadata") or {}
+    act_number = domain_meta.get("decree_number") or domain_meta.get("act_number")
+    effective_from = doc.metadata.get("effective_from")
+    effective_to = doc.metadata.get("effective_to")
+    act_info: dict | None = None
+    if act_number or effective_from or effective_to:
+        act_info = {
+            "act_number": act_number,
+            "effective_from": effective_from,
+            "effective_to": effective_to,
+        }
+
     return (
         clean_name,
         pages_set,
@@ -373,10 +393,11 @@ def _collect_source_metadata(
         edited_at,
         document_id,
         content_hash,
+        act_info,
     )
 
 
-def _build_source_entry(
+def _build_source_entry(  # noqa: C901
     src: str,
     pages: set[str],
     articles_by_source: dict[str, list[str]],
@@ -386,6 +407,7 @@ def _build_source_entry(
     edited_at_by_source: dict[str, str | None],
     document_ids_by_source: dict[str, int | None],
     content_hashes_by_source: dict[str, list[str]],
+    act_info_by_source: dict[str, dict] | None = None,
 ) -> dict:
     """Build the entry dict for a single source."""
     sorted_pages = sorted(pages) if pages else []
@@ -407,6 +429,14 @@ def _build_source_entry(
         entry["manual"] = True
     if edited_at_by_source.get(src):
         entry["edited_at"] = edited_at_by_source[src]
+    if act_info_by_source and src in act_info_by_source:
+        info = act_info_by_source[src]
+        if info.get("act_number"):
+            entry["act_number"] = info["act_number"]
+        if info.get("effective_from"):
+            entry["effective_from"] = info["effective_from"]
+        if info.get("effective_to"):
+            entry["effective_to"] = info["effective_to"]
     return entry
 
 
@@ -434,12 +464,22 @@ def _aggregate_source_metadata(  # noqa: C901
     edited_at_by_source: dict[str, str | None],
     document_ids_by_source: dict[str, int | None],
     content_hashes_by_source: dict[str, list[str]],
+    act_info_by_source: dict[str, dict] | None = None,
 ) -> None:
     doc = item[0] if isinstance(item, tuple) else item
     score = item[1] if isinstance(item, tuple) else None
-    clean_name, pages_set, doc_score, article_number, is_edited, is_manual, edited_at, document_id, ch = (
-        _collect_source_metadata(doc, score)
-    )
+    (
+        clean_name,
+        pages_set,
+        doc_score,
+        article_number,
+        is_edited,
+        is_manual,
+        edited_at,
+        document_id,
+        ch,
+        act_info,
+    ) = _collect_source_metadata(doc, score)
 
     if clean_name not in pages_by_source:
         pages_by_source[clean_name] = set()
@@ -463,6 +503,8 @@ def _aggregate_source_metadata(  # noqa: C901
         content_hashes_by_source.setdefault(clean_name, [])
         if ch not in content_hashes_by_source[clean_name]:
             content_hashes_by_source[clean_name].append(ch)
+    if act_info and act_info_by_source is not None and clean_name not in act_info_by_source:
+        act_info_by_source[clean_name] = act_info
 
 
 def _filter_sources_by_min_score(
@@ -497,6 +539,7 @@ def extract_sources(docs, min_score: float | None = None) -> list[dict]:
     edited_at_by_source: dict[str, str | None] = {}
     document_ids_by_source: dict[str, int | None] = {}
     content_hashes_by_source: dict[str, list[str]] = {}
+    act_info_by_source: dict[str, dict] = {}
 
     for item in docs:
         _aggregate_source_metadata(
@@ -509,6 +552,7 @@ def extract_sources(docs, min_score: float | None = None) -> list[dict]:
             edited_at_by_source,
             document_ids_by_source,
             content_hashes_by_source,
+            act_info_by_source,
         )
 
     sources = []
@@ -523,6 +567,7 @@ def extract_sources(docs, min_score: float | None = None) -> list[dict]:
             edited_at_by_source,
             document_ids_by_source,
             content_hashes_by_source,
+            act_info_by_source,
         )
         sources.append(entry)
 
@@ -553,7 +598,7 @@ RELEVANCE_PROMPT = ChatPromptTemplate.from_messages(
 
 def _get_rag_instructor_client():
     """Create instructor client for relevance checks (Ollama or OpenRouter)."""
-    from infrastructure.ml.instructor_client import create_llm_instructor_client
+    from infrastructure.llm.instructor_client import create_llm_instructor_client
 
     client, _model = create_llm_instructor_client()
     return client

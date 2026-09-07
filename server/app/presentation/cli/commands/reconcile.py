@@ -52,8 +52,11 @@ async def _get_all_postgres_doc_ids() -> set[int]:
     await database.connect()
     try:
         session = database.get_read_session()
-        result = await session.execute(text("SELECT id FROM documents WHERE status != 'failed'"))
-        return {row[0] for row in result.fetchall()}
+        try:
+            result = await session.execute(text("SELECT id FROM documents WHERE status != 'failed'"))
+            return {row[0] for row in result.fetchall()}
+        finally:
+            await session.close()
     finally:
         await database.disconnect()
 

@@ -34,7 +34,7 @@ async def issue_api_key(
     log_action(
         "api_key.create", user_id=admin["id"], details={"client_user_id": client_user_id, "name": req.name}
     )
-    return result
+    return ApiKeyCreateResponse(key=result.api_key, key_prefix=result.key_prefix, name=result.name)
 
 
 @router.get("/{client_user_id}/api-keys", response_model=list[ApiKeyResponse])
@@ -44,7 +44,16 @@ async def list_api_keys(
     auth_service: AuthService = Depends(create_auth_service),
 ):
     _check_client_access(current_user, client_user_id)
-    return await auth_service.list_api_keys(client_user_id)
+    keys = await auth_service.list_api_keys(client_user_id)
+    return [ApiKeyResponse(
+        id=k.id,
+        key_prefix=k.key_prefix,
+        name=k.name,
+        creation_date=k.creation_date,
+        last_used_at=k.last_used_at,
+        revoked_at=k.revoked_at,
+        is_active=k.is_active,
+    ) for k in keys]
 
 
 @router.delete("/{client_user_id}/api-keys/{api_key_id}")

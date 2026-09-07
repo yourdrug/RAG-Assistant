@@ -52,6 +52,11 @@ class ChunkRepository(Protocol):
         group_id: int | None = None,
         doc_domain: str = DocDomain.GENERAL.value,
         content_hashes: list[str] | None = None,
+        domain_metadata: dict | None = None,
+        act_version_id: int | None = None,
+        effective_from: datetime | None = None,
+        effective_to: datetime | None = None,
+        is_current: bool = True,
     ) -> list[int]:
         """Insert chunks for a document. Replaces existing chunks. Returns chunk IDs."""
         ...
@@ -136,4 +141,17 @@ class ChunkRepository(Protocol):
 
     async def update_filename_by_document_id(self, document_id: int, new_filename: str) -> int:
         """Update filename for all chunks of a document. Returns count of updated rows."""
+        ...
+
+    async def set_current_by_act_version_ids(self, act_version_ids: list[int], is_current: bool) -> int:
+        """Bulk-update the denormalized is_current flag for chunks of act versions."""
+        ...
+
+    async def update_temporal_by_act_version_id(
+        self,
+        act_version_id: int,
+        effective_from: datetime | None,
+        effective_to: datetime | None,
+    ) -> int:
+        """Update effective_from/to for all chunks linked to an act version."""
         ...

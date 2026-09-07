@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 from pathlib import Path
 
 from config import settings
 from domain.value_objects.file_backend import FileBackend
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 
 from application.services.pdf_diagnostic_service import PDFDiagnosticService
 from application.services.quality_service import QualityService
@@ -47,6 +48,17 @@ router = APIRouter(tags=["admin-quality"])
 IMAGE_AVAILABLE = settings.file_backend == FileBackend.S3.value
 
 _DRY_RUN_EXTENSIONS = {".pdf", ".docx", ".doc", ".rtf"}
+
+
+def _domain_preview_kwargs(request: Request) -> dict:
+    """Domain registry/settings for strategies that need structural awareness."""
+    container = getattr(request.app.state, "container", None) if request is not None else None
+    if container is None or container.infrastructure.domain_registry is None:
+        return {}
+    return {
+        "domain_registry": container.infrastructure.domain_registry,
+        "domain_settings": container.infrastructure.domain_settings,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -204,6 +216,7 @@ async def diagnose_document(
 
 @router.post("/admin/documents/preview", response_model=DryRunResponse)
 async def dry_run_preview(
+    request: Request,
     file: UploadFile = File(...),
     admin: dict = Depends(require_admin),
     diag_service: PDFDiagnosticService = Depends(create_pdf_diagnostic_service),
@@ -216,7 +229,9 @@ async def dry_run_preview(
     ext = Path(filename).suffix.lower()
 
     try:
-        strategy = PreviewStrategyFactory.for_extension(ext, diag_service=diag_service)
+        strategy = PreviewStrategyFactory.for_extension(
+            ext, diag_service=diag_service, **_domain_preview_kwargs(request)
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
@@ -225,7 +240,9 @@ async def dry_run_preview(
     async with preview_cache.get_path(preview_id) as tmp_path:
         if tmp_path is None:
             raise HTTPException(status_code=500, detail="Failed to store preview")
-        page_results, types_count, total_chars = strategy.analyze(tmp_path)
+        # PyMuPDF over every page is CPU-heavy: run in a worker thread so the
+        # event loop (single uvicorn process) stays responsive.
+        page_results, types_count, total_chars = await asyncio.to_thread(strategy.analyze, tmp_path)
         warning = _compute_quality_warning(page_results, types_count, "Low quality")
         suggestion = PDFDiagnosticService.suggest_action(page_results, types_count)
         return _build_dry_run_response(
@@ -246,6 +263,7 @@ async def dry_run_preview(
 
 @router.post("/admin/documents/preview-ocr", response_model=DryRunResponse)
 async def dry_run_ocr_phase2(
+    request: Request,
     file: UploadFile = File(None),
     preview_id: str = Form(""),
     pages: str = Form(""),
@@ -269,14 +287,16 @@ async def dry_run_ocr_phase2(
     async def _run_ocr(tmp_path: Path, effective_preview_id: str, fname: str) -> DryRunResponse:
         ext = Path(fname).suffix.lower()
         try:
-            strategy = PreviewStrategyFactory.for_extension(ext, diag_service=diag_service)
+            strategy = PreviewStrategyFactory.for_extension(
+                ext, diag_service=diag_service, **_domain_preview_kwargs(request)
+            )
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
 
-        page_results, types_count, total_chars = strategy.analyze(tmp_path)
+        page_results, types_count, total_chars = await asyncio.to_thread(strategy.analyze, tmp_path)
         try:
-            page_results, types_count, total_chars = strategy.ocr_problem_units(
-                tmp_path, page_results, page_nums
+            page_results, types_count, total_chars = await asyncio.to_thread(
+                strategy.ocr_problem_units, tmp_path, page_results, page_nums
             )
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
@@ -322,6 +342,21 @@ async def dry_run_ocr_phase2(
 # ---------------------------------------------------------------------------
 
 
+def _render_page_image_sync(diag_service: PDFDiagnosticService, tmp_path: Path, page: int) -> bytes:
+    """Sync PyMuPDF work (open/count/render/close) — executed in a worker thread."""
+    doc = diag_service._pdf.open(str(tmp_path))
+    try:
+        total = diag_service._pdf.get_page_count(doc)
+        if page > total:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Page {page} out of range (document has {total} pages)",
+            )
+        return diag_service._pdf.render_page_image(doc, page - 1, dpi=PAGE_IMAGE_DPI)
+    finally:
+        diag_service._pdf.close(doc)
+
+
 @router.post("/admin/documents/preview/page-image", response_model=PageImageResponse)
 async def get_page_image(
     preview_id: str = Form(...),
@@ -344,17 +379,7 @@ async def get_page_image(
         if page < 1:
             raise HTTPException(status_code=400, detail="Page number must be >= 1")
 
-        doc = diag_service._pdf.open(str(tmp_path))
-        try:
-            total = diag_service._pdf.get_page_count(doc)
-            if page > total:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Page {page} out of range (document has {total} pages)",
-                )
-            image_bytes = diag_service._pdf.render_page_image(doc, page - 1, dpi=PAGE_IMAGE_DPI)
-        finally:
-            diag_service._pdf.close(doc)
+        image_bytes = await asyncio.to_thread(_render_page_image_sync, diag_service, tmp_path, page)
 
         return PageImageResponse(
             image_base64=base64.b64encode(image_bytes).decode("ascii"),

@@ -8,19 +8,31 @@ from collections.abc import Sequence
 
 from arq.connections import RedisSettings
 from arq.cron import cron
-from arq.worker import Worker
+from arq.worker import Function, Worker, func as arq_func
 from config import settings
 from infrastructure.worker.tasks import (
     cron_bm25_rebuild,
     cron_job_cleanup,
     cron_recover_orphaned_jobs,
+    cron_recover_stuck_processing,
     process_document,
     run_benchmark,
     run_full_ingest,
     run_single_ingest,
+    run_sweep,
 )
 
 logger = logging.getLogger("cli")
+
+# Explicit per-function timeouts (C-4): arq's default 300 s cancels long jobs
+# past every `except Exception` handler. Timeouts are sized per job class with
+# headroom over the worst realistic duration.
+_PROCESS_TIMEOUT = 60 * 30  # single document incl. OCR: 30 min
+_SINGLE_INGEST_TIMEOUT = 60 * 30  # single file ingest: 30 min
+_FULL_INGEST_TIMEOUT = 60 * 120  # whole corpus ingest: 2 h
+_BENCHMARK_TIMEOUT = 60 * 60  # benchmark run: 1 h
+_SWEEP_TIMEOUT = 60 * 60 * 6  # parameter sweep with LLM judge: 6 h
+_CRON_TIMEOUT = 60 * 10  # maintenance cron jobs: 10 min
 
 
 def worker(
@@ -36,20 +48,23 @@ def worker(
     try:
         redis_settings = RedisSettings.from_dsn(settings.redis_url)
 
-        functions: Sequence = [
-            process_document,
-            run_full_ingest,
-            run_single_ingest,
-            run_benchmark,
-            cron_job_cleanup,
-            cron_recover_orphaned_jobs,
-            cron_bm25_rebuild,
+        functions: Sequence[Function] = [
+            arq_func(process_document, timeout=_PROCESS_TIMEOUT, keep_result=0),
+            arq_func(run_full_ingest, timeout=_FULL_INGEST_TIMEOUT, keep_result=0),
+            arq_func(run_single_ingest, timeout=_SINGLE_INGEST_TIMEOUT, keep_result=0),
+            arq_func(run_benchmark, timeout=_BENCHMARK_TIMEOUT, keep_result=0),
+            arq_func(run_sweep, timeout=_SWEEP_TIMEOUT, keep_result=0),
+            arq_func(cron_job_cleanup, timeout=_CRON_TIMEOUT, keep_result=0),
+            arq_func(cron_recover_orphaned_jobs, timeout=_CRON_TIMEOUT, keep_result=0),
+            arq_func(cron_recover_stuck_processing, timeout=_CRON_TIMEOUT, keep_result=0),
+            arq_func(cron_bm25_rebuild, timeout=_CRON_TIMEOUT, keep_result=0),
         ]
 
         cron_jobs = [
-            cron(cron_job_cleanup, hour={1, 13}),
-            cron(cron_recover_orphaned_jobs, minute={0, 15, 30, 45}),
-            cron(cron_bm25_rebuild, hour=3, minute=0),
+            cron(cron_job_cleanup, hour={1, 13}, timeout=_CRON_TIMEOUT),
+            cron(cron_recover_orphaned_jobs, minute={0, 15, 30, 45}, timeout=_CRON_TIMEOUT),
+            cron(cron_recover_stuck_processing, minute={5, 20, 35, 50}, timeout=_CRON_TIMEOUT),
+            cron(cron_bm25_rebuild, hour=3, minute=0, timeout=_CRON_TIMEOUT),
         ]
 
         if max_jobs is None:
@@ -68,7 +83,7 @@ def worker(
 
         logger.info(
             "Arq worker starting — queues: document_processing, ingest, benchmark "
-            "cron: cleanup/recover/bm25 max_jobs=%d redis=%s",
+            "cron: cleanup/recover/reconcile/bm25 max_jobs=%d redis=%s",
             max_jobs,
             settings.redis_host,
         )
@@ -85,14 +100,27 @@ async def _on_startup(ctx: dict) -> None:
     """Initialize database and infrastructure on worker startup."""
     from composition.container import Container
     from infrastructure.database.database import database
+    from infrastructure.initialization import _seed_domain_config_defaults
+    from infrastructure.persistence.redis_client import redis_client
 
     await database.connect()
     logger.info("Worker: database connected")
+
+    await redis_client.init()
+    logger.info("Worker: Redis connected")
 
     # Build DI container (same as API process)
     container = Container()
     container.init(database)
     ctx["container"] = container
+
+    # Seed domain config defaults (same as the API lifespan). The worker can
+    # start before the API has ever seeded (parallel compose boot / worker-only
+    # deployment) — without this, legal/general profiles KeyError on their
+    # config parameters (e.g. fingerprint_min_articles) during first ingestion.
+    domain_registry = container.infrastructure.domain_registry
+    if domain_registry is not None and container.infrastructure.uow_factory is not None:
+        await _seed_domain_config_defaults(container.infrastructure.uow_factory, domain_registry)
 
     listener = container.infrastructure.config_listener
     assert listener is not None
@@ -108,11 +136,15 @@ async def _on_startup(ctx: dict) -> None:
 async def _on_shutdown(ctx: dict) -> None:
     """Cleanup on worker shutdown."""
     from infrastructure.database.database import database
+    from infrastructure.persistence.redis_client import redis_client
 
     listener = ctx.get("config_listener")
     if listener:
         await listener.stop()
         logger.info("Worker: config listener stopped")
+
+    await redis_client.aclose()
+    logger.info("Worker: Redis disconnected")
 
     await database.disconnect()
     logger.info("Worker: database disconnected")

@@ -7,6 +7,7 @@ import logging
 from application.ports.ingestion_port import IngestionPort
 from application.services.ingest_service import IngestAppService
 from application.services.job_service import JobService
+from domain.value_objects.visibility import DocumentVisibility
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from infrastructure.logging.actions import log_action
 from infrastructure.worker.queue import enqueue_ingest, enqueue_ingest_file
@@ -32,6 +33,9 @@ async def ingest_documents(
     docs_dir: str = "docs/",
     reset: bool = False,
     domain: str = "auto",
+    visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC,
+    group_id: int | None = None,
+    client_id: int | None = None,
     admin: dict = Depends(require_admin),
     service: IngestAppService = Depends(create_ingest_service),
     job_service: JobService = Depends(create_job_service),
@@ -46,7 +50,7 @@ async def ingest_documents(
     log_action(
         "ingest.full",
         user_id=admin["id"],
-        details={"docs_dir": resolved, "reset": reset, "domain": domain},
+        details={"docs_dir": resolved, "reset": reset, "domain": domain, "visibility": visibility.value},
     )
 
     await enqueue_ingest(
@@ -54,6 +58,9 @@ async def ingest_documents(
         reset=reset,
         domain=domain,
         job_id=job_id,
+        visibility=visibility.value,
+        group_id=group_id,
+        client_id=client_id,
     )
     mode = "RESET + full reindex" if reset else "APPEND (new files only)"
     return IngestStatusResponse(status="started", mode=mode, docs_dir=resolved)
@@ -64,6 +71,9 @@ async def ingest_single_file(
     file_path: str,
     force: bool = False,
     domain: str = "auto",
+    visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC,
+    group_id: int | None = None,
+    client_id: int | None = None,
     admin: dict = Depends(require_admin),
     service: IngestAppService = Depends(create_ingest_service),
     job_service: JobService = Depends(create_job_service),
@@ -79,13 +89,16 @@ async def ingest_single_file(
     job_id = await job_service.create_job(JobType.INGEST, related_id=None)
 
     log_action(
-        "ingest.file", user_id=admin["id"], details={"file": resolved, "force": force, "domain": domain}
+        "ingest.file", user_id=admin["id"], details={"file": resolved, "force": force, "domain": domain, "visibility": visibility.value}
     )
 
     await enqueue_ingest_file(
         resolved=resolved,
         domain=domain,
         job_id=job_id,
+        visibility=visibility.value,
+        group_id=group_id,
+        client_id=client_id,
     )
     return IngestStatusResponse(status="started", file=resolved, force=force)
 

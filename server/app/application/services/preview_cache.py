@@ -49,7 +49,7 @@ class PreviewCache:
         key = f"{PREVIEW_PREFIX}{preview_id}{suffix}"
         await self._storage.upload_file(key, file_data)
         self._cache[preview_id] = (key, time.monotonic(), original_filename)
-        self._cleanup_expired()
+        await self._cleanup_expired()
         return preview_id
 
     @asynccontextmanager
@@ -66,7 +66,7 @@ class PreviewCache:
 
         key, ts, _ = entry
         if time.monotonic() - ts > self._ttl:
-            self._evict(preview_id)
+            await self._evict(preview_id)
             yield None
             return
 
@@ -84,7 +84,7 @@ class PreviewCache:
 
         key, ts, _ = entry
         if time.monotonic() - ts > self._ttl:
-            self._evict(preview_id)
+            await self._evict(preview_id)
             return None
 
         tmp_path = await self._storage.download_to_temp(key)
@@ -107,17 +107,17 @@ class PreviewCache:
     # Internals
     # ------------------------------------------------------------------
 
-    def _evict(self, preview_id: str) -> None:
+    async def _evict(self, preview_id: str) -> None:
         entry = self._cache.pop(preview_id, None)
         if entry is not None:
             key, _, _ = entry
             try:
-                self._storage.delete_file(key)
+                await self._storage.delete_file(key)
             except Exception:
                 logger.warning("Failed to delete cached preview from storage: %s", key)
 
-    def _cleanup_expired(self) -> None:
+    async def _cleanup_expired(self) -> None:
         now = time.monotonic()
         expired = [pid for pid, (_, ts, _) in self._cache.items() if now - ts > self._ttl]
         for pid in expired:
-            self._evict(pid)
+            await self._evict(pid)

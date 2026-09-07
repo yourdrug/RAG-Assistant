@@ -18,7 +18,7 @@ from application.ports.event_bus import EventBus
 from config import settings
 from domain.events.config_events import ConfigParameterChanged
 
-from infrastructure.ml.metrics import (
+from infrastructure.metrics.metrics import (
     CONFIG_LISTENER_CONNECTED,
     CONFIG_NOTIFY_RECEIVED_TOTAL,
     CONFIG_RESYNC_TOTAL,
@@ -103,6 +103,20 @@ class PostgresConfigListener:
                 rows = await uow.config_parameters.get_all()
             applied = 0
             for r in rows:
+                if getattr(r, "domain_key", None) is not None:
+                    # Domain-specific params don't map to global settings —
+                    # publish with domain_key so the DomainSettingsAdapter picks them up.
+                    self._bus.publish(
+                        ConfigParameterChanged(
+                            key=r.key,
+                            old_value=None,
+                            new_value=r.value,
+                            value_type=r.value_type,
+                            domain_key=r.domain_key,
+                        )
+                    )
+                    applied += 1
+                    continue
                 current = getattr(settings, r.key, None)
                 if self._values_equal(current, r.value):
                     continue
@@ -112,6 +126,7 @@ class PostgresConfigListener:
                         old_value=json.dumps(current) if isinstance(current, list | dict) else str(current),
                         new_value=r.value,
                         value_type=r.value_type,
+                        domain_key=r.domain_key,
                     )
                 )
                 applied += 1
@@ -129,7 +144,7 @@ class PostgresConfigListener:
             return
 
         if data.get("refetch"):
-            task = asyncio.create_task(self._refetch_and_publish(data["key"]))
+            task = asyncio.create_task(self._refetch_and_publish(data["key"], data.get("domain_key")))
             self._background_tasks.add(task)
             task.add_done_callback(self._background_tasks.discard)
             return
@@ -140,14 +155,15 @@ class PostgresConfigListener:
             new_value=data["new_value"],
             value_type=data["value_type"],
             changed_by=data.get("changed_by"),
+            domain_key=data.get("domain_key"),
         )
         self._bus.publish(event)
 
-    async def _refetch_and_publish(self, key: str) -> None:
+    async def _refetch_and_publish(self, key: str, domain_key: str | None = None) -> None:
         """Fallback для payload'ов, не влезших в лимит pg_notify (8000 байт)."""
         try:
             async with self._uow_factory.create() as uow:
-                param = await uow.config_parameters.get_by_key(key)
+                param = await uow.config_parameters.get_by_key_and_domain(key, domain_key)
             if param is not None:
                 self._bus.publish(
                     ConfigParameterChanged(
@@ -155,6 +171,7 @@ class PostgresConfigListener:
                         old_value=None,
                         new_value=param.value,
                         value_type=param.value_type,
+                        domain_key=param.domain_key,
                     )
                 )
         except Exception:

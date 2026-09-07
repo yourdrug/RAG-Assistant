@@ -13,9 +13,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from config import settings
+
+if TYPE_CHECKING:
+    from infrastructure.bm25.hybrid import BM25Index
 
 log = logging.getLogger("default")
 
@@ -40,7 +43,7 @@ class MLClientRegistry:
         self._llm_breadth_cache: dict[str, Any] = {}
         self._reranker: Any = None
         self._qdrant_client: Any = None
-        self._bm25_index: Any = None
+        self._bm25_index: BM25Index | None = None
         self._bm25_loaded: bool = False
         self._llm_semaphore: asyncio.Semaphore | None = None
 
@@ -48,42 +51,42 @@ class MLClientRegistry:
     # Accessors (lazy init via factories)
     # ------------------------------------------------------------------
 
-    def embeddings(self):
+    def embeddings(self) -> Any:
         if self._embeddings is None:
             from infrastructure.ml.factories import create_embeddings
 
             self._embeddings = create_embeddings()
         return self._embeddings
 
-    def llm(self):
+    def llm(self) -> Any:
         if self._llm is None:
             from infrastructure.ml.factories import create_llm
 
             self._llm = create_llm()
         return self._llm
 
-    def llm_for_breadth(self, breadth: str):
+    def llm_for_breadth(self, breadth: str) -> Any:
         if breadth not in self._llm_breadth_cache:
             from infrastructure.ml.factories import create_llm_for_breadth
 
             self._llm_breadth_cache[breadth] = create_llm_for_breadth(breadth)
         return self._llm_breadth_cache[breadth]
 
-    def reranker(self):
+    def reranker(self) -> Any:
         if self._reranker is None:
             from infrastructure.ml.factories import create_reranker
 
             self._reranker = create_reranker()
         return self._reranker
 
-    def qdrant_client(self):
+    def qdrant_client(self) -> Any:
         if self._qdrant_client is None:
             from infrastructure.ml.factories import create_qdrant_client
 
             self._qdrant_client = create_qdrant_client()
         return self._qdrant_client
 
-    def bm25_index(self):
+    def bm25_index(self) -> BM25Index | None:
         if not self._bm25_loaded:
             from infrastructure.ml.factories import load_bm25_index
 

@@ -8,6 +8,7 @@ periodically by the Scheduler (``infrastructure.scheduler``).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING, cast
 
@@ -134,6 +135,24 @@ INGEST_PDF_BAD_RATIO = Histogram(
     "ingest_pdf_bad_ratio",
     "Ratio of bad pages (missing + garbled) in PDF",
     buckets=(0.0, 0.1, 0.2, 0.3, 0.5, 0.7, 1.0),
+)
+
+INGEST_DOMAIN_CLASSIFICATION_CONFIDENCE = Histogram(
+    "ingest_domain_classification_confidence",
+    "Confidence of domain classification",
+    ["domain", "level"],
+    buckets=(0.1, 0.3, 0.5, 0.7, 0.9, 1.0),
+)
+
+INGEST_DOMAIN_AMBIGUOUS_TOTAL = Counter(
+    "ingest_domain_ambiguous_total",
+    "Domain classifications flagged ambiguous",
+    ["candidates"],
+)
+
+RAG_TEMPORAL_VERSION_CONFLICT_TOTAL = Counter(
+    "rag_temporal_version_conflict_total",
+    "Multiple act versions valid for the same as_of_date (data anomaly)",
 )
 
 # ---------------------------------------------------------------------------
@@ -313,17 +332,20 @@ async def _collect_qdrant_metrics(ml_clients: MLClientRegistry | None) -> None:
         from infrastructure.ml.factories import create_qdrant_client
 
         client = create_qdrant_client()
-    info = client.get_collection(settings.collection_name)
+    # Sync qdrant-client call — must not run on the event loop.
+    info = await asyncio.to_thread(client.get_collection, settings.collection_name)
     QDRANT_POINTS.set(info.points_count or 0)
 
 
 async def _collect_bm25_metrics(ml_clients: MLClientRegistry | None) -> None:
     if ml_clients is not None:
-        bm25 = ml_clients.bm25_index()
+        # First access loads the whole index from S3 (sync boto3) and may
+        # tokenize the full corpus (CPU) — keep both off the event loop.
+        bm25 = await asyncio.to_thread(ml_clients.bm25_index)
     else:
         from infrastructure.ml.factories import load_bm25_index
 
-        bm25 = load_bm25_index()
+        bm25 = await asyncio.to_thread(load_bm25_index)
     if bm25 is not None:
         BM25_INDEX_SIZE.set(len(bm25.hashes))
 

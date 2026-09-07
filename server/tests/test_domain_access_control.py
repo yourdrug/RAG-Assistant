@@ -17,6 +17,8 @@ import pytest
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent / "app"))
 
+from types import SimpleNamespace
+
 from domain.exceptions import BusinessRuleViolation, ValidationError
 from domain.services.access_control import (
     ALLOWED_VISIBILITY_FOR_KIND,
@@ -26,6 +28,7 @@ from domain.services.access_control import (
     validate_document_visibility,
 )
 from domain.value_objects.roles import UserKind, UserRole
+from domain.value_objects.user_context import UserContext
 from domain.value_objects.visibility import DocumentVisibility
 
 # ===========================================================================
@@ -66,24 +69,28 @@ class TestValidateDocumentVisibility:
 
     def test_internal_admin_can_use_internal_public(self):
         validate_document_visibility(
-            DocumentVisibility.INTERNAL_PUBLIC, None, UserKind.INTERNAL, UserRole.ADMIN, []
+            DocumentVisibility.INTERNAL_PUBLIC, None,
+            UserContext(user_id=1, user_kind="internal", user_role="admin"),
         )
 
     def test_internal_user_can_use_internal_private(self):
         validate_document_visibility(
-            DocumentVisibility.INTERNAL_PRIVATE, None, UserKind.INTERNAL, UserRole.USER, []
+            DocumentVisibility.INTERNAL_PRIVATE, None,
+            UserContext(user_id=1, user_kind="internal", user_role="user"),
         )
 
     def test_internal_user_can_use_internal_group(self):
         validate_document_visibility(
-            DocumentVisibility.INTERNAL_GROUP, 5, UserKind.INTERNAL, UserRole.USER, [5]
+            DocumentVisibility.INTERNAL_GROUP, 5,
+            UserContext(user_id=1, user_kind="internal", user_role="user", group_ids=[5]),
         )
 
     # --- Client user happy paths ---
 
     def test_client_can_use_client_private(self):
         validate_document_visibility(
-            DocumentVisibility.CLIENT_PRIVATE, None, UserKind.CLIENT, UserRole.USER, []
+            DocumentVisibility.CLIENT_PRIVATE, None,
+            UserContext(user_id=1, user_kind="client", user_role="user"),
         )
 
     # --- Visibility not available for kind ---
@@ -91,25 +98,29 @@ class TestValidateDocumentVisibility:
     def test_client_cannot_use_internal_public(self):
         with pytest.raises(ValidationError, match="not available for kind"):
             validate_document_visibility(
-                DocumentVisibility.INTERNAL_PUBLIC, None, UserKind.CLIENT, UserRole.USER, []
+                DocumentVisibility.INTERNAL_PUBLIC, None,
+                UserContext(user_id=1, user_kind="client", user_role="user"),
             )
 
     def test_client_cannot_use_internal_group(self):
         with pytest.raises(ValidationError, match="not available for kind"):
             validate_document_visibility(
-                DocumentVisibility.INTERNAL_GROUP, 1, UserKind.CLIENT, UserRole.USER, []
+                DocumentVisibility.INTERNAL_GROUP, 1,
+                UserContext(user_id=1, user_kind="client", user_role="user"),
             )
 
     def test_client_cannot_use_internal_private(self):
         with pytest.raises(ValidationError, match="not available for kind"):
             validate_document_visibility(
-                DocumentVisibility.INTERNAL_PRIVATE, None, UserKind.CLIENT, UserRole.USER, []
+                DocumentVisibility.INTERNAL_PRIVATE, None,
+                UserContext(user_id=1, user_kind="client", user_role="user"),
             )
 
     def test_internal_cannot_use_client_private(self):
         with pytest.raises(BusinessRuleViolation, match="Only admin can upload documents for clients"):
             validate_document_visibility(
-                DocumentVisibility.CLIENT_PRIVATE, None, UserKind.INTERNAL, UserRole.USER, []
+                DocumentVisibility.CLIENT_PRIVATE, None,
+                UserContext(user_id=1, user_kind="internal", user_role="user"),
             )
 
     # --- INTERNAL_PUBLIC requires admin ---
@@ -117,7 +128,8 @@ class TestValidateDocumentVisibility:
     def test_internal_user_cannot_use_internal_public(self):
         with pytest.raises(BusinessRuleViolation, match="Only admin can publish to internal_public"):
             validate_document_visibility(
-                DocumentVisibility.INTERNAL_PUBLIC, None, UserKind.INTERNAL, UserRole.USER, []
+                DocumentVisibility.INTERNAL_PUBLIC, None,
+                UserContext(user_id=1, user_kind="internal", user_role="user"),
             )
 
     # --- INTERNAL_GROUP requires group_id ---
@@ -125,18 +137,21 @@ class TestValidateDocumentVisibility:
     def test_internal_group_requires_group_id(self):
         with pytest.raises(ValidationError, match="group_id required"):
             validate_document_visibility(
-                DocumentVisibility.INTERNAL_GROUP, None, UserKind.INTERNAL, UserRole.USER, []
+                DocumentVisibility.INTERNAL_GROUP, None,
+                UserContext(user_id=1, user_kind="internal", user_role="user"),
             )
 
     def test_internal_group_requires_membership(self):
         with pytest.raises(BusinessRuleViolation, match="not a member of this group"):
             validate_document_visibility(
-                DocumentVisibility.INTERNAL_GROUP, 5, UserKind.INTERNAL, UserRole.USER, [1, 2, 3]
+                DocumentVisibility.INTERNAL_GROUP, 5,
+                UserContext(user_id=1, user_kind="internal", user_role="user", group_ids=[1, 2, 3]),
             )
 
     def test_internal_group_with_valid_membership(self):
         validate_document_visibility(
-            DocumentVisibility.INTERNAL_GROUP, 5, UserKind.INTERNAL, UserRole.USER, [5, 10]
+            DocumentVisibility.INTERNAL_GROUP, 5,
+            UserContext(user_id=1, user_kind="internal", user_role="user", group_ids=[5, 10]),
         )
 
 
@@ -191,57 +206,87 @@ class TestCanViewDocument:
     # --- INTERNAL_PUBLIC ---
 
     def test_internal_user_can_view_internal_public(self):
-        assert can_view_document("internal_public", None, None, "internal", 1, [], []) is True
+        doc = SimpleNamespace(visibility="internal_public", owner_id=None, group_id=None)
+        ctx = UserContext(user_id=1, user_kind="internal", user_role="user")
+        assert can_view_document(doc, ctx) is True
 
     def test_client_cannot_view_internal_public(self):
-        assert can_view_document("internal_public", None, None, "client", 1, [], []) is False
+        doc = SimpleNamespace(visibility="internal_public", owner_id=None, group_id=None)
+        ctx = UserContext(user_id=1, user_kind="client", user_role="user")
+        assert can_view_document(doc, ctx) is False
 
     # --- INTERNAL_GROUP ---
 
     def test_internal_user_in_group_can_view(self):
-        assert can_view_document("internal_group", None, 5, "internal", 1, [5, 10], []) is True
+        doc = SimpleNamespace(visibility="internal_group", owner_id=None, group_id=5)
+        ctx = UserContext(user_id=1, user_kind="internal", user_role="user", group_ids=[5, 10])
+        assert can_view_document(doc, ctx) is True
 
     def test_internal_user_not_in_group_cannot_view(self):
-        assert can_view_document("internal_group", None, 5, "internal", 1, [1, 2], []) is False
+        doc = SimpleNamespace(visibility="internal_group", owner_id=None, group_id=5)
+        ctx = UserContext(user_id=1, user_kind="internal", user_role="user", group_ids=[1, 2])
+        assert can_view_document(doc, ctx) is False
 
     def test_client_cannot_view_internal_group(self):
-        assert can_view_document("internal_group", None, 5, "client", 1, [], []) is False
+        doc = SimpleNamespace(visibility="internal_group", owner_id=None, group_id=5)
+        ctx = UserContext(user_id=1, user_kind="client", user_role="user")
+        assert can_view_document(doc, ctx) is False
 
     # --- INTERNAL_PRIVATE ---
 
     def test_owner_can_view_internal_private(self):
-        assert can_view_document("internal_private", 10, None, "internal", 10, [], []) is True
+        doc = SimpleNamespace(visibility="internal_private", owner_id=10, group_id=None)
+        ctx = UserContext(user_id=10, user_kind="internal", user_role="user")
+        assert can_view_document(doc, ctx) is True
 
     def test_non_owner_cannot_view_internal_private(self):
-        assert can_view_document("internal_private", 10, None, "internal", 20, [], []) is False
+        doc = SimpleNamespace(visibility="internal_private", owner_id=10, group_id=None)
+        ctx = UserContext(user_id=20, user_kind="internal", user_role="user")
+        assert can_view_document(doc, ctx) is False
 
     def test_client_cannot_view_internal_private(self):
-        assert can_view_document("internal_private", 10, None, "client", 10, [], []) is False
+        doc = SimpleNamespace(visibility="internal_private", owner_id=10, group_id=None)
+        ctx = UserContext(user_id=10, user_kind="client", user_role="user")
+        assert can_view_document(doc, ctx) is False
 
     # --- CLIENT_PRIVATE ---
 
     def test_client_owner_can_view_client_private(self):
-        assert can_view_document("client_private", 10, None, "client", 10, [], []) is True
+        doc = SimpleNamespace(visibility="client_private", owner_id=10, group_id=None)
+        ctx = UserContext(user_id=10, user_kind="client", user_role="user")
+        assert can_view_document(doc, ctx) is True
 
     def test_client_non_owner_cannot_view_client_private(self):
-        assert can_view_document("client_private", 10, None, "client", 20, [], []) is False
+        doc = SimpleNamespace(visibility="client_private", owner_id=10, group_id=None)
+        ctx = UserContext(user_id=20, user_kind="client", user_role="user")
+        assert can_view_document(doc, ctx) is False
 
     def test_admin_can_view_client_private(self):
-        assert can_view_document("client_private", 10, None, "internal", 1, [], user_role="admin") is True
+        doc = SimpleNamespace(visibility="client_private", owner_id=10, group_id=None)
+        ctx = UserContext(user_id=1, user_kind="internal", user_role="admin")
+        assert can_view_document(doc, ctx) is True
 
     def test_non_admin_internal_cannot_view_client_private(self):
-        assert can_view_document("client_private", 10, None, "internal", 1, [10], user_role="user") is False
+        doc = SimpleNamespace(visibility="client_private", owner_id=10, group_id=None)
+        ctx = UserContext(user_id=1, user_kind="internal", user_role="user", group_ids=[10])
+        assert can_view_document(doc, ctx) is False
 
     def test_non_admin_internal_no_assignments_cannot_view_client_private(self):
-        assert can_view_document("client_private", 10, None, "internal", 1, [], user_role="user") is False
+        doc = SimpleNamespace(visibility="client_private", owner_id=10, group_id=None)
+        ctx = UserContext(user_id=1, user_kind="internal", user_role="user")
+        assert can_view_document(doc, ctx) is False
 
     # --- Edge cases ---
 
     def test_empty_group_ids_list(self):
-        assert can_view_document("internal_group", None, 5, "internal", 1, [], []) is False
+        doc = SimpleNamespace(visibility="internal_group", owner_id=None, group_id=5)
+        ctx = UserContext(user_id=1, user_kind="internal", user_role="user", group_ids=[])
+        assert can_view_document(doc, ctx) is False
 
     def test_client_with_groups_still_cannot_view_internal(self):
-        assert can_view_document("internal_public", None, None, "client", 1, [1, 2, 3], []) is False
+        doc = SimpleNamespace(visibility="internal_public", owner_id=None, group_id=None)
+        ctx = UserContext(user_id=1, user_kind="client", user_role="user", group_ids=[1, 2, 3])
+        assert can_view_document(doc, ctx) is False
 
 
 # ===========================================================================
@@ -260,7 +305,7 @@ class TestCanViewDocumentParameterized:
             ("internal_public", None, None, "client", 1, [], False, None),
             # INTERNAL_GROUP
             ("internal_group", None, 5, "internal", 1, [5], True, "admin"),
-            ("internal_group", None, 5, "internal", 1, [3], False, "admin"),
+            ("internal_group", None, 5, "internal", 1, [3], True, "admin"),  # admin bypasses group membership
             ("internal_group", None, 5, "client", 1, [], False, None),
             # INTERNAL_PRIVATE
             ("internal_private", 10, None, "internal", 10, [], True, "admin"),
@@ -274,7 +319,9 @@ class TestCanViewDocumentParameterized:
         ],
     )
     def test_visibility_matrix(self, visibility, owner_id, group_id, kind, user_id, groups, expected, role):
-        result = can_view_document(visibility, owner_id, group_id, kind, user_id, groups, user_role=role)
+        doc = SimpleNamespace(visibility=visibility, owner_id=owner_id, group_id=group_id)
+        ctx = UserContext(user_id=user_id, user_kind=kind, user_role=role or "user", group_ids=groups)
+        result = can_view_document(doc, ctx)
         assert result is expected
 
 
@@ -343,9 +390,9 @@ class TestGetVisibilityConditions:
         assert len(client_conds) == 0
 
     def test_internal_full_conditions_count(self):
-        # Admin sees all client docs
+        # Admin sees all client docs + all group docs (regardless of membership)
         conds = get_visibility_conditions(UserKind.INTERNAL, 1, [5], user_role=UserRole.ADMIN)
-        assert len(conds) == 4  # public + private + group + client
+        assert len(conds) == 5  # public + private + group (by membership) + group (admin bypass) + client
 
     def test_conditions_are_frozen_dataclass(self):
         conds = get_visibility_conditions(UserKind.CLIENT, 1, [])
