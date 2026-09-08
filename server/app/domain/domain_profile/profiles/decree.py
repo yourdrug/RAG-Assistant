@@ -1,4 +1,4 @@
-"""DecreeDomainProfile — presidential decrees and government resolutions.
+"""DecreeDomainProfile -- presidential decrees and government resolutions.
 
 Structural fingerprint: "УКАЗ" header + "ПОСТАНОВЛЯЮ/ПОСТАНОВЛЯЕТ" marker.
 Content-based splitting by point/subpoint/sentence.
@@ -9,7 +9,12 @@ from __future__ import annotations
 import re
 from datetime import date
 
-from domain.domain_profile.date_parsing import parse_date_guess
+from domain.domain_profile.base import (
+    EFFECTIVE_DATE_TRUST_THRESHOLD_DEFAULT,
+    SettingsBackedProfile,
+    extract_effective_date_generic,
+    versioned_prompt_date_stamp,
+)
 from domain.domain_profile.protocol import (
     BoundaryLevel,
     ConfigDefault,
@@ -30,22 +35,16 @@ _EFFECTIVE_PATTERNS = [
     (re.compile(r"с\s+даты\s+([^\n,.]+)", re.IGNORECASE), 0.5),
 ]
 
+_DECREE_PROMPT_RULES = (
+    "13. Каждый указ идентифицируй по номеру и дате.\n"
+    "14. Ссылайся на конкретный пункт постановляющей части, не пересказывай указ целиком.\n"
+)
 
-class DecreeDomainProfile:
+
+class DecreeDomainProfile(SettingsBackedProfile):
     key = "decree"
     display_name = "Указы и постановления"
     is_versioned = True
-
-    def __init__(self, settings=None) -> None:
-        self._settings = settings  # единственный источник любых числовых параметров
-
-    def _get(self, key: str) -> str:
-        if self._settings is None:
-            raise RuntimeError(
-                f"DecreeDomainProfile requires a DomainSettingsPort "
-                f"(register via register_all_profiles); missing param: {key}"
-            )
-        return self._settings.get(key, domain_key=self.key)
 
     def config_defaults(self) -> list[ConfigDefault]:
         return [
@@ -73,14 +72,7 @@ class DecreeDomainProfile:
                 0.0,
                 20.0,
             ),
-            ConfigDefault(
-                "effective_date_auto_trust_threshold",
-                "0.85",
-                "float",
-                "Min confidence to auto-trust extracted effective date",
-                0.0,
-                1.0,
-            ),
+            EFFECTIVE_DATE_TRUST_THRESHOLD_DEFAULT,
         ]
 
     def structural_fingerprint(self, text: str) -> bool:
@@ -116,31 +108,14 @@ class DecreeDomainProfile:
         return refs
 
     def extract_effective_date(self, text: str) -> EffectiveDateCandidate | None:
-        for pattern, confidence in _EFFECTIVE_PATTERNS:
-            m = pattern.search(text)
-            if m:
-                dt = parse_date_guess(m.group(1))
-                if dt is not None:
-                    return EffectiveDateCandidate(effective_from=dt, confidence=confidence)
-
-        m = _DECREE_DATE_RE.search(text[:1500])
-        if m:
-            dt = parse_date_guess(m.group(1))
-            if dt is not None:
-                return EffectiveDateCandidate(signing_date=dt, confidence=0.3)
-        return None
+        return extract_effective_date_generic(
+            text,
+            _EFFECTIVE_PATTERNS,
+            _DECREE_DATE_RE,
+        )
 
     def prompt_addendum(self, breadth: str, as_of_date: date | None = None) -> str | None:
-        rules = (
-            "13. Каждый указ идентифицируй по номеру и дате.\n"
-            "14. Ссылайся на конкретный пункт постановляющей части, не пересказывай указ целиком.\n"
-        )
-        if as_of_date is not None:
-            rules += (
-                f"15. Ответ дан по состоянию на {as_of_date.strftime('%d.%m.%Y')}. "
-                "Если подходят разные редакции — укажи, какая редакция использована.\n"
-            )
-        return rules
+        return _DECREE_PROMPT_RULES + versioned_prompt_date_stamp(as_of_date)
 
     def retrieval_fallback_to_full_corpus(self) -> bool:
         return True

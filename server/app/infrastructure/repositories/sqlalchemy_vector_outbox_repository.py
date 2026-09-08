@@ -125,11 +125,11 @@ class SQLAlchemyVectorOutboxRepository:
             attempts=orm.attempts,
             max_attempts=orm.max_attempts,
         )
-        is_dead_letter = entity.mark_failed(error[:2000])
+        entity.mark_failed(error[:2000])
         orm.attempts = entity.attempts
         orm.last_error = entity.last_error
         orm.status = entity.status.value
-        if not is_dead_letter:
+        if not entity.is_dead_letter:
             orm.next_attempt_at = datetime.now(tz=UTC) + timedelta(seconds=backoff_seconds)
         await self._db.flush()
 

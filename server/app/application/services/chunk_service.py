@@ -77,7 +77,7 @@ class ChunkService:
                 if user_kind == UserKind.INTERNAL
                 else [],
             )
-            await check_document_access(uow, doc, ctx)
+            check_document_access(doc, ctx)
 
             chunks, total = await uow.chunks.list_for_document(
                 document_id,

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from domain.value_objects.page_content_type import PreviewUnitKind
+from domain.value_objects.preview_unit_kind import PreviewUnitKind
 
 from application.services.pdf_diagnostic_service import DryRunPageResult, PDFDiagnosticService
 

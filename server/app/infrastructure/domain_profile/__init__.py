@@ -14,11 +14,29 @@ if TYPE_CHECKING:
 
 
 def register_all_profiles(registry: DomainProfileRegistry, settings: DomainSettingsPort) -> None:
-    """Register all known domain profiles into the registry."""
+    """Register all known domain profiles into the registry.
+
+    Validates that DomainSettingsPort is functional before registering
+    settings-backed profiles so configuration errors are caught at startup,
+    not on the first document processing request.
+    """
+    import logging
+
     from domain.domain_profile.profiles.decree import DecreeDomainProfile
     from domain.domain_profile.profiles.general import GeneralDomainProfile
     from domain.domain_profile.profiles.legal import LegalDomainProfile
 
+    log = logging.getLogger("default")
+
     registry.register(GeneralDomainProfile())
-    registry.register(LegalDomainProfile(settings=settings))
-    registry.register(DecreeDomainProfile(settings=settings))
+
+    for cls in (LegalDomainProfile, DecreeDomainProfile):
+        profile = cls(settings=settings)
+        try:
+            profile._get("max_unit_chars")
+        except Exception:
+            log.warning(
+                "DomainSettingsPort validation failed for %s -- " "config parameters may not be seeded yet",
+                cls.__name__,
+            )
+        registry.register(profile)

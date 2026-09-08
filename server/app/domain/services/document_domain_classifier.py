@@ -1,13 +1,15 @@
-"""Document domain classifier — heuristic-based auto-detection of legal vs general documents.
+"""Document domain classifier -- heuristic-based auto-detection of legal vs general documents.
 
-Pure function with no infrastructure dependencies. Classifies by density of
-legal markers (article/chapter references, law citations, contract language)
-in the full document text.
+.. deprecated::
+    This legacy classifier is superseded by DomainProfileRegistry.classify().
+    It is kept as a fallback for environments where the registry is not initialized.
+    Will be removed in a future release.
 """
 
 from __future__ import annotations
 
 import re
+import warnings
 
 from domain.value_objects.doc_domain import DocDomain
 
@@ -28,9 +30,13 @@ _MARKERS = [
 def classify_document_domain(text: str, threshold: float = 1.0) -> str:
     """Classify document domain by density of legal markers per 1000 chars.
 
-    Returns DocDomain.LEGAL if marker density >= threshold, else DocDomain.GENERAL.
-    Safe default is "general" — worst case a legal document doesn't get a boost.
+    .. deprecated:: Use ``DomainProfileRegistry.classify()`` instead.
     """
+    warnings.warn(
+        "classify_document_domain() is deprecated; use DomainProfileRegistry.classify()",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     hits = sum(len(re.findall(p, text)) for p in _MARKERS)
     text_len_kb = max(len(text) / 1000, 1)
     density = hits / text_len_kb

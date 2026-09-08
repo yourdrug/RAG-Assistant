@@ -57,5 +57,5 @@ def parse_date_guess(text: str) -> date | None:
         from dateutil import parser as dtparser  # type: ignore[import-untyped]
 
         return dtparser.parse(text, dayfirst=True).date()
-    except Exception:
+    except (ValueError, OverflowError, TypeError):
         return None

@@ -7,6 +7,7 @@ import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from application.dto.pdf_dto import DryRunPageResult, DryRunResult  # noqa: F401 -- re-export
 from application.ports.pdf_diagnostics import (
     PDFDocumentPort,
     PDFOcrPort,
@@ -15,7 +16,7 @@ from application.ports.pdf_diagnostics import (
     PDFTextCleanerPort,
 )
 from application.services.preview_cache import PreviewCache
-from domain.value_objects.page_content_type import PageContentType, PreviewUnitKind
+from domain.value_objects.page_content_type import PageContentType
 
 logger = logging.getLogger("default")
 
@@ -35,34 +36,6 @@ class DocumentDiagnoseResult:
     total_pages: int
     pages: list[PageDiagnostic] = field(default_factory=list)
     summary: dict[str, int] = field(default_factory=dict)
-
-
-@dataclass(frozen=True)
-class DryRunPageResult:
-    page: int
-    type: str
-    content_type: str = PageContentType.TEXT
-    chars: int = 0
-    preview: str = ""
-    full_text: str = ""
-    problem_spans: list[tuple[int, int]] = field(default_factory=list)
-    previous_type: str | None = None
-    unit_kind: str = PreviewUnitKind.PAGE
-    label: str = ""
-
-
-@dataclass(frozen=True)
-class DryRunResult:
-    filename: str
-    total_pages: int = 0
-    pages: list[DryRunPageResult] = field(default_factory=list)
-    total_chars: int = 0
-    quality_score: float = 0.0
-    warning: str | None = None
-    full_text_preview: str = ""
-    summary: dict[str, int] = field(default_factory=dict)
-    suggestion: str | None = None
-    preview_id: str | None = None
 
 
 class PDFDiagnosticService:

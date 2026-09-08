@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 from application.dto.versioning_dto import VersioningResult
 from config import settings
 from domain.entities.document import Document as DocEntity
+from domain.entities.raw_document import RawDocument
 from domain.entities.vector_outbox_entry import OutboxOperation, VectorOutboxEntry
 from domain.repositories.vector_store_repository import VectorStoreRepository
 from domain.services.document_domain_classifier import classify_document_domain
@@ -192,6 +193,7 @@ class IngestionService:
             return domain
         if self._domain_registry is not None and self._domain_settings is not None:
             return self._domain_registry.classify(text, settings=self._domain_settings).domain_key
+        log.warning("DomainRegistry unavailable -- falling back to legacy classifier")
         return classify_document_domain(text, threshold=settings.document_domain_marker_threshold)
 
     def _classify_source_domains(self, full_text_by_source: dict[str, str], domain: str) -> dict[str, str]:
@@ -476,9 +478,9 @@ class IngestionService:
 
         from application.services.document_pipeline import enrich_chunks_metadata, process_chunks
 
-        from domain.entities.raw_chunk import RawChunk
-
-        raw_chunks = [RawChunk(page_content=c.page_content, metadata=dict(c.metadata)) for c in file_chunks]
+        raw_chunks = [
+            RawDocument(page_content=c.page_content, metadata=dict(c.metadata)) for c in file_chunks
+        ]
 
         assert self._uow_factory is not None
         async with self._uow_factory.create(master=True) as uow:

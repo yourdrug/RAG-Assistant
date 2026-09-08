@@ -15,6 +15,9 @@ from domain.value_objects.roles import UserKind, UserRole
 from domain.value_objects.user_context import UserContext
 from domain.value_objects.visibility import DocumentVisibility
 
+if False:  # TYPE_CHECKING
+    from domain.entities.document import Document
+
 # Business rules: which visibility values each user kind can use
 ALLOWED_VISIBILITY_FOR_KIND: dict[UserKind, set[DocumentVisibility]] = {
     UserKind.INTERNAL: {
@@ -145,7 +148,7 @@ def compute_owner_and_group(
     return user_id, None
 
 
-def can_view_document(doc, ctx: UserContext) -> bool:
+def can_view_document(doc: Document, ctx: UserContext) -> bool:
     """Determine if the user can view the document.
 
     Uses ``get_visibility_conditions(for_list=True)`` -- the same canonical
@@ -160,18 +163,10 @@ def can_view_document(doc, ctx: UserContext) -> bool:
         for_list=True,
         user_role=UserRole(ctx.user_role),
     )
-    for cond in conditions:
-        if cond.visibility.value != doc.visibility:
-            continue
-        if cond.owner_match == OwnerMatch.SELF and doc.owner_id != ctx.user_id:
-            continue
-        if cond.group_match and (doc.group_id is None or doc.group_id not in ctx.group_ids):
-            continue
-        return True
-    return False
+    return _matches_any_condition(doc, ctx, conditions)
 
 
-def is_in_search_scope(doc, ctx: UserContext) -> bool:
+def is_in_search_scope(doc: Document, ctx: UserContext) -> bool:
     """Check if a document participates in the user's RAG search.
 
     Uses ``get_visibility_conditions(for_list=False)`` -- the same filter
@@ -186,6 +181,11 @@ def is_in_search_scope(doc, ctx: UserContext) -> bool:
         for_list=False,
         user_role=UserRole(ctx.user_role),
     )
+    return _matches_any_condition(doc, ctx, conditions)
+
+
+def _matches_any_condition(doc: Document, ctx: UserContext, conditions: list[VisibilityCondition]) -> bool:
+    """Check if a document matches any of the given visibility conditions."""
     for cond in conditions:
         if cond.visibility.value != doc.visibility:
             continue
@@ -197,13 +197,13 @@ def is_in_search_scope(doc, ctx: UserContext) -> bool:
     return False
 
 
-async def check_document_access(uow, doc, ctx: UserContext) -> None:
+def check_document_access(doc: Document, ctx: UserContext) -> None:
     """Raise BusinessRuleViolation if user cannot view the document."""
     if not can_view_document(doc, ctx):
         raise BusinessRuleViolation("No access to this document")
 
 
-def check_ownership(doc, ctx: UserContext, action: str = "modify") -> None:
+def check_ownership(doc: Document, ctx: UserContext, action: str = "modify") -> None:
     """Raise BusinessRuleViolation if user cannot modify/delete the document."""
     if not doc.can_be_deleted_by(ctx.user_id, UserRole(ctx.user_role), ctx.group_ids):
         raise BusinessRuleViolation(f"Can only {action} your own documents")

@@ -1,4 +1,9 @@
-"""Chunk repository interface -- exact substring search (pg_trgm) for document chunks."""
+"""Chunk repository interface -- CRUD, search, and versioning protocols for document chunks.
+
+The combined ``ChunkRepository`` inherits from three narrow protocols so that
+the UnitOfWork can expose a single attribute while individual services declare
+only the subset they actually depend on.
+"""
 
 from __future__ import annotations
 
@@ -39,8 +44,8 @@ class ChunkStats:
 
 
 @runtime_checkable
-class ChunkRepository(Protocol):
-    """Interface for chunk storage used by pg_trgm substring search."""
+class ChunkCrudRepository(Protocol):
+    """CRUD operations for document chunks."""
 
     async def bulk_insert(
         self,
@@ -57,17 +62,11 @@ class ChunkRepository(Protocol):
         effective_from: datetime | None = None,
         effective_to: datetime | None = None,
         is_current: bool = True,
-    ) -> list[int]:
-        """Insert chunks for a document. Replaces existing chunks. Returns chunk IDs."""
-        ...
+    ) -> list[int]: ...
 
-    async def get_by_id(self, chunk_id: int) -> ChunkSearchResult | None:
-        """Get a single chunk by its ID."""
-        ...
+    async def get_by_id(self, chunk_id: int) -> ChunkSearchResult | None: ...
 
-    async def get_max_chunk_index(self, document_id: int) -> int:
-        """Get the maximum chunk_index for a document. Returns -1 if no chunks exist."""
-        ...
+    async def get_max_chunk_index(self, document_id: int) -> int: ...
 
     async def update_content(
         self,
@@ -75,9 +74,7 @@ class ChunkRepository(Protocol):
         content: str,
         edited_at: datetime,
         edited_by: int,
-    ) -> None:
-        """Update chunk content and mark as edited."""
-        ...
+    ) -> None: ...
 
     async def insert_one(
         self,
@@ -91,13 +88,37 @@ class ChunkRepository(Protocol):
         group_id: int | None = None,
         manual: bool = False,
         content_hash: str | None = None,
-    ) -> int:
-        """Insert a single chunk. Returns the generated chunk_id."""
-        ...
+    ) -> int: ...
 
-    async def delete_one(self, chunk_id: int) -> None:
-        """Delete a single chunk by ID."""
-        ...
+    async def delete_one(self, chunk_id: int) -> None: ...
+
+    async def delete_by_document_id(self, document_id: int) -> None: ...
+
+    async def list_for_document(
+        self,
+        document_id: int,
+        limit: int = 50,
+        offset: int = 0,
+        content_hashes: list[str] | None = None,
+    ) -> tuple[list[ChunkSearchResult], int]: ...
+
+    async def find_duplicate_by_hash(
+        self,
+        document_id: int,
+        content_hash: str,
+        exclude_chunk_id: int | None = None,
+    ) -> ChunkSearchResult | None: ...
+
+    async def get_document_stats(self, document_id: int) -> ChunkStats: ...
+
+    async def get_all_contents(self) -> list[str]: ...
+
+    async def update_filename_by_document_id(self, document_id: int, new_filename: str) -> int: ...
+
+
+@runtime_checkable
+class ChunkSearchRepository(Protocol):
+    """Substring search over document chunks."""
 
     async def search_substring(
         self,
@@ -107,51 +128,30 @@ class ChunkRepository(Protocol):
         limit: int = 20,
         mode: str = SearchMode.EXACT.value,
         document_id: int | None = None,
-    ) -> list[ChunkSearchResult]:
-        """Search chunks by substring. mode='exact'=pg_trgm ranked, 'icontains'=plain ILIKE."""
-        ...
+    ) -> list[ChunkSearchResult]: ...
 
-    async def delete_by_document_id(self, document_id: int) -> None:
-        """Delete all chunks for a document."""
-        ...
 
-    async def list_for_document(
-        self,
-        document_id: int,
-        limit: int = 50,
-        offset: int = 0,
-        content_hashes: list[str] | None = None,
-    ) -> tuple[list[ChunkSearchResult], int]:
-        """List chunks for a document with pagination. Returns (chunks, total_count)."""
-        ...
+@runtime_checkable
+class ChunkVersioningRepository(Protocol):
+    """Temporal versioning operations for act-versioned chunks."""
 
-    async def find_duplicate_by_hash(
-        self, document_id: int, content_hash: str, exclude_chunk_id: int | None = None
-    ) -> ChunkSearchResult | None:
-        """Find a chunk in the same document whose content matches the given hash."""
-        ...
-
-    async def get_document_stats(self, document_id: int) -> ChunkStats:
-        """Return aggregate chunk count and total character length for a document."""
-        ...
-
-    async def get_all_contents(self) -> list[str]:
-        """Return all chunk contents ordered by document_id, chunk_index (for BM25 rebuild)."""
-        ...
-
-    async def update_filename_by_document_id(self, document_id: int, new_filename: str) -> int:
-        """Update filename for all chunks of a document. Returns count of updated rows."""
-        ...
-
-    async def set_current_by_act_version_ids(self, act_version_ids: list[int], is_current: bool) -> int:
-        """Bulk-update the denormalized is_current flag for chunks of act versions."""
-        ...
+    async def set_current_by_act_version_ids(self, act_version_ids: list[int], is_current: bool) -> int: ...
 
     async def update_temporal_by_act_version_id(
         self,
         act_version_id: int,
         effective_from: date | None,
         effective_to: date | None,
-    ) -> int:
-        """Update effective_from/to for all chunks linked to an act version."""
-        ...
+    ) -> int: ...
+
+
+@runtime_checkable
+class ChunkRepository(ChunkCrudRepository, ChunkSearchRepository, ChunkVersioningRepository, Protocol):
+    """Combined protocol -- the UnitOfWork attribute type.
+
+    Services should prefer the narrow protocols (``ChunkCrudRepository``,
+    ``ChunkSearchRepository``, ``ChunkVersioningRepository``) for their
+    constructor type hints.
+    """
+
+    ...

@@ -154,6 +154,7 @@ class DocumentProcessor:
         never swallowed — they surface in documents.warning_message.
         """
         if self._domain_registry is None or self._domain_settings is None:
+            log.warning("DomainRegistry unavailable -- falling back to legacy classifier")
             return (
                 classify_document_domain(full_text, threshold=self._domain_marker_threshold),
                 None,
@@ -277,7 +278,7 @@ class DocumentProcessor:
 
             # --- Async resolve: if conflict was pending and domain is now known ---
             if replace_id is not None:
-                from domain.services.document_versioning import resolve_conflict
+                from application.services.document_conflict_resolver import resolve_conflict
 
                 new_doc = await self._get_document(document_id)
                 old_doc = await self._get_document(replace_id) if replace_id else None

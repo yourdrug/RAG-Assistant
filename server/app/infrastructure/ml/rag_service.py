@@ -91,25 +91,40 @@ def _is_not_found_answer(answer: str) -> bool:
 
 def _build_rag_settings() -> RagSettings:
     """Build RagSettings from the global config (infrastructure concern)."""
+    from domain.value_objects.rag_settings import (
+        FeatureToggles,
+        HybridSearchConfig,
+        RerankConfig,
+        RetrieverConfig,
+    )
+
     return RagSettings(
-        retriever_fetch_k=settings.retriever_fetch_k,
-        retriever_top_k=settings.retriever_top_k,
-        retriever_fetch_k_broad=settings.retriever_fetch_k_broad,
-        retriever_top_k_broad=settings.retriever_top_k_broad,
-        hybrid_enabled=settings.hybrid_enabled,
-        bm25_fetch_k=settings.bm25_fetch_k,
-        rrf_k=settings.rrf_k,
-        dense_weight=settings.dense_weight,
-        sparse_weight=settings.sparse_weight,
-        rerank_min_score=settings.rerank_min_score,
-        rerank_score_gap_ratio=settings.rerank_score_gap_ratio,
+        retriever=RetrieverConfig(
+            fetch_k=settings.retriever_fetch_k,
+            top_k=settings.retriever_top_k,
+            fetch_k_broad=settings.retriever_fetch_k_broad,
+            top_k_broad=settings.retriever_top_k_broad,
+        ),
+        hybrid_search=HybridSearchConfig(
+            enabled=settings.hybrid_enabled,
+            bm25_fetch_k=settings.bm25_fetch_k,
+            rrf_k=settings.rrf_k,
+            dense_weight=settings.dense_weight,
+            sparse_weight=settings.sparse_weight,
+        ),
+        rerank=RerankConfig(
+            min_score=settings.rerank_min_score,
+            score_gap_ratio=settings.rerank_score_gap_ratio,
+        ),
+        features=FeatureToggles(
+            citation_filter_enabled=settings.citation_filter_enabled,
+            relevance_gate_enabled=settings.relevance_gate_enabled,
+            condense_enabled=settings.condense_enabled,
+            decomposition_enabled=settings.decomposition_enabled,
+            rolling_summary_enabled=settings.rolling_summary_enabled,
+            cache_enabled=settings.cache_enabled,
+        ),
         source_min_score=settings.source_min_score,
-        citation_filter_enabled=settings.citation_filter_enabled,
-        relevance_gate_enabled=settings.relevance_gate_enabled,
-        condense_enabled=settings.condense_enabled,
-        decomposition_enabled=settings.decomposition_enabled,
-        rolling_summary_enabled=settings.rolling_summary_enabled,
-        cache_enabled=settings.cache_enabled,
     )
 
 
@@ -195,7 +210,7 @@ async def _run_hybrid_search(
     """Run hybrid dense+BM25 search and return deduplicated candidates."""
     bm25_index = ml_clients.bm25_index()
 
-    if rag.hybrid_enabled and bm25_index is not None:
+    if rag.hybrid_search.enabled and bm25_index is not None:
         t0 = time.monotonic()
         dense_coro = _qdrant_dense_search(query, fetch_k, access_filter, ml_clients)
         sparse_coro = asyncio.to_thread(bm25_index.search_with_hashes, query, fetch_k)
@@ -205,13 +220,13 @@ async def _run_hybrid_search(
         RAG_STAGE_DURATION.labels("sparse_search").observe(elapsed)
         dense_by_hash = {h: (score, doc) for h, score, doc in dense_results}
 
-        effective_dense = dense_weight if dense_weight is not None else rag.dense_weight
-        effective_sparse = sparse_weight if sparse_weight is not None else rag.sparse_weight
+        effective_dense = dense_weight if dense_weight is not None else rag.hybrid_search.dense_weight
+        effective_sparse = sparse_weight if sparse_weight is not None else rag.hybrid_search.sparse_weight
 
         merged_hashes = rrf_merge(
             [(h, s) for h, s, _ in dense_results],
             sparse_results,
-            k=rag.rrf_k,
+            k=rag.hybrid_search.rrf_k,
             dense_weight=effective_dense,
             sparse_weight=effective_sparse,
         )
@@ -383,7 +398,7 @@ class RagService:
         rag: RagSettings,
     ) -> bool:
         """Check relevance gate. Returns True if relevant, False if rejected."""
-        if not rag.relevance_gate_enabled:
+        if not rag.features.relevance_gate_enabled:
             return True
         t0 = time.monotonic()
         async with self._ml.llm_semaphore:
@@ -408,15 +423,15 @@ class RagService:
             return docs
         log.info("Legal query got no docs after rerank — fallback on entire corpus with rerank")
         fallback_candidates = await _run_hybrid_search(
-            query_for_search, rag.retriever_fetch_k, access_filter, rag, ml_clients=self._ml
+            query_for_search, rag.retriever.fetch_k, access_filter, rag, ml_clients=self._ml
         )
         return await rerank_documents(
             query_for_search,
             fallback_candidates,
             top_n=top_k,
             reranker=self._ml.reranker(),
-            min_score=rag.rerank_min_score,
-            score_gap_ratio=rag.rerank_score_gap_ratio,
+            min_score=rag.rerank.min_score,
+            score_gap_ratio=rag.rerank.score_gap_ratio,
         )
 
     async def _store_answer_cache(
@@ -443,7 +458,7 @@ class RagService:
         )
 
     async def _maybe_decompose(self, rag: RagSettings, query_for_search: str) -> None:
-        if rag.decomposition_enabled:
+        if rag.features.decomposition_enabled:
             use_llm = settings.llm_provider == LLMProvider.OPENROUTER or True
             if use_llm:
                 t0 = time.monotonic()
@@ -541,15 +556,15 @@ class RagService:
         self, rag: RagSettings, query_for_search: str
     ) -> tuple[float, float, bool]:
         use_exact_ref_boost = has_exact_reference(query_for_search)
-        effective_dense_weight = rag.dense_weight
-        effective_sparse_weight = rag.sparse_weight
+        effective_dense_weight = rag.hybrid_search.dense_weight
+        effective_sparse_weight = rag.hybrid_search.sparse_weight
         if use_exact_ref_boost:
-            effective_sparse_weight = rag.sparse_weight * settings.exact_ref_sparse_boost
+            effective_sparse_weight = rag.hybrid_search.sparse_weight * settings.exact_ref_sparse_boost
         return effective_dense_weight, effective_sparse_weight, use_exact_ref_boost
 
     def _resolve_fetch_top_k(self, rag: RagSettings, breadth: Breadth) -> tuple[int, int]:
-        fetch_k = rag.retriever_fetch_k_broad if breadth == Breadth.BROAD else rag.retriever_fetch_k
-        top_k = rag.retriever_top_k_broad if breadth == Breadth.BROAD else rag.retriever_top_k
+        fetch_k = rag.retriever.fetch_k_broad if breadth == Breadth.BROAD else rag.retriever.fetch_k
+        top_k = rag.retriever.top_k_broad if breadth == Breadth.BROAD else rag.retriever.top_k
         return fetch_k, top_k
 
     async def _check_cache(
@@ -559,7 +574,7 @@ class RagService:
         vis_hash: str,
         t_pipeline_start: float,
     ) -> dict | None:
-        if not rag.cache_enabled:
+        if not rag.features.cache_enabled:
             return None
         t0 = time.monotonic()
         cached = await find_cached_answer(q_hash, vis_hash)
@@ -571,7 +586,7 @@ class RagService:
 
     def _apply_citation_filter(self, rag: RagSettings, full_answer: str, sources: list[dict]) -> list[dict]:
         """Filter sources to only those cited in the LLM answer."""
-        if not rag.citation_filter_enabled:
+        if not rag.features.citation_filter_enabled:
             return sources
         return filter_cited_sources(full_answer, sources)
 
@@ -641,7 +656,7 @@ class RagService:
         history_messages = history_to_messages(history_dicts)
 
         t0 = time.monotonic()
-        if rag.condense_enabled:
+        if rag.features.condense_enabled:
             async with self._ml.llm_semaphore:
                 query_for_search = await condense_question(self._ml.llm(), question, history_messages)
         else:
@@ -712,8 +727,8 @@ class RagService:
             candidates,
             top_n=top_k,
             reranker=self._ml.reranker(),
-            min_score=rag.rerank_min_score,
-            score_gap_ratio=rag.rerank_score_gap_ratio,
+            min_score=rag.rerank.min_score,
+            score_gap_ratio=rag.rerank.score_gap_ratio,
         )
         RAG_STAGE_DURATION.labels("rerank").observe(time.monotonic() - t0)
 
@@ -780,8 +795,8 @@ class RagService:
                         candidates,
                         top_n=top_k,
                         reranker=self._ml.reranker(),
-                        min_score=rag.rerank_min_score,
-                        score_gap_ratio=rag.rerank_score_gap_ratio,
+                        min_score=rag.rerank.min_score,
+                        score_gap_ratio=rag.rerank.score_gap_ratio,
                     )
                     docs = await self._post_rerank_adjustments(
                         docs,
@@ -893,7 +908,7 @@ class RagService:
         confidence = min(1.0, max(0.0, avg_sim))
 
         # --- Store in cache ---
-        if rag.cache_enabled:
+        if rag.features.cache_enabled:
             await self._store_answer_cache(
                 docs,
                 query_for_search,

@@ -40,7 +40,7 @@ class TestUserRole:
         assert UserRole.validate("user") == UserRole.USER
 
     def test_validate_invalid_role_raises_validation_error(self):
-        with pytest.raises(ValidationError, match="role must be 'admin' or 'user'"):
+        with pytest.raises(ValidationError, match="role must be one of"):
             UserRole.validate("moderator")
 
     def test_validate_empty_string_raises(self):
@@ -79,7 +79,7 @@ class TestUserKind:
         assert UserKind.validate("client") == UserKind.CLIENT
 
     def test_validate_invalid_kind_raises_validation_error(self):
-        with pytest.raises(ValidationError, match="kind must be 'internal' or 'client'"):
+        with pytest.raises(ValidationError, match="kind must be one of"):
             UserKind.validate("partner")
 
     def test_validate_empty_string_raises(self):

@@ -13,9 +13,3 @@ class PageContentType(StrEnum):
     TABLE = "table"
     OCR = "ocr"
     IMAGE_ONLY = "image_only"
-
-
-class PreviewUnitKind(StrEnum):
-    PAGE = "page"
-    SECTION = "section"
-    DOCUMENT = "document"

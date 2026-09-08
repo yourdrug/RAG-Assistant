@@ -82,10 +82,10 @@ def test_process_chunks_persists_versioning_columns(fake_uow_factory):
     import asyncio
 
     from application.services.document_pipeline import process_chunks
-    from domain.entities.raw_chunk import RawChunk
+    from domain.entities.raw_document import RawDocument
 
     chunks = [
-        RawChunk(
+        RawDocument(
             page_content="1. Пункт первый.",
             metadata={
                 "domain_metadata": {"decree_number": "5"},

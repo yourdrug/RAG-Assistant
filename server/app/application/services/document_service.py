@@ -28,7 +28,7 @@ from domain.services import (
     is_in_search_scope,
     validate_document_visibility,
 )
-from domain.services.document_utils import generate_storage_key, resolve_unique_filename
+from application.services.document_utils import generate_storage_key, resolve_unique_filename
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.document_status import DocumentStatus
 from domain.value_objects.roles import UserKind, UserRole
@@ -133,7 +133,7 @@ class DocumentService:
         if not existing or existing.status not in (DocumentStatus.DONE, DocumentStatus.FAILED):
             return filename
         if rename_on_conflict or versioned_domain:
-            return await resolve_unique_filename(uow, owner_id, group_id, filename)
+            return await resolve_unique_filename(uow.documents, owner_id, group_id, filename)
         return filename
 
     async def _replace_existing_document(
@@ -229,7 +229,9 @@ class DocumentService:
 
             # Always rename on physical conflict (independent of domain knowledge)
             if existing and existing.status in (DocumentStatus.DONE, DocumentStatus.FAILED):
-                filename = await resolve_unique_filename(uow, owner_id, effective_group_id, filename)
+                filename = await resolve_unique_filename(
+                    uow.documents, owner_id, effective_group_id, filename
+                )
 
             doc = Document(
                 filename=filename,
@@ -258,7 +260,7 @@ class DocumentService:
 
             # Sync resolve — if domain is already known
             if doc_domain is not None and existing and pending_replace_id is not None:
-                from domain.services.document_versioning import resolve_conflict
+                from application.services.document_conflict_resolver import resolve_conflict
 
                 profile = self._get_domain_profile(doc_domain)
                 await resolve_conflict(
@@ -344,7 +346,7 @@ class DocumentService:
                 raise EntityNotFound("Document", document_id)
 
             ctx = await self._build_user_context(uow, user_id, user_kind, user_role)
-            await check_document_access(uow, doc, ctx)
+            check_document_access(doc, ctx)
 
             dto = DocumentDTO.from_entity(doc)
             return await self._enrich_with_outbox_status(uow, dto)
@@ -414,7 +416,7 @@ class DocumentService:
                     raise BusinessRuleViolation("This document name is already being processed")
                 if existing.status in (DocumentStatus.DONE, DocumentStatus.FAILED):
                     new_filename = await resolve_unique_filename(
-                        uow, owner_id, effective_group_id, new_filename
+                        uow.documents, owner_id, effective_group_id, new_filename
                     )
 
             new_source_path = generate_storage_key(owner_id, effective_group_id, document_id, new_filename)

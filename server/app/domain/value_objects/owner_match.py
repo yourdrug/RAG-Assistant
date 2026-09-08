@@ -7,4 +7,3 @@ from enum import StrEnum
 
 class OwnerMatch(StrEnum):
     SELF = "self"
-    ASSIGNED = "assigned"

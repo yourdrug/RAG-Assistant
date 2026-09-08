@@ -6,7 +6,8 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from domain.value_objects.page_content_type import PageContentType, PreviewUnitKind
+from domain.value_objects.page_content_type import PageContentType
+from domain.value_objects.preview_unit_kind import PreviewUnitKind
 
 from application.services.pdf_diagnostic_service import DryRunPageResult
 from infrastructure.ml.pdf_diag import is_garbled

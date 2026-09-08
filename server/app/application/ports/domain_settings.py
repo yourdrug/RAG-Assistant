@@ -1,14 +1,13 @@
-"""DomainSettingsPort — per-domain config access protocol.
+"""DomainSettingsPort -- re-export from domain layer.
 
-Domain-specific config parameters (max_unit_chars, classification_threshold, etc.)
-are read through this port, never from global settings or hardcoded values.
+The canonical definition lives in ``domain.domain_profile.settings_port``.
+This module re-exports it for backward compatibility so that existing
+imports (``from application.ports.domain_settings import DomainSettingsPort``)
+continue to work.
 """
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from domain.domain_profile.settings_port import DomainSettingsPort
 
-
-@runtime_checkable
-class DomainSettingsPort(Protocol):
-    def get(self, key: str, domain_key: str) -> str: ...
+__all__ = ["DomainSettingsPort"]

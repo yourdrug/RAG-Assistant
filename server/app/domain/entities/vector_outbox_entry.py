@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 
+from domain.value_objects.lifecycle_status import LifecycleStatusMixin
+
 
 class OutboxOperation(StrEnum):
     UPSERT_CHUNKS = "upsert_chunks"
@@ -20,7 +22,12 @@ class OutboxOperation(StrEnum):
     SET_DOCUMENT_ID = "set_document_id"
 
 
-class OutboxStatus(StrEnum):
+class OutboxStatus(
+    LifecycleStatusMixin,
+    StrEnum,
+    terminal=frozenset({"done", "dead_letter"}),
+    active=frozenset({"pending", "in_progress"}),
+):
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     DONE = "done"
@@ -49,15 +56,16 @@ class VectorOutboxEntry:
         """Transition to DONE status."""
         self.status = OutboxStatus.DONE
 
-    def mark_failed(self, error: str) -> bool:
-        """Transition to FAILED or DEAD_LETTER status.
-
-        Returns True if promoted to DEAD_LETTER (max attempts exceeded).
-        """
+    def mark_failed(self, error: str) -> None:
+        """Record a failure attempt.  Check ``is_dead_letter`` after calling."""
         self.attempts += 1
         self.last_error = error
         if self.attempts >= self.max_attempts:
             self.status = OutboxStatus.DEAD_LETTER
-            return True
-        self.status = OutboxStatus.FAILED
-        return False
+        else:
+            self.status = OutboxStatus.FAILED
+
+    @property
+    def is_dead_letter(self) -> bool:
+        """True if max attempts exceeded -- entry needs manual intervention."""
+        return self.status == OutboxStatus.DEAD_LETTER
