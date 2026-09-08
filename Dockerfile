@@ -273,8 +273,8 @@ RUN                                                                             
     # Create group named "raguser" with GID 1001
     addgroup --system --gid 1001 raguser &&                                         \
     # Create user named "raguser" with UID 1001, member of "raguser" group
-    # --home-dir sets HOME so that ~ resolves correctly (default is /nonexistent)
-    adduser --system --uid 1001 --ingroup raguser --home-dir /home/raguser raguser && \
+    # --home sets HOME so that ~ resolves correctly (default is /nonexistent)
+    adduser --system --uid 1001 --ingroup raguser --home /home/raguser raguser && \
     mkdir -p /home/raguser && chown raguser:raguser /home/raguser
 
 ENV HOME=/home/raguser
@@ -345,8 +345,8 @@ RUN                                                                             
     # Create group named "raguser" with GID 1001
     addgroup --system --gid 1001 raguser &&                                         \
     # Create user named "raguser" with UID 1001, member of "raguser" group
-    # --home-dir sets HOME so that ~ resolves correctly (default is /nonexistent)
-    adduser --system --uid 1001 --ingroup raguser --home-dir /home/raguser raguser && \
+    # --home sets HOME so that ~ resolves correctly (default is /nonexistent)
+    adduser --system --uid 1001 --ingroup raguser --home /home/raguser raguser && \
     mkdir -p /home/raguser && chown raguser:raguser /home/raguser
 
 ENV HOME=/home/raguser
