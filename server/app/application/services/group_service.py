@@ -15,14 +15,7 @@ class GroupService:
 
     async def list_for_user(self, user_id: int, user_role: str, user_kind: str):
         async with self._uow_factory.create() as uow:
-            ctx = UserContext(
-                user_id=user_id,
-                user_kind=user_kind,
-                user_role=user_role,
-                group_ids=await uow.groups.get_user_group_ids(user_id)
-                if user_kind == UserKind.INTERNAL
-                else [],
-            )
+            ctx = await UserContext.build(uow, user_id, user_kind, user_role)
             if ctx.is_admin:
                 return await uow.groups.list_all()
             elif ctx.is_client:

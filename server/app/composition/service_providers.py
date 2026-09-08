@@ -61,6 +61,7 @@ def create_document_processor(
     from application.services.act_versioning_service import ActVersioningService
     from application.services.document_processor import DocumentProcessor
     from config import settings
+    from infrastructure.ml.text_quality_adapter import TextQualityAssessorAdapter
 
     uow = _require(
         uow_factory if uow_factory is not None else infra.uow_factory,
@@ -82,6 +83,7 @@ def create_document_processor(
         document_splitter=_require(infra.document_splitter, "document_splitter"),
         content_extractor=_require(infra.content_extractor, "content_extractor"),
         pdf_quality_assessor=_require(infra.pdf_quality_assessor, "pdf_quality_assessor"),
+        text_quality_assessor=TextQualityAssessorAdapter(),
         metrics=_require(infra.metrics_collector, "metrics_collector"),
         domain_marker_threshold=settings.document_domain_marker_threshold,
         ml_registry=infra.ml_clients,

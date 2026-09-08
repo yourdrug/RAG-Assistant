@@ -19,7 +19,12 @@ from application.ports.unit_of_work_factory import UnitOfWorkFactory
 from application.services.document_pipeline import build_outbox_metadata
 from domain.entities.document import Document
 from domain.entities.vector_outbox_entry import OutboxOperation, VectorOutboxEntry
-from domain.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
+from domain.exceptions import (
+    BusinessRuleViolation,
+    EntityNotFound,
+    UniqueConstraintViolation,
+    ValidationError,
+)
 from domain.repositories.vector_store_repository import VectorStoreRepository
 from domain.services import (
     check_document_access,
@@ -28,6 +33,7 @@ from domain.services import (
     is_in_search_scope,
     validate_document_visibility,
 )
+from application.services.document_conflict_resolver import resolve_conflict
 from application.services.document_utils import generate_storage_key, resolve_unique_filename
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.document_status import DocumentStatus
@@ -63,10 +69,6 @@ class DocumentService:
             return self._domain_registry.get(doc_domain)
         except KeyError:
             return None
-
-    async def _build_user_context(self, uow, user_id: int, user_kind: str, user_role: str) -> UserContext:
-        group_ids = await uow.groups.get_user_group_ids(user_id) if user_kind == UserKind.INTERNAL else []
-        return UserContext(user_id=user_id, user_kind=user_kind, user_role=user_role, group_ids=group_ids)
 
     async def _remove_document_from_bm25(self, uow, document_id: int) -> None:
         """Remove all chunks of a document from the in-memory BM25 index."""
@@ -136,31 +138,6 @@ class DocumentService:
             return await resolve_unique_filename(uow.documents, owner_id, group_id, filename)
         return filename
 
-    async def _replace_existing_document(
-        self,
-        uow,
-        existing,
-        storage_deletes: list[str] | None = None,
-    ) -> int:
-        """Delete the existing document's data in preparation for replace.
-
-        BM25 cleanup → outbox enqueue → S3 deferral → DB delete.
-        Returns the replaced document id.
-        """
-        await self._remove_document_from_bm25(uow, existing.id)
-        await uow.vector_outbox.enqueue(
-            VectorOutboxEntry(
-                operation=OutboxOperation.DELETE_BY_DOCUMENT,
-                aggregate_type="document",
-                aggregate_id=existing.id,
-                payload={"document_id": existing.id},
-            )
-        )
-        if existing.source_path and storage_deletes is not None:
-            storage_deletes.append(existing.source_path)
-        await uow.documents.delete(existing.id)
-        return existing.id
-
     async def upload(  # noqa: C901
         self,
         filename: str,
@@ -183,7 +160,7 @@ class DocumentService:
 
         storage_deletes: list[str] = []
         async with self._uow_factory.create(master=True) as uow:
-            ctx = await self._build_user_context(uow, user_id, user_kind, user_role)
+            ctx = await UserContext.build(uow, user_id, user_kind, user_role)
             validate_document_visibility(vis, group_id, ctx)
 
             if vis == DocumentVisibility.INTERNAL_GROUP:
@@ -244,12 +221,10 @@ class DocumentService:
 
             try:
                 saved_doc = await uow.documents.save(doc)
-            except Exception as exc:
-                if "unique" in str(exc).lower() or "integrity" in str(exc).lower():
-                    raise BusinessRuleViolation(
-                        "This document is already being uploaded by a concurrent request"
-                    ) from exc
-                raise
+            except UniqueConstraintViolation as exc:
+                raise BusinessRuleViolation(
+                    "This document is already being uploaded by a concurrent request"
+                ) from exc
 
             if saved_doc.id is None:
                 raise RuntimeError("Document save returned None id")
@@ -260,16 +235,16 @@ class DocumentService:
 
             # Sync resolve — if domain is already known
             if doc_domain is not None and existing and pending_replace_id is not None:
-                from application.services.document_conflict_resolver import resolve_conflict
-
                 profile = self._get_domain_profile(doc_domain)
-                await resolve_conflict(
+                old_source_path = await resolve_conflict(
                     self._uow_factory,
                     doc,
                     existing,
                     profile,
                     act_versioning_service=self._act_versioning_service,
                 )
+                if old_source_path:
+                    storage_deletes.append(old_source_path)
                 pending_replace_id = None  # resolved, no need for async
 
             final_doc = await uow.documents.get_by_id(saved_doc.id)
@@ -310,7 +285,7 @@ class DocumentService:
         offset: int = 0,
     ) -> list[DocumentDTO]:
         async with self._uow_factory.create() as uow:
-            ctx = await self._build_user_context(uow, user_id, user_kind, user_role)
+            ctx = await UserContext.build(uow, user_id, user_kind, user_role)
             if ctx.is_admin:
                 docs = await uow.documents.list_all(limit=limit, offset=offset)
                 dtos = [DocumentDTO.from_entity(d, in_search_scope=is_in_search_scope(d, ctx)) for d in docs]
@@ -345,7 +320,7 @@ class DocumentService:
             if doc is None:
                 raise EntityNotFound("Document", document_id)
 
-            ctx = await self._build_user_context(uow, user_id, user_kind, user_role)
+            ctx = await UserContext.build(uow, user_id, user_kind, user_role)
             check_document_access(doc, ctx)
 
             dto = DocumentDTO.from_entity(doc)
@@ -357,7 +332,7 @@ class DocumentService:
             if doc is None:
                 raise EntityNotFound("Document", document_id)
 
-            ctx = await self._build_user_context(uow, user_id, UserKind.INTERNAL, user_role)
+            ctx = await UserContext.build(uow, user_id, UserKind.INTERNAL, user_role)
             check_ownership(doc, ctx, "delete")
 
             # Enqueue vector store deletion via outbox (atomic with Postgres)
@@ -400,7 +375,7 @@ class DocumentService:
             if doc is None:
                 raise EntityNotFound("Document", document_id)
 
-            ctx = await self._build_user_context(uow, user_id, UserKind.INTERNAL, user_role)
+            ctx = await UserContext.build(uow, user_id, UserKind.INTERNAL, user_role)
             check_ownership(doc, ctx, "rename")
 
             owner_id, effective_group_id = doc.owner_id, doc.group_id

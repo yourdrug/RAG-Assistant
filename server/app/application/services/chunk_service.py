@@ -21,7 +21,7 @@ from domain.services import (
 from domain.utils import content_hash
 from domain.value_objects.document_status import DocumentStatus
 from domain.value_objects.source_type import SourceType
-from domain.value_objects.roles import UserKind, UserRole
+from domain.value_objects.roles import UserRole
 from domain.value_objects.user_context import UserContext
 from domain.value_objects.visibility import DocumentVisibility
 
@@ -69,14 +69,7 @@ class ChunkService:
             if doc is None:
                 raise EntityNotFound("Document", document_id)
 
-            ctx = UserContext(
-                user_id=user_id,
-                user_kind=user_kind,
-                user_role=user_role,
-                group_ids=await uow.groups.get_user_group_ids(user_id)
-                if user_kind == UserKind.INTERNAL
-                else [],
-            )
+            ctx = await UserContext.build(uow, user_id, user_kind, user_role)
             check_document_access(doc, ctx)
 
             chunks, total = await uow.chunks.list_for_document(
@@ -364,14 +357,7 @@ class ChunkService:
         vis = DocumentVisibility.validate(visibility)
 
         async with self._uow_factory.create(master=True) as uow:
-            ctx = UserContext(
-                user_id=user_id,
-                user_kind=user_kind,
-                user_role=user_role,
-                group_ids=await uow.groups.get_user_group_ids(user_id)
-                if user_kind == UserKind.INTERNAL
-                else [],
-            )
+            ctx = await UserContext.build(uow, user_id, user_kind, user_role)
             validate_document_visibility(vis, group_id, ctx)
 
             owner_id, effective_group_id = compute_owner_and_group(vis, group_id, user_id)

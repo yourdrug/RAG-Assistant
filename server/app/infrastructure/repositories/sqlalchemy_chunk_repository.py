@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 from datetime import date, datetime
@@ -12,7 +13,7 @@ from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.owner_match import OwnerMatch
 from domain.value_objects.roles import UserKind, UserRole
 from domain.value_objects.search_mode import SearchMode
-from sqlalchemy import and_, delete, func, or_, select, text
+from sqlalchemy import and_, delete, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.database.models import ChunkModel
@@ -264,11 +265,7 @@ class SQLAlchemyChunkRepository:
 
     async def update_filename_by_document_id(self, document_id: int, new_filename: str) -> int:
         """Update filename for all chunks belonging to a document. Returns count of updated rows."""
-        from sqlalchemy import update as sa_update
-
-        stmt = (
-            sa_update(ChunkModel).where(ChunkModel.document_id == document_id).values(filename=new_filename)
-        )
+        stmt = update(ChunkModel).where(ChunkModel.document_id == document_id).values(filename=new_filename)
         result = await self._session.execute(stmt)
         await self._session.flush()
         return result.rowcount
@@ -306,8 +303,6 @@ class SQLAlchemyChunkRepository:
         result = await self._session.execute(stmt)
         existing_chunks = result.scalars().all()
 
-        import hashlib
-
         for chunk in existing_chunks:
             chunk_hash = hashlib.sha256(chunk.content.encode("utf-8")).hexdigest()[:16]
             if chunk_hash == content_hash:
@@ -332,7 +327,6 @@ class SQLAlchemyChunkRepository:
         """Bulk-update the denormalized is_current flag for chunks of act versions."""
         if not act_version_ids:
             return 0
-        from sqlalchemy import update
 
         result = await self._session.execute(
             update(ChunkModel)
@@ -349,8 +343,6 @@ class SQLAlchemyChunkRepository:
         effective_to: date | None,
     ) -> int:
         """Update effective_from/to for all chunks linked to an act version."""
-        from sqlalchemy import update
-
         result = await self._session.execute(
             update(ChunkModel)
             .where(ChunkModel.act_version_id == act_version_id)

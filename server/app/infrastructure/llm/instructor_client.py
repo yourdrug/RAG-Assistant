@@ -11,6 +11,9 @@ import logging
 import instructor
 from openai import OpenAI
 
+from config import settings
+from domain.value_objects.llm_provider import LLMProvider
+
 log = logging.getLogger("default")
 
 
@@ -31,9 +34,6 @@ def create_llm_instructor_client(model: str | None = None):
     Returns (client, model_name). If *model* is given it is used as-is;
     otherwise the default model for the current provider is selected.
     """
-    from config import settings
-    from domain.value_objects.llm_provider import LLMProvider
-
     if settings.llm_provider == LLMProvider.OPENROUTER:
         client = create_instructor_client(
             base_url=settings.openrouter_base_url,

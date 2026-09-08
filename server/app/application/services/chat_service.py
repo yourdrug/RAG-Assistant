@@ -25,7 +25,6 @@ from domain.entities.message import Message
 from domain.utils import compute_reranker_score
 from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.message_role import MessageRole
-from domain.value_objects.roles import UserKind
 from domain.value_objects.user_context import UserContext
 from domain.value_objects.stream_events import (
     MetaEvent,
@@ -68,12 +67,6 @@ class ChatService:
     # Helpers
     # ------------------------------------------------------------------
 
-    async def _build_user_context(
-        self, uow, user_id: int, user_kind: str, user_role: str = "user"
-    ) -> UserContext:
-        group_ids = await uow.groups.get_user_group_ids(user_id) if user_kind == UserKind.INTERNAL else []
-        return UserContext(user_id=user_id, user_kind=user_kind, user_role=user_role, group_ids=group_ids)
-
     async def _prepare_chat(
         self,
         question: str,
@@ -84,7 +77,7 @@ class ChatService:
         as_of_date: date | None,
     ) -> ChatSetup:
         async with self._uow_factory.create(master=True) as uow:
-            user_ctx = await self._build_user_context(uow, user_id, user_kind)
+            user_ctx = await UserContext.build(uow, user_id, user_kind)
             conv = await uow.conversations.get_or_create(conversation_id, user_id)
             assert conv.id is not None
             history = await uow.messages.get_history(conv.id, window=self._settings.history_window)

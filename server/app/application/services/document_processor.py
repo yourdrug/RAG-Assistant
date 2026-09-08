@@ -19,9 +19,11 @@ from application.ports.document_processing import (
     MetricsCollectorPort,
     PDFQualityAssessorPort,
     PDFQualityReport,
+    TextQualityAssessorPort,
 )
 from application.ports.file_storage import FileStorage
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
+from application.services.document_conflict_resolver import resolve_conflict
 from application.services.document_pipeline import enrich_chunks_metadata, process_chunks
 from domain.entities.vector_outbox_entry import OutboxOperation, VectorOutboxEntry
 from domain.repositories.vector_store_repository import VectorStoreRepository
@@ -47,6 +49,7 @@ class DocumentProcessor:
         document_splitter: DocumentSplitter,
         content_extractor: ContentExtractorPort,
         pdf_quality_assessor: PDFQualityAssessorPort,
+        text_quality_assessor: TextQualityAssessorPort,
         metrics: MetricsCollectorPort,
         domain_marker_threshold: float = 1.0,
         ml_registry: MLClientRegistry | None = None,
@@ -61,6 +64,7 @@ class DocumentProcessor:
         self._splitter = document_splitter
         self._extractor = content_extractor
         self._pdf_assessor = pdf_quality_assessor
+        self._text_quality_assessor = text_quality_assessor
         self._metrics = metrics
         self._domain_marker_threshold = domain_marker_threshold
         self._ml_registry = ml_registry
@@ -100,10 +104,8 @@ class DocumentProcessor:
             return quality, warning_message
 
         # Generic quality check for other formats (DOCX, RTF, TXT, MD)
-        from infrastructure.ml.pdf_diag import is_garbled
-
         total_chars = sum(len(d.page_content) for d in docs)
-        garbled_pages = sum(1 for d in docs if is_garbled(d.page_content))
+        garbled_pages = sum(1 for d in docs if self._text_quality_assessor.is_garbled(d.page_content))
         empty_pages = sum(1 for d in docs if not d.page_content.strip())
         total_pages = len(docs)
 
@@ -278,19 +280,19 @@ class DocumentProcessor:
 
             # --- Async resolve: if conflict was pending and domain is now known ---
             if replace_id is not None:
-                from application.services.document_conflict_resolver import resolve_conflict
-
                 new_doc = await self._get_document(document_id)
                 old_doc = await self._get_document(replace_id) if replace_id else None
                 if new_doc and old_doc:
                     profile = self._domain_registry.get(doc_domain) if self._domain_registry else None
-                    await resolve_conflict(
+                    old_source_path = await resolve_conflict(
                         self._uow_factory,
                         new_doc,
                         old_doc,
                         profile,
                         act_versioning_service=self._act_versioning_service,
                     )
+                    if old_source_path:
+                        storage_deletes.append(old_source_path)
 
             self._attach_metadata_to_docs(docs, original_filename, self._extractor)
 

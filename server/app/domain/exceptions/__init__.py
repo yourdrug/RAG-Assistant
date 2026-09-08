@@ -9,6 +9,7 @@ from domain.exceptions.domain_errors import (
     EntityNotFound,
     PermissionDeniedError,
     ServerException,
+    UniqueConstraintViolation,
     ValidationError,
 )
 
@@ -20,6 +21,7 @@ __all__ = [
     "EntityNotFound",
     "BusinessRuleViolation",
     "DatabaseError",
+    "UniqueConstraintViolation",
     "AuthenticationError",
     "PermissionDeniedError",
 ]

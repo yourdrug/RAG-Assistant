@@ -354,9 +354,6 @@ async def _seed_domain_config_defaults(uow_factory, registry) -> None:
     them up on first boot (the bulk _load_config_from_db pass ran before seeding),
     and NOTIFYed via upsert so ALREADY-RUNNING processes resync immediately.
     """
-    from domain.events.config_events import ConfigParameterChanged
-    from infrastructure.events.in_process_event_bus import event_bus
-
     try:
         async with uow_factory.create(master=True) as uow:
             existing = await uow.config_parameters.get_all()

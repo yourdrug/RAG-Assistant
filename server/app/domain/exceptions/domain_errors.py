@@ -52,6 +52,13 @@ class DatabaseError(ServerException):
         )
 
 
+class UniqueConstraintViolation(DatabaseError):
+    """A unique/integrity constraint was violated in the database."""
+
+    def __init__(self, detail: str | None = None) -> None:
+        super().__init__(detail=detail)
+
+
 # ── Client ────────────────────────────────────────────────────────────────────
 
 

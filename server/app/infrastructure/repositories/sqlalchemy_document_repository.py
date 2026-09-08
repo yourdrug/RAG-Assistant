@@ -5,12 +5,14 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from domain.entities.document import Document
+from domain.exceptions import UniqueConstraintViolation
 from domain.services import get_visibility_conditions
 from domain.value_objects.document_status import DocumentStatus
 from domain.value_objects.owner_match import OwnerMatch
 from domain.value_objects.roles import UserKind, UserRole
 from domain.value_objects.visibility import DocumentVisibility
-from sqlalchemy import and_, distinct, or_, select
+from sqlalchemy import and_, distinct, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.database.models import DocumentModel
@@ -37,7 +39,10 @@ class SQLAlchemyDocumentRepository:
             chars=document.chars,
         )
         self._db.add(orm)
-        await self._db.flush()
+        try:
+            await self._db.flush()
+        except IntegrityError as exc:
+            raise UniqueConstraintViolation(detail=str(exc)) from exc
         await self._db.refresh(orm)
         document.id = orm.id
         return document
@@ -129,7 +134,6 @@ class SQLAlchemyDocumentRepository:
         """Batch prefetch: one query for multiple filenames (owner=None, group=None)."""
         if not filenames:
             return []
-        from sqlalchemy import func
 
         subq = (
             select(
@@ -199,6 +203,22 @@ class SQLAlchemyDocumentRepository:
     async def list_all(self, limit: int = 200, offset: int = 0) -> list[Document]:
         result = await self._db.execute(
             select(DocumentModel).order_by(DocumentModel.creation_date.desc()).offset(offset).limit(limit)
+        )
+        return [self._to_entity(orm) for orm in result.scalars().all()]
+
+    async def list_warned(self, quality_threshold: float = 0.3) -> list[Document]:
+        result = await self._db.execute(
+            select(DocumentModel)
+            .where(
+                or_(
+                    DocumentModel.warning_message.isnot(None),
+                    and_(
+                        DocumentModel.quality_score.isnot(None),
+                        DocumentModel.quality_score > quality_threshold,
+                    ),
+                )
+            )
+            .order_by(DocumentModel.quality_score.desc())
         )
         return [self._to_entity(orm) for orm in result.scalars().all()]
 

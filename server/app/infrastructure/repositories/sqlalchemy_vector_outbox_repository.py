@@ -76,8 +76,6 @@ class SQLAlchemyVectorOutboxRepository:
         Resets to 'pending' so they'll be retried on the next dispatch cycle.
         Returns the number of entries recovered.
         """
-        from datetime import timedelta
-
         cutoff = datetime.now(tz=UTC) - timedelta(minutes=stuck_timeout_minutes)
         result = await self._db.execute(
             select(VectorStoreOutboxModel).where(

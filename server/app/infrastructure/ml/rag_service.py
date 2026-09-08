@@ -22,7 +22,13 @@ from domain.utils import compute_reranker_score
 from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.llm_provider import BREADTH_ALIASES, Breadth, LLMProvider
-from domain.value_objects.rag_settings import RagSettings
+from domain.value_objects.rag_settings import (
+    FeatureToggles,
+    HybridSearchConfig,
+    RagSettings,
+    RerankConfig,
+    RetrieverConfig,
+)
 from domain.value_objects.search_mode import SearchMode
 from domain.value_objects.stream_events import (
     SourcesEvent,
@@ -91,13 +97,6 @@ def _is_not_found_answer(answer: str) -> bool:
 
 def _build_rag_settings() -> RagSettings:
     """Build RagSettings from the global config (infrastructure concern)."""
-    from domain.value_objects.rag_settings import (
-        FeatureToggles,
-        HybridSearchConfig,
-        RerankConfig,
-        RetrieverConfig,
-    )
-
     return RagSettings(
         retriever=RetrieverConfig(
             fetch_k=settings.retriever_fetch_k,

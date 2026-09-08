@@ -41,6 +41,13 @@ class PDFQualityAssessorPort(Protocol):
 
 
 @runtime_checkable
+class TextQualityAssessorPort(Protocol):
+    """Assesses whether extracted text is garbled / low-quality."""
+
+    def is_garbled(self, text: str) -> bool: ...
+
+
+@runtime_checkable
 class MetricsCollectorPort(Protocol):
     """Collects processing metrics (Prometheus counters/histograms)."""
 

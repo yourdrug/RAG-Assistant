@@ -6,11 +6,18 @@ one register call in register_all_profiles() below.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
+
+from domain.domain_profile.profiles.decree import DecreeDomainProfile
+from domain.domain_profile.profiles.general import GeneralDomainProfile
+from domain.domain_profile.profiles.legal import LegalDomainProfile
 
 if TYPE_CHECKING:
     from application.ports.domain_settings import DomainSettingsPort
     from infrastructure.domain_profile.registry import DomainProfileRegistry
+
+log = logging.getLogger("default")
 
 
 def register_all_profiles(registry: DomainProfileRegistry, settings: DomainSettingsPort) -> None:
@@ -20,14 +27,6 @@ def register_all_profiles(registry: DomainProfileRegistry, settings: DomainSetti
     settings-backed profiles so configuration errors are caught at startup,
     not on the first document processing request.
     """
-    import logging
-
-    from domain.domain_profile.profiles.decree import DecreeDomainProfile
-    from domain.domain_profile.profiles.general import GeneralDomainProfile
-    from domain.domain_profile.profiles.legal import LegalDomainProfile
-
-    log = logging.getLogger("default")
-
     registry.register(GeneralDomainProfile())
 
     for cls in (LegalDomainProfile, DecreeDomainProfile):

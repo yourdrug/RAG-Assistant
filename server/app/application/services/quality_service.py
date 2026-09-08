@@ -13,14 +13,7 @@ class QualityService:
 
     async def list_warned_documents(self):
         async with self._uow_factory.create() as uow:
-            all_docs = await uow.documents.list_all()
-            warned = [
-                d
-                for d in all_docs
-                if d.warning_message or (d.quality_score is not None and d.quality_score > 0.3)
-            ]
-            warned.sort(key=lambda d: d.quality_score or 0.0, reverse=True)
-            return warned
+            return await uow.documents.list_warned(quality_threshold=0.3)
 
     async def get_document_source_path(self, document_id: int) -> str:
         async with self._uow_factory.create() as uow:
