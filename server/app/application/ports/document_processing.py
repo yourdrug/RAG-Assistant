@@ -6,24 +6,11 @@ not on concrete implementations.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-
-@dataclass(frozen=True)
-class PDFQualityReport:
-    """Result of PDF text extraction quality assessment."""
-
-    total_pages: int
-    n_ok: int
-    n_missing: int
-    n_garbled: int
-    bad_ratio: float
-
-    @property
-    def is_low_quality(self) -> bool:
-        return self.total_pages > 0 and self.bad_ratio > 0.3
+# Re-export from domain for backward compatibility.
+from domain.value_objects.pdf_quality_report import PDFQualityReport  # noqa: F401
 
 
 @runtime_checkable

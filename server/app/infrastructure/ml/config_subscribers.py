@@ -26,6 +26,8 @@ from domain.utils import parse_bool
 from infrastructure.ml.ingestion import get_paddle_ocr
 from infrastructure.storage import get_storage
 
+from domain.value_objects.dynamic_config import DYNAMIC_FIELDS_MAP
+
 log = logging.getLogger("default")
 
 SENSITIVE_KEYS: frozenset[str] = frozenset(
@@ -50,70 +52,7 @@ def _mask_value(value: str | None) -> str:
     return value[:2] + "*" * (len(value) - 4) + value[-2:]
 
 
-_DYNAMIC_FIELDS: dict[str, tuple[str, type]] = {
-    # --- RAG ---
-    "retriever_fetch_k": ("retriever_fetch_k", int),
-    "retriever_top_k": ("retriever_top_k", int),
-    "retriever_fetch_k_broad": ("retriever_fetch_k_broad", int),
-    "retriever_top_k_broad": ("retriever_top_k_broad", int),
-    "history_window": ("history_window", int),
-    "chunk_size": ("chunk_size", int),
-    "chunk_overlap": ("chunk_overlap", int),
-    "legal_chunk_size": ("legal_chunk_size", int),
-    "legal_chunk_overlap": ("legal_chunk_overlap", int),
-    "source_min_score": ("source_min_score", float),
-    # --- Hybrid search ---
-    "hybrid_enabled": ("hybrid_enabled", bool),
-    "bm25_fetch_k": ("bm25_fetch_k", int),
-    "rrf_k": ("rrf_k", int),
-    "dense_weight": ("dense_weight", float),
-    "sparse_weight": ("sparse_weight", float),
-    # --- Reranker / query-time filters ---
-    "rerank_min_score": ("rerank_min_score", float),
-    "rerank_score_gap_ratio": ("rerank_score_gap_ratio", float),
-    "citation_filter_enabled": ("citation_filter_enabled", bool),
-    "exact_ref_sparse_boost": ("exact_ref_sparse_boost", float),
-    # --- Ingestion ---
-    "embed_batch_size": ("embed_batch_size", int),
-    # --- Relevance gate ---
-    "relevance_gate_enabled": ("relevance_gate_enabled", bool),
-    # --- Condense (rewrite follow-up questions) ---
-    "condense_enabled": ("condense_enabled", bool),
-    # --- Decomposition ---
-    "decomposition_enabled": ("decomposition_enabled", bool),
-    # --- Rolling summary ---
-    "rolling_summary_enabled": ("rolling_summary_enabled", bool),
-    # --- Cache ---
-    "cache_enabled": ("cache_enabled", bool),
-    # --- PII guardrail ---
-    "pii_redaction_enabled": ("pii_redaction_enabled", bool),
-    # --- LLM ---
-    "llm_provider": ("llm_provider", str),
-    "llm_model": ("llm_model", str),
-    "llm_temperature": ("llm_temperature", float),
-    "llm_top_p": ("llm_top_p", float),
-    "llm_num_ctx_narrow": ("llm_num_ctx_narrow", int),
-    "llm_num_ctx_broad": ("llm_num_ctx_broad", int),
-    "llm_num_predict_narrow": ("llm_num_predict_narrow", int),
-    "llm_num_predict_broad": ("llm_num_predict_broad", int),
-    # --- OpenRouter ---
-    "openrouter_model": ("openrouter_model", str),
-    # --- ML Provider ---
-    "ml_provider": ("ml_provider", str),
-    "deepinfra_embed_model": ("deepinfra_embed_model", str),
-    "deepinfra_rerank_model": ("deepinfra_rerank_model", str),
-    # --- OCR ---
-    "ocr_enabled": ("ocr_enabled", bool),
-    "ocr_engine": ("ocr_engine", str),
-    "ocr_dpi": ("ocr_dpi", int),
-    "ocr_min_chars": ("ocr_min_chars", int),
-    "ocr_lang_surya": ("ocr_lang_surya", list),
-    "ocr_lang_paddle": ("ocr_lang_paddle", str),
-    # --- Storage (s3_endpoint..region are dynamic via cache invalidation) ---
-    "s3_endpoint": ("s3_endpoint", str),
-    "s3_bucket": ("s3_bucket", str),
-    "s3_region": ("s3_region", str),
-}
+_DYNAMIC_FIELDS: dict[str, tuple[str, type]] = DYNAMIC_FIELDS_MAP
 
 
 def _coerce_and_set(attr: str, expected_type: type | None, new_value: str) -> None:

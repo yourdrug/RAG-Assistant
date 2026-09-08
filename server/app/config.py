@@ -225,6 +225,8 @@ class Settings(BaseSettings):
 
     # ── Background jobs ─────────────────────────────────────────────────────
     job_cleanup_days: int = 30
+    stuck_job_timeout_minutes: int = 30
+    stale_pending_timeout_minutes: int = 30
 
     # ── Cost rate limiting ──────────────────────────────────────────────────
     cost_rate_limit_enabled: bool = False

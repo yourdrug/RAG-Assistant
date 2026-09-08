@@ -19,7 +19,6 @@ log = logging.getLogger("default")
 
 _BASE_BACKOFF_SEC = 5
 _MAX_BACKOFF_SEC = 900  # 15 minutes
-_STUCK_TIMEOUT_MINUTES = 30
 
 
 class OutboxDispatcher:
@@ -61,7 +60,9 @@ class OutboxDispatcher:
         """
         try:
             async with self._uow_factory.create(master=True) as uow:
-                result = await uow.vector_outbox.recover_stuck(stuck_timeout_minutes=_STUCK_TIMEOUT_MINUTES)
+                result = await uow.vector_outbox.recover_stuck(
+                    stuck_timeout_minutes=settings.stuck_job_timeout_minutes
+                )
                 if result:
                     log.warning("Recovered %d stuck in_progress entries (dispatcher crash)", result)
                 return result

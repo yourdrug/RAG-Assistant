@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from application.ports.document_processing import PDFQualityReport
+from domain.value_objects.pdf_quality_report import PDFQualityReport
 from infrastructure.ml.ingestion import extract_article_number, extract_date_from_filename
 from infrastructure.ml.pdf_diag import assess_pdf_extraction_quality
 

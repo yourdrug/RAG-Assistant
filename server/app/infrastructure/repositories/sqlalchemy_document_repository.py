@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+from config import settings
 from domain.entities.document import Document
 from domain.exceptions import UniqueConstraintViolation
 from domain.services import get_visibility_conditions
@@ -291,7 +292,7 @@ class SQLAlchemyDocumentRepository:
 
     async def mark_stuck_processing_failed(self) -> list[int]:
         """Mark documents stuck in PROCESSING for too long as FAILED."""
-        cutoff = datetime.now(tz=UTC) - timedelta(minutes=30)
+        cutoff = datetime.now(tz=UTC) - timedelta(minutes=settings.stuck_job_timeout_minutes)
         result = await self._db.execute(
             select(DocumentModel).where(
                 DocumentModel.status == DocumentStatus.PROCESSING.value,

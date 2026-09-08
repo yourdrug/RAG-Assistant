@@ -598,15 +598,15 @@ class TestPromptMetricsSync:
         import re
 
         from domain.services.rag_policy import SYSTEM_PROMPT
-        from infrastructure.metrics.metrics import _NOT_FOUND_PATTERNS
+        from domain.value_objects.not_found_patterns import NOT_FOUND_PATTERNS
 
         match = re.search(r'ответь ТОЛЬКО: "(.+?)" и ничего больше\.', SYSTEM_PROMPT)
         assert match, "SYSTEM_PROMPT rule 2 must contain the quoted not-found phrase"
         phrase = match.group(1)
         lower_phrase = phrase.lower()
-        covered = any(p in lower_phrase for p in _NOT_FOUND_PATTERNS)
+        covered = any(p in lower_phrase for p in NOT_FOUND_PATTERNS)
         assert covered, (
             f"The canonical not-found phrase '{phrase}' from SYSTEM_PROMPT "
-            f"is not matched by any substring in _NOT_FOUND_PATTERNS: {_NOT_FOUND_PATTERNS}. "
-            "Add a matching substring to _NOT_FOUND_PATTERNS in infrastructure/ml/metrics.py."
+            f"is not matched by any substring in NOT_FOUND_PATTERNS: {NOT_FOUND_PATTERNS}. "
+            "Add a matching substring to NOT_FOUND_PATTERNS in domain/value_objects/not_found_patterns.py."
         )

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import re
 from datetime import date, datetime
@@ -295,19 +294,17 @@ class SQLAlchemyChunkRepository:
     async def find_duplicate_by_hash(
         self, document_id: int, content_hash: str, exclude_chunk_id: int | None = None
     ) -> ChunkSearchResult | None:
-        conditions = [ChunkModel.document_id == document_id]
+        conditions = [
+            ChunkModel.document_id == document_id,
+            ChunkModel.content_hash == content_hash,
+        ]
         if exclude_chunk_id is not None:
             conditions.append(ChunkModel.id != exclude_chunk_id)
 
-        stmt = select(ChunkModel).where(*conditions)
+        stmt = select(ChunkModel).where(*conditions).limit(1)
         result = await self._session.execute(stmt)
-        existing_chunks = result.scalars().all()
-
-        for chunk in existing_chunks:
-            chunk_hash = hashlib.sha256(chunk.content.encode("utf-8")).hexdigest()[:16]
-            if chunk_hash == content_hash:
-                return self._to_chunk_search_result(chunk)
-        return None
+        chunk = result.scalar_one_or_none()
+        return self._to_chunk_search_result(chunk) if chunk else None
 
     async def get_document_stats(self, document_id: int) -> ChunkStats:
         stmt = select(

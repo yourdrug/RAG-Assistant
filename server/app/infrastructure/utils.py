@@ -9,19 +9,24 @@ Usage::
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import Any
+import threading
+from typing import Any, TypeVar
+
+T = TypeVar("T")
 
 
-def Singleton(aClass: Any) -> Callable:
-    """Turn a class into a singleton."""
+def Singleton(aClass: type[T]) -> T:
+    """Turn a class into a singleton (thread-safe)."""
+    _lock = threading.Lock()
+    _instance: T | None = None
 
     class Wrapper:
-        instance: aClass = None
+        def __call__(self, *args: Any, **kwargs: Any) -> T:
+            nonlocal _instance
+            if _instance is None:
+                with _lock:
+                    if _instance is None:
+                        _instance = aClass(*args, **kwargs)
+            return _instance
 
-        def __call__(self, *args: tuple, **kwargs: dict) -> aClass:
-            if self.instance is None:
-                self.instance = aClass(*args, **kwargs)
-            return self.instance
-
-    return Wrapper()
+    return Wrapper()  # type: ignore[return-value]

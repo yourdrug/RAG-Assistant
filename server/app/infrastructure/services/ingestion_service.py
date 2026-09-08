@@ -15,16 +15,19 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from application.dto.versioning_dto import VersioningResult
+from application.services.document_pipeline import classify_domain, enrich_chunks_metadata, process_chunks
 from config import settings
 from domain.entities.document import Document as DocEntity
 from domain.entities.raw_document import RawDocument
 from domain.entities.vector_outbox_entry import OutboxOperation, VectorOutboxEntry
+from domain.repositories.ingestion_registry_repository import IngestionRegistryEntry
 from domain.repositories.vector_store_repository import VectorStoreRepository
 from domain.services.document_domain_classifier import classify_document_domain
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.visibility import DocumentVisibility
 from langchain.schema import Document
 
+from infrastructure.bm25.bm25_invalidation import publish_bm25_invalidation
 from infrastructure.bm25.hybrid import BM25Index, load_bm25_index_from_s3, save_bm25_index_to_s3
 from infrastructure.ml.ingestion import (
     PARSERS,
@@ -34,6 +37,9 @@ from infrastructure.ml.ingestion import (
     split_documents_legal,
 )
 from infrastructure.metrics.metrics import INGEST_FILES_TOTAL
+from infrastructure.repositories.sqlalchemy_ingestion_registry_repository import (
+    SQLAlchemyIngestionRegistryRepository,
+)
 from infrastructure.storage import FileItem, FileStorage
 from infrastructure.uow_factory import UnitOfWorkFactory
 
@@ -94,9 +100,6 @@ class IngestionService:
     async def _registry_get(self, filename: str):
         if self._uow_factory is None:
             return None
-        from infrastructure.repositories.sqlalchemy_ingestion_registry_repository import (
-            SQLAlchemyIngestionRegistryRepository,
-        )
 
         async with self._uow_factory.create(master=True) as uow:
             repo = SQLAlchemyIngestionRegistryRepository(uow._session)
@@ -113,11 +116,6 @@ class IngestionService:
     ):
         if self._uow_factory is None:
             return
-        from datetime import datetime as _dt
-        from domain.repositories.ingestion_registry_repository import IngestionRegistryEntry
-        from infrastructure.repositories.sqlalchemy_ingestion_registry_repository import (
-            SQLAlchemyIngestionRegistryRepository,
-        )
 
         async with self._uow_factory.create(master=True) as uow:
             repo = SQLAlchemyIngestionRegistryRepository(uow._session)
@@ -127,16 +125,13 @@ class IngestionService:
                 source=source,
                 chunks=chunks_count,
                 chars=chars,
-                indexed_at=indexed_at or _dt.now(),
+                indexed_at=indexed_at or datetime.now(),
             )
             await repo.upsert(entry)
 
     async def _registry_is_indexed(self, filename: str, file_hash_val: str) -> bool:
         if self._uow_factory is None:
             return False
-        from infrastructure.repositories.sqlalchemy_ingestion_registry_repository import (
-            SQLAlchemyIngestionRegistryRepository,
-        )
 
         async with self._uow_factory.create(master=True) as uow:
             repo = SQLAlchemyIngestionRegistryRepository(uow._session)
@@ -145,9 +140,6 @@ class IngestionService:
     async def _registry_list_all(self) -> dict:
         if self._uow_factory is None:
             return {}
-        from infrastructure.repositories.sqlalchemy_ingestion_registry_repository import (
-            SQLAlchemyIngestionRegistryRepository,
-        )
 
         async with self._uow_factory.create(master=True) as uow:
             repo = SQLAlchemyIngestionRegistryRepository(uow._session)
@@ -166,9 +158,6 @@ class IngestionService:
     async def _registry_delete(self, filename: str):
         if self._uow_factory is None:
             return
-        from infrastructure.repositories.sqlalchemy_ingestion_registry_repository import (
-            SQLAlchemyIngestionRegistryRepository,
-        )
 
         async with self._uow_factory.create(master=True) as uow:
             repo = SQLAlchemyIngestionRegistryRepository(uow._session)
@@ -191,10 +180,14 @@ class IngestionService:
         """
         if domain != "auto":
             return domain
-        if self._domain_registry is not None and self._domain_settings is not None:
-            return self._domain_registry.classify(text, settings=self._domain_settings).domain_key
-        log.warning("DomainRegistry unavailable -- falling back to legacy classifier")
-        return classify_document_domain(text, threshold=settings.document_domain_marker_threshold)
+
+        return classify_domain(
+            text,
+            domain_registry=self._domain_registry,
+            domain_settings=self._domain_settings,
+            fallback_threshold=settings.document_domain_marker_threshold,
+            legacy_classifier=classify_document_domain,
+        )
 
     def _classify_source_domains(self, full_text_by_source: dict[str, str], domain: str) -> dict[str, str]:
         source_domain: dict[str, str] = {}
@@ -351,8 +344,6 @@ class IngestionService:
 
         bm25_index = BM25Index(all_texts)
         await save_bm25_index_to_s3(bm25_index, self._file_storage)
-        from infrastructure.bm25.bm25_invalidation import publish_bm25_invalidation
-
         await publish_bm25_invalidation()
 
     async def _sync_documents_to_db(
@@ -475,8 +466,6 @@ class IngestionService:
             )
             if versioning.warning:
                 log.warning("Versioning warning for %s: %s", fname, versioning.warning)
-
-        from application.services.document_pipeline import enrich_chunks_metadata, process_chunks
 
         raw_chunks = [
             RawDocument(page_content=c.page_content, metadata=dict(c.metadata)) for c in file_chunks

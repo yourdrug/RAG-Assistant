@@ -4,10 +4,15 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
+from domain.value_objects.page_content_type import PageContentType
 from domain.value_objects.preview_unit_kind import PreviewUnitKind
 
-from application.services.pdf_diagnostic_service import DryRunPageResult, PDFDiagnosticService
+from domain.value_objects.pdf_dto import DryRunPageResult
+
+if TYPE_CHECKING:
+    from application.services.pdf_diagnostic_service import PDFDiagnosticService
 
 logger = logging.getLogger("default")
 
@@ -69,15 +74,7 @@ class PdfPreviewStrategy:
                 merged.append(u)
 
         # Recompute types_count from ALL merged units (not just OCR'd ones)
-        from domain.value_objects.page_content_type import PageContentType
-
-        types_count: dict[str, int] = {
-            PageContentType.TEXT: 0,
-            PageContentType.SCAN: 0,
-            PageContentType.GARBLED: 0,
-            PageContentType.EMPTY: 0,
-            PageContentType.TABLE: 0,
-        }
+        types_count = PageContentType.empty_counts()
         total_chars = 0
         for u in merged:
             types_count[u.type] = types_count.get(u.type, 0) + 1

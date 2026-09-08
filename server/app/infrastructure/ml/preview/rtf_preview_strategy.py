@@ -6,11 +6,11 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from domain.services.text_quality import classify_content
 from domain.value_objects.page_content_type import PageContentType
 from domain.value_objects.preview_unit_kind import PreviewUnitKind
 
-from application.services.pdf_diagnostic_service import DryRunPageResult
-from infrastructure.ml.pdf_diag import is_garbled
+from domain.value_objects.pdf_dto import DryRunPageResult
 from infrastructure.ml.ingestion import parse_rtf
 from infrastructure.ml.rtf_decree_parser import parse_decree_rtf
 
@@ -52,22 +52,9 @@ class RtfPreviewStrategy:
         if self._decree_fingerprint_hits(stripped):
             return self._analyze_decree(path, stripped)
 
-        if chars == 0:
-            ptype = PageContentType.EMPTY
-        elif is_garbled(stripped):
-            ptype = PageContentType.GARBLED
-        else:
-            ptype = PageContentType.TEXT
-
-        types_count: dict[str, int] = {
-            PageContentType.TEXT: 0,
-            PageContentType.SCAN: 0,
-            PageContentType.GARBLED: 0,
-            PageContentType.EMPTY: 0,
-            PageContentType.TABLE: 0,
-            PageContentType.IMAGE_ONLY: 0,
-        }
-        types_count[ptype] = 1
+        ptype, _desc = classify_content(stripped, chars, scan_threshold=0)
+        types_count = PageContentType.empty_counts()
+        types_count[ptype.value] = 1
 
         preview = stripped[:200] if stripped else ""
         units = [
@@ -98,14 +85,7 @@ class RtfPreviewStrategy:
             logger.exception("Decree preview failed for %s — falling back to flat preview", path.name)
             return self._analyze_flat(raw_text)
 
-        types_count: dict[str, int] = {
-            PageContentType.TEXT: 0,
-            PageContentType.SCAN: 0,
-            PageContentType.GARBLED: 0,
-            PageContentType.EMPTY: 0,
-            PageContentType.TABLE: 0,
-            PageContentType.IMAGE_ONLY: 0,
-        }
+        types_count = PageContentType.empty_counts()
         units: list[DryRunPageResult] = []
         total_chars = 0
         for i, unit in enumerate(split_units, start=1):
@@ -114,13 +94,8 @@ class RtfPreviewStrategy:
                 continue
             chars = len(content)
             total_chars += chars
-            if chars == 0:
-                ptype = PageContentType.EMPTY
-            elif is_garbled(content):
-                ptype = PageContentType.GARBLED
-            else:
-                ptype = PageContentType.TEXT
-            types_count[ptype] += 1
+            ptype, _desc = classify_content(content, chars, scan_threshold=0)
+            types_count[ptype.value] += 1
             units.append(
                 DryRunPageResult(
                     page=i,
@@ -140,14 +115,8 @@ class RtfPreviewStrategy:
     def _analyze_flat(self, raw_text: str) -> tuple[list[DryRunPageResult], dict[str, int], int]:
         stripped = raw_text.strip()
         chars = len(stripped)
-        types_count: dict[str, int] = {
-            PageContentType.TEXT: 1,
-            PageContentType.SCAN: 0,
-            PageContentType.GARBLED: 0,
-            PageContentType.EMPTY: 0,
-            PageContentType.TABLE: 0,
-            PageContentType.IMAGE_ONLY: 0,
-        }
+        types_count = PageContentType.empty_counts()
+        types_count[PageContentType.TEXT.value] = 1
         units = [
             DryRunPageResult(
                 page=1,

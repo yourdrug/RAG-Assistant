@@ -14,6 +14,7 @@ import logging
 from config import settings
 from domain.entities.config_parameter import ConfigParameter
 from domain.events.config_events import ConfigParameterChanged
+from domain.value_objects.dynamic_config import DYNAMIC_PARAMS
 from domain.value_objects.roles import UserKind, UserRole
 from infrastructure.auth.password_hasher import BCryptPasswordHasher
 from infrastructure.events.in_process_event_bus import event_bus
@@ -36,242 +37,33 @@ def _param(key, value, vtype, cat, desc, min_v=None, max_v=None, allowed=None):
 
 
 def _build_defaults() -> list[ConfigParameter]:
-    """Build all default config parameters from current env settings."""
+    """Build all default config parameters from current env settings.
+
+    Derived from ``DYNAMIC_PARAMS`` — the single source of truth for
+    hot-reloadable config parameters.
+    """
     s = settings
-    return [
-        # --- RAG ---
-        _param(
-            "retriever_fetch_k",
-            str(s.retriever_fetch_k),
-            "int",
-            "rag",
-            "Retriever fetch count (narrow)",
-            1,
-            200,
-        ),
-        _param("retriever_top_k", str(s.retriever_top_k), "int", "rag", "Retriever top-k (narrow)", 1, 50),
-        _param(
-            "retriever_fetch_k_broad",
-            str(s.retriever_fetch_k_broad),
-            "int",
-            "rag",
-            "Retriever fetch count (broad)",
-            1,
-            200,
-        ),
-        _param(
-            "retriever_top_k_broad",
-            str(s.retriever_top_k_broad),
-            "int",
-            "rag",
-            "Retriever top-k (broad)",
-            1,
-            50,
-        ),
-        _param("history_window", str(s.history_window), "int", "rag", "Chat history window", 0, 50),
-        _param("chunk_size", str(s.chunk_size), "int", "rag", "Document chunk size (chars)", 100, 5000),
-        _param("chunk_overlap", str(s.chunk_overlap), "int", "rag", "Chunk overlap (chars)", 0, 1000),
-        _param(
-            "legal_chunk_size",
-            str(s.legal_chunk_size),
-            "int",
-            "legal",
-            "Legal doc chunk size (chars)",
-            100,
-            5000,
-        ),
-        _param(
-            "legal_chunk_overlap",
-            str(s.legal_chunk_overlap),
-            "int",
-            "legal",
-            "Legal doc chunk overlap (chars)",
-            0,
-            1000,
-        ),
-        _param(
-            "source_min_score",
-            str(s.source_min_score),
-            "float",
-            "rag",
-            "Minimum source relevance score",
-            0.0,
-            1.0,
-        ),
-        # --- Hybrid search ---
-        _param(
-            "hybrid_enabled",
-            json.dumps(s.hybrid_enabled),
-            "bool",
-            "hybrid",
-            "Enable hybrid search (dense+sparse)",
-        ),
-        _param("bm25_fetch_k", str(s.bm25_fetch_k), "int", "hybrid", "BM25 fetch count", 1, 200),
-        _param("rrf_k", str(s.rrf_k), "int", "hybrid", "RRF fusion parameter", 1, 200),
-        _param("dense_weight", str(s.dense_weight), "float", "hybrid", "Dense vector weight", 0.0, 10.0),
-        _param("sparse_weight", str(s.sparse_weight), "float", "hybrid", "Sparse vector weight", 0.0, 10.0),
-        # --- Reranker ---
-        _param(
-            "rerank_min_score",
-            str(s.rerank_min_score) if s.rerank_min_score is not None else "0.15",
-            "float",
-            "reranker",
-            "Minimum reranker score threshold",
-            0.0,
-            1.0,
-        ),
-        _param(
-            "rerank_score_gap_ratio",
-            str(s.rerank_score_gap_ratio) if s.rerank_score_gap_ratio is not None else "0.1",
-            "float",
-            "reranker",
-            "Reranker score gap ratio",
-            0.0,
-            1.0,
-        ),
-        _param(
-            "citation_filter_enabled",
-            json.dumps(s.citation_filter_enabled),
-            "bool",
-            "reranker",
-            "Enable citation filter",
-        ),
-        _param(
-            "exact_ref_sparse_boost",
-            str(s.exact_ref_sparse_boost),
-            "float",
-            "reranker",
-            "Exact reference sparse boost",
-            0.0,
-            10.0,
-        ),
-        # --- Ingestion ---
-        _param(
-            "embed_batch_size", str(s.embed_batch_size), "int", "ingestion", "Embedding batch size", 1, 128
-        ),
-        # --- Feature toggles ---
-        _param(
-            "relevance_gate_enabled",
-            json.dumps(s.relevance_gate_enabled),
-            "bool",
-            "toggles",
-            "Enable relevance gate",
-        ),
-        _param(
-            "condense_enabled",
-            json.dumps(s.condense_enabled),
-            "bool",
-            "toggles",
-            "Enable follow-up question condensing",
-        ),
-        _param(
-            "decomposition_enabled",
-            json.dumps(s.decomposition_enabled),
-            "bool",
-            "toggles",
-            "Enable query decomposition",
-        ),
-        _param(
-            "rolling_summary_enabled",
-            json.dumps(s.rolling_summary_enabled),
-            "bool",
-            "toggles",
-            "Enable rolling summary",
-        ),
-        _param("cache_enabled", json.dumps(s.cache_enabled), "bool", "toggles", "Enable response cache"),
-        _param(
-            "pii_redaction_enabled",
-            json.dumps(s.pii_redaction_enabled),
-            "bool",
-            "toggles",
-            "Enable PII redaction",
-        ),
-        # --- LLM ---
-        _param(
-            "llm_provider",
-            s.llm_provider,
-            "str",
-            "llm",
-            "LLM provider",
-            allowed=["ollama", "openrouter"],
-        ),
-        _param("llm_model", s.llm_model, "str", "llm", "LLM model name"),
-        _param("llm_temperature", str(s.llm_temperature), "float", "llm", "LLM temperature", 0.0, 2.0),
-        _param("llm_top_p", str(s.llm_top_p), "float", "llm", "LLM top-p", 0.0, 1.0),
-        _param(
-            "llm_num_ctx_narrow",
-            str(s.llm_num_ctx_narrow),
-            "int",
-            "llm",
-            "LLM context window (narrow)",
-            512,
-            131072,
-        ),
-        _param(
-            "llm_num_ctx_broad",
-            str(s.llm_num_ctx_broad),
-            "int",
-            "llm",
-            "LLM context window (broad)",
-            512,
-            131072,
-        ),
-        _param(
-            "llm_num_predict_narrow",
-            str(s.llm_num_predict_narrow),
-            "int",
-            "llm",
-            "LLM max tokens predict (narrow)",
-            64,
-            16384,
-        ),
-        _param(
-            "llm_num_predict_broad",
-            str(s.llm_num_predict_broad),
-            "int",
-            "llm",
-            "LLM max tokens predict (broad)",
-            64,
-            16384,
-        ),
-        # --- OpenRouter ---
-        _param("openrouter_model", s.openrouter_model, "str", "openrouter", "OpenRouter model name"),
-        # --- ML Provider ---
-        _param(
-            "ml_provider",
-            s.ml_provider,
-            "str",
-            "ml",
-            "ML provider for embedding/reranking",
-            allowed=["tei", "deepinfra"],
-        ),
-        _param(
-            "deepinfra_embed_model",
-            s.deepinfra_embed_model,
-            "str",
-            "ml",
-            "DeepInfra embedding model",
-        ),
-        _param(
-            "deepinfra_rerank_model",
-            s.deepinfra_rerank_model,
-            "str",
-            "ml",
-            "DeepInfra reranker model",
-        ),
-        # --- OCR ---
-        _param("ocr_enabled", json.dumps(s.ocr_enabled), "bool", "ocr", "Enable OCR processing"),
-        _param("ocr_engine", s.ocr_engine, "str", "ocr", "OCR engine", allowed=["paddleocr", "surya"]),
-        _param("ocr_dpi", str(s.ocr_dpi), "int", "ocr", "OCR DPI for scanned pages", 72, 600),
-        _param(
-            "ocr_min_chars", str(s.ocr_min_chars), "int", "ocr", "Minimum chars to consider page text", 0, 500
-        ),
-        _param("ocr_lang_paddle", s.ocr_lang_paddle, "str", "ocr", "PaddleOCR language"),
-        # --- Storage ---
-        _param("s3_endpoint", s.s3_endpoint, "str", "storage", "S3 endpoint URL"),
-        _param("s3_bucket", s.s3_bucket, "str", "storage", "S3 bucket name"),
-        _param("s3_region", s.s3_region, "str", "storage", "S3 region"),
-    ]
+    result: list[ConfigParameter] = []
+    for p in DYNAMIC_PARAMS:
+        raw = getattr(s, p.key)
+        if p.type is bool:
+            value = json.dumps(raw)
+        elif p.type is list:
+            value = json.dumps(raw)
+        elif p.type is float and raw is None:
+            # rerank_min_score / rerank_score_gap_ratio can be None
+            value = str(p.min_val if p.min_val is not None else 0.0)
+        elif p.type in (int, float):
+            value = str(raw)
+        else:
+            value = raw  # str
+        result.append(
+            _param(
+                p.key, value, p.type.__name__, p.category,
+                p.description, p.min_val, p.max_val, p.allowed,
+            )
+        )
+    return result
 
 
 async def initialize_app(uow_factory) -> None:

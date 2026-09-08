@@ -6,12 +6,13 @@ import io
 import logging
 from pathlib import Path
 
+from config import settings
+from domain.services.text_quality import classify_content
 from domain.value_objects.page_content_type import PageContentType
 from domain.value_objects.preview_unit_kind import PreviewUnitKind
 
-from application.services.pdf_diagnostic_service import DryRunPageResult
-from infrastructure.ml.pdf_diag import is_garbled
-from infrastructure.ml.ingestion import parse_docx_sections
+from domain.value_objects.pdf_dto import DryRunPageResult
+from infrastructure.ml.ingestion import ocr_image_paddle, ocr_image_surya, parse_docx_sections
 
 logger = logging.getLogger("default")
 
@@ -106,14 +107,7 @@ class DocxPreviewStrategy:
         image_only_blobs = _extract_images_without_alt(path)
 
         units: list[DryRunPageResult] = []
-        types_count: dict[str, int] = {
-            PageContentType.TEXT: 0,
-            PageContentType.SCAN: 0,
-            PageContentType.GARBLED: 0,
-            PageContentType.EMPTY: 0,
-            PageContentType.TABLE: 0,
-            PageContentType.IMAGE_ONLY: 0,
-        }
+        types_count = PageContentType.empty_counts()
         total_chars = 0
 
         img_idx = 0
@@ -136,14 +130,13 @@ class DocxPreviewStrategy:
                 else:
                     ptype = PageContentType.EMPTY
                     label = heading or f"Блок {idx + 1}"
-            elif is_garbled(stripped):
-                ptype = PageContentType.GARBLED
-                label = heading or f"Блок {idx + 1}"
             else:
-                ptype = PageContentType.TEXT
-                label = f"Раздел: {heading}" if heading else f"Блок {idx + 1}"
+                ptype, _desc = classify_content(stripped, chars, scan_threshold=0)
+                label = (
+                    f"Раздел: {heading}" if heading else f"Блок {idx + 1}"
+                )
 
-            types_count[ptype] = types_count.get(ptype, 0) + 1
+            types_count[ptype.value] = types_count.get(ptype.value, 0) + 1
 
             preview = stripped[:200] if stripped else ""
             units.append(
@@ -169,7 +162,7 @@ class DocxPreviewStrategy:
                     label="Документ пуст",
                 )
             )
-            types_count[PageContentType.EMPTY] = 1
+            types_count[PageContentType.EMPTY.value] = 1
 
         return units, types_count, total_chars
 
@@ -179,8 +172,6 @@ class DocxPreviewStrategy:
         units: list[DryRunPageResult],
         unit_ids: list[int],
     ) -> tuple[list[DryRunPageResult], dict[str, int], int]:
-        from infrastructure.ml.ingestion import ocr_image_paddle, ocr_image_surya
-        from config import settings
         from PIL import Image
 
         image_only_blobs = _extract_images_without_alt(path)
@@ -188,14 +179,7 @@ class DocxPreviewStrategy:
         problem_units = [u for u in units if u.page in unit_ids and u.type == PageContentType.IMAGE_ONLY]
         if not problem_units:
             # Compute summary from existing units even when nothing to OCR
-            types_count: dict[str, int] = {
-                PageContentType.TEXT: 0,
-                PageContentType.SCAN: 0,
-                PageContentType.GARBLED: 0,
-                PageContentType.EMPTY: 0,
-                PageContentType.TABLE: 0,
-                PageContentType.IMAGE_ONLY: 0,
-            }
+            types_count = PageContentType.empty_counts()
             total_chars = 0
             for u in units:
                 types_count[u.type] = types_count.get(u.type, 0) + 1
@@ -217,14 +201,7 @@ class DocxPreviewStrategy:
                 except Exception:
                     logger.warning("OCR failed for image unit %d", u.page)
 
-        new_types: dict[str, int] = {
-            PageContentType.TEXT: 0,
-            PageContentType.SCAN: 0,
-            PageContentType.GARBLED: 0,
-            PageContentType.EMPTY: 0,
-            PageContentType.TABLE: 0,
-            PageContentType.IMAGE_ONLY: 0,
-        }
+        new_types = PageContentType.empty_counts()
         total_chars = 0
 
         merged: list[DryRunPageResult] = []

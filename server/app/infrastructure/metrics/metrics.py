@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, cast
 
 import httpx
 from config import settings
+from domain.value_objects.not_found_patterns import NOT_FOUND_PATTERNS
 from prometheus_client import Counter, Gauge, Histogram
 from sqlalchemy.pool import QueuePool
 
@@ -274,22 +275,6 @@ def extract_usage_from_langchain(response) -> tuple[int | None, int | None]:
 # Helper: record RAG pipeline answer metrics (called after generation)
 # ---------------------------------------------------------------------------
 
-# IMPORTANT: The canonical phrase "Информация не найдена в документах." from
-# domain/services/rag_policy.py SYSTEM_PROMPT rule 2 must be covered by at
-# least one of these substrings.  If you change the prompt phrase, update
-# this tuple (and the test below) to keep metrics and benchmark judge in sync.
-_NOT_FOUND_PATTERNS = (
-    "не найден",
-    "не найдена",
-    "не найдено",
-    "нет информации",
-    "не удалось найти",
-    "информация не найдена",
-    "в предоставленных документах",
-    "в документах нет",
-    "не обнаружен",
-)
-
 
 def record_rag_answer(
     breadth: str,
@@ -303,7 +288,7 @@ def record_rag_answer(
     RAG_ANSWER_LENGTH.observe(len(answer))
 
     lower = answer.lower()
-    is_not_found = any(p in lower for p in _NOT_FOUND_PATTERNS)
+    is_not_found = any(p in lower for p in NOT_FOUND_PATTERNS)
     answer_type = "not_found" if is_not_found else "found"
     RAG_QUERIES_TOTAL.labels(breadth=breadth, answer_type=answer_type).inc()
     if is_not_found:

@@ -21,6 +21,26 @@ if TYPE_CHECKING:
 log = logging.getLogger("default")
 
 
+def classify_domain(
+    text: str,
+    *,
+    domain_registry=None,
+    domain_settings=None,
+    fallback_threshold: float = 2.0,
+    legacy_classifier=None,
+) -> str:
+    """Shared domain classification with registry → legacy fallback.
+
+    Used by both IngestionService (CLI) and DocumentProcessor (API).
+    """
+    if domain_registry is not None and domain_settings is not None:
+        return domain_registry.classify(text, settings=domain_settings).domain_key
+    if legacy_classifier is not None:
+        return legacy_classifier(text, threshold=fallback_threshold)
+    log.warning("DomainRegistry unavailable -- no fallback classifier provided")
+    return "general"
+
+
 def build_outbox_metadata(
     document_id: int,
     visibility,

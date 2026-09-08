@@ -98,13 +98,7 @@ class PDFDiagnosticService:
     def analyze_text_layer(self, pdf_path: Path) -> tuple[list[DryRunPageResult], dict[str, int], int]:
         doc = self._pdf.open(str(pdf_path))
         page_results: list[DryRunPageResult] = []
-        types_count: dict[str, int] = {
-            PageContentType.TEXT: 0,
-            PageContentType.SCAN: 0,
-            PageContentType.GARBLED: 0,
-            PageContentType.EMPTY: 0,
-            PageContentType.TABLE: 0,
-        }
+        types_count = PageContentType.empty_counts()
         total_chars = 0
 
         for i in range(self._pdf.get_page_count(doc)):
@@ -155,13 +149,7 @@ class PDFDiagnosticService:
         ocr_results = self._ocr.ocr_pages(doc, problem_pages, pdf_path.name)
         self._pdf.close(doc)
 
-        new_types: dict[str, int] = {
-            PageContentType.TEXT: 0,
-            PageContentType.SCAN: 0,
-            PageContentType.GARBLED: 0,
-            PageContentType.EMPTY: 0,
-            PageContentType.TABLE: 0,
-        }
+        new_types = PageContentType.empty_counts()
         total_chars = 0
 
         for pr in page_results:

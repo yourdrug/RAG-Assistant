@@ -13,3 +13,8 @@ class PageContentType(StrEnum):
     TABLE = "table"
     OCR = "ocr"
     IMAGE_ONLY = "image_only"
+
+    @classmethod
+    def empty_counts(cls) -> dict[str, int]:
+        """Return a zero-initialized counter for all content types."""
+        return {m.value: 0 for m in cls}

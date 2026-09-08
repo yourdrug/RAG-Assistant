@@ -22,6 +22,7 @@ from domain.utils import compute_reranker_score
 from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.llm_provider import BREADTH_ALIASES, Breadth, LLMProvider
+from domain.value_objects.not_found_patterns import NOT_FOUND_PATTERNS
 from domain.value_objects.rag_settings import (
     FeatureToggles,
     HybridSearchConfig,
@@ -82,17 +83,10 @@ from infrastructure.ml.rag import (
 from infrastructure.ml.llm_schemas import DecompositionCheck, SufficiencyAssessment
 from shared import request_id_ctx
 
-_NOT_FOUND_PATTERNS = (
-    "Информация не найдена",
-    "не нашёл релевантной информации",
-    "не нашел релевантной информации",
-)
-
-
 def _is_not_found_answer(answer: str) -> bool:
     """Return True if the LLM answer indicates information was not found."""
     lower = answer.lower().strip()
-    return any(p in lower for p in _NOT_FOUND_PATTERNS)
+    return any(p in lower for p in NOT_FOUND_PATTERNS)
 
 
 def _build_rag_settings() -> RagSettings:
@@ -647,13 +641,12 @@ class RagService:
 
         user = {"id": ctx.user_id, "kind": ctx.user_kind}
         access_filter = build_qdrant_filter(user, ctx.user_group_ids)
-        # Temporal retrieval: as_of_date=None → only current versions; a set date
-        # filters by effective interval. Chunks without dates never excluded.
         retrieval_filter = with_temporal_filter(access_filter, ctx.as_of_date)
 
         history_dicts = self._prepare_history_dicts(history)
         history_messages = history_to_messages(history_dicts)
 
+        # ── Step 1: Query condensation ──────────────────────────────────
         t0 = time.monotonic()
         if rag.features.condense_enabled:
             async with self._ml.llm_semaphore:
@@ -662,7 +655,7 @@ class RagService:
             query_for_search = question
         RAG_STAGE_DURATION.labels("condense").observe(time.monotonic() - t0)
 
-        # --- Semantic answer cache ---
+        # ── Step 2: Semantic answer cache ───────────────────────────────
         vis_hash = compute_visibility_scope_hash(ctx.user_kind, ctx.user_id, ctx.user_group_ids)
         q_hash = compute_question_hash(query_for_search)
         cached = await self._check_cache(rag, q_hash, vis_hash, t_pipeline_start)
@@ -671,7 +664,7 @@ class RagService:
                 yield event
             return
 
-        # --- Out-of-domain rejection (pre-retrieval filter) ---
+        # ── Step 3: Out-of-domain rejection ─────────────────────────────
         if is_out_of_domain(query_for_search):
             log.info("Out-of-domain question rejected: %s", query_for_search[:100])
             RAG_RELEVANCE_GATE_TOTAL.labels(result="out_of_domain").inc()
@@ -686,72 +679,47 @@ class RagService:
             yield SourcesEvent(sources=[], confidence=None)
             return
 
-        # --- Query decomposition ---
+        # ── Step 4: Query decomposition + breadth resolution ────────────
         await self._maybe_decompose(rag, query_for_search)
-
         breadth = self._resolve_breadth(ctx, query_for_search)
-
         yield StatusEvent(stage="searching")
-
         fetch_k, top_k = self._resolve_fetch_top_k(rag, breadth)
 
-        # --- Dense/sparse weight boost for exact references ---
+        # ── Step 5: Weight computation + domain classification ──────────
         effective_dense_weight, effective_sparse_weight, use_exact_ref_boost = (
             self._compute_effective_weights(rag, query_for_search)
         )
-
-        # --- Query-time domain classification + soft-priority retrieval ---
         query_domain = classify_query_domain(query_for_search)
 
+        # ── Step 6: Hybrid retrieval ────────────────────────────────────
         candidates = await self._run_retrieval(
-            query_for_search,
-            fetch_k,
-            retrieval_filter,
-            rag,
-            breadth,
-            query_domain,
-            effective_dense_weight,
-            effective_sparse_weight,
+            query_for_search, fetch_k, retrieval_filter, rag,
+            breadth, query_domain, effective_dense_weight, effective_sparse_weight,
         )
 
-        # --- Exact-search integration (pg_trgm) for queries with structural references ---
+        # ── Step 7: Exact-search integration ────────────────────────────
         if use_exact_ref_boost:
             await self._apply_exact_search(query_for_search, candidates, user, ctx)
 
-        # --- Reranking ---
+        # ── Step 8: Reranking ───────────────────────────────────────────
         yield StatusEvent(stage="reranking")
         t0 = time.monotonic()
         docs = await rerank_documents(
-            query_for_search,
-            candidates,
-            top_n=top_k,
+            query_for_search, candidates, top_n=top_k,
             reranker=self._ml.reranker(),
-            min_score=rag.rerank.min_score,
-            score_gap_ratio=rag.rerank.score_gap_ratio,
+            min_score=rag.rerank.min_score, score_gap_ratio=rag.rerank.score_gap_ratio,
         )
         RAG_STAGE_DURATION.labels("rerank").observe(time.monotonic() - t0)
 
-        # --- Temporal version conflict detection (TZ section 11.3) ---
-        # Multiple versions of the SAME act valid for the same as_of_date is a
-        # data anomaly (overlapping intervals) — never pick silently: count and
-        # surface for the admin review queue. Both versions stay in context.
         if ctx.as_of_date is not None:
             self._check_temporal_version_conflicts(docs)
 
-        # --- Post-rerank fallback: if legal query got nothing useful after rerank ---
         docs = await self._post_rerank_adjustments(
-            docs,
-            query_domain,
-            query_for_search,
-            fetch_k,
-            top_k,
-            retrieval_filter,
-            rag,
+            docs, query_domain, query_for_search, fetch_k, top_k, retrieval_filter, rag,
         )
-
         avg_sim = sum(s for _, s in docs) / len(docs) if docs else 0.0
 
-        # --- Self-RAG: assess sufficiency and retry once if insufficient ---
+        # ── Step 9: Self-RAG relevance gate + retry loop ────────────────
         MAX_SELF_RAG_RETRIES = 1
         for self_rag_attempt in range(MAX_SELF_RAG_RETRIES + 1):
             is_relevant = await self._handle_relevance_gate(
@@ -760,7 +728,6 @@ class RagService:
             if is_relevant:
                 break
 
-            # On rejection: assess if we should retry with broader query
             if self_rag_attempt < MAX_SELF_RAG_RETRIES:
                 t0 = time.monotonic()
                 assessment = await self._assess_sufficiency(query_for_search, docs)
@@ -773,69 +740,44 @@ class RagService:
                 if assessment.suggested_refinement:
                     log.info(
                         "Self-RAG: retrying with refined query (attempt %d/%d): %r",
-                        self_rag_attempt + 1,
-                        MAX_SELF_RAG_RETRIES,
-                        assessment.suggested_refinement,
+                        self_rag_attempt + 1, MAX_SELF_RAG_RETRIES, assessment.suggested_refinement,
                     )
                     RAG_SELF_RAG_RETRIES.inc()
                     query_for_search = assessment.suggested_refinement
                     candidates = await self._run_retrieval(
-                        query_for_search,
-                        fetch_k,
-                        retrieval_filter,
-                        rag,
-                        breadth,
-                        query_domain,
-                        effective_dense_weight,
-                        effective_sparse_weight,
+                        query_for_search, fetch_k, retrieval_filter, rag,
+                        breadth, query_domain, effective_dense_weight, effective_sparse_weight,
                     )
                     docs = await rerank_documents(
-                        query_for_search,
-                        candidates,
-                        top_n=top_k,
+                        query_for_search, candidates, top_n=top_k,
                         reranker=self._ml.reranker(),
-                        min_score=rag.rerank.min_score,
-                        score_gap_ratio=rag.rerank.score_gap_ratio,
+                        min_score=rag.rerank.min_score, score_gap_ratio=rag.rerank.score_gap_ratio,
                     )
                     docs = await self._post_rerank_adjustments(
-                        docs,
-                        query_domain,
-                        query_for_search,
-                        fetch_k,
-                        top_k,
-                        retrieval_filter,
-                        rag,
+                        docs, query_domain, query_for_search, fetch_k, top_k, retrieval_filter, rag,
                     )
                     avg_sim = sum(s for _, s in docs) / len(docs) if docs else 0.0
                     continue
 
-            # Final rejection
             async for event in self._reject_not_relevant(breadth, docs, avg_sim, t_pipeline_start):
                 yield event
             return
 
-        # --- Prompt adaptation based on actual context composition ---
-        has_legal_context = any((doc.metadata.get("doc_domain") == DocDomain.LEGAL.value) for doc, _ in docs)
+        # ── Step 10: Prompt building + LLM generation ───────────────────
+        has_legal_context = any(
+            (doc.metadata.get("doc_domain") == DocDomain.LEGAL.value) for doc, _ in docs
+        )
         domain_addendum = self._domain_prompt_addendum(query_domain, ctx, breadth)
         prompt = build_prompt(
-            breadth,
-            has_legal_context=has_legal_context,
-            summary=ctx.summary,
-            domain_addendum=domain_addendum,
+            breadth, has_legal_context=has_legal_context,
+            summary=ctx.summary, domain_addendum=domain_addendum,
         )
 
-        # --- Dynamic context budget ---
         num_ctx = settings.llm_num_ctx_broad if breadth == Breadth.BROAD else settings.llm_num_ctx_narrow
         reserved_for_system_and_history = 2000
         max_context_tokens = max(num_ctx - reserved_for_system_and_history, 1000)
-
         context = format_docs(docs, max_context_tokens=max_context_tokens)
-
-        messages = prompt.format_messages(
-            context=context,
-            history=history_messages,
-            question=question,
-        )
+        messages = prompt.format_messages(context=context, history=history_messages, question=question)
 
         yield StatusEvent(stage="generating")
         t0 = time.monotonic()
@@ -843,7 +785,6 @@ class RagService:
         last_chunk = None
         async with self._ml.llm_semaphore:
             async for chunk in self._ml.llm_for_breadth(breadth).astream(messages):
-                # Track every chunk — the final one (empty content) carries usage_metadata
                 last_chunk = chunk
                 text = chunk.content
                 if text:
@@ -851,7 +792,7 @@ class RagService:
                     yield TextChunk(text=text)
         RAG_STAGE_DURATION.labels("generate").observe(time.monotonic() - t0)
 
-        # --- Extract token usage from last chunk ---
+        # ── Step 11: Token usage extraction ─────────────────────────────
         usage_report = None
         if last_chunk is not None:
             input_tokens, output_tokens = extract_usage_from_langchain(last_chunk)
@@ -860,36 +801,29 @@ class RagService:
             else:
                 model_name = settings.openrouter_model
             record_llm_usage(
-                model=model_name,
-                operation="generate",
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
+                model=model_name, operation="generate",
+                input_tokens=input_tokens, output_tokens=output_tokens,
             )
             usage_report = UsageReport(
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                model=model_name,
-                operation="generate",
+                input_tokens=input_tokens, output_tokens=output_tokens,
+                model=model_name, operation="generate",
             )
 
         full_answer = "".join(answer_parts)
 
-        # --- PII output guardrail ---
+        # ── Step 12: PII guardrail ──────────────────────────────────────
         if settings.pii_redaction_enabled:
             from infrastructure.ml.guardrails import get_pii_detector
-
             detector = get_pii_detector()
             pii_found = detector.scan(full_answer)
             if pii_found:
                 full_answer, _ = detector.scan_and_redact(full_answer)
                 log.warning(
                     "PII detected in LLM output [request_id=%s]: types=%s",
-                    request_id_ctx.get(""),
-                    pii_found,
+                    request_id_ctx.get(""), pii_found,
                 )
 
-        # Extract sources only if LLM found relevant information.
-        # When LLM says "not found", there's nothing to cite.
+        # ── Step 13: Source extraction + metrics ────────────────────────
         if _is_not_found_answer(full_answer):
             sources: list[dict] = []
         else:
@@ -897,25 +831,16 @@ class RagService:
             sources = self._apply_citation_filter(rag, full_answer, sources)
 
         record_rag_answer(
-            breadth=breadth.value,
-            answer=full_answer,
-            retrieved_count=len(docs),
-            avg_similarity=avg_sim,
+            breadth=breadth.value, answer=full_answer,
+            retrieved_count=len(docs), avg_similarity=avg_sim,
         )
         RAG_STAGE_DURATION.labels("total").observe(time.monotonic() - t_pipeline_start)
 
         confidence = min(1.0, max(0.0, avg_sim))
 
-        # --- Store in cache ---
+        # ── Step 14: Cache store + final yield ──────────────────────────
         if rag.features.cache_enabled:
-            await self._store_answer_cache(
-                docs,
-                query_for_search,
-                q_hash,
-                vis_hash,
-                full_answer,
-                sources,
-            )
+            await self._store_answer_cache(docs, query_for_search, q_hash, vis_hash, full_answer, sources)
 
         yield SourcesEvent(sources=sources, confidence=confidence, usage=usage_report)
 

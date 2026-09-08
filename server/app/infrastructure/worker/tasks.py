@@ -360,8 +360,12 @@ async def cron_recover_orphaned_jobs(ctx: dict[str, Any]) -> None:
     """Fail jobs whose heartbeat expired and pending jobs never picked up (every 15 min)."""
     uow_factory = ctx["container"].infrastructure.uow_factory
     async with uow_factory.create(master=True) as uow:
-        orphaned_ids = await uow.background_jobs.recover_orphaned(timeout_minutes=15)
-        stale_pending = await uow.background_jobs.fail_stale_pending(timeout_minutes=30)
+        orphaned_ids = await uow.background_jobs.recover_orphaned(
+            timeout_minutes=settings.stuck_job_timeout_minutes
+        )
+        stale_pending = await uow.background_jobs.fail_stale_pending(
+            timeout_minutes=settings.stale_pending_timeout_minutes
+        )
     if orphaned_ids:
         logger.warning("Cron: recovered %d orphaned jobs: %s", len(orphaned_ids), orphaned_ids)
     for job in stale_pending:
