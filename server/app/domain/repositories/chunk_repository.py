@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Protocol, runtime_checkable
 
+from domain.value_objects.cursor_page import CursorPage
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.search_mode import SearchMode
 
@@ -101,6 +102,15 @@ class ChunkCrudRepository(Protocol):
         offset: int = 0,
         content_hashes: list[str] | None = None,
     ) -> tuple[list[ChunkSearchResult], int]: ...
+
+    async def list_for_document_cursor(
+        self,
+        document_id: int,
+        limit: int = 50,
+        cursor: tuple[int, int] | None = None,
+        direction: str = "next",
+        content_hashes: list[str] | None = None,
+    ) -> CursorPage[ChunkSearchResult]: ...
 
     async def find_duplicate_by_hash(
         self,

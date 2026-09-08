@@ -18,7 +18,8 @@ from domain.services import (
     compute_owner_and_group,
     validate_document_visibility,
 )
-from domain.utils import content_hash
+from domain.utils import content_hash, decode_cursor
+from domain.value_objects.cursor_page import CursorPage
 from domain.value_objects.document_status import DocumentStatus
 from domain.value_objects.source_type import SourceType
 from domain.value_objects.roles import UserRole
@@ -98,6 +99,60 @@ class ChunkService:
                 )
                 for c in chunks
             ], total
+
+    async def list_chunks_cursor(
+        self,
+        document_id: int,
+        user_id: int,
+        user_kind: str,
+        user_role: str,
+        limit: int = 50,
+        cursor: str | None = None,
+        direction: str = "next",
+        content_hashes: list[str] | None = None,
+    ) -> CursorPage[ChunkItemDTO]:
+        """List chunks for a document with cursor-based pagination."""
+        decoded = decode_cursor(cursor) if cursor else None
+
+        async with self._uow_factory.create() as uow:
+            doc = await uow.documents.get_by_id(document_id)
+            if doc is None:
+                raise EntityNotFound("Document", document_id)
+
+            ctx = await UserContext.build(uow, user_id, user_kind, user_role)
+            check_document_access(doc, ctx)
+
+            page = await uow.chunks.list_for_document_cursor(
+                document_id,
+                limit=limit,
+                cursor=decoded,
+                direction=direction,
+                content_hashes=content_hashes,
+            )
+
+            return CursorPage(
+                items=[
+                    ChunkItemDTO(
+                        id=c.chunk_id,
+                        document_id=c.document_id,
+                        chunk_index=c.chunk_index,
+                        content=c.content,
+                        filename=c.filename,
+                        visibility=c.visibility,
+                        doc_domain=c.doc_domain,
+                        owner_id=c.owner_id,
+                        group_id=c.group_id,
+                        edited_at=c.edited_at.isoformat() if c.edited_at else None,
+                        edited_by=c.edited_by,
+                        manual=c.manual,
+                        creation_date=c.creation_date.isoformat() if c.creation_date else None,
+                        content_hash=c.content_hash,
+                    )
+                    for c in page.items
+                ],
+                next_cursor=page.next_cursor,
+                prev_cursor=page.prev_cursor,
+            )
 
     async def edit_chunk(
         self,

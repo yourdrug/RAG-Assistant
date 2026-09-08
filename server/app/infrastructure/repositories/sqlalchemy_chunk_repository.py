@@ -8,6 +8,8 @@ from datetime import date, datetime
 
 from domain.repositories.chunk_repository import ChunkSearchResult, ChunkStats
 from domain.services import get_visibility_conditions
+from domain.utils import encode_cursor
+from domain.value_objects.cursor_page import CursorPage
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.owner_match import OwnerMatch
 from domain.value_objects.roles import UserKind, UserRole
@@ -290,6 +292,81 @@ class SQLAlchemyChunkRepository:
         result = await self._session.execute(stmt)
         chunks = result.scalars().all()
         return [self._to_chunk_search_result(c) for c in chunks], total
+
+    async def list_for_document_cursor(
+        self,
+        document_id: int,
+        limit: int = 50,
+        cursor: tuple[int, int] | None = None,
+        direction: str = "next",
+        content_hashes: list[str] | None = None,
+    ) -> CursorPage[ChunkSearchResult]:
+        conditions = [ChunkModel.document_id == document_id]
+        if content_hashes:
+            conditions.append(ChunkModel.content_hash.in_(content_hashes))
+
+        if direction == "next":
+            if cursor is not None:
+                ci, cid = cursor
+                conditions.append(
+                    or_(
+                        ChunkModel.chunk_index > ci,
+                        and_(ChunkModel.chunk_index == ci, ChunkModel.id > cid),
+                    )
+                )
+            stmt = (
+                select(ChunkModel)
+                .where(*conditions)
+                .order_by(ChunkModel.chunk_index, ChunkModel.id)
+                .limit(limit + 1)
+            )
+            result = await self._session.execute(stmt)
+            rows = list(result.scalars().all())
+            has_extra = len(rows) > limit
+            page_rows = rows[:limit]
+            next_cur = (
+                encode_cursor(page_rows[-1].chunk_index, page_rows[-1].id)
+                if has_extra and page_rows
+                else None
+            )
+            prev_cur = (
+                encode_cursor(page_rows[0].chunk_index, page_rows[0].id)
+                if page_rows and cursor is not None
+                else None
+            )
+            items = [self._to_chunk_search_result(r) for r in page_rows]
+            return CursorPage(items=items, next_cursor=next_cur, prev_cursor=prev_cur)
+
+        # direction == "prev"
+        if cursor is None:
+            from domain.exceptions import ValidationError
+            raise ValidationError("cursor is required when direction=prev")
+        ci, cid = cursor
+        conditions.append(
+            or_(
+                ChunkModel.chunk_index < ci,
+                and_(ChunkModel.chunk_index == ci, ChunkModel.id < cid),
+            )
+        )
+        stmt = (
+            select(ChunkModel)
+            .where(*conditions)
+            .order_by(ChunkModel.chunk_index.desc(), ChunkModel.id.desc())
+            .limit(limit + 1)
+        )
+        result = await self._session.execute(stmt)
+        rows = list(result.scalars().all())
+        has_extra = len(rows) > limit
+        page_rows = rows[:limit]
+        page_rows.reverse()
+        prev_cur = (
+            encode_cursor(page_rows[0].chunk_index, page_rows[0].id)
+            if has_extra and page_rows
+            else None
+        )
+        next_cur = encode_cursor(page_rows[0].chunk_index, page_rows[0].id) if page_rows else None
+        items = [self._to_chunk_search_result(r) for r in page_rows]
+        return CursorPage(items=items, next_cursor=next_cur, prev_cursor=prev_cur)
 
     async def find_duplicate_by_hash(
         self, document_id: int, content_hash: str, exclude_chunk_id: int | None = None

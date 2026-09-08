@@ -28,6 +28,12 @@ interface DataTableProps<TData, TValue> {
   data: TData[];
   searchKey?: string;
   searchPlaceholder?: string;
+  serverPagination?: {
+    canPreviousPage: boolean;
+    canNextPage: boolean;
+    onPreviousPage: () => void;
+    onNextPage: () => void;
+  };
 }
 
 export function DataTable<TData, TValue>({
@@ -35,6 +41,7 @@ export function DataTable<TData, TValue>({
   data,
   searchKey,
   searchPlaceholder,
+  serverPagination,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
@@ -45,7 +52,7 @@ export function DataTable<TData, TValue>({
     data,
     columns,
     getCoreRowModel: getCoreRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
+    getPaginationRowModel: serverPagination ? undefined : getPaginationRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     onSortingChange: setSorting,
@@ -132,16 +139,16 @@ export function DataTable<TData, TValue>({
           <Button
             variant="outline"
             size="sm"
-            onClick={() => table.previousPage()}
-            disabled={!table.getCanPreviousPage()}
+            onClick={() => serverPagination ? serverPagination.onPreviousPage() : table.previousPage()}
+            disabled={serverPagination ? !serverPagination.canPreviousPage : !table.getCanPreviousPage()}
           >
             Previous
           </Button>
           <Button
             variant="outline"
             size="sm"
-            onClick={() => table.nextPage()}
-            disabled={!table.getCanNextPage()}
+            onClick={() => serverPagination ? serverPagination.onNextPage() : table.nextPage()}
+            disabled={serverPagination ? !serverPagination.canNextPage : !table.getCanNextPage()}
           >
             Next
           </Button>

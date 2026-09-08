@@ -530,6 +530,13 @@ class ChunkListResponse(BaseModel):
     document_id: int
 
 
+class ChunkCursorListResponse(BaseModel):
+    chunks: list[ChunkResponse]
+    next_cursor: str | None = None
+    prev_cursor: str | None = None
+    document_id: int
+
+
 class ManualDocumentRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=255)
     visibility: str

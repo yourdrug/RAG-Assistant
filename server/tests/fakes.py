@@ -182,6 +182,63 @@ class FakeChunkRepository:
     async def get_all_contents(self) -> list[str]:
         return []
 
+    async def list_for_document_cursor(
+        self,
+        document_id: int,
+        limit: int = 50,
+        cursor: tuple[int, int] | None = None,
+        direction: str = "next",
+        content_hashes: list[str] | None = None,
+    ):
+        from domain.utils import encode_cursor
+        from domain.value_objects.cursor_page import CursorPage
+
+        rows = [c for c in self._chunks if c["document_id"] == document_id]
+        rows.sort(key=lambda c: (c.get("chunk_index", 0), c["id"]))
+
+        if content_hashes:
+            rows = [c for c in rows if c.get("content_hash") in content_hashes]
+
+        if direction == "next":
+            if cursor is not None:
+                ci, cid = cursor
+                rows = [c for c in rows if (c.get("chunk_index", 0), c["id"]) > (ci, cid)]
+            page = rows[:limit]
+            has_extra = len(rows) > limit
+            next_cur = encode_cursor(page[-1]["chunk_index"], page[-1]["id"]) if has_extra and page else None
+            prev_cur = (
+                encode_cursor(page[0]["chunk_index"], page[0]["id"])
+                if page and cursor is not None
+                else None
+            )
+        else:
+            if cursor is None:
+                from domain.exceptions import ValidationError
+                raise ValidationError("cursor is required when direction=prev")
+            ci, cid = cursor
+            rows = [c for c in rows if (c.get("chunk_index", 0), c["id"]) < (ci, cid)]
+            rows.sort(key=lambda c: (c.get("chunk_index", 0), c["id"]), reverse=True)
+            page = rows[:limit]
+            has_extra = len(rows) > limit
+            page.reverse()
+            prev_cur = encode_cursor(page[0]["chunk_index"], page[0]["id"]) if has_extra and page else None
+            next_cur = encode_cursor(page[0]["chunk_index"], page[0]["id"]) if page else None
+
+        from domain.repositories.chunk_repository import ChunkSearchResult
+
+        items = [
+            ChunkSearchResult(
+                chunk_id=c["id"],
+                document_id=c["document_id"],
+                filename=c.get("filename", ""),
+                content=c.get("content", ""),
+                chunk_index=c.get("chunk_index", 0),
+                content_hash=c.get("content_hash"),
+            )
+            for c in page
+        ]
+        return CursorPage(items=items, next_cursor=next_cur, prev_cursor=prev_cur)
+
 
 class FakeDocumentRepository:
     def __init__(self) -> None:

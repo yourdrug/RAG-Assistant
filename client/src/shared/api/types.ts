@@ -168,6 +168,13 @@ export interface ChunkListResponse {
   document_id: number;
 }
 
+export interface ChunkCursorListResponse {
+  chunks: ChunkResponse[];
+  next_cursor: string | null;
+  prev_cursor: string | null;
+  document_id: number;
+}
+
 export interface ManualDocumentRequest {
   title: string;
   visibility: string;

@@ -3,6 +3,7 @@ import { apiClient } from "../client";
 import { queryKeys } from "../query-keys";
 import type {
   ChunkCreateRequest,
+  ChunkCursorListResponse,
   ChunkEditRequest,
   ChunkListResponse,
   ChunkResponse,
@@ -22,6 +23,29 @@ export function useChunks(documentId: number, limit?: number, offset?: number, h
       return (
         await apiClient.get<ChunkListResponse>(
           `/documents/${documentId}/chunks${qs ? `?${qs}` : ""}`,
+        )
+      ).data;
+    },
+    enabled: !!documentId,
+  });
+}
+
+export function useChunksCursor(
+  documentId: number,
+  options?: { cursor?: string; direction?: "next" | "prev"; limit?: number; highlight?: string },
+) {
+  const { cursor, direction, limit = 50, highlight } = options ?? {};
+  return useQuery({
+    queryKey: queryKeys.chunks.cursor(documentId, { cursor, direction, highlight }),
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      params.set("limit", String(limit));
+      if (cursor) params.set("cursor", cursor);
+      if (direction) params.set("direction", direction);
+      if (highlight) params.set("highlight", highlight);
+      return (
+        await apiClient.get<ChunkCursorListResponse>(
+          `/documents/${documentId}/chunks/cursor?${params.toString()}`,
         )
       ).data;
     },

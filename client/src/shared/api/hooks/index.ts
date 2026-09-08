@@ -32,6 +32,7 @@ export { useChatLogs } from "./use-chat-logs";
 export {
   useAddChunk,
   useChunks,
+  useChunksCursor,
   useCreateManualDocument,
   useDeleteChunk,
   useUpdateChunk,

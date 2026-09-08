@@ -259,7 +259,7 @@ class ChunkModel(BaseModel):
 
     __tablename__ = "chunks"
     __table_args__ = (
-        UniqueConstraint("document_id", "chunk_index", name="ux_chunks_document_index"),
+        UniqueConstraint("document_id", "chunk_index", "id", name="ux_chunks_document_chunk_index_id"),
         Index("ix_chunks_visibility", "visibility"),
         Index("ix_chunks_owner_id", "owner_id"),
         Index("ix_chunks_group_id", "group_id"),

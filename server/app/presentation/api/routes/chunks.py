@@ -12,6 +12,7 @@ from presentation.api.auth_dependencies import get_current_user
 from presentation.api.dependencies import create_chunk_service
 from presentation.api.schemas import (
     ChunkCreateRequest,
+    ChunkCursorListResponse,
     ChunkEditRequest,
     ChunkListResponse,
     ChunkResponse,
@@ -66,6 +67,55 @@ async def list_chunks(
     return ChunkListResponse(
         chunks=chunk_responses,
         total=total,
+        document_id=document_id,
+    )
+
+
+@router.get("/documents/{document_id}/chunks/cursor", response_model=ChunkCursorListResponse)
+async def list_chunks_cursor(
+    document_id: int,
+    limit: int = Query(50, ge=1, le=200),
+    cursor: str | None = Query(None, description="Opaque cursor from previous response"),
+    direction: str = Query("next", pattern="^(next|prev)$"),
+    highlight: str | None = Query(None, description="Comma-separated content_hashes to filter"),
+    current_user: dict = Depends(get_current_user),
+    chunk_service: ChunkService = Depends(create_chunk_service),
+):
+    """List chunks with cursor-based (keyset) pagination."""
+    content_hashes = [h.strip() for h in highlight.split(",") if h.strip()] if highlight else None
+    page = await chunk_service.list_chunks_cursor(
+        document_id=document_id,
+        user_id=current_user["id"],
+        user_kind=current_user["kind"],
+        user_role=current_user["role"],
+        limit=limit,
+        cursor=cursor,
+        direction=direction,
+        content_hashes=content_hashes,
+    )
+    chunk_responses = [
+        ChunkResponse(
+            id=c.id,
+            document_id=c.document_id,
+            chunk_index=c.chunk_index,
+            content=c.content,
+            filename=c.filename,
+            visibility=c.visibility,
+            doc_domain=c.doc_domain,
+            owner_id=c.owner_id,
+            group_id=c.group_id,
+            edited_at=c.edited_at,
+            edited_by=c.edited_by,
+            manual=c.manual,
+            creation_date=c.creation_date,
+            content_hash=c.content_hash,
+        )
+        for c in page.items
+    ]
+    return ChunkCursorListResponse(
+        chunks=chunk_responses,
+        next_cursor=page.next_cursor,
+        prev_cursor=page.prev_cursor,
         document_id=document_id,
     )
 

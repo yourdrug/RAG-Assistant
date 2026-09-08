@@ -316,3 +316,62 @@ Prefer:
 over:
 
 50 speculative findings.
+
+<!--
+  Добавить этот блок в конец существующего server/../AGENTS.md
+  (или в корневой AGENTS.md проекта — opencode подтягивает его автоматически).
+  Ничего из существующего файла не удаляем, только дополняем.
+-->
+
+## Layering rules (enforced, not aspirational)
+
+Текущее состояние ЧИСТОЕ — сохраняем инвариант:
+
+- `server/app/domain/**` — НИКОГДА не импортирует `application.*`, `infrastructure.*`,
+  `presentation.*`, `config` (см. `domain/services/rag_policy.py` как эталон:
+  "framework-agnostic (no LangChain, no infrastructure imports)").
+- `server/app/application/**` — импортирует только `domain.*` и собственные `application.ports.*`
+  (Protocol-классы, см. `application/ports/chat_rag_port.py`). НИКОГДА не импортирует
+  `infrastructure.*` напрямую — только через порт, инжектированный в конструктор/DI.
+- `server/app/infrastructure/**` — реализует порты из `application/ports/`. Классы называются
+  `<Tech><PortName>`, например `infrastructure/repositories/sqlalchemy_document_repository.py`
+  реализует `domain/repositories/document_repository.py`.
+- `server/app/composition/**` — единственное место, где происходит связывание конкретных
+  infrastructure-реализаций с application-сервисами (`composition/application.py`,
+  `composition/infrastructure.py`, `composition/service_providers.py`).
+
+Перед любым PR, трогающим `domain/` или `application/`, agent обязан прогнать:
+
+```bash
+grep -rn "^from \(application\|infrastructure\|presentation\)\|^import \(application\|infrastructure\|presentation\)" server/app/domain/
+grep -rln "^from \(infrastructure\|presentation\)\|^import \(infrastructure\|presentation\)" server/app/application/
+```
+
+Оба должны вернуть пусто. Если grep что-то нашёл — это регрессия, а не рефакторинг.
+
+## Known god-files (refactor backlog, приоритет сверху вниз)
+
+| # | Файл                                                  | Строк | Проблема                                                                                                                          | Тесты сейчас                                                          |
+|---|-------------------------------------------------------|-------|-----------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------|
+| 1 | `server/app/infrastructure/ml/rag_service.py`         | 928   | `RagService.stream()` — строки ~610–883, 270 строк в одном методе, `# noqa: C901`                                                 | НЕТ (только в `tests/fakes.py` как fake)                              |
+| 2 | `server/app/infrastructure/ml/benchmark.py`           | 1087  | Всё на module-level функциях: retrieval + judge + метрики + отчёты в одном файле                                                  | Косвенно, нет unit-тестов на `judge_answer`/`compute_summary_metrics` |
+| 3 | `server/app/infrastructure/ml/ingestion.py`           | 722   | PDF/DOCX/RTF/MD парсинг в одном файле, хотя рядом `infrastructure/ml/preview/` уже показывает Strategy-паттерн для этой же задачи | Частично (`test_ingestion_parsers.py`, `test_ingestion_text.py`)      |
+| 4 | `server/app/presentation/api/schemas.py`              | 761   | Все Pydantic-схемы (chat/admin/document/auth) в одном файле                                                                       | —                                                                     |
+| 5 | `server/app/application/services/document_service.py` | 508   | Смешаны оркестрация pipeline и CRUD                                                                                               | —                                                                     |
+| 6 | `server/app/application/services/chunk_service.py`    | 445   | —                                                                                                                                 | `tests/test_chunk_service.py` есть, но частично                       |
+
+Правило: **не трогать файл из этого списка без предварительного `/add-characterization-tests`**
+на затрагиваемый публичный метод. Baseline тестов должен быть зелёным ДО рефакторинга.
+
+## RAG-pipeline specific conventions
+
+- Оркестрация ответа: `presentation/api/routes/chat.py` → `application/services/chat_service.py`
+  (`ChatService`) → `infrastructure/ml/rag_service.py` (`RagService`, реализует
+  `application/ports/chat_rag_port.py::ChatRAGPort`).
+- Чистая доменная логика классификации/промптов живёт в `domain/services/rag_policy.py` —
+  новую бизнес-логику (не зависящую от LangChain/Qdrant/Ollama) добавлять туда, а не в
+  `infrastructure/ml/rag.py` или `rag_service.py`.
+- Ретеривал: dense — `infrastructure/ml/rag_service.py::_qdrant_dense_search`,
+  гибридный — `infrastructure/ml/hybrid.py`. При рефакторинге `stream()` эти функции
+  должны остаться чистыми (без побочных эффектов логирования вперемешку с бизнес-логикой).
+- 

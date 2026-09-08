@@ -7,6 +7,7 @@ import toast from "react-hot-toast";
 import {
     useAddChunk,
     useChunks,
+    useChunksCursor,
     useCreateManualDocument,
     useDeleteChunk,
     useDeleteDocument,
@@ -388,7 +389,49 @@ function ChunkManager({
 }) {
     const hasHighlight = (highlightHashes?.length ?? 0) > 0;
     const highlightParam = hasHighlight ? highlightHashes!.join(",") : undefined;
-    const {data: chunkData, isLoading} = useChunks(documentId, undefined, undefined, highlightParam);
+
+    const [cursor, setCursor] = useState<string | undefined>(undefined);
+    const [direction, setDirection] = useState<"next" | "prev">("next");
+    const [cursorHistory, setCursorHistory] = useState<Array<{ cursor?: string; prevCursor?: string }>>([]);
+    const [hasNavigatedBack, setHasNavigatedBack] = useState(false);
+
+    const {data: cursorData, isLoading: cursorLoading} = useChunksCursor(
+        documentId,
+        {cursor, direction, limit: 50, highlight: hasHighlight ? highlightParam : undefined},
+    );
+    const {data: offsetData, isLoading: offsetLoading} = useChunks(
+        documentId, undefined, undefined, hasHighlight ? highlightParam : undefined,
+    );
+
+    const useCursor = !hasHighlight;
+    const chunks = useCursor ? (cursorData?.chunks ?? []) : (offsetData?.chunks ?? []);
+    const total = offsetData?.total;
+    const isLoading = useCursor ? cursorLoading : offsetLoading;
+
+    const isFirstPage = cursorHistory.length === 0 && (!hasNavigatedBack || !cursorData?.prev_cursor);
+
+    const handleNextPage = () => {
+        if (!cursorData?.next_cursor) return;
+        setCursorHistory((h) => [...h, { cursor, prevCursor: cursorData.prev_cursor ?? undefined }]);
+        setCursor(cursorData.next_cursor);
+        setDirection("next");
+    };
+
+    const handlePrevPage = () => {
+        if (cursorHistory.length === 0) {
+            const prev = cursorData?.prev_cursor;
+            if (!prev) return;
+            setHasNavigatedBack(true);
+            setCursor(prev);
+            setDirection("prev");
+            return;
+        }
+        const last = cursorHistory[cursorHistory.length - 1];
+        setCursorHistory((h) => h.slice(0, -1));
+        setCursor(last.prevCursor);
+        setDirection("prev");
+    };
+
     const [editingChunk, setEditingChunk] = useState<ChunkResponse | null>(null);
     const [showAddDialog, setShowAddDialog] = useState(false);
     const [deleteChunkId, setDeleteChunkId] = useState<number | null>(null);
@@ -467,10 +510,23 @@ function ChunkManager({
         },
     ];
 
+    const titleText = useCursor
+        ? `Chunks (${chunks.length}${cursorData?.next_cursor ? "+" : ""})`
+        : `Chunks (${total ?? 0})`;
+
+    const serverPagination = useCursor
+        ? {
+            canPreviousPage: !isFirstPage,
+            canNextPage: !!cursorData?.next_cursor,
+            onPreviousPage: handlePrevPage,
+            onNextPage: handleNextPage,
+        }
+        : undefined;
+
     return (
         <Card>
             <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle>Chunks ({chunkData?.total ?? 0})</CardTitle>
+                <CardTitle>{titleText}</CardTitle>
                 <Button size="sm" onClick={() => setShowAddDialog(true)}>
                     <Plus className="h-4 w-4 mr-1"/>
                     Add Chunk
@@ -484,9 +540,10 @@ function ChunkManager({
                 ) : (
                     <DataTable
                         columns={columns}
-                        data={chunkData?.chunks || []}
+                        data={chunks}
                         searchKey="content"
                         searchPlaceholder="Search chunks..."
+                        serverPagination={serverPagination}
                     />
                 )}
             </CardContent>
