@@ -273,7 +273,11 @@ RUN                                                                             
     # Create group named "raguser" with GID 1001
     addgroup --system --gid 1001 raguser &&                                         \
     # Create user named "raguser" with UID 1001, member of "raguser" group
-    adduser --system --uid 1001 --ingroup raguser raguser
+    # --home-dir sets HOME so that ~ resolves correctly (default is /nonexistent)
+    adduser --system --uid 1001 --ingroup raguser --home-dir /home/raguser raguser && \
+    mkdir -p /home/raguser && chown raguser:raguser /home/raguser
+
+ENV HOME=/home/raguser
 
 # Copy pre-built venv from CPU builder (with --chown to avoid extra chown layer)
 COPY --from=uv-base-cpu --chown=1001:1001 $VENV_PATH $VENV_PATH
@@ -341,7 +345,11 @@ RUN                                                                             
     # Create group named "raguser" with GID 1001
     addgroup --system --gid 1001 raguser &&                                         \
     # Create user named "raguser" with UID 1001, member of "raguser" group
-    adduser --system --uid 1001 --ingroup raguser raguser
+    # --home-dir sets HOME so that ~ resolves correctly (default is /nonexistent)
+    adduser --system --uid 1001 --ingroup raguser --home-dir /home/raguser raguser && \
+    mkdir -p /home/raguser && chown raguser:raguser /home/raguser
+
+ENV HOME=/home/raguser
 
 # Copy uv binary from GPU builder (needed for torch runtime)
 COPY --from=uv-base-gpu --chown=1001:1001 $UV_INSTALL_DIR/uv $UV_INSTALL_DIR/uv

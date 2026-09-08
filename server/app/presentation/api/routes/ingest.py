@@ -15,7 +15,6 @@ from infrastructure.worker.queue import enqueue_ingest, enqueue_ingest_file
 from presentation.api.auth_dependencies import require_admin
 from presentation.api.constants import JobType
 from presentation.api.dependencies import create_ingest_service, create_ingestion_port, create_job_service
-from presentation.api.rate_limits import ingest_rate_limit
 from presentation.api.schemas import (
     IngestRegistryItem,
     IngestRegistryResponse,
@@ -28,7 +27,7 @@ logger = logging.getLogger("default")
 router = APIRouter(tags=["ingest"])
 
 
-@router.post("/ingest", response_model=IngestStatusResponse, dependencies=[Depends(ingest_rate_limit)])
+@router.post("/ingest", response_model=IngestStatusResponse)
 async def ingest_documents(
     docs_dir: str = "docs/",
     reset: bool = False,
@@ -66,7 +65,7 @@ async def ingest_documents(
     return IngestStatusResponse(status="started", mode=mode, docs_dir=resolved)
 
 
-@router.post("/ingest/file", response_model=IngestStatusResponse, dependencies=[Depends(ingest_rate_limit)])
+@router.post("/ingest/file", response_model=IngestStatusResponse)
 async def ingest_single_file(
     file_path: str,
     force: bool = False,
@@ -127,7 +126,7 @@ async def get_ingest_registry(
     )
 
 
-@router.post("/upload", response_model=UploadResponse, dependencies=[Depends(ingest_rate_limit)])
+@router.post("/upload", response_model=UploadResponse)
 async def upload_files(
     files: list[UploadFile] = File(...),
     admin: dict = Depends(require_admin),

@@ -20,7 +20,6 @@ from presentation.api.dependencies import (
     create_job_service,
 )
 from presentation.api.helpers import upload_and_enqueue
-from presentation.api.rate_limits import upload_rate_limit
 from presentation.api.schemas import DocumentRenameRequest, DocumentResponse, UploadStatusResponse
 
 logger = logging.getLogger("default")
@@ -53,7 +52,7 @@ async def list_uploadable_clients(
     )
 
 
-@router.post("/documents", response_model=UploadStatusResponse, dependencies=[Depends(upload_rate_limit)])
+@router.post("/documents", response_model=UploadStatusResponse)
 async def upload_document(
     current_user: dict = Depends(get_current_user),
     file: UploadFile = File(...),

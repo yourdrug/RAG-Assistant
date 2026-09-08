@@ -58,8 +58,6 @@ dependencies = [
     "prometheus-fastapi-instrumentator>=7.0.0",
     # --- Scheduler ---
     "apscheduler>=3.10.0",
-    # --- Rate limiting ---
-    "fastapi-limiter==0.1.6",
     # --- CLI ---
     "typer>=0.12.0",
     # --- Structured LLM output ---

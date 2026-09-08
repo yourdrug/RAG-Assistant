@@ -77,6 +77,27 @@ def assess_pdf_extraction_quality(pdf_path: Path, extracted_docs: list) -> PdfQu
     )
 
 
+def _is_uniform_replacement(text: str) -> bool:
+    """Detect text that is mostly a single repeated replacement character.
+
+    When PDFs have encoding issues, Cyrillic characters are often replaced
+    with '?' or '_' or other uniform characters.  This catches that pattern
+    even when individual characters would pass the normal-ratio check.
+    """
+    if len(text) < 10:
+        return False
+    # Count the most frequent non-whitespace character
+    from collections import Counter
+
+    non_ws = [c for c in text if not c.isspace()]
+    if not non_ws:
+        return False
+    char, count = Counter(non_ws).most_common(1)[0]
+    # If one character dominates (>40%) and it's a common replacement char
+    ratio = count / len(non_ws)
+    return ratio > 0.4 and char in "?_#\ufffd\u0000\x00"
+
+
 def is_garbled(text: str) -> bool:
     """Эвристика: если >15% символов — нечитаемый мусор, это скан без OCR."""
     if not text:
@@ -84,8 +105,12 @@ def is_garbled(text: str) -> bool:
     # Table content (pipes, dashes, numbers) is not garbled
     if "|" in text and "---" in text:
         return False
+    # Detect uniform replacement characters (e.g. "??????", "______")
+    if _is_uniform_replacement(text):
+        return True
     total = len(text)
-    normal = sum(1 for c in text if c.isalnum() or c in " .,;:!?-—\n\t()[]«»\"'")
+    # '?' removed from whitelist — it's a common encoding-replacement char
+    normal = sum(1 for c in text if c.isalnum() or c in " .,;:!-—\n\t()[]«»\"'")
     return (normal / total) < 0.6
 
 

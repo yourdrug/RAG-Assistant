@@ -252,7 +252,7 @@ services:
     volumes:
       - type: bind
         source: ./data/paddleocr_cache
-        target: /root/.paddleocr
+        target: /home/raguser/.paddleocr
         bind:
           propagation: rprivate
           create_host_path: true
@@ -303,7 +303,7 @@ services:
           create_host_path: true
       - type: bind
         source: ./data/paddleocr_cache
-        target: /root/.paddleocr
+        target: /home/raguser/.paddleocr
         bind:
           propagation: rprivate
           create_host_path: true

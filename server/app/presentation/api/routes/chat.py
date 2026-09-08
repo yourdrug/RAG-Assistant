@@ -22,13 +22,12 @@ from presentation.api.constants import (
 )
 from presentation.api.dependencies import create_chat_service
 from presentation.api.helpers import filter_sources
-from presentation.api.rate_limits import chat_rate_limit
 from presentation.api.schemas import ChatRequest, ChatResponse
 
 router = APIRouter(tags=["chat"])
 
 
-@router.post("/chat", dependencies=[Depends(chat_rate_limit)])
+@router.post("/chat")
 async def chat_stream(
     req: ChatRequest,
     current_user: dict = Depends(get_current_user),
@@ -87,7 +86,7 @@ async def chat_stream(
         request_id_ctx.reset(token)
 
 
-@router.post("/chat/sync", response_model=ChatResponse, dependencies=[Depends(chat_rate_limit)])
+@router.post("/chat/sync", response_model=ChatResponse)
 async def chat_sync(
     req: ChatRequest,
     current_user: dict = Depends(get_current_user),

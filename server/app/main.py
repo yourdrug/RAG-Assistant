@@ -11,8 +11,6 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi_limiter import FastAPILimiter
-
 from composition.container import Container
 from config import settings
 from domain.exceptions import ClientException, ServerException
@@ -81,7 +79,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
 
     attach_log_buffer()
     await redis_client.init()
-    await FastAPILimiter.init(redis_client.async_redis)
     await database.connect()
 
     # --- Build DI container (single call) ---
@@ -151,7 +148,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
 
     await close_arq_pool()
     await database.disconnect()
-    await FastAPILimiter.close()
     await redis_client.aclose()
 
 
