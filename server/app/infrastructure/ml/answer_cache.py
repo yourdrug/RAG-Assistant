@@ -38,8 +38,8 @@ def _cache_key(question_hash: str, visibility_scope_hash: str) -> str:
 
 
 async def find_cached_answer(
-        question_hash: str,
-        visibility_scope_hash: str,
+    question_hash: str,
+    visibility_scope_hash: str,
 ) -> dict | None:
     """Look up a cached answer by question hash + visibility scope.
 
@@ -67,12 +67,12 @@ async def find_cached_answer(
 
 
 async def store_cached_answer(
-        question_text: str,
-        question_hash: str,
-        answer: str,
-        sources: list[dict],
-        visibility_scope_hash: str,
-        document_ids: list[int] | None = None,
+    question_text: str,
+    question_hash: str,
+    answer: str,
+    sources: list[dict],
+    visibility_scope_hash: str,
+    document_ids: list[int] | None = None,
 ) -> None:
     """Store a question-answer pair in the cache."""
     if not settings.cache_enabled:

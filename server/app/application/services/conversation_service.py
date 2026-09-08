@@ -70,9 +70,7 @@ class ConversationService:
     # Rolling summary
     # ------------------------------------------------------------------
 
-    async def update_rolling_summary(
-        self, conv_id: int, question: str, answer: str, history: list
-    ) -> None:
+    async def update_rolling_summary(self, conv_id: int, question: str, answer: str, history: list) -> None:
         if not self._settings.rolling_summary_enabled:
             return
         if len(history) < self._settings.history_window:

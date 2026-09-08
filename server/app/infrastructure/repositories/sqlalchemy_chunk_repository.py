@@ -12,7 +12,7 @@ from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.owner_match import OwnerMatch
 from domain.value_objects.roles import UserKind, UserRole
 from domain.value_objects.search_mode import SearchMode
-from sqlalchemy import delete, func, or_, select, text
+from sqlalchemy import and_, delete, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.database.models import ChunkModel
@@ -187,10 +187,7 @@ class SQLAlchemyChunkRepository:
             if cond.group_match:
                 parts.append(ChunkModel.group_id.in_(group_ids))
 
-            acl_clauses.append(or_(*parts))
-
-        if document_id is not None:
-            acl_clauses.append(ChunkModel.document_id == document_id)
+            acl_clauses.append(and_(*parts))
 
         if mode == SearchMode.EXACT.value:
             escaped_query = re.escape(query)
@@ -238,6 +235,9 @@ class SQLAlchemyChunkRepository:
                 .order_by(ChunkModel.id)
                 .limit(limit)
             )
+
+        if document_id is not None:
+            stmt = stmt.where(ChunkModel.document_id == document_id)
 
         result = await self._session.execute(stmt)
         return [

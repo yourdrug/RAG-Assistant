@@ -116,7 +116,10 @@ def _process_page_text(text: str, tables_found: bool, page_num: int, file_path: 
 
 
 def _process_ocr_result(
-    page_num: int, ocr_text: str, text_to_compare: dict, file_path: Path,
+    page_num: int,
+    ocr_text: str,
+    text_to_compare: dict,
+    file_path: Path,
 ) -> Document | None:
     if not ocr_text:
         return None

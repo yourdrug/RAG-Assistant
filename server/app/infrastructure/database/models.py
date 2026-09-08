@@ -124,7 +124,8 @@ class DocumentModel(BaseModel):
     source_type: Mapped[str] = mapped_column(String(16), nullable=False, server_default="file")
     has_manual_edits: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     version_group_id: Mapped[int | None] = mapped_column(
-        ForeignKey("documents.id", ondelete="SET NULL"), nullable=True,
+        ForeignKey("documents.id", ondelete="SET NULL"),
+        nullable=True,
     )
     error_message: Mapped[str | None] = mapped_column(Text)
     warning_message: Mapped[str | None] = mapped_column(Text)

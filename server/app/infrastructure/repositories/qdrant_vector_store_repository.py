@@ -153,6 +153,23 @@ class QdrantVectorStoreRepository:
 
         await asyncio.to_thread(_update)
 
+    async def update_metadata_by_act_version(self, act_version_id: int, metadata_updates: dict) -> None:
+        """Update metadata for all points matching a given act_version_id."""
+        client = self._get_qdrant_client()
+
+        def _update() -> None:
+            self._patch_metadata(
+                client,
+                Filter(
+                    must=[
+                        FieldCondition(key="metadata.act_version_id", match=MatchValue(value=act_version_id))
+                    ]
+                ),
+                metadata_updates,
+            )
+
+        await asyncio.to_thread(_update)
+
     @staticmethod
     def _patch_metadata(client, points_filter: Filter, metadata_updates: dict) -> None:
         """Read matching points, merge metadata_updates, and write back."""

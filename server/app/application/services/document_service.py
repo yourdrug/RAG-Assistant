@@ -91,12 +91,12 @@ class DocumentService:
         )
 
     async def _resolve_effective_owner_id(
-            self,
-            uow,
-            vis: DocumentVisibility,
-            user_id: int,
-            user_kind: str,
-            client_id: int | None,
+        self,
+        uow,
+        vis: DocumentVisibility,
+        user_id: int,
+        user_kind: str,
+        client_id: int | None,
     ) -> int:
         if vis != DocumentVisibility.CLIENT_PRIVATE:
             return user_id
@@ -137,7 +137,10 @@ class DocumentService:
         return filename
 
     async def _replace_existing_document(
-        self, uow, existing, storage_deletes: list[str] | None = None,
+        self,
+        uow,
+        existing,
+        storage_deletes: list[str] | None = None,
     ) -> int:
         """Delete the existing document's data in preparation for replace.
 
@@ -158,7 +161,7 @@ class DocumentService:
         await uow.documents.delete(existing.id)
         return existing.id
 
-    async def upload(
+    async def upload(  # noqa: C901
         self,
         filename: str,
         file_data: bytes,
@@ -191,13 +194,20 @@ class DocumentService:
                     raise EntityNotFound("Group", group_id)
 
             effective_owner_id = await self._resolve_effective_owner_id(
-                uow, vis, user_id, user_kind, client_id,
+                uow,
+                vis,
+                user_id,
+                user_kind,
+                client_id,
             )
 
             owner_id, effective_group_id = compute_owner_and_group(vis, group_id, effective_owner_id)
 
             existing = await uow.documents.find_active_slot(
-                owner_id, filename, effective_group_id, for_update=True,
+                owner_id,
+                filename,
+                effective_group_id,
+                for_update=True,
             )
             self._validate_no_active_processing(existing)
 
@@ -252,7 +262,10 @@ class DocumentService:
 
                 profile = self._get_domain_profile(doc_domain)
                 await resolve_conflict(
-                    self._uow_factory, doc, existing, profile,
+                    self._uow_factory,
+                    doc,
+                    existing,
+                    profile,
                     act_versioning_service=self._act_versioning_service,
                 )
                 pending_replace_id = None  # resolved, no need for async
@@ -261,7 +274,9 @@ class DocumentService:
             if final_doc is None:
                 raise EntityNotFound("Document", saved_doc.id)
             dto = DocumentDTO.from_entity(
-                final_doc, storage_key=key, replace_id=pending_replace_id,
+                final_doc,
+                storage_key=key,
+                replace_id=pending_replace_id,
             )
 
         for old_key in storage_deletes:
@@ -277,35 +292,44 @@ class DocumentService:
                 return []
             if user_role == UserRole.ADMIN:
                 all_users = await uow.users.list_all()
-                return [ClientInfo(id=u.id, email=u.email) for u in all_users if u.kind == UserKind.CLIENT]
+                return [
+                    ClientInfo(id=u.id, email=u.email)
+                    for u in all_users
+                    if u.kind == UserKind.CLIENT and u.id is not None
+                ]
             return []
 
     async def list_documents(
-            self,
-            user_id: int,
-            user_kind: str,
-            user_role: str | UserRole = UserRole.USER,
-            limit: int = 200,
-            offset: int = 0,
+        self,
+        user_id: int,
+        user_kind: str,
+        user_role: str | UserRole = UserRole.USER,
+        limit: int = 200,
+        offset: int = 0,
     ) -> list[DocumentDTO]:
         async with self._uow_factory.create() as uow:
             ctx = await self._build_user_context(uow, user_id, user_kind, user_role)
             if ctx.is_admin:
                 docs = await uow.documents.list_all(limit=limit, offset=offset)
-                dtos = [
-                    DocumentDTO.from_entity(d, in_search_scope=is_in_search_scope(d, ctx))
-                    for d in docs
-                ]
+                dtos = [DocumentDTO.from_entity(d, in_search_scope=is_in_search_scope(d, ctx)) for d in docs]
             elif ctx.is_client:
                 docs = await uow.documents.list_visible(
-                    user_kind=user_kind, user_id=user_id, group_ids=[],
-                    user_role=user_role, limit=limit, offset=offset,
+                    user_kind=user_kind,
+                    user_id=user_id,
+                    group_ids=[],
+                    user_role=user_role,
+                    limit=limit,
+                    offset=offset,
                 )
                 dtos = [DocumentDTO.from_entity(d) for d in docs]
             else:
                 docs = await uow.documents.list_visible(
-                    user_kind=user_kind, user_id=user_id, group_ids=ctx.group_ids or [],
-                    user_role=user_role, limit=limit, offset=offset,
+                    user_kind=user_kind,
+                    user_id=user_id,
+                    group_ids=ctx.group_ids or [],
+                    user_role=user_role,
+                    limit=limit,
+                    offset=offset,
                 )
                 dtos = [DocumentDTO.from_entity(d) for d in docs]
 
@@ -363,7 +387,7 @@ class DocumentService:
                 )
 
     async def rename_document(
-            self, document_id: int, new_filename: str, user_id: int, user_role: str
+        self, document_id: int, new_filename: str, user_id: int, user_role: str
     ) -> DocumentDTO:
         ext = Path(new_filename).suffix.lower()
         if ext not in self._file_storage.supported_extensions:
@@ -383,9 +407,9 @@ class DocumentService:
             )
             if existing and existing.id != document_id:
                 if existing.status in (
-                        DocumentStatus.PENDING,
-                        DocumentStatus.PROCESSING,
-                        DocumentStatus.INDEXING,
+                    DocumentStatus.PENDING,
+                    DocumentStatus.PROCESSING,
+                    DocumentStatus.INDEXING,
                 ):
                     raise BusinessRuleViolation("This document name is already being processed")
                 if existing.status in (DocumentStatus.DONE, DocumentStatus.FAILED):

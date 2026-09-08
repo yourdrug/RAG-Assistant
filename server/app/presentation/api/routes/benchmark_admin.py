@@ -233,6 +233,7 @@ async def create_sweep(
     sweep = await service.create(body)
 
     job_id = await job_service.create_job(JobType.SWEEP, related_id=sweep.id)
+    assert sweep.id is not None
 
     await service.update_status(sweep.id, "pending")
 
@@ -421,7 +422,7 @@ async def benchmark_history(
         config_summary = {k: r.config_json.get(k) for k in HISTORY_CONFIG_KEYS if k in r.config_json}
         points.append(
             BenchmarkHistoryPoint(
-                run_id=r.id,
+                run_id=r.id,  # type: ignore[arg-type]
                 creation_date=r.creation_date,
                 metrics=metrics,
                 config_summary=config_summary,

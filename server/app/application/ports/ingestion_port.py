@@ -16,12 +16,23 @@ from domain.value_objects.visibility import DocumentVisibility
 class IngestionPort(Protocol):
     def resolve_docs_dir(self, docs_dir: str) -> str: ...
     async def run_full_ingestion(
-        self, docs_dir: str | None = None, reset: bool = False, domain: str = "auto",
-        visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC, group_id: int | None = None, client_id: int | None = None,
+        self,
+        docs_dir: str | None = None,
+        reset: bool = False,
+        domain: str = "auto",
+        visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC,
+        group_id: int | None = None,
+        client_id: int | None = None,
     ) -> None: ...
     def resolve_ingest_target(self, file_path: str) -> str: ...
-    async def run_single_file(self, file_path: str, domain: str = "auto",
-        visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC, group_id: int | None = None, client_id: int | None = None) -> None: ...
+    async def run_single_file(
+        self,
+        file_path: str,
+        domain: str = "auto",
+        visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC,
+        group_id: int | None = None,
+        client_id: int | None = None,
+    ) -> None: ...
     async def get_registry(self) -> dict[str, Any]: ...
     async def force_reindex(self, filename: str) -> None: ...
     async def upload_files(self, files: Any, prefix: str = "docs/") -> list[str]: ...

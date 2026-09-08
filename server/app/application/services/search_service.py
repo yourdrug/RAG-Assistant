@@ -27,8 +27,7 @@ class SearchService:
         async with self._uow_factory.create() as uow:
             user_kind = user.get("kind", UserKind.INTERNAL)
             group_ids = (
-                await uow.groups.get_user_group_ids(user["id"])
-                if user_kind == UserKind.INTERNAL else []
+                await uow.groups.get_user_group_ids(user["id"]) if user_kind == UserKind.INTERNAL else []
             )
             return await uow.chunks.search_substring(
                 query=query,

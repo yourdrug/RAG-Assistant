@@ -205,7 +205,11 @@ class FakeDocumentRepository:
 
     async def find_active_slot(self, owner_id, filename, group_id, for_update=False):
         for d in self._documents.values():
-            if getattr(d, "filename", None) == filename and getattr(d, "owner_id", None) == owner_id and getattr(d, "group_id", None) == group_id:
+            if (
+                getattr(d, "filename", None) == filename
+                and getattr(d, "owner_id", None) == owner_id
+                and getattr(d, "group_id", None) == group_id
+            ):
                 return d
         return None
 

@@ -67,15 +67,15 @@ class DryRunResult:
 
 class PDFDiagnosticService:
     def __init__(
-            self,
-            classifier: PDFPageClassifierPort,
-            text_cleaner: PDFTextCleanerPort,
-            ocr: PDFOcrPort,
-            pdf_doc: PDFDocumentPort,
-            storage: PDFStoragePort,
-            *,
-            max_dry_run_bytes: int = 50 * 1024 * 1024,
-            preview_cache: PreviewCache | None = None,
+        self,
+        classifier: PDFPageClassifierPort,
+        text_cleaner: PDFTextCleanerPort,
+        ocr: PDFOcrPort,
+        pdf_doc: PDFDocumentPort,
+        storage: PDFStoragePort,
+        *,
+        max_dry_run_bytes: int = 50 * 1024 * 1024,
+        preview_cache: PreviewCache | None = None,
     ) -> None:
         self._classifier = classifier
         self._cleaner = text_cleaner
@@ -170,7 +170,7 @@ class PDFDiagnosticService:
         return page_results, types_count, total_chars
 
     def ocr_problem_pages(
-            self, pdf_path: Path, page_results: list[DryRunPageResult]
+        self, pdf_path: Path, page_results: list[DryRunPageResult]
     ) -> tuple[list[DryRunPageResult], dict[str, int], int]:
         problem_pages = [
             p.page for p in page_results if p.type in (PageContentType.SCAN, PageContentType.EMPTY)
@@ -272,9 +272,9 @@ class PDFDiagnosticService:
 
         if bad_ratio <= 0.15:
             return (
-                    f"Документ в целом хороший. Рекомендуется точечный OCR по {bad_count} "
-                    f"страницам: {', '.join(f'p.{p.page}' for p in bad_pages_sorted[:10])}"
-                    + ("..." if bad_count > 10 else "")
+                f"Документ в целом хороший. Рекомендуется точечный OCR по {bad_count} "
+                f"страницам: {', '.join(f'p.{p.page}' for p in bad_pages_sorted[:10])}"
+                + ("..." if bad_count > 10 else "")
             )
 
         return (

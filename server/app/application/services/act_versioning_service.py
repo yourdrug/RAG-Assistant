@@ -29,17 +29,17 @@ _DATE_SOURCE_MANUAL = "manual"
 
 class ActVersioningService:
     def __init__(
-            self,
-            uow_factory: UnitOfWorkFactory,
-            settings: DomainSettingsPort,
+        self,
+        uow_factory: UnitOfWorkFactory,
+        settings: DomainSettingsPort,
     ) -> None:
         self._uow_factory = uow_factory
         self._settings = settings
 
     async def find_or_create_act(
-            self,
-            act_type: str,
-            extracted_refs: list[ReferenceMatch],
+        self,
+        act_type: str,
+        extracted_refs: list[ReferenceMatch],
     ) -> RegulatoryAct | None:
         """Find an existing act by number; None when the number is not extracted.
 
@@ -57,10 +57,10 @@ class ActVersioningService:
 
     @staticmethod
     async def _find_or_create_act_in_uow(
-            uow,
-            act_type: str,
-            act_number: str,
-            extracted_refs: list[ReferenceMatch],
+        uow,
+        act_type: str,
+        act_number: str,
+        extracted_refs: list[ReferenceMatch],
     ) -> RegulatoryAct:
         """READ→CHECK→WRITE inside the caller's transaction.
 
@@ -84,12 +84,12 @@ class ActVersioningService:
         )
 
     async def handle_versioned_upload(
-            self,
-            profile: DomainProfile,
-            document_id: int,
-            extracted_refs: list[ReferenceMatch],
-            effective_date: date | None = None,
-            date_confidence: float | None = None,
+        self,
+        profile: DomainProfile,
+        document_id: int,
+        extracted_refs: list[ReferenceMatch],
+        effective_date: date | None = None,
+        date_confidence: float | None = None,
     ) -> ActVersion:
         """Create a new act version for an uploaded document.
 
@@ -106,7 +106,7 @@ class ActVersioningService:
 
             if act is not None and act.id is not None:
                 previous = await uow.act_versions.list_by_act(act.id)
-                previous_ids = [v.id for v in previous if v.is_current]
+                previous_ids = [v.id for v in previous if v.is_current and v.id is not None]
                 await uow.act_versions.unset_current(act.id)
 
                 # Denormalized chunks of superseded versions stop being "current"
@@ -132,10 +132,10 @@ class ActVersioningService:
             return created
 
     def _resolve_date_source(
-            self,
-            domain_key: str,
-            effective_date: date | None,
-            date_confidence: float | None,
+        self,
+        domain_key: str,
+        effective_date: date | None,
+        date_confidence: float | None,
     ) -> str:
         if effective_date is None:
             return _DATE_SOURCE_EXTRACTED
@@ -146,10 +146,10 @@ class ActVersioningService:
         return _DATE_SOURCE_EXTRACTED
 
     async def process_document_versioning(
-            self,
-            profile: DomainProfile,
-            document_id: int,
-            full_text: str,
+        self,
+        profile: DomainProfile,
+        document_id: int,
+        full_text: str,
     ) -> VersioningResult:
         """Unified versioning entry point for API upload AND CLI ingestion (TZ 8.4).
 
@@ -183,7 +183,7 @@ class ActVersioningService:
                 threshold = float(
                     self._settings.get("effective_date_auto_trust_threshold", domain_key=profile.key)
                 )
-                if date_candidate.confidence >= threshold:
+                if date_candidate is not None and date_candidate.confidence >= threshold:
                     effective_from = raw_effective_date
 
             version = await self.handle_versioned_upload(
@@ -216,13 +216,13 @@ class ActVersioningService:
             return await uow.act_versions.list_pending_review()
 
     async def update_version(
-            self,
-            version_id: int,
-            *,
-            effective_from: date | None = None,
-            effective_to: date | None = None,
-            act_id: int | None = None,
-            verified_by: int | None = None,
+        self,
+        version_id: int,
+        *,
+        effective_from: date | None = None,
+        effective_to: date | None = None,
+        act_id: int | None = None,
+        verified_by: int | None = None,
     ) -> None:
         """Update version dates/linkage via admin review. Always sets date_source='manual'.
 

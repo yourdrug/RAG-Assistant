@@ -30,15 +30,19 @@ from infrastructure.acl import build_qdrant_filter  # noqa: E402
 
 def _internal_user(user_id=1, role=UserRole.USER, group_ids=None):
     return UserContext(
-        user_id=user_id, user_kind=UserKind.INTERNAL,
-        user_role=role, group_ids=group_ids or [],
+        user_id=user_id,
+        user_kind=UserKind.INTERNAL,
+        user_role=role,
+        group_ids=group_ids or [],
     )
 
 
 def _client_user(user_id=100, group_ids=None):
     return UserContext(
-        user_id=user_id, user_kind=UserKind.CLIENT,
-        user_role=UserRole.USER, group_ids=group_ids or [],
+        user_id=user_id,
+        user_kind=UserKind.CLIENT,
+        user_role=UserRole.USER,
+        group_ids=group_ids or [],
     )
 
 

@@ -39,20 +39,20 @@ log = logging.getLogger("default")
 
 class DocumentProcessor:
     def __init__(
-            self,
-            uow_factory: UnitOfWorkFactory,
-            vector_store_repo: VectorStoreRepository,
-            file_storage: FileStorage,
-            document_parser: DocumentParser,
-            document_splitter: DocumentSplitter,
-            content_extractor: ContentExtractorPort,
-            pdf_quality_assessor: PDFQualityAssessorPort,
-            metrics: MetricsCollectorPort,
-            domain_marker_threshold: float = 1.0,
-            ml_registry: MLClientRegistry | None = None,
-            domain_registry: DomainProfileRegistry | None = None,
-            domain_settings: "DomainSettingsPort | None" = None,
-            act_versioning_service=None,
+        self,
+        uow_factory: UnitOfWorkFactory,
+        vector_store_repo: VectorStoreRepository,
+        file_storage: FileStorage,
+        document_parser: DocumentParser,
+        document_splitter: DocumentSplitter,
+        content_extractor: ContentExtractorPort,
+        pdf_quality_assessor: PDFQualityAssessorPort,
+        metrics: MetricsCollectorPort,
+        domain_marker_threshold: float = 1.0,
+        ml_registry: MLClientRegistry | None = None,
+        domain_registry: DomainProfileRegistry | None = None,
+        domain_settings: "DomainSettingsPort | None" = None,
+        act_versioning_service=None,
     ) -> None:
         self._uow_factory = uow_factory
         self._vector_store = vector_store_repo
@@ -69,7 +69,7 @@ class DocumentProcessor:
         self._act_versioning_service = act_versioning_service
 
     def _assess_quality_for_docs(
-            self, temp_path: Path, original_filename: str, document_id: int, docs: list
+        self, temp_path: Path, original_filename: str, document_id: int, docs: list
     ) -> tuple[PDFQualityReport | None, str | None]:
         """Assess document quality and return warning if issues found.
 
@@ -214,11 +214,11 @@ class DocumentProcessor:
             log.exception("Failed to mark document as failed")
 
     def _finalize_processing(
-            self,
-            status: str,
-            t_start: float,
-            temp_path: Path | None,
-            raw_chunks: list | None,
+        self,
+        status: str,
+        t_start: float,
+        temp_path: Path | None,
+        raw_chunks: list | None,
     ) -> None:
         self._metrics.inc_documents(status)
         self._metrics.observe_duration(status, time.monotonic() - t_start)
@@ -227,16 +227,16 @@ class DocumentProcessor:
         if raw_chunks:
             self._metrics.inc_chunks(len(raw_chunks))
 
-    async def process(
-            self,
-            document_id: int,
-            storage_key: str,
-            original_filename: str,
-            visibility: str,
-            owner_id: int | None,
-            group_id: int | None,
-            replace_id: int | None,
-            doc_domain: str | None = None,
+    async def process(  # noqa: C901
+        self,
+        document_id: int,
+        storage_key: str,
+        original_filename: str,
+        visibility: str,
+        owner_id: int | None,
+        group_id: int | None,
+        replace_id: int | None,
+        doc_domain: str | None = None,
     ) -> None:
         t_start = time.monotonic()
         temp_path: Path | None = None
@@ -284,7 +284,10 @@ class DocumentProcessor:
                 if new_doc and old_doc:
                     profile = self._domain_registry.get(doc_domain) if self._domain_registry else None
                     await resolve_conflict(
-                        self._uow_factory, new_doc, old_doc, profile,
+                        self._uow_factory,
+                        new_doc,
+                        old_doc,
+                        profile,
                         act_versioning_service=self._act_versioning_service,
                     )
 
@@ -304,9 +307,7 @@ class DocumentProcessor:
             effective_from = versioning.effective_from
             if versioning.warning:
                 warning_message = (
-                    f"{warning_message}\n{versioning.warning}"
-                    if warning_message
-                    else versioning.warning
+                    f"{warning_message}\n{versioning.warning}" if warning_message else versioning.warning
                 )
 
             # --- Shared pipeline: Postgres + outbox ---
@@ -377,7 +378,7 @@ class DocumentProcessor:
                 log.warning("Failed to delete replaced object %s from storage — orphaned", old_key)
 
     async def _handle_replacement(
-            self, uow, replace_id: int, doc_domain: str, storage_deletes: list[str]
+        self, uow, replace_id: int, doc_domain: str, storage_deletes: list[str]
     ) -> None:
         """Delete the replaced document — unless the domain is versioned.
 

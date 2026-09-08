@@ -42,10 +42,21 @@ if TYPE_CHECKING:
 log = logging.getLogger("default")
 
 
-def _tag_chunks(chunks: list, visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC, owner_id: int | None = None, group_id: int | None = None, client_id: int | None = None) -> None:
+def _tag_chunks(
+    chunks: list,
+    visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC,
+    owner_id: int | None = None,
+    group_id: int | None = None,
+    client_id: int | None = None,
+) -> None:
     for c in chunks:
         c.metadata.update(
-            {"visibility": visibility.value, "owner_id": owner_id, "group_id": group_id, "client_id": client_id}
+            {
+                "visibility": visibility.value,
+                "owner_id": owner_id,
+                "group_id": group_id,
+                "client_id": client_id,
+            }
         )
 
 
@@ -246,8 +257,13 @@ class IngestionService:
             log.info("Deleted %d internal documents from database", deleted)
 
     async def run_full_ingestion(
-        self, docs_dir: str | None = None, reset: bool = False, domain: str = "auto",
-        visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC, group_id: int | None = None, client_id: int | None = None,
+        self,
+        docs_dir: str | None = None,
+        reset: bool = False,
+        domain: str = "auto",
+        visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC,
+        group_id: int | None = None,
+        client_id: int | None = None,
     ) -> None:
         t_start = time.monotonic()
         self._log_ingest_config(reset, docs_dir)
@@ -295,7 +311,15 @@ class IngestionService:
         registry = {**registry, **entries}
 
         # Sync to Postgres + enqueue outbox (Qdrant via dispatcher)
-        await self._sync_documents_to_db(registry, source_chars, chunks, full_text_by_source, visibility=visibility, group_id=group_id, client_id=client_id)
+        await self._sync_documents_to_db(
+            registry,
+            source_chars,
+            chunks,
+            full_text_by_source,
+            visibility=visibility,
+            group_id=group_id,
+            client_id=client_id,
+        )
         await self._persist_registry_entries(entries)
 
         # BM25 index (separate concern, not via outbox)
@@ -358,7 +382,9 @@ class IngestionService:
             chunks_by_source.setdefault(src, []).append(c)
 
         # --- Phase 1: document rows (single committed transaction) ---
-        doc_ids = await self._ensure_document_rows(registry, visibility=visibility, group_id=group_id, client_id=client_id)
+        doc_ids = await self._ensure_document_rows(
+            registry, visibility=visibility, group_id=group_id, client_id=client_id
+        )
 
         # --- Phase 2: versioning + chunks + outbox (per document) ---
         for fname, info in registry.items():
@@ -379,9 +405,16 @@ class IngestionService:
 
         log.info("Synced %d documents to database via outbox", len(registry))
 
-    async def _ensure_document_rows(self, registry: dict, visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC, group_id: int | None = None, client_id: int | None = None) -> dict[str, int]:
+    async def _ensure_document_rows(
+        self,
+        registry: dict,
+        visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC,
+        group_id: int | None = None,
+        client_id: int | None = None,
+    ) -> dict[str, int]:
         """Phase 1: get-or-create document rows for all registry filenames."""
         doc_ids: dict[str, int] = {}
+        assert self._uow_factory is not None
         async with self._uow_factory.create(master=True) as uow:
             # Determine owner_id based on visibility
             owner_id = None  # CLI ingest has no user context
@@ -447,6 +480,7 @@ class IngestionService:
 
         raw_chunks = [RawChunk(page_content=c.page_content, metadata=dict(c.metadata)) for c in file_chunks]
 
+        assert self._uow_factory is not None
         async with self._uow_factory.create(master=True) as uow:
             enrich_chunks_metadata(
                 raw_chunks,
@@ -486,16 +520,22 @@ class IngestionService:
         # mutation must not run inline; a DB rollback must not leave Qdrant
         # patched with a document id that was never committed.
         await uow.vector_outbox.enqueue(
-                VectorOutboxEntry(
-                    operation=OutboxOperation.SET_DOCUMENT_ID,
-                    aggregate_type="document",
-                    aggregate_id=doc_id,
-                    payload={"source": src, "document_id": doc_id},
-                )
+            VectorOutboxEntry(
+                operation=OutboxOperation.SET_DOCUMENT_ID,
+                aggregate_type="document",
+                aggregate_id=doc_id,
+                payload={"source": src, "document_id": doc_id},
             )
+        )
 
-    async def run_single_file(self, file_path: str, domain: str = "auto",
-        visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC, group_id: int | None = None, client_id: int | None = None) -> None:
+    async def run_single_file(
+        self,
+        file_path: str,
+        domain: str = "auto",
+        visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC,
+        group_id: int | None = None,
+        client_id: int | None = None,
+    ) -> None:
         t_start = time.monotonic()
 
         log.info("=" * 55)
@@ -506,7 +546,9 @@ class IngestionService:
         log.info("=" * 55)
 
         registry = await self._registry_list_all()
-        chunks = await self._handle_s3_file(file_path, domain, registry, visibility=visibility, group_id=group_id, client_id=client_id)
+        chunks = await self._handle_s3_file(
+            file_path, domain, registry, visibility=visibility, group_id=group_id, client_id=client_id
+        )
 
         if chunks is None:
             return
@@ -515,8 +557,15 @@ class IngestionService:
         log.info("DONE  |  %d chunks  |  %.1fs", len(chunks), time.monotonic() - t_start)
         log.info("=" * 55)
 
-    async def _handle_s3_file(self, file_path: str, domain: str, registry: dict,
-        visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC, group_id: int | None = None, client_id: int | None = None) -> list | None:
+    async def _handle_s3_file(
+        self,
+        file_path: str,
+        domain: str,
+        registry: dict,
+        visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC,
+        group_id: int | None = None,
+        client_id: int | None = None,
+    ) -> list | None:
         key = file_path
         file_info = self._file_storage.get_file_info(key)
         if file_info is None:
@@ -592,7 +641,7 @@ class IngestionService:
             chunks = split_documents_legal(merged)
         else:
             chunks = split_documents(merged)
-        _tag_internal_public(chunks)
+        _tag_chunks(chunks)
         _tag_domain(chunks, domain)
         return chunks
 

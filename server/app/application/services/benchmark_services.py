@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 import logging
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, TypeAlias
@@ -43,14 +44,14 @@ class BenchmarkQuestionService:
         self._uow_factory = uow_factory
 
     async def list(
-            self,
-            dataset: str | None = None,
-            tag: str | None = None,
-            search: str | None = None,
-            is_active: bool | None = None,
-            limit: int = 50,
-            offset: int = 0,
-    ) -> tuple[list[BenchmarkQuestion], int]:
+        self,
+        dataset: str | None = None,
+        tag: str | None = None,
+        search: str | None = None,
+        is_active: bool | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[builtins.list[BenchmarkQuestion], int]:
         async with self._uow_factory.create() as uow:
             questions = await uow.benchmark_questions.list_items(
                 dataset=dataset, tag=tag, search=search, is_active=is_active, limit=limit, offset=offset
@@ -89,7 +90,7 @@ class BenchmarkQuestionService:
             raise EntityNotFound("BenchmarkQuestion", question_id)
         return True
 
-    async def bulk_create(self, bodies: list[BenchmarkQuestionCreate], created_by: int) -> int:
+    async def bulk_create(self, bodies: builtins.list[BenchmarkQuestionCreate], created_by: int) -> int:
         entities = [
             BenchmarkQuestion(
                 question=q.question,
@@ -104,7 +105,7 @@ class BenchmarkQuestionService:
         async with self._uow_factory.create(master=True) as uow:
             return await uow.benchmark_questions.bulk_create(entities)
 
-    async def export(self, dataset: str | None = None) -> list[BenchmarkQuestion]:
+    async def export(self, dataset: str | None = None) -> builtins.list[BenchmarkQuestion]:
         async with self._uow_factory.create() as uow:
             return await uow.benchmark_questions.list_items(dataset=dataset, limit=10000)
 
@@ -138,7 +139,7 @@ class BenchmarkSweepService:
             raise EntityNotFound("BenchmarkSweep", sweep_id)
         return sweep
 
-    async def list(self, limit: int = 50, offset: int = 0) -> tuple[list[BenchmarkSweep], int]:
+    async def list(self, limit: int = 50, offset: int = 0) -> tuple[builtins.list[BenchmarkSweep], int]:
         async with self._uow_factory.create() as uow:
             sweeps = await uow.benchmark_sweeps.list_items(limit=limit, offset=offset)
             total = await uow.benchmark_sweeps.count()
@@ -166,14 +167,14 @@ class BenchmarkRunService:
         self._uow_factory = uow_factory
 
     async def list(
-            self,
-            sweep_id: int | None = None,
-            dataset: str | None = None,
-            sort_by: str = "creation_date",
-            sort_order: str = "desc",
-            limit: int = 50,
-            offset: int = 0,
-    ) -> tuple[list[BenchmarkRun], int]:
+        self,
+        sweep_id: int | None = None,
+        dataset: str | None = None,
+        sort_by: str = "creation_date",
+        sort_order: str = "desc",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[builtins.list[BenchmarkRun], int]:
         async with self._uow_factory.create() as uow:
             runs = await uow.benchmark_runs.list_items(
                 sweep_id=sweep_id,
@@ -195,7 +196,7 @@ class BenchmarkRunService:
 
         return run
 
-    async def get_by_ids(self, ids: Sequence[int]) -> list[BenchmarkRun]:
+    async def get_by_ids(self, ids: Sequence[int]) -> builtins.list[BenchmarkRun]:
         async with self._uow_factory.create() as uow:
             return await uow.benchmark_runs.get_by_ids(list(ids))
 
@@ -221,10 +222,10 @@ class BenchmarkRunService:
         return runs, diff
 
     async def apply_config(
-            self,
-            run_id: int,
-            changed_by: int,
-            config_service: ConfigService,
+        self,
+        run_id: int,
+        changed_by: int,
+        config_service: ConfigService,
     ) -> ApplyConfigResult:
         """Apply a run's config_json to the live system via ConfigService."""
         run = await self.get(run_id)

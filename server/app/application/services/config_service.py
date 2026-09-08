@@ -20,9 +20,9 @@ log = logging.getLogger("default")
 
 class ConfigService:
     def __init__(
-            self,
-            uow_factory: UnitOfWorkFactory,
-            event_bus: EventBus,
+        self,
+        uow_factory: UnitOfWorkFactory,
+        event_bus: EventBus,
     ) -> None:
         self._uow_factory = uow_factory
         self._bus = event_bus
@@ -32,11 +32,11 @@ class ConfigService:
             return await uow.config_parameters.get_all()
 
     async def update_parameter(
-            self,
-            key: str,
-            raw_value: str,
-            changed_by: int | None = None,
-            domain_key: str | None = None,
+        self,
+        key: str,
+        raw_value: str,
+        changed_by: int | None = None,
+        domain_key: str | None = None,
     ) -> ConfigParameter:
         async with self._uow_factory.create(master=True) as uow:
             param = await uow.config_parameters.get_by_key_and_domain(key, domain_key)

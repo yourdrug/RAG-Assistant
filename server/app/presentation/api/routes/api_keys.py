@@ -45,15 +45,18 @@ async def list_api_keys(
 ):
     _check_client_access(current_user, client_user_id)
     keys = await auth_service.list_api_keys(client_user_id)
-    return [ApiKeyResponse(
-        id=k.id,
-        key_prefix=k.key_prefix,
-        name=k.name,
-        creation_date=k.creation_date,
-        last_used_at=k.last_used_at,
-        revoked_at=k.revoked_at,
-        is_active=k.is_active,
-    ) for k in keys]
+    return [
+        ApiKeyResponse(
+            id=k.id,
+            key_prefix=k.key_prefix,
+            name=k.name,
+            creation_date=k.creation_date,
+            last_used_at=k.last_used_at,
+            revoked_at=k.revoked_at,
+            is_active=k.is_active,
+        )
+        for k in keys
+    ]
 
 
 @router.delete("/{client_user_id}/api-keys/{api_key_id}")

@@ -9,7 +9,6 @@ from sqlalchemy import select
 from application.ports.session_protocol import SessionProtocol
 from domain.repositories.ingestion_registry_repository import (
     IngestionRegistryEntry,
-    IngestionRegistryRepository,
 )
 from infrastructure.database.models import IngestionRegistryModel
 

@@ -98,7 +98,6 @@ def with_temporal_filter(access_filter: Filter, as_of_date: date | None) -> Filt
             match=MatchValue(value=True),
         )
     else:
-        as_of_str = as_of_date.isoformat()
         # Chunks with NULL dates always pass (non-versioned content or
         # dates not yet trusted — see TZ section 9.2/11.2).
         temporal_condition = Filter(
@@ -108,7 +107,7 @@ def with_temporal_filter(access_filter: Filter, as_of_date: date | None) -> Filt
                         IsNullCondition(is_null=PayloadField(key="metadata.effective_from")),
                         FieldCondition(
                             key="metadata.effective_from",
-                            range=DatetimeRange(lte=as_of_str),
+                            range=DatetimeRange(lte=as_of_date),
                         ),
                     ]
                 ),
@@ -117,7 +116,7 @@ def with_temporal_filter(access_filter: Filter, as_of_date: date | None) -> Filt
                         IsNullCondition(is_null=PayloadField(key="metadata.effective_to")),
                         FieldCondition(
                             key="metadata.effective_to",
-                            range=DatetimeRange(gt=as_of_str),
+                            range=DatetimeRange(gt=as_of_date),
                         ),
                     ]
                 ),

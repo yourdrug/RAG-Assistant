@@ -71,7 +71,7 @@ def create_document_processor(
     if infra.domain_registry is not None:
         act_versioning = ActVersioningService(
             uow_factory=uow,
-            settings=infra.domain_settings,
+            settings=infra.domain_settings,  # type: ignore[arg-type]
         )
 
     return DocumentProcessor(

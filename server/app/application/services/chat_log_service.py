@@ -59,14 +59,14 @@ class ChatLogService:
                 await uow.chat_logs.save(chat_log)
 
     async def list_logs(
-            self,
-            user_id: int | None = None,
-            domain: str | None = None,
-            date_from: datetime | None = None,
-            date_to: datetime | None = None,
-            search: str | None = None,
-            limit: int = 50,
-            offset: int = 0,
+        self,
+        user_id: int | None = None,
+        domain: str | None = None,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
+        search: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
     ):
         async with self._uow_factory.create() as uow:
             return await uow.chat_logs.list_logs(
@@ -80,12 +80,12 @@ class ChatLogService:
             )
 
     async def count_logs(
-            self,
-            user_id: int | None = None,
-            domain: str | None = None,
-            date_from: datetime | None = None,
-            date_to: datetime | None = None,
-            search: str | None = None,
+        self,
+        user_id: int | None = None,
+        domain: str | None = None,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
+        search: str | None = None,
     ) -> int:
         async with self._uow_factory.create() as uow:
             return await uow.chat_logs.count_logs(

@@ -102,7 +102,7 @@ class OutboxDispatcher:
                 entry.attempts + 1,
                 e,
             )
-            backoff = min(_BASE_BACKOFF_SEC * (2 ** entry.attempts), _MAX_BACKOFF_SEC)
+            backoff = min(_BASE_BACKOFF_SEC * (2**entry.attempts), _MAX_BACKOFF_SEC)
             async with self._uow_factory.create(master=True) as uow:
                 await uow.vector_outbox.mark_failed(entry.id, str(e), backoff_seconds=backoff)
 

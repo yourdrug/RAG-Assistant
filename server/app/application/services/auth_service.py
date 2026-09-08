@@ -28,11 +28,11 @@ from domain.value_objects.roles import UserKind, UserRole
 
 class AuthService:
     def __init__(
-            self,
-            uow_factory: UnitOfWorkFactory,
-            password_hasher: IPasswordHasher,
-            token_provider: ITokenProvider,
-            api_key_provider: ApiKeyProviderPort,
+        self,
+        uow_factory: UnitOfWorkFactory,
+        password_hasher: IPasswordHasher,
+        token_provider: ITokenProvider,
+        api_key_provider: ApiKeyProviderPort,
     ) -> None:
         self._uow_factory = uow_factory
         self._hasher = password_hasher
@@ -49,11 +49,11 @@ class AuthService:
             if not await self._hasher.verify(command.password, user.hashed_password):
                 raise ValidationError("Invalid email or password")
 
-            token = self._tokens.create_token(user_id=user.id, role=user.role)
+            token = self._tokens.create_token(user_id=user.id, role=user.role)  # type: ignore[arg-type]
             return LoginResult(access_token=token, role=user.role, kind=user.kind)
 
     async def create_user(
-            self, command: CreateUserCommand, creator_role: str | UserRole = UserRole.ADMIN
+        self, command: CreateUserCommand, creator_role: str | UserRole = UserRole.ADMIN
     ) -> UserDTO:
         async with self._uow_factory.create(master=True) as uow:
             role = UserRole.validate(command.role)
@@ -72,6 +72,7 @@ class AuthService:
 
             user.hashed_password = await self._hasher.hash(command.password)
             saved = await uow.users.save(user)
+            assert saved.id is not None
 
             return UserDTO(
                 id=saved.id,
@@ -113,6 +114,7 @@ class AuthService:
 
             if user is None:
                 return None
+            assert user.id is not None
 
             return UserDTO(
                 id=user.id,
@@ -165,6 +167,7 @@ class AuthService:
             saved = await uow.api_keys.create(
                 user_id=client_user_id, key_hash=key_hash, key_prefix=prefix, name=name
             )
+            assert saved.id is not None
 
             return IssueApiKeyResult(
                 id=saved.id,
@@ -180,7 +183,7 @@ class AuthService:
 
             return [
                 ApiKeyInfo(
-                    id=k.id,
+                    id=k.id,  # type: ignore[arg-type]
                     key_prefix=k.key_prefix,
                     name=k.name,
                     creation_date=k.creation_date,

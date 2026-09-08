@@ -96,7 +96,7 @@ class LangchainDocumentParser:
             profile = self._domain_registry.get("decree")
         except KeyError:
             return None
-        return profile if profile.content_boundaries() else None
+        return profile if profile.content_boundaries() else None  # type: ignore[return-value]
 
     def _try_parse_decree_rtf(self, file_path: Path, text: str) -> "list[RawDocument] | None":
         """Decree-structured RTF path; None = fall through to flat RTF parsing.
@@ -108,6 +108,7 @@ class LangchainDocumentParser:
         if profile is None or not profile.structural_fingerprint(text[:_DECREE_FINGERPRINT_PREFIX_CHARS]):
             return None
         try:
+            assert self._domain_settings is not None
             units, doc_metadata = parse_decree_rtf(file_path, profile, self._domain_settings)
         except Exception:
             log.exception("Decree RTF parsing failed for %s — falling back to flat parse", file_path.name)

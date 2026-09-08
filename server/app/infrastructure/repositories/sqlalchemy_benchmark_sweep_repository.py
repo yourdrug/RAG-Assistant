@@ -83,11 +83,17 @@ class SQLAlchemyBenchmarkSweepRepository:
         return result.scalar_one()
 
     async def has_active(self) -> bool:
-        stmt = select(func.count()).select_from(BenchmarkSweepModel).where(
-            BenchmarkSweepModel.status.in_([
-                BenchmarkSweepStatus.PENDING.value,
-                BenchmarkSweepStatus.RUNNING.value,
-            ])
+        stmt = (
+            select(func.count())
+            .select_from(BenchmarkSweepModel)
+            .where(
+                BenchmarkSweepModel.status.in_(
+                    [
+                        BenchmarkSweepStatus.PENDING.value,
+                        BenchmarkSweepStatus.RUNNING.value,
+                    ]
+                )
+            )
         )
         result = await self._db.execute(stmt)
         return (result.scalar_one() or 0) > 0

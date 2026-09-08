@@ -85,7 +85,7 @@ async def list_act_versions(
     return ActVersionListResponse(
         versions=[
             ActVersionReviewItem(
-                id=v.id,
+                id=v.id,  # type: ignore[arg-type]
                 act_id=v.act_id,
                 document_id=v.document_id,
                 effective_from=v.effective_from,

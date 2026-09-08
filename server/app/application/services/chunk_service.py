@@ -70,9 +70,12 @@ class ChunkService:
                 raise EntityNotFound("Document", document_id)
 
             ctx = UserContext(
-                user_id=user_id, user_kind=user_kind, user_role=user_role,
+                user_id=user_id,
+                user_kind=user_kind,
+                user_role=user_role,
                 group_ids=await uow.groups.get_user_group_ids(user_id)
-                if user_kind == UserKind.INTERNAL else [],
+                if user_kind == UserKind.INTERNAL
+                else [],
             )
             await check_document_access(uow, doc, ctx)
 
@@ -362,9 +365,12 @@ class ChunkService:
 
         async with self._uow_factory.create(master=True) as uow:
             ctx = UserContext(
-                user_id=user_id, user_kind=user_kind, user_role=user_role,
+                user_id=user_id,
+                user_kind=user_kind,
+                user_role=user_role,
                 group_ids=await uow.groups.get_user_group_ids(user_id)
-                if user_kind == UserKind.INTERNAL else [],
+                if user_kind == UserKind.INTERNAL
+                else [],
             )
             validate_document_visibility(vis, group_id, ctx)
 

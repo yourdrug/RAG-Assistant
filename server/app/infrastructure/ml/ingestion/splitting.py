@@ -96,7 +96,7 @@ def _split_table_into_batches(table_doc: Document, max_rows: int) -> list[Docume
 
     batches: list[Document] = []
     for i in range(0, len(data_lines), max_rows):
-        batch_rows = data_lines[i: i + max_rows]
+        batch_rows = data_lines[i : i + max_rows]
         batch_text = "\n".join([header_line, separator_line] + batch_rows)
         batches.append(Document(page_content=batch_text, metadata={**table_doc.metadata}))
     return batches

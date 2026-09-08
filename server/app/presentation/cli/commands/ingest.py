@@ -36,15 +36,31 @@ def ingest_run(
     docs_dir: str = typer.Option("docs/", "--docs-dir", "-d", help="S3 prefix (default: docs/)"),
     reset: bool = typer.Option(False, "--reset", help="Reset collection and registry, reindex everything"),
     domain: str = typer.Option("auto", "--domain", help="Document domain: auto, legal, general"),
-    visibility: str = typer.Option("internal_public", "--visibility", "-v", help=f"Document visibility: {', '.join(v.value for v in DocumentVisibility)}"),
+    visibility: str = typer.Option(
+        "internal_public",
+        "--visibility",
+        "-v",
+        help=f"Document visibility: {', '.join(v.value for v in DocumentVisibility)}",
+    ),
     group_id: int = typer.Option(None, "--group-id", help="Group ID (required if visibility=internal_group)"),
-    client_id: int = typer.Option(None, "--client-id", help="Client ID (required if visibility=client_private)"),
+    client_id: int = typer.Option(
+        None, "--client-id", help="Client ID (required if visibility=client_private)"
+    ),
 ) -> None:
     """Full indexing of documents from S3 bucket."""
     vis = DocumentVisibility.validate(visibility)
     try:
         service = _create_service()
-        asyncio.run(service.run_full_ingestion(docs_dir=docs_dir, reset=reset, domain=domain, visibility=vis.value, group_id=group_id, client_id=client_id))
+        asyncio.run(
+            service.run_full_ingestion(
+                docs_dir=docs_dir,
+                reset=reset,
+                domain=domain,
+                visibility=vis,
+                group_id=group_id,
+                client_id=client_id,
+            )
+        )
     except Exception as exc:
         logger.error("Indexing error", exc_info=exc)
         sys.exit(1)
@@ -55,9 +71,16 @@ def ingest_file(
     file_path: str = typer.Argument(..., help="S3 key (e.g. docs/report.pdf)"),
     force: bool = typer.Option(False, "--force", help="Reindex even if file is already in registry"),
     domain: str = typer.Option("auto", "--domain", help="Document domain: auto, legal, general"),
-    visibility: str = typer.Option("internal_public", "--visibility", "-v", help=f"Document visibility: {', '.join(v.value for v in DocumentVisibility)}"),
+    visibility: str = typer.Option(
+        "internal_public",
+        "--visibility",
+        "-v",
+        help=f"Document visibility: {', '.join(v.value for v in DocumentVisibility)}",
+    ),
     group_id: int = typer.Option(None, "--group-id", help="Group ID (required if visibility=internal_group)"),
-    client_id: int = typer.Option(None, "--client-id", help="Client ID (required if visibility=client_private)"),
+    client_id: int = typer.Option(
+        None, "--client-id", help="Client ID (required if visibility=client_private)"
+    ),
 ) -> None:
     """Add a single file from S3 to existing collection."""
     vis = DocumentVisibility.validate(visibility)
@@ -67,7 +90,9 @@ def ingest_file(
         async def _run():
             if force:
                 await service.force_reindex(file_path.split("/")[-1])
-            await service.run_single_file(file_path, domain=domain, visibility=vis.value, group_id=group_id, client_id=client_id)
+            await service.run_single_file(
+                file_path, domain=domain, visibility=vis, group_id=group_id, client_id=client_id
+            )
 
         asyncio.run(_run())
     except Exception as exc:

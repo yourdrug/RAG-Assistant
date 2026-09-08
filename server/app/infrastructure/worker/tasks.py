@@ -173,7 +173,9 @@ async def run_full_ingest(
     vis = DocumentVisibility.validate(visibility)
 
     async def _action() -> None:
-        await service.run_full(resolved_dir, reset, domain=domain, visibility=vis, group_id=group_id, client_id=client_id)
+        await service.run_full(
+            resolved_dir, reset, domain=domain, visibility=vis, group_id=group_id, client_id=client_id
+        )
 
     await _run_tracked_job(uow_factory, job_id, _action, description=f"full ingest {resolved_dir}")
 
@@ -198,7 +200,9 @@ async def run_single_ingest(
     vis = DocumentVisibility.validate(visibility)
 
     async def _action() -> None:
-        await service.run_single(resolved, domain=domain, visibility=vis, group_id=group_id, client_id=client_id)
+        await service.run_single(
+            resolved, domain=domain, visibility=vis, group_id=group_id, client_id=client_id
+        )
 
     await _run_tracked_job(uow_factory, job_id, _action, description=f"single ingest {resolved}")
 

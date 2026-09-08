@@ -236,7 +236,7 @@ class TestMarginAmbiguity:
 
 class TestConfidenceFormula:
     def test_confidence_formula_clean_winner(self):
-        """confidence = min(1.0, (top_score - threshold) / threshold)."""
+        """Confidence = min(1.0, (top_score - threshold) / threshold)."""
         reg = _make_registry()
         # Decree text with strong signals → score well above threshold
         text = (
@@ -253,7 +253,7 @@ class TestConfidenceFormula:
             assert 0.0 <= result.confidence <= 1.0
 
     def test_confidence_clamped_at_1(self):
-        """confidence must never exceed 1.0 even with very high scores."""
+        """Confidence must never exceed 1.0 even with very high scores."""
         reg = DomainProfileRegistry()
         reg.register(GeneralDomainProfile())
         reg.register(DecreeDomainProfile(settings=FakeSettings()))
@@ -340,7 +340,9 @@ class TestStickyPriorEdgeCases:
         """Short text with unknown prior falls back to general."""
         reg = _make_registry()
         result = reg.classify(
-            "Короткий", prior_domain="nonexistent", settings=FakeSettings(),
+            "Короткий",
+            prior_domain="nonexistent",
+            settings=FakeSettings(),
         )
         assert result.domain_key == "general"
         assert result.is_low_signal is True
@@ -410,6 +412,7 @@ class TestMarginRatioRealProfiles:
 class TestSettingsAdapterIntegration:
     def test_missing_threshold_key_in_classify(self):
         """If settings.get() raises KeyError, it propagates."""
+
         class BadSettings:
             def get(self, key, domain_key=""):
                 raise KeyError(f"Missing key: {key}")
@@ -419,5 +422,6 @@ class TestSettingsAdapterIntegration:
         reg.register(DecreeDomainProfile(settings=BadSettings()))
         text = "УКАЗ\nПОСТАНОВЛЯЮ:\n" + "\n".join(f"{i}. Пункт {i}." for i in range(10)) + "\n"
         import pytest
+
         with pytest.raises(KeyError):
             reg.classify(text, settings=BadSettings())

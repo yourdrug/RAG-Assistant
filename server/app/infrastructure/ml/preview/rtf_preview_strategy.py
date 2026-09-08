@@ -88,9 +88,11 @@ class RtfPreviewStrategy:
         self, path: Path, raw_text: str
     ) -> tuple[list[DryRunPageResult], dict[str, int], int]:
         """Decree-structured preview: one unit per structural SplitUnit."""
+        if self._domain_registry is None or self._domain_settings is None:
+            return self._analyze_flat(raw_text)
         profile = self._domain_registry.get("decree")
         try:
-            split_units, _doc_metadata = parse_decree_rtf(path, profile, self._domain_settings)
+            split_units, _doc_metadata = parse_decree_rtf(path, profile, self._domain_settings)  # type: ignore[arg-type]
         except Exception:
             logger.exception("Decree preview failed for %s — falling back to flat preview", path.name)
             return self._analyze_flat(raw_text)
@@ -137,7 +139,7 @@ class RtfPreviewStrategy:
     def _analyze_flat(self, raw_text: str) -> tuple[list[DryRunPageResult], dict[str, int], int]:
         stripped = raw_text.strip()
         chars = len(stripped)
-        types_count = {
+        types_count: dict[str, int] = {
             PageContentType.TEXT: 1,
             PageContentType.SCAN: 0,
             PageContentType.GARBLED: 0,

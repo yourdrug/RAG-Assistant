@@ -139,9 +139,7 @@ class SQLAlchemyBackgroundJobRepository:
         return [row[0] for row in result.fetchall()]
 
     async def touch_heartbeat(self, job_id: int) -> None:
-        result = await self._db.execute(
-            select(BackgroundJobModel).where(BackgroundJobModel.id == job_id)
-        )
+        result = await self._db.execute(select(BackgroundJobModel).where(BackgroundJobModel.id == job_id))
         orm = result.scalar_one_or_none()
         if orm:
             orm.heartbeat_at = datetime.now(tz=UTC)

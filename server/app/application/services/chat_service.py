@@ -27,7 +27,14 @@ from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.message_role import MessageRole
 from domain.value_objects.roles import UserKind
 from domain.value_objects.user_context import UserContext
-from domain.value_objects.stream_events import MetaEvent, SourcesEvent, StatusEvent, StreamEvent, TextChunk
+from domain.value_objects.stream_events import (
+    MetaEvent,
+    SourcesEvent,
+    StatusEvent,
+    StreamEvent,
+    TextChunk,
+    UsageReport,
+)
 
 log = logging.getLogger(__name__)
 
@@ -42,13 +49,13 @@ class ChatSetup:
 
 class ChatService:
     def __init__(
-            self,
-            uow_factory: UnitOfWorkFactory,
-            rag_service: ChatRAGPort,
-            chat_settings: ChatSettingsPort,
-            chat_log_service: ChatLogService,
-            conversation_service: ConversationService,
-            pii_redactor: PIIRedactorPort,
+        self,
+        uow_factory: UnitOfWorkFactory,
+        rag_service: ChatRAGPort,
+        chat_settings: ChatSettingsPort,
+        chat_log_service: ChatLogService,
+        conversation_service: ConversationService,
+        pii_redactor: PIIRedactorPort,
     ) -> None:
         self._uow_factory = uow_factory
         self._rag_service = rag_service
@@ -68,17 +75,18 @@ class ChatService:
         return UserContext(user_id=user_id, user_kind=user_kind, user_role=user_role, group_ids=group_ids)
 
     async def _prepare_chat(
-            self,
-            question: str,
-            conversation_id: int | None,
-            user_id: int,
-            user_kind: str,
-            depth: str | None,
-            as_of_date: date | None,
+        self,
+        question: str,
+        conversation_id: int | None,
+        user_id: int,
+        user_kind: str,
+        depth: str | None,
+        as_of_date: date | None,
     ) -> ChatSetup:
         async with self._uow_factory.create(master=True) as uow:
             user_ctx = await self._build_user_context(uow, user_id, user_kind)
             conv = await uow.conversations.get_or_create(conversation_id, user_id)
+            assert conv.id is not None
             history = await uow.messages.get_history(conv.id, window=self._settings.history_window)
             if history and history[-1].role == MessageRole.USER:
                 history = history[:-1]
@@ -95,31 +103,35 @@ class ChatService:
         return ChatSetup(conv=conv, history=history, ctx=ctx, pii_question=pii_question)
 
     async def _persist_chat(
-            self,
-            conv_id: int,
-            user_id: int,
-            question: str,
-            full_answer: str,
-            sources: list[dict],
-            latency_ms: int,
-            depth: str | None,
-            history: list,
-            usage: object | None = None,
-            model_used: str | None = None,
-            domain: str | None = None,
+        self,
+        conv_id: int,
+        user_id: int,
+        question: str,
+        full_answer: str,
+        sources: list[dict],
+        latency_ms: int,
+        depth: str | None,
+        history: list,
+        usage: UsageReport | None = None,
+        model_used: str | None = None,
+        domain: str | None = None,
     ) -> None:
         async with self._uow_factory.create(master=True) as uow:
-            await uow.messages.save(Message(
-                conversation_id=conv_id,
-                role=MessageRole.USER,
-                content=question,
-            ))
-            await uow.messages.save(Message(
-                conversation_id=conv_id,
-                role=MessageRole.ASSISTANT,
-                content=full_answer,
-                sources=sources,
-            ))
+            await uow.messages.save(
+                Message(
+                    conversation_id=conv_id,
+                    role=MessageRole.USER,
+                    content=question,
+                )
+            )
+            await uow.messages.save(
+                Message(
+                    conversation_id=conv_id,
+                    role=MessageRole.ASSISTANT,
+                    content=full_answer,
+                    sources=sources,
+                )
+            )
             await self._chat_log_service.create(
                 user_id=user_id,
                 conv_id=conv_id,
@@ -153,14 +165,14 @@ class ChatService:
     # ------------------------------------------------------------------
 
     async def stream_chat(
-            self,
-            question: str,
-            conversation_id: int | None,
-            user_id: int,
-            user_kind: str,
-            user_role: str,
-            depth: str | None = None,
-            as_of_date: date | None = None,
+        self,
+        question: str,
+        conversation_id: int | None,
+        user_id: int,
+        user_kind: str,
+        user_role: str,
+        depth: str | None = None,
+        as_of_date: date | None = None,
     ) -> AsyncIterator[StreamEvent]:
         setup = await self._prepare_chat(question, conversation_id, user_id, user_kind, depth, as_of_date)
 
@@ -171,9 +183,9 @@ class ChatService:
         t_start = time.monotonic()
 
         async for event in self._rag_service.stream(
-                question=question,
-                history=setup.history,
-                ctx=setup.ctx,
+            question=question,
+            history=setup.history,
+            ctx=setup.ctx,
         ):
             if isinstance(event, SourcesEvent):
                 sources = event.sources
@@ -186,6 +198,7 @@ class ChatService:
                 yield event
 
         latency_ms = int((time.monotonic() - t_start) * 1000)
+        assert setup.conv.id is not None
 
         await self._persist_chat(
             conv_id=setup.conv.id,
@@ -206,14 +219,14 @@ class ChatService:
     # ------------------------------------------------------------------
 
     async def sync_chat(
-            self,
-            question: str,
-            conversation_id: int | None,
-            user_id: int,
-            user_kind: str,
-            user_role: str,
-            depth: str | None = None,
-            as_of_date: date | None = None,
+        self,
+        question: str,
+        conversation_id: int | None,
+        user_id: int,
+        user_kind: str,
+        user_role: str,
+        depth: str | None = None,
+        as_of_date: date | None = None,
     ) -> ChatResult:
         setup = await self._prepare_chat(question, conversation_id, user_id, user_kind, depth, as_of_date)
 
@@ -224,6 +237,7 @@ class ChatService:
             ctx=setup.ctx,
         )
         latency_ms = int((time.monotonic() - t_start) * 1000)
+        assert setup.conv.id is not None
 
         await self._persist_chat(
             conv_id=setup.conv.id,

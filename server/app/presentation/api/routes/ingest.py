@@ -89,7 +89,9 @@ async def ingest_single_file(
     job_id = await job_service.create_job(JobType.INGEST, related_id=None)
 
     log_action(
-        "ingest.file", user_id=admin["id"], details={"file": resolved, "force": force, "domain": domain, "visibility": visibility.value}
+        "ingest.file",
+        user_id=admin["id"],
+        details={"file": resolved, "force": force, "domain": domain, "visibility": visibility.value},
     )
 
     await enqueue_ingest_file(

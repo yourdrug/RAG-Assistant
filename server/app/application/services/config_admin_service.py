@@ -56,11 +56,11 @@ class OpenRouterModelsInfo:
 
 class ConfigAdminService:
     def __init__(
-            self,
-            ollama_probe: OllamaProbePort,
-            vectordb_info: VectorDBInfoPort,
-            admin_settings: ConfigAdminSettingsPort,
-            openrouter_models_fetcher=None,
+        self,
+        ollama_probe: OllamaProbePort,
+        vectordb_info: VectorDBInfoPort,
+        admin_settings: ConfigAdminSettingsPort,
+        openrouter_models_fetcher=None,
     ) -> None:
         self._ollama = ollama_probe
         self._vectordb = vectordb_info

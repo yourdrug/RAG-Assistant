@@ -73,6 +73,7 @@ def _make_act_versioning(infra: "InfrastructureContainer", uow_factory):
     if infra.domain_registry is None or infra.domain_settings is None:
         return None
     from application.services.act_versioning_service import ActVersioningService
+
     return ActVersioningService(uow_factory=uow_factory, settings=infra.domain_settings)
 
 

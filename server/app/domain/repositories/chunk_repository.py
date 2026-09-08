@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from typing import Protocol, runtime_checkable
 
 from domain.value_objects.doc_domain import DocDomain
@@ -150,8 +150,8 @@ class ChunkRepository(Protocol):
     async def update_temporal_by_act_version_id(
         self,
         act_version_id: int,
-        effective_from: datetime | None,
-        effective_to: datetime | None,
+        effective_from: date | None,
+        effective_to: date | None,
     ) -> int:
         """Update effective_from/to for all chunks linked to an act version."""
         ...

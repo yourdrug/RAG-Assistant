@@ -44,22 +44,25 @@ async def list_chunks(
         offset=offset,
         content_hashes=content_hashes,
     )
-    chunk_responses = [ChunkResponse(
-        id=c.id,
-        document_id=c.document_id,
-        chunk_index=c.chunk_index,
-        content=c.content,
-        filename=c.filename,
-        visibility=c.visibility,
-        doc_domain=c.doc_domain,
-        owner_id=c.owner_id,
-        group_id=c.group_id,
-        edited_at=c.edited_at,
-        edited_by=c.edited_by,
-        manual=c.manual,
-        creation_date=c.creation_date,
-        content_hash=c.content_hash,
-    ) for c in chunks]
+    chunk_responses = [
+        ChunkResponse(
+            id=c.id,
+            document_id=c.document_id,
+            chunk_index=c.chunk_index,
+            content=c.content,
+            filename=c.filename,
+            visibility=c.visibility,
+            doc_domain=c.doc_domain,
+            owner_id=c.owner_id,
+            group_id=c.group_id,
+            edited_at=c.edited_at,
+            edited_by=c.edited_by,
+            manual=c.manual,
+            creation_date=c.creation_date,
+            content_hash=c.content_hash,
+        )
+        for c in chunks
+    ]
     return ChunkListResponse(
         chunks=chunk_responses,
         total=total,

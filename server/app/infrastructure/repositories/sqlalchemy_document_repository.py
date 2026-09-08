@@ -198,10 +198,7 @@ class SQLAlchemyDocumentRepository:
 
     async def list_all(self, limit: int = 200, offset: int = 0) -> list[Document]:
         result = await self._db.execute(
-            select(DocumentModel)
-            .order_by(DocumentModel.creation_date.desc())
-            .offset(offset)
-            .limit(limit)
+            select(DocumentModel).order_by(DocumentModel.creation_date.desc()).offset(offset).limit(limit)
         )
         return [self._to_entity(orm) for orm in result.scalars().all()]
 

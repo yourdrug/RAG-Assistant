@@ -67,6 +67,7 @@ class _UploadableService(Protocol):
         client_id: int | None = ...,
         rename_on_conflict: bool = ...,
         doc_domain: str | None = ...,
+        replaces_document_id: int | None = ...,
     ) -> Any: ...
 
 

@@ -37,7 +37,11 @@ async def resolve_conflict(
     """
     if domain_profile is not None and domain_profile.is_versioned:
         await _resolve_as_version(
-            uow_factory, new_doc, old_doc, domain_profile, act_versioning_service,
+            uow_factory,
+            new_doc,
+            old_doc,
+            domain_profile,
+            act_versioning_service,
         )
     else:
         await _resolve_as_replace(uow_factory, new_doc, old_doc)
@@ -53,12 +57,16 @@ async def _resolve_as_version(
     """Versioned domain: create ActVersion, old document stays as historical."""
     log.info(
         "Versioning: doc %d is new version of doc %d (domain=%s)",
-        new_doc.id, old_doc.id, domain_profile.key,
+        new_doc.id,
+        old_doc.id,
+        domain_profile.key,
     )
     if act_versioning_service is not None:
         try:
             await act_versioning_service.process_document_versioning(
-                domain_profile, new_doc.id, "",  # full_text filled by processor
+                domain_profile,
+                new_doc.id,
+                "",  # full_text filled by processor
             )
         except Exception:
             log.exception("Versioning failed for doc %d", new_doc.id)
@@ -72,12 +80,14 @@ async def _resolve_as_replace(
     """Legacy domain: delete old document, new takes canonical filename."""
     log.info(
         "Replacing: doc %d replaces doc %d (legacy domain)",
-        new_doc.id, old_doc.id,
+        new_doc.id,
+        old_doc.id,
     )
     async with uow_factory.create(master=True) as uow:
         # Delete old document's chunks via outbox
         from domain.entities.vector_outbox_entry import OutboxOperation, VectorOutboxEntry
 
+        assert old_doc.id is not None
         await uow.vector_outbox.enqueue(
             VectorOutboxEntry(
                 operation=OutboxOperation.DELETE_BY_DOCUMENT,

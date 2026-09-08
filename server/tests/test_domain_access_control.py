@@ -69,19 +69,22 @@ class TestValidateDocumentVisibility:
 
     def test_internal_admin_can_use_internal_public(self):
         validate_document_visibility(
-            DocumentVisibility.INTERNAL_PUBLIC, None,
+            DocumentVisibility.INTERNAL_PUBLIC,
+            None,
             UserContext(user_id=1, user_kind="internal", user_role="admin"),
         )
 
     def test_internal_user_can_use_internal_private(self):
         validate_document_visibility(
-            DocumentVisibility.INTERNAL_PRIVATE, None,
+            DocumentVisibility.INTERNAL_PRIVATE,
+            None,
             UserContext(user_id=1, user_kind="internal", user_role="user"),
         )
 
     def test_internal_user_can_use_internal_group(self):
         validate_document_visibility(
-            DocumentVisibility.INTERNAL_GROUP, 5,
+            DocumentVisibility.INTERNAL_GROUP,
+            5,
             UserContext(user_id=1, user_kind="internal", user_role="user", group_ids=[5]),
         )
 
@@ -89,7 +92,8 @@ class TestValidateDocumentVisibility:
 
     def test_client_can_use_client_private(self):
         validate_document_visibility(
-            DocumentVisibility.CLIENT_PRIVATE, None,
+            DocumentVisibility.CLIENT_PRIVATE,
+            None,
             UserContext(user_id=1, user_kind="client", user_role="user"),
         )
 
@@ -98,28 +102,32 @@ class TestValidateDocumentVisibility:
     def test_client_cannot_use_internal_public(self):
         with pytest.raises(ValidationError, match="not available for kind"):
             validate_document_visibility(
-                DocumentVisibility.INTERNAL_PUBLIC, None,
+                DocumentVisibility.INTERNAL_PUBLIC,
+                None,
                 UserContext(user_id=1, user_kind="client", user_role="user"),
             )
 
     def test_client_cannot_use_internal_group(self):
         with pytest.raises(ValidationError, match="not available for kind"):
             validate_document_visibility(
-                DocumentVisibility.INTERNAL_GROUP, 1,
+                DocumentVisibility.INTERNAL_GROUP,
+                1,
                 UserContext(user_id=1, user_kind="client", user_role="user"),
             )
 
     def test_client_cannot_use_internal_private(self):
         with pytest.raises(ValidationError, match="not available for kind"):
             validate_document_visibility(
-                DocumentVisibility.INTERNAL_PRIVATE, None,
+                DocumentVisibility.INTERNAL_PRIVATE,
+                None,
                 UserContext(user_id=1, user_kind="client", user_role="user"),
             )
 
     def test_internal_cannot_use_client_private(self):
         with pytest.raises(BusinessRuleViolation, match="Only admin can upload documents for clients"):
             validate_document_visibility(
-                DocumentVisibility.CLIENT_PRIVATE, None,
+                DocumentVisibility.CLIENT_PRIVATE,
+                None,
                 UserContext(user_id=1, user_kind="internal", user_role="user"),
             )
 
@@ -128,7 +136,8 @@ class TestValidateDocumentVisibility:
     def test_internal_user_cannot_use_internal_public(self):
         with pytest.raises(BusinessRuleViolation, match="Only admin can publish to internal_public"):
             validate_document_visibility(
-                DocumentVisibility.INTERNAL_PUBLIC, None,
+                DocumentVisibility.INTERNAL_PUBLIC,
+                None,
                 UserContext(user_id=1, user_kind="internal", user_role="user"),
             )
 
@@ -137,20 +146,23 @@ class TestValidateDocumentVisibility:
     def test_internal_group_requires_group_id(self):
         with pytest.raises(ValidationError, match="group_id required"):
             validate_document_visibility(
-                DocumentVisibility.INTERNAL_GROUP, None,
+                DocumentVisibility.INTERNAL_GROUP,
+                None,
                 UserContext(user_id=1, user_kind="internal", user_role="user"),
             )
 
     def test_internal_group_requires_membership(self):
         with pytest.raises(BusinessRuleViolation, match="not a member of this group"):
             validate_document_visibility(
-                DocumentVisibility.INTERNAL_GROUP, 5,
+                DocumentVisibility.INTERNAL_GROUP,
+                5,
                 UserContext(user_id=1, user_kind="internal", user_role="user", group_ids=[1, 2, 3]),
             )
 
     def test_internal_group_with_valid_membership(self):
         validate_document_visibility(
-            DocumentVisibility.INTERNAL_GROUP, 5,
+            DocumentVisibility.INTERNAL_GROUP,
+            5,
             UserContext(user_id=1, user_kind="internal", user_role="user", group_ids=[5, 10]),
         )
 

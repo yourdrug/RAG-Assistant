@@ -25,7 +25,9 @@ class SQLAlchemyConfigParameterRepository:
         return self._to_entity(orm) if orm else None
 
     async def get_by_key_and_domain(
-        self, key: str, domain_key: str | None = None,
+        self,
+        key: str,
+        domain_key: str | None = None,
     ) -> ConfigParameter | None:
         stmt = select(ConfigParameterModel).where(ConfigParameterModel.key == key)
         if domain_key is not None:
