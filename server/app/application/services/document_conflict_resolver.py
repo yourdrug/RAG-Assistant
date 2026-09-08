@@ -42,6 +42,7 @@ async def resolve_conflict(
     strategy = decide_resolution_strategy(is_versioned)
 
     if strategy == "version":
+        assert domain_profile is not None
         await _resolve_as_version(new_doc, old_doc, domain_profile, act_versioning_service)
         return None
     else:
