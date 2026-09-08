@@ -13,7 +13,7 @@ from domain.entities.document import Document
 from domain.entities.vector_outbox_entry import OutboxOperation, VectorOutboxEntry
 from domain.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
 from domain.repositories.vector_store_repository import VectorStoreRepository
-from domain.services.access_control import (
+from domain.services import (
     check_document_access,
     compute_owner_and_group,
     validate_document_visibility,

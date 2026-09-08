@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from domain.entities.document import Document
-from domain.services.access_control import get_visibility_conditions
+from domain.services import get_visibility_conditions
 from domain.value_objects.document_status import DocumentStatus
 from domain.value_objects.owner_match import OwnerMatch
 from domain.value_objects.roles import UserKind, UserRole

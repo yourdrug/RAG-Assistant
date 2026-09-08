@@ -6,7 +6,7 @@ import pytest
 from application.services.chunk_service import ChunkService
 from domain.entities.document import Document
 from domain.exceptions import ValidationError
-from domain.services.access_control import compute_owner_and_group
+from domain.services import compute_owner_and_group
 from domain.value_objects.roles import UserRole
 from domain.value_objects.visibility import DocumentVisibility
 

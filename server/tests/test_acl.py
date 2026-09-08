@@ -12,12 +12,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 import pytest  # noqa: E402
 from domain.exceptions import ValidationError  # noqa: E402
-from domain.services.access_control import (  # noqa: E402
-    ALLOWED_VISIBILITY_FOR_KIND,
+from domain.services import (  # noqa: E402
     can_view_document,
     compute_owner_and_group,
     validate_document_visibility,
 )
+from domain.services.access_control import ALLOWED_VISIBILITY_FOR_KIND  # noqa: E402
 from domain.value_objects.roles import UserKind, UserRole
 from domain.value_objects.user_context import UserContext
 from domain.value_objects.visibility import DocumentVisibility

@@ -20,13 +20,13 @@ sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.par
 from types import SimpleNamespace
 
 from domain.exceptions import BusinessRuleViolation, ValidationError
-from domain.services.access_control import (
-    ALLOWED_VISIBILITY_FOR_KIND,
+from domain.services import (
     can_view_document,
     compute_owner_and_group,
     get_visibility_conditions,
     validate_document_visibility,
 )
+from domain.services.access_control import ALLOWED_VISIBILITY_FOR_KIND
 from domain.value_objects.roles import UserKind, UserRole
 from domain.value_objects.user_context import UserContext
 from domain.value_objects.visibility import DocumentVisibility
