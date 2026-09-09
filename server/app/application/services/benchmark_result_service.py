@@ -83,7 +83,8 @@ class BenchmarkResultService:
         if run is None:
             return None
 
-        assert run.id is not None
+        if run.id is None:
+            raise RuntimeError("BenchmarkRun id is None")
         summary = BenchmarkResultSummary(
             id=run.id or 0,
             config_json=run.config_json,

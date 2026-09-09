@@ -72,7 +72,7 @@ export function AdminGroupsPage() {
     }
   };
 
-  const internalUsers = users?.filter((u) => u.kind === "internal") || [];
+  const internalUsers = users?.users?.filter((u) => u.kind === "internal") || [];
   const columns: ColumnDef<GroupResponse>[] = [
     { accessorKey: "id", header: "ID" },
     {

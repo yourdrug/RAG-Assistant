@@ -33,13 +33,13 @@ export function AdminApiKeysPage() {
   const createMut = useCreateClientApiKey(clientUserId);
   const revokeMut = useRevokeClientApiKey(clientUserId);
 
-  const clientUsers = users?.filter((u) => u.kind === "client") || [];
+  const clientUsers = users?.users?.filter((u) => u.kind === "client") || [];
 
   const handleCreateKey = async () => {
     if (!selClient) return;
     try {
       const result = await createMut.mutateAsync({ name: newKeyName || undefined });
-      setCreatedKey(result.api_key);
+      setCreatedKey(result.key);
       setNewKeyName("");
       refetch();
     } catch (e) {
@@ -154,7 +154,10 @@ export function AdminApiKeysPage() {
                               Prefix: {key.key_prefix}
                             </Badge>
                             <Badge variant="outline" className="text-xs">
-                              Created: {new Date(key.created_at).toLocaleDateString()}
+                              Created:{" "}
+                              {key.creation_date
+                                ? new Date(key.creation_date).toLocaleDateString()
+                                : "—"}
                             </Badge>
                             <Badge
                               variant={key.is_active ? "success" : "destructive"}

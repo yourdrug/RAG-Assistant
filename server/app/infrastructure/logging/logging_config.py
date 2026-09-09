@@ -46,6 +46,11 @@ class RequestIDFilter(logging.Filter):
 
 
 LOG_FORMAT = os.getenv("LOG_FORMAT", "text")
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+
+_valid_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+if LOG_LEVEL not in _valid_levels:
+    LOG_LEVEL = "INFO"
 
 _formatters: dict[str, Any] = {
     "default": {
@@ -105,7 +110,7 @@ logging_config: dict[str, Any] = {
     "handlers": {
         "default_stdout": {
             "class": "logging.StreamHandler",
-            "level": "INFO",
+            "level": LOG_LEVEL,
             "formatter": _default_formatter,
             "stream": "ext://sys.stdout",
             "filters": ["below_error", "request_id"],
@@ -119,7 +124,7 @@ logging_config: dict[str, Any] = {
         },
         "detailed_stdout": {
             "class": "logging.StreamHandler",
-            "level": "INFO",
+            "level": LOG_LEVEL,
             "formatter": _default_formatter,
             "stream": "ext://sys.stdout",
             "filters": ["below_error", "request_id"],
@@ -133,14 +138,14 @@ logging_config: dict[str, Any] = {
         },
         "uvicorn": {
             "class": "logging.StreamHandler",
-            "level": "INFO",
+            "level": LOG_LEVEL,
             "formatter": "uvicorn",
             "stream": "ext://sys.stderr",
             "filters": ["exclude_exceptions", "request_id"],
         },
         "access": {
             "class": "logging.StreamHandler",
-            "level": "INFO",
+            "level": LOG_LEVEL,
             "formatter": "access",
             "stream": "ext://sys.stdout",
             "filters": ["request_id"],
@@ -148,11 +153,19 @@ logging_config: dict[str, Any] = {
         "null": {"class": "logging.NullHandler"},
     },
     "loggers": {
-        "default": {"handlers": ["default_stdout", "default_stderr"], "level": "INFO", "propagate": False},
-        "detailed": {"handlers": ["detailed_stdout", "detailed_stderr"], "level": "INFO", "propagate": False},
-        "uvicorn": {"handlers": ["uvicorn"], "level": "INFO", "propagate": False},
-        "uvicorn.error": {"handlers": ["uvicorn"], "level": "INFO", "propagate": False},
-        "uvicorn.access": {"handlers": ["access"], "level": "INFO", "propagate": False},
+        "default": {
+            "handlers": ["default_stdout", "default_stderr"],
+            "level": LOG_LEVEL,
+            "propagate": False,
+        },
+        "detailed": {
+            "handlers": ["detailed_stdout", "detailed_stderr"],
+            "level": LOG_LEVEL,
+            "propagate": False,
+        },
+        "uvicorn": {"handlers": ["uvicorn"], "level": LOG_LEVEL, "propagate": False},
+        "uvicorn.error": {"handlers": ["uvicorn"], "level": LOG_LEVEL, "propagate": False},
+        "uvicorn.access": {"handlers": ["access"], "level": LOG_LEVEL, "propagate": False},
     },
-    "root": {"handlers": ["default_stdout", "default_stderr"], "level": "INFO"},
+    "root": {"handlers": ["default_stdout", "default_stderr"], "level": LOG_LEVEL},
 }

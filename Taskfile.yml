@@ -5,7 +5,7 @@ vars:
   VERSION:
     sh: cat VERSION
 
-dotenv: [ "server/.env", "client/.env" ]
+dotenv: [ "server/.env", "server/.env.secrets", "client/.env" ]
 
 env:
   VERSION: "{{.VERSION}}"

@@ -30,6 +30,7 @@ class Document:
     source_type: str = SourceType.FILE.value
     has_manual_edits: bool = False
     version_group_id: int | None = None  # anchor document of the version chain
+    version: int = 0  # optimistic locking counter
     error_message: str | None = None
     warning_message: str | None = None
     quality_score: float | None = None

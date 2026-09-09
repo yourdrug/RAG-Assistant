@@ -73,7 +73,12 @@ class LocalStorage:
             if not src.exists():
                 raise FileNotFoundError(f"File not found: {key}")
             tmp = tempfile.NamedTemporaryFile(delete=False, suffix=Path(key).suffix)
-            tmp.write(src.read_bytes())
+            try:
+                tmp.write(src.read_bytes())
+            except Exception:
+                tmp.close()
+                Path(tmp.name).unlink(missing_ok=True)
+                raise
             tmp.close()
             return Path(tmp.name)
 
@@ -170,7 +175,12 @@ class S3Storage:
         def _download() -> Path:
             suffix = Path(key).suffix
             tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
-            self.client.download_fileobj(self.bucket, key, tmp)
+            try:
+                self.client.download_fileobj(self.bucket, key, tmp)
+            except Exception:
+                tmp.close()
+                Path(tmp.name).unlink(missing_ok=True)
+                raise
             tmp.close()
             return Path(tmp.name)
 

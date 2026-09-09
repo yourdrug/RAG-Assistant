@@ -261,7 +261,7 @@ export function AdminDashboardPage() {
         <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
           <StatCard
             label="Users"
-            value={users?.length || 0}
+            value={users?.total ?? users?.users?.length ?? 0}
             icon={Users}
             color="bg-violet-500/10 text-violet-600 dark:text-violet-400"
           />

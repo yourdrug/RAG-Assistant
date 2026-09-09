@@ -264,7 +264,8 @@ def get_rag_answer(llm: ChatOllama, docs_with_scores: list[tuple[Document, float
                 time.sleep(delay)
             else:
                 logger.error("RAG LLM invoke failed after %d attempts: %s", JUDGE_MAX_RETRIES, exc)
-    assert last_exc is not None
+    if last_exc is None:
+        raise RuntimeError("LLM judge failed with no exception recorded")
     raise last_exc
 
 

@@ -59,6 +59,13 @@ class FakeConversationRepository:
         if conv is not None:
             conv["summary"] = summary
 
+    async def update_summary_if_unchanged(self, conv_id: int, expected_summary, new_summary) -> bool:
+        conv = self._convs.get(conv_id)
+        if conv is None or conv["summary"] != expected_summary:
+            return False
+        conv["summary"] = new_summary
+        return True
+
     async def get_owner_id(self, conv_id: int) -> int | None:
         conv = self._convs.get(conv_id)
         return conv["user_id"] if conv else None
@@ -207,13 +214,12 @@ class FakeChunkRepository:
             has_extra = len(rows) > limit
             next_cur = encode_cursor(page[-1]["chunk_index"], page[-1]["id"]) if has_extra and page else None
             prev_cur = (
-                encode_cursor(page[0]["chunk_index"], page[0]["id"])
-                if page and cursor is not None
-                else None
+                encode_cursor(page[0]["chunk_index"], page[0]["id"]) if page and cursor is not None else None
             )
         else:
             if cursor is None:
                 from domain.exceptions import ValidationError
+
                 raise ValidationError("cursor is required when direction=prev")
             ci, cid = cursor
             rows = [c for c in rows if (c.get("chunk_index", 0), c["id"]) < (ci, cid)]

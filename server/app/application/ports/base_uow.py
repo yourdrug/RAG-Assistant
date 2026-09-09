@@ -7,13 +7,15 @@ live in ``infrastructure.database``.
 
 from __future__ import annotations
 
+import logging
 from abc import ABC
-from contextlib import suppress
 from types import TracebackType
 
 from domain.exceptions import DatabaseError
 
 from application.ports.session_protocol import SessionProtocol
+
+log = logging.getLogger("default")
 
 
 class BaseUnitOfWork(ABC):  # noqa: B024
@@ -40,15 +42,29 @@ class BaseUnitOfWork(ABC):  # noqa: B024
             if exc_type is None:
                 await self._session.commit()
             else:
-                with suppress(Exception):
-                    await self._session.rollback()
+                await self._safe_rollback()
         except Exception as e:
-            with suppress(Exception):
-                await self._session.rollback()
+            await self._safe_rollback()
             raise DatabaseError(detail=str(e)) from e
         finally:
-            with suppress(Exception):
-                await self._session.close()
+            await self._safe_close()
+
+    async def _safe_rollback(self) -> None:
+        """Roll back the transaction.
+
+        A rollback failure is logged but does not mask the original error
+        (the caller's exception is already in flight).
+        """
+        try:
+            await self._session.rollback()
+        except Exception as e:
+            log.warning("Failed to roll back DB session cleanly: %s", e)
+
+    async def _safe_close(self) -> None:
+        try:
+            await self._session.close()
+        except Exception as e:
+            log.warning("Failed to close DB session cleanly: %s", e)
 
     async def publish_event(self, event: object) -> None:  # noqa: B027
         """Publish a domain event within the current transaction.

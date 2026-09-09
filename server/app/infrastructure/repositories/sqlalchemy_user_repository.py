@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from domain.entities.user import User
 from domain.value_objects.roles import UserKind, UserRole
-from sqlalchemy import insert, select
+from sqlalchemy import func, insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.database.models import UserModel
@@ -49,9 +49,16 @@ class SQLAlchemyUserRepository:
         result = await self._db.execute(select(UserModel.id).where(UserModel.role == UserRole.ADMIN).limit(1))
         return result.scalar_one_or_none() is not None
 
-    async def list_all(self) -> list[User]:
-        result = await self._db.execute(select(UserModel).order_by(UserModel.creation_date))
+    async def list_all(self, limit: int | None = None, offset: int = 0) -> list[User]:
+        stmt = select(UserModel).order_by(UserModel.creation_date).offset(offset)
+        if limit is not None:
+            stmt = stmt.limit(limit)
+        result = await self._db.execute(stmt)
         return [self._to_entity(orm) for orm in result.scalars().all()]
+
+    async def count_all(self) -> int:
+        result = await self._db.execute(select(func.count()).select_from(UserModel))
+        return int(result.scalar_one())
 
     async def set_active(self, user_id: int, is_active: bool) -> bool:
         result = await self._db.execute(select(UserModel).where(UserModel.id == user_id))

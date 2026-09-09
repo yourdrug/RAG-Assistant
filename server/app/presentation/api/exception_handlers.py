@@ -74,7 +74,8 @@ def _error(message: str, errors: dict | None = None) -> dict:
 
 async def handle_client_exception(request: Request, exc: Exception) -> JSONResponse:
     """4xx — client errors (validation, not found, auth, permissions)."""
-    assert isinstance(exc, ClientException)
+    if not isinstance(exc, ClientException):
+        return await handle_unexpected_exception(request, exc)
 
     status_code = status.HTTP_400_BAD_REQUEST
     for exc_type, code in _CLIENT_STATUS_MAP.items():
@@ -92,7 +93,8 @@ async def handle_client_exception(request: Request, exc: Exception) -> JSONRespo
 
 async def handle_server_exception(request: Request, exc: Exception) -> JSONResponse:
     """5xx — server errors (database, infrastructure)."""
-    assert isinstance(exc, ServerException)
+    if not isinstance(exc, ServerException):
+        return await handle_unexpected_exception(request, exc)
 
     logger.error("Server exception: %s", exc, exc_info=True)
 
@@ -112,7 +114,8 @@ async def handle_server_exception(request: Request, exc: Exception) -> JSONRespo
 
 async def handle_http_exception(request: Request, exc: Exception) -> JSONResponse:
     """Handle standard FastAPI HTTPException."""
-    assert isinstance(exc, HTTPException)
+    if not isinstance(exc, HTTPException):
+        return await handle_unexpected_exception(request, exc)
 
     _AUTH_MESSAGES = {
         "Not authenticated": "Не авторизован",
@@ -129,7 +132,8 @@ async def handle_http_exception(request: Request, exc: Exception) -> JSONRespons
 
 async def handle_validation_exception(request: Request, exc: Exception) -> JSONResponse:
     """Handle Pydantic RequestValidationError (422)."""
-    assert isinstance(exc, RequestValidationError)
+    if not isinstance(exc, RequestValidationError):
+        return await handle_unexpected_exception(request, exc)
 
     _MESSAGES = {
         "missing": "Обязательное поле",

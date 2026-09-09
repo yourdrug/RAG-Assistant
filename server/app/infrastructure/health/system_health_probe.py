@@ -9,6 +9,7 @@ from application.ports.health import HealthCheckResult
 from config import settings
 from domain.value_objects.health_status import HealthStatus
 from infrastructure.database.database import database
+from infrastructure.persistence.redis_client import redis_client
 from qdrant_client import QdrantClient
 from sqlalchemy import text
 
@@ -62,6 +63,15 @@ class SystemHealthProbe:
             session = database.get_write_session()
             async with session:
                 await session.execute(text("SELECT 1"))
+            latency_ms = round((time.perf_counter() - t0) * 1000, 1)
+            return HealthCheckResult(status=HealthStatus.OK.value, latency_ms=latency_ms)
+        except Exception as e:
+            return HealthCheckResult(status=f"error: {e}")
+
+    async def check_redis(self) -> HealthCheckResult:
+        try:
+            t0 = time.perf_counter()
+            await redis_client.async_redis.ping()
             latency_ms = round((time.perf_counter() - t0) * 1000, 1)
             return HealthCheckResult(status=HealthStatus.OK.value, latency_ms=latency_ms)
         except Exception as e:

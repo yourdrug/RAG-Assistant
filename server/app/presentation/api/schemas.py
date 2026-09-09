@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Literal
 
 from domain.value_objects.benchmark_dataset import BenchmarkDataset
 from domain.value_objects.benchmark_strategy import BenchmarkStrategy
@@ -173,9 +174,9 @@ class MessageResponse(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    question: str
+    question: str = Field(..., min_length=1, max_length=16000)
     conversation_id: int | None = None
-    depth: str | None = None
+    depth: Literal["narrow", "broad"] | None = None
     # Temporal retrieval: explicit user-provided "as of" date (None = current
     # state). Never inferred automatically from the question text.
     as_of_date: date | None = None
@@ -256,6 +257,13 @@ class UserResponse(BaseModel):
     role: str
     kind: str
     is_active: bool
+
+
+class UserListResponse(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    users: list[UserResponse]
 
 
 # ---------------------------------------------------------------------------

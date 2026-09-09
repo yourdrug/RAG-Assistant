@@ -91,8 +91,16 @@ class ConversationService:
 
                 new_summary = await self._summary_updater.update(existing, recent_turns)
 
+                # Optimistic compare-and-swap: only write if the stored summary
+                # is unchanged since we read it. A concurrent update to the same
+                # conversation wins; the stale result is dropped (eventual
+                # consistency — no lost-update corruption).
                 async with self._uow_factory.create(master=True) as uow:
-                    await uow.conversations.update_summary(conv_id, new_summary)
+                    applied = await uow.conversations.update_summary_if_unchanged(
+                        conv_id, expected_summary=existing, new_summary=new_summary
+                    )
+                    if not applied:
+                        log.debug("Rolling summary for conv %d superseded by concurrent update", conv_id)
             except Exception:
                 log.exception("Failed to update rolling summary for conv %d", conv_id)
 

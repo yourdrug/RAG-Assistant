@@ -69,11 +69,26 @@ class SQLAlchemyDocumentRepository:
         chars: int | None = None,
         warning: str | None = None,
         quality_score: float | None = None,
-    ) -> None:
-        result = await self._db.execute(select(DocumentModel).where(DocumentModel.id == document_id))
+        expected_version: int | None = None,
+    ) -> bool:
+        """Update document status with optional optimistic locking.
+
+        If *expected_version* is given, the UPDATE only applies when the current
+        version matches, preventing lost updates from concurrent workers.
+        Returns True if the row was updated, False on version conflict.
+        """
+        if expected_version is not None:
+            result = await self._db.execute(
+                select(DocumentModel).where(
+                    DocumentModel.id == document_id,
+                    DocumentModel.version == expected_version,
+                )
+            )
+        else:
+            result = await self._db.execute(select(DocumentModel).where(DocumentModel.id == document_id))
         orm = result.scalar_one_or_none()
         if orm is None:
-            return
+            return False
 
         if status is not None:
             orm.status = status
@@ -88,7 +103,10 @@ class SQLAlchemyDocumentRepository:
             orm.chars = chars
         if status == DocumentStatus.DONE.value:
             orm.indexed_at = datetime.now(tz=UTC)
+        if expected_version is not None:
+            orm.version = expected_version + 1
         await self._db.flush()
+        return True
 
     async def set_source_path(self, document_id: int, source_path: str) -> None:
         result = await self._db.execute(select(DocumentModel).where(DocumentModel.id == document_id))
@@ -107,24 +125,27 @@ class SQLAlchemyDocumentRepository:
     async def find_active_slot(
         self, owner_id: int | None, filename: str, group_id: int | None, for_update: bool = False
     ) -> Document | None:
-        stmt = (
-            select(DocumentModel)
-            .where(
-                DocumentModel.filename == filename,
-                DocumentModel.owner_id.is_(owner_id),
-                DocumentModel.group_id.is_(group_id),
-                DocumentModel.status.in_(
-                    [
-                        DocumentStatus.PENDING.value,
-                        DocumentStatus.PROCESSING.value,
-                        DocumentStatus.DONE.value,
-                        DocumentStatus.FAILED.value,
-                    ]
-                ),
-            )
-            .order_by(DocumentModel.creation_date.desc())
-            .limit(1)
-        )
+        conditions = [
+            DocumentModel.filename == filename,
+            DocumentModel.status.in_(
+                [
+                    DocumentStatus.PENDING.value,
+                    DocumentStatus.PROCESSING.value,
+                    DocumentStatus.DONE.value,
+                    DocumentStatus.FAILED.value,
+                ]
+            ),
+        ]
+        if owner_id is None:
+            conditions.append(DocumentModel.owner_id.is_(None))
+        else:
+            conditions.append(DocumentModel.owner_id == owner_id)
+        if group_id is None:
+            conditions.append(DocumentModel.group_id.is_(None))
+        else:
+            conditions.append(DocumentModel.group_id == group_id)
+
+        stmt = select(DocumentModel).where(*conditions).order_by(DocumentModel.creation_date.desc()).limit(1)
         if for_update:
             stmt = stmt.with_for_update()
         result = await self._db.execute(stmt)
@@ -286,6 +307,7 @@ class SQLAlchemyDocumentRepository:
         if orm:
             orm.status = DocumentStatus.DONE.value
             orm.indexed_at = datetime.now(tz=UTC)
+            orm.version = orm.version + 1
             await self._db.flush()
             return True
         return False

@@ -37,6 +37,7 @@ class HealthService:
     async def check(self) -> HealthResponse:
         qdrant = self._probe.check_qdrant()
         postgres = await self._probe.check_postgres()
+        redis = await self._probe.check_redis()
         active_jobs = await self._count_active_jobs()
 
         llm_provider = self._settings.llm_provider
@@ -50,7 +51,8 @@ class HealthService:
         )
 
         overall = "healthy"
-        if any(c.status.startswith("error") for c in [qdrant, llm_check, postgres, config_listener_status]):
+        error_checks = (qdrant, llm_check, postgres, redis, config_listener_status)
+        if any(c.status.startswith("error") for c in error_checks):
             overall = "degraded"
 
         return HealthResponse(
@@ -63,6 +65,7 @@ class HealthService:
                 "qdrant": qdrant,
                 "llm": llm_check,
                 "postgres": postgres,
+                "redis": redis,
                 "config_listener": config_listener_status,
             },
             background_jobs={"running": active_jobs},

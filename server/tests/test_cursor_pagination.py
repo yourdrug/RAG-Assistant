@@ -115,7 +115,11 @@ class TestChunkServiceCursor:
         _seed_chunks(uow.chunks, 1, 3)
 
         result = await service.list_chunks_cursor(
-            document_id=1, user_id=10, user_kind="internal", user_role="admin", limit=50,
+            document_id=1,
+            user_id=10,
+            user_kind="internal",
+            user_role="admin",
+            limit=50,
         )
 
         assert result.prev_cursor is None
@@ -127,7 +131,11 @@ class TestChunkServiceCursor:
         _seed_chunks(uow.chunks, 1, 5)
 
         result = await service.list_chunks_cursor(
-            document_id=1, user_id=10, user_kind="internal", user_role="admin", limit=5,
+            document_id=1,
+            user_id=10,
+            user_kind="internal",
+            user_role="admin",
+            limit=5,
         )
 
         assert result.next_cursor is None
@@ -137,7 +145,11 @@ class TestChunkServiceCursor:
     async def test_direction_prev_without_cursor_raises(self, service):
         with pytest.raises(ValidationError, match="cursor is required"):
             await service.list_chunks_cursor(
-                document_id=1, user_id=10, user_kind="internal", user_role="admin", direction="prev",
+                document_id=1,
+                user_id=10,
+                user_kind="internal",
+                user_role="admin",
+                direction="prev",
             )
 
     @pytest.mark.asyncio
@@ -146,13 +158,19 @@ class TestChunkServiceCursor:
 
         with pytest.raises(EntityNotFound):
             await service.list_chunks_cursor(
-                document_id=999, user_id=10, user_kind="internal", user_role="admin",
+                document_id=999,
+                user_id=10,
+                user_kind="internal",
+                user_role="admin",
             )
 
     @pytest.mark.asyncio
     async def test_empty_document_returns_empty_page(self, service):
         result = await service.list_chunks_cursor(
-            document_id=1, user_id=10, user_kind="internal", user_role="admin",
+            document_id=1,
+            user_id=10,
+            user_kind="internal",
+            user_role="admin",
         )
 
         assert result.items == []
@@ -165,7 +183,10 @@ class TestChunkServiceCursor:
         uow.chunks._chunks[0]["content_hash"] = "abc123"
 
         result = await service.list_chunks_cursor(
-            document_id=1, user_id=10, user_kind="internal", user_role="admin",
+            document_id=1,
+            user_id=10,
+            user_kind="internal",
+            user_role="admin",
             content_hashes=["abc123"],
         )
 
@@ -177,23 +198,37 @@ class TestChunkServiceCursor:
         _seed_chunks(uow.chunks, 1, 5)
 
         page1 = await service.list_chunks_cursor(
-            document_id=1, user_id=10, user_kind="internal", user_role="admin", limit=2,
+            document_id=1,
+            user_id=10,
+            user_kind="internal",
+            user_role="admin",
+            limit=2,
         )
         assert len(page1.items) == 2
         assert page1.next_cursor is not None
         assert page1.prev_cursor is None
 
         page2 = await service.list_chunks_cursor(
-            document_id=1, user_id=10, user_kind="internal", user_role="admin",
-            limit=2, cursor=page1.next_cursor, direction="next",
+            document_id=1,
+            user_id=10,
+            user_kind="internal",
+            user_role="admin",
+            limit=2,
+            cursor=page1.next_cursor,
+            direction="next",
         )
         assert len(page2.items) == 2
         assert page2.next_cursor is not None
         assert page2.prev_cursor is not None
 
         page3 = await service.list_chunks_cursor(
-            document_id=1, user_id=10, user_kind="internal", user_role="admin",
-            limit=2, cursor=page2.next_cursor, direction="next",
+            document_id=1,
+            user_id=10,
+            user_kind="internal",
+            user_role="admin",
+            limit=2,
+            cursor=page2.next_cursor,
+            direction="next",
         )
         assert len(page3.items) == 1
         assert page3.next_cursor is None
@@ -204,18 +239,31 @@ class TestChunkServiceCursor:
 
         # navigate forward to get a cursor
         page1 = await service.list_chunks_cursor(
-            document_id=1, user_id=10, user_kind="internal", user_role="admin",
+            document_id=1,
+            user_id=10,
+            user_kind="internal",
+            user_role="admin",
             limit=2,
         )
         page2 = await service.list_chunks_cursor(
-            document_id=1, user_id=10, user_kind="internal", user_role="admin",
-            limit=2, cursor=page1.next_cursor, direction="next",
+            document_id=1,
+            user_id=10,
+            user_kind="internal",
+            user_role="admin",
+            limit=2,
+            cursor=page1.next_cursor,
+            direction="next",
         )
 
         # go back
         back = await service.list_chunks_cursor(
-            document_id=1, user_id=10, user_kind="internal", user_role="admin",
-            limit=2, cursor=page2.prev_cursor, direction="prev",
+            document_id=1,
+            user_id=10,
+            user_kind="internal",
+            user_role="admin",
+            limit=2,
+            cursor=page2.prev_cursor,
+            direction="prev",
         )
         assert len(back.items) == 2
         assert back.items[0].chunk_index == page1.items[0].chunk_index
@@ -226,7 +274,11 @@ class TestChunkServiceCursor:
         _seed_chunks(uow.chunks, 1, 10)
 
         result = await service.list_chunks_cursor(
-            document_id=1, user_id=10, user_kind="internal", user_role="admin", limit=100,
+            document_id=1,
+            user_id=10,
+            user_kind="internal",
+            user_role="admin",
+            limit=100,
         )
 
         indices = [c.chunk_index for c in result.items]

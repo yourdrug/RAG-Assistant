@@ -75,8 +75,16 @@ def stem_token(token: str) -> str:
     """Apply stemming to a single token."""
     if token.isascii():
         for suffix in [
-            "tion", "sion", "ment", "ness", "able", "ible",
-            "ful", "less", "ous", "ive",
+            "tion",
+            "sion",
+            "ment",
+            "ness",
+            "able",
+            "ible",
+            "ful",
+            "less",
+            "ous",
+            "ive",
         ]:
             if token.endswith(suffix) and len(token) - len(suffix) >= 3:
                 return token[: -len(suffix)]

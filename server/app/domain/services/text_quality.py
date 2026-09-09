@@ -37,10 +37,7 @@ def is_garbled(text: str) -> bool:
     if _is_uniform_replacement(text):
         return True
     total = len(text)
-    normal = sum(
-        1 for c in text
-        if c.isalnum() or c in " .,;:!-—\n\t()[]«»\"'"
-    )
+    normal = sum(1 for c in text if c.isalnum() or c in " .,;:!-—\n\t()[]«»\"'")
     return (normal / total) < 0.6
 
 

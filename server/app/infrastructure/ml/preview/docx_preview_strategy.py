@@ -132,9 +132,7 @@ class DocxPreviewStrategy:
                     label = heading or f"Блок {idx + 1}"
             else:
                 ptype, _desc = classify_content(stripped, chars, scan_threshold=0)
-                label = (
-                    f"Раздел: {heading}" if heading else f"Блок {idx + 1}"
-                )
+                label = f"Раздел: {heading}" if heading else f"Блок {idx + 1}"
 
             types_count[ptype.value] = types_count.get(ptype.value, 0) + 1
 

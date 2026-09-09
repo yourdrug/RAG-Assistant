@@ -34,6 +34,7 @@ def compute_reranker_score(sources: list[dict]) -> float | None:
 # Cursor encoding for keyset pagination
 # ---------------------------------------------------------------------------
 
+
 def encode_cursor(chunk_index: int, chunk_id: int) -> str:
     """Encode a (chunk_index, chunk_id) pair into an opaque base64url cursor."""
     payload = f"{chunk_index}:{chunk_id}".encode("utf-8")

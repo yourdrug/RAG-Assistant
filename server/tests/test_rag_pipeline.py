@@ -37,16 +37,26 @@ from infrastructure.ml.rag_service import (  # noqa: E402
 def _make_rag(**overrides):
     defaults = {
         "retriever": RetrieverConfig(
-            fetch_k=25, top_k=4, fetch_k_broad=40, top_k_broad=10,
+            fetch_k=25,
+            top_k=4,
+            fetch_k_broad=40,
+            top_k_broad=10,
         ),
         "hybrid_search": HybridSearchConfig(
-            enabled=True, bm25_fetch_k=25, rrf_k=30, dense_weight=1.5, sparse_weight=0.5,
+            enabled=True,
+            bm25_fetch_k=25,
+            rrf_k=30,
+            dense_weight=1.5,
+            sparse_weight=0.5,
         ),
         "rerank": RerankConfig(min_score=0.15, score_gap_ratio=0.1),
         "features": FeatureToggles(
-            citation_filter_enabled=False, relevance_gate_enabled=False,
-            condense_enabled=True, decomposition_enabled=False,
-            rolling_summary_enabled=True, cache_enabled=False,
+            citation_filter_enabled=False,
+            relevance_gate_enabled=False,
+            condense_enabled=True,
+            decomposition_enabled=False,
+            rolling_summary_enabled=True,
+            cache_enabled=False,
         ),
         "source_min_score": 0.3,
     }

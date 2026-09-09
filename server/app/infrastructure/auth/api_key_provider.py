@@ -27,6 +27,7 @@ _REDIS_ID_INDEX_PREFIX = "api_key_id:"
 _REDIS_REVOKED_CHANNEL = "api_key_revoked"
 
 MISS = object()
+_CACHE_MISS_SENTINEL = "__MISS__"  # stored in Redis for known-invalid keys
 
 
 class ApiKeyProvider:
@@ -61,19 +62,26 @@ class ApiKeyProvider:
             raw = await redis_client.async_redis.get(f"{_REDIS_CACHE_PREFIX}{key_hash}")
             if raw is None:
                 return MISS
+            if raw == _CACHE_MISS_SENTINEL:
+                return MISS
             return json.loads(raw)
         except Exception:
             logger.warning("Redis GET failed for api_key cache, treating as MISS")
             return MISS
 
     async def set_cached(self, key_hash: str, value: dict | None) -> None:
-        """Store value in cache with TTL."""
+        """Store value in cache with TTL.
+
+        None values (cache misses for invalid keys) are stored as a sentinel
+        string distinct from a valid cached dict, so ``get_cached`` can
+        differentiate "not in cache" from "known invalid".
+        """
         try:
             if value is None:
                 await redis_client.async_redis.setex(
                     f"{_REDIS_CACHE_PREFIX}{key_hash}",
                     int(_CACHE_TTL_SECONDS),
-                    json.dumps(None),
+                    _CACHE_MISS_SENTINEL,
                 )
             else:
                 await redis_client.async_redis.setex(

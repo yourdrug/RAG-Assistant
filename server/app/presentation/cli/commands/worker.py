@@ -123,7 +123,8 @@ async def _on_startup(ctx: dict) -> None:
         await _seed_domain_config_defaults(container.infrastructure.uow_factory, domain_registry)
 
     listener = container.infrastructure.config_listener
-    assert listener is not None
+    if listener is None:
+        raise RuntimeError("Config listener failed to initialize in worker")
 
     await listener.resync(trigger="worker_startup")
     logger.info("Worker: config synced from database")

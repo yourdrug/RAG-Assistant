@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 
 from application.services.chat_service import ChatService
@@ -25,6 +26,8 @@ from presentation.api.helpers import filter_sources
 from presentation.api.schemas import ChatRequest, ChatResponse
 
 router = APIRouter(tags=["chat"])
+
+logger = logging.getLogger("default")
 
 
 @router.post("/chat")
@@ -74,8 +77,9 @@ async def chat_stream(
                         yield f"event: status\ndata: {stage_payload}\n\n"
                     elif isinstance(event, TextChunk):
                         yield f"data: {json.dumps({'text': event.text}, ensure_ascii=False)}\n\n"
-            except Exception as e:
-                yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
+            except Exception:
+                logger.exception("Chat stream error")
+                yield f"event: error\ndata: {json.dumps({'error': 'Internal error'})}\n\n"
 
         return StreamingResponse(
             event_generator(),

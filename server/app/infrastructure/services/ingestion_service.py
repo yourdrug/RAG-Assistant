@@ -407,7 +407,8 @@ class IngestionService:
     ) -> dict[str, int]:
         """Phase 1: get-or-create document rows for all registry filenames."""
         doc_ids: dict[str, int] = {}
-        assert self._uow_factory is not None
+        if self._uow_factory is None:
+            raise RuntimeError("UnitOfWorkFactory not initialized")
         async with self._uow_factory.create(master=True) as uow:
             # Determine owner_id based on visibility
             owner_id = None  # CLI ingest has no user context
@@ -471,7 +472,8 @@ class IngestionService:
             RawDocument(page_content=c.page_content, metadata=dict(c.metadata)) for c in file_chunks
         ]
 
-        assert self._uow_factory is not None
+        if self._uow_factory is None:
+            raise RuntimeError("UnitOfWorkFactory not initialized")
         async with self._uow_factory.create(master=True) as uow:
             enrich_chunks_metadata(
                 raw_chunks,

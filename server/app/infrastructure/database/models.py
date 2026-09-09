@@ -127,6 +127,7 @@ class DocumentModel(BaseModel):
         ForeignKey("documents.id", ondelete="SET NULL"),
         nullable=True,
     )
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     error_message: Mapped[str | None] = mapped_column(Text)
     warning_message: Mapped[str | None] = mapped_column(Text)
     quality_score: Mapped[float | None] = mapped_column(Float)

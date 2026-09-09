@@ -2,7 +2,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@/stores/auth-store";
 import { apiClient } from "../client";
 import { queryKeys } from "../query-keys";
-import type { CreateUserRequest, LoginRequest, TokenResponse, UserResponse } from "../types";
+import type {
+  CreateUserRequest,
+  LoginRequest,
+  TokenResponse,
+  UserListResponse,
+  UserResponse,
+} from "../types";
 
 export function useLogin() {
   const setAuth = useAuthStore((s) => s.setAuth);
@@ -33,7 +39,7 @@ export function useCurrentUser() {
 export function useUsers() {
   return useQuery({
     queryKey: queryKeys.auth.users(),
-    queryFn: async () => (await apiClient.get<UserResponse[]>("/auth/users")).data,
+    queryFn: async () => (await apiClient.get<UserListResponse>("/auth/users")).data,
   });
 }
 

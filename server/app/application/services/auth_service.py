@@ -25,6 +25,11 @@ from domain.services.password_hasher import IPasswordHasher
 from domain.services.token_provider import ITokenProvider
 from domain.value_objects.roles import UserKind, UserRole
 
+# Fixed bcrypt hash used only to equalize login timing for unknown emails.
+# The value is a valid bcrypt hash of an irrelevant string; its purpose is
+# to force ~1 bcrypt round-trip so "user not found" ≈ "wrong password".
+_DUMMY_BCRYPT_HASH = "$2b$12$C6UzMDM.H6dfI/f/IKcEcex8pZTQ4IcWm3qWD7.c9w4Z7l9m2oU2W"
+
 
 class AuthService:
     def __init__(
@@ -44,6 +49,10 @@ class AuthService:
             user = await uow.users.get_by_email(command.email)
 
             if user is None or not user.is_active:
+                # Equalize timing: perform a bcrypt verify against a fixed
+                # dummy hash so unknown emails are indistinguishable from
+                # wrong-password attempts (avoids account enumeration).
+                await self._hasher.verify(command.password, _DUMMY_BCRYPT_HASH)
                 raise ValidationError("Invalid email or password")
 
             if not await self._hasher.verify(command.password, user.hashed_password):
@@ -72,7 +81,8 @@ class AuthService:
 
             user.hashed_password = await self._hasher.hash(command.password)
             saved = await uow.users.save(user)
-            assert saved.id is not None
+            if saved.id is None:
+                raise RuntimeError("User save returned None id")
 
             return UserDTO(
                 id=saved.id,
@@ -82,19 +92,23 @@ class AuthService:
                 is_active=saved.is_active,
             )
 
-    async def list_users(self) -> list[UserDTO]:
+    async def list_users(self, limit: int = 100, offset: int = 0) -> tuple[list[UserDTO], int]:
         async with self._uow_factory.create() as uow:
-            users = await uow.users.list_all()
-            return [
-                UserDTO(
-                    id=u.id if u.id is not None else 0,
-                    email=u.email,
-                    role=u.role,
-                    kind=u.kind,
-                    is_active=u.is_active,
-                )
-                for u in users
-            ]
+            users = await uow.users.list_all(limit=limit, offset=offset)
+            total = await uow.users.count_all()
+            return (
+                [
+                    UserDTO(
+                        id=u.id if u.id is not None else 0,
+                        email=u.email,
+                        role=u.role,
+                        kind=u.kind,
+                        is_active=u.is_active,
+                    )
+                    for u in users
+                ],
+                total,
+            )
 
     async def toggle_active(self, user_id: int, is_active: bool, admin_id: int) -> ToggleActiveResult:
         async with self._uow_factory.create(master=True) as uow:
@@ -114,7 +128,8 @@ class AuthService:
 
             if user is None:
                 return None
-            assert user.id is not None
+            if user.id is None:
+                raise RuntimeError("User id is None for existing user")
 
             return UserDTO(
                 id=user.id,
@@ -167,7 +182,8 @@ class AuthService:
             saved = await uow.api_keys.create(
                 user_id=client_user_id, key_hash=key_hash, key_prefix=prefix, name=name
             )
-            assert saved.id is not None
+            if saved.id is None:
+                raise RuntimeError("ApiKey save returned None id")
 
             return IssueApiKeyResult(
                 id=saved.id,

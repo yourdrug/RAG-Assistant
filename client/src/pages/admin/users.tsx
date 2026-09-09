@@ -113,7 +113,7 @@ export function AdminUsersPage() {
         <CardContent className="pt-6">
           <DataTable
             columns={columns}
-            data={users || []}
+            data={users?.users || []}
             searchKey="email"
             searchPlaceholder="Search by email..."
           />

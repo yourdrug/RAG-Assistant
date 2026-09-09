@@ -171,8 +171,8 @@ class Settings(BaseSettings):
     file_backend: str = "s3"
     s3_endpoint: str = "http://minio:9000"
     s3_bucket: str = "rag-documents"
-    s3_access_key: str = "minioadmin"
-    s3_secret_key: str = "minioadmin"
+    s3_access_key: str = ""
+    s3_secret_key: str = ""
     s3_region: str = "us-east-1"
     supported_extensions: tuple = (".pdf", ".docx", ".doc", ".rtf", ".md", ".txt")
     max_upload_size_mb: int = 50
@@ -234,7 +234,10 @@ class Settings(BaseSettings):
     cost_daily_limit: float = 5.0
 
     model_config = SettingsConfigDict(
-        env_file=str(Path(__file__).resolve().parent.parent / ".env"),
+        env_file=(
+            str(Path(__file__).resolve().parent.parent / ".env"),
+            str(Path(__file__).resolve().parent.parent / ".env.secrets"),
+        ),
         extra="ignore",
     )
 
@@ -243,30 +246,54 @@ class Settings(BaseSettings):
         if not self.version:
             self.version = _read_version()
 
-        is_prod = self.stage == "prod"
-        errors = self._check_security(is_prod) + self._check_ml_provider()
+        # Security violations are hard errors in EVERY stage: weak/blank
+        # credentials must never reach any environment without warning.
+        security_errors = self._check_security()
+        if security_errors:
+            msg = "Configuration errors:\n" + "\n".join(f"  - {e}" for e in security_errors)
+            sys.stderr.write(msg + "\n")
+            sys.exit(1)
 
-        if errors:
-            msg = "Configuration errors:\n" + "\n".join(f"  - {e}" for e in errors)
-            if is_prod:
+        # Provider wiring is checked separately; it is fatal only in prod so
+        # that local dev / tests can instantiate Settings without real services.
+        provider_errors = self._check_ml_provider()
+        if provider_errors:
+            msg = "Configuration errors:\n" + "\n".join(f"  - {e}" for e in provider_errors)
+            if self.stage == "prod":
                 sys.stderr.write(msg + "\n")
                 sys.exit(1)
-            else:
-                logging.getLogger("default").warning(msg)
+            logging.getLogger("default").warning(msg)
 
         return self
 
-    def _check_security(self, is_prod: bool) -> list[str]:
+    def _check_security(self) -> list[str]:
         errors: list[str] = []
-        if is_prod:
-            if self.jwt_secret_key == "change-me-in-production":
-                errors.append("JWT_SECRET_KEY must be changed in production")
+        # Credential hygiene — enforced in ALL stages (weak defaults never pass).
+        if not self.jwt_secret_key or self.jwt_secret_key == "change-me-in-production":
+            errors.append(
+                "JWT_SECRET_KEY must be set to a strong random value "
+                "(openssl rand -hex 32) in server/.env.secrets"
+            )
+        if self.admin_email and self.admin_password in ("", "admin", "password", "change-me-in-production"):
+            errors.append(
+                "ADMIN_PASSWORD must be a strong non-default value "
+                "(set ADMIN_PASSWORD in server/.env.secrets)"
+            )
+        if self.redis_password in ("", "password"):
+            errors.append(
+                "REDIS_PASSWORD must be a strong non-default value "
+                "(set REDIS_PASSWORD in server/.env.secrets)"
+            )
+        if self.file_backend == "s3" and (
+            self.s3_access_key in ("", "minioadmin") or self.s3_secret_key in ("", "minioadmin")
+        ):
+            errors.append(
+                "S3_ACCESS_KEY / S3_SECRET_KEY must be strong non-default values "
+                "(set in server/.env.secrets)"
+            )
+        if self.stage == "prod":
             if self.file_backend == "local":
                 errors.append("FILE_BACKEND must be 's3' in production")
-            if self.admin_password in ("", "admin", "change-me-in-production"):
-                errors.append("ADMIN_PASSWORD must be changed in production")
-            if self.redis_password in ("", "password"):
-                errors.append("REDIS_PASSWORD must be changed in production")
             if self.allowed_origins.strip() == "*":
                 errors.append("ALLOWED_ORIGINS must not be '*' in production — list explicit origins")
         return errors

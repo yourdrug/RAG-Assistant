@@ -28,7 +28,13 @@ router = APIRouter(tags=["documents"])
 
 
 def _validate_mime(file_data: bytes, extension: str) -> None:
-    """Verify file contents match declared extension using magic bytes."""
+    """Verify file contents match declared extension using magic bytes + structural checks.
+
+    Beyond the leading signature, container formats that can be cheaply
+    sanity-checked (ZIP-based .docx, PDF) are validated structurally to reject
+    trivial signature-spoofed files (polyglots). This is not a substitute for
+    antivirus, but it raises the bar for accidental/casual bypass.
+    """
     if extension not in MAGIC_BYTES:
         raise HTTPException(status_code=400, detail=f"Unsupported file extension: {extension}")
     expected = MAGIC_BYTES[extension]
@@ -39,6 +45,53 @@ def _validate_mime(file_data: bytes, extension: str) -> None:
             status_code=400,
             detail=f"File content does not match extension {extension}",
         )
+    if extension == ".pdf" and not _is_valid_pdf(file_data):
+        raise HTTPException(
+            status_code=400,
+            detail="File content is not a valid PDF (missing EOF marker)",
+        )
+    if extension == ".docx" and not _is_zip_archive(file_data):
+        raise HTTPException(
+            status_code=400,
+            detail="File content is not a valid ZIP-archive (.docx)",
+        )
+    if extension == ".doc" and not _is_ole2_document(file_data):
+        raise HTTPException(
+            status_code=400,
+            detail="File content is not a valid OLE2 compound document (.doc)",
+        )
+
+
+def _is_zip_archive(data: bytes) -> bool:
+    """Cheap check that data contains a ZIP End Of Central Directory record.
+
+    The EOCD signature marks the structural end of any ZIP archive, which a
+    signature-only spoof would not contain.
+    """
+    if len(data) < 22:
+        return False
+    return b"PK\x05\x06" in data[-65557:]
+
+
+def _is_valid_pdf(data: bytes) -> bool:
+    """Check that PDF ends with %%EOF marker (standard PDF trailer)."""
+    tail = data[-1024:] if len(data) > 1024 else data
+    return b"%%EOF" in tail
+
+
+def _is_ole2_document(data: bytes) -> bool:
+    """Verify OLE2 compound document beyond magic bytes.
+
+    Checks for the CFB (Compound File Binary) header structure:
+    magic + version + byte order + sector size.
+    """
+    if len(data) < 512:
+        return False
+    # Bytes 26-27: minor version (should be 0x003E for OLE2)
+    # Bytes 28-29: major version (0x0003 or 0x0004)
+    # Bytes 30-31: byte order (0xFFFE = little-endian)
+    # Bytes 32-33: sector size power (9 = 512 bytes)
+    return data[26:28] == b"\x3e\x00" and data[30:32] == b"\xfe\xff" and data[32] == 0x09
 
 
 @router.get("/documents/clients")

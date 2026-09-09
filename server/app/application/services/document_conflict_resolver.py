@@ -42,7 +42,8 @@ async def resolve_conflict(
     strategy = decide_resolution_strategy(is_versioned)
 
     if strategy == "version":
-        assert domain_profile is not None
+        if domain_profile is None:
+            raise RuntimeError("domain_profile is None for versioned resolution")
         await _resolve_as_version(new_doc, old_doc, domain_profile, act_versioning_service)
         return None
     else:
@@ -89,7 +90,8 @@ async def _resolve_as_replace(
     )
     old_source_path = old_doc.source_path or None
     async with uow_factory.create(master=True) as uow:
-        assert old_doc.id is not None
+        if old_doc.id is None:
+            raise RuntimeError("old_doc id is None")
         await uow.vector_outbox.enqueue(
             VectorOutboxEntry(
                 operation=OutboxOperation.DELETE_BY_DOCUMENT,

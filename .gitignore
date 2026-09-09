@@ -1,5 +1,6 @@
 # Секреты / локальная конфигурация
 server/.env
+server/.env.secrets
 client/.env
 
 # Данные сервисов (создаются docker-compose автоматически)

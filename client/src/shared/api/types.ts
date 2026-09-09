@@ -20,6 +20,13 @@ export interface UserResponse {
   is_active: boolean;
 }
 
+export interface UserListResponse {
+  total: number;
+  limit: number;
+  offset: number;
+  users: UserResponse[];
+}
+
 export interface CreateUserRequest {
   email: string;
   password: string;
@@ -236,18 +243,16 @@ export interface ApiKeyCreateRequest {
 }
 
 export interface ApiKeyCreatedResponse {
-  id: number;
-  api_key: string; // shown only in this response, never stored
+  key: string; // shown only in this response, never stored
   key_prefix: string;
   name?: string | null;
-  created_at: string;
 }
 
 export interface ApiKeyResponse {
   id: number;
   key_prefix: string;
   name?: string | null;
-  created_at: string;
+  creation_date?: string | null;
   revoked_at?: string | null;
   last_used_at?: string | null;
   is_active: boolean;

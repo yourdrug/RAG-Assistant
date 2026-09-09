@@ -53,9 +53,7 @@ class BM25Index:
             tf: dict[str, int] = {}
             for t in tokens:
                 tf[t] = tf.get(t, 0) + 1
-                self.doc_freq[t] = self.doc_freq.get(t, 0) + (
-                    1 if tf[t] == 1 else 0
-                )
+                self.doc_freq[t] = self.doc_freq.get(t, 0) + (1 if tf[t] == 1 else 0)
                 self.inverted_index.setdefault(t, set()).add(idx)
             self.token_freqs.append(tf)
 
@@ -75,9 +73,7 @@ class BM25Index:
             term_freq = tf[t]
             idf = self._idf(t)
             numerator = term_freq * (self.k1 + 1)
-            denominator = term_freq + self.k1 * (
-                1 - self.b + self.b * dl / self.avgdl
-            )
+            denominator = term_freq + self.k1 * (1 - self.b + self.b * dl / self.avgdl)
             score += idf * numerator / denominator
         return score
 
@@ -100,9 +96,7 @@ class BM25Index:
         scored.sort(key=lambda x: x[1], reverse=True)
         return scored[:k]
 
-    def search_with_hashes(
-        self, query: str, k: int = 25
-    ) -> list[tuple[str, float]]:
+    def search_with_hashes(self, query: str, k: int = 25) -> list[tuple[str, float]]:
         """Return (content_hash, score) pairs sorted by descending score."""
         results = self.search(query, k)
         return [(self.hashes[idx], score) for idx, score in results]
@@ -149,9 +143,7 @@ class BM25Index:
 
         return idx
 
-    def replace_text(
-        self, index: int, new_text: str, new_hash: str | None = None
-    ) -> None:
+    def replace_text(self, index: int, new_text: str, new_hash: str | None = None) -> None:
         """Replace text at given index. Updates all BM25 statistics."""
         if index < 0 or index >= self.n_docs:
             raise IndexError(f"Index {index} out of range [0, {self.n_docs})")
@@ -247,17 +239,11 @@ class BM25Index:
         old_tokens = tokenize(self.texts[index])
         old_tf = self.token_freqs[index]
 
-        self._remove_old_tokens(
-            self.doc_freq, self.inverted_index, old_tokens, old_tf, index
-        )
-        removed_len = self._remove_from_lists(
-            self.texts, self.hashes, self.doc_lens, self.token_freqs, index
-        )
+        self._remove_old_tokens(self.doc_freq, self.inverted_index, old_tokens, old_tf, index)
+        removed_len = self._remove_from_lists(self.texts, self.hashes, self.doc_lens, self.token_freqs, index)
 
         self.n_docs -= 1
         total_len = self.avgdl * (self.n_docs + 1) - removed_len
         self.avgdl = total_len / self.n_docs if self.n_docs > 0 else 1.0
 
-        self.inverted_index = self._rebuild_inverted_indices(
-            self.inverted_index, index
-        )
+        self.inverted_index = self._rebuild_inverted_indices(self.inverted_index, index)

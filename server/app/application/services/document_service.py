@@ -230,8 +230,18 @@ class DocumentService:
                 raise RuntimeError("Document save returned None id")
 
             key = generate_storage_key(owner_id, effective_group_id, saved_doc.id, filename)
-            await self._file_storage.upload_file(key, file_data)
-            await uow.documents.set_source_path(saved_doc.id, key)
+            try:
+                await self._file_storage.upload_file(key, file_data)
+                await uow.documents.set_source_path(saved_doc.id, key)
+            except BaseException:
+                # Compensating action: if anything after the S3 write fails and
+                # the DB transaction rolls back, remove the now-orphaned object
+                # so storage never accumulates objects without a DB record.
+                try:
+                    await self._file_storage.delete_file(key)
+                except Exception:
+                    log.warning("Failed to clean up orphaned upload object %s", key)
+                raise
 
             # Sync resolve — if domain is already known
             if doc_domain is not None and existing and pending_replace_id is not None:
@@ -349,6 +359,9 @@ class DocumentService:
             await self._remove_document_from_bm25(uow, document_id)
 
             source_path = doc.source_path
+
+            # Invalidate all conversation summaries (they may reference deleted content)
+            await uow.conversations.clear_all_summaries()
 
             # DB delete cascades to chunks via FK
             await uow.documents.delete(document_id)

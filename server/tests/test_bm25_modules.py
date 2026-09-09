@@ -205,6 +205,7 @@ class TestHybridBackwardCompat:
             rrf_merge as ShimRRF,
             tokenize as ShimTokenize,
         )
+
         assert ShimBM25 is BM25Index
         assert ShimHash is content_hash
         assert ShimRRF is rrf_merge

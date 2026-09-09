@@ -72,7 +72,8 @@ router = APIRouter(tags=["benchmark-admin"])
 
 
 def _question_to_response(q: BenchmarkQuestion) -> BenchmarkQuestionResponse:
-    assert q.id is not None
+    if q.id is None:
+        raise RuntimeError("BenchmarkQuestion saved with None id")
     return BenchmarkQuestionResponse(
         id=q.id,
         question=q.question,
@@ -88,7 +89,8 @@ def _question_to_response(q: BenchmarkQuestion) -> BenchmarkQuestionResponse:
 
 
 def _run_to_response(r: BenchmarkRun) -> BenchmarkRunResponse:
-    assert r.id is not None
+    if r.id is None:
+        raise RuntimeError("BenchmarkRun saved with None id")
     return BenchmarkRunResponse(
         id=r.id,
         sweep_id=r.sweep_id,
@@ -103,7 +105,8 @@ def _run_to_response(r: BenchmarkRun) -> BenchmarkRunResponse:
 
 
 def _sweep_to_response(s: BenchmarkSweep, *, job_id: int | None = None) -> SweepResponse:
-    assert s.id is not None
+    if s.id is None:
+        raise RuntimeError("BenchmarkSweep saved with None id")
     return SweepResponse(
         id=s.id,
         status=s.status,
@@ -233,7 +236,8 @@ async def create_sweep(
     sweep = await service.create(body)
 
     job_id = await job_service.create_job(JobType.SWEEP, related_id=sweep.id)
-    assert sweep.id is not None
+    if sweep.id is None:
+        raise RuntimeError("BenchmarkSweep saved with None id")
 
     await service.update_status(sweep.id, "pending")
 

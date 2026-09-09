@@ -7,6 +7,7 @@ method opens its own async UnitOfWork via the injected UnitOfWorkFactory.
 
 from __future__ import annotations
 
+import html
 import logging
 import time
 from collections.abc import AsyncIterator
@@ -80,7 +81,8 @@ class ChatService:
         async with self._uow_factory.create(master=True) as uow:
             user_ctx = await UserContext.build(uow, user_id, user_kind, user_role=user_role)
             conv = await uow.conversations.get_or_create(conversation_id, user_id)
-            assert conv.id is not None
+            if conv.id is None:
+                raise RuntimeError("Conversation get_or_create returned None id")
             history = await uow.messages.get_history(conv.id, window=self._settings.history_window)
             if history and history[-1].role == MessageRole.USER:
                 history = history[:-1]
@@ -111,12 +113,13 @@ class ChatService:
         model_used: str | None = None,
         domain: str | None = None,
     ) -> None:
+        safe_question = html.escape(question)
         async with self._uow_factory.create(master=True) as uow:
             await uow.messages.save(
                 Message(
                     conversation_id=conv_id,
                     role=MessageRole.USER,
-                    content=question,
+                    content=safe_question,
                 )
             )
             await uow.messages.save(
@@ -170,7 +173,13 @@ class ChatService:
         as_of_date: date | None = None,
     ) -> AsyncIterator[StreamEvent]:
         setup = await self._prepare_chat(
-            question, conversation_id, user_id, user_kind, user_role, depth, as_of_date,
+            question,
+            conversation_id,
+            user_id,
+            user_kind,
+            user_role,
+            depth,
+            as_of_date,
         )
 
         full_answer = ""
@@ -195,7 +204,8 @@ class ChatService:
                 yield event
 
         latency_ms = int((time.monotonic() - t_start) * 1000)
-        assert setup.conv.id is not None
+        if setup.conv.id is None:
+            raise RuntimeError("Conversation id is None during stream_chat")
 
         await self._persist_chat(
             conv_id=setup.conv.id,
@@ -226,7 +236,13 @@ class ChatService:
         as_of_date: date | None = None,
     ) -> ChatResult:
         setup = await self._prepare_chat(
-            question, conversation_id, user_id, user_kind, user_role, depth, as_of_date,
+            question,
+            conversation_id,
+            user_id,
+            user_kind,
+            user_role,
+            depth,
+            as_of_date,
         )
 
         t_start = time.monotonic()
@@ -236,7 +252,8 @@ class ChatService:
             ctx=setup.ctx,
         )
         latency_ms = int((time.monotonic() - t_start) * 1000)
-        assert setup.conv.id is not None
+        if setup.conv.id is None:
+            raise RuntimeError("Conversation id is None during sync_chat")
 
         await self._persist_chat(
             conv_id=setup.conv.id,

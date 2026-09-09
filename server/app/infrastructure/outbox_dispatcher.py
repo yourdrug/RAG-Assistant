@@ -6,6 +6,7 @@ Idempotent: upsert overwrites by deterministic chunk_id, delete on missing is no
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import socket
 import uuid
@@ -19,6 +20,7 @@ log = logging.getLogger("default")
 
 _BASE_BACKOFF_SEC = 5
 _MAX_BACKOFF_SEC = 900  # 15 minutes
+_OUTBOX_CONCURRENCY = 5  # max parallel entry processing tasks
 
 
 class OutboxDispatcher:
@@ -33,6 +35,7 @@ class OutboxDispatcher:
         self._uow_factory = uow_factory
         self._vector_store = vector_store
         self._worker_id = f"{socket.gethostname()}-{uuid.uuid4().hex[:8]}"
+        self._semaphore = asyncio.Semaphore(_OUTBOX_CONCURRENCY)
 
     async def run_once(self, batch_size: int = 20) -> int:
         """Process one batch of outbox entries. Returns the number of processed entries."""
@@ -47,8 +50,11 @@ class OutboxDispatcher:
         if not batch:
             return 0
 
-        for entry in batch:
-            await self._apply_one(entry)
+        async def _guarded(entry: VectorOutboxEntry) -> None:
+            async with self._semaphore:
+                await self._apply_one(entry)
+
+        await asyncio.gather(*[_guarded(entry) for entry in batch])
 
         return len(batch)
 

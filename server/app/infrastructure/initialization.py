@@ -69,8 +69,15 @@ def _build_defaults() -> list[ConfigParameter]:
                 value = str(raw)
         result.append(
             _param(
-                p.key, value, p.type.__name__, p.category,
-                p.description, p.min_val, p.max_val, p.allowed, p.domain_key,
+                p.key,
+                value,
+                p.type.__name__,
+                p.category,
+                p.description,
+                p.min_val,
+                p.max_val,
+                p.allowed,
+                p.domain_key,
             )
         )
     return result
@@ -124,9 +131,7 @@ async def _seed_config_defaults(uow_factory) -> None:
             # row (domain_key=NULL) still exists, delete it.
             defaults = _build_defaults()
             for stale in existing:
-                if stale.domain_key is None and stale.key in {
-                    p.key for p in defaults if p.domain_key
-                }:
+                if stale.domain_key is None and stale.key in {p.key for p in defaults if p.domain_key}:
                     await uow.config_parameters.delete_by_key_and_domain(stale.key, None)
                     logger.info("Removed stale global row for domain-specific param: %s", stale.key)
 
@@ -141,7 +146,9 @@ async def _seed_config_defaults(uow_factory) -> None:
                     added += 1
                 elif existing_cat_pairs.get(pair) != entity.category:
                     await uow.config_parameters.update_category(
-                        entity.key, entity.category, entity.domain_key,
+                        entity.key,
+                        entity.category,
+                        entity.domain_key,
                     )
                     updated += 1
 

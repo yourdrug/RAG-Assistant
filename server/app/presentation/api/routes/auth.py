@@ -5,12 +5,18 @@ from __future__ import annotations
 from application.dto.auth_dto import CreateUserCommand, LoginCommand
 from application.services.auth_service import AuthService
 from domain.value_objects.roles import UserKind, UserRole
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from infrastructure.logging.actions import log_action
 
 from presentation.api.auth_dependencies import get_current_user, require_admin
 from presentation.api.dependencies import create_auth_service
-from presentation.api.schemas import CreateUserRequest, LoginRequest, TokenResponse, UserResponse
+from presentation.api.schemas import (
+    CreateUserRequest,
+    LoginRequest,
+    TokenResponse,
+    UserListResponse,
+    UserResponse,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -49,12 +55,19 @@ async def add_user(
     return result
 
 
-@router.get("/users", response_model=list[UserResponse])
+@router.get("/users", response_model=UserListResponse)
 async def list_all_users(
     admin: dict = Depends(require_admin),
     auth_service: AuthService = Depends(create_auth_service),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
 ):
-    return await auth_service.list_users()
+    users, total = await auth_service.list_users(limit=limit, offset=offset)
+    log_action("user.list", user_id=admin["id"], details={"limit": limit, "offset": offset})
+    response_users = [
+        UserResponse(id=u.id, email=u.email, role=u.role, kind=u.kind, is_active=u.is_active) for u in users
+    ]
+    return UserListResponse(total=total, limit=limit, offset=offset, users=response_users)
 
 
 @router.patch("/users/{user_id}")

@@ -112,9 +112,11 @@ class TestListUsers:
         service, uow = auth_service
         user = User(id=1, email="a@test.com", role=UserRole.USER, kind=UserKind.INTERNAL)
         uow.users.list_all.return_value = [user]
+        uow.users.count_all.return_value = 1
 
-        result = await service.list_users()
-        assert len(result) == 1
+        users, total = await service.list_users()
+        assert len(users) == 1
+        assert total == 1
 
 
 # ---------------------------------------------------------------------------

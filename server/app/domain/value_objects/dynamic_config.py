@@ -34,10 +34,22 @@ DYNAMIC_PARAMS: list[DynamicParam] = [
     DynamicParam("chunk_size", int, "rag", "Document chunk size (chars)", 100, 5000),
     DynamicParam("chunk_overlap", int, "rag", "Chunk overlap (chars)", 0, 1000),
     DynamicParam(
-        "legal_chunk_size", int, "rag", "Legal doc chunk size (chars)", 100, 5000, domain_key="legal",
+        "legal_chunk_size",
+        int,
+        "rag",
+        "Legal doc chunk size (chars)",
+        100,
+        5000,
+        domain_key="legal",
     ),
     DynamicParam(
-        "legal_chunk_overlap", int, "rag", "Legal doc chunk overlap (chars)", 0, 1000, domain_key="legal",
+        "legal_chunk_overlap",
+        int,
+        "rag",
+        "Legal doc chunk overlap (chars)",
+        0,
+        1000,
+        domain_key="legal",
     ),
     DynamicParam("source_min_score", float, "rag", "Min source relevance score", 0.0, 1.0),
     # ── Hybrid search ───────────────────────────────────────────
@@ -73,7 +85,10 @@ DYNAMIC_PARAMS: list[DynamicParam] = [
     DynamicParam("openrouter_model", str, "openrouter", "OpenRouter model name"),
     # ── ML Provider ─────────────────────────────────────────────
     DynamicParam(
-        "ml_provider", str, "ml", "ML provider for embedding/reranking",
+        "ml_provider",
+        str,
+        "ml",
+        "ML provider for embedding/reranking",
         allowed=["tei", "deepinfra"],
     ),
     DynamicParam("deepinfra_embed_model", str, "ml", "DeepInfra embedding model"),

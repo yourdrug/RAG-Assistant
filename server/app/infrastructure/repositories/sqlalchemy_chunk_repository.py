@@ -340,6 +340,7 @@ class SQLAlchemyChunkRepository:
         # direction == "prev"
         if cursor is None:
             from domain.exceptions import ValidationError
+
             raise ValidationError("cursor is required when direction=prev")
         ci, cid = cursor
         conditions.append(
@@ -360,9 +361,7 @@ class SQLAlchemyChunkRepository:
         page_rows = rows[:limit]
         page_rows.reverse()
         prev_cur = (
-            encode_cursor(page_rows[0].chunk_index, page_rows[0].id)
-            if has_extra and page_rows
-            else None
+            encode_cursor(page_rows[0].chunk_index, page_rows[0].id) if has_extra and page_rows else None
         )
         next_cur = encode_cursor(page_rows[0].chunk_index, page_rows[0].id) if page_rows else None
         items = [self._to_chunk_search_result(r) for r in page_rows]

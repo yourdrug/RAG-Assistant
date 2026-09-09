@@ -61,7 +61,7 @@ def save_summary_to_history(summary: dict, config: dict, data_dir: str) -> None:
 
 
 def load_history(data_dir: str) -> list[dict]:
-    """Load all historical benchmark runs from JSONL."""
+    """Load all historical benchmark runs from JSONL with schema validation."""
     path = _history_path(data_dir)
     if not path.exists():
         return []
@@ -72,9 +72,14 @@ def load_history(data_dir: str) -> list[dict]:
         if not line:
             continue
         try:
-            records.append(json.loads(line))
+            record = json.loads(line)
         except json.JSONDecodeError:
+            log.warning("Skipping malformed JSONL line in benchmark history")
             continue
+        if not isinstance(record, dict) or "timestamp" not in record or "metrics" not in record:
+            log.warning("Skipping benchmark history entry missing required fields (timestamp, metrics)")
+            continue
+        records.append(record)
     return records
 
 

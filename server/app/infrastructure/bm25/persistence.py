@@ -15,9 +15,7 @@ BM25_S3_KEY = "_system/bm25_index.json"
 
 def save_bm25_index(index: BM25Index, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(index.to_dict(), ensure_ascii=False), encoding="utf-8"
-    )
+    path.write_text(json.dumps(index.to_dict(), ensure_ascii=False), encoding="utf-8")
     log.info("BM25 index saved: %d docs -> %s", index.n_docs, path)
 
 
@@ -38,9 +36,7 @@ async def save_bm25_index_to_s3(index: BM25Index, storage) -> None:
     """Save BM25 index to S3 under the system prefix."""
     data = json.dumps(index.to_dict(), ensure_ascii=False).encode()
     await storage.upload_file(BM25_S3_KEY, data)
-    log.info(
-        "BM25 index saved to S3: %d docs -> s3://%s", index.n_docs, BM25_S3_KEY
-    )
+    log.info("BM25 index saved to S3: %d docs -> s3://%s", index.n_docs, BM25_S3_KEY)
 
 
 async def load_bm25_index_from_s3(storage) -> BM25Index | None:

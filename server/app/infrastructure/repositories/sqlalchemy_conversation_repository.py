@@ -28,7 +28,9 @@ class SQLAlchemyConversationRepository:
         orm = result.scalar_one_or_none()
         if orm is None:
             return None
-        return Conversation(id=orm.id, user_id=orm.user_id, creation_date=orm.creation_date)
+        return Conversation(
+            id=orm.id, user_id=orm.user_id, creation_date=orm.creation_date, summary=orm.summary
+        )
 
     async def get(self, conversation_id: int) -> Conversation | None:
         return await self.get_by_id(conversation_id)
@@ -40,7 +42,9 @@ class SQLAlchemyConversationRepository:
         orm = result.scalar_one_or_none()
         if orm is None:
             return None
-        return Conversation(id=orm.id, user_id=orm.user_id, creation_date=orm.creation_date)
+        return Conversation(
+            id=orm.id, user_id=orm.user_id, creation_date=orm.creation_date, summary=orm.summary
+        )
 
     async def save(self, conversation: Conversation) -> Conversation:
         if conversation.id is not None:
@@ -80,6 +84,45 @@ class SQLAlchemyConversationRepository:
         if orm is not None:
             orm.summary = summary
             await self._db.flush()
+
+    async def update_summary_if_unchanged(
+        self, conversation_id: int, expected_summary: str | None, new_summary: str | None
+    ) -> bool:
+        """Optimistic compare-and-swap on the conversation summary.
+
+        Applies ``new_summary`` only if the current stored summary still equals
+        ``expected_summary``, preventing a lost update between the read (before
+        the external LLM call) and this write. Returns True if applied.
+        """
+        from sqlalchemy import ColumnElement, update
+
+        expected_clause: ColumnElement[bool]
+        if expected_summary is None:
+            expected_clause = ConversationModel.summary.is_(None)
+        else:
+            expected_clause = ConversationModel.summary == expected_summary
+
+        stmt = (
+            update(ConversationModel)
+            .where(ConversationModel.id == conversation_id)
+            .where(expected_clause)
+            .values(summary=new_summary)
+        )
+        result = await self._db.execute(stmt)
+        return result.rowcount == 1
+
+    async def clear_all_summaries(self) -> int:
+        """Reset all non-null conversation summaries to NULL.
+
+        Called after document deletion to invalidate stale summaries that may
+        reference deleted content. Returns the number of affected rows.
+        """
+        from sqlalchemy import update
+
+        stmt = update(ConversationModel).where(ConversationModel.summary.isnot(None)).values(summary=None)
+        result = await self._db.execute(stmt)
+        await self._db.flush()
+        return result.rowcount
 
     async def list_by_user(
         self, user_id: int, limit: int = 50, offset: int = 0
