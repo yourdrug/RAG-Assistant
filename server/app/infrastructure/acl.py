@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import date
 
 from domain.services import get_visibility_conditions
-from domain.value_objects.roles import UserKind
+from domain.value_objects.roles import UserKind, UserRole
 from qdrant_client.models import (
     DatetimeRange,
     FieldCondition,
@@ -34,11 +34,14 @@ def build_qdrant_filter(
     Derives conditions from domain.services.access_control.get_visibility_conditions().
 
     Args:
-        user: dict with "id" and "kind" keys
+        user: dict with "id", "kind", and optionally "role" keys
         group_ids: pre-fetched group IDs for this user
 
     """
-    conditions = get_visibility_conditions(UserKind(user["kind"]), user["id"], group_ids, for_list=False)
+    user_role = UserRole(user["role"]) if "role" in user and user["role"] else None
+    conditions = get_visibility_conditions(
+        UserKind(user["kind"]), user["id"], group_ids, for_list=False, user_role=user_role,
+    )
 
     ConditionType = (
         FieldCondition | IsEmptyCondition | IsNullCondition | HasIdCondition | NestedCondition | Filter

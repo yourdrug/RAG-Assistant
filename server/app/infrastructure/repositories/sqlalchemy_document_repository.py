@@ -111,8 +111,8 @@ class SQLAlchemyDocumentRepository:
             select(DocumentModel)
             .where(
                 DocumentModel.filename == filename,
-                DocumentModel.owner_id == owner_id,
-                DocumentModel.group_id == group_id,
+                DocumentModel.owner_id.is_(owner_id),
+                DocumentModel.group_id.is_(group_id),
                 DocumentModel.status.in_(
                     [
                         DocumentStatus.PENDING.value,

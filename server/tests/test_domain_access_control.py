@@ -411,7 +411,9 @@ class TestGetVisibilityConditions:
     def test_internal_full_conditions_count(self):
         # Admin sees all client docs + all group docs (regardless of membership)
         conds = get_visibility_conditions(UserKind.INTERNAL, 1, [5], user_role=UserRole.ADMIN)
-        assert len(conds) == 6  # public + private + private (admin bypass) + group (by membership) + group (admin bypass) + client
+        # public + private + private (admin bypass) + group (by membership) +
+        # group (admin bypass) + client
+        assert len(conds) == 6
 
     def test_conditions_are_frozen_dataclass(self):
         conds = get_visibility_conditions(UserKind.CLIENT, 1, [])

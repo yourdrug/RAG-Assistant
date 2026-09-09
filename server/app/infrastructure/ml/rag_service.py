@@ -174,7 +174,7 @@ async def _resolve_hashes_batch(
 
     client = ml_clients.qdrant_client()
 
-    should_conditions = [
+    should_conditions: list[FieldCondition] = [
         FieldCondition(
             key="metadata.content_hash",
             match=MatchValue(value=h),
@@ -183,9 +183,9 @@ async def _resolve_hashes_batch(
     ]
 
     if access_filter is not None and access_filter.should:
-        scroll_filter = Filter(must=[access_filter, Filter(should=should_conditions)])
+        scroll_filter = Filter(must=[access_filter, Filter(should=should_conditions)])  # type: ignore[arg-type]
     else:
-        scroll_filter = Filter(should=should_conditions)
+        scroll_filter = Filter(should=should_conditions)  # type: ignore[arg-type]
 
     results = await asyncio.to_thread(
         client.scroll,
@@ -692,7 +692,7 @@ class RagService:
             req_id = uuid.uuid4().hex[:12]
             request_id_ctx.set(req_id)
 
-        user = {"id": ctx.user_id, "kind": ctx.user_kind}
+        user = {"id": ctx.user_id, "kind": ctx.user_kind, "role": ctx.user_role}
         access_filter = build_qdrant_filter(user, ctx.user_group_ids)
         retrieval_filter = with_temporal_filter(access_filter, ctx.as_of_date)
 

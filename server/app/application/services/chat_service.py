@@ -73,11 +73,12 @@ class ChatService:
         conversation_id: int | None,
         user_id: int,
         user_kind: str,
+        user_role: str,
         depth: str | None,
         as_of_date: date | None,
     ) -> ChatSetup:
         async with self._uow_factory.create(master=True) as uow:
-            user_ctx = await UserContext.build(uow, user_id, user_kind)
+            user_ctx = await UserContext.build(uow, user_id, user_kind, user_role=user_role)
             conv = await uow.conversations.get_or_create(conversation_id, user_id)
             assert conv.id is not None
             history = await uow.messages.get_history(conv.id, window=self._settings.history_window)
@@ -87,6 +88,7 @@ class ChatService:
         ctx = ChatContext(
             user_id=user_id,
             user_kind=user_kind,
+            user_role=user_role,
             user_group_ids=user_ctx.group_ids,
             depth=depth,
             summary=conv.summary,
@@ -167,7 +169,9 @@ class ChatService:
         depth: str | None = None,
         as_of_date: date | None = None,
     ) -> AsyncIterator[StreamEvent]:
-        setup = await self._prepare_chat(question, conversation_id, user_id, user_kind, depth, as_of_date)
+        setup = await self._prepare_chat(
+            question, conversation_id, user_id, user_kind, user_role, depth, as_of_date,
+        )
 
         full_answer = ""
         sources: list[dict] = []
@@ -221,7 +225,9 @@ class ChatService:
         depth: str | None = None,
         as_of_date: date | None = None,
     ) -> ChatResult:
-        setup = await self._prepare_chat(question, conversation_id, user_id, user_kind, depth, as_of_date)
+        setup = await self._prepare_chat(
+            question, conversation_id, user_id, user_kind, user_role, depth, as_of_date,
+        )
 
         t_start = time.monotonic()
         rag_result = await self._rag_service.invoke(
