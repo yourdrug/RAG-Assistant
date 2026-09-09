@@ -145,6 +145,30 @@ def _create_openrouter_llm_for_breadth(breadth: str) -> ChatOpenAI:
 
 
 # ---------------------------------------------------------------------------
+# Fast LLM for auxiliary calls (condense, relevance, decomposition)
+# ---------------------------------------------------------------------------
+
+
+def create_fast_llm_for_auxiliary():
+    """Create a fast, lightweight LLM for auxiliary pipeline calls.
+
+    Uses a smaller model to reduce latency on condense/relevance/decomposition
+    calls, leaving the main generation model unchanged.
+    """
+    if settings.llm_provider == LLMProvider.OPENROUTER:
+        return ChatOpenAI(
+            model_name="meta-llama/llama-3.1-8b-instruct",
+            openai_api_key=SecretStr(settings.openrouter_api_key) if settings.openrouter_api_key else None,
+            openai_api_base=settings.openrouter_base_url,
+            temperature=0,
+            max_tokens=200,
+            request_timeout=10,
+            max_retries=1,
+        )
+    return _create_ollama_llm()
+
+
+# ---------------------------------------------------------------------------
 # Qdrant client
 # ---------------------------------------------------------------------------
 

@@ -242,7 +242,7 @@ class ActVersionModel(BaseModel):
     effective_from: Mapped[date | None] = mapped_column(Date, nullable=True)
     effective_to: Mapped[date | None] = mapped_column(Date, nullable=True)
     is_current: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
-    date_source: Mapped[str] = mapped_column(String(16), nullable=False, server_default="extracted")
+    date_source: Mapped[str] = mapped_column(String(32), nullable=False, server_default="extracted")
     date_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     verified_by: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True

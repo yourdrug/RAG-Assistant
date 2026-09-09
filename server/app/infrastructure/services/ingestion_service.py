@@ -507,17 +507,17 @@ class IngestionService:
                 _existing_uow=uow,
             )
 
-        # Link vectors to document ID — via the outbox: a vector-store
-        # mutation must not run inline; a DB rollback must not leave Qdrant
-        # patched with a document id that was never committed.
-        await uow.vector_outbox.enqueue(
-            VectorOutboxEntry(
-                operation=OutboxOperation.SET_DOCUMENT_ID,
-                aggregate_type="document",
-                aggregate_id=doc_id,
-                payload={"source": src, "document_id": doc_id},
+            # Link vectors to document ID — via the outbox: a vector-store
+            # mutation must not run inline; a DB rollback must not leave Qdrant
+            # patched with a document id that was never committed.
+            await uow.vector_outbox.enqueue(
+                VectorOutboxEntry(
+                    operation=OutboxOperation.SET_DOCUMENT_ID,
+                    aggregate_type="document",
+                    aggregate_id=doc_id,
+                    payload={"source": src, "document_id": doc_id},
+                )
             )
-        )
 
     async def run_single_file(
         self,

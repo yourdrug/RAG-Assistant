@@ -21,6 +21,7 @@ class DynamicParam:
     min_val: float | None = None
     max_val: float | None = None
     allowed: list[str] | None = field(default=None, repr=False)
+    domain_key: str | None = None
 
 
 DYNAMIC_PARAMS: list[DynamicParam] = [
@@ -32,10 +33,13 @@ DYNAMIC_PARAMS: list[DynamicParam] = [
     DynamicParam("history_window", int, "rag", "Chat history window", 0, 50),
     DynamicParam("chunk_size", int, "rag", "Document chunk size (chars)", 100, 5000),
     DynamicParam("chunk_overlap", int, "rag", "Chunk overlap (chars)", 0, 1000),
+    DynamicParam(
+        "legal_chunk_size", int, "rag", "Legal doc chunk size (chars)", 100, 5000, domain_key="legal",
+    ),
+    DynamicParam(
+        "legal_chunk_overlap", int, "rag", "Legal doc chunk overlap (chars)", 0, 1000, domain_key="legal",
+    ),
     DynamicParam("source_min_score", float, "rag", "Min source relevance score", 0.0, 1.0),
-    # ── Legal ───────────────────────────────────────────────────
-    DynamicParam("legal_chunk_size", int, "legal", "Legal doc chunk size (chars)", 100, 5000),
-    DynamicParam("legal_chunk_overlap", int, "legal", "Legal doc chunk overlap (chars)", 0, 1000),
     # ── Hybrid search ───────────────────────────────────────────
     DynamicParam("hybrid_enabled", bool, "hybrid", "Enable hybrid search (dense+sparse)"),
     DynamicParam("bm25_fetch_k", int, "hybrid", "BM25 fetch count", 1, 200),
@@ -85,10 +89,14 @@ DYNAMIC_PARAMS: list[DynamicParam] = [
     DynamicParam("s3_endpoint", str, "storage", "S3 endpoint URL"),
     DynamicParam("s3_bucket", str, "storage", "S3 bucket name"),
     DynamicParam("s3_region", str, "storage", "S3 region"),
+    DynamicParam("s3_access_key", str, "storage", "S3 access key"),
+    DynamicParam("s3_secret_key", str, "storage", "S3 secret key"),
     # ── Background jobs ─────────────────────────────────────────
     DynamicParam("stuck_job_timeout_minutes", int, "jobs", "Minutes before PROCESSING doc is stuck", 5, 120),
     DynamicParam("stale_pending_timeout_minutes", int, "jobs", "Minutes before PENDING job is stale", 5, 120),
 ]
 
-# Derived lookup: key -> (settings_attr, python_type)
-DYNAMIC_FIELDS_MAP: dict[str, tuple[str, type]] = {p.key: (p.key, p.type) for p in DYNAMIC_PARAMS}
+# Derived lookup: key -> (settings_attr, python_type) — global params only
+DYNAMIC_FIELDS_MAP: dict[str, tuple[str, type]] = {
+    p.key: (p.key, p.type) for p in DYNAMIC_PARAMS if not p.domain_key
+}

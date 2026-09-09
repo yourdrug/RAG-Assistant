@@ -126,7 +126,7 @@ def split_documents(
     if profile is not None and profile.content_boundaries() and settings is not None:
         chunks = _split_structured(text_docs, profile, settings)
     elif domain == DocDomain.LEGAL.value:
-        chunks = split_documents_legal(text_docs)
+        chunks = split_documents_legal(text_docs, settings)
     else:
         chunks = _split_char_general(text_docs)
 
@@ -187,15 +187,30 @@ def _split_char_general(docs: list[Document]) -> list[Document]:
     return splitter.split_documents(docs)
 
 
-def split_documents_legal(docs: list[Document]) -> list[Document]:
+def split_documents_legal(
+    docs: list[Document],
+    domain_settings: "DomainSettingsPort | None" = None,
+) -> list[Document]:
     """Split legal documents into chunks with larger size and legal-aware separators.
 
-    Uses legal_chunk_size (default 1000) and legal_chunk_overlap (default 250)
-    to keep articles/clauses intact.
+    Reads legal_chunk_size and legal_chunk_overlap from domain settings if
+    available, otherwise falls back to defaults (1000 / 250).
     """
+    chunk_size = settings.legal_chunk_size
+    chunk_overlap = settings.legal_chunk_overlap
+    if domain_settings is not None:
+        try:
+            chunk_size = int(domain_settings.get("legal_chunk_size", "legal"))
+        except (KeyError, ValueError):
+            pass
+        try:
+            chunk_overlap = int(domain_settings.get("legal_chunk_overlap", "legal"))
+        except (KeyError, ValueError):
+            pass
+
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=settings.legal_chunk_size,
-        chunk_overlap=settings.legal_chunk_overlap,
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
         length_function=len,
         separators=LEGAL_SEPARATORS,
     )

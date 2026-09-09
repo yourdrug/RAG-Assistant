@@ -159,6 +159,13 @@ class TestValidateDocumentVisibility:
                 UserContext(user_id=1, user_kind="internal", user_role="user", group_ids=[1, 2, 3]),
             )
 
+    def test_internal_group_admin_bypasses_membership(self):
+        validate_document_visibility(
+            DocumentVisibility.INTERNAL_GROUP,
+            5,
+            UserContext(user_id=1, user_kind="internal", user_role="admin", group_ids=[1, 2, 3]),
+        )
+
     def test_internal_group_with_valid_membership(self):
         validate_document_visibility(
             DocumentVisibility.INTERNAL_GROUP,
@@ -321,7 +328,7 @@ class TestCanViewDocumentParameterized:
             ("internal_group", None, 5, "client", 1, [], False, None),
             # INTERNAL_PRIVATE
             ("internal_private", 10, None, "internal", 10, [], True, "admin"),
-            ("internal_private", 10, None, "internal", 20, [], False, "admin"),
+            ("internal_private", 10, None, "internal", 20, [], True, "admin"),
             ("internal_private", 10, None, "client", 10, [], False, None),
             # CLIENT_PRIVATE - admin can view any
             ("client_private", 10, None, "client", 10, [], True, None),
@@ -404,7 +411,7 @@ class TestGetVisibilityConditions:
     def test_internal_full_conditions_count(self):
         # Admin sees all client docs + all group docs (regardless of membership)
         conds = get_visibility_conditions(UserKind.INTERNAL, 1, [5], user_role=UserRole.ADMIN)
-        assert len(conds) == 5  # public + private + group (by membership) + group (admin bypass) + client
+        assert len(conds) == 6  # public + private + private (admin bypass) + group (by membership) + group (admin bypass) + client
 
     def test_conditions_are_frozen_dataclass(self):
         conds = get_visibility_conditions(UserKind.CLIENT, 1, [])

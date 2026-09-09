@@ -187,6 +187,7 @@ class EventContainer:
         uow_factory: UnitOfWorkFactory,
         vector_store_repo: QdrantVectorStoreRepository,
         event_bus,
+        domain_settings=None,
     ) -> None:
         from infrastructure.events.postgres_config_listener import PostgresConfigListener
         from infrastructure.outbox_dispatcher import OutboxDispatcher
@@ -196,6 +197,7 @@ class EventContainer:
         self.config_listener = PostgresConfigListener(
             event_bus=event_bus,
             uow_factory=uow_factory,
+            domain_settings=domain_settings,
         )
         self.outbox_dispatcher = OutboxDispatcher(
             uow_factory=uow_factory,
@@ -308,6 +310,7 @@ class InfrastructureContainer:
             uow_factory=self.db.uow,
             vector_store_repo=self.ml.vector_store,
             event_bus=event_bus,
+            domain_settings=self.domain_settings,
         )
 
         self._initialized = True

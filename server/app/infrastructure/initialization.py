@@ -22,7 +22,7 @@ from infrastructure.events.in_process_event_bus import event_bus
 logger = logging.getLogger("default")
 
 
-def _param(key, value, vtype, cat, desc, min_v=None, max_v=None, allowed=None):
+def _param(key, value, vtype, cat, desc, min_v=None, max_v=None, allowed=None, domain_key=None):
     """Build a ConfigParameter entity for seeding from env defaults."""
     return ConfigParameter(
         key=key,
@@ -33,6 +33,7 @@ def _param(key, value, vtype, cat, desc, min_v=None, max_v=None, allowed=None):
         min_value=min_v,
         max_value=max_v,
         allowed_values=allowed,
+        domain_key=domain_key,
     )
 
 
@@ -45,22 +46,31 @@ def _build_defaults() -> list[ConfigParameter]:
     s = settings
     result: list[ConfigParameter] = []
     for p in DYNAMIC_PARAMS:
-        raw = getattr(s, p.key)
-        if p.type is bool:
-            value = json.dumps(raw)
-        elif p.type is list:
-            value = json.dumps(raw)
-        elif p.type is float and raw is None:
-            # rerank_min_score / rerank_score_gap_ratio can be None
-            value = str(p.min_val if p.min_val is not None else 0.0)
-        elif p.type in (int, float):
-            value = str(raw)
+        # Domain-specific params with no env var: use the declared default value
+        if p.domain_key and not hasattr(s, p.key):
+            raw = p.min_val if p.type in (int, float) and p.min_val is not None else None
+            if p.type is int:
+                value = str(int(raw)) if raw is not None else "0"
+            elif p.type is float:
+                value = str(raw) if raw is not None else "0.0"
+            else:
+                value = ""
         else:
-            value = raw  # str
+            raw = getattr(s, p.key)
+            if p.type is bool:
+                value = json.dumps(raw)
+            elif p.type is list:
+                value = json.dumps(raw)
+            elif p.type is float and raw is None:
+                value = str(p.min_val if p.min_val is not None else 0.0)
+            elif p.type in (int, float):
+                value = str(raw)
+            else:
+                value = str(raw)
         result.append(
             _param(
                 p.key, value, p.type.__name__, p.category,
-                p.description, p.min_val, p.max_val, p.allowed,
+                p.description, p.min_val, p.max_val, p.allowed, p.domain_key,
             )
         )
     return result
@@ -108,9 +118,18 @@ async def _seed_config_defaults(uow_factory) -> None:
         async with uow_factory.create(master=True) as uow:
             existing = await uow.config_parameters.get_all()
             existing_pairs = {(p.key, p.domain_key) for p in existing}
-            existing_categories = {p.key: p.category for p in existing}
+            existing_cat_pairs = {(p.key, p.domain_key): p.category for p in existing}
 
+            # Cleanup: if a param is now domain-specific but a stale global
+            # row (domain_key=NULL) still exists, delete it.
             defaults = _build_defaults()
+            for stale in existing:
+                if stale.domain_key is None and stale.key in {
+                    p.key for p in defaults if p.domain_key
+                }:
+                    await uow.config_parameters.delete_by_key_and_domain(stale.key, None)
+                    logger.info("Removed stale global row for domain-specific param: %s", stale.key)
+
             added = 0
             updated = 0
             for entity in defaults:
@@ -120,8 +139,10 @@ async def _seed_config_defaults(uow_factory) -> None:
                     # at boot (M-2). upsert NOTIFYs other processes atomically.
                     await uow.config_parameters.upsert(entity)
                     added += 1
-                elif existing_categories.get(entity.key) != entity.category:
-                    await uow.config_parameters.update_category(entity.key, entity.category)
+                elif existing_cat_pairs.get(pair) != entity.category:
+                    await uow.config_parameters.update_category(
+                        entity.key, entity.category, entity.domain_key,
+                    )
                     updated += 1
 
             if added or updated:

@@ -41,6 +41,7 @@ class MLClientRegistry:
         self._embeddings: Any = None
         self._llm: Any = None
         self._llm_breadth_cache: dict[str, Any] = {}
+        self._fast_llm: Any = None
         self._reranker: Any = None
         self._qdrant_client: Any = None
         self._bm25_index: BM25Index | None = None
@@ -71,6 +72,14 @@ class MLClientRegistry:
 
             self._llm_breadth_cache[breadth] = create_llm_for_breadth(breadth)
         return self._llm_breadth_cache[breadth]
+
+    def fast_llm(self) -> Any:
+        """Fast, lightweight LLM for auxiliary pipeline calls (condense, relevance)."""
+        if self._fast_llm is None:
+            from infrastructure.ml.factories import create_fast_llm_for_auxiliary
+
+            self._fast_llm = create_fast_llm_for_auxiliary()
+        return self._fast_llm
 
     def reranker(self) -> Any:
         if self._reranker is None:
@@ -111,6 +120,7 @@ class MLClientRegistry:
         """
         self._llm = None
         self._llm_breadth_cache.clear()
+        self._fast_llm = None
         log.info("MLClientRegistry: LLM cache invalidated")
 
     def invalidate_embeddings(self) -> None:

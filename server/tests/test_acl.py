@@ -111,6 +111,10 @@ class TestValidateVisibility:
         with pytest.raises(Exception):  # noqa: B017
             validate_document_visibility(DocumentVisibility.INTERNAL_GROUP, 99, ctx)
 
+    def test_internal_group_admin_bypasses_membership(self):
+        ctx = _internal_user(role=UserRole.ADMIN, group_ids=[1, 2])
+        validate_document_visibility(DocumentVisibility.INTERNAL_GROUP, 99, ctx)
+
 
 # ---------------------------------------------------------------------------
 # compute_owner_and_group

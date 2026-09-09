@@ -50,13 +50,28 @@ class SQLAlchemyConfigParameterRepository:
             orm.value = value
             await self._db.flush()
 
-    async def update_category(self, key: str, category: str) -> None:
-        result = await self._db.execute(
-            select(ConfigParameterModel).where(ConfigParameterModel.key == key).with_for_update()
-        )
+    async def update_category(self, key: str, category: str, domain_key: str | None = None) -> None:
+        stmt = select(ConfigParameterModel).where(ConfigParameterModel.key == key).with_for_update()
+        if domain_key is not None:
+            stmt = stmt.where(ConfigParameterModel.domain_key == domain_key)
+        else:
+            stmt = stmt.where(ConfigParameterModel.domain_key.is_(None))
+        result = await self._db.execute(stmt)
         orm = result.scalar_one_or_none()
         if orm and orm.category != category:
             orm.category = category
+            await self._db.flush()
+
+    async def delete_by_key_and_domain(self, key: str, domain_key: str | None = None) -> None:
+        stmt = select(ConfigParameterModel).where(ConfigParameterModel.key == key)
+        if domain_key is not None:
+            stmt = stmt.where(ConfigParameterModel.domain_key == domain_key)
+        else:
+            stmt = stmt.where(ConfigParameterModel.domain_key.is_(None))
+        result = await self._db.execute(stmt)
+        orm = result.scalar_one_or_none()
+        if orm:
+            await self._db.delete(orm)
             await self._db.flush()
 
     async def save(self, entity: ConfigParameter) -> None:

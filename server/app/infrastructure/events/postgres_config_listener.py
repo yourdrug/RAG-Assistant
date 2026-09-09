@@ -25,6 +25,7 @@ from infrastructure.metrics.metrics import (
 )
 
 if TYPE_CHECKING:
+    from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
     from infrastructure.uow_factory import UnitOfWorkFactory
 
 log = logging.getLogger("default")
@@ -44,9 +45,15 @@ class PostgresConfigListener:
     окно, в которое NOTIFY мог быть потерян во время offline-состояния.
     """
 
-    def __init__(self, event_bus: EventBus, uow_factory: UnitOfWorkFactory) -> None:
+    def __init__(
+        self,
+        event_bus: EventBus,
+        uow_factory: UnitOfWorkFactory,
+        domain_settings: DomainSettingsAdapter | None = None,
+    ) -> None:
         self._bus = event_bus
         self._uow_factory = uow_factory
+        self._domain_settings = domain_settings
         self._conn: asyncpg.Connection | None = None
         self._stopped = False
         self._supervisor_task: asyncio.Task | None = None
@@ -104,12 +111,21 @@ class PostgresConfigListener:
             applied = 0
             for r in rows:
                 if getattr(r, "domain_key", None) is not None:
-                    # Domain-specific params don't map to global settings —
-                    # publish with domain_key so the DomainSettingsAdapter picks them up.
+                    # Check if the cached domain value actually differs from DB.
+                    # Without this comparison resync fires spurious events on every
+                    # cycle (old_value=None, same new_value) flooding audit logs.
+                    domain_key: str = r.domain_key  # type: ignore[assignment]
+                    if self._domain_settings is not None:
+                        try:
+                            cached = self._domain_settings.get(r.key, domain_key)
+                        except KeyError:
+                            cached = None
+                        if cached is not None and self._values_equal(cached, r.value):
+                            continue
                     self._bus.publish(
                         ConfigParameterChanged(
                             key=r.key,
-                            old_value=None,
+                            old_value=cached if self._domain_settings is not None else None,
                             new_value=r.value,
                             value_type=r.value_type,
                             domain_key=r.domain_key,

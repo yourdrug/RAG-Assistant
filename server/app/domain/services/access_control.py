@@ -95,6 +95,14 @@ def get_visibility_conditions(
             )
         )
 
+    # Admin can view ALL internal_private docs regardless of ownership
+    if user_role == UserRole.ADMIN:
+        conditions.append(
+            VisibilityCondition(
+                visibility=DocumentVisibility.INTERNAL_PRIVATE,
+            )
+        )
+
     # Admin can view ALL client_private docs in list mode (not search mode)
     if for_list and user_role == UserRole.ADMIN:
         conditions.append(
@@ -131,7 +139,7 @@ def validate_document_visibility(
     if visibility == DocumentVisibility.INTERNAL_GROUP:
         if group_id is None:
             raise ValidationError("group_id required for visibility='internal_group'")
-        if group_id not in ctx.group_ids:
+        if user_role != UserRole.ADMIN and group_id not in ctx.group_ids:
             raise BusinessRuleViolation("You are not a member of this group")
 
 

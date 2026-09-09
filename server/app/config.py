@@ -79,7 +79,7 @@ class Settings(BaseSettings):
     llm_num_ctx_broad: int = 16384
     llm_num_predict_narrow: int = 400
     llm_num_predict_broad: int = 2048
-    llm_max_concurrent: int = 4
+    llm_max_concurrent: int = 16
 
     # ── OpenRouter ──────────────────────────────────────────────────────────
     openrouter_api_key: str = ""
@@ -96,8 +96,8 @@ class Settings(BaseSettings):
     deepinfra_rerank_model: str = "BAAI/bge-reranker-v2-m3"
 
     # ── HTTP pools ──────────────────────────────────────────────────────────
-    http_pool_max_connections: int = 20
-    http_pool_max_keepalive: int = 10
+    http_pool_max_connections: int = 40
+    http_pool_max_keepalive: int = 20
 
     # ── OCR ─────────────────────────────────────────────────────────────────
     ocr_engine: str = "paddleocr"
@@ -108,7 +108,7 @@ class Settings(BaseSettings):
     ocr_min_chars: int = 40
 
     # ── RAG: retrieval ──────────────────────────────────────────────────────
-    retriever_fetch_k: int = 25
+    retriever_fetch_k: int = 15
     retriever_top_k: int = 4
     retriever_fetch_k_broad: int = 40
     retriever_top_k_broad: int = 10
@@ -139,10 +139,10 @@ class Settings(BaseSettings):
 
     # ── RAG: feature toggles ───────────────────────────────────────────────
     relevance_gate_enabled: bool = False
-    condense_enabled: bool = True
+    condense_enabled: bool = False
     decomposition_enabled: bool = False
     rolling_summary_enabled: bool = True
-    cache_enabled: bool = False
+    cache_enabled: bool = True
     pii_redaction_enabled: bool = True
 
     # ── Redis ───────────────────────────────────────────────────────────────

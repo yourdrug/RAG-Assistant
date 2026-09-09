@@ -160,6 +160,54 @@ async def _resolve_hash_to_doc(h: str, access_filter, ml_clients: MLClientRegist
     return LCDocument(page_content=page_content, metadata=metadata)
 
 
+async def _resolve_hashes_batch(
+    hashes: list[str],
+    access_filter,
+    ml_clients: MLClientRegistry,
+) -> dict[str, LCDocument]:
+    """Batch-resolve multiple content_hashes from Qdrant in a single scroll call.
+
+    Returns a dict mapping content_hash -> LCDocument for successfully resolved hashes.
+    """
+    if not hashes:
+        return {}
+
+    client = ml_clients.qdrant_client()
+
+    should_conditions = [
+        FieldCondition(
+            key="metadata.content_hash",
+            match=MatchValue(value=h),
+        )
+        for h in hashes
+    ]
+
+    if access_filter is not None and access_filter.should:
+        scroll_filter = Filter(must=[access_filter, Filter(should=should_conditions)])
+    else:
+        scroll_filter = Filter(should=should_conditions)
+
+    results = await asyncio.to_thread(
+        client.scroll,
+        collection_name=settings.collection_name,
+        scroll_filter=scroll_filter,
+        limit=len(hashes),
+        with_payload=True,
+    )
+
+    points = results[0] if isinstance(results, tuple) else results
+    resolved = {}
+    for point in points:
+        payload = point.payload or {}
+        page_content = payload.get("page_content", "")
+        metadata = payload.get("metadata", {})
+        h = metadata.get("content_hash") or payload.get("content_hash")
+        if h:
+            resolved[h] = LCDocument(page_content=page_content, metadata=metadata)
+
+    return resolved
+
+
 async def _qdrant_dense_search(
     query: str, k: int, access_filter, ml_clients: MLClientRegistry
 ) -> list[tuple[str, float, LCDocument]]:
@@ -226,6 +274,7 @@ async def _run_hybrid_search(
 
         candidates = []
         seen_hashes = set()
+        missing_hashes = []
         for h in merged_hashes:
             if h in seen_hashes:
                 continue
@@ -233,9 +282,13 @@ async def _run_hybrid_search(
             if h in dense_by_hash:
                 candidates.append(dense_by_hash[h][1])
             else:
-                doc = await _resolve_hash_to_doc(h, access_filter, ml_clients)
-                if doc is not None:
-                    candidates.append(doc)
+                missing_hashes.append(h)
+
+        if missing_hashes:
+            resolved = await _resolve_hashes_batch(missing_hashes, access_filter, ml_clients)
+            for h in missing_hashes:
+                if h in resolved:
+                    candidates.append(resolved[h])
 
         log.info(
             "Hybrid: dense=%d, sparse=%d, merged=%d candidates",
@@ -395,7 +448,7 @@ class RagService:
             return True
         t0 = time.monotonic()
         async with self._ml.llm_semaphore:
-            is_relevant, reason = await check_relevance(self._ml.llm(), query_for_search, docs)
+            is_relevant, reason = await check_relevance(self._ml.fast_llm(), query_for_search, docs)
         RAG_STAGE_DURATION.labels("relevance_gate").observe(time.monotonic() - t0)
         if not is_relevant:
             RAG_RELEVANCE_GATE_TOTAL.labels(result="rejected").inc()
@@ -465,13 +518,13 @@ class RagService:
                 except Exception as e:
                     log.warning("LLM decomposition failed, falling back to regex: %s", e)
                     if needs_decomposition(query_for_search):
-                        await decompose_question(self._ml.llm(), query_for_search)
+                        await decompose_question(self._ml.fast_llm(), query_for_search)
                         RAG_DECOMPOSED_TOTAL.inc()
                 RAG_STAGE_DURATION.labels("decompose").observe(time.monotonic() - t0)
             else:
                 if needs_decomposition(query_for_search):
                     t0 = time.monotonic()
-                    await decompose_question(self._ml.llm(), query_for_search)
+                    await decompose_question(self._ml.fast_llm(), query_for_search)
                     RAG_STAGE_DURATION.labels("decompose").observe(time.monotonic() - t0)
                     RAG_DECOMPOSED_TOTAL.inc()
 
@@ -650,7 +703,7 @@ class RagService:
         t0 = time.monotonic()
         if rag.features.condense_enabled:
             async with self._ml.llm_semaphore:
-                query_for_search = await condense_question(self._ml.llm(), question, history_messages)
+                query_for_search = await condense_question(self._ml.fast_llm(), question, history_messages)
         else:
             query_for_search = question
         RAG_STAGE_DURATION.labels("condense").observe(time.monotonic() - t0)
