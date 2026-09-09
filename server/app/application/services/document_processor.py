@@ -313,8 +313,23 @@ class DocumentProcessor:
                     f"{warning_message}\n{versioning.warning}" if warning_message else versioning.warning
                 )
 
+            # --- Guard: document may have been deleted while parsing/splitting ---
+            current_doc = await self._get_document(document_id)
+            if current_doc is None:
+                log.info("Document %d was deleted during processing — aborting", document_id)
+                status = DocumentStatus.FAILED.value
+                return
+
             # --- Shared pipeline: Postgres + outbox ---
             async with self._uow_factory.create(master=True) as uow:
+                # Re-check inside transaction (row may have been deleted between
+                # the outer check and here if the PROCESSING lock was released).
+                existing = await uow.documents.get_by_id(document_id)
+                if existing is None:
+                    log.info("Document %d deleted before outbox enqueue — aborting", document_id)
+                    status = DocumentStatus.FAILED.value
+                    return
+
                 await uow.documents.set_domain(document_id, doc_domain)
 
                 # Enrich metadata

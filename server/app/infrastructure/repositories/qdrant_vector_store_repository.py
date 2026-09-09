@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
 from config import settings
@@ -42,9 +43,14 @@ class QdrantVectorStoreRepository:
     async def ensure_collection(self, vector_size: int, reset: bool = False) -> None:
         await asyncio.to_thread(ensure_collection, self._get_qdrant_client(), vector_size, reset=reset)
 
-    async def upload_documents(self, chunks: list[Chunk]) -> None:
+    async def upload_documents(
+        self,
+        chunks: list[Chunk],
+        *,
+        should_cancel: Callable[[], Awaitable[bool]] | None = None,
+    ) -> None:
         lcdocs = [LCDocument(page_content=c.content, metadata=c.metadata) for c in chunks]
-        await upload_to_qdrant(lcdocs, self._get_embeddings())
+        await upload_to_qdrant(lcdocs, self._get_embeddings(), should_cancel=should_cancel)
 
     async def delete_by_document_id(self, document_id: int) -> None:
         try:

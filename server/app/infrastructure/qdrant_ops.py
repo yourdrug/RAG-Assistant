@@ -8,6 +8,7 @@ module to keep concerns separated.
 import asyncio
 import logging
 import time
+from collections.abc import Awaitable, Callable
 
 from langchain.schema import Document
 from qdrant_client.models import (
@@ -123,7 +124,13 @@ def _ensure_payload_indexes(client) -> None:
                 log.warning("Failed to create payload index %s: %s", field_name, e)
 
 
-async def upload_to_qdrant(chunks: list[Document], embeddings, client=None) -> None:
+async def upload_to_qdrant(
+    chunks: list[Document],
+    embeddings,
+    client=None,
+    *,
+    should_cancel: Callable[[], Awaitable[bool]] | None = None,
+) -> None:
     embed_batch = settings.embed_batch_size
     qdrant_batch = 500
 
@@ -165,6 +172,14 @@ async def upload_to_qdrant(chunks: list[Document], embeddings, client=None) -> N
         batch_end = min(batch_start + embed_batch, total)
         batch_texts = texts[batch_start:batch_end]
         batch_chunks_slice = chunks[batch_start:batch_end]
+
+        if should_cancel is not None and await should_cancel():
+            log.info(
+                "Upload cancelled at %d/%d chunks — document deleted during embedding",
+                batch_start,
+                total,
+            )
+            return
 
         log.info("  Embedding chunks %d/%d ...", batch_end, total)
         t_embed = time.monotonic()

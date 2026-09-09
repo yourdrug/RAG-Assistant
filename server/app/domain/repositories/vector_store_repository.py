@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from typing import Protocol, runtime_checkable
 
 from domain.entities.chunk import Chunk
@@ -10,7 +11,12 @@ from domain.entities.chunk import Chunk
 @runtime_checkable
 class VectorStoreRepository(Protocol):
     async def ensure_collection(self, vector_size: int, reset: bool = False) -> None: ...
-    async def upload_documents(self, chunks: list[Chunk]) -> None: ...
+    async def upload_documents(
+        self,
+        chunks: list[Chunk],
+        *,
+        should_cancel: Callable[[], Awaitable[bool]] | None = None,
+    ) -> None: ...
     async def delete_by_document_id(self, document_id: int) -> None: ...
     async def generate_embeddings(self, text: str) -> list[float]: ...
     async def similarity_search_with_score(self, query: str, k: int) -> list[tuple[Chunk, float]]: ...

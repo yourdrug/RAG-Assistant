@@ -126,6 +126,15 @@ async def process_document(
     processor = create_document_processor(infra, uow_factory=uow_factory)
 
     async def _action() -> None:
+        async with uow_factory.create() as uow:
+            doc = await uow.documents.get_by_id(document_id)
+        if doc is None:
+            logger.info(
+                "Worker: document %d already deleted — skipping processing",
+                document_id,
+            )
+            return
+
         logger.info(
             "Worker: background upload started: %s (doc %d, job %d)",
             filename,

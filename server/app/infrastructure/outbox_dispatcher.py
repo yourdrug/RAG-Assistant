@@ -72,7 +72,17 @@ class OutboxDispatcher:
 
     async def _apply_one(self, entry: VectorOutboxEntry) -> None:
         try:
-            await self._dispatch(entry)
+            if entry.operation == OutboxOperation.UPSERT_CHUNKS:
+                if not await self._document_exists(entry.aggregate_id):
+                    log.info(
+                        "Skipping UPSERT for deleted document %d (entry %d)",
+                        entry.aggregate_id,
+                        entry.id,
+                    )
+                else:
+                    await self._dispatch(entry)
+            else:
+                await self._dispatch(entry)
             async with self._uow_factory.create(master=True) as uow:
                 await uow.vector_outbox.mark_done(entry.id)
 
@@ -110,7 +120,7 @@ class OutboxDispatcher:
 
     async def _dispatch(self, entry: VectorOutboxEntry) -> None:
         if entry.operation == OutboxOperation.UPSERT_CHUNKS:
-            await self._apply_upsert(entry.payload)
+            await self._apply_upsert(entry.payload, document_id=entry.aggregate_id)
         elif entry.operation == OutboxOperation.DELETE_BY_DOCUMENT:
             await self._vector_store.delete_by_document_id(entry.payload["document_id"])
         elif entry.operation == OutboxOperation.DELETE_CHUNKS:
@@ -128,7 +138,12 @@ class OutboxDispatcher:
         else:
             raise ValueError(f"Unknown outbox operation: {entry.operation}")
 
-    async def _apply_upsert(self, payload: dict) -> None:
+    async def _document_exists(self, document_id: int) -> bool:
+        async with self._uow_factory.create() as uow:
+            doc = await uow.documents.get_by_id(document_id)
+            return doc is not None
+
+    async def _apply_upsert(self, payload: dict, document_id: int = 0) -> None:
         points = payload["points"]
         chunks = [
             Chunk(
@@ -137,10 +152,14 @@ class OutboxDispatcher:
             )
             for p in points
         ]
+
+        async def _doc_cancelled() -> bool:
+            return not await self._document_exists(document_id)
+
         # Ensure collection exists (no-op if it does)
         if chunks:
             await self._vector_store.ensure_collection(settings.embed_dim, reset=False)
-        await self._vector_store.upload_documents(chunks)
+        await self._vector_store.upload_documents(chunks, should_cancel=_doc_cancelled)
 
     async def reconcile_stuck_documents(self) -> int:
         """Find documents stuck in 'indexing' with no pending outbox entries and mark them done.

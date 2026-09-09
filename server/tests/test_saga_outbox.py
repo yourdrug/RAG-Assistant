@@ -11,9 +11,13 @@ Verifies that:
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 from domain.entities.vector_outbox_entry import (
     OutboxOperation,
@@ -134,9 +138,12 @@ class TestDispatcherSuccess:
 
     @pytest.mark.asyncio
     async def test_apply_upsert_chunks(self, fake_uow_factory, mock_vector_store, fake_outbox):
+        from domain.entities.document import Document
         from infrastructure.outbox_dispatcher import OutboxDispatcher
 
-        # Enqueue an upsert entry
+        async with fake_uow_factory.create(master=True) as uow:
+            await uow.documents.save(Document(id=1, filename="test.pdf"))
+
         entry = VectorOutboxEntry(
             operation=OutboxOperation.UPSERT_CHUNKS,
             aggregate_type="document",
@@ -221,7 +228,11 @@ class TestQdrantUnavailable:
     @pytest.mark.asyncio
     async def test_failed_entry_gets_retried(self, fake_uow_factory, mock_vector_store, fake_outbox):
         """When Qdrant fails, entry stays in outbox for retry."""
+        from domain.entities.document import Document
         from infrastructure.outbox_dispatcher import OutboxDispatcher
+
+        async with fake_uow_factory.create(master=True) as uow:
+            await uow.documents.save(Document(id=1, filename="test.pdf"))
 
         # Make Qdrant raise an error
         mock_vector_store.upload_documents.side_effect = ConnectionError("Qdrant unavailable")
@@ -258,7 +269,11 @@ class TestQdrantUnavailable:
         self, fake_uow_factory, mock_vector_store, fake_outbox
     ):
         """After max_attempts failures, entry goes to dead letter."""
+        from domain.entities.document import Document
         from infrastructure.outbox_dispatcher import OutboxDispatcher
+
+        async with fake_uow_factory.create(master=True) as uow:
+            await uow.documents.save(Document(id=1, filename="test.pdf"))
 
         mock_vector_store.upload_documents.side_effect = ConnectionError("Qdrant down")
 
@@ -294,11 +309,15 @@ class TestQdrantUnavailable:
     @pytest.mark.asyncio
     async def test_success_after_retry(self, fake_uow_factory, mock_vector_store, fake_outbox):
         """Entry succeeds after previous failure."""
+        from domain.entities.document import Document
         from infrastructure.outbox_dispatcher import OutboxDispatcher
+
+        async with fake_uow_factory.create(master=True) as uow:
+            await uow.documents.save(Document(id=1, filename="test.pdf"))
 
         call_count = 0
 
-        async def flaky_upload(chunks):
+        async def flaky_upload(chunks, **kwargs):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -348,7 +367,11 @@ class TestIdempotency:
     @pytest.mark.asyncio
     async def test_upsert_is_idempotent(self, fake_uow_factory, mock_vector_store, fake_outbox):
         """Same chunk upserted twice produces same result (no duplicate)."""
+        from domain.entities.document import Document
         from infrastructure.outbox_dispatcher import OutboxDispatcher
+
+        async with fake_uow_factory.create(master=True) as uow:
+            await uow.documents.save(Document(id=1, filename="test.pdf"))
 
         entry = VectorOutboxEntry(
             operation=OutboxOperation.UPSERT_CHUNKS,
@@ -510,11 +533,15 @@ class TestFullFlowWithQdrantDown:
         3. Qdrant comes back - dispatcher processes entry
         4. Document becomes searchable
         """
+        from domain.entities.document import Document
         from infrastructure.outbox_dispatcher import OutboxDispatcher
+
+        async with fake_uow_factory.create(master=True) as uow:
+            await uow.documents.save(Document(id=1, filename="test.pdf"))
 
         call_count = 0
 
-        async def flaky_upload(chunks):
+        async def flaky_upload(chunks, **kwargs):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -576,7 +603,11 @@ class TestFullFlowWithQdrantDown:
         self, fake_uow_factory, mock_vector_store, fake_outbox
     ):
         """Multiple operations, some succeed, some fail."""
+        from domain.entities.document import Document
         from infrastructure.outbox_dispatcher import OutboxDispatcher
+
+        async with fake_uow_factory.create(master=True) as uow:
+            await uow.documents.save(Document(id=1, filename="test.pdf"))
 
         fail_delete = True
 
