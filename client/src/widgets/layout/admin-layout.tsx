@@ -22,8 +22,11 @@ export function AdminLayout() {
   }, [isAuthenticated, token, navigate]);
 
   useEffect(() => {
-    if (user && user.role !== "admin") navigate("/chat");
+    if (user && user.role !== "admin" && user.role !== "curator") navigate("/chat");
   }, [user, navigate]);
+
+  const isAdmin = user?.role === "admin";
+  const visibleNavItems = adminNavItems.filter((item) => !item.adminOnly || isAdmin);
 
   return (
     <div className="flex h-screen bg-background">
@@ -45,7 +48,9 @@ export function AdminLayout() {
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <Shield className="h-4 w-4 mr-2 text-primary" />
-          <span className="font-semibold text-sidebar-foreground">Admin Panel</span>
+          <span className="font-semibold text-sidebar-foreground">
+            Admin Panel
+          </span>
           <Button
             variant="ghost"
             size="icon"
@@ -86,7 +91,7 @@ export function AdminLayout() {
             Admin
           </div>
           <nav className="space-y-1">
-            {adminNavItems.map((item) => {
+            {visibleNavItems.map((item) => {
               const Icon = item.icon;
               const active =
                 location.pathname === item.href ||

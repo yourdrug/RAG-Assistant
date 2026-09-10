@@ -15,7 +15,7 @@ export interface TokenResponse {
 export interface UserResponse {
   id: number;
   email: string;
-  role: "admin" | "user";
+  role: "admin" | "curator" | "user";
   kind: "internal" | "client";
   is_active: boolean;
 }
@@ -32,6 +32,16 @@ export interface CreateUserRequest {
   password: string;
   role?: string;
   kind?: string;
+}
+
+export interface ChangeRoleRequest {
+  role: string;
+}
+
+export interface CuratorScopeResponse {
+  managed_client_ids: number[];
+  managed_internal_ids: number[];
+  managed_group_ids: number[];
 }
 
 // ─── Chat ────────────────────────────────────────────────────────────────────
@@ -388,6 +398,7 @@ export interface ChatLogEntry {
   id: number;
   creation_date: string;
   user_id?: number | null;
+  user_email?: string | null;
   conversation_id?: number | null;
   question: string;
   answer: string;

@@ -8,12 +8,13 @@ from pathlib import Path
 from application.services.document_service import DocumentService
 from application.services.job_service import JobService
 from config import settings
+from domain.value_objects.capabilities import Capability
 from domain.value_objects.doc_domain import DocDomain
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from infrastructure.logging.actions import log_action
 from infrastructure.worker.queue import enqueue_document_processing
 
-from presentation.api.auth_dependencies import get_current_user
+from presentation.api.auth_dependencies import get_current_user, require_capability
 from presentation.api.constants import FILE_TOO_LARGE_STATUS, MAGIC_BYTES
 from presentation.api.dependencies import (
     create_document_service,
@@ -107,7 +108,7 @@ async def list_uploadable_clients(
 
 @router.post("/documents", response_model=UploadStatusResponse)
 async def upload_document(
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_capability(Capability.DOCUMENTS_MANAGE)),
     file: UploadFile = File(...),
     visibility: str = Form(...),
     group_id: int | None = Form(None),
@@ -162,7 +163,7 @@ async def upload_document(
 async def list_documents(
     limit: int = Query(200, ge=1, le=1000, description="Page size (M-6: unbounded lists are forbidden)"),
     offset: int = Query(0, ge=0),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_capability(Capability.DOCUMENTS_VIEW)),
     document_service: DocumentService = Depends(create_document_service),
 ):
     return await document_service.list_documents(
@@ -173,7 +174,7 @@ async def list_documents(
 @router.get("/documents/{document_id}", response_model=DocumentResponse)
 async def get_document_status(
     document_id: int,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_capability(Capability.DOCUMENTS_VIEW)),
     document_service: DocumentService = Depends(create_document_service),
 ):
     return await document_service.get_document(
@@ -184,7 +185,7 @@ async def get_document_status(
 @router.delete("/documents/{document_id}")
 async def delete_document(
     document_id: int,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_capability(Capability.DOCUMENTS_MANAGE)),
     document_service: DocumentService = Depends(create_document_service),
 ):
     await document_service.delete_document(document_id, current_user["id"], current_user["role"])
@@ -196,7 +197,7 @@ async def delete_document(
 async def rename_document(
     document_id: int,
     body: DocumentRenameRequest,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_capability(Capability.DOCUMENTS_MANAGE)),
     document_service: DocumentService = Depends(create_document_service),
 ):
     result = await document_service.rename_document(

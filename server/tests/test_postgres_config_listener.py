@@ -205,3 +205,40 @@ async def test_resync_logs_failure_without_raising():
     listener = PostgresConfigListener(bus, fake_factory)
     await listener.resync(trigger="periodic")
     bus.publish.assert_not_called()
+
+
+class TestValuesEqual:
+    def test_none_both(self):
+        assert PostgresConfigListener._values_equal(None, None) is True
+
+    def test_none_current(self):
+        assert PostgresConfigListener._values_equal(None, "1.0") is False
+
+    def test_none_db(self):
+        assert PostgresConfigListener._values_equal("1.0", None) is False
+
+    def test_string_vs_string(self):
+        assert PostgresConfigListener._values_equal("2.0", "2.0") is True
+
+    def test_string_vs_number_json(self):
+        """Bug fix: '2.0' (str) vs '2.0' (JSON number) should be equal."""
+        assert PostgresConfigListener._values_equal("2.0", "2.0") is True
+
+    def test_int_vs_int(self):
+        assert PostgresConfigListener._values_equal(42, "42") is True
+
+    def test_float_vs_float(self):
+        assert PostgresConfigListener._values_equal(3.14, "3.14") is True
+
+    def test_bool_vs_bool(self):
+        assert PostgresConfigListener._values_equal(True, "true") is True
+
+    def test_list_vs_list(self):
+        assert PostgresConfigListener._values_equal(["a", "b"], '["a", "b"]') is True
+
+    def test_different_values(self):
+        assert PostgresConfigListener._values_equal("1.0", "2.0") is False
+
+    def test_int_vs_string(self):
+        """42 (int) vs "42" (JSON string) should be considered equal in config context."""
+        assert PostgresConfigListener._values_equal(42, '"42"') is True

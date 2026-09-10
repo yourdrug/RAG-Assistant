@@ -190,12 +190,18 @@ class SQLAlchemyDocumentRepository:
         user_role: str | None = None,
         limit: int = 200,
         offset: int = 0,
+        managed_client_ids: list[int] | None = None,
+        managed_internal_ids: list[int] | None = None,
+        managed_group_ids: list[int] | None = None,
     ) -> list[Document]:
         conditions = get_visibility_conditions(
             UserKind(user_kind),
             user_id,
             group_ids,
             user_role=UserRole(user_role) if user_role else None,
+            managed_client_ids=managed_client_ids,
+            managed_internal_ids=managed_internal_ids,
+            managed_group_ids=managed_group_ids,
         )
 
         or_clauses = []
@@ -205,8 +211,12 @@ class SQLAlchemyDocumentRepository:
             if cond.owner_match == OwnerMatch.SELF.value:
                 and_parts.append(DocumentModel.owner_id == user_id)
 
+            if cond.owner_match == OwnerMatch.ASSIGNED.value and cond.owner_ids:
+                and_parts.append(DocumentModel.owner_id.in_(cond.owner_ids))
+
             if cond.group_match:
-                and_parts.append(DocumentModel.group_id.in_(group_ids))
+                effective_group_ids = cond.group_ids if cond.group_ids is not None else group_ids
+                and_parts.append(DocumentModel.group_id.in_(effective_group_ids))
 
             or_clauses.append(and_(*and_parts))
 

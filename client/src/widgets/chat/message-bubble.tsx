@@ -43,14 +43,7 @@ function ThinkingDots({ stage }: { stage?: PipelineStage | null }) {
   );
 }
 
-export function MessageBubble({
-  role,
-  content,
-  sources,
-  streaming,
-  stage,
-  onSourcesClick,
-}: Props) {
+export function MessageBubble({ role, content, sources, streaming, stage, onSourcesClick }: Props) {
   const [copied, setCopied] = useState(false);
   const [liked, setLiked] = useState<"like" | "dislike" | null>(null);
   const isUser = role === "user";
@@ -66,10 +59,7 @@ export function MessageBubble({
     <div className={cn("group flex gap-3", isUser && "flex-row-reverse")}>
       <Avatar className="h-8 w-8 shrink-0">
         <AvatarFallback
-          className={cn(
-            "text-xs",
-            isUser ? "bg-primary text-primary-foreground" : "bg-muted",
-          )}
+          className={cn("text-xs", isUser ? "bg-primary text-primary-foreground" : "bg-muted")}
         >
           {isUser ? "U" : "AI"}
         </AvatarFallback>
@@ -94,9 +84,7 @@ export function MessageBubble({
                   "[&>*:last-child]:after:ml-1.5 [&>*:last-child]:after:inline-block [&>*:last-child]:after:h-4 [&>*:last-child]:after:w-2 [&>*:last-child]:after:translate-y-0.5 [&>*:last-child]:after:animate-pulse [&>*:last-child]:after:bg-foreground/70 [&>*:last-child]:after:content-['']",
               )}
             >
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {content}
-              </ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
             </div>
           )}
         </div>
@@ -118,11 +106,7 @@ export function MessageBubble({
               onClick={handleCopy}
               aria-label={copied ? "Copied" : "Copy message"}
             >
-              {copied ? (
-                <Check className="h-3 w-3" />
-              ) : (
-                <Copy className="h-3 w-3" />
-              )}
+              {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
             </Button>
             <Button
               variant="ghost"

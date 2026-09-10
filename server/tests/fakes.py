@@ -579,6 +579,55 @@ class FakeActVersionRepository:
             self._versions[version.id] = version
 
 
+class FakeAssignmentRepository:
+    def __init__(self) -> None:
+        self._user_assignments: dict[
+            tuple[int, int], dict
+        ] = {}  # (curator_id, target_user_id) -> {assigned_by}
+        self._group_assignments: dict[tuple[int, int], dict] = {}  # (curator_id, group_id) -> {assigned_by}
+        self._user_kinds: dict[int, str] = {}  # user_id -> kind (for filtering)
+
+    def set_user_kind(self, user_id: int, kind: str) -> None:
+        self._user_kinds[user_id] = kind
+
+    async def get_managed_user_ids(self, curator_id: int) -> list[int]:
+        return [t for (c, t) in self._user_assignments if c == curator_id]
+
+    async def get_managed_client_ids(self, curator_id: int) -> list[int]:
+        return [
+            t for (c, t) in self._user_assignments if c == curator_id and self._user_kinds.get(t) == "client"
+        ]
+
+    async def get_managed_internal_ids(self, curator_id: int) -> list[int]:
+        return [
+            t
+            for (c, t) in self._user_assignments
+            if c == curator_id and self._user_kinds.get(t) == "internal"
+        ]
+
+    async def get_managed_group_ids(self, curator_id: int) -> list[int]:
+        return [g for (c, g) in self._group_assignments if c == curator_id]
+
+    async def assign_user(self, curator_id: int, target_user_id: int, assigned_by: int) -> None:
+        self._user_assignments[(curator_id, target_user_id)] = {"assigned_by": assigned_by}
+
+    async def unassign_user(self, curator_id: int, target_user_id: int) -> None:
+        self._user_assignments.pop((curator_id, target_user_id), None)
+
+    async def assign_group(self, curator_id: int, group_id: int, assigned_by: int) -> None:
+        self._group_assignments[(curator_id, group_id)] = {"assigned_by": assigned_by}
+
+    async def unassign_group(self, curator_id: int, group_id: int) -> None:
+        self._group_assignments.pop((curator_id, group_id), None)
+
+    async def clear_all_for_manager(self, manager_id: int) -> None:
+        self._user_assignments = {k: v for k, v in self._user_assignments.items() if k[0] != manager_id}
+        self._group_assignments = {k: v for k, v in self._group_assignments.items() if k[0] != manager_id}
+
+    async def list_managers_for_group(self, group_id: int) -> list[int]:
+        return [c for (c, g) in self._group_assignments if g == group_id]
+
+
 class FakeUnitOfWork:
     """In-memory UnitOfWork for unit tests."""
 
@@ -599,6 +648,7 @@ class FakeUnitOfWork:
         self.vector_outbox = FakeVectorOutboxRepository()
         self.regulatory_acts = FakeRegulatoryActRepository()
         self.act_versions = FakeActVersionRepository()
+        self.assignments = FakeAssignmentRepository()
         self._event_handlers: list = []
         self._committed = False
         self._rolled_back = False

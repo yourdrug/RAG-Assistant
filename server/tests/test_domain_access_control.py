@@ -26,7 +26,12 @@ from domain.services import (
     get_visibility_conditions,
     validate_document_visibility,
 )
-from domain.services.access_control import ALLOWED_VISIBILITY_FOR_KIND
+from domain.services.access_control import (
+    ALLOWED_VISIBILITY_FOR_KIND,
+    check_document_access,
+    check_ownership,
+    is_in_search_scope,
+)
 from domain.value_objects.roles import UserKind, UserRole
 from domain.value_objects.user_context import UserContext
 from domain.value_objects.visibility import DocumentVisibility
@@ -419,3 +424,239 @@ class TestGetVisibilityConditions:
         conds = get_visibility_conditions(UserKind.CLIENT, 1, [])
         with pytest.raises(AttributeError):
             conds[0].visibility = DocumentVisibility.INTERNAL_PUBLIC
+
+
+# ===========================================================================
+# CURATOR role tests
+# ===========================================================================
+
+
+class TestCuratorRole:
+    """Tests for CURATOR role in access control — the main security gap."""
+
+    def test_curator_sees_own_internal_private(self):
+        conds = get_visibility_conditions(
+            UserKind.INTERNAL, 10, [], user_role=UserRole.CURATOR,
+        )
+        private = [c for c in conds if c.visibility == DocumentVisibility.INTERNAL_PRIVATE]
+        assert len(private) == 1
+        assert private[0].owner_match == "self"
+
+    def test_curator_sees_managed_internal_private(self):
+        conds = get_visibility_conditions(
+            UserKind.INTERNAL, 10, [], user_role=UserRole.CURATOR,
+            managed_internal_ids=[20, 30],
+        )
+        assigned = [
+            c for c in conds
+            if c.visibility == DocumentVisibility.INTERNAL_PRIVATE and c.owner_match == "assigned"
+        ]
+        assert len(assigned) == 1
+        assert set(assigned[0].owner_ids) == {20, 30}
+
+    def test_curator_sees_managed_client_private(self):
+        conds = get_visibility_conditions(
+            UserKind.INTERNAL, 10, [], user_role=UserRole.CURATOR,
+            managed_client_ids=[40, 50],
+        )
+        assigned = [
+            c for c in conds
+            if c.visibility == DocumentVisibility.CLIENT_PRIVATE and c.owner_match == "assigned"
+        ]
+        assert len(assigned) == 1
+        assert set(assigned[0].owner_ids) == {40, 50}
+
+    def test_curator_sees_managed_groups(self):
+        conds = get_visibility_conditions(
+            UserKind.INTERNAL, 10, [5], user_role=UserRole.CURATOR,
+            managed_group_ids=[6, 7],
+        )
+        group_conds = [c for c in conds if c.visibility == DocumentVisibility.INTERNAL_GROUP]
+        # CURATOR gets: own-group condition (group_match=True, group_ids=None) +
+        # managed-group condition (group_match=True, group_ids=[5,6,7])
+        assert len(group_conds) == 2
+        managed = [c for c in group_conds if c.group_ids is not None]
+        assert len(managed) == 1
+        assert set(managed[0].group_ids) == {5, 6, 7}
+
+    def test_curator_no_managed_ids_sees_standard_internal_conditions(self):
+        # CURATOR is INTERNAL, so gets standard INTERNAL_PUBLIC + INTERNAL_PRIVATE
+        conds = get_visibility_conditions(
+            UserKind.INTERNAL, 10, [], user_role=UserRole.CURATOR,
+        )
+        vis = {c.visibility for c in conds}
+        assert DocumentVisibility.INTERNAL_PUBLIC in vis
+        assert DocumentVisibility.INTERNAL_PRIVATE in vis
+
+    def test_curator_managed_ids_empty_list_no_extra_conditions(self):
+        conds = get_visibility_conditions(
+            UserKind.INTERNAL, 10, [], user_role=UserRole.CURATOR,
+            managed_client_ids=[],
+            managed_internal_ids=[],
+            managed_group_ids=[],
+        )
+        # Standard internal conditions: PUBLIC + PRIVATE(self)
+        assert len(conds) == 2
+
+    def test_curator_does_not_see_admin_bonuses(self):
+        """CURATOR should NOT see ALL client_private or ALL internal_private docs."""
+        conds = get_visibility_conditions(
+            UserKind.INTERNAL, 10, [5], user_role=UserRole.CURATOR,
+            managed_client_ids=[],
+            managed_internal_ids=[],
+            managed_group_ids=[],
+        )
+        # No unconditional client_private (admin bonus) or unconditional internal_private
+        for c in conds:
+            if c.visibility == DocumentVisibility.CLIENT_PRIVATE:
+                assert c.owner_match == "assigned"  # only assigned, not all
+            if c.visibility == DocumentVisibility.INTERNAL_PRIVATE:
+                assert c.owner_match is not None  # self or assigned, not unconditional
+
+
+class TestCuratorCanViewDocument:
+    """Tests for can_view_document with CURATOR role."""
+
+    def test_curator_can_view_own_private_doc(self):
+        doc = SimpleNamespace(visibility="internal_private", owner_id=10, group_id=None)
+        ctx = UserContext(user_id=10, user_kind="internal", user_role="curator")
+        assert can_view_document(doc, ctx) is True
+
+    def test_curator_can_view_managed_internal_private(self):
+        doc = SimpleNamespace(visibility="internal_private", owner_id=20, group_id=None)
+        ctx = UserContext(
+            user_id=10, user_kind="internal", user_role="curator",
+            managed_internal_ids=[20],
+        )
+        assert can_view_document(doc, ctx) is True
+
+    def test_curator_cannot_view_unmanaged_internal_private(self):
+        doc = SimpleNamespace(visibility="internal_private", owner_id=99, group_id=None)
+        ctx = UserContext(
+            user_id=10, user_kind="internal", user_role="curator",
+            managed_internal_ids=[20, 30],
+        )
+        assert can_view_document(doc, ctx) is False
+
+    def test_curator_can_view_managed_client_private(self):
+        doc = SimpleNamespace(visibility="client_private", owner_id=40, group_id=None)
+        ctx = UserContext(
+            user_id=10, user_kind="internal", user_role="curator",
+            managed_client_ids=[40],
+        )
+        assert can_view_document(doc, ctx) is True
+
+    def test_curator_cannot_view_unmanaged_client_private(self):
+        doc = SimpleNamespace(visibility="client_private", owner_id=99, group_id=None)
+        ctx = UserContext(
+            user_id=10, user_kind="internal", user_role="curator",
+            managed_client_ids=[40, 50],
+        )
+        assert can_view_document(doc, ctx) is False
+
+    def test_curator_can_view_managed_group_doc(self):
+        doc = SimpleNamespace(visibility="internal_group", owner_id=None, group_id=7)
+        ctx = UserContext(
+            user_id=10, user_kind="internal", user_role="curator",
+            group_ids=[], managed_group_ids=[7],
+        )
+        assert can_view_document(doc, ctx) is True
+
+    def test_curator_cannot_view_unmanaged_group_doc(self):
+        doc = SimpleNamespace(visibility="internal_group", owner_id=None, group_id=99)
+        ctx = UserContext(
+            user_id=10, user_kind="internal", user_role="curator",
+            group_ids=[], managed_group_ids=[7],
+        )
+        assert can_view_document(doc, ctx) is False
+
+    def test_curator_cannot_view_internal_public(self):
+        doc = SimpleNamespace(visibility="internal_public", owner_id=None, group_id=None)
+        ctx = UserContext(user_id=10, user_kind="internal", user_role="curator")
+        assert can_view_document(doc, ctx) is True  # CURATOR is INTERNAL, sees public
+
+    def test_curator_cannot_view_other_curator_private(self):
+        doc = SimpleNamespace(visibility="internal_private", owner_id=30, group_id=None)
+        ctx = UserContext(
+            user_id=10, user_kind="internal", user_role="curator",
+            managed_internal_ids=[],
+        )
+        assert can_view_document(doc, ctx) is False
+
+
+# ===========================================================================
+# is_in_search_scope tests (for_list=False)
+# ===========================================================================
+
+
+class TestIsInSearchScope:
+    """Tests for is_in_search_scope — admin does NOT get CLIENT_PRIVATE bonus in search."""
+
+    def test_admin_sees_client_private_in_list_not_search(self):
+        doc = SimpleNamespace(visibility="client_private", owner_id=10, group_id=None)
+        ctx_list = UserContext(user_id=1, user_kind="internal", user_role="admin")
+        ctx_search = UserContext(user_id=1, user_kind="internal", user_role="admin")
+        assert can_view_document(doc, ctx_list) is True
+        assert is_in_search_scope(doc, ctx_search) is False
+
+    def test_admin_sees_internal_private_in_search(self):
+        doc = SimpleNamespace(visibility="internal_private", owner_id=10, group_id=None)
+        ctx = UserContext(user_id=1, user_kind="internal", user_role="admin")
+        assert is_in_search_scope(doc, ctx) is True
+
+    def test_admin_sees_internal_public_in_search(self):
+        doc = SimpleNamespace(visibility="internal_public", owner_id=None, group_id=None)
+        ctx = UserContext(user_id=1, user_kind="internal", user_role="admin")
+        assert is_in_search_scope(doc, ctx) is True
+
+    def test_regular_user_search_scope_same_as_list(self):
+        doc = SimpleNamespace(visibility="internal_private", owner_id=10, group_id=None)
+        ctx = UserContext(user_id=10, user_kind="internal", user_role="user")
+        assert can_view_document(doc, ctx) is True
+        assert is_in_search_scope(doc, ctx) is True
+
+    def test_curator_search_scope_same_as_list(self):
+        doc = SimpleNamespace(visibility="internal_private", owner_id=20, group_id=None)
+        ctx = UserContext(
+            user_id=10, user_kind="internal", user_role="curator",
+            managed_internal_ids=[20],
+        )
+        assert can_view_document(doc, ctx) is True
+        assert is_in_search_scope(doc, ctx) is True
+
+
+# ===========================================================================
+# check_document_access and check_ownership
+# ===========================================================================
+
+
+class TestCheckDocumentAccess:
+    def test_raises_when_no_access(self):
+        doc = SimpleNamespace(visibility="internal_private", owner_id=99, group_id=None)
+        ctx = UserContext(user_id=1, user_kind="internal", user_role="user")
+        with pytest.raises(BusinessRuleViolation, match="No access"):
+            check_document_access(doc, ctx)
+
+    def test_ok_when_has_access(self):
+        doc = SimpleNamespace(visibility="internal_private", owner_id=1, group_id=None)
+        ctx = UserContext(user_id=1, user_kind="internal", user_role="user")
+        check_document_access(doc, ctx)
+
+
+class TestCheckOwnership:
+    def test_raises_when_not_owner(self):
+        doc = SimpleNamespace(
+            visibility="internal_private", owner_id=99, group_id=None,
+            can_be_deleted_by=lambda uid, role, gids, **kw: False,
+        )
+        ctx = UserContext(user_id=1, user_kind="internal", user_role="user")
+        with pytest.raises(BusinessRuleViolation, match="Can only"):
+            check_ownership(doc, ctx)
+
+    def test_ok_when_owner(self):
+        doc = SimpleNamespace(
+            visibility="internal_private", owner_id=1, group_id=None,
+            can_be_deleted_by=lambda uid, role, gids, **kw: True,
+        )
+        ctx = UserContext(user_id=1, user_kind="internal", user_role="user")
+        check_ownership(doc, ctx)

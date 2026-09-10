@@ -3,7 +3,12 @@ import { type ColumnDef } from "@tanstack/react-table";
 import { Plus, UserPlus } from "lucide-react";
 import { useState } from "react";
 import toast from "react-hot-toast";
-import { useCreateUser, useToggleUserActive, useUsers } from "@/shared/api/hooks";
+import {
+  useChangeUserRole,
+  useCreateUser,
+  useToggleUserActive,
+  useUsers,
+} from "@/shared/api/hooks";
 import type { UserResponse } from "@/shared/api/types";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
@@ -21,12 +26,26 @@ import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
 
+const roleBadgeVariant = (role: string) => {
+  switch (role) {
+    case "admin":
+      return "default" as const;
+    case "curator":
+      return "outline" as const;
+    default:
+      return "secondary" as const;
+  }
+};
+
 export function AdminUsersPage() {
   const { data: users } = useUsers();
   const createMut = useCreateUser();
   const toggleMut = useToggleUserActive();
+  const changeRoleMut = useChangeUserRole();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ email: "", password: "", role: "user", kind: "internal" });
+  const [roleDialogUser, setRoleDialogUser] = useState<UserResponse | null>(null);
+  const [newRole, setNewRole] = useState("");
 
   const handleCreate = async () => {
     try {
@@ -48,6 +67,22 @@ export function AdminUsersPage() {
     }
   };
 
+  const handleChangeRole = async () => {
+    if (!roleDialogUser) return;
+    try {
+      await changeRoleMut.mutateAsync({ userId: roleDialogUser.id, role: newRole });
+      toast.success(`Role changed to ${newRole}`);
+      setRoleDialogUser(null);
+    } catch {
+      toast.error("Failed to change role");
+    }
+  };
+
+  const openRoleDialog = (user: UserResponse) => {
+    setRoleDialogUser(user);
+    setNewRole(user.role);
+  };
+
   const columns: ColumnDef<UserResponse>[] = [
     {
       accessorKey: "id",
@@ -63,9 +98,7 @@ export function AdminUsersPage() {
       accessorKey: "role",
       header: "Role",
       cell: ({ row }) => (
-        <Badge variant={row.original.role === "admin" ? "default" : "secondary"}>
-          {row.original.role}
-        </Badge>
+        <Badge variant={roleBadgeVariant(row.original.role)}>{row.original.role}</Badge>
       ),
     },
     {
@@ -86,13 +119,18 @@ export function AdminUsersPage() {
       id: "actions",
       header: "",
       cell: ({ row }) => (
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => handleToggle(row.original.id, row.original.is_active)}
-        >
-          {row.original.is_active ? "Deactivate" : "Activate"}
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="sm" onClick={() => openRoleDialog(row.original)}>
+            Role
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => handleToggle(row.original.id, row.original.is_active)}
+          >
+            {row.original.is_active ? "Deactivate" : "Activate"}
+          </Button>
+        </div>
       ),
     },
   ];
@@ -120,6 +158,7 @@ export function AdminUsersPage() {
         </CardContent>
       </Card>
 
+      {/* Create User Dialog */}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>
@@ -176,6 +215,7 @@ export function AdminUsersPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="user">User</SelectItem>
+                  {form.kind === "internal" && <SelectItem value="curator">Curator</SelectItem>}
                   {form.kind === "internal" && <SelectItem value="admin">Admin</SelectItem>}
                 </SelectContent>
               </Select>
@@ -190,6 +230,46 @@ export function AdminUsersPage() {
               disabled={!form.email || !form.password || createMut.isPending}
             >
               {createMut.isPending ? "Creating..." : "Create"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Change Role Dialog */}
+      <Dialog open={!!roleDialogUser} onOpenChange={() => setRoleDialogUser(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Change Role</DialogTitle>
+            <DialogDescription>Change role for {roleDialogUser?.email}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Role</Label>
+              <Select value={newRole} onValueChange={setNewRole}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="user">User</SelectItem>
+                  {roleDialogUser?.kind === "internal" && (
+                    <SelectItem value="curator">Curator</SelectItem>
+                  )}
+                  {roleDialogUser?.kind === "internal" && (
+                    <SelectItem value="admin">Admin</SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRoleDialogUser(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleChangeRole}
+              disabled={newRole === roleDialogUser?.role || changeRoleMut.isPending}
+            >
+              {changeRoleMut.isPending ? "Saving..." : "Save"}
             </Button>
           </DialogFooter>
         </DialogContent>

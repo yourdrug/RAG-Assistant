@@ -14,8 +14,10 @@ export const queryKeys = {
     all: (documentId: number) => ["chunks", documentId] as const,
     list: (documentId: number, limit?: number, offset?: number, highlight?: string) =>
       [...queryKeys.chunks.all(documentId), "list", { limit, offset, highlight }] as const,
-    cursor: (documentId: number, params?: { cursor?: string; direction?: string; highlight?: string }) =>
-      [...queryKeys.chunks.all(documentId), "cursor", params] as const,
+    cursor: (
+      documentId: number,
+      params?: { cursor?: string; direction?: string; highlight?: string },
+    ) => [...queryKeys.chunks.all(documentId), "cursor", params] as const,
   },
   conversations: {
     all: ["conversations"] as const,

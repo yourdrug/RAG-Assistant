@@ -42,7 +42,15 @@ export function ProfilePage() {
               <div>
                 <p className="text-lg font-medium">{user.email}</p>
                 <div className="flex gap-2 mt-1">
-                  <Badge variant={user.role === "admin" ? "default" : "secondary"}>
+                  <Badge
+                    variant={
+                      user.role === "admin"
+                        ? "default"
+                        : user.role === "curator"
+                          ? "outline"
+                          : "secondary"
+                    }
+                  >
                     <Shield className="h-3 w-3 mr-1" />
                     {user.role}
                   </Badge>

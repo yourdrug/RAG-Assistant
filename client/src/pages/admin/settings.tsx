@@ -1,518 +1,516 @@
 "use client";
-import {useMutation, useQuery, useQueryClient} from "@tanstack/react-query";
-import {RotateCcw, Save} from "lucide-react";
-import {useState} from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { RotateCcw, Save } from "lucide-react";
+import { useState } from "react";
 import toast from "react-hot-toast";
-import {apiClient} from "@/shared/api/client";
-import {Button} from "@/shared/ui/button";
-import {Card, CardContent, CardDescription, CardHeader, CardTitle} from "@/shared/ui/card";
-import {Input} from "@/shared/ui/input";
-import {Skeleton} from "@/shared/ui/skeleton";
-import {Table, TableBody, TableCell, TableHead, TableHeader, TableRow} from "@/shared/ui/table";
-import {Tabs, TabsContent, TabsList, TabsTrigger} from "@/shared/ui/tabs";
+import { apiClient } from "@/shared/api/client";
+import { Button } from "@/shared/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
+import { Input } from "@/shared/ui/input";
+import { Skeleton } from "@/shared/ui/skeleton";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/shared/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 
 interface ConfigParam {
-    key: string;
-    value: string;
-    value_type: string;
-    category: string;
-    description: string | null;
-    min_value: number | null;
-    max_value: number | null;
-    domain_key: string | null;
+  key: string;
+  value: string;
+  value_type: string;
+  category: string;
+  description: string | null;
+  min_value: number | null;
+  max_value: number | null;
+  domain_key: string | null;
 }
 
 interface OpenRouterModel {
-    id: string;
-    name: string;
-    context_length: number;
-    pricing: { prompt: number; completion: number };
+  id: string;
+  name: string;
+  context_length: number;
+  pricing: { prompt: number; completion: number };
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
-    toggles: "Feature Toggles",
-    rag: "RAG Pipeline",
-    hybrid: "Hybrid Search",
-    reranker: "Reranker",
-    ingestion: "Ingestion",
-    llm: "LLM",
-    openrouter: "OpenRouter",
-    ml: "ML Provider",
-    ocr: "OCR",
-    storage: "Storage",
+  toggles: "Feature Toggles",
+  rag: "RAG Pipeline",
+  hybrid: "Hybrid Search",
+  reranker: "Reranker",
+  ingestion: "Ingestion",
+  llm: "LLM",
+  openrouter: "OpenRouter",
+  ml: "ML Provider",
+  ocr: "OCR",
+  storage: "Storage",
 };
 
 const DOMAIN_LABELS: Record<string, string> = {
-    legal: "Legal",
-    decree: "Decree",
+  legal: "Legal",
+  decree: "Decree",
 };
 
 const CATEGORY_ORDER = [
-    "toggles",
-    "rag",
-    "hybrid",
-    "reranker",
-    "ingestion",
-    "llm",
-    "openrouter",
-    "ml",
-    "ocr",
-    "storage",
+  "toggles",
+  "rag",
+  "hybrid",
+  "reranker",
+  "ingestion",
+  "llm",
+  "openrouter",
+  "ml",
+  "ocr",
+  "storage",
 ];
 
 const TAB_GROUPS = [
-    {id: "general", label: "General", categories: ["toggles", "storage"]},
-    {id: "rag", label: "RAG", categories: ["rag", "hybrid", "reranker"]},
-    {id: "ingestion", label: "Ingestion", categories: ["ingestion"]},
-    {id: "llm", label: "LLM", categories: ["llm", "openrouter", "ml"]},
-    {id: "ocr", label: "OCR", categories: ["ocr"]},
+  { id: "general", label: "General", categories: ["toggles", "storage"] },
+  { id: "rag", label: "RAG", categories: ["rag", "hybrid", "reranker"] },
+  { id: "ingestion", label: "Ingestion", categories: ["ingestion"] },
+  { id: "llm", label: "LLM", categories: ["llm", "openrouter", "ml"] },
+  { id: "ocr", label: "OCR", categories: ["ocr"] },
 ];
 
 // Which domain keys have overrides in which tab (derived from params at render time).
 // This map defines the structural relationship — the actual pills are shown only
 // when params exist for a given domain within the tab's categories.
 const DOMAIN_TAB_MAP: Record<string, string[]> = {
-    rag: ["legal", "decree"],
-    ingestion: ["legal", "decree"],
+  rag: ["legal", "decree"],
+  ingestion: ["legal", "decree"],
 };
 
 function DomainSubTabs({
-                           domainKeys,
-                           params,
-                           onSave,
-                           updateMutation,
-                           renderValue,
-                           edits,
-                           onReset,
-                       }: {
-    domainKeys: string[];
-    params: ConfigParam[];
-    onSave: (key: string, domain: string) => void;
-    updateMutation: { isPending: boolean };
-    renderValue: (p: ConfigParam) => React.ReactNode;
-    edits: Record<string, string>;
-    onReset: (key: string) => void;
+  domainKeys,
+  params,
+  onSave,
+  updateMutation,
+  renderValue,
+  edits,
+  onReset,
+}: {
+  domainKeys: string[];
+  params: ConfigParam[];
+  onSave: (key: string, domain: string) => void;
+  updateMutation: { isPending: boolean };
+  renderValue: (p: ConfigParam) => React.ReactNode;
+  edits: Record<string, string>;
+  onReset: (key: string) => void;
 }) {
-    const [selected, setSelected] = useState<string>(domainKeys[0] ?? "");
+  const [selected, setSelected] = useState<string>(domainKeys[0] ?? "");
 
-    const domainParams = params.filter((p) => p.domain_key === selected);
+  const domainParams = params.filter((p) => p.domain_key === selected);
 
-    if (domainKeys.length === 0) return null;
+  if (domainKeys.length === 0) return null;
 
-    return (
-        <Card>
-            <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                    <div>
-                        <CardTitle className="text-base">Domain overrides</CardTitle>
-                        <CardDescription>Per-domain parameter overrides for this section</CardDescription>
-                    </div>
-                    <div className="flex gap-1 rounded-lg border bg-muted p-0.5">
-                        {domainKeys.map((dk) => (
-                            <button
-                                key={dk}
-                                onClick={() => setSelected(dk)}
-                                className={`rounded-md px-3 py-1 text-sm font-medium transition-colors ${
-                                    selected === dk
-                                        ? "bg-background text-foreground shadow-sm"
-                                        : "text-muted-foreground hover:text-foreground"
-                                }`}
-                            >
-                                {DOMAIN_LABELS[dk] ?? dk}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-            </CardHeader>
-            <CardContent>
-                {domainParams.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No domain parameters in this section.</p>
-                ) : (
-                    <Table>
-                        <TableHeader>
-                            <TableRow>
-                                <TableHead className="w-[180px]">Key</TableHead>
-                                <TableHead className="w-[300px]">Value</TableHead>
-                                <TableHead>Description</TableHead>
-                                <TableHead className="w-[80px]"></TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {domainParams.map((p) => {
-                                const isEdited = edits[p.key] !== undefined;
-                                return (
-                                    <TableRow key={`${p.domain_key}-${p.key}`}>
-                                        <TableCell className="font-mono text-sm">{p.key}</TableCell>
-                                        <TableCell>{renderValue(p)}</TableCell>
-                                        <TableCell className="text-sm text-muted-foreground">{p.description}</TableCell>
-                                        <TableCell>
-                                            {isEdited && (
-                                                <div className="flex items-center gap-1">
-                                                    <Button
-                                                        size="sm"
-                                                        variant="ghost"
-                                                        onClick={() => onSave(p.key, p.domain_key!)}
-                                                        disabled={updateMutation.isPending}
-                                                    >
-                                                        <Save className="h-4 w-4"/>
-                                                    </Button>
-                                                    <Button size="sm" variant="ghost" onClick={() => onReset(p.key)}>
-                                                        <RotateCcw className="h-4 w-4"/>
-                                                    </Button>
-                                                </div>
-                                            )}
-                                        </TableCell>
-                                    </TableRow>
-                                );
-                            })}
-                        </TableBody>
-                    </Table>
-                )}
-            </CardContent>
-        </Card>
-    );
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="text-base">Domain overrides</CardTitle>
+            <CardDescription>Per-domain parameter overrides for this section</CardDescription>
+          </div>
+          <div className="flex gap-1 rounded-lg border bg-muted p-0.5">
+            {domainKeys.map((dk) => (
+              <button
+                key={dk}
+                onClick={() => setSelected(dk)}
+                className={`rounded-md px-3 py-1 text-sm font-medium transition-colors ${
+                  selected === dk
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {DOMAIN_LABELS[dk] ?? dk}
+              </button>
+            ))}
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {domainParams.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No domain parameters in this section.</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-[180px]">Key</TableHead>
+                <TableHead className="w-[300px]">Value</TableHead>
+                <TableHead>Description</TableHead>
+                <TableHead className="w-[80px]"></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {domainParams.map((p) => {
+                const isEdited = edits[p.key] !== undefined;
+                return (
+                  <TableRow key={`${p.domain_key}-${p.key}`}>
+                    <TableCell className="font-mono text-sm">{p.key}</TableCell>
+                    <TableCell>{renderValue(p)}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{p.description}</TableCell>
+                    <TableCell>
+                      {isEdited && (
+                        <div className="flex items-center gap-1">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => onSave(p.key, p.domain_key!)}
+                            disabled={updateMutation.isPending}
+                          >
+                            <Save className="h-4 w-4" />
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => onReset(p.key)}>
+                            <RotateCcw className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 export function AdminSettingsPage() {
-    const queryClient = useQueryClient();
-    const [edits, setEdits] = useState<Record<string, string>>({});
+  const queryClient = useQueryClient();
+  const [edits, setEdits] = useState<Record<string, string>>({});
 
-    const {data: params, isLoading} = useQuery({
-        queryKey: ["admin", "config"],
-        queryFn: async () => (await apiClient.get<ConfigParam[]>("/admin/config")).data,
+  const { data: params, isLoading } = useQuery({
+    queryKey: ["admin", "config"],
+    queryFn: async () => (await apiClient.get<ConfigParam[]>("/admin/config")).data,
+  });
+
+  const { data: modelsInfo } = useQuery({
+    queryKey: ["admin", "models"],
+    queryFn: async () =>
+      (
+        await apiClient.get<{ ollama_models: string[] | null; llm_provider: string }>(
+          "/admin/models/info",
+        )
+      ).data,
+  });
+
+  const { data: openrouterData, isLoading: isLoadingOpenRouter } = useQuery({
+    queryKey: ["admin", "openrouter-models"],
+    queryFn: async () =>
+      (await apiClient.get<{ models: OpenRouterModel[] }>("/admin/models/openrouter")).data,
+    enabled: (() => {
+      const providerParam = params?.find((p) => p.key === "llm_provider");
+      const currentProvider =
+        edits["llm_provider"] || providerParam?.value || modelsInfo?.llm_provider;
+      return currentProvider === "openrouter";
+    })(),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ key, value, domain }: { key: string; value: string; domain?: string }) => {
+      const url = domain ? `/admin/config/${key}?domain=${domain}` : `/admin/config/${key}`;
+      return (await apiClient.put(url, { value })).data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "config"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "models"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "openrouter-models"] });
+      setEdits((prev) => {
+        const next = { ...prev };
+        delete next[variables.key];
+        return next;
+      });
+      toast.success(`"${variables.key}" updated`);
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.detail || "Update failed");
+    },
+  });
+
+  const handleSave = (key: string, domain?: string) => {
+    const val = edits[key];
+    if (val === undefined) return;
+    updateMutation.mutate({ key, value: val, domain });
+  };
+
+  const handleReset = (key: string) => {
+    setEdits((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
     });
+  };
 
-    const {data: modelsInfo} = useQuery({
-        queryKey: ["admin", "models"],
-        queryFn: async () =>
-            (
-                await apiClient.get<{ ollama_models: string[] | null; llm_provider: string }>(
-                    "/admin/models/info",
-                )
-            ).data,
-    });
+  const categories = CATEGORY_ORDER.filter((cat) => params?.some((p) => p.category === cat));
 
-    const {data: openrouterData, isLoading: isLoadingOpenRouter} = useQuery({
-        queryKey: ["admin", "openrouter-models"],
-        queryFn: async () =>
-            (await apiClient.get<{ models: OpenRouterModel[] }>("/admin/models/openrouter")).data,
-        enabled: (() => {
-            const providerParam = params?.find((p) => p.key === "llm_provider");
-            const currentProvider =
-                edits["llm_provider"] || providerParam?.value || modelsInfo?.llm_provider;
-            return currentProvider === "openrouter";
-        })(),
-    });
+  // Get current provider value
+  const providerParam = params?.find((p) => p.key === "llm_provider");
+  const currentProvider =
+    edits["llm_provider"] || providerParam?.value || modelsInfo?.llm_provider || "ollama";
 
-    const updateMutation = useMutation({
-        mutationFn: async ({key, value, domain}: { key: string; value: string; domain?: string }) => {
-            const url = domain ? `/admin/config/${key}?domain=${domain}` : `/admin/config/${key}`;
-            return (await apiClient.put(url, {value})).data;
-        },
-        onSuccess: (_, variables) => {
-            queryClient.invalidateQueries({queryKey: ["admin", "config"]});
-            queryClient.invalidateQueries({queryKey: ["admin", "models"]});
-            queryClient.invalidateQueries({queryKey: ["admin", "openrouter-models"]});
-            setEdits((prev) => {
-                const next = {...prev};
-                delete next[variables.key];
-                return next;
-            });
-            toast.success(`"${variables.key}" updated`);
-        },
-        onError: (error: any) => {
-            toast.error(error.response?.data?.detail || "Update failed");
-        },
-    });
+  const renderValue = (p: ConfigParam) => {
+    const isEdited = edits[p.key] !== undefined;
+    const displayValue = isEdited ? edits[p.key] : p.value;
 
-    const handleSave = (key: string, domain?: string) => {
-        const val = edits[key];
-        if (val === undefined) return;
-        updateMutation.mutate({key, value: val, domain});
-    };
-
-    const handleReset = (key: string) => {
-        setEdits((prev) => {
-            const next = {...prev};
-            delete next[key];
-            return next;
-        });
-    };
-
-    const categories = CATEGORY_ORDER.filter((cat) => params?.some((p) => p.category === cat));
-
-    // Get current provider value
-    const providerParam = params?.find((p) => p.key === "llm_provider");
-    const currentProvider =
-        edits["llm_provider"] || providerParam?.value || modelsInfo?.llm_provider || "ollama";
-
-    const renderValue = (p: ConfigParam) => {
-        const isEdited = edits[p.key] !== undefined;
-        const displayValue = isEdited ? edits[p.key] : p.value;
-
-        if (p.value_type === "bool") {
-            return (
-                <div className="flex items-center gap-2">
-                    <Button
-                        size="sm"
-                        variant={displayValue === "true" ? "default" : "outline"}
-                        onClick={() => setEdits((prev) => ({...prev, [p.key]: "true"}))}
-                    >
-                        ON
-                    </Button>
-                    <Button
-                        size="sm"
-                        variant={displayValue === "false" ? "destructive" : "outline"}
-                        onClick={() => setEdits((prev) => ({...prev, [p.key]: "false"}))}
-                    >
-                        OFF
-                    </Button>
-                </div>
-            );
-        }
-
-        // Special handling for llm_provider - dropdown with ollama/openrouter options
-        if (p.key === "llm_provider") {
-            return (
-                <select
-                    value={displayValue}
-                    onChange={(e) => setEdits((prev) => ({...prev, [p.key]: e.target.value}))}
-                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                >
-                    <option value="ollama">Ollama (local)</option>
-                    <option value="openrouter">OpenRouter (cloud)</option>
-                </select>
-            );
-        }
-
-        // Special handling for llm_model - show Ollama models when provider is ollama
-        if (
-            p.value_type === "str" &&
-            p.key === "llm_model" &&
-            currentProvider === "ollama" &&
-            modelsInfo?.ollama_models
-        ) {
-            return (
-                <select
-                    value={displayValue}
-                    onChange={(e) => setEdits((prev) => ({...prev, [p.key]: e.target.value}))}
-                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                >
-                    {modelsInfo.ollama_models.map((m) => (
-                        <option key={m} value={m}>
-                            {m}
-                        </option>
-                    ))}
-                </select>
-            );
-        }
-
-        // Special handling for openrouter_model - show OpenRouter models dropdown
-        if (p.key === "openrouter_model") {
-            if (isLoadingOpenRouter) {
-                return <Skeleton className="h-9 w-64"/>;
-            }
-
-            if (openrouterData?.models && openrouterData.models.length > 0) {
-                return (
-                    <div className="space-y-2">
-                        <select
-                            value={displayValue}
-                            onChange={(e) => setEdits((prev) => ({...prev, [p.key]: e.target.value}))}
-                            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                        >
-                            {openrouterData.models.map((m) => (
-                                <option key={m.id} value={m.id}>
-                                    {m.name} ({m.context_length.toLocaleString()} ctx, ${m.pricing.prompt.toFixed(2)}
-                                    /M)
-                                </option>
-                            ))}
-                        </select>
-                        <p className="text-xs text-muted-foreground">
-                            {openrouterData.models.length} models available. Pricing per 1M tokens.
-                        </p>
-                    </div>
-                );
-            }
-
-            // Fallback to text input if no models fetched
-            return (
-                <div className="space-y-2">
-                    <Input
-                        type="text"
-                        value={displayValue}
-                        onChange={(e) => setEdits((prev) => ({...prev, [p.key]: e.target.value}))}
-                        className="w-64"
-                        placeholder="e.g. qwen/qwen-2.5-7b-instruct"
-                    />
-                </div>
-            );
-        }
-
-        if (p.value_type === "str") {
-            return (
-                <Input
-                    type="text"
-                    value={displayValue}
-                    onChange={(e) => setEdits((prev) => ({...prev, [p.key]: e.target.value}))}
-                    className="w-64"
-                />
-            );
-        }
-
-        return (
-            <div className="flex items-center gap-2">
-                <Input
-                    type="number"
-                    step={p.value_type === "float" ? "0.1" : "1"}
-                    value={displayValue}
-                    onChange={(e) => setEdits((prev) => ({...prev, [p.key]: e.target.value}))}
-                    className="w-28"
-                />
-                {p.min_value !== null && p.max_value !== null && (
-                    <span className="text-xs text-muted-foreground whitespace-nowrap">
-            {p.min_value} – {p.max_value}
-          </span>
-                )}
-            </div>
-        );
-    };
-
-    if (isLoading) {
-        return (
-            <div className="p-6 space-y-6">
-                <div>
-                    <Skeleton className="h-8 w-48 mb-2"/>
-                    <Skeleton className="h-4 w-72"/>
-                </div>
-                {[1, 2].map((i) => (
-                    <Card key={i}>
-                        <CardContent className="pt-6">
-                            <Skeleton className="h-40 w-full"/>
-                        </CardContent>
-                    </Card>
-                ))}
-            </div>
-        );
+    if (p.value_type === "bool") {
+      return (
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant={displayValue === "true" ? "default" : "outline"}
+            onClick={() => setEdits((prev) => ({ ...prev, [p.key]: "true" }))}
+          >
+            ON
+          </Button>
+          <Button
+            size="sm"
+            variant={displayValue === "false" ? "destructive" : "outline"}
+            onClick={() => setEdits((prev) => ({ ...prev, [p.key]: "false" }))}
+          >
+            OFF
+          </Button>
+        </div>
+      );
     }
 
-    // A tab is visible if it has category params OR domain overrides for its categories
-    const availableTabs = TAB_GROUPS.filter((tab) => {
-        const hasCategoryParams = tab.categories?.some((cat) => categories.includes(cat));
-        if (hasCategoryParams) return true;
-        // Check if any domain has params in this tab's categories
-        const domainKeys = DOMAIN_TAB_MAP[tab.id] ?? [];
-        return domainKeys.some((dk) =>
-            params?.some(
-                (p) => p.domain_key === dk && tab.categories?.includes(p.category.replace("domain:", "")),
-            ),
+    // Special handling for llm_provider - dropdown with ollama/openrouter options
+    if (p.key === "llm_provider") {
+      return (
+        <select
+          value={displayValue}
+          onChange={(e) => setEdits((prev) => ({ ...prev, [p.key]: e.target.value }))}
+          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        >
+          <option value="ollama">Ollama (local)</option>
+          <option value="openrouter">OpenRouter (cloud)</option>
+        </select>
+      );
+    }
+
+    // Special handling for llm_model - show Ollama models when provider is ollama
+    if (
+      p.value_type === "str" &&
+      p.key === "llm_model" &&
+      currentProvider === "ollama" &&
+      modelsInfo?.ollama_models
+    ) {
+      return (
+        <select
+          value={displayValue}
+          onChange={(e) => setEdits((prev) => ({ ...prev, [p.key]: e.target.value }))}
+          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        >
+          {modelsInfo.ollama_models.map((m) => (
+            <option key={m} value={m}>
+              {m}
+            </option>
+          ))}
+        </select>
+      );
+    }
+
+    // Special handling for openrouter_model - show OpenRouter models dropdown
+    if (p.key === "openrouter_model") {
+      if (isLoadingOpenRouter) {
+        return <Skeleton className="h-9 w-64" />;
+      }
+
+      if (openrouterData?.models && openrouterData.models.length > 0) {
+        return (
+          <div className="space-y-2">
+            <select
+              value={displayValue}
+              onChange={(e) => setEdits((prev) => ({ ...prev, [p.key]: e.target.value }))}
+              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              {openrouterData.models.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name} ({m.context_length.toLocaleString()} ctx, ${m.pricing.prompt.toFixed(2)}
+                  /M)
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground">
+              {openrouterData.models.length} models available. Pricing per 1M tokens.
+            </p>
+          </div>
         );
-    });
+      }
+
+      // Fallback to text input if no models fetched
+      return (
+        <div className="space-y-2">
+          <Input
+            type="text"
+            value={displayValue}
+            onChange={(e) => setEdits((prev) => ({ ...prev, [p.key]: e.target.value }))}
+            className="w-64"
+            placeholder="e.g. qwen/qwen-2.5-7b-instruct"
+          />
+        </div>
+      );
+    }
+
+    if (p.value_type === "str") {
+      return (
+        <Input
+          type="text"
+          value={displayValue}
+          onChange={(e) => setEdits((prev) => ({ ...prev, [p.key]: e.target.value }))}
+          className="w-64"
+        />
+      );
+    }
 
     return (
-        <div className="p-6 space-y-6">
-            <div>
-                <h1 className="text-2xl font-bold">Settings</h1>
-                <p className="text-muted-foreground">
-                    All dynamic configuration parameters (changes apply instantly)
-                </p>
-            </div>
-
-            <Tabs defaultValue={availableTabs[0]?.id}>
-                <TabsList>
-                    {availableTabs.map((tab) => (
-                        <TabsTrigger key={tab.id} value={tab.id}>
-                            {tab.label}
-                        </TabsTrigger>
-                    ))}
-                </TabsList>
-
-                {availableTabs.map((tab) => {
-                    const domainKeys = DOMAIN_TAB_MAP[tab.id] ?? [];
-                    return (
-                        <TabsContent key={tab.id} value={tab.id} className="space-y-6">
-                            {/* Category-based params */}
-                            {tab.categories
-                                ?.filter((cat) => categories.includes(cat))
-                                .map((cat) => {
-                                    const catParams =
-                                        params?.filter((p) => p.category === cat && !p.domain_key) ?? [];
-                                    return (
-                                        <Card key={cat}>
-                                            <CardHeader>
-                                                <CardTitle>{CATEGORY_LABELS[cat] ?? cat}</CardTitle>
-                                                <CardDescription>
-                                                    {catParams.length} parameter{catParams.length !== 1 ? "s" : ""}
-                                                </CardDescription>
-                                            </CardHeader>
-                                            <CardContent>
-                                                <Table>
-                                                    <TableHeader>
-                                                        <TableRow>
-                                                            <TableHead className="w-[180px]">Key</TableHead>
-                                                            <TableHead className="w-[300px]">Value</TableHead>
-                                                            <TableHead>Description</TableHead>
-                                                            <TableHead className="w-[80px]"></TableHead>
-                                                        </TableRow>
-                                                    </TableHeader>
-                                                    <TableBody>
-                                                        {catParams.map((p) => {
-                                                            const isEdited = edits[p.key] !== undefined;
-                                                            return (
-                                                                <TableRow key={p.key}>
-                                                                    <TableCell
-                                                                        className="font-mono text-sm">{p.key}</TableCell>
-                                                                    <TableCell>{renderValue(p)}</TableCell>
-                                                                    <TableCell
-                                                                        className="text-sm text-muted-foreground">
-                                                                        {p.description}
-                                                                    </TableCell>
-                                                                    <TableCell>
-                                                                        {isEdited && (
-                                                                            <div className="flex items-center gap-1">
-                                                                                <Button
-                                                                                    size="sm"
-                                                                                    variant="ghost"
-                                                                                    onClick={() => handleSave(p.key)}
-                                                                                    disabled={updateMutation.isPending}
-                                                                                >
-                                                                                    <Save className="h-4 w-4"/>
-                                                                                </Button>
-                                                                                <Button
-                                                                                    size="sm"
-                                                                                    variant="ghost"
-                                                                                    onClick={() => handleReset(p.key)}
-                                                                                >
-                                                                                    <RotateCcw className="h-4 w-4"/>
-                                                                                </Button>
-                                                                            </div>
-                                                                        )}
-                                                                    </TableCell>
-                                                                </TableRow>
-                                                            );
-                                                        })}
-                                                    </TableBody>
-                                                </Table>
-                                            </CardContent>
-                                        </Card>
-                                    );
-                                })}
-                            {/* Domain overrides */}
-                            {domainKeys.length > 0 && (
-                                <DomainSubTabs
-                                    domainKeys={domainKeys}
-                                    params={params ?? []}
-                                    onSave={handleSave}
-                                    updateMutation={updateMutation}
-                                    renderValue={renderValue}
-                                    edits={edits}
-                                    onReset={handleReset}
-                                />
-                            )}
-                        </TabsContent>
-                    );
-                })}
-            </Tabs>
-        </div>
+      <div className="flex items-center gap-2">
+        <Input
+          type="number"
+          step={p.value_type === "float" ? "0.1" : "1"}
+          value={displayValue}
+          onChange={(e) => setEdits((prev) => ({ ...prev, [p.key]: e.target.value }))}
+          className="w-28"
+        />
+        {p.min_value !== null && p.max_value !== null && (
+          <span className="text-xs text-muted-foreground whitespace-nowrap">
+            {p.min_value} – {p.max_value}
+          </span>
+        )}
+      </div>
     );
+  };
+
+  if (isLoading) {
+    return (
+      <div className="p-6 space-y-6">
+        <div>
+          <Skeleton className="h-8 w-48 mb-2" />
+          <Skeleton className="h-4 w-72" />
+        </div>
+        {[1, 2].map((i) => (
+          <Card key={i}>
+            <CardContent className="pt-6">
+              <Skeleton className="h-40 w-full" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    );
+  }
+
+  // A tab is visible if it has category params OR domain overrides for its categories
+  const availableTabs = TAB_GROUPS.filter((tab) => {
+    const hasCategoryParams = tab.categories?.some((cat) => categories.includes(cat));
+    if (hasCategoryParams) return true;
+    // Check if any domain has params in this tab's categories
+    const domainKeys = DOMAIN_TAB_MAP[tab.id] ?? [];
+    return domainKeys.some((dk) =>
+      params?.some(
+        (p) => p.domain_key === dk && tab.categories?.includes(p.category.replace("domain:", "")),
+      ),
+    );
+  });
+
+  return (
+    <div className="p-6 space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold">Settings</h1>
+        <p className="text-muted-foreground">
+          All dynamic configuration parameters (changes apply instantly)
+        </p>
+      </div>
+
+      <Tabs defaultValue={availableTabs[0]?.id}>
+        <TabsList>
+          {availableTabs.map((tab) => (
+            <TabsTrigger key={tab.id} value={tab.id}>
+              {tab.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+
+        {availableTabs.map((tab) => {
+          const domainKeys = DOMAIN_TAB_MAP[tab.id] ?? [];
+          return (
+            <TabsContent key={tab.id} value={tab.id} className="space-y-6">
+              {/* Category-based params */}
+              {tab.categories
+                ?.filter((cat) => categories.includes(cat))
+                .map((cat) => {
+                  const catParams =
+                    params?.filter((p) => p.category === cat && !p.domain_key) ?? [];
+                  return (
+                    <Card key={cat}>
+                      <CardHeader>
+                        <CardTitle>{CATEGORY_LABELS[cat] ?? cat}</CardTitle>
+                        <CardDescription>
+                          {catParams.length} parameter{catParams.length !== 1 ? "s" : ""}
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead className="w-[180px]">Key</TableHead>
+                              <TableHead className="w-[300px]">Value</TableHead>
+                              <TableHead>Description</TableHead>
+                              <TableHead className="w-[80px]"></TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {catParams.map((p) => {
+                              const isEdited = edits[p.key] !== undefined;
+                              return (
+                                <TableRow key={p.key}>
+                                  <TableCell className="font-mono text-sm">{p.key}</TableCell>
+                                  <TableCell>{renderValue(p)}</TableCell>
+                                  <TableCell className="text-sm text-muted-foreground">
+                                    {p.description}
+                                  </TableCell>
+                                  <TableCell>
+                                    {isEdited && (
+                                      <div className="flex items-center gap-1">
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          onClick={() => handleSave(p.key)}
+                                          disabled={updateMutation.isPending}
+                                        >
+                                          <Save className="h-4 w-4" />
+                                        </Button>
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          onClick={() => handleReset(p.key)}
+                                        >
+                                          <RotateCcw className="h-4 w-4" />
+                                        </Button>
+                                      </div>
+                                    )}
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              {/* Domain overrides */}
+              {domainKeys.length > 0 && (
+                <DomainSubTabs
+                  domainKeys={domainKeys}
+                  params={params ?? []}
+                  onSave={handleSave}
+                  updateMutation={updateMutation}
+                  renderValue={renderValue}
+                  edits={edits}
+                  onReset={handleReset}
+                />
+              )}
+            </TabsContent>
+          );
+        })}
+      </Tabs>
+    </div>
+  );
 }

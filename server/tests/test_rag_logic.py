@@ -73,6 +73,14 @@ class TestFormatDocs:
         assert "x.pdf" in result
         assert "7" in result
 
+    def test_accepts_scored_pairs(self):
+        docs = [_doc("текст 1", "a.pdf"), _doc("текст 2", "b.pdf")]
+        scored = [(docs[0], 0.9), (docs[1], 0.3)]
+        result = rag.format_docs(scored)
+        assert "[1] a.pdf" in result
+        assert "[2] b.pdf" in result
+        assert "текст 1" in result
+
 
 # ---------------------------------------------------------------------------
 # extract_sources

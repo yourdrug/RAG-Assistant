@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from application.dto.auth_dto import CreateUserCommand, LoginCommand
+from application.dto.auth_dto import ChangeRoleCommand, CreateUserCommand, LoginCommand
 from application.services.auth_service import AuthService
 from domain.value_objects.roles import UserKind, UserRole
 from fastapi import APIRouter, Depends, Query
@@ -11,6 +11,7 @@ from infrastructure.logging.actions import log_action
 from presentation.api.auth_dependencies import get_current_user, require_admin
 from presentation.api.dependencies import create_auth_service
 from presentation.api.schemas import (
+    ChangeRoleRequest,
     CreateUserRequest,
     LoginRequest,
     TokenResponse,
@@ -82,3 +83,22 @@ async def toggle_user_active(
         "user.toggle_active", user_id=admin["id"], details={"target_user": user_id, "is_active": is_active}
     )
     return {"id": result.id, "is_active": result.is_active}
+
+
+@router.patch("/users/{user_id}/role", response_model=UserResponse)
+async def change_user_role(
+    user_id: int,
+    body: ChangeRoleRequest,
+    admin: dict = Depends(require_admin),
+    auth_service: AuthService = Depends(create_auth_service),
+):
+    result = await auth_service.change_role(
+        ChangeRoleCommand(user_id=user_id, new_role=body.role),
+        admin_id=admin["id"],
+    )
+    log_action(
+        "user.change_role",
+        user_id=admin["id"],
+        details={"target_user": user_id, "new_role": body.role},
+    )
+    return result

@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from application.services.config_admin_service import ConfigAdminService
     from application.services.config_service import ConfigService
     from application.services.conversation_service import ConversationService
+    from application.services.assignment_service import AssignmentService
     from application.services.document_service import DocumentService
     from application.services.group_service import GroupService
     from application.services.health_service import HealthService
@@ -106,6 +107,7 @@ class ApplicationContainer:
     benchmark_result_service: BenchmarkResultService | None = field(default=None)
     job_service: JobService | None = field(default=None)
     chat_log_service: ChatLogService | None = field(default=None)
+    assignment_service: AssignmentService | None = field(default=None)
 
     def init(self, infra: InfrastructureContainer) -> None:
         """Create all application-layer services using infrastructure objects.
@@ -125,6 +127,7 @@ class ApplicationContainer:
         from application.services.config_admin_service import ConfigAdminService
         from application.services.config_service import ConfigService
         from application.services.conversation_service import ConversationService
+        from application.services.assignment_service import AssignmentService
         from application.services.document_service import DocumentService
         from application.services.group_service import GroupService
         from application.services.health_service import HealthService
@@ -241,6 +244,7 @@ class ApplicationContainer:
 
         self.search_service = SearchService(uow_factory=uow)
         self.group_service = GroupService(uow_factory=uow)
+        self.assignment_service = AssignmentService(uow_factory=uow)
         self.quality_service = QualityService(uow_factory=uow)
         self.benchmark_question_service = BenchmarkQuestionService(uow_factory=uow)
         self.benchmark_sweep_service = BenchmarkSweepService(uow_factory=uow)

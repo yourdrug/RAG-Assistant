@@ -46,6 +46,7 @@ from presentation.api.routes.benchmark_admin import router as benchmark_admin_ro
 from presentation.api.routes.chat import router as chat_router
 from presentation.api.routes.chunks import router as chunks_router
 from presentation.api.routes.conversations import router as conversations_router
+from presentation.api.routes.curators import router as curators_router
 from presentation.api.routes.documents import router as documents_router
 from presentation.api.routes.groups import router as groups_router
 from presentation.api.routes.health import router as health_router
@@ -210,6 +211,7 @@ class Application:
             admin_quality_router,
             admin_logs_router,
             admin_act_versions_router,
+            curators_router,
         )
         for router in routers:
             self.app.include_router(router)

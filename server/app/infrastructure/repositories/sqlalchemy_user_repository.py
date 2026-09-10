@@ -19,6 +19,12 @@ class SQLAlchemyUserRepository:
         orm = result.scalar_one_or_none()
         return self._to_entity(orm) if orm else None
 
+    async def get_by_ids(self, user_ids: list[int]) -> list[User]:
+        if not user_ids:
+            return []
+        result = await self._db.execute(select(UserModel).where(UserModel.id.in_(user_ids)))
+        return [self._to_entity(orm) for orm in result.scalars().all()]
+
     async def get_by_email(self, email: str) -> User | None:
         result = await self._db.execute(select(UserModel).where(UserModel.email == email.lower()))
         orm = result.scalar_one_or_none()
@@ -66,6 +72,15 @@ class SQLAlchemyUserRepository:
         if orm is None:
             return False
         orm.is_active = is_active
+        await self._db.flush()
+        return True
+
+    async def update_role(self, user_id: int, role: str) -> bool:
+        result = await self._db.execute(select(UserModel).where(UserModel.id == user_id))
+        orm = result.scalar_one_or_none()
+        if orm is None:
+            return False
+        orm.role = role
         await self._db.flush()
         return True
 

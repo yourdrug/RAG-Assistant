@@ -61,6 +61,7 @@ class ChatLogService:
     async def list_logs(
         self,
         user_id: int | None = None,
+        user_ids: list[int] | None = None,
         domain: str | None = None,
         date_from: datetime | None = None,
         date_to: datetime | None = None,
@@ -71,6 +72,7 @@ class ChatLogService:
         async with self._uow_factory.create() as uow:
             return await uow.chat_logs.list_logs(
                 user_id=user_id,
+                user_ids=user_ids,
                 domain=domain,
                 date_from=date_from,
                 date_to=date_to,
@@ -82,6 +84,7 @@ class ChatLogService:
     async def count_logs(
         self,
         user_id: int | None = None,
+        user_ids: list[int] | None = None,
         domain: str | None = None,
         date_from: datetime | None = None,
         date_to: datetime | None = None,
@@ -90,8 +93,39 @@ class ChatLogService:
         async with self._uow_factory.create() as uow:
             return await uow.chat_logs.count_logs(
                 user_id=user_id,
+                user_ids=user_ids,
                 domain=domain,
                 date_from=date_from,
                 date_to=date_to,
                 search=search,
             )
+
+    async def list_logs_with_emails(
+        self,
+        user_id: int | None = None,
+        user_ids: list[int] | None = None,
+        domain: str | None = None,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
+        search: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[ChatLog], dict[int, str]]:
+        async with self._uow_factory.create() as uow:
+            logs = await uow.chat_logs.list_logs(
+                user_id=user_id,
+                user_ids=user_ids,
+                domain=domain,
+                date_from=date_from,
+                date_to=date_to,
+                search=search,
+                limit=limit,
+                offset=offset,
+            )
+            unique_ids = list({log.user_id for log in logs if log.user_id is not None})
+            if unique_ids:
+                users = await uow.users.get_by_ids(unique_ids)
+                email_map = {u.id: u.email for u in users if u.id is not None}
+            else:
+                email_map = {}
+            return logs, email_map

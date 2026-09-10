@@ -3,7 +3,13 @@ import { type ColumnDef } from "@tanstack/react-table";
 import { RefreshCw, RotateCcw, Upload } from "lucide-react";
 import { useState } from "react";
 import toast from "react-hot-toast";
-import { useGroups, useIngestAll, useIngestFile, useIngestRegistry, useUploadableClients } from "@/shared/api/hooks";
+import {
+  useGroups,
+  useIngestAll,
+  useIngestFile,
+  useIngestRegistry,
+  useUploadableClients,
+} from "@/shared/api/hooks";
 import type { IngestRegistryItem } from "@/shared/api/types";
 import {
   AlertDialog,
@@ -361,9 +367,7 @@ export function AdminIngestPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmResetIngest}>
-              Reset and Re-index
-            </AlertDialogAction>
+            <AlertDialogAction onClick={confirmResetIngest}>Reset and Re-index</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

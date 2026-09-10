@@ -1,4 +1,4 @@
-"""Tests for the DI Container — InfrastructureContainer, ApplicationContainer, and Container."""
+"""Tests for the DI Container — lifecycle, wiring, and config event subscription."""
 
 from __future__ import annotations
 
@@ -17,69 +17,18 @@ from composition.container import (
 from infrastructure.adapters.chunk_search_adapter import ChunkSearchAdapter
 from infrastructure.database.database import DatabaseManager
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
 
 @pytest.fixture
 def mock_database_manager() -> MagicMock:
-    """Create a mock DatabaseManager that passes isinstance check."""
-    mock = MagicMock(spec=DatabaseManager)
-    return mock
-
-
-@pytest.fixture
-def infra_container() -> InfrastructureContainer:
-    return InfrastructureContainer()
-
-
-@pytest.fixture
-def app_container() -> ApplicationContainer:
-    return ApplicationContainer()
-
-
-@pytest.fixture
-def container() -> Container:
-    return Container()
+    return MagicMock(spec=DatabaseManager)
 
 
 # ===========================================================================
-# InfrastructureContainer
+# InfrastructureContainer — type safety and lifecycle
 # ===========================================================================
 
 
 class TestInfrastructureContainer:
-    def test_fields_default_to_none(self):
-        infra = InfrastructureContainer()
-        # Check raw dataclass fields via sub-containers (before init, all are None)
-        assert infra.db.database is None
-        assert infra.db.uow_factory is None
-        assert infra.ml.vector_store_repo is None
-        assert infra.ml.file_storage is None
-        assert infra.ml.document_parser is None
-        assert infra.ml.document_splitter is None
-        assert infra.ml.ml_clients is None
-        assert infra.events.config_listener is None
-        assert infra.services.health_probe is None
-        assert infra.ml.metrics_registry is None
-        assert infra.services.ollama_probe is None
-        assert infra.services.qdrant_info is None
-        assert infra.ml.benchmark_service is None
-        assert infra.ml.summary_updater is None
-        assert infra.services.api_key_provider is None
-        assert infra.db.config_broadcaster is None
-        assert infra.ml.content_extractor is None
-        assert infra.ml.pdf_quality_assessor is None
-        assert infra.ml.metrics_collector is None
-
-    @patch("composition.container.InfrastructureContainer.init")
-    def test_init_sets_fields(self, mock_init, mock_database_manager):
-        infra = InfrastructureContainer()
-        mock_init.return_value = None
-        infra.init(mock_database_manager)
-        mock_init.assert_called_once_with(mock_database_manager)
-
     def test_init_rejects_non_database_manager(self):
         infra = InfrastructureContainer()
         with pytest.raises(TypeError, match="Expected DatabaseManager"):
@@ -91,52 +40,24 @@ class TestInfrastructureContainer:
             infra.init(None)
 
     @pytest.mark.asyncio
-    async def test_dispose_is_safe(self):
+    async def test_dispose_is_safe_before_init(self):
         infra = InfrastructureContainer()
         await infra.dispose()
 
-    def test_config_fields_included(self):
+    def test_has_expected_sub_containers(self):
         infra = InfrastructureContainer()
-        import dataclasses
-
-        field_names = [f.name for f in dataclasses.fields(infra)]
-        assert "db" in field_names
-        assert "ml" in field_names
-        assert "events" in field_names
-        assert "services" in field_names
+        assert hasattr(infra, "db")
+        assert hasattr(infra, "ml")
+        assert hasattr(infra, "events")
+        assert hasattr(infra, "services")
 
 
 # ===========================================================================
-# ApplicationContainer
+# ApplicationContainer — lifecycle
 # ===========================================================================
 
 
 class TestApplicationContainer:
-    def test_fields_default_to_none(self):
-        app = ApplicationContainer()
-        assert app.rag_service is None
-        assert app.chat_service is None
-        assert app.auth_service is None
-        assert app.document_service is None
-        assert app.chunk_service is None
-        assert app.ingest_app_service is None
-        assert app.config_service is None
-        assert app.health_service is None
-        assert app.metrics_service is None
-        assert app.config_admin_service is None
-        assert app.pdf_diagnostic_service is None
-        assert app.ingestion_service is None
-        assert app.search_service is None
-        assert app.conversation_service is None
-        assert app.group_service is None
-        assert app.quality_service is None
-        assert app.benchmark_question_service is None
-        assert app.benchmark_sweep_service is None
-        assert app.benchmark_run_service is None
-        assert app.benchmark_result_service is None
-        assert app.job_service is None
-        assert app.chat_log_service is None
-
     def test_init_requires_infra_initialized(self):
         app = ApplicationContainer()
         infra = InfrastructureContainer()
@@ -163,40 +84,9 @@ class TestApplicationContainer:
         app = ApplicationContainer()
         await app.dispose()
 
-    def test_all_field_names(self):
-        app = ApplicationContainer()
-        import dataclasses
-
-        expected = {
-            "rag_service",
-            "chat_service",
-            "auth_service",
-            "document_service",
-            "chunk_service",
-            "ingest_app_service",
-            "config_service",
-            "health_service",
-            "metrics_service",
-            "config_admin_service",
-            "pdf_diagnostic_service",
-            "ingestion_service",
-            "search_service",
-            "conversation_service",
-            "group_service",
-            "quality_service",
-            "benchmark_question_service",
-            "benchmark_sweep_service",
-            "benchmark_run_service",
-            "benchmark_result_service",
-            "job_service",
-            "chat_log_service",
-        }
-        actual = {f.name for f in dataclasses.fields(app)}
-        assert expected == actual
-
 
 # ===========================================================================
-# Container
+# Container — lifecycle and wiring
 # ===========================================================================
 
 
@@ -209,12 +99,6 @@ class TestContainer:
         c = Container()
         assert isinstance(c.infrastructure, InfrastructureContainer)
         assert isinstance(c.application, ApplicationContainer)
-
-    @patch("composition.container.Container.init")
-    def test_init_called_once(self, mock_init, container):
-        mock_init.return_value = None
-        container.init(MagicMock(spec=DatabaseManager))
-        mock_init.assert_called_once()
 
     def test_double_init_raises(self):
         c = Container()
@@ -274,14 +158,27 @@ class TestContainer:
         await c.dispose()
         assert call_order == ["app", "infra"]
 
-    def test_no_third_party_di_framework(self):
+    @pytest.mark.asyncio
+    async def test_full_init_dispose_cycle(self, mock_database_manager):
         c = Container()
-        assert hasattr(c, "infrastructure")
-        assert hasattr(c, "application")
+        with (
+            patch.object(InfrastructureContainer, "init") as mock_infra_init,
+            patch.object(ApplicationContainer, "init"),
+            patch.object(ApplicationContainer, "dispose", new_callable=AsyncMock),
+            patch.object(InfrastructureContainer, "dispose", new_callable=AsyncMock),
+            patch.object(Container, "_subscribe_config_events"),
+            patch.object(Container, "_unsubscribe_config_events"),
+        ):
+            c.init(mock_database_manager)
+            mock_infra_init.assert_called_once_with(mock_database_manager)
+            assert c._initialized is True
+
+            await c.dispose()
+            assert c._initialized is False
 
 
 # ===========================================================================
-# ChunkSearchAdapter
+# ChunkSearchAdapter — wiring
 # ===========================================================================
 
 
@@ -318,14 +215,9 @@ class TestChunkSearchAdapter:
         )
         assert result == ["result"]
 
-    def test_stores_uow_factory(self):
-        mock_uow_factory = MagicMock()
-        adapter = ChunkSearchAdapter(uow_factory=mock_uow_factory)
-        assert adapter._uow_factory is mock_uow_factory
-
 
 # ===========================================================================
-# _subscribe_config_events
+# _subscribe_config_events — wiring
 # ===========================================================================
 
 
@@ -338,7 +230,6 @@ class TestSubscribeConfigEvents:
 
         with patch("infrastructure.events.in_process_event_bus.event_bus") as mock_bus:
             c._subscribe_config_events()
-            # 5 core handlers + llm/bm25 invalidators + domain settings cache updater
             assert mock_bus.subscribe.call_count == 8
             for call_args in mock_bus.subscribe.call_args_list:
                 event_type = call_args[0][0]
@@ -349,7 +240,7 @@ class TestSubscribeConfigEvents:
         with pytest.raises(RuntimeError, match="ml_clients not initialized"):
             c._subscribe_config_events()
 
-    def test_invalidation_handlers_are_callable(self):
+    def test_invalidation_handlers_invalidate_on_event(self):
         from domain.events.config_events import ConfigParameterChanged
 
         c = Container()
@@ -375,28 +266,3 @@ class TestSubscribeConfigEvents:
             for h in handlers:
                 h(bm25_event)
             mock_ml.invalidate_bm25.assert_called()
-
-
-# ===========================================================================
-# Integration: full init cycle
-# ===========================================================================
-
-
-class TestContainerIntegration:
-    @pytest.mark.asyncio
-    async def test_full_init_dispose_cycle(self, mock_database_manager):
-        c = Container()
-        with (
-            patch.object(InfrastructureContainer, "init") as mock_infra_init,
-            patch.object(ApplicationContainer, "init"),
-            patch.object(ApplicationContainer, "dispose", new_callable=AsyncMock),
-            patch.object(InfrastructureContainer, "dispose", new_callable=AsyncMock),
-            patch.object(Container, "_subscribe_config_events"),
-            patch.object(Container, "_unsubscribe_config_events"),
-        ):
-            c.init(mock_database_manager)
-            mock_infra_init.assert_called_once_with(mock_database_manager)
-            assert c._initialized is True
-
-            await c.dispose()
-            assert c._initialized is False

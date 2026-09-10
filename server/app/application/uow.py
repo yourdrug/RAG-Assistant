@@ -20,6 +20,7 @@ from domain.repositories.chat_log_repository import ChatLogRepository
 from domain.repositories.chunk_repository import ChunkRepository
 from domain.repositories.config_parameter_repository import ConfigParameterRepository
 from domain.repositories.conversation_repository import ConversationRepository
+from domain.repositories.assignment_repository import AssignmentRepository
 from domain.repositories.document_repository import DocumentRepository
 from domain.repositories.group_repository import GroupRepository
 from domain.repositories.message_repository import MessageRepository
@@ -57,6 +58,7 @@ class UnitOfWork(BaseUnitOfWork):
     vector_outbox: VectorOutboxRepository
     regulatory_acts: RegulatoryActRepository
     act_versions: ActVersionRepository
+    assignments: AssignmentRepository
 
     def __init__(
         self,
@@ -77,6 +79,7 @@ class UnitOfWork(BaseUnitOfWork):
         vector_outbox: VectorOutboxRepository,
         regulatory_acts: RegulatoryActRepository,
         act_versions: ActVersionRepository,
+        assignments: AssignmentRepository,
     ) -> None:
         super().__init__(session)
         self.users = users
@@ -95,6 +98,7 @@ class UnitOfWork(BaseUnitOfWork):
         self.vector_outbox = vector_outbox
         self.regulatory_acts = regulatory_acts
         self.act_versions = act_versions
+        self.assignments = assignments
         self._event_handlers: list[Callable[[object], Coroutine[Any, Any, None]]] = []
 
     def on_event(self, handler: Callable[[object], Coroutine[Any, Any, None]]) -> None:

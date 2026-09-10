@@ -38,6 +38,7 @@ class SQLAlchemyChatLogRepository:
         self,
         *,
         user_id: int | None = None,
+        user_ids: list[int] | None = None,
         domain: str | None = None,
         date_from: datetime | None = None,
         date_to: datetime | None = None,
@@ -47,7 +48,13 @@ class SQLAlchemyChatLogRepository:
     ) -> list[ChatLog]:
         stmt = select(ChatLogModel).order_by(ChatLogModel.creation_date.desc())
         stmt = self._apply_filters(
-            stmt, user_id=user_id, domain=domain, date_from=date_from, date_to=date_to, search=search
+            stmt,
+            user_id=user_id,
+            user_ids=user_ids,
+            domain=domain,
+            date_from=date_from,
+            date_to=date_to,
+            search=search,
         )
         stmt = stmt.offset(offset).limit(limit)
         result = await self._db.execute(stmt)
@@ -57,6 +64,7 @@ class SQLAlchemyChatLogRepository:
         self,
         *,
         user_id: int | None = None,
+        user_ids: list[int] | None = None,
         domain: str | None = None,
         date_from: datetime | None = None,
         date_to: datetime | None = None,
@@ -64,7 +72,13 @@ class SQLAlchemyChatLogRepository:
     ) -> int:
         stmt = select(func.count()).select_from(ChatLogModel)
         stmt = self._apply_filters(
-            stmt, user_id=user_id, domain=domain, date_from=date_from, date_to=date_to, search=search
+            stmt,
+            user_id=user_id,
+            user_ids=user_ids,
+            domain=domain,
+            date_from=date_from,
+            date_to=date_to,
+            search=search,
         )
         result = await self._db.execute(stmt)
         return result.scalar_one()
@@ -74,6 +88,7 @@ class SQLAlchemyChatLogRepository:
         stmt,
         *,
         user_id: int | None = None,
+        user_ids: list[int] | None = None,
         domain: str | None = None,
         date_from: datetime | None = None,
         date_to: datetime | None = None,
@@ -81,6 +96,8 @@ class SQLAlchemyChatLogRepository:
     ):
         if user_id is not None:
             stmt = stmt.where(ChatLogModel.user_id == user_id)
+        if user_ids is not None:
+            stmt = stmt.where(ChatLogModel.user_id.in_(user_ids))
         if domain is not None:
             stmt = stmt.where(ChatLogModel.domain == domain)
         if date_from is not None:

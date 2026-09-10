@@ -45,6 +45,12 @@ class ToggleActiveResult:
 
 
 @dataclass(frozen=True)
+class ChangeRoleCommand:
+    user_id: int
+    new_role: str
+
+
+@dataclass(frozen=True)
 class ApiKeyAuthResult:
     api_key_id: int
     id: int

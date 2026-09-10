@@ -28,6 +28,9 @@ from qdrant_client.models import (
 def build_qdrant_filter(
     user: dict,
     group_ids: list[int],
+    managed_client_ids: list[int] | None = None,
+    managed_internal_ids: list[int] | None = None,
+    managed_group_ids: list[int] | None = None,
 ) -> Filter:
     """Build a Qdrant filter for documents visible to this user.
 
@@ -36,6 +39,9 @@ def build_qdrant_filter(
     Args:
         user: dict with "id", "kind", and optionally "role" keys
         group_ids: pre-fetched group IDs for this user
+        managed_client_ids: curator's assigned client user IDs
+        managed_internal_ids: curator's assigned internal user IDs
+        managed_group_ids: curator's assigned group IDs
 
     """
     user_role = UserRole(user["role"]) if "role" in user and user["role"] else None
@@ -45,6 +51,9 @@ def build_qdrant_filter(
         group_ids,
         for_list=False,
         user_role=user_role,
+        managed_client_ids=managed_client_ids,
+        managed_internal_ids=managed_internal_ids,
+        managed_group_ids=managed_group_ids,
     )
 
     ConditionType = (
@@ -60,8 +69,12 @@ def build_qdrant_filter(
         if cond.owner_match == "self":
             must.append(FieldCondition(key="metadata.owner_id", match=MatchValue(value=user["id"])))
 
+        if cond.owner_match == "assigned" and cond.owner_ids:
+            must.append(FieldCondition(key="metadata.owner_id", match=MatchAny(any=cond.owner_ids)))
+
         if cond.group_match:
-            must.append(FieldCondition(key="metadata.group_id", match=MatchAny(any=group_ids)))
+            effective_group_ids = cond.group_ids if cond.group_ids is not None else group_ids
+            must.append(FieldCondition(key="metadata.group_id", match=MatchAny(any=effective_group_ids)))
 
         should.append(Filter(must=must) if len(must) > 1 else must[0])
 

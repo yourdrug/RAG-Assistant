@@ -53,6 +53,7 @@ export function DocumentsPage() {
   const user = useAuthStore((s) => s.user);
   const isClient = user?.kind === "client";
   const isAdmin = user?.role === "admin";
+  const isCurator = user?.role === "curator";
   const [vis, setVis] = useState<DocumentVisibility>("internal_private");
   const [groupId, setGroupId] = useState<number | null>(null);
   const [clientId, setClientId] = useState<number | null>(null);
@@ -364,6 +365,12 @@ export function DocumentsPage() {
                     <>
                       <SelectItem value="internal_private">Private</SelectItem>
                       <SelectItem value="internal_public">Public</SelectItem>
+                      <SelectItem value="internal_group">Group</SelectItem>
+                      <SelectItem value="client_private">Client Private</SelectItem>
+                    </>
+                  ) : isCurator ? (
+                    <>
+                      <SelectItem value="internal_private">Private</SelectItem>
                       <SelectItem value="internal_group">Group</SelectItem>
                       <SelectItem value="client_private">Client Private</SelectItem>
                     </>

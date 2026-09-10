@@ -20,6 +20,10 @@ class GroupService:
                 return await uow.groups.list_all()
             elif ctx.is_client:
                 return []
+            elif ctx.is_curator:
+                # CURATOR sees own membership groups + managed groups
+                all_group_ids = list(set(ctx.group_ids) | set(ctx.managed_group_ids))
+                return await uow.groups.list_by_ids(all_group_ids) if all_group_ids else []
             else:
                 return await uow.groups.list_by_ids(ctx.group_ids) if ctx.group_ids else []
 

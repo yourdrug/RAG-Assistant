@@ -7,6 +7,14 @@ export {
 export { useClientApiKeys, useCreateClientApiKey, useRevokeClientApiKey } from "./use-api-keys";
 export { useCreateUser, useCurrentUser, useLogin, useToggleUserActive, useUsers } from "./use-auth";
 export {
+  useAssignGroupToCurator,
+  useAssignUserToCurator,
+  useChangeUserRole,
+  useCuratorScope,
+  useUnassignGroupFromCurator,
+  useUnassignUserFromCurator,
+} from "./use-auth";
+export {
   useApplyRunConfig,
   useBenchmark,
   useBenchmarkHistory,

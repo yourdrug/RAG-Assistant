@@ -39,11 +39,7 @@ import {
   useSweeps,
   useUpdateBenchmarkQuestion,
 } from "@/shared/api/hooks";
-import type {
-  BenchmarkQuestion,
-  BenchmarkQuestionCreate,
-  BenchmarkRun,
-} from "@/shared/api/types";
+import type { BenchmarkQuestion, BenchmarkQuestionCreate, BenchmarkRun } from "@/shared/api/types";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
@@ -53,14 +49,7 @@ import { Label } from "@/shared/ui/label";
 import { Progress } from "@/shared/ui/progress";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/shared/ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/shared/ui/table";
 import { Textarea } from "@/shared/ui/textarea";
 
 // ─── Reusable widgets ─────────────────────────────────────────────────────
@@ -94,9 +83,13 @@ function MetricCard({
 function ScoreBadge({ score, max = 10 }: { score: number | null | undefined; max?: number }) {
   if (score === null || score === undefined) return <Badge variant="secondary">-</Badge>;
   const pct = (score / max) * 100;
-  if (pct >= 70) return <Badge variant="success">{typeof score === "number" ? score.toFixed(1) : score}</Badge>;
-  if (pct >= 40) return <Badge variant="warning">{typeof score === "number" ? score.toFixed(1) : score}</Badge>;
-  return <Badge variant="destructive">{typeof score === "number" ? score.toFixed(1) : score}</Badge>;
+  if (pct >= 70)
+    return <Badge variant="success">{typeof score === "number" ? score.toFixed(1) : score}</Badge>;
+  if (pct >= 40)
+    return <Badge variant="warning">{typeof score === "number" ? score.toFixed(1) : score}</Badge>;
+  return (
+    <Badge variant="destructive">{typeof score === "number" ? score.toFixed(1) : score}</Badge>
+  );
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -268,7 +261,14 @@ function QuestionsTab() {
       }
       setDialogOpen(false);
       setEditQuestion(null);
-      setForm({ question: "", expected_answer: "", source_hint: "", tags: [], dataset: "main", notes: "" });
+      setForm({
+        question: "",
+        expected_answer: "",
+        source_hint: "",
+        tags: [],
+        dataset: "main",
+        notes: "",
+      });
       refetch();
     } catch (e: any) {
       toast.error(e.response?.data?.detail || "Failed");
@@ -303,7 +303,7 @@ function QuestionsTab() {
   const handleExport = async () => {
     try {
       const { data } = await apiClient.get(
-        `/admin/benchmark/questions/export${datasetFilter ? `?dataset=${datasetFilter}` : ""}`
+        `/admin/benchmark/questions/export${datasetFilter ? `?dataset=${datasetFilter}` : ""}`,
       );
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
       const url = URL.createObjectURL(blob);
@@ -377,7 +377,14 @@ function QuestionsTab() {
           size="sm"
           onClick={() => {
             setEditQuestion(null);
-            setForm({ question: "", expected_answer: "", source_hint: "", tags: [], dataset: "main", notes: "" });
+            setForm({
+              question: "",
+              expected_answer: "",
+              source_hint: "",
+              tags: [],
+              dataset: "main",
+              notes: "",
+            });
             setDialogOpen(true);
           }}
         >
@@ -412,18 +419,24 @@ function QuestionsTab() {
                 <TableRow key={q.id}>
                   <TableCell className="text-xs text-muted-foreground">{idx + 1}</TableCell>
                   <TableCell className="text-sm max-w-[250px]">
-                    <div className="truncate" title={q.question}>{q.question}</div>
+                    <div className="truncate" title={q.question}>
+                      {q.question}
+                    </div>
                   </TableCell>
                   <TableCell className="text-xs max-w-[200px]">
                     <div className="truncate text-muted-foreground" title={q.expected_answer || ""}>
                       {q.expected_answer || "-"}
                     </div>
                   </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{q.source_hint || "-"}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
+                    {q.source_hint || "-"}
+                  </TableCell>
                   <TableCell>
                     <div className="flex gap-1 flex-wrap">
                       {(q.tags || []).map((t) => (
-                        <Badge key={t} variant="secondary" className="text-xs">{t}</Badge>
+                        <Badge key={t} variant="secondary" className="text-xs">
+                          {t}
+                        </Badge>
                       ))}
                     </div>
                   </TableCell>
@@ -458,9 +471,7 @@ function QuestionsTab() {
           </Table>
         </div>
       )}
-      <div className="text-xs text-muted-foreground">
-        {data?.total ?? 0} questions total
-      </div>
+      <div className="text-xs text-muted-foreground">{data?.total ?? 0} questions total</div>
 
       {/* Create/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -506,7 +517,13 @@ function QuestionsTab() {
               <Input
                 value={(form.tags || []).join(", ")}
                 onChange={(e) =>
-                  setForm({ ...form, tags: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })
+                  setForm({
+                    ...form,
+                    tags: e.target.value
+                      .split(",")
+                      .map((s) => s.trim())
+                      .filter(Boolean),
+                  })
                 }
                 placeholder="legal, narrow, regression"
               />
@@ -520,8 +537,13 @@ function QuestionsTab() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleCreate} disabled={createQuestion.isPending || updateQuestion.isPending}>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCreate}
+              disabled={createQuestion.isPending || updateQuestion.isPending}
+            >
               {editQuestion ? "Update" : "Create"}
             </Button>
           </DialogFooter>
@@ -538,8 +560,13 @@ function QuestionsTab() {
           {/* File upload zone */}
           <div
             className="border-2 border-dashed rounded-md p-6 text-center cursor-pointer hover:border-primary/50 transition-colors"
-            onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add("border-primary", "bg-primary/5"); }}
-            onDragLeave={(e) => { e.currentTarget.classList.remove("border-primary", "bg-primary/5"); }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.currentTarget.classList.add("border-primary", "bg-primary/5");
+            }}
+            onDragLeave={(e) => {
+              e.currentTarget.classList.remove("border-primary", "bg-primary/5");
+            }}
             onDrop={(e) => {
               e.preventDefault();
               e.currentTarget.classList.remove("border-primary", "bg-primary/5");
@@ -577,8 +604,13 @@ function QuestionsTab() {
             className="h-32 font-mono text-xs"
           />
           <DialogFooter>
-            <Button variant="outline" onClick={() => setImportDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleImport} disabled={importQuestions.isPending || !importText.trim()}>
+            <Button variant="outline" onClick={() => setImportDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleImport}
+              disabled={importQuestions.isPending || !importText.trim()}
+            >
               {importQuestions.isPending ? "Importing..." : "Import"}
             </Button>
           </DialogFooter>
@@ -620,7 +652,10 @@ function SweepBuilderTab({ onSweepCreated }: { onSweepCreated: (id: number) => v
     for (const [, cfg] of Object.entries(params)) {
       if (!cfg.enabled) continue;
       if (strategy === "random") return 50; // fixed for random
-      const values = cfg.values.split(",").map((s) => s.trim()).filter(Boolean);
+      const values = cfg.values
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
       total *= values.length || 1;
     }
     return total;
@@ -630,7 +665,10 @@ function SweepBuilderTab({ onSweepCreated }: { onSweepCreated: (id: number) => v
     const searchSpace: Record<string, any> = {};
     for (const [key, cfg] of Object.entries(params)) {
       if (!cfg.enabled) continue;
-      const values = cfg.values.split(",").map((s) => parseFloat(s.trim())).filter((n) => !isNaN(n));
+      const values = cfg.values
+        .split(",")
+        .map((s) => parseFloat(s.trim()))
+        .filter((n) => !isNaN(n));
       if (values.length > 0) {
         searchSpace[key] = { values };
       }
@@ -679,7 +717,8 @@ function SweepBuilderTab({ onSweepCreated }: { onSweepCreated: (id: number) => v
           </div>
           <p className="text-xs text-muted-foreground mt-2">
             {strategy === "grid" && "Cartesian product of all values. Best for 2-4 parameters."}
-            {strategy === "random" && "50 random points from the search space. Good for 5+ parameters."}
+            {strategy === "random" &&
+              "50 random points from the search space. Good for 5+ parameters."}
             {strategy === "successive_halving" && "Evaluate all on subset, keep top 50%, repeat."}
           </p>
         </CardContent>
@@ -707,17 +746,23 @@ function SweepBuilderTab({ onSweepCreated }: { onSweepCreated: (id: number) => v
                     <input
                       type="checkbox"
                       checked={cfg.enabled}
-                      onChange={(e) => setParams({ ...params, [key]: { ...cfg, enabled: e.target.checked } })}
+                      onChange={(e) =>
+                        setParams({ ...params, [key]: { ...cfg, enabled: e.target.checked } })
+                      }
                       className="rounded"
                     />
                     {key}
                   </label>
-                  <Badge variant="secondary" className="text-xs">cheap</Badge>
+                  <Badge variant="secondary" className="text-xs">
+                    cheap
+                  </Badge>
                 </div>
                 {cfg.enabled && (
                   <Input
                     value={cfg.values}
-                    onChange={(e) => setParams({ ...params, [key]: { ...cfg, values: e.target.value } })}
+                    onChange={(e) =>
+                      setParams({ ...params, [key]: { ...cfg, values: e.target.value } })
+                    }
                     placeholder="values: 4,6,8,10"
                     className="text-xs font-mono"
                   />
@@ -744,7 +789,9 @@ function SweepBuilderTab({ onSweepCreated }: { onSweepCreated: (id: number) => v
                   min="0"
                   max="1"
                   value={val}
-                  onChange={(e) => setWeights({ ...weights, [key]: parseFloat(e.target.value) || 0 })}
+                  onChange={(e) =>
+                    setWeights({ ...weights, [key]: parseFloat(e.target.value) || 0 })
+                  }
                   className="w-20"
                 />
               </div>
@@ -759,7 +806,11 @@ function SweepBuilderTab({ onSweepCreated }: { onSweepCreated: (id: number) => v
           <CardContent className="space-y-3">
             <div className="flex items-center gap-3">
               <Label className="w-28 text-xs">Dataset</Label>
-              <Input value={dataset} onChange={(e) => setDataset(e.target.value)} className="flex-1" />
+              <Input
+                value={dataset}
+                onChange={(e) => setDataset(e.target.value)}
+                className="flex-1"
+              />
             </div>
             <div className="flex items-center gap-3">
               <Label className="w-28 text-xs">Top-N for LLM</Label>
@@ -837,7 +888,9 @@ function SweepProgressTab({
               {sweepsData?.sweeps.map((s) => (
                 <TableRow
                   key={s.id}
-                  className={activeSweepId === s.id ? "bg-muted/50" : "cursor-pointer hover:bg-muted/30"}
+                  className={
+                    activeSweepId === s.id ? "bg-muted/50" : "cursor-pointer hover:bg-muted/30"
+                  }
                   onClick={() => onSweepSelect(s.id)}
                 >
                   <TableCell className="font-mono">#{s.id}</TableCell>
@@ -848,7 +901,9 @@ function SweepProgressTab({
                   <TableCell>
                     <div className="flex items-center gap-2">
                       <Progress
-                        value={s.total_configs > 0 ? (s.evaluated_configs / s.total_configs) * 100 : 0}
+                        value={
+                          s.total_configs > 0 ? (s.evaluated_configs / s.total_configs) * 100 : 0
+                        }
                         className="w-24 h-2"
                       />
                       <span className="text-xs text-muted-foreground">
@@ -903,7 +958,7 @@ function LeaderboardTab() {
 
   const toggleSelect = (id: number) => {
     setSelectedIds((prev) =>
-      prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id].slice(-5)
+      prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id].slice(-5),
     );
   };
 
@@ -914,7 +969,7 @@ function LeaderboardTab() {
       if (result.failed.length > 0) {
         toast(
           `Applied ${result.applied}, failed ${result.failed.length}: ${result.failed.map((f) => f.key).join(", ")}`,
-          { icon: "\u26a0\ufe0f" }
+          { icon: "\u26a0\ufe0f" },
         );
       } else {
         toast.success(`Applied ${result.applied} config parameters: ${result.keys.join(", ")}`);
@@ -1025,8 +1080,15 @@ function LeaderboardTab() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        {run.summary_metrics.hit_rate !== null && run.summary_metrics.hit_rate !== undefined ? (
-                          <span className={run.summary_metrics.hit_rate >= 0.5 ? "text-green-500" : "text-red-500"}>
+                        {run.summary_metrics.hit_rate !== null &&
+                        run.summary_metrics.hit_rate !== undefined ? (
+                          <span
+                            className={
+                              run.summary_metrics.hit_rate >= 0.5
+                                ? "text-green-500"
+                                : "text-red-500"
+                            }
+                          >
                             {(run.summary_metrics.hit_rate * 100).toFixed(0)}%
                           </span>
                         ) : (
@@ -1034,19 +1096,29 @@ function LeaderboardTab() {
                         )}
                       </TableCell>
                       <TableCell>
-                        <ScoreBadge score={run.summary_metrics.faithfulness ?? run.summary_metrics.avg_faithfulness} />
+                        <ScoreBadge
+                          score={
+                            run.summary_metrics.faithfulness ?? run.summary_metrics.avg_faithfulness
+                          }
+                        />
                       </TableCell>
                       <TableCell>
-                        <ScoreBadge score={run.summary_metrics.relevancy ?? run.summary_metrics.avg_relevancy} />
+                        <ScoreBadge
+                          score={run.summary_metrics.relevancy ?? run.summary_metrics.avg_relevancy}
+                        />
                       </TableCell>
                       <TableCell className="font-mono text-xs">
                         {run.summary_metrics.composite?.toFixed(3) ?? "-"}
                       </TableCell>
                       <TableCell>
                         {run.llm_evaluated ? (
-                          <Badge variant="success" className="text-xs">LLM</Badge>
+                          <Badge variant="success" className="text-xs">
+                            LLM
+                          </Badge>
                         ) : (
-                          <Badge variant="secondary" className="text-xs">Retrieval</Badge>
+                          <Badge variant="secondary" className="text-xs">
+                            Retrieval
+                          </Badge>
                         )}
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
@@ -1086,13 +1158,21 @@ function LeaderboardTab() {
                                     <TableBody>
                                       {runDetail.per_question_results.map((qr, idx) => (
                                         <TableRow key={qr.id ?? idx}>
-                                          <TableCell className="text-xs text-muted-foreground">{idx + 1}</TableCell>
+                                          <TableCell className="text-xs text-muted-foreground">
+                                            {idx + 1}
+                                          </TableCell>
                                           <TableCell className="text-xs max-w-[300px] truncate">
                                             {qr.question}
                                           </TableCell>
                                           <TableCell className="text-xs">
                                             {qr.hit_rate != null ? (
-                                              <span className={qr.hit_rate >= 0.5 ? "text-green-500" : "text-red-500"}>
+                                              <span
+                                                className={
+                                                  qr.hit_rate >= 0.5
+                                                    ? "text-green-500"
+                                                    : "text-red-500"
+                                                }
+                                              >
                                                 {qr.hit_rate >= 0.5 ? "Hit" : "Miss"}
                                               </span>
                                             ) : (
@@ -1109,7 +1189,9 @@ function LeaderboardTab() {
                                             <ScoreBadge score={qr.relevancy} />
                                           </TableCell>
                                           <TableCell className="text-xs text-muted-foreground">
-                                            {qr.latency_sec != null ? `${qr.latency_sec.toFixed(1)}s` : "-"}
+                                            {qr.latency_sec != null
+                                              ? `${qr.latency_sec.toFixed(1)}s`
+                                              : "-"}
                                           </TableCell>
                                         </TableRow>
                                       ))}
@@ -1141,7 +1223,9 @@ function LeaderboardTab() {
 
 function TrendsTab() {
   const { data: historyData, isLoading } = useBenchmarkHistory({ days: 30 });
-  const latestRunId = historyData?.points?.length ? historyData.points[historyData.points.length - 1].run_id : null;
+  const latestRunId = historyData?.points?.length
+    ? historyData.points[historyData.points.length - 1].run_id
+    : null;
   const { data: regressionData } = useRegressionCheck(latestRunId);
 
   if (isLoading) {
@@ -1182,7 +1266,13 @@ function TrendsTab() {
             <MetricCard
               key={m}
               label={m.replace("avg_", "")}
-              value={current !== null ? (typeof current === "number" ? current.toFixed(3) : String(current)) : null}
+              value={
+                current !== null
+                  ? typeof current === "number"
+                    ? current.toFixed(3)
+                    : String(current)
+                  : null
+              }
               icon={TrendingUp}
               color={
                 delta !== null
@@ -1228,12 +1318,17 @@ function TrendsTab() {
                   {regressionData.results.map((r) => (
                     <TableRow key={r.metric}>
                       <TableCell className="text-xs font-mono">{r.metric}</TableCell>
-                      <TableCell className="text-xs">{r.baseline != null ? r.baseline.toFixed(4) : "-"}</TableCell>
-                      <TableCell className="text-xs">{r.current != null ? r.current.toFixed(4) : "-"}</TableCell>
+                      <TableCell className="text-xs">
+                        {r.baseline != null ? r.baseline.toFixed(4) : "-"}
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        {r.current != null ? r.current.toFixed(4) : "-"}
+                      </TableCell>
                       <TableCell className="text-xs font-mono">
                         {r.delta != null ? (
                           <span className={r.failed ? "text-red-500" : "text-green-500"}>
-                            {r.delta > 0 ? "+" : ""}{r.delta.toFixed(4)}
+                            {r.delta > 0 ? "+" : ""}
+                            {r.delta.toFixed(4)}
                           </span>
                         ) : (
                           "-"
@@ -1242,9 +1337,13 @@ function TrendsTab() {
                       <TableCell className="text-xs text-muted-foreground">{r.threshold}</TableCell>
                       <TableCell className="text-xs">
                         {r.failed ? (
-                          <Badge variant="destructive" className="text-xs">FAIL</Badge>
+                          <Badge variant="destructive" className="text-xs">
+                            FAIL
+                          </Badge>
                         ) : (
-                          <Badge variant="success" className="text-xs">OK</Badge>
+                          <Badge variant="success" className="text-xs">
+                            OK
+                          </Badge>
                         )}
                       </TableCell>
                     </TableRow>
@@ -1284,7 +1383,9 @@ function TrendsTab() {
                       {p.creation_date ? new Date(p.creation_date).toLocaleDateString() : "-"}
                     </TableCell>
                     <TableCell>
-                      {p.metrics.hit_rate != null ? `${(p.metrics.hit_rate * 100).toFixed(0)}%` : "-"}
+                      {p.metrics.hit_rate != null
+                        ? `${(p.metrics.hit_rate * 100).toFixed(0)}%`
+                        : "-"}
                     </TableCell>
                     <TableCell>
                       <ScoreBadge score={p.metrics.faithfulness ?? p.metrics.avg_faithfulness} />
@@ -1298,9 +1399,13 @@ function TrendsTab() {
                     <TableCell className="text-xs">{p.dataset}</TableCell>
                     <TableCell>
                       {p.llm_evaluated ? (
-                        <Badge variant="success" className="text-xs">Yes</Badge>
+                        <Badge variant="success" className="text-xs">
+                          Yes
+                        </Badge>
                       ) : (
-                        <Badge variant="secondary" className="text-xs">No</Badge>
+                        <Badge variant="secondary" className="text-xs">
+                          No
+                        </Badge>
                       )}
                     </TableCell>
                   </TableRow>
@@ -1376,10 +1481,7 @@ export function AdminBenchmarkPage() {
         <TabsContent value="progress" className="mt-4">
           <Card>
             <CardContent className="pt-4">
-              <SweepProgressTab
-                activeSweepId={activeSweepId}
-                onSweepSelect={setActiveSweepId}
-              />
+              <SweepProgressTab activeSweepId={activeSweepId} onSweepSelect={setActiveSweepId} />
             </CardContent>
           </Card>
         </TabsContent>
@@ -1389,7 +1491,8 @@ export function AdminBenchmarkPage() {
             <CardHeader>
               <CardTitle>Leaderboard</CardTitle>
               <CardDescription>
-                Compare benchmark runs. Select 2-5 runs to diff configs side-by-side. Apply the best config with one click.
+                Compare benchmark runs. Select 2-5 runs to diff configs side-by-side. Apply the best
+                config with one click.
               </CardDescription>
             </CardHeader>
             <CardContent>

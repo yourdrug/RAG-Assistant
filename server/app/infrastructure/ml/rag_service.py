@@ -950,9 +950,7 @@ class RagService:
         )
 
         num_ctx = (
-            settings.llm_num_ctx_broad
-            if effective_breadth == Breadth.BROAD
-            else settings.llm_num_ctx_narrow
+            settings.llm_num_ctx_broad if effective_breadth == Breadth.BROAD else settings.llm_num_ctx_narrow
         )
         reserved_for_system_and_history = 2000
         max_context_tokens = max(num_ctx - reserved_for_system_and_history, 1000)

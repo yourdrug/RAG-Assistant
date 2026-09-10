@@ -12,6 +12,7 @@ from __future__ import annotations
 import jwt as _jwt
 from application.services.auth_service import AuthService
 from domain.exceptions import AuthenticationError, PermissionDeniedError
+from domain.value_objects.capabilities import Capability, get_role_capabilities
 from domain.value_objects.roles import UserRole
 from fastapi import Depends
 from fastapi.security import APIKeyHeader
@@ -105,3 +106,15 @@ def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
     if current_user["role"] != UserRole.ADMIN:
         raise PermissionDeniedError("admin")
     return current_user
+
+
+def require_capability(cap: Capability):
+    """Return a dependency that checks if the current user has the given capability."""
+
+    def _dep(current_user: dict = Depends(get_current_user)) -> dict:
+        role = UserRole(current_user["role"])
+        if cap not in get_role_capabilities(role):
+            raise PermissionDeniedError(cap.value)
+        return current_user
+
+    return _dep

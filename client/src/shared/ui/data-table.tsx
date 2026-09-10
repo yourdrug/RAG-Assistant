@@ -139,15 +139,19 @@ export function DataTable<TData, TValue>({
           <Button
             variant="outline"
             size="sm"
-            onClick={() => serverPagination ? serverPagination.onPreviousPage() : table.previousPage()}
-            disabled={serverPagination ? !serverPagination.canPreviousPage : !table.getCanPreviousPage()}
+            onClick={() =>
+              serverPagination ? serverPagination.onPreviousPage() : table.previousPage()
+            }
+            disabled={
+              serverPagination ? !serverPagination.canPreviousPage : !table.getCanPreviousPage()
+            }
           >
             Previous
           </Button>
           <Button
             variant="outline"
             size="sm"
-            onClick={() => serverPagination ? serverPagination.onNextPage() : table.nextPage()}
+            onClick={() => (serverPagination ? serverPagination.onNextPage() : table.nextPage())}
             disabled={serverPagination ? !serverPagination.canNextPage : !table.getCanNextPage()}
           >
             Next

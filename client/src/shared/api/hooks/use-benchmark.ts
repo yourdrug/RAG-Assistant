@@ -66,9 +66,11 @@ export function useBenchmarkQuestions(params?: {
   return useQuery({
     queryKey: ["benchmark", "questions", params],
     queryFn: async () =>
-      (await apiClient.get<BenchmarkQuestionsListResponse>(
-        `/admin/benchmark/questions?${query.toString()}`
-      )).data,
+      (
+        await apiClient.get<BenchmarkQuestionsListResponse>(
+          `/admin/benchmark/questions?${query.toString()}`,
+        )
+      ).data,
   });
 }
 
@@ -106,7 +108,7 @@ export function useExportBenchmarkQuestions(dataset?: string) {
     queryFn: async () => {
       const params = dataset ? `?dataset=${dataset}` : "";
       const response = await apiClient.get<BenchmarkQuestion[]>(
-        `/admin/benchmark/questions/export${params}`
+        `/admin/benchmark/questions/export${params}`,
       );
       return response.data;
     },
@@ -119,7 +121,7 @@ export function useSourceFiles(search?: string) {
     queryFn: async () => {
       const params = search ? `?search=${encodeURIComponent(search)}` : "";
       const response = await apiClient.get<{ files: string[] }>(
-        `/admin/benchmark/source-files${params}`
+        `/admin/benchmark/source-files${params}`,
       );
       return response.data.files;
     },
@@ -153,8 +155,7 @@ export function useSweep(sweepId: number | null) {
 export function useSweeps() {
   return useQuery({
     queryKey: ["benchmark", "sweeps"],
-    queryFn: async () =>
-      (await apiClient.get<SweepsListResponse>("/admin/benchmark/sweeps")).data,
+    queryFn: async () => (await apiClient.get<SweepsListResponse>("/admin/benchmark/sweeps")).data,
     refetchInterval: 10000,
   });
 }
@@ -187,17 +188,15 @@ export function useBenchmarkRuns(params?: {
   return useQuery({
     queryKey: ["benchmark", "runs", params],
     queryFn: async () =>
-      (await apiClient.get<BenchmarkRunsListResponse>(
-        `/admin/benchmark/runs?${query.toString()}`
-      )).data,
+      (await apiClient.get<BenchmarkRunsListResponse>(`/admin/benchmark/runs?${query.toString()}`))
+        .data,
   });
 }
 
 export function useBenchmarkRun(runId: number | null) {
   return useQuery({
     queryKey: ["benchmark", "run", runId],
-    queryFn: async () =>
-      (await apiClient.get<BenchmarkRun>(`/admin/benchmark/runs/${runId}`)).data,
+    queryFn: async () => (await apiClient.get<BenchmarkRun>(`/admin/benchmark/runs/${runId}`)).data,
     enabled: !!runId,
   });
 }
@@ -205,9 +204,13 @@ export function useBenchmarkRun(runId: number | null) {
 export function useApplyRunConfig() {
   return useMutation({
     mutationFn: async (runId: number) =>
-      (await apiClient.post<{ applied: number; keys: string[]; failed: Array<{ key: string; error: string }> }>(
-        `/admin/benchmark/runs/${runId}/apply`
-      )).data,
+      (
+        await apiClient.post<{
+          applied: number;
+          keys: string[];
+          failed: Array<{ key: string; error: string }>;
+        }>(`/admin/benchmark/runs/${runId}/apply`)
+      ).data,
   });
 }
 
@@ -215,20 +218,18 @@ export function useCompareRuns(ids: number[]) {
   return useQuery({
     queryKey: ["benchmark", "compare", ids],
     queryFn: async () =>
-      (await apiClient.get<RunCompareResponse>(
-        `/admin/benchmark/runs/compare?ids=${ids.join(",")}`
-      )).data,
+      (
+        await apiClient.get<RunCompareResponse>(
+          `/admin/benchmark/runs/compare?ids=${ids.join(",")}`,
+        )
+      ).data,
     enabled: ids.length >= 2,
   });
 }
 
 // ─── Benchmark Lab: History ───────────────────────────────────────────────
 
-export function useBenchmarkHistory(params?: {
-  metric?: string;
-  dataset?: string;
-  days?: number;
-}) {
+export function useBenchmarkHistory(params?: { metric?: string; dataset?: string; days?: number }) {
   return useQuery({
     queryKey: ["benchmark", "history", params],
     queryFn: async () => {
@@ -236,9 +237,11 @@ export function useBenchmarkHistory(params?: {
       if (params?.metric) query.set("metric", params.metric);
       if (params?.dataset) query.set("dataset", params.dataset);
       if (params?.days) query.set("days", String(params.days));
-      return (await apiClient.get<BenchmarkHistoryResponse>(
-        `/admin/benchmark/history?${query.toString()}`
-      )).data;
+      return (
+        await apiClient.get<BenchmarkHistoryResponse>(
+          `/admin/benchmark/history?${query.toString()}`,
+        )
+      ).data;
     },
   });
 }
@@ -262,9 +265,11 @@ export function useRegressionCheck(runId: number | null) {
   return useQuery({
     queryKey: ["benchmark", "regression-check", runId],
     queryFn: async () =>
-      (await apiClient.get<RegressionCheckResponse>(
-        `/admin/benchmark/regression-check${runId != null ? `?run_id=${runId}` : ""}`
-      )).data,
+      (
+        await apiClient.get<RegressionCheckResponse>(
+          `/admin/benchmark/regression-check${runId != null ? `?run_id=${runId}` : ""}`,
+        )
+      ).data,
     enabled: runId != null,
   });
 }

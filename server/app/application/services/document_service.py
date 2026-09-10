@@ -99,6 +99,8 @@ class DocumentService:
         user_id: int,
         user_kind: str,
         client_id: int | None,
+        user_role: str = UserRole.USER,
+        managed_client_ids: list[int] | None = None,
     ) -> int:
         if vis != DocumentVisibility.CLIENT_PRIVATE:
             return user_id
@@ -109,6 +111,10 @@ class DocumentService:
         client_user = await uow.users.get_by_id(client_id)
         if client_user is None or client_user.kind != UserKind.CLIENT:
             raise ValidationError("client_id must be a user with kind='client'")
+        # CURATOR: validate client_id is in managed scope
+        if user_role == UserRole.CURATOR:
+            if managed_client_ids is None or client_id not in managed_client_ids:
+                raise BusinessRuleViolation("You can only upload documents for assigned clients")
         return client_id
 
     @staticmethod
@@ -176,6 +182,8 @@ class DocumentService:
                 user_id,
                 user_kind,
                 client_id,
+                user_role=user_role,
+                managed_client_ids=ctx.managed_client_ids if user_role == UserRole.CURATOR else None,
             )
 
             owner_id, effective_group_id = compute_owner_and_group(vis, group_id, effective_owner_id)
@@ -284,6 +292,16 @@ class DocumentService:
                     for u in all_users
                     if u.kind == UserKind.CLIENT and u.id is not None
                 ]
+            if user_role == UserRole.CURATOR:
+                managed_client_ids = await uow.assignments.get_managed_client_ids(user_id)
+                if not managed_client_ids:
+                    return []
+                all_users = await uow.users.list_all()
+                return [
+                    ClientInfo(id=u.id, email=u.email)
+                    for u in all_users
+                    if u.kind == UserKind.CLIENT and u.id is not None and u.id in managed_client_ids
+                ]
             return []
 
     async def list_documents(
@@ -299,6 +317,19 @@ class DocumentService:
             if ctx.is_admin:
                 docs = await uow.documents.list_all(limit=limit, offset=offset)
                 dtos = [DocumentDTO.from_entity(d, in_search_scope=is_in_search_scope(d, ctx)) for d in docs]
+            elif ctx.is_curator:
+                docs = await uow.documents.list_visible(
+                    user_kind=user_kind,
+                    user_id=user_id,
+                    group_ids=ctx.group_ids or [],
+                    user_role=user_role,
+                    limit=limit,
+                    offset=offset,
+                    managed_client_ids=ctx.managed_client_ids,
+                    managed_internal_ids=ctx.managed_internal_ids,
+                    managed_group_ids=ctx.managed_group_ids,
+                )
+                dtos = [DocumentDTO.from_entity(d) for d in docs]
             elif ctx.is_client:
                 docs = await uow.documents.list_visible(
                     user_kind=user_kind,

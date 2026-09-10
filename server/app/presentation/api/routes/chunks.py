@@ -5,10 +5,11 @@ from __future__ import annotations
 import logging
 
 from application.services.chunk_service import ChunkService
+from domain.value_objects.capabilities import Capability
 from fastapi import APIRouter, Depends, Query
 from infrastructure.logging.actions import log_action
 
-from presentation.api.auth_dependencies import get_current_user
+from presentation.api.auth_dependencies import get_current_user, require_capability
 from presentation.api.dependencies import create_chunk_service
 from presentation.api.schemas import (
     ChunkCreateRequest,
@@ -124,7 +125,7 @@ async def list_chunks_cursor(
 async def add_chunk(
     document_id: int,
     request: ChunkCreateRequest,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_capability(Capability.CHUNKS_MANAGE)),
     chunk_service: ChunkService = Depends(create_chunk_service),
 ):
     """Add a new chunk to an existing document."""
@@ -158,7 +159,7 @@ async def edit_chunk(
     document_id: int,
     chunk_id: int,
     request: ChunkEditRequest,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_capability(Capability.CHUNKS_MANAGE)),
     chunk_service: ChunkService = Depends(create_chunk_service),
 ):
     """Edit an existing chunk's content with automatic re-embedding."""
@@ -192,7 +193,7 @@ async def edit_chunk(
 async def delete_chunk(
     document_id: int,
     chunk_id: int,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_capability(Capability.CHUNKS_MANAGE)),
     chunk_service: ChunkService = Depends(create_chunk_service),
 ):
     """Delete a single chunk."""
@@ -215,7 +216,7 @@ async def delete_chunk(
 @router.post("/documents/manual", response_model=DocumentResponse)
 async def create_manual_document(
     request: ManualDocumentRequest,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_capability(Capability.CHUNKS_MANAGE)),
     chunk_service: ChunkService = Depends(create_chunk_service),
 ):
     """Create a virtual document container for manual chunks."""

@@ -10,6 +10,7 @@ from __future__ import annotations
 from application.dto.auth_dto import (
     ApiKeyAuthResult,
     ApiKeyInfo,
+    ChangeRoleCommand,
     CreateUserCommand,
     IssueApiKeyResult,
     LoginCommand,
@@ -120,6 +121,30 @@ class AuthService:
             user.deactivate_self_prohibited(admin_id)
             await uow.users.set_active(user_id, is_active)
             return ToggleActiveResult(id=user_id, is_active=is_active)
+
+    async def change_role(self, command: ChangeRoleCommand, admin_id: int) -> UserDTO:
+        """Change a user's role. If downgrading from CURATOR, clear all curator assignments."""
+        async with self._uow_factory.create(master=True) as uow:
+            user = await uow.users.get_by_id(command.user_id)
+            if user is None:
+                raise EntityNotFound("User", command.user_id)
+
+            old_role = user.role
+            new_role = UserRole.validate(command.new_role)
+            user.change_role(new_role)
+            await uow.users.update_role(command.user_id, new_role)
+
+            # ТЗ §9.5: clear assignments when downgrading from CURATOR
+            if old_role == UserRole.CURATOR and new_role != UserRole.CURATOR:
+                await uow.assignments.clear_all_for_manager(command.user_id)
+
+            return UserDTO(
+                id=user.id if user.id is not None else 0,
+                email=user.email,
+                role=user.role,
+                kind=user.kind,
+                is_active=user.is_active,
+            )
 
     async def get_user_by_id(self, user_id: int) -> UserDTO | None:
         """Return user as UserDTO for auth lookups, or None if not found."""

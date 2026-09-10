@@ -67,12 +67,32 @@ class Document:
         self.error_message = error
 
     def can_be_deleted_by(
-        self, user_id: int, user_role: UserRole, user_group_ids: list[int] | None = None
+        self,
+        user_id: int,
+        user_role: UserRole,
+        user_group_ids: list[int] | None = None,
+        *,
+        managed_client_ids: list[int] | None = None,
+        managed_internal_ids: list[int] | None = None,
+        managed_group_ids: list[int] | None = None,
     ) -> bool:
         if user_role == UserRole.ADMIN:
             return True
         if self.owner_id == user_id:
             return True
+        # CURATOR: can delete assigned users' docs and managed group docs
+        if user_role == UserRole.CURATOR:
+            all_managed_ids = list(set(managed_client_ids or []) | set(managed_internal_ids or []))
+            if self.owner_id is not None and self.owner_id in all_managed_ids:
+                return True
+            all_group_ids = list(set(user_group_ids or []) | set(managed_group_ids or []))
+            if (
+                self.visibility == DocumentVisibility.INTERNAL_GROUP
+                and self.group_id is not None
+                and self.group_id in all_group_ids
+            ):
+                return True
+            return False
         if (
             self.visibility == DocumentVisibility.INTERNAL_GROUP
             and self.group_id is not None
@@ -82,15 +102,40 @@ class Document:
             return True
         return False
 
-    def can_edit_chunks(self, user_id: int, user_role: UserRole) -> bool:
+    def can_edit_chunks(
+        self,
+        user_id: int,
+        user_role: UserRole,
+        user_group_ids: list[int] | None = None,
+        *,
+        managed_client_ids: list[int] | None = None,
+        managed_internal_ids: list[int] | None = None,
+        managed_group_ids: list[int] | None = None,
+    ) -> bool:
         """Check if user can edit/add/delete chunks for this document.
 
         Admin can edit any document. Owner can edit their own documents.
-        Group documents (internal_group) can only be edited by admin since
-        there is no single owner.
+        CURATOR can edit docs of assigned users and managed group docs.
+        Group documents (internal_group) can only be edited by admin/curator
+        with managed scope, since there is no single owner.
         """
         if user_role == UserRole.ADMIN:
             return True
+        if self.owner_id == user_id:
+            return True
+        # CURATOR: can edit assigned users' docs and managed group docs
+        if user_role == UserRole.CURATOR:
+            all_managed_ids = list(set(managed_client_ids or []) | set(managed_internal_ids or []))
+            if self.owner_id is not None and self.owner_id in all_managed_ids:
+                return True
+            all_group_ids = list(set(user_group_ids or []) | set(managed_group_ids or []))
+            if (
+                self.visibility == DocumentVisibility.INTERNAL_GROUP
+                and self.group_id is not None
+                and self.group_id in all_group_ids
+            ):
+                return True
+            return False
         if self.visibility == DocumentVisibility.INTERNAL_GROUP:
             return False
         return self.owner_id == user_id

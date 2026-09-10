@@ -39,10 +39,12 @@ export function AdminChatLogsPage() {
       },
     },
     {
-      accessorKey: "user_id",
+      accessorKey: "user_email",
       header: "User",
       cell: ({ row }) => (
-        <span className="text-muted-foreground">#{row.original.user_id ?? "—"}</span>
+        <span className="text-muted-foreground">
+          {row.original.user_email ?? (row.original.user_id ? `#${row.original.user_id}` : "—")}
+        </span>
       ),
     },
     {
@@ -81,7 +83,10 @@ export function AdminChatLogsPage() {
                     );
                   }
                   return (
-                    <span key={i} className="text-xs px-1.5 py-0.5 rounded bg-muted/50 text-muted-foreground">
+                    <span
+                      key={i}
+                      className="text-xs px-1.5 py-0.5 rounded bg-muted/50 text-muted-foreground"
+                    >
                       {label}
                     </span>
                   );
@@ -137,7 +142,10 @@ export function AdminChatLogsPage() {
         if (inp == null && out == null) return "—";
         const format = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
         return (
-          <span className="text-xs whitespace-nowrap" title={`Input: ${inp ?? 0} / Output: ${out ?? 0}`}>
+          <span
+            className="text-xs whitespace-nowrap"
+            title={`Input: ${inp ?? 0} / Output: ${out ?? 0}`}
+          >
             {inp != null ? format(inp) : "0"} / {out != null ? format(out) : "0"}
           </span>
         );

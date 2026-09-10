@@ -4,6 +4,7 @@ import { apiClient } from "../client";
 import { queryKeys } from "../query-keys";
 import type {
   CreateUserRequest,
+  CuratorScopeResponse,
   LoginRequest,
   TokenResponse,
   UserListResponse,
@@ -59,5 +60,67 @@ export function useToggleUserActive() {
       (await apiClient.patch(`/auth/users/${userId}`, null, { params: { is_active: isActive } }))
         .data,
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.auth.users() }),
+  });
+}
+
+export function useChangeUserRole() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ userId, role }: { userId: number; role: string }) =>
+      (await apiClient.patch<UserResponse>(`/auth/users/${userId}/role`, { role })).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.auth.users() }),
+  });
+}
+
+export function useCuratorScope(curatorId: number | null) {
+  return useQuery({
+    queryKey: ["curator-scope", curatorId],
+    queryFn: async () =>
+      (await apiClient.get<CuratorScopeResponse>(`/admin/curators/${curatorId}/scope`)).data,
+    enabled: curatorId !== null,
+  });
+}
+
+export function useAssignUserToCurator() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ curatorId, targetUserId }: { curatorId: number; targetUserId: number }) =>
+      (await apiClient.post(`/admin/curators/${curatorId}/users/${targetUserId}`)).data,
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ["curator-scope", vars.curatorId] });
+    },
+  });
+}
+
+export function useUnassignUserFromCurator() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ curatorId, targetUserId }: { curatorId: number; targetUserId: number }) =>
+      (await apiClient.delete(`/admin/curators/${curatorId}/users/${targetUserId}`)).data,
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ["curator-scope", vars.curatorId] });
+    },
+  });
+}
+
+export function useAssignGroupToCurator() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ curatorId, groupId }: { curatorId: number; groupId: number }) =>
+      (await apiClient.post(`/admin/curators/${curatorId}/groups/${groupId}`)).data,
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ["curator-scope", vars.curatorId] });
+    },
+  });
+}
+
+export function useUnassignGroupFromCurator() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ curatorId, groupId }: { curatorId: number; groupId: number }) =>
+      (await apiClient.delete(`/admin/curators/${curatorId}/groups/${groupId}`)).data,
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ["curator-scope", vars.curatorId] });
+    },
   });
 }

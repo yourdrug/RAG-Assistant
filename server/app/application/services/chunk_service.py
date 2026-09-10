@@ -22,7 +22,7 @@ from domain.utils import content_hash, decode_cursor
 from domain.value_objects.cursor_page import CursorPage
 from domain.value_objects.document_status import DocumentStatus
 from domain.value_objects.source_type import SourceType
-from domain.value_objects.roles import UserRole
+from domain.value_objects.roles import UserKind, UserRole
 from domain.value_objects.user_context import UserContext
 from domain.value_objects.visibility import DocumentVisibility
 
@@ -170,7 +170,15 @@ class ChunkService:
             if doc is None:
                 raise EntityNotFound("Document", document_id)
 
-            if not doc.can_edit_chunks(user_id, role):
+            ctx = await UserContext.build(uow, user_id, UserKind.INTERNAL, user_role)
+            if not doc.can_edit_chunks(
+                user_id,
+                role,
+                ctx.group_ids,
+                managed_client_ids=ctx.managed_client_ids,
+                managed_internal_ids=ctx.managed_internal_ids,
+                managed_group_ids=ctx.managed_group_ids,
+            ):
                 raise BusinessRuleViolation("No permission to edit chunks for this document")
 
             chunk = await uow.chunks.get_by_id(chunk_id)
@@ -270,7 +278,15 @@ class ChunkService:
                     "Can only add chunks to documents with status 'done' or 'indexing'"
                 )
 
-            if not doc.can_edit_chunks(user_id, role):
+            ctx = await UserContext.build(uow, user_id, UserKind.INTERNAL, user_role)
+            if not doc.can_edit_chunks(
+                user_id,
+                role,
+                ctx.group_ids,
+                managed_client_ids=ctx.managed_client_ids,
+                managed_internal_ids=ctx.managed_internal_ids,
+                managed_group_ids=ctx.managed_group_ids,
+            ):
                 raise BusinessRuleViolation("No permission to add chunks for this document")
 
             self._validate_chunk_content(content, is_manual=(doc.source_type == SourceType.MANUAL.value))
@@ -364,7 +380,15 @@ class ChunkService:
             if doc is None:
                 raise EntityNotFound("Document", document_id)
 
-            if not doc.can_edit_chunks(user_id, role):
+            ctx = await UserContext.build(uow, user_id, UserKind.INTERNAL, user_role)
+            if not doc.can_edit_chunks(
+                user_id,
+                role,
+                ctx.group_ids,
+                managed_client_ids=ctx.managed_client_ids,
+                managed_internal_ids=ctx.managed_internal_ids,
+                managed_group_ids=ctx.managed_group_ids,
+            ):
                 raise BusinessRuleViolation("No permission to delete chunks for this document")
 
             chunk = await uow.chunks.get_by_id(chunk_id)

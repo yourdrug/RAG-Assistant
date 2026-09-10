@@ -37,9 +37,9 @@ class User:
             raise BusinessRuleViolation("Only admin can create users")
 
     def ensure_valid_for_creation(self) -> None:
-        """Enforce rule: client cannot be admin."""
-        if self.kind == UserKind.CLIENT and self.role == UserRole.ADMIN:
-            raise BusinessRuleViolation("Client cannot be admin")
+        """Enforce rule: client cannot be admin or curator."""
+        if self.kind == UserKind.CLIENT and self.role in (UserRole.ADMIN, UserRole.CURATOR):
+            raise BusinessRuleViolation("Client cannot be admin or curator")
 
     def deactivate_self_prohibited(self, requester_id: int) -> None:
         """Enforce rule: admin cannot deactivate themselves."""
@@ -50,6 +50,6 @@ class User:
         self.is_active = is_active
 
     def change_role(self, new_role: UserRole) -> None:
-        if self.kind == UserKind.CLIENT and new_role == UserRole.ADMIN:
-            raise BusinessRuleViolation("Client cannot be admin")
+        if self.kind == UserKind.CLIENT and new_role in (UserRole.ADMIN, UserRole.CURATOR):
+            raise BusinessRuleViolation("Client cannot be admin or curator")
         self.role = new_role

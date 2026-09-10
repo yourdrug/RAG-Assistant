@@ -9,6 +9,7 @@ from domain.value_objects._base import ValidatedEnumMixin
 
 class UserRole(ValidatedEnumMixin, StrEnum, label="role"):
     ADMIN = "admin"
+    CURATOR = "curator"
     USER = "user"
 
 

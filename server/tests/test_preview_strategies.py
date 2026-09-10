@@ -13,10 +13,11 @@ sys.modules["fitz"] = MagicMock()
 
 from domain.value_objects.page_content_type import PageContentType  # noqa: E402
 from domain.value_objects.preview_unit_kind import PreviewUnitKind  # noqa: E402
-from application.services.pdf_diagnostic_service import DryRunPageResult  # noqa: E402
+from domain.value_objects.pdf_dto import DryRunPageResult  # noqa: E402
 from infrastructure.ml.preview.factory import PreviewStrategyFactory  # noqa: E402
 from infrastructure.ml.preview.rtf_preview_strategy import RtfPreviewStrategy  # noqa: E402
 from infrastructure.ml.preview.docx_preview_strategy import DocxPreviewStrategy  # noqa: E402
+from infrastructure.ml.preview.pdf_preview_strategy import PdfPreviewStrategy  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -277,32 +278,90 @@ class TestDryRunPageResult:
 
 
 # ---------------------------------------------------------------------------
-# PageContentType enum
+# PdfPreviewStrategy
 # ---------------------------------------------------------------------------
 
 
-class TestPageContentType:
-    def test_image_only_exists(self):
-        assert PageContentType.IMAGE_ONLY == "image_only"
+class TestPdfPreviewStrategy:
+    def setup_method(self):
+        self.mock_diag = MagicMock()
+        self.strategy = PdfPreviewStrategy(diag_service=self.mock_diag)
 
-    def test_all_values(self):
-        values = {e.value for e in PageContentType}
-        assert "image_only" in values
-        assert "text" in values
-        assert "scan" in values
-        assert "garbled" in values
-        assert "empty" in values
-        assert "table" in values
-        assert "ocr" in values
+    def test_supports_pdf(self):
+        assert self.strategy.supports(".pdf") is True
+        assert self.strategy.supports(".docx") is False
+        assert self.strategy.supports(".rtf") is False
 
+    def test_analyze_enriches_with_unit_kind_and_label(self):
+        page1 = DryRunPageResult(page=1, type="text", chars=100, content_type=PageContentType.TEXT)
+        page2 = DryRunPageResult(page=2, type="scan", chars=50, content_type=PageContentType.SCAN)
+        self.mock_diag.analyze_text_layer.return_value = (
+            [page1, page2],
+            {PageContentType.TEXT: 1, PageContentType.SCAN: 1},
+            150,
+        )
 
-# ---------------------------------------------------------------------------
-# PreviewUnitKind enum
-# ---------------------------------------------------------------------------
+        units, types_count, total_chars = self.strategy.analyze(Path("/tmp/test.pdf"))
 
+        assert len(units) == 2
+        assert all(u.unit_kind == PreviewUnitKind.PAGE for u in units)
+        assert units[0].label == "Стр. 1"
+        assert units[1].label == "Стр. 2"
+        assert total_chars == 150
 
-class TestPreviewUnitKind:
-    def test_values(self):
-        assert PreviewUnitKind.PAGE == "page"
-        assert PreviewUnitKind.SECTION == "section"
-        assert PreviewUnitKind.DOCUMENT == "document"
+    def test_analyze_preserves_page_type(self):
+        page = DryRunPageResult(page=1, type="garbled", content_type=PageContentType.GARBLED)
+        self.mock_diag.analyze_text_layer.return_value = (
+            [page],
+            {PageContentType.GARBLED: 1},
+            0,
+        )
+
+        units, _, _ = self.strategy.analyze(Path("/tmp/test.pdf"))
+        assert units[0].type == "garbled"
+        assert units[0].content_type == PageContentType.GARBLED
+
+    def test_ocr_problem_units_filters_and_merges(self):
+        page1 = DryRunPageResult(page=1, type="text", chars=100)
+        page2 = DryRunPageResult(page=2, type="scan", chars=50)
+        ocr_result = DryRunPageResult(page=2, type="ocr", chars=200)
+        self.mock_diag.ocr_problem_pages.return_value = (
+            [ocr_result],
+            {PageContentType.OCR: 1},
+            200,
+        )
+
+        units, types_count, total_chars = self.strategy.ocr_problem_units(
+            Path("/tmp/test.pdf"), [page1, page2], [2]
+        )
+
+        self.mock_diag.ocr_problem_pages.assert_called_once()
+        assert len(units) == 2
+        assert units[0].page == 1  # unchanged
+        assert units[0].type == "text"
+        assert units[1].page == 2  # OCR'd
+        assert units[1].type == "ocr"
+        assert units[1].unit_kind == PreviewUnitKind.PAGE
+        assert units[1].label == "Стр. 2"
+        assert total_chars == 300
+
+    def test_ocr_problem_units_preserves_non_ocr_pages(self):
+        page1 = DryRunPageResult(page=1, type="text", chars=100)
+        page2 = DryRunPageResult(page=2, type="text", chars=100)
+        page3 = DryRunPageResult(page=3, type="text", chars=100)
+        ocr_result = DryRunPageResult(page=2, type="ocr", chars=150)
+        self.mock_diag.ocr_problem_pages.return_value = (
+            [ocr_result],
+            {PageContentType.OCR: 1},
+            150,
+        )
+
+        units, _, total = self.strategy.ocr_problem_units(
+            Path("/tmp/test.pdf"), [page1, page2, page3], [2]
+        )
+
+        assert len(units) == 3
+        assert units[0].type == "text"
+        assert units[1].type == "ocr"
+        assert units[2].type == "text"
+        assert total == 350

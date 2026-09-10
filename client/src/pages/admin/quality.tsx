@@ -12,10 +12,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { useDocumentDiagnosis, useDocuments } from "@/shared/api/hooks";
-import type {
-  DocumentQualityItem,
-  PageDiagnostic,
-} from "@/shared/api/types";
+import type { DocumentQualityItem, PageDiagnostic } from "@/shared/api/types";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";

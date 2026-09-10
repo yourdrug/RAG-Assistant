@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from application.services.config_admin_service import ConfigAdminService
     from application.services.config_service import ConfigService
     from application.services.conversation_service import ConversationService
+    from application.services.assignment_service import AssignmentService
     from application.services.document_service import DocumentService
     from application.services.group_service import GroupService
     from application.services.health_service import HealthService
@@ -134,6 +135,10 @@ def create_conversation_service(request: Request) -> ConversationService:
 
 def create_group_service(request: Request) -> GroupService:
     return _get_or_raise(_create_container(request).application.group_service, "GroupService")
+
+
+def create_assignment_service(request: Request) -> AssignmentService:
+    return _get_or_raise(_create_container(request).application.assignment_service, "AssignmentService")
 
 
 def create_quality_service(request: Request) -> QualityService:

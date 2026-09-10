@@ -31,9 +31,12 @@ from infrastructure.database.basemodel import BaseModel, LinkedBaseModel
 class UserModel(BaseModel):
     __tablename__ = "users"
     __table_args__ = (
-        CheckConstraint("role IN ('admin', 'user')", name="users_role_check"),
+        CheckConstraint("role IN ('admin', 'curator', 'user')", name="users_role_check"),
         CheckConstraint("kind IN ('internal', 'client')", name="users_kind_check"),
-        CheckConstraint("NOT (kind = 'client' AND role = 'admin')", name="chk_client_not_admin"),
+        CheckConstraint(
+            "NOT (kind = 'client' AND role IN ('admin', 'curator'))",
+            name="chk_client_not_privileged",
+        ),
     )
 
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
@@ -83,6 +86,28 @@ class UserGroupModel(LinkedBaseModel):
 
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
     group_id: Mapped[int] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"), primary_key=True)
+
+
+class CuratorUserAssignmentModel(LinkedBaseModel):
+    __tablename__ = "curator_user_assignments"
+    __table_args__ = (
+        CheckConstraint("curator_id != target_user_id", name="chk_curator_not_self_assign"),
+        Index("idx_curator_user_assignments_target", "target_user_id"),
+    )
+
+    curator_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    target_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    assigned_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    assigned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("NOW()"))
+
+
+class CuratorGroupAssignmentModel(LinkedBaseModel):
+    __tablename__ = "curator_group_assignments"
+
+    curator_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"), primary_key=True)
+    assigned_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    assigned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("NOW()"))
 
 
 class DocumentModel(BaseModel):

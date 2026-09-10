@@ -48,6 +48,9 @@ class DocumentCrudRepository(Protocol):
         user_role: str | None = None,
         limit: int = 200,
         offset: int = 0,
+        managed_client_ids: list[int] | None = None,
+        managed_internal_ids: list[int] | None = None,
+        managed_group_ids: list[int] | None = None,
     ) -> list[Document]: ...
     async def list_all(self, limit: int = 200, offset: int = 0) -> list[Document]: ...
     async def list_warned(self, quality_threshold: float = 0.3) -> list[Document]: ...

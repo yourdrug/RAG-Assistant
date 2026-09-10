@@ -153,6 +153,9 @@ class ChunkSearchRepository(Protocol):
         limit: int = 20,
         mode: str = SearchMode.EXACT.value,
         document_id: int | None = None,
+        managed_client_ids: list[int] | None = None,
+        managed_internal_ids: list[int] | None = None,
+        managed_group_ids: list[int] | None = None,
     ) -> list[ChunkSearchResult]: ...
 
 

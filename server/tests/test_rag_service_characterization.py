@@ -176,18 +176,14 @@ class TestRerankDocuments:
     def test_min_score_filter(self):
         docs = [_doc("a"), _doc("b")]
         reranker = self._fake_reranker([0.9, 0.1])
-        result = asyncio.run(
-            rag.rerank_documents("q", docs, top_n=2, reranker=reranker, min_score=0.5)
-        )
+        result = asyncio.run(rag.rerank_documents("q", docs, top_n=2, reranker=reranker, min_score=0.5))
         assert len(result) == 1
         assert result[0][0].page_content == "a"
 
     def test_gap_ratio_filter(self):
         docs = [_doc("a"), _doc("b"), _doc("c")]
         reranker = self._fake_reranker([1.0, 0.05, 0.01])
-        result = asyncio.run(
-            rag.rerank_documents("q", docs, top_n=3, reranker=reranker, score_gap_ratio=0.1)
-        )
+        result = asyncio.run(rag.rerank_documents("q", docs, top_n=3, reranker=reranker, score_gap_ratio=0.1))
         assert len(result) == 1
         assert result[0][0].page_content == "a"
 

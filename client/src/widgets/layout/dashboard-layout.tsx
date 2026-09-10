@@ -64,6 +64,8 @@ export function DashboardLayout() {
   };
   const displayUser = currentUser || user;
   const isAdmin = displayUser?.role === "admin";
+  const isCurator = displayUser?.role === "curator";
+  const canAccessAdmin = isAdmin || isCurator;
   const activeConversationId = searchParams.get("id");
 
   const handleNewChat = () => {
@@ -180,44 +182,46 @@ export function DashboardLayout() {
             })}
           </nav>
 
-          {isAdmin && (
+          {canAccessAdmin && (
             <>
               <Separator className="my-4" />
               <div className="mb-2 px-3 text-xs font-semibold uppercase text-sidebar-foreground/50">
                 Admin
               </div>
               <nav className="space-y-1">
-                {adminNavItems.map((item) => {
-                  const Icon = item.icon;
-                  const active =
-                    location.pathname === item.href ||
-                    (item.href !== "/admin" && location.pathname.startsWith(item.href));
-                  return (
-                    <Link
-                      key={item.href}
-                      to={item.disabled ? "#" : item.href}
-                      onClick={(e) => {
-                        if (item.disabled) {
-                          e.preventDefault();
-                        } else {
-                          setSidebarOpen(false);
-                        }
-                      }}
-                      className={cn(
-                        "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                        item.disabled
-                          ? "cursor-not-allowed opacity-50"
-                          : "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-                        active
-                          ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                          : "text-sidebar-foreground/70",
-                      )}
-                    >
-                      <Icon className="h-4 w-4" />
-                      {item.title}
-                    </Link>
-                  );
-                })}
+                {adminNavItems
+                  .filter((item) => !item.adminOnly || isAdmin)
+                  .map((item) => {
+                    const Icon = item.icon;
+                    const active =
+                      location.pathname === item.href ||
+                      (item.href !== "/admin" && location.pathname.startsWith(item.href));
+                    return (
+                      <Link
+                        key={item.href}
+                        to={item.disabled ? "#" : item.href}
+                        onClick={(e) => {
+                          if (item.disabled) {
+                            e.preventDefault();
+                          } else {
+                            setSidebarOpen(false);
+                          }
+                        }}
+                        className={cn(
+                          "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                          item.disabled
+                            ? "cursor-not-allowed opacity-50"
+                            : "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                          active
+                            ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                            : "text-sidebar-foreground/70",
+                        )}
+                      >
+                        <Icon className="h-4 w-4" />
+                        {item.title}
+                      </Link>
+                    );
+                  })}
               </nav>
             </>
           )}

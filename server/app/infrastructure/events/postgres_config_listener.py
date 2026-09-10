@@ -23,6 +23,7 @@ from infrastructure.metrics.metrics import (
     CONFIG_NOTIFY_RECEIVED_TOTAL,
     CONFIG_RESYNC_TOTAL,
 )
+from infrastructure.ml.config_subscribers import SENSITIVE_KEYS as _SENSITIVE_KEYS
 
 if TYPE_CHECKING:
     from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
@@ -136,6 +137,11 @@ class PostgresConfigListener:
                 current = getattr(settings, r.key, None)
                 if self._values_equal(current, r.value):
                     continue
+                # SENSITIVE_KEYS are never hot-reloaded (apply_to_settings skips
+                # them).  If the in-memory value exists, the DB row is stale —
+                # don't fire a spurious change event on every resync cycle.
+                if r.key in _SENSITIVE_KEYS and current is not None:
+                    continue
                 self._bus.publish(
                     ConfigParameterChanged(
                         key=r.key,
@@ -223,7 +229,7 @@ class PostgresConfigListener:
         return self._conn is not None and not self._conn.is_closed()
 
     @staticmethod
-    def _values_equal(current: object, db_value: str | None) -> bool:
+    def _values_equal(current: object, db_value: str | None) -> bool:  # noqa: C901
         """Compare in-memory setting with DB-stored JSON value, ignoring format differences.
 
         DB stores JSON (``["ru","en"]``), while Python objects serialise as repr
@@ -250,4 +256,15 @@ class PostgresConfigListener:
             current_parsed = json.loads(current_json)
         except (json.JSONDecodeError, TypeError):
             return current_json == db_value
+        # Normalise types: "2.0" (str) == 2.0 (float) should be True
+        if isinstance(current_parsed, str) and isinstance(db_parsed, (int, float)):
+            try:
+                return float(current_parsed) == db_parsed
+            except (ValueError, TypeError):
+                return False
+        if isinstance(db_parsed, str) and isinstance(current_parsed, (int, float)):
+            try:
+                return current_parsed == float(db_parsed)
+            except (ValueError, TypeError):
+                return False
         return current_parsed == db_parsed

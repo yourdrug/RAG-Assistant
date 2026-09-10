@@ -167,6 +167,9 @@ class SQLAlchemyChunkRepository:
         limit: int = 20,
         mode: str = "exact",
         document_id: int | None = None,
+        managed_client_ids: list[int] | None = None,
+        managed_internal_ids: list[int] | None = None,
+        managed_group_ids: list[int] | None = None,
     ) -> list[ChunkSearchResult]:
         if len(query.strip()) < 3:
             return []
@@ -177,6 +180,9 @@ class SQLAlchemyChunkRepository:
             group_ids,
             for_list=False,
             user_role=UserRole(user.get("role", "user")),
+            managed_client_ids=managed_client_ids,
+            managed_internal_ids=managed_internal_ids,
+            managed_group_ids=managed_group_ids,
         )
 
         acl_clauses = []
@@ -186,8 +192,12 @@ class SQLAlchemyChunkRepository:
             if cond.owner_match == OwnerMatch.SELF.value:
                 parts.append(ChunkModel.owner_id == user["id"])
 
+            if cond.owner_match == OwnerMatch.ASSIGNED.value and cond.owner_ids:
+                parts.append(ChunkModel.owner_id.in_(cond.owner_ids))
+
             if cond.group_match:
-                parts.append(ChunkModel.group_id.in_(group_ids))
+                effective_group_ids = cond.group_ids if cond.group_ids is not None else group_ids
+                parts.append(ChunkModel.group_id.in_(effective_group_ids))
 
             acl_clauses.append(and_(*parts))
 

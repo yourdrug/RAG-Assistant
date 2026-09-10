@@ -73,6 +73,25 @@ class TestAuthenticate:
         with pytest.raises(ValidationError):
             await service.authenticate(LoginCommand(email="test@test.com", password="wrong"))
 
+    @pytest.mark.asyncio
+    async def test_inactive_user_raises(self, auth_service):
+        service, uow = auth_service
+        user = User(id=1, email="inactive@test.com", role=UserRole.USER, kind=UserKind.INTERNAL)
+        user.hashed_password = "hashed_pw"
+        user.is_active = False
+        uow.users.get_by_email.return_value = user
+
+        with pytest.raises(ValidationError, match="Invalid email or password"):
+            await service.authenticate(LoginCommand(email="inactive@test.com", password="password"))
+
+    @pytest.mark.asyncio
+    async def test_unknown_email_raises(self, auth_service):
+        service, uow = auth_service
+        uow.users.get_by_email.return_value = None
+
+        with pytest.raises(ValidationError, match="Invalid email or password"):
+            await service.authenticate(LoginCommand(email="nobody@test.com", password="password"))
+
 
 # ---------------------------------------------------------------------------
 # create_user

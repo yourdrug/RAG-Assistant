@@ -266,6 +266,16 @@ class UserListResponse(BaseModel):
     users: list[UserResponse]
 
 
+class ChangeRoleRequest(BaseModel):
+    role: str
+
+
+class CuratorScopeResponse(BaseModel):
+    managed_client_ids: list[int]
+    managed_internal_ids: list[int]
+    managed_group_ids: list[int]
+
+
 # ---------------------------------------------------------------------------
 # Conversations
 # ---------------------------------------------------------------------------
@@ -450,6 +460,7 @@ class ChatLogEntry(BaseModel):
     id: int
     creation_date: str
     user_id: int | None = None
+    user_email: str | None = None
     conversation_id: int | None = None
     question: str
     answer: str
