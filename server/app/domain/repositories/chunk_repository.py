@@ -34,6 +34,12 @@ class ChunkSearchResult:
     manual: bool = False
     creation_date: datetime | None = None
     content_hash: str | None = None
+    section: str | None = None
+    heading: str | None = None
+    heading_level: int | None = None
+    content_type: str | None = None
+    doc_title: str | None = None
+    doc_type: str | None = None
 
 
 @dataclass(frozen=True)
@@ -63,6 +69,12 @@ class ChunkCrudRepository(Protocol):
         effective_from: datetime | None = None,
         effective_to: datetime | None = None,
         is_current: bool = True,
+        sections: list[str | None] | None = None,
+        headings: list[str | None] | None = None,
+        heading_levels: list[int | None] | None = None,
+        content_types: list[str | None] | None = None,
+        doc_titles: list[str | None] | None = None,
+        doc_types: list[str | None] | None = None,
     ) -> list[int]: ...
 
     async def get_by_id(self, chunk_id: int) -> ChunkSearchResult | None: ...

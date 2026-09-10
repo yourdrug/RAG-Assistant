@@ -127,6 +127,8 @@ class Settings(BaseSettings):
     chunk_overlap: int = 200
     legal_chunk_size: int = 1000
     legal_chunk_overlap: int = 250
+    decree_chunk_size: int = 1200
+    decree_chunk_overlap: int = 200
     embed_batch_size: int = 32
     embed_dim: int = 1024
 

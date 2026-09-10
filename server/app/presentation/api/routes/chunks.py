@@ -62,6 +62,12 @@ async def list_chunks(
             manual=c.manual,
             creation_date=c.creation_date,
             content_hash=c.content_hash,
+            section=c.section,
+            heading=c.heading,
+            heading_level=c.heading_level,
+            content_type=c.content_type,
+            doc_title=c.doc_title,
+            doc_type=c.doc_type,
         )
         for c in chunks
     ]
@@ -110,6 +116,12 @@ async def list_chunks_cursor(
             manual=c.manual,
             creation_date=c.creation_date,
             content_hash=c.content_hash,
+            section=c.section,
+            heading=c.heading,
+            heading_level=c.heading_level,
+            content_type=c.content_type,
+            doc_title=c.doc_title,
+            doc_type=c.doc_type,
         )
         for c in page.items
     ]

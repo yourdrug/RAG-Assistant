@@ -313,6 +313,12 @@ class ChunkModel(BaseModel):
     effective_from: Mapped[date | None] = mapped_column(Date, nullable=True)
     effective_to: Mapped[date | None] = mapped_column(Date, nullable=True)
     is_current: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    section: Mapped[str | None] = mapped_column(Text, nullable=True)
+    heading: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    heading_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    content_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    doc_title: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    doc_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class ChatLogModel(BaseModel):

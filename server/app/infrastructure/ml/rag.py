@@ -266,7 +266,7 @@ def deduplicate_docs(docs: list) -> list:
     return unique_docs
 
 
-def format_docs(docs, max_context_tokens: int = 6000) -> str:
+def format_docs(docs, max_context_tokens: int = 6000) -> str:  # noqa: C901
     """Форматирует найденные чанки в строку для промпта.
 
     Принимает list[Document] или list[tuple[Document, float]] (после rerank_documents).
@@ -288,9 +288,24 @@ def format_docs(docs, max_context_tokens: int = 6000) -> str:
         article_number = doc.metadata.get("article_number")
         header = f"[{i}] {source_name}"
 
+        doc_title = doc.metadata.get("doc_title")
+        if doc_title and doc_title != source_name:
+            header += f" | {doc_title}"
+
+        doc_type = doc.metadata.get("doc_type")
+        if doc_type:
+            header += f" [{doc_type}]"
+
+        section = doc.metadata.get("section")
+        if section:
+            truncated = section if len(section) <= 80 else section[:77] + "..."
+            header += f" | {truncated}"
+
         content_type = doc.metadata.get("content_type")
         if content_type == PageContentType.TABLE.value:
             header += " (таблица)"
+        elif content_type == "list":
+            header += " (список)"
 
         if doc_date:
             header += f" от {doc_date}"
@@ -342,12 +357,25 @@ def _clean_source_name(source: str) -> str:
 def _collect_source_metadata(
     doc, score: float | None
 ) -> tuple[
-    str, set[str], float | None, str | None, bool, bool, str | None, int | None, str | None, dict | None
+    str,
+    set[str],
+    float | None,
+    str | None,
+    bool,
+    bool,
+    str | None,
+    int | None,
+    str | None,
+    dict | None,
+    str | None,
+    str | None,
+    str | None,
 ]:
     """Extract pages, score, articles, flags, document_id, content_hash, act info from a doc.
 
     Returns (clean_name, pages_set, score, article_number, is_edited,
-    is_manual, edited_at, document_id, content_hash, act_info).
+    is_manual, edited_at, document_id, content_hash, act_info,
+    doc_title, doc_type, section).
     act_info carries versioning identity (act_number/effective dates) when present.
     """
     src = doc.metadata.get("source", "unknown")
@@ -362,6 +390,9 @@ def _collect_source_metadata(
     edited_at = doc.metadata.get("edited_at")
     document_id = doc.metadata.get("document_id")
     content_hash = doc.metadata.get("content_hash")
+    doc_title = doc.metadata.get("doc_title")
+    doc_type = doc.metadata.get("doc_type")
+    section = doc.metadata.get("section")
 
     pages_set: set[str] = set()
     if pages_list:
@@ -394,6 +425,9 @@ def _collect_source_metadata(
         document_id,
         content_hash,
         act_info,
+        doc_title,
+        doc_type,
+        section,
     )
 
 
@@ -408,6 +442,9 @@ def _build_source_entry(  # noqa: C901
     document_ids_by_source: dict[str, int | None],
     content_hashes_by_source: dict[str, list[str]],
     act_info_by_source: dict[str, dict] | None = None,
+    titles_by_source: dict[str, str | None] | None = None,
+    types_by_source: dict[str, str | None] | None = None,
+    sections_by_source: dict[str, set[str]] | None = None,
 ) -> dict:
     """Build the entry dict for a single source."""
     sorted_pages = sorted(pages) if pages else []
@@ -415,6 +452,12 @@ def _build_source_entry(  # noqa: C901
         "source": src,
         "pages": sorted_pages,
     }
+    if titles_by_source and src in titles_by_source:
+        entry["doc_title"] = titles_by_source[src]
+    if types_by_source and src in types_by_source:
+        entry["doc_type"] = types_by_source[src]
+    if sections_by_source and src in sections_by_source:
+        entry["sections"] = sorted(sections_by_source[src])
     if src in document_ids_by_source:
         entry["document_id"] = document_ids_by_source[src]
     if src in content_hashes_by_source and content_hashes_by_source[src]:
@@ -465,6 +508,9 @@ def _aggregate_source_metadata(  # noqa: C901
     document_ids_by_source: dict[str, int | None],
     content_hashes_by_source: dict[str, list[str]],
     act_info_by_source: dict[str, dict] | None = None,
+    titles_by_source: dict[str, str | None] | None = None,
+    types_by_source: dict[str, str | None] | None = None,
+    sections_by_source: dict[str, set[str]] | None = None,
 ) -> None:
     doc = item[0] if isinstance(item, tuple) else item
     score = item[1] if isinstance(item, tuple) else None
@@ -479,6 +525,9 @@ def _aggregate_source_metadata(  # noqa: C901
         document_id,
         ch,
         act_info,
+        doc_title,
+        doc_type,
+        section,
     ) = _collect_source_metadata(doc, score)
 
     if clean_name not in pages_by_source:
@@ -505,6 +554,12 @@ def _aggregate_source_metadata(  # noqa: C901
             content_hashes_by_source[clean_name].append(ch)
     if act_info and act_info_by_source is not None and clean_name not in act_info_by_source:
         act_info_by_source[clean_name] = act_info
+    if titles_by_source is not None and doc_title and clean_name not in titles_by_source:
+        titles_by_source[clean_name] = doc_title
+    if types_by_source is not None and doc_type and clean_name not in types_by_source:
+        types_by_source[clean_name] = doc_type
+    if sections_by_source is not None and section:
+        sections_by_source.setdefault(clean_name, set()).add(section)
 
 
 def _filter_sources_by_min_score(
@@ -540,6 +595,9 @@ def extract_sources(docs, min_score: float | None = None) -> list[dict]:
     document_ids_by_source: dict[str, int | None] = {}
     content_hashes_by_source: dict[str, list[str]] = {}
     act_info_by_source: dict[str, dict] = {}
+    titles_by_source: dict[str, str | None] = {}
+    types_by_source: dict[str, str | None] = {}
+    sections_by_source: dict[str, set[str]] = {}
 
     for item in docs:
         _aggregate_source_metadata(
@@ -553,6 +611,9 @@ def extract_sources(docs, min_score: float | None = None) -> list[dict]:
             document_ids_by_source,
             content_hashes_by_source,
             act_info_by_source,
+            titles_by_source,
+            types_by_source,
+            sections_by_source,
         )
 
     sources = []
@@ -568,6 +629,9 @@ def extract_sources(docs, min_score: float | None = None) -> list[dict]:
             document_ids_by_source,
             content_hashes_by_source,
             act_info_by_source,
+            titles_by_source,
+            types_by_source,
+            sections_by_source,
         )
         sources.append(entry)
 

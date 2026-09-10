@@ -43,6 +43,12 @@ class SQLAlchemyChunkRepository:
             manual=orm.manual,
             creation_date=orm.creation_date,
             content_hash=orm.content_hash,
+            section=orm.section,
+            heading=orm.heading,
+            heading_level=orm.heading_level,
+            content_type=orm.content_type,
+            doc_title=orm.doc_title,
+            doc_type=orm.doc_type,
         )
 
     async def bulk_insert(
@@ -60,6 +66,12 @@ class SQLAlchemyChunkRepository:
         effective_from: date | None = None,
         effective_to: date | None = None,
         is_current: bool = True,
+        sections: list[str | None] | None = None,
+        headings: list[str | None] | None = None,
+        heading_levels: list[int | None] | None = None,
+        content_types: list[str | None] | None = None,
+        doc_titles: list[str | None] | None = None,
+        doc_types: list[str | None] | None = None,
     ) -> list[int]:
         """Insert chunks for a document. Replaces existing chunks. Returns chunk IDs."""
         # Delete existing chunks for this document (re-index)
@@ -84,6 +96,12 @@ class SQLAlchemyChunkRepository:
                 effective_from=effective_from,
                 effective_to=effective_to,
                 is_current=is_current,
+                section=sections[i] if sections and i < len(sections) else None,
+                heading=headings[i] if headings and i < len(headings) else None,
+                heading_level=heading_levels[i] if heading_levels and i < len(heading_levels) else None,
+                content_type=content_types[i] if content_types and i < len(content_types) else None,
+                doc_title=doc_titles[i] if doc_titles and i < len(doc_titles) else None,
+                doc_type=doc_types[i] if doc_types and i < len(doc_types) else None,
             )
             for i, content in enumerate(chunks)
         ]

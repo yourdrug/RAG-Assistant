@@ -231,6 +231,12 @@ async def _process_chunks_in_uow(
         effective_from=_parse_meta_datetime(first_meta.get("effective_from")),
         effective_to=_parse_meta_datetime(first_meta.get("effective_to")),
         is_current=first_meta.get("is_current", True),
+        sections=[rc.metadata.get("section") for rc in chunks],
+        headings=[rc.metadata.get("heading") for rc in chunks],
+        heading_levels=[rc.metadata.get("heading_level") for rc in chunks],
+        content_types=[rc.metadata.get("content_type") for rc in chunks],
+        doc_titles=[rc.metadata.get("doc_title") for rc in chunks],
+        doc_types=[rc.metadata.get("doc_type") for rc in chunks],
     )
 
     # 2. Enrich metadata с chunk_ids и chunk_index

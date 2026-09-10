@@ -28,6 +28,10 @@ _DECREE_NUMBER_RE = re.compile(r"№\s*(\d+)")
 _DECREE_DATE_RE = re.compile(r"(\d{1,2}\s+\S+\s+\d{4}\s*г?\.?)")
 _POINT_RE = re.compile(r"^\s*(\d+)\.\s+", re.MULTILINE)
 _SUBPOINT_RE = re.compile(r"^\s*([а-я])\)\s+", re.MULTILINE)
+
+# Sentence boundary — matches ". " / "! " / "? " (all periods, including abbreviations).
+# Abbreviation filtering is handled in content_splitter._merge_small_units() instead
+# of via regex lookbehind, because Python re doesn't support variable-length lookbehind.
 _SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
 
 _EFFECTIVE_PATTERNS = [

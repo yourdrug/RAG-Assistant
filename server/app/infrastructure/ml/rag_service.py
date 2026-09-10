@@ -737,6 +737,12 @@ class RagService:
                             "content_hash": n.content_hash,
                             "chunk_index": n.chunk_index,
                             "chunk_id": n.chunk_id,
+                            "section": n.section,
+                            "heading": n.heading,
+                            "heading_level": n.heading_level,
+                            "content_type": n.content_type,
+                            "doc_title": n.doc_title,
+                            "doc_type": n.doc_type,
                         },
                     )
                     new_docs.append((neighbor_doc, score * 0.9))

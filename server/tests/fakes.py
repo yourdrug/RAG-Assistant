@@ -142,6 +142,12 @@ class FakeChunkRepository:
         effective_from=None,
         effective_to=None,
         is_current: bool = True,
+        sections: list[str | None] | None = None,
+        headings: list[str | None] | None = None,
+        heading_levels: list[int | None] | None = None,
+        content_types: list[str | None] | None = None,
+        doc_titles: list[str | None] | None = None,
+        doc_types: list[str | None] | None = None,
     ) -> list[int]:
         # Remove existing chunks for this document
         self._chunks = [c for c in self._chunks if c["document_id"] != document_id]

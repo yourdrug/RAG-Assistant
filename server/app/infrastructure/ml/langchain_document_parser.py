@@ -11,10 +11,10 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from domain.domain_profile.protocol import refs_to_metadata
-from domain.entities.raw_document import RawDocument
 from langchain.schema import Document
 
+from domain.domain_profile.protocol import refs_to_metadata
+from domain.entities.raw_document import RawDocument
 from infrastructure.ml.ingestion import (
     PARSERS,
     parse_docx,
@@ -23,6 +23,10 @@ from infrastructure.ml.ingestion import (
     parse_pdf,
 )
 from infrastructure.ml.ingestion import split_documents as _split_documents
+from infrastructure.ml.ingestion.markdown import extract_doc_title as _extract_md_title
+from infrastructure.ml.ingestion.rtf import extract_doc_title as _extract_rtf_title
+from infrastructure.ml.ingestion.rtf import parse_rtf, parse_rtf_sections
+from infrastructure.ml.ingestion.splitting import _enrich_final_chunks
 from infrastructure.ml.rtf_decree_parser import parse_decree_rtf
 
 if TYPE_CHECKING:
@@ -34,6 +38,30 @@ log = logging.getLogger("detailed")
 
 _DECREE_FINGERPRINT_PREFIX_CHARS = 3000
 
+# Keyword-based document-type classification. Checked in order against the
+# first ~1500 chars of the document (title + opening lines usually make the
+# document's genre obvious); the first category with a match wins. This is
+# deliberately coarse — a cheap signal for filtering/ranking, not a legal
+# classification.
+_DOC_TYPE_KEYWORDS: list[tuple[str, list[str]]] = [
+    ("order", ["приказ", "распоряжение", "постановление"]),
+    ("contract", ["договор", "контракт", "соглашение"]),
+    ("protocol", ["протокол"]),
+    ("instruction", ["инструкция", "регламент", "порядок действий"]),
+    ("policy", ["положение о"]),
+    ("letter", ["письмо", "уведомление"]),
+    ("report", ["отчёт", "отчет"]),
+]
+_DOC_TYPE_SAMPLE_CHARS = 1500
+
+
+def _classify_doc_type(text_sample: str) -> str | None:
+    lowered = text_sample.lower()
+    for doc_type, keywords in _DOC_TYPE_KEYWORDS:
+        if any(kw in lowered for kw in keywords):
+            return doc_type
+    return None
+
 
 def _lc_to_raw(docs) -> list[RawDocument]:
     return [RawDocument(page_content=d.page_content, metadata=dict(d.metadata)) for d in docs]
@@ -43,13 +71,63 @@ def _raw_to_lc(docs: list[RawDocument]):
     return [Document(page_content=d.page_content, metadata=d.metadata) for d in docs]
 
 
+def _heading_context(sections: list[tuple[str | None, str]]) -> dict:
+    """Derive level/parent/siblings/prev/next/toc from a list of breadcrumb headings.
+
+    Breadcrumbs already look like "Раздел 1 > Пункт 1.1" (see
+    parse_markdown_sections / parse_docx_sections / parse_rtf_sections) — this
+    just parses that string structure into per-heading context, once per
+    unique breadcrumb, in first-seen document order. Repeated tuples sharing
+    the same breadcrumb (e.g. a text segment and a table segment under the
+    same heading) all resolve to the same context.
+    """
+    order: list[str] = []
+    seen: set[str] = set()
+    for heading, _content in sections:
+        if heading and heading not in seen:
+            seen.add(heading)
+            order.append(heading)
+
+    parts = {h: h.split(" > ") for h in order}
+    level = {h: len(parts[h]) for h in order}
+    immediate = {h: parts[h][-1] for h in order}
+    parent = {h: (" > ".join(parts[h][:-1]) or None) for h in order}
+
+    groups: dict[str | None, list[str]] = {}
+    for h in order:
+        groups.setdefault(parent[h], []).append(h)
+
+    prev_h: dict[str, str | None] = {}
+    next_h: dict[str, str | None] = {}
+    siblings: dict[str, list[str]] = {}
+    for group in groups.values():
+        for i, h in enumerate(group):
+            prev_h[h] = immediate[group[i - 1]] if i > 0 else None
+            next_h[h] = immediate[group[i + 1]] if i + 1 < len(group) else None
+            siblings[h] = [immediate[s] for j, s in enumerate(group) if j != i]
+
+    toc: list[str] = []
+    seen_toc: set[str] = set()
+    if level:
+        top_level = min(level.values())
+        for h in order:
+            if level[h] == top_level and immediate[h] not in seen_toc:
+                seen_toc.add(immediate[h])
+                toc.append(immediate[h])
+
+    return {
+        "level": level, "immediate": immediate, "parent": parent,
+        "prev": prev_h, "next": next_h, "siblings": siblings, "toc": toc,
+    }
+
+
 class LangchainDocumentParser:
     """Parses files into domain RawDocuments using LangChain infrastructure."""
 
     def __init__(
-        self,
-        domain_registry: "DomainProfileRegistry | None" = None,
-        domain_settings: "DomainSettingsPort | None" = None,
+            self,
+            domain_registry: "DomainProfileRegistry | None" = None,
+            domain_settings: "DomainSettingsPort | None" = None,
     ) -> None:
         self._domain_registry = domain_registry
         self._domain_settings = domain_settings
@@ -58,16 +136,26 @@ class LangchainDocumentParser:
         ext = file_path.suffix.lower()
 
         if ext == ".pdf":
-            return _lc_to_raw(parse_pdf(file_path))
+            docs = _lc_to_raw(parse_pdf(file_path))
+            return self._apply_doc_level_fallbacks(docs, file_path)
 
         if ext == ".md":
-            return self._sections_to_documents(parse_markdown_sections(file_path), file_path)
+            page_meta = {}
+            title = _extract_md_title(file_path)
+            if title:
+                page_meta["doc_title"] = title
+            docs = self._sections_to_documents(parse_markdown_sections(file_path), file_path, page_meta or None)
+            return self._apply_doc_level_fallbacks(docs, file_path)
 
         if ext in (".docx", ".doc"):
             sections = parse_docx_sections(file_path)
             # Get page metadata from docx page break detection
             _text, page_meta = parse_docx(file_path)
-            return self._sections_to_documents(sections, file_path, page_meta)
+            docs = self._sections_to_documents(sections, file_path, page_meta)
+            return self._apply_doc_level_fallbacks(docs, file_path)
+
+        if ext == ".rtf":
+            return self._apply_doc_level_fallbacks(self._parse_rtf(file_path), file_path)
 
         parser = PARSERS.get(ext)
         if parser is None:
@@ -82,12 +170,74 @@ class LangchainDocumentParser:
         if not text or len(text.strip()) < 20:
             raise RuntimeError("Too little text in document")
 
-        if ext == ".rtf":
-            decree_docs = self._try_parse_decree_rtf(file_path, text)
-            if decree_docs is not None:
-                return decree_docs
+        docs = [RawDocument(page_content=text, metadata={"source": file_path.name})]
+        return self._apply_doc_level_fallbacks(docs, file_path)
 
-        return [RawDocument(page_content=text, metadata={"source": file_path.name})]
+    @staticmethod
+    def _apply_doc_level_fallbacks(docs: list[RawDocument], file_path: Path) -> list[RawDocument]:
+        """Fill in doc_title (filename fallback) and doc_type across every chunk.
+
+        Runs after format-specific parsing so a richer title already set by
+        a parser (docx core properties, PDF info dict, md's first heading,
+        rtf's \\info\\title) is never overwritten — this only fills gaps.
+        """
+        if not docs:
+            return docs
+
+        doc_title = next((d.metadata.get("doc_title") for d in docs if d.metadata.get("doc_title")), None)
+        if not doc_title:
+            # Fall back to the top segment of the first breadcrumb (e.g. a
+            # level-1 "# Title" that has no body content of its own, so it
+            # never became a standalone section — still the best title we have).
+            first_section = next((d.metadata.get("section") for d in docs if d.metadata.get("section")), None)
+            if first_section:
+                doc_title = first_section.split(" > ")[0]
+        if not doc_title:
+            doc_title = file_path.stem
+
+        sample = f"{doc_title}\n{docs[0].page_content[:_DOC_TYPE_SAMPLE_CHARS]}"
+        doc_type = _classify_doc_type(sample)
+
+        for d in docs:
+            d.metadata.setdefault("doc_title", doc_title)
+            if doc_type:
+                d.metadata.setdefault("doc_type", doc_type)
+        return docs
+
+    def _parse_rtf(self, file_path: Path) -> list[RawDocument]:
+        """RTF parsing: decree-structured split, generic heuristic split, or flat text.
+
+        Tries the domain-specific decree splitter first (most precise when it
+        applies). If that doesn't match, falls back to the generic
+        formatting-based section splitter (parse_rtf_sections); if that
+        finds no headings either (flat/unstructured RTF), falls back further
+        to a single flat document — the same behavior as before this path
+        existed, so plain RTF files never regress.
+        """
+        text, _meta = parse_rtf(file_path)
+        if not text or len(text.strip()) < 20:
+            raise RuntimeError("Too little text in document")
+
+        decree_docs = self._try_parse_decree_rtf(file_path, text)
+        if decree_docs is not None:
+            return decree_docs
+
+        try:
+            sections = parse_rtf_sections(file_path)
+        except Exception:
+            log.exception("Structured RTF parsing failed for %s — falling back to flat parse", file_path.name)
+            sections = None
+
+        page_meta = {}
+        title = _extract_rtf_title(file_path)
+        if title:
+            page_meta["doc_title"] = title
+
+        if sections and len(sections) > 1:
+            return self._sections_to_documents(sections, file_path, page_meta or None)
+
+        metadata = {"source": file_path.name, **page_meta}
+        return [RawDocument(page_content=text, metadata=metadata)]
 
     def _get_decree_profile(self) -> "DecreeDomainProfile | None":
         if self._domain_registry is None or self._domain_settings is None:
@@ -108,8 +258,7 @@ class LangchainDocumentParser:
         if profile is None or not profile.structural_fingerprint(text[:_DECREE_FINGERPRINT_PREFIX_CHARS]):
             return None
         try:
-            if self._domain_settings is None:
-                raise RuntimeError("Domain settings not initialized for decree parsing")
+            assert self._domain_settings is not None
             units, doc_metadata = parse_decree_rtf(file_path, profile, self._domain_settings)
         except Exception:
             log.exception("Decree RTF parsing failed for %s — falling back to flat parse", file_path.name)
@@ -136,28 +285,49 @@ class LangchainDocumentParser:
 
     @staticmethod
     def _sections_to_documents(
-        sections: list[tuple[str | None, str]],
-        file_path: Path,
-        page_meta: dict | None = None,
+            sections: list[tuple[str | None, str]],
+            file_path: Path,
+            page_meta: dict | None = None,
     ) -> list[RawDocument]:
+        ctx = _heading_context(sections)
+        total = len([1 for _h, c in sections if c.strip()])
         docs = []
+        chunk_index = 0
         for heading, content in sections:
             if not content.strip():
                 continue
 
             metadata: dict = {"source": file_path.name}
-            if heading:
-                metadata["section"] = heading
             if page_meta:
                 metadata.update(page_meta)
 
             # Handle table blocks tagged by parse_markdown_sections
             if content.startswith("\x00TABLE:"):
                 metadata["content_type"] = "table"
-                content = content[len("\x00TABLE:") :]
+                content = content[len("\x00TABLE:"):]
 
             if not content.strip():
                 continue
+
+            chunk_index += 1
+            metadata["chunk_index"] = chunk_index
+            metadata["total_chunks"] = total
+
+            if heading:
+                metadata["section"] = heading
+                metadata["heading"] = ctx["immediate"][heading]
+                metadata["heading_level"] = ctx["level"][heading]
+                if ctx["parent"][heading]:
+                    metadata["parent_section"] = ctx["parent"][heading]
+                if ctx["prev"][heading]:
+                    metadata["prev_heading"] = ctx["prev"][heading]
+                if ctx["next"][heading]:
+                    metadata["next_heading"] = ctx["next"][heading]
+                if ctx["siblings"][heading]:
+                    metadata["sibling_headings"] = ctx["siblings"][heading]
+            if ctx["toc"]:
+                metadata["toc"] = ctx["toc"]
+
             docs.append(RawDocument(page_content=content, metadata=metadata))
 
         if not docs:
@@ -169,9 +339,9 @@ class LangchainDocumentSplitter:
     """Splits domain RawDocuments into chunks using LangChain text splitters."""
 
     def __init__(
-        self,
-        domain_registry: "DomainProfileRegistry | None" = None,
-        domain_settings: "DomainSettingsPort | None" = None,
+            self,
+            domain_registry: "DomainProfileRegistry | None" = None,
+            domain_settings: "DomainSettingsPort | None" = None,
     ) -> None:
         self._domain_registry = domain_registry
         self._domain_settings = domain_settings
@@ -179,14 +349,19 @@ class LangchainDocumentSplitter:
     def split(self, documents: list[RawDocument], domain: str = "general") -> list[RawDocument]:
         profile = self._get_profile(domain)
         if (
-            profile is not None
-            and profile.content_boundaries()
-            and documents
-            and all("unit_kind" in d.metadata for d in documents)
+                profile is not None
+                and profile.content_boundaries()
+                and documents
+                and all("unit_kind" in d.metadata for d in documents)
         ):
             # Structural units produced by a domain-aware parser (decree RTF)
-            # are already final chunks — pass through without re-splitting.
-            return list(documents)
+            # are already final chunks — pass through without re-splitting,
+            # but still apply the same universal per-chunk metadata
+            # (char_count/has_numbers/has_dates/chunk_index) every other
+            # domain gets from split_documents.
+            docs = list(documents)
+            _enrich_final_chunks(docs)
+            return docs
         return _lc_to_raw(
             _split_documents(
                 _raw_to_lc(documents),
@@ -203,3 +378,4 @@ class LangchainDocumentSplitter:
             return self._domain_registry.get(domain)
         except KeyError:
             return None
+       

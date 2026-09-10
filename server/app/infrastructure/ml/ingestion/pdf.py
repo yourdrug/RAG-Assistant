@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections import Counter
 from pathlib import Path
 
 import fitz
@@ -15,6 +16,24 @@ from infrastructure.ml.ingestion.ocr import ocr_pdf_pages
 from infrastructure.ml.ingestion.utils import clean_pdf_text
 
 log = logging.getLogger("detailed")
+
+# A gap between adjacent block left-edges larger than this fraction of the
+# page width is treated as a column break (multi-column layout detection).
+_COLUMN_GAP_RATIO = 0.08
+
+# Header/footer margin zones, as a fraction of page height. Only blocks
+# whose bounding box falls entirely within these zones are ever considered
+# for boilerplate removal — this is what keeps ordinary body text (which
+# may legitimately repeat similar phrasing with different numbers, e.g.
+# "Section 1" .. "Section 5") from being misclassified as a running header.
+_HEADER_ZONE_RATIO = 0.06
+_FOOTER_ZONE_RATIO = 0.09
+
+# Running headers/footers must repeat on at least this fraction of pages
+# (and a minimum absolute count) before being treated as boilerplate.
+_BOILERPLATE_MIN_RATIO = 0.6
+_BOILERPLATE_MIN_PAGES = 4
+_DIGITS_RE = re.compile(r"\d+")
 
 
 def pymupdf_table_to_markdown(table) -> str:
@@ -41,11 +60,69 @@ def pymupdf_table_to_markdown(table) -> str:
     return "\n".join([header, separator] + body) if body else header
 
 
-def _extract_page_text(page) -> str:
-    """Extract text from page blocks for better multi-column ordering."""
-    blocks = page.get_text("blocks")
-    blocks.sort(key=lambda b: (round(b[1] / 10) * 10, b[0]))
-    return "\n".join(b[4] for b in blocks if len(b) > 4 and b[4].strip())
+def _order_blocks_columnwise(blocks: list, page_width: float) -> list[str]:
+    """Order a set of text blocks for correct reading order.
+
+    Single-column layouts are read top-to-bottom (same as a plain row sort).
+    For multi-column layouts, blocks are clustered into columns by their
+    left-edge x-position (a gap larger than ~8% of the page width signals a
+    column break), each column is read top-to-bottom, and columns are
+    concatenated left-to-right — a naive row-based sort would otherwise
+    interleave lines from adjacent columns into nonsense.
+    """
+    if not blocks:
+        return []
+    if len(blocks) == 1:
+        return [blocks[0][4].strip()]
+
+    gap_threshold = (page_width or 1.0) * _COLUMN_GAP_RATIO
+    xs = sorted(b[0] for b in blocks)
+    boundaries = [xs[0]]
+    for prev, cur in zip(xs, xs[1:]):
+        if cur - prev > gap_threshold:
+            boundaries.append(cur)
+
+    def _column_of(x0: float) -> int:
+        col = 0
+        for i, boundary in enumerate(boundaries):
+            if x0 >= boundary:
+                col = i
+        return col
+
+    columns: dict[int, list] = {}
+    for b in blocks:
+        columns.setdefault(_column_of(b[0]), []).append(b)
+
+    ordered: list[str] = []
+    for col in sorted(columns):
+        col_blocks = sorted(columns[col], key=lambda b: b[1])
+        ordered.extend(b[4].strip() for b in col_blocks if b[4].strip())
+    return ordered
+
+
+def _classify_page_blocks(page) -> tuple[list, list, list]:
+    """Split a page's text blocks into (header_blocks, body_blocks, footer_blocks).
+
+    A block counts as header/footer only if it lies entirely within the
+    top/bottom margin zone — this is a position-based classification, not a
+    content-based one, so it never touches ordinary body paragraphs.
+    """
+    height = page.rect.height or 1.0
+    header_end = height * _HEADER_ZONE_RATIO
+    footer_start = height * (1 - _FOOTER_ZONE_RATIO)
+
+    header, body, footer = [], [], []
+    for b in page.get_text("blocks"):
+        if len(b) <= 4 or not b[4].strip():
+            continue
+        y0, y1 = b[1], b[3]
+        if y1 <= header_end:
+            header.append(b)
+        elif y0 >= footer_start:
+            footer.append(b)
+        else:
+            body.append(b)
+    return header, body, footer
 
 
 def _extract_page_tables(page, file_path: Path, page_num: int) -> list[Document]:
@@ -116,10 +193,10 @@ def _process_page_text(text: str, tables_found: bool, page_num: int, file_path: 
 
 
 def _process_ocr_result(
-    page_num: int,
-    ocr_text: str,
-    text_to_compare: dict,
-    file_path: Path,
+        page_num: int,
+        ocr_text: str,
+        text_to_compare: dict,
+        file_path: Path,
 ) -> Document | None:
     if not ocr_text:
         return None
@@ -130,19 +207,92 @@ def _process_ocr_result(
     return Document(page_content=final_text, metadata={"page": page_num, "source": str(file_path)})
 
 
+def _find_boilerplate_patterns(
+        classified_pages: list[tuple[list, list, list]],
+) -> set[str]:
+    """Determine which header/footer line patterns repeat across most pages.
+
+    Only header/footer-zone blocks (see _classify_page_blocks) are ever
+    candidates. Digit runs are normalized ("Page 3" / "Page 4" -> "Page #")
+    so a changing page number still counts as the same recurring pattern,
+    without touching anything outside the margin zones.
+    """
+    if len(classified_pages) < _BOILERPLATE_MIN_PAGES:
+        return set()
+
+    counts: Counter[str] = Counter()
+    for header, _body, footer in classified_pages:
+        seen_this_page = set()
+        for b in header + footer:
+            for line in b[4].strip().split("\n"):
+                norm = _DIGITS_RE.sub("#", line.strip())
+                if norm:
+                    seen_this_page.add(norm)
+        counts.update(seen_this_page)
+
+    threshold = max(_BOILERPLATE_MIN_PAGES, int(len(classified_pages) * _BOILERPLATE_MIN_RATIO))
+    return {norm for norm, count in counts.items() if count >= threshold}
+
+
+def _filter_boilerplate_blocks(blocks: list, boilerplate: set[str]) -> list:
+    if not boilerplate:
+        return blocks
+    kept = []
+    for b in blocks:
+        lines = [ln.strip() for ln in b[4].strip().split("\n") if ln.strip()]
+        if lines and all(_DIGITS_RE.sub("#", ln) in boilerplate for ln in lines):
+            continue  # entire block is recurring boilerplate
+        kept.append(b)
+    return kept
+
+
+def _extract_doc_metadata(doc) -> dict:
+    """Pull PDF document-info metadata (title/author/subject) if present.
+
+    PyMuPDF exposes this as doc.metadata — a plain dict with string values,
+    often empty strings when the producer didn't set them. Only non-empty
+    values are kept so we never overwrite a real value with "".
+    """
+    meta = doc.metadata or {}
+    result: dict = {}
+    if meta.get("title"):
+        result["doc_title"] = meta["title"]
+    if meta.get("author"):
+        result["doc_author"] = meta["author"]
+    if meta.get("subject"):
+        result["doc_subject"] = meta["subject"]
+    return result
+
+
 def parse_pdf(file_path: Path) -> list[Document]:
     doc = fitz.open(str(file_path))
-    pages = []
+    n_pages = len(doc)
+    doc_metadata = _extract_doc_metadata(doc)
 
+    # Pass 1: classify blocks per page (cheap, no OCR) and find recurring
+    # header/footer patterns across the whole document.
+    classified = [_classify_page_blocks(doc.load_page(i)) for i in range(n_pages)]
+    boilerplate = _find_boilerplate_patterns(classified)
+    if boilerplate:
+        log.info("Detected %d recurring header/footer line pattern(s)", len(boilerplate))
+
+    pages = []
     ocr_pages_needed = []
     text_to_compare: dict[int, str] = {}
 
-    for page_num in range(1, len(doc) + 1):
+    for page_num in range(1, n_pages + 1):
         page = doc.load_page(page_num - 1)
-        text = _extract_page_text(page)
+        header, body, footer = classified[page_num - 1]
 
         table_docs = _extract_page_tables(page, file_path, page_num)
         pages.extend(table_docs)
+
+        kept_header = _filter_boilerplate_blocks(header, boilerplate)
+        kept_footer = _filter_boilerplate_blocks(footer, boilerplate)
+        header_lines = [b[4].strip() for b in sorted(kept_header, key=lambda b: b[1]) if b[4].strip()]
+        footer_lines = [b[4].strip() for b in sorted(kept_footer, key=lambda b: b[1]) if b[4].strip()]
+        body_lines = _order_blocks_columnwise(body, page.rect.width)
+        text = "\n".join(header_lines + body_lines + footer_lines)
 
         min_chars = settings.ocr_min_chars
         if _should_ocr(text, min_chars, settings.ocr_enabled):
@@ -163,4 +313,9 @@ def parse_pdf(file_path: Path) -> list[Document]:
                 pages.append(ocr_doc)
 
     doc.close()
+
+    if doc_metadata:
+        for p in pages:
+            p.metadata.update(doc_metadata)
+
     return pages

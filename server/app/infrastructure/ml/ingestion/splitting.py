@@ -47,6 +47,64 @@ LEGAL_SEPARATORS = [
 
 _ARTICLE_RE = re.compile(r"Статья\s+(\d+[\.\d]*)")
 
+# --- Final-chunk metadata enrichment ---------------------------------------
+#
+# These run on the *final* output chunks — after any structured/legal/char
+# splitting has happened — rather than on the pre-split sections upstream in
+# langchain_document_parser.py. A section can still get cut into several
+# smaller chunks here, so per-chunk facts (its own size, whether it mentions
+# a date, its position in the overall sequence) can only be computed
+# correctly at this point; computing them earlier would let a stale,
+# section-level value leak onto every one of its sub-chunks.
+
+_DATE_RE = re.compile(r"\b(\d{1,2}[./]\d{1,2}[./]\d{2,4}|\d{4}-\d{2}-\d{2})\b")
+_DIGIT_RE = re.compile(r"\d")
+_LIST_LINE_RE = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+")
+_LIST_MIN_LINES = 2
+_LIST_MIN_RATIO = 0.6
+
+
+def _classify_content_shape(text: str) -> str | None:
+    """Cheap structural classification: predominantly a list, else None (leave as-is)."""
+    lines = [ln for ln in text.split("\n") if ln.strip()]
+    if len(lines) < _LIST_MIN_LINES:
+        return None
+    list_lines = sum(1 for ln in lines if _LIST_LINE_RE.match(ln))
+    if list_lines / len(lines) >= _LIST_MIN_RATIO:
+        return "list"
+    return None
+
+
+def _enrich_final_chunks(chunks: list[Document]) -> None:
+    """Add char_count/has_numbers/has_dates/content_type and re-number.
+
+    chunk_index/total_chunks on the final chunk list, grouped by source file.
+
+    Mutates each Document's metadata in place. chunk_index/total_chunks are
+    recomputed here (overwriting any section-level value inherited from
+    upstream splitting) because a single section can expand into several
+    final chunks — the position that matters for retrieval is the position
+    among final chunks, not among pre-split sections.
+    """
+    by_source: dict[str, list[Document]] = {}
+    for c in chunks:
+        by_source.setdefault(c.metadata.get("source", ""), []).append(c)
+
+    for group in by_source.values():
+        total = len(group)
+        for i, c in enumerate(group, start=1):
+            c.metadata["chunk_index"] = i
+            c.metadata["total_chunks"] = total
+            c.metadata["char_count"] = len(c.page_content)
+            if _DATE_RE.search(c.page_content):
+                c.metadata["has_dates"] = True
+            if _DIGIT_RE.search(c.page_content):
+                c.metadata["has_numbers"] = True
+            if c.metadata.get("content_type") != PageContentType.TABLE.value:
+                shape = _classify_content_shape(c.page_content)
+                if shape:
+                    c.metadata["content_type"] = shape
+
 
 def merge_pdf_pages(pages: list[Document]) -> list[Document]:
     """Merge per-page Documents from the same source into a single Document.
@@ -141,6 +199,8 @@ def split_documents(
     if len(chunks) < before:
         log.warning("Filtered %d empty chunks during split", before - len(chunks))
 
+    _enrich_final_chunks(chunks)
+
     log.info(
         "Split %d documents into %d chunks (domain=%s, structured=%s)",
         len(docs),
@@ -156,14 +216,25 @@ def _split_structured(
     profile: "DomainProfile",
     settings: "DomainSettingsPort",
 ) -> list[Document]:
-    """Content-based splitting via the profile's structural boundary hierarchy."""
+    """Content-based splitting via the profile's structural boundary hierarchy.
+
+    For structured domains (decree, legal), units are first split by content
+    boundaries (point/subpoint/sentence). Units still exceeding chunk_size
+    are further split with RecursiveCharacterTextSplitter + overlap to
+    preserve context across chunk boundaries.
+    """
     from domain.domain_profile.content_splitter import split_by_content
     from domain.domain_profile.protocol import refs_to_metadata
 
     max_unit_chars = int(settings.get("max_unit_chars", domain_key=profile.key))
+    chunk_size = _get_domain_setting(settings, f"{profile.key}_chunk_size", profile.key, default=1200)
+    chunk_overlap = _get_domain_setting(settings, f"{profile.key}_chunk_overlap", profile.key, default=200)
+
     result: list[Document] = []
     for doc in docs:
-        for unit in split_by_content(doc.page_content, profile.content_boundaries(), max_unit_chars):
+        for unit in split_by_content(
+            doc.page_content, profile.content_boundaries(), max_unit_chars, min_chunk_chars=100
+        ):
             meta = {**doc.metadata, "unit_kind": unit.unit_kind}
             if unit.heading:
                 meta["section"] = unit.heading
@@ -172,8 +243,36 @@ def _split_structured(
             unit_refs = profile.extract_references(unit.content)
             if unit_refs:
                 meta["domain_metadata"] = refs_to_metadata(unit_refs)
-            result.append(Document(page_content=unit.content, metadata=meta))
+
+            if len(unit.content) > chunk_size:
+                overflow_chunks = _split_overflow(unit.content, chunk_size, chunk_overlap)
+                for overflow_text in overflow_chunks:
+                    result.append(Document(page_content=overflow_text, metadata=dict(meta)))
+            else:
+                result.append(Document(page_content=unit.content, metadata=meta))
     return result
+
+
+def _split_overflow(text: str, chunk_size: int, chunk_overlap: int) -> list[str]:
+    """Split oversized text with overlap as a safety net."""
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        length_function=len,
+        separators=["\n\n", "\n", ". ", " ", ""],
+    )
+    return splitter.split_text(text)
+
+
+def _get_domain_setting(settings, key: str, domain_key: str, default: int) -> int:
+    """Read a domain-specific setting with fallback to default."""
+    if settings is None:
+        return default
+    try:
+        val = int(settings.get(key, domain_key=domain_key))
+        return val if val > 0 else default
+    except (KeyError, ValueError, TypeError):
+        return default
 
 
 def _split_char_general(docs: list[Document]) -> list[Document]:

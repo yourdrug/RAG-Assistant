@@ -21,6 +21,12 @@ class ChunkItemDTO:
     manual: bool
     creation_date: str | None
     content_hash: str | None
+    section: str | None = None
+    heading: str | None = None
+    heading_level: int | None = None
+    content_type: str | None = None
+    doc_title: str | None = None
+    doc_type: str | None = None
 
 
 @dataclass(frozen=True)
