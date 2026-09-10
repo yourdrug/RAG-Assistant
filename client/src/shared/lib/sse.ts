@@ -12,7 +12,7 @@ interface StreamChatParams {
   question: string;
   conversationId?: number | null;
   token: string;
-  depth?: "short" | "detailed" | null;
+  depth?: "narrow" | "broad" | null;
   /** Explicit "as of" date (ISO YYYY-MM-DD) for temporal retrieval. null = current state. */
   asOfDate?: string | null;
   onChunk: (text: string) => void;

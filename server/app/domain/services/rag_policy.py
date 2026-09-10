@@ -62,6 +62,46 @@ COMPOUND_PATTERNS = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# Conditional-rule enumeration detection
+# ---------------------------------------------------------------------------
+
+# Patterns that indicate multiple exclusive conditional rules in context
+_CONDITIONAL_MARKERS = [
+    r"за\s+исключением",
+    r"исключени",
+    r"но\s+не\s+менее",
+    r"но\s+не\s+более",
+    r"в\s+случа[еяи]",
+    r"при\s+условии",
+    r"кроме\s+того",
+    r"однако",
+    r"если\s+.+\s+-\s+.+",
+    r"\d+%",
+    r"не\s+менее\s+\d+",
+    r"не\s+более\s+\d+",
+]
+
+
+def should_enumerate_cases(question: str, context_texts: list[str]) -> bool:
+    """Detect when context contains multiple conditional/exclusive rules.
+
+    Returns True when the LLM should enumerate all cases with conditions
+    rather than giving a single-number answer. The question-side specificity
+    is left to the LLM — the BROAD prompt's rule 3 handles sub-point expansion.
+
+    Pure function — no infrastructure dependencies.
+    """
+    if len(context_texts) < 2:
+        return False
+
+    chunks_with_conditions = sum(
+        1 for text in context_texts if text and any(re.search(p, text.lower()) for p in _CONDITIONAL_MARKERS)
+    )
+
+    return chunks_with_conditions >= 1
+
+
 def needs_decomposition(question: str) -> bool:
     """Heuristic: check if the question contains multiple independent sub-topics.
 
@@ -151,6 +191,8 @@ def build_system_prompt(
         new_rule3 = (
             "3. Отвечай РАЗВЁРНУТО по структуре:\n"
             "   - Начни с краткого прямого ответа (1 предложение)\n"
+            "   - Если в контексте несколько условий/категорий/исключений — "
+            "ОБЯЗАТЕЛЬНО перечисли ВСЕ случаи с указанием условий для каждого.\n"
             "   - Затем раскрой тему по подпунктам: 1-2 предложения с деталями из контекста\n"
             "   Не пересказывай весь документ — освещай аспекты заданного вопроса.\n"
             "   Отвечай на том же языке, на котором задан вопрос.\n"

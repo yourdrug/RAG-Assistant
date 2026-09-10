@@ -123,6 +123,21 @@ class ChunkCrudRepository(Protocol):
 
     async def get_all_contents(self) -> list[str]: ...
 
+    async def get_neighbors(
+        self,
+        document_id: int,
+        center_index: int,
+        window: int = 1,
+        exclude_hashes: set[str] | None = None,
+    ) -> list[ChunkSearchResult]: ...
+
+    async def get_table_batches(
+        self,
+        document_id: int,
+        anchor_index: int,
+        exclude_hashes: set[str] | None = None,
+    ) -> list[ChunkSearchResult]: ...
+
     async def update_filename_by_document_id(self, document_id: int, new_filename: str) -> int: ...
 
 

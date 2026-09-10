@@ -385,6 +385,86 @@ class TestNeedsDecomposition:
 
 
 # ---------------------------------------------------------------------------
+# should_enumerate_cases
+# ---------------------------------------------------------------------------
+
+
+class TestShouldEnumerateCases:
+    def test_two_conditional_chunks_returns_true(self):
+        from domain.services.rag_policy import should_enumerate_cases
+
+        ctx = [
+            "Для золотых изделий: не менее 30%, но не менее 100 штук.",
+            "Для серебряных: за исключением случаев менее 50 штук.",
+        ]
+        assert should_enumerate_cases("Сколько опробовать?", ctx) is True
+
+    def test_one_conditional_chunk_returns_true(self):
+        from domain.services.rag_policy import should_enumerate_cases
+
+        ctx = [
+            "Для золотых изделий: не менее 30%, но не менее 100 штук.",
+            "Общее требование: проверка обязательна.",
+        ]
+        assert should_enumerate_cases("Сколько опробовать?", ctx) is True
+
+    def test_empty_context_returns_false(self):
+        from domain.services.rag_policy import should_enumerate_cases
+
+        assert should_enumerate_cases("Вопрос?", []) is False
+
+    def test_single_chunk_returns_false(self):
+        from domain.services.rag_policy import should_enumerate_cases
+
+        ctx = ["Правило: не менее 30% и не менее 100 штук."]
+        assert should_enumerate_cases("Вопрос?", ctx) is False
+
+    def test_no_markers_returns_false(self):
+        from domain.services.rag_policy import should_enumerate_cases
+
+        ctx = [
+            "Партия проверяется полностью.",
+            "Результаты фиксируются в журнале.",
+        ]
+        assert should_enumerate_cases("Как проверяют?", ctx) is False
+
+    def test_percentage_markers_count(self):
+        from domain.services.rag_policy import should_enumerate_cases
+
+        ctx = [
+            "Норма: 30% от партии.",
+            "Исключение: 50 штук минимум.",
+        ]
+        assert should_enumerate_cases("Сколько?", ctx) is True
+
+    def test_none_in_context_handled(self):
+        from domain.services.rag_policy import should_enumerate_cases
+
+        ctx = [
+            "Для золотых: не менее 30%.",
+            None,
+            "Для серебряных: за исключением случаев менее 50.",
+        ]
+        assert should_enumerate_cases("Сколько?", ctx) is True
+
+    def test_all_none_context_returns_false(self):
+        from domain.services.rag_policy import should_enumerate_cases
+
+        ctx = [None, None]
+        assert should_enumerate_cases("Сколько?", ctx) is False
+
+    def test_empty_string_context_not_counted(self):
+        from domain.services.rag_policy import should_enumerate_cases
+
+        ctx = [
+            "Правило: не менее 30%.",
+            "",
+            "Ещё одно: не менее 50 штук.",
+        ]
+        assert should_enumerate_cases("Сколько?", ctx) is True
+
+
+# ---------------------------------------------------------------------------
 # check_relevance (mocked LLM)
 # ---------------------------------------------------------------------------
 

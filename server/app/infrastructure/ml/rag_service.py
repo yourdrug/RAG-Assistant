@@ -17,7 +17,11 @@ from typing import TYPE_CHECKING
 
 from application.dto.chat_dto import RagResult
 from config import settings
-from domain.services.rag_policy import classify_query_domain, has_exact_reference
+from domain.services.rag_policy import (
+    classify_query_domain,
+    has_exact_reference,
+    should_enumerate_cases,
+)
 from domain.utils import compute_reranker_score
 from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.doc_domain import DocDomain
@@ -678,6 +682,68 @@ class RagService:
             )
         return docs
 
+    async def _enrich_with_neighbors(
+        self,
+        docs: list[tuple[LCDocument, float]],
+        enumerate_cases: bool,
+    ) -> list[tuple[LCDocument, float]]:
+        """Add neighboring chunks from the same document for richer context.
+
+        When enumerate_cases is True, pulls adjacent chunks to give the LLM
+        full visibility into conditional rules spread across chunk boundaries.
+        Neighbor scores are inherited from the anchor (scaled by 0.9) so they
+        don't distort the confidence calculation (which runs before this method).
+        """
+        if not self._chunk_search or not enumerate_cases:
+            return docs
+
+        # Filter out None hashes to prevent SQL IN (NULL) issues
+        existing_hashes = {h for h in (doc.metadata.get("content_hash") for doc, _ in docs) if h is not None}
+        new_docs: list[tuple[LCDocument, float]] = []
+
+        for doc, score in docs:
+            chunk_index = doc.metadata.get("chunk_index")
+            document_id = doc.metadata.get("document_id")
+
+            if not document_id or chunk_index is None:
+                continue
+
+            is_table = doc.metadata.get("content_type") == "table"
+            try:
+                if is_table:
+                    neighbors = await self._chunk_search.get_table_batches(
+                        document_id, chunk_index, exclude_hashes=existing_hashes
+                    )
+                else:
+                    neighbors = await self._chunk_search.get_neighbors(
+                        document_id, chunk_index, window=1, exclude_hashes=existing_hashes
+                    )
+            except Exception:
+                log.warning(
+                    "Failed to fetch neighbors for doc_id=%s chunk_index=%s",
+                    document_id,
+                    chunk_index,
+                    exc_info=True,
+                )
+                continue
+
+            for n in neighbors:
+                if n.content_hash and n.content_hash not in existing_hashes:
+                    neighbor_doc = LCDocument(
+                        page_content=n.content,
+                        metadata={
+                            "source": n.filename,
+                            "document_id": n.document_id,
+                            "content_hash": n.content_hash,
+                            "chunk_index": n.chunk_index,
+                            "chunk_id": n.chunk_id,
+                        },
+                    )
+                    new_docs.append((neighbor_doc, score * 0.9))
+                    existing_hashes.add(n.content_hash)
+
+        return docs + new_docs
+
     async def stream(  # noqa: C901
         self,
         question: str,
@@ -737,7 +803,9 @@ class RagService:
         await self._maybe_decompose(rag, query_for_search)
         breadth = self._resolve_breadth(ctx, query_for_search)
         yield StatusEvent(stage="searching")
-        fetch_k, top_k = self._resolve_fetch_top_k(rag, breadth)
+        fetch_k, _ = self._resolve_fetch_top_k(rag, breadth)
+        # Always rerank with broad top_n so should_enumerate_cases sees enough context
+        rerank_top_n = rag.retriever.top_k_broad
 
         # ── Step 5: Weight computation + domain classification ──────────
         effective_dense_weight, effective_sparse_weight, use_exact_ref_boost = (
@@ -761,13 +829,19 @@ class RagService:
         if use_exact_ref_boost:
             await self._apply_exact_search(query_for_search, candidates, user, ctx)
 
+        # ── Step 7b: Detect conditional rules on FULL candidate set ─────
+        # Check before reranking so we don't miss conditional chunks that
+        # the reranker might score lower than the top-k threshold.
+        candidate_texts = [doc.page_content for doc in candidates]
+        enumerate_cases = should_enumerate_cases(query_for_search, candidate_texts)
+
         # ── Step 8: Reranking ───────────────────────────────────────────
         yield StatusEvent(stage="reranking")
         t0 = time.monotonic()
         docs = await rerank_documents(
             query_for_search,
             candidates,
-            top_n=top_k,
+            top_n=rerank_top_n,
             reranker=self._ml.reranker(),
             min_score=rag.rerank.min_score,
             score_gap_ratio=rag.rerank.score_gap_ratio,
@@ -782,11 +856,25 @@ class RagService:
             query_domain,
             query_for_search,
             fetch_k,
-            top_k,
+            rerank_top_n,
             retrieval_filter,
             rag,
         )
+
+        # ── Step 8b: Conditional enumeration + neighbor enrichment ──────
+        # enumerate_cases was computed on full candidate set (Step 7b)
+        if not enumerate_cases:
+            # Slice to breadth-appropriate top_k
+            final_top_k = rag.retriever.top_k if breadth == Breadth.NARROW else rag.retriever.top_k_broad
+            docs = docs[:final_top_k]
+        else:
+            # Keep reranked docs but cap to avoid context pollution from noise
+            docs = docs[: rag.retriever.top_k_broad]
+
         avg_sim = sum(s for _, s in docs) / len(docs) if docs else 0.0
+
+        # Enrich with neighboring chunks for conditional-question cases
+        docs = await self._enrich_with_neighbors(docs, enumerate_cases)
 
         # ── Step 9: Self-RAG relevance gate + retry loop ────────────────
         MAX_SELF_RAG_RETRIES = 1
@@ -828,7 +916,7 @@ class RagService:
                     docs = await rerank_documents(
                         query_for_search,
                         candidates,
-                        top_n=top_k,
+                        top_n=rerank_top_n,
                         reranker=self._ml.reranker(),
                         min_score=rag.rerank.min_score,
                         score_gap_ratio=rag.rerank.score_gap_ratio,
@@ -838,7 +926,7 @@ class RagService:
                         query_domain,
                         query_for_search,
                         fetch_k,
-                        top_k,
+                        rerank_top_n,
                         retrieval_filter,
                         rag,
                     )
@@ -850,16 +938,22 @@ class RagService:
             return
 
         # ── Step 10: Prompt building + LLM generation ───────────────────
+        # Override breadth to BROAD when enumerate_cases to get the detailed prompt
+        effective_breadth = Breadth.BROAD if enumerate_cases else breadth
         has_legal_context = any((doc.metadata.get("doc_domain") == DocDomain.LEGAL.value) for doc, _ in docs)
-        domain_addendum = self._domain_prompt_addendum(query_domain, ctx, breadth)
+        domain_addendum = self._domain_prompt_addendum(query_domain, ctx, effective_breadth)
         prompt = build_prompt(
-            breadth,
+            effective_breadth,
             has_legal_context=has_legal_context,
             summary=ctx.summary,
             domain_addendum=domain_addendum,
         )
 
-        num_ctx = settings.llm_num_ctx_broad if breadth == Breadth.BROAD else settings.llm_num_ctx_narrow
+        num_ctx = (
+            settings.llm_num_ctx_broad
+            if effective_breadth == Breadth.BROAD
+            else settings.llm_num_ctx_narrow
+        )
         reserved_for_system_and_history = 2000
         max_context_tokens = max(num_ctx - reserved_for_system_and_history, 1000)
         context = format_docs(docs, max_context_tokens=max_context_tokens)
@@ -870,7 +964,7 @@ class RagService:
         answer_parts: list[str] = []
         last_chunk = None
         async with self._ml.llm_semaphore:
-            async for chunk in self._ml.llm_for_breadth(breadth).astream(messages):
+            async for chunk in self._ml.llm_for_breadth(effective_breadth).astream(messages):
                 last_chunk = chunk
                 text = chunk.content
                 if text:

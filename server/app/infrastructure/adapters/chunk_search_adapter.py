@@ -28,3 +28,20 @@ class ChunkSearchAdapter:
                 limit=limit,
                 mode=mode,
             )
+
+    async def get_neighbors(self, document_id, center_index, window=1, exclude_hashes=None):
+        async with self._uow_factory.create() as uow:
+            return await uow.chunks.get_neighbors(
+                document_id=document_id,
+                center_index=center_index,
+                window=window,
+                exclude_hashes=exclude_hashes,
+            )
+
+    async def get_table_batches(self, document_id, anchor_index, exclude_hashes=None):
+        async with self._uow_factory.create() as uow:
+            return await uow.chunks.get_table_batches(
+                document_id=document_id,
+                anchor_index=anchor_index,
+                exclude_hashes=exclude_hashes,
+            )

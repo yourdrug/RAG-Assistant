@@ -396,6 +396,51 @@ class SQLAlchemyChunkRepository:
         result = await self._session.execute(stmt)
         return [row[0] for row in result.all()]
 
+    async def get_neighbors(
+        self,
+        document_id: int,
+        center_index: int,
+        window: int = 1,
+        exclude_hashes: set[str] | None = None,
+    ) -> list[ChunkSearchResult]:
+        low = center_index - window
+        high = center_index + window
+        conditions = [
+            ChunkModel.document_id == document_id,
+            ChunkModel.chunk_index >= low,
+            ChunkModel.chunk_index <= high,
+        ]
+        if exclude_hashes:
+            safe_hashes = {h for h in exclude_hashes if h is not None}
+            if safe_hashes:
+                conditions.append(~ChunkModel.content_hash.in_(safe_hashes))
+        stmt = select(ChunkModel).where(and_(*conditions)).order_by(ChunkModel.chunk_index)
+        result = await self._session.execute(stmt)
+        return [self._to_chunk_search_result(c) for c in result.scalars().all()]
+
+    async def get_table_batches(
+        self,
+        document_id: int,
+        anchor_index: int,
+        exclude_hashes: set[str] | None = None,
+    ) -> list[ChunkSearchResult]:
+        """Fetch all consecutive table batches for a document starting from anchor_index.
+
+        Used when the anchor chunk is a table (content_type == 'table') to pull
+        all batches of the same table rather than a fixed window.
+        """
+        conditions = [
+            ChunkModel.document_id == document_id,
+            ChunkModel.chunk_index >= anchor_index,
+        ]
+        if exclude_hashes:
+            safe_hashes = {h for h in exclude_hashes if h is not None}
+            if safe_hashes:
+                conditions.append(~ChunkModel.content_hash.in_(safe_hashes))
+        stmt = select(ChunkModel).where(and_(*conditions)).order_by(ChunkModel.chunk_index)
+        result = await self._session.execute(stmt)
+        return [self._to_chunk_search_result(c) for c in result.scalars().all()]
+
     async def set_current_by_act_version_ids(self, act_version_ids: list[int], is_current: bool) -> int:
         """Bulk-update the denormalized is_current flag for chunks of act versions."""
         if not act_version_ids:

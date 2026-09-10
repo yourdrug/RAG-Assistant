@@ -18,7 +18,7 @@ from infrastructure.persistence.redis_client import redis_client
 log = logging.getLogger("default")
 
 CACHE_TTL_SECONDS = 7 * 24 * 3600  # 7 days
-CACHE_PREFIX = "rag:cache:"
+CACHE_PREFIX = "rag:cache:v2:"
 
 
 def compute_visibility_scope_hash(user_kind: str, user_id: int, group_ids: list[int]) -> str:

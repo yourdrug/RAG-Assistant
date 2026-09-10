@@ -233,9 +233,10 @@ async def _process_chunks_in_uow(
         is_current=first_meta.get("is_current", True),
     )
 
-    # 2. Enrich metadata с chunk_ids
-    for chunk_id, rc in zip(chunk_ids, chunks, strict=True):
+    # 2. Enrich metadata с chunk_ids и chunk_index
+    for i, (chunk_id, rc) in enumerate(zip(chunk_ids, chunks, strict=True)):
         rc.metadata["chunk_id"] = chunk_id
+        rc.metadata["chunk_index"] = i
 
     # 3. Enqueue outbox для Qdrant
     await uow.vector_outbox.enqueue(

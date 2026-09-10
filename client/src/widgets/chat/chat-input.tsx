@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/shared/ui/button";
 import { Textarea } from "@/shared/ui/textarea";
 
-export type DepthOption = "short" | "detailed" | null;
+export type DepthOption = "narrow" | "broad" | null;
 
 interface Props {
   onSend: (msg: string) => void;
@@ -50,8 +50,8 @@ export function ChatInput({
 
   const depthButtons: { value: DepthOption; label: string }[] = [
     { value: null, label: "Авто" },
-    { value: "short", label: "Кратко" },
-    { value: "detailed", label: "Подробно" },
+    { value: "narrow", label: "Кратко" },
+    { value: "broad", label: "Подробно" },
   ];
 
   return (
