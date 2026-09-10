@@ -220,8 +220,8 @@ def _split_structured(
 
     For structured domains (decree, legal), units are first split by content
     boundaries (point/subpoint/sentence). Units still exceeding chunk_size
-    are further split with RecursiveCharacterTextSplitter + overlap to
-    preserve context across chunk boundaries.
+    are further split using boundary-aware separators from the profile,
+    then RecursiveCharacterTextSplitter as final fallback.
     """
     from domain.domain_profile.content_splitter import split_by_content
     from domain.domain_profile.protocol import refs_to_metadata
@@ -229,6 +229,9 @@ def _split_structured(
     max_unit_chars = int(settings.get("max_unit_chars", domain_key=profile.key))
     chunk_size = _get_domain_setting(settings, f"{profile.key}_chunk_size", profile.key, default=1200)
     chunk_overlap = _get_domain_setting(settings, f"{profile.key}_chunk_overlap", profile.key, default=200)
+
+    # Extract boundary regex patterns from profile for overflow splitting
+    boundary_patterns = [bl.pattern for bl in profile.content_boundaries()]
 
     result: list[Document] = []
     for doc in docs:
@@ -245,7 +248,18 @@ def _split_structured(
                 meta["domain_metadata"] = refs_to_metadata(unit_refs)
 
             if len(unit.content) > chunk_size:
-                overflow_chunks = _split_overflow(unit.content, chunk_size, chunk_overlap)
+                overflow_chunks = _split_overflow(
+                    unit.content, chunk_size, chunk_overlap, boundary_patterns
+                )
+                if len(overflow_chunks) > 1:
+                    # Extract first meaningful line as context prefix for non-first chunks
+                    first_line = unit.content.split("\n", 1)[0].strip()
+                    if len(first_line) > 10:
+                        prefix = first_line + "\n"
+                        overflow_chunks = [
+                            overflow_chunks[0],
+                            *[prefix + c for c in overflow_chunks[1:]],
+                        ]
                 for overflow_text in overflow_chunks:
                     result.append(Document(page_content=overflow_text, metadata=dict(meta)))
             else:
@@ -253,8 +267,66 @@ def _split_structured(
     return result
 
 
-def _split_overflow(text: str, chunk_size: int, chunk_overlap: int) -> list[str]:
-    """Split oversized text with overlap as a safety net."""
+def _split_overflow(
+    text: str,
+    chunk_size: int,
+    chunk_overlap: int,
+    boundary_patterns: list | None = None,
+) -> list[str]:
+    """Split oversized text with overlap as a safety net.
+
+    When boundary_patterns are provided (for structured domains), first split
+    at structural boundaries and merge fragments to respect chunk_size. This
+    preserves logical unit integrity — rules for different categories stay
+    together. Falls back to RecursiveCharacterTextSplitter for any remaining
+    oversized fragments.
+    """
+    if boundary_patterns:
+        # Step 1: Split at all boundary patterns
+        fragments = [text]
+        for pattern in boundary_patterns:
+            new_fragments = []
+            for frag in fragments:
+                new_fragments.extend(re.split(pattern, frag))
+            fragments = [f for f in fragments if f.strip()]
+
+        # Step 2: Merge fragments respecting chunk_size (with overlap)
+        merged: list[str] = []
+        current = ""
+        for frag in fragments:
+            frag = frag.strip()
+            if not frag:
+                continue
+            if not current:
+                current = frag
+            elif len(current) + len(frag) + 1 <= chunk_size:
+                current = current + "\n" + frag
+            else:
+                merged.append(current)
+                # Overlap: keep tail of current chunk
+                if chunk_overlap > 0 and len(current) > chunk_overlap:
+                    current = current[-chunk_overlap:] + "\n" + frag
+                else:
+                    current = frag
+        if current.strip():
+            merged.append(current)
+
+        # Step 3: If any fragment still exceeds chunk_size, use generic splitter
+        result = []
+        for chunk in merged:
+            if len(chunk) > chunk_size:
+                splitter = RecursiveCharacterTextSplitter(
+                    chunk_size=chunk_size,
+                    chunk_overlap=chunk_overlap,
+                    length_function=len,
+                    separators=["\n\n", "\n", ". ", " ", ""],
+                )
+                result.extend(splitter.split_text(chunk))
+            else:
+                result.append(chunk)
+        return result
+
+    # Fallback: no boundary patterns — use generic splitter
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,

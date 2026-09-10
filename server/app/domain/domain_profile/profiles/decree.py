@@ -28,6 +28,7 @@ _DECREE_NUMBER_RE = re.compile(r"№\s*(\d+)")
 _DECREE_DATE_RE = re.compile(r"(\d{1,2}\s+\S+\s+\d{4}\s*г?\.?)")
 _POINT_RE = re.compile(r"^\s*(\d+)\.\s+", re.MULTILINE)
 _SUBPOINT_RE = re.compile(r"^\s*([а-я])\)\s+", re.MULTILINE)
+_SUBPOINT_NUM_RE = re.compile(r"^\s*(\d+\.\d+(?:\.\d+)*)\.\s+", re.MULTILINE)
 
 # Sentence boundary — matches ". " / "! " / "? " (all periods, including abbreviations).
 # Abbreviation filtering is handled in content_splitter._merge_small_units() instead
@@ -98,6 +99,7 @@ class DecreeDomainProfile(SettingsBackedProfile):
     def content_boundaries(self) -> list[BoundaryLevel]:
         return [
             BoundaryLevel("point", _POINT_RE),
+            BoundaryLevel("subpoint_num", _SUBPOINT_NUM_RE, always_split=True),
             BoundaryLevel("subpoint", _SUBPOINT_RE),
             BoundaryLevel("sentence", _SENTENCE_RE),
         ]

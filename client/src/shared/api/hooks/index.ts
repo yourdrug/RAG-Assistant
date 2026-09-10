@@ -1,18 +1,31 @@
+export { usePendingActVersions, useUpdateActVersion } from "./use-act-versions";
 export {
   useAdminConfig,
   useAdminModels,
   useAdminVectorDB,
   useUpdateAdminConfig,
 } from "./use-admin";
+export {
+  useDocumentDiagnosis,
+  useDryRun,
+  useDryRunOcr,
+  useIndexFromPreview,
+  usePageImage,
+  useQualityDocuments,
+} from "./use-admin-quality";
 export { useClientApiKeys, useCreateClientApiKey, useRevokeClientApiKey } from "./use-api-keys";
-export { useCreateUser, useCurrentUser, useLogin, useToggleUserActive, useUsers } from "./use-auth";
 export {
   useAssignGroupToCurator,
   useAssignUserToCurator,
   useChangeUserRole,
+  useCreateUser,
   useCuratorScope,
+  useCurrentUser,
+  useLogin,
+  useToggleUserActive,
   useUnassignGroupFromCurator,
   useUnassignUserFromCurator,
+  useUsers,
 } from "./use-auth";
 export {
   useApplyRunConfig,
@@ -71,11 +84,3 @@ export { useIngestAll, useIngestFile, useIngestRegistry, useUploadFiles } from "
 export { useJobStats, useJobs } from "./use-jobs";
 export { useLogs } from "./use-logs";
 export { useMetrics } from "./use-metrics";
-export {
-  useDocumentDiagnosis,
-  useDryRun,
-  useDryRunOcr,
-  useIndexFromPreview,
-  usePageImage,
-  useQualityDocuments,
-} from "./use-admin-quality";

@@ -48,9 +48,7 @@ export function AdminLayout() {
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <Shield className="h-4 w-4 mr-2 text-primary" />
-          <span className="font-semibold text-sidebar-foreground">
-            Admin Panel
-          </span>
+          <span className="font-semibold text-sidebar-foreground">Admin Panel</span>
           <Button
             variant="ghost"
             size="icon"

@@ -21,6 +21,7 @@ class ActVersionReviewItem(BaseModel):
     id: int
     act_id: int | None
     document_id: int
+    document_filename: str
     effective_from: date | None
     effective_to: date | None
     is_current: bool
@@ -82,12 +83,25 @@ async def list_act_versions(
         return ActVersionListResponse(versions=[], total=0)
 
     versions = await service.list_pending_review()
+
+    doc_ids = list({v.document_id for v in versions})
+    doc_filenames: dict[int, str] = {}
+    if doc_ids:
+        container = getattr(request.app.state, "container", None)
+        if container is not None:
+            async with container.infrastructure.uow_factory.create() as uow:
+                for did in doc_ids:
+                    doc = await uow.documents.get_by_id(did)
+                    if doc is not None:
+                        doc_filenames[did] = doc.filename
+
     return ActVersionListResponse(
         versions=[
             ActVersionReviewItem(
                 id=v.id,  # type: ignore[arg-type]
                 act_id=v.act_id,
                 document_id=v.document_id,
+                document_filename=doc_filenames.get(v.document_id, f"#{v.document_id}"),
                 effective_from=v.effective_from,
                 effective_to=v.effective_to,
                 is_current=v.is_current,

@@ -229,7 +229,11 @@ async def rerank_documents(
         source = doc.metadata.get("source", "")
         filename = doc.metadata.get("filename", "")
         doc_name = filename or Path(source).name if source else ""
-        content_with_prefix = f"[{doc_name}] {doc.page_content}" if doc_name else doc.page_content
+        prefix = f"[{doc_name}]" if doc_name else ""
+        section = doc.metadata.get("heading") or doc.metadata.get("section", "")
+        if section:
+            prefix += f" ({section})"
+        content_with_prefix = f"{prefix} {doc.page_content}" if prefix else doc.page_content
         pairs.append((question, content_with_prefix))
 
     scores = reranker.predict(pairs)
@@ -264,6 +268,26 @@ def deduplicate_docs(docs: list) -> list:
             seen_hashes.add(h)
             unique_docs.append(doc)
     return unique_docs
+
+
+def group_by_section(docs: list[tuple]) -> list[tuple]:
+    """Группирует чанки по секции, сохраняя порядок по score внутри группы.
+
+    Группы сортируются по максимальному score в группе (descending).
+    Чанки внутри каждой группы сортируются по score (descending).
+    Это гарантирует, что чанки из одной секции идут подряд в контексте,
+    а не перемешиваются с чанками из других секций.
+    """
+    from collections import defaultdict
+
+    groups: dict[str, list] = defaultdict(list)
+    for doc, score in docs:
+        section = doc.metadata.get("heading") or doc.metadata.get("section") or ""
+        groups[section].append((doc, score))
+    for group in groups.values():
+        group.sort(key=lambda x: x[1], reverse=True)
+    sorted_groups = sorted(groups.values(), key=lambda g: g[0][1], reverse=True)
+    return [item for group in sorted_groups for item in group]
 
 
 def format_docs(docs, max_context_tokens: int = 6000) -> str:  # noqa: C901

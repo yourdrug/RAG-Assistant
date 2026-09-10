@@ -40,6 +40,7 @@ export const adminNavItems: AdminNavItem[] = [
   { title: "Curators", href: "/admin/curators", icon: UserCog, adminOnly: true },
   { title: "API Keys", href: "/admin/api-keys", icon: Key, adminOnly: true },
   { title: "Documents", href: "/admin/documents", icon: FileText },
+  { title: "Act Versions", href: "/admin/act-versions", icon: ScrollText, adminOnly: true },
   { title: "Quality", href: "/admin/quality", icon: Activity, adminOnly: true },
   { title: "Ingest", href: "/admin/ingest", icon: Upload, adminOnly: true },
   { title: "Models", href: "/admin/models", icon: Cpu, adminOnly: true },

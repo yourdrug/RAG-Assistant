@@ -75,4 +75,9 @@ export const queryKeys = {
     list: () => [...queryKeys.quality.all, "list"] as const,
     diagnose: (id: number) => [...queryKeys.quality.all, "diagnose", id] as const,
   },
+  actVersions: {
+    all: ["actVersions"] as const,
+    pending: () => [...queryKeys.actVersions.all, "pending"] as const,
+    acts: () => [...queryKeys.actVersions.all, "acts"] as const,
+  },
 } as const;

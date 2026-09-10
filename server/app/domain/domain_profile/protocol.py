@@ -41,10 +41,16 @@ class BoundaryLevel:
 
     The pattern matches the START of a new structural unit (chapter, article, etc.).
     Splitting is recursive descent through these levels — not char-count based.
+
+    When ``always_split`` is True the level is applied unconditionally
+    (structural boundaries like numeric subpoints).  When False (default)
+    the level is only used as a safety-net when the parent unit exceeds
+    ``max_unit_chars``.
     """
 
     name: str  # "chapter" | "article" | "point" | "subpoint" | "sentence"
     pattern: re.Pattern[str]
+    always_split: bool = False
 
 
 @dataclass(frozen=True)

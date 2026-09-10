@@ -14,6 +14,7 @@ from domain.domain_profile.protocol import BoundaryLevel
 
 _POINT_RE = re.compile(r"^\s*(\d+)\.\s+", re.MULTILINE)
 _SUBPOINT_RE = re.compile(r"^\s*([а-я])\)\s+", re.MULTILINE)
+_SUBPOINT_NUM_RE = re.compile(r"^\s*(\d+\.\d+(?:\.\d+)*)\.\s+", re.MULTILINE)
 _SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
 
 
@@ -111,3 +112,87 @@ class TestSplitUnit:
     def test_defaults(self):
         unit = SplitUnit(heading=None, content="text", unit_kind="raw")
         assert unit.boundary_value is None
+
+
+class TestDecreeNumericSubpoints:
+    """Decree documents use numeric subpoints like 21.1., 21.2., etc.
+
+    These must NOT fall through to sentence splitting — they need their own
+    boundary level between 'point' and 'sentence'.
+    """
+
+    DECREE_TEXT = (
+        "21. Отбор изделий партии на опробование осуществляется с учетом их количества и ассортимента.\n"
+        "Опробованию подлежат:\n"
+        "21.1. золотые, платиновые и палладиевые изделия, изготовленные на территории Республики Беларусь, "
+        "включая изделия после ремонта (реставрации):\n"
+        "до 100 штук - все изделия партии;\n"
+        "более 100 штук - до 30 процентов изделий партии, но не менее 100 штук.\n"
+        "21.2. серебряные изделия, изготовленные на территории Республики Беларусь "
+        "(за исключением весового серебра и изделий после ремонта (реставрации):\n"
+        "до 100 штук - все изделия партии;\n"
+        "более 100 штук - до 30 процентов изделий партии, но не менее 50 штук.\n"
+        "21.3. изделия из драгоценных металлов, ввезенные на территорию Республики Беларусь для реализации:\n"
+        "до 100 штук - все изделия партии;\n"
+        "более 100 штук - до 30 процентов изделий партии, но не менее 100 штук.\n"
+    )
+
+    def test_numeric_subpoints_are_split_separately(self):
+        levels = [
+            BoundaryLevel("point", _POINT_RE),
+            BoundaryLevel("subpoint_num", _SUBPOINT_NUM_RE, always_split=True),
+            BoundaryLevel("sentence", _SENTENCE_RE),
+        ]
+        result = split_by_content(self.DECREE_TEXT, levels, 5000)
+        kinds = [u.unit_kind for u in result]
+        # Each 21.x should become its own subpoint_num unit
+        assert kinds.count("subpoint_num") == 3
+
+    def test_subpoint_heading_contains_number(self):
+        levels = [
+            BoundaryLevel("point", _POINT_RE),
+            BoundaryLevel("subpoint_num", _SUBPOINT_NUM_RE, always_split=True),
+            BoundaryLevel("sentence", _SENTENCE_RE),
+        ]
+        result = split_by_content(self.DECREE_TEXT, levels, 5000)
+        subpoints = [u for u in result if u.unit_kind == "subpoint_num"]
+        assert subpoints[0].boundary_value == "21.1"
+        assert subpoints[1].boundary_value == "21.2"
+        assert subpoints[2].boundary_value == "21.3"
+
+    def test_subpoint_content_starts_with_text(self):
+        levels = [
+            BoundaryLevel("point", _POINT_RE),
+            BoundaryLevel("subpoint_num", _SUBPOINT_NUM_RE, always_split=True),
+            BoundaryLevel("sentence", _SENTENCE_RE),
+        ]
+        result = split_by_content(self.DECREE_TEXT, levels, 5000)
+        subpoints = [u for u in result if u.unit_kind == "subpoint_num"]
+        # Content should start with the actual text, not the number
+        assert subpoints[0].content.startswith("21.1.")
+        assert "золотые" in subpoints[0].content
+
+    def test_no_cross_contamination_between_subpoints(self):
+        levels = [
+            BoundaryLevel("point", _POINT_RE),
+            BoundaryLevel("subpoint_num", _SUBPOINT_NUM_RE, always_split=True),
+            BoundaryLevel("sentence", _SENTENCE_RE),
+        ]
+        result = split_by_content(self.DECREE_TEXT, levels, 5000)
+        subpoints = [u for u in result if u.unit_kind == "subpoint_num"]
+        # Subpoint 21.1 should NOT contain text from 21.2
+        assert "серебряные изделия, изготовленные" not in subpoints[0].content
+        # Subpoint 21.2 should NOT contain text from 21.3
+        assert "ввезенные на территорию" not in subpoints[1].content
+
+    def test_recursive_descent_when_subpoint_is_large(self):
+        """When a subpoint exceeds max_unit_chars, it descends to sentence."""
+        levels = [
+            BoundaryLevel("point", _POINT_RE),
+            BoundaryLevel("subpoint_num", _SUBPOINT_NUM_RE, always_split=True),
+            BoundaryLevel("sentence", _SENTENCE_RE),
+        ]
+        result = split_by_content(self.DECREE_TEXT, levels, 100)
+        kinds = [u.unit_kind for u in result]
+        # With max_unit_chars=100, subpoints should be further split into sentences
+        assert "sentence" in kinds

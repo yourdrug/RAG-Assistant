@@ -36,6 +36,9 @@ def split_by_content(
     exceeds max_unit_chars, the next finer level is tried on that unit's text.
     The finest level (typically sentence) is the terminal fallback.
 
+    Levels with ``always_split=True`` are applied unconditionally regardless
+    of unit size (structural boundaries like numeric subpoints).
+
     min_chunk_chars: when > 0, units smaller than this are merged with their
     neighbor (same unit_kind, also small) to avoid tiny fragments like "(в ред.".
     Default is 0 (disabled) — enable explicitly in domain splitting paths.
@@ -50,7 +53,11 @@ def split_by_content(
 
 
 def _recursive_split(text: str, levels: list[BoundaryLevel], max_unit_chars: int) -> list[SplitUnit]:
-    """Recursively descend through boundary levels."""
+    """Recursively descend through boundary levels.
+
+    Levels with ``always_split=True`` are applied unconditionally.
+    Other levels are only applied when the unit exceeds ``max_unit_chars``.
+    """
     if not levels:
         return [SplitUnit(None, text.strip(), "raw")] if text.strip() else []
 
@@ -59,7 +66,13 @@ def _recursive_split(text: str, levels: list[BoundaryLevel], max_unit_chars: int
 
     result: list[SplitUnit] = []
     for unit in raw_units:
-        if len(unit.content) > max_unit_chars and rest:
+        should_descend = False
+        if rest:
+            if len(unit.content) > max_unit_chars:
+                should_descend = True
+            elif rest[0].always_split and rest[0].pattern.search(unit.content):
+                should_descend = True
+        if should_descend:
             result.extend(_recursive_split(unit.content, rest, max_unit_chars))
         else:
             result.append(unit)

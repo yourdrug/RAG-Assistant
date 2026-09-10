@@ -633,3 +633,35 @@ export interface IndexFromPreviewResponse {
   filename: string;
   status: string;
 }
+
+// Regulatory Act Versions — admin review
+export interface ActVersionReviewItem {
+  id: number;
+  act_id: number | null;
+  document_id: number;
+  document_filename: string;
+  effective_from: string | null;
+  effective_to: string | null;
+  is_current: boolean;
+  date_source: string;
+  date_confidence: number | null;
+}
+
+export interface ActSummary {
+  id: number;
+  act_type: string;
+  act_number: string | null;
+  title: string;
+}
+
+export interface ActVersionListResponse {
+  versions: ActVersionReviewItem[];
+  total: number;
+  acts: ActSummary[];
+}
+
+export interface ActVersionUpdateRequest {
+  effective_from?: string | null;
+  effective_to?: string | null;
+  act_id?: number | null;
+}

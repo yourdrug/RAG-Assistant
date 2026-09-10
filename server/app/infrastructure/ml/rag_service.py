@@ -79,6 +79,7 @@ from infrastructure.ml.rag import (
     extract_sources,
     filter_cited_sources,
     format_docs,
+    group_by_section,
     history_to_messages,
     is_out_of_domain,
     needs_decomposition,
@@ -716,7 +717,7 @@ class RagService:
                     )
                 else:
                     neighbors = await self._chunk_search.get_neighbors(
-                        document_id, chunk_index, window=1, exclude_hashes=existing_hashes
+                        document_id, chunk_index, window=3, exclude_hashes=existing_hashes
                     )
             except Exception:
                 log.warning(
@@ -960,6 +961,7 @@ class RagService:
         )
         reserved_for_system_and_history = 2000
         max_context_tokens = max(num_ctx - reserved_for_system_and_history, 1000)
+        docs = group_by_section(docs)
         context = format_docs(docs, max_context_tokens=max_context_tokens)
         messages = prompt.format_messages(context=context, history=history_messages, question=question)
 

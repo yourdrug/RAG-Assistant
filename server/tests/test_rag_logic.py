@@ -698,3 +698,122 @@ class TestPromptMetricsSync:
             f"is not matched by any substring in NOT_FOUND_PATTERNS: {NOT_FOUND_PATTERNS}. "
             "Add a matching substring to NOT_FOUND_PATTERNS in domain/value_objects/not_found_patterns.py."
         )
+
+
+# ---------------------------------------------------------------------------
+# group_by_section
+# ---------------------------------------------------------------------------
+
+
+class TestGroupBySection:
+    def _doc_with_section(self, content: str, heading: str = "", section: str = ""):
+        metadata = {"source": "a.pdf"}
+        if heading:
+            metadata["heading"] = heading
+        if section:
+            metadata["section"] = section
+        return SimpleNamespace(page_content=content, metadata=metadata)
+
+    def test_groups_same_section_together(self):
+        docs = [
+            (self._doc_with_section("gold rule", heading="21.1"), 0.8),
+            (self._doc_with_section("silver rule", heading="21.2"), 0.9),
+            (self._doc_with_section("gold rule cont", heading="21.1"), 0.7),
+        ]
+        result = rag.group_by_section(docs)
+        headings = [d.metadata.get("heading") for d, _ in result]
+        assert headings == ["21.2", "21.1", "21.1"]
+
+    def test_preserves_order_within_group_by_score(self):
+        docs = [
+            (self._doc_with_section("a", heading="21.1"), 0.5),
+            (self._doc_with_section("b", heading="21.1"), 0.9),
+            (self._doc_with_section("c", heading="21.1"), 0.7),
+        ]
+        result = rag.group_by_section(docs)
+        scores = [s for _, s in result]
+        assert scores == [0.9, 0.7, 0.5]
+
+    def test_empty_input(self):
+        assert rag.group_by_section([]) == []
+
+    def test_single_group(self):
+        docs = [
+            (self._doc_with_section("a", heading="21.1"), 0.5),
+            (self._doc_with_section("b", heading="21.1"), 0.9),
+        ]
+        result = rag.group_by_section(docs)
+        assert len(result) == 2
+        assert result[0][1] == 0.9
+
+    def test_no_section_metadata_uses_empty_string(self):
+        docs = [
+            (SimpleNamespace(page_content="x", metadata={"source": "a.pdf"}), 0.8),
+            (SimpleNamespace(page_content="y", metadata={"source": "a.pdf"}), 0.9),
+        ]
+        result = rag.group_by_section(docs)
+        assert len(result) == 2
+
+    def test_groups_sorted_by_max_score_descending(self):
+        docs = [
+            (self._doc_with_section("low", heading="section_b"), 0.3),
+            (self._doc_with_section("high", heading="section_a"), 0.9),
+            (self._doc_with_section("mid", heading="section_b"), 0.6),
+        ]
+        result = rag.group_by_section(docs)
+        assert result[0][0].metadata["heading"] == "section_a"
+        assert result[1][0].metadata["heading"] == "section_b"
+        assert result[2][0].metadata["heading"] == "section_b"
+
+
+# ---------------------------------------------------------------------------
+# rerank_documents -- section prefix
+# ---------------------------------------------------------------------------
+
+
+class TestRerankSectionPrefix:
+    @staticmethod
+    def _fake_reranker(scores):
+        return SimpleNamespace(predict=lambda pairs: scores)
+
+    def test_reranker_receives_section_in_prefix(self):
+        docs = [
+            SimpleNamespace(
+                page_content="gold rule",
+                metadata={"source": "a.pdf", "filename": "decree.pdf", "heading": "21.1"},
+            ),
+            SimpleNamespace(
+                page_content="silver rule",
+                metadata={"source": "a.pdf", "filename": "decree.pdf", "heading": "21.2"},
+            ),
+        ]
+        reranker = self._fake_reranker([0.5, 0.5])
+
+        captured_pairs = []
+
+        def capture_predict(pairs):
+            captured_pairs.extend(pairs)
+            return [0.5, 0.5]
+
+        reranker = SimpleNamespace(predict=capture_predict)
+        asyncio.run(rag.rerank_documents("query", docs, top_n=2, reranker=reranker))
+
+        assert len(captured_pairs) == 2
+        assert "(21.1)" in captured_pairs[0][1]
+        assert "(21.2)" in captured_pairs[1][1]
+        assert "gold rule" in captured_pairs[0][1]
+        assert "silver rule" in captured_pairs[1][1]
+
+    def test_reranker_works_without_section(self):
+        docs = [
+            SimpleNamespace(page_content="text", metadata={"source": "a.pdf"}),
+        ]
+        captured_pairs = []
+
+        def capture_predict(pairs):
+            captured_pairs.extend(pairs)
+            return [0.5]
+
+        reranker = SimpleNamespace(predict=capture_predict)
+        asyncio.run(rag.rerank_documents("q", docs, top_n=1, reranker=reranker))
+        assert "(decree.pdf)" not in captured_pairs[0][1]

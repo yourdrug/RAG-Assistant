@@ -58,6 +58,9 @@ const AdminQualityPage = lazy(() =>
 const DryRunResultPage = lazy(() =>
   import("@/pages/admin/dry-run/DryRunResultPage").then((m) => ({ default: m.DryRunResultPage })),
 );
+const AdminActVersionsPage = lazy(() =>
+  import("@/pages/admin/act-versions").then((m) => ({ default: m.AdminActVersionsPage })),
+);
 
 function AdminFallback() {
   return (
@@ -131,6 +134,14 @@ export default function App() {
                     element={
                       <Suspense fallback={<AdminFallback />}>
                         <AdminDocumentsPage />
+                      </Suspense>
+                    }
+                  />
+                  <Route
+                    path="act-versions"
+                    element={
+                      <Suspense fallback={<AdminFallback />}>
+                        <AdminActVersionsPage />
                       </Suspense>
                     }
                   />

@@ -35,9 +35,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/shared/ui/dialog";
+import { Input } from "@/shared/ui/input";
 import { Progress } from "@/shared/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
-import { Input } from "@/shared/ui/input";
 import { useAuthStore } from "@/stores/auth-store";
 
 export function DocumentsPage() {
