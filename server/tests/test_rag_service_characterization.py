@@ -243,7 +243,7 @@ class TestExtractSources:
 
 class TestBuildSystemPrompt:
     def test_broad_rule3_mentions_subpoints(self):
-        prompt = build_system_prompt(breadth=Breadth.BROAD)
+        prompt = build_system_prompt(breadth=Breadth.BROAD, enumerate_cases=True)
         assert "подпунктам" in prompt.lower() or "подпункт" in prompt.lower()
 
     def test_broad_rule3_enumerates_conditions(self):
@@ -258,23 +258,20 @@ class TestBuildSystemPrompt:
         prompt = build_system_prompt(breadth=Breadth.NARROW)
         assert "подпунктам" not in prompt.lower()
 
-    def test_legal_rules_appended(self):
+    def test_domain_addendum_appears(self):
         prompt = build_system_prompt(
             breadth=Breadth.NARROW,
-            has_legal_context=True,
-            domain_addendum=None,
+            domain_addendum="Обязательно указывай номер статьи/пункта.",
         )
         assert "статьи/пункта" in prompt
 
-    def test_domain_addendum_over_legal(self):
+    def test_domain_addendum_overrides_generic(self):
         prompt = build_system_prompt(
             breadth=Breadth.NARROW,
-            has_legal_context=True,
             domain_addendum="Custom domain rule.",
         )
         assert "Custom domain rule." in prompt
-        # Hardcoded legal rules should NOT be present when domain_addendum provided
-        assert "ОБЯЗАТЕЛЬНО указывай номер статьи/пункта" not in prompt
+        assert "domain_specific_rules" in prompt
 
     def test_context_placeholder_present(self):
         prompt = build_system_prompt(breadth=Breadth.NARROW)
@@ -282,7 +279,7 @@ class TestBuildSystemPrompt:
 
     def test_rule13_out_of_domain(self):
         prompt = build_system_prompt(breadth=Breadth.NARROW)
-        assert "ПРОГРАММИРОВАНИЯ" in prompt
+        assert "программирования" in prompt.lower()
 
 
 # ---------------------------------------------------------------------------

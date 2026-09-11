@@ -180,14 +180,14 @@ async def update_rolling_summary(llm, existing_summary: str | None, new_turns: l
 
 def build_prompt(
     breadth: str = "narrow",
-    has_legal_context: bool = False,
     summary: str | None = None,
     domain_addendum: str | None = None,
+    enumerate_cases: bool = False,
 ) -> ChatPromptTemplate:
     system_text = build_system_prompt(
         breadth,
-        has_legal_context=has_legal_context,
         domain_addendum=domain_addendum,
+        enumerate_cases=enumerate_cases,
     )
     messages: list = [
         ("system", system_text),
@@ -328,8 +328,6 @@ def format_docs(docs, max_context_tokens: int = 6000) -> str:  # noqa: C901
         content_type = doc.metadata.get("content_type")
         if content_type == PageContentType.TABLE.value:
             header += " (таблица)"
-        elif content_type == "list":
-            header += " (список)"
 
         if doc_date:
             header += f" от {doc_date}"
@@ -356,8 +354,9 @@ def format_docs(docs, max_context_tokens: int = 6000) -> str:  # noqa: C901
             )
             break
 
+        # Separator only between docs, not after the first one
+        total_chars += part_chars + (separator_len if parts else 0)
         parts.append(part_text)
-        total_chars += part_chars + separator_len
 
     return "\n\n---\n\n".join(parts)
 
@@ -671,8 +670,8 @@ def extract_sources(docs, min_score: float | None = None) -> list[dict]:
 
 RELEVANCE_SYSTEM = (
     "Оцени, достаточно ли предоставленного контекста для ответа на вопрос пользователя.\n"
-    "Отвечай СТРОКОЙ в формате: ДА или НЕТ\n"
-    "Если НЕТ — кратко укажи причину (1 предложение).\n"
+    "Если контекст достаточен — установи is_relevant=true.\n"
+    "Если контекст недостаточен — установи is_relevant=false и кратко укажи причину.\n"
     "Не отвечай на сам вопрос — только оцени достаточность контекста."
 )
 

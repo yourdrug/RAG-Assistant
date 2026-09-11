@@ -41,11 +41,11 @@ class SettingsBackedProfile:
 
 
 def extract_effective_date_generic(
-    text: str,
-    patterns: list[tuple[re.Pattern, float]],
-    fallback_pattern: re.Pattern,
-    fallback_confidence: float = 0.3,
-    fallback_window: int = 1500,
+        text: str,
+        patterns: list[tuple[re.Pattern, float]],
+        fallback_pattern: re.Pattern,
+        fallback_confidence: float = 0.3,
+        fallback_window: int = 1500,
 ) -> EffectiveDateCandidate | None:
     """Extract effective date using a list of (pattern, confidence) pairs.
 
@@ -63,11 +63,12 @@ def extract_effective_date_generic(
     return None
 
 
-def versioned_prompt_date_stamp(as_of_date: date | None, rule_number: int = 15) -> str:
-    """Generate the shared date-stamp rule for versioned domain prompt addenda."""
+def versioned_prompt_date_stamp(as_of_date: date | None) -> str:
+    """Generate the shared date-stamp bullet for versioned domain prompt addenda."""
+
     if as_of_date is None:
         return ""
     return (
-        f"{rule_number}. Ответ дан по состоянию на {as_of_date.strftime('%d.%m.%Y')}. "
+        f"- Ответ дан по состоянию на {as_of_date.strftime('%d.%m.%Y')}. "
         "Если подходят разные редакции — укажи, какая редакция использована.\n"
     )

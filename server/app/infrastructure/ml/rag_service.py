@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 import uuid
 from collections.abc import AsyncIterator
@@ -18,6 +19,7 @@ from typing import TYPE_CHECKING
 from application.dto.chat_dto import RagResult
 from config import settings
 from domain.services.rag_policy import (
+    SUFFICIENCY_ASSESSMENT_SYSTEM,
     classify_query_domain,
     has_exact_reference,
     should_enumerate_cases,
@@ -70,6 +72,7 @@ from infrastructure.metrics.metrics import (
     record_rag_answer,
 )
 from infrastructure.ml.rag import (
+    CHARS_PER_TOKEN,
     build_prompt,
     check_relevance,
     classify_question_breadth,
@@ -82,17 +85,26 @@ from infrastructure.ml.rag import (
     group_by_section,
     history_to_messages,
     is_out_of_domain,
-    needs_decomposition,
     rerank_documents,
 )
-from infrastructure.ml.llm_schemas import DecompositionCheck, SufficiencyAssessment
+from infrastructure.ml.llm_schemas import SufficiencyAssessment
 from shared import request_id_ctx
 
 
 def _is_not_found_answer(answer: str) -> bool:
-    """Return True if the LLM answer indicates information was not found."""
+    """Return True if the LLM answer indicates information was not found.
+
+    Uses strict matching against the canonical phrase from the system prompt.
+    Also detects answers that are too short to be substantive.
+    """
     lower = answer.lower().strip()
-    return any(p in lower for p in NOT_FOUND_PATTERNS)
+    # Exact canonical phrase from _CRITICAL_RULES_BLOCK
+    if "информация не найдена в документах" in lower:
+        return True
+    # Very short answers with no source citations are likely "not found"
+    if len(lower) < 50 and not re.search(r"\[\d+\]", answer):
+        return any(p in lower for p in NOT_FOUND_PATTERNS)
+    return False
 
 
 def _build_rag_settings() -> RagSettings:
@@ -473,56 +485,65 @@ class RagService:
             document_ids=doc_ids,
         )
 
-    async def _maybe_decompose(self, rag: RagSettings, query_for_search: str) -> None:
-        if rag.features.decomposition_enabled:
-            use_llm = settings.llm_provider == LLMProvider.OPENROUTER or True
-            if use_llm:
-                t0 = time.monotonic()
-                try:
-                    should_decompose, sub_queries = await self._llm_assess_decomposition(query_for_search)
-                    if should_decompose and len(sub_queries) >= 2:
-                        log.info("LLM decomposition: %r -> %s", query_for_search, sub_queries)
-                        RAG_DECOMPOSED_TOTAL.inc()
-                    else:
-                        log.info("LLM decomposition: not needed for %r", query_for_search)
-                except Exception as e:
-                    log.warning("LLM decomposition failed, falling back to regex: %s", e)
-                    if needs_decomposition(query_for_search):
-                        await decompose_question(self._ml.fast_llm(), query_for_search)
-                        RAG_DECOMPOSED_TOTAL.inc()
-                RAG_STAGE_DURATION.labels("decompose").observe(time.monotonic() - t0)
-            else:
-                if needs_decomposition(query_for_search):
-                    t0 = time.monotonic()
-                    await decompose_question(self._ml.fast_llm(), query_for_search)
-                    RAG_STAGE_DURATION.labels("decompose").observe(time.monotonic() - t0)
-                    RAG_DECOMPOSED_TOTAL.inc()
+    async def _decompose_and_retrieve(
+        self,
+        rag: RagSettings,
+        query_for_search: str,
+        fetch_k: int,
+        retrieval_filter,
+        breadth: Breadth,
+        query_domain: str,
+        effective_dense_weight: float,
+        effective_sparse_weight: float,
+    ) -> tuple[list[LCDocument], list[str]]:
+        """Decompose query, retrieve for each sub-query, merge and deduplicate.
 
-    async def _llm_assess_decomposition(self, question: str) -> tuple[bool, list[str]]:
-        """Use LLM to assess whether a query needs decomposition."""
-        from infrastructure.llm.instructor_client import create_llm_instructor_client
-
-        client, model = create_llm_instructor_client()
-
-        system_msg = (
-            "Оцени, является ли вопрос составным (содержит 2+ независимых подтемы).\n"
-            "Если да — разбей его на 2-4 независимых подвопроса.\n"
-            "Если нет — верни needs_decomposition=false."
-        )
-
-        async with self._ml.llm_semaphore:
-            result = await asyncio.to_thread(
-                lambda: client.chat.completions.create(
-                    model=model,
-                    messages=[
-                        {"role": "system", "content": system_msg},
-                        {"role": "user", "content": question},
-                    ],
-                    response_model=DecompositionCheck,
-                    max_retries=3,
-                )
+        Returns (merged_candidates, sub_queries).
+        If decomposition is disabled or fails, returns single-query retrieval.
+        """
+        if not rag.features.decomposition_enabled:
+            candidates = await self._run_retrieval(
+                query_for_search, fetch_k, retrieval_filter, rag,
+                breadth, query_domain, effective_dense_weight, effective_sparse_weight,
             )
-        return result.needs_decomposition, result.sub_queries
+            return candidates, [query_for_search]
+
+        t0 = time.monotonic()
+        try:
+            sub_queries = await decompose_question(self._ml.fast_llm(), query_for_search)
+        except Exception as e:
+            log.warning("Decomposition failed, falling back to single query: %s", e)
+            sub_queries = [query_for_search]
+
+        if len(sub_queries) < 2:
+            candidates = await self._run_retrieval(
+                query_for_search, fetch_k, retrieval_filter, rag,
+                breadth, query_domain, effective_dense_weight, effective_sparse_weight,
+            )
+            RAG_STAGE_DURATION.labels("decompose").observe(time.monotonic() - t0)
+            return candidates, sub_queries
+
+        retrieval_tasks = [
+            self._run_retrieval(
+                sq, fetch_k, retrieval_filter, rag,
+                breadth, query_domain, effective_dense_weight, effective_sparse_weight,
+            )
+            for sq in sub_queries
+        ]
+        all_candidates_lists = await asyncio.gather(*retrieval_tasks)
+
+        merged: list[LCDocument] = []
+        for candidates in all_candidates_lists:
+            merged.extend(candidates)
+        merged = deduplicate_docs(merged)
+
+        RAG_DECOMPOSED_TOTAL.inc()
+        RAG_STAGE_DURATION.labels("decompose").observe(time.monotonic() - t0)
+        log.info(
+            "Multi-query decomposition: %d sub-queries -> %d merged candidates (from %d total)",
+            len(sub_queries), len(merged), sum(len(c) for c in all_candidates_lists),
+        )
+        return merged, sub_queries
 
     async def _assess_sufficiency(
         self, question: str, docs: list, llm_client=None, model: str = ""
@@ -541,11 +562,6 @@ class RagService:
             llm_client, model = create_llm_instructor_client()
 
         context = format_docs(docs, max_context_tokens=2000)
-        system_msg = (
-            "Оцени, достаточно ли контекста для ответа на вопрос.\n"
-            "Если достаточно — is_sufficient=true.\n"
-            "Если нет — is_sufficient=false и предложи уточнённый поисковый запрос для retry."
-        )
         user_msg = f"Вопрос: {question}\n\nКонтекст:\n{context}"
 
         async with self._ml.llm_semaphore:
@@ -553,7 +569,7 @@ class RagService:
                 lambda: llm_client.chat.completions.create(
                     model=model,
                     messages=[
-                        {"role": "system", "content": system_msg},
+                        {"role": "system", "content": SUFFICIENCY_ASSESSMENT_SYSTEM},
                         {"role": "user", "content": user_msg},
                     ],
                     response_model=SufficiencyAssessment,
@@ -651,6 +667,7 @@ class RagService:
         self,
         docs: list[tuple[LCDocument, float]],
         enumerate_cases: bool,
+        max_context_tokens: int = 6000,
     ) -> list[tuple[LCDocument, float]]:
         """Add neighboring chunks from the same document for richer context.
 
@@ -658,6 +675,7 @@ class RagService:
         full visibility into conditional rules spread across chunk boundaries.
         Neighbor scores are inherited from the anchor (scaled by 0.9) so they
         don't distort the confidence calculation (which runs before this method).
+        Stops adding neighbors when estimated tokens exceed max_context_tokens.
         """
         if not self._chunk_search or not enumerate_cases:
             return docs
@@ -665,6 +683,9 @@ class RagService:
         # Filter out None hashes to prevent SQL IN (NULL) issues
         existing_hashes = {h for h in (doc.metadata.get("content_hash") for doc, _ in docs) if h is not None}
         new_docs: list[tuple[LCDocument, float]] = []
+        # Estimate current token count from existing docs
+        current_chars = sum(len(doc.page_content) for doc, _ in docs)
+        max_chars = max_context_tokens * CHARS_PER_TOKEN
 
         for doc, score in docs:
             chunk_index = doc.metadata.get("chunk_index")
@@ -694,6 +715,9 @@ class RagService:
 
             for n in neighbors:
                 if n.content_hash and n.content_hash not in existing_hashes:
+                    neighbor_chars = len(n.content)
+                    if current_chars + neighbor_chars > max_chars:
+                        break
                     neighbor_doc = LCDocument(
                         page_content=n.content,
                         metadata={
@@ -712,6 +736,7 @@ class RagService:
                     )
                     new_docs.append((neighbor_doc, score * 0.9))
                     existing_hashes.add(n.content_hash)
+                    current_chars += neighbor_chars
 
         return docs + new_docs
 
@@ -771,7 +796,6 @@ class RagService:
             return
 
         # ── Step 4: Query decomposition + breadth resolution ────────────
-        await self._maybe_decompose(rag, query_for_search)
         breadth = self._resolve_breadth(ctx, query_for_search)
         yield StatusEvent(stage="searching")
         fetch_k, _ = self._resolve_fetch_top_k(rag, breadth)
@@ -784,16 +808,10 @@ class RagService:
         )
         query_domain = classify_query_domain(query_for_search)
 
-        # ── Step 6: Hybrid retrieval ────────────────────────────────────
-        candidates = await self._run_retrieval(
-            query_for_search,
-            fetch_k,
-            retrieval_filter,
-            rag,
-            breadth,
-            query_domain,
-            effective_dense_weight,
-            effective_sparse_weight,
+        # ── Step 6: Hybrid retrieval (with optional decomposition) ─────
+        candidates, sub_queries = await self._decompose_and_retrieve(
+            rag, query_for_search, fetch_k, retrieval_filter,
+            breadth, query_domain, effective_dense_weight, effective_sparse_weight,
         )
 
         # ── Step 7: Exact-search integration ────────────────────────────
@@ -820,7 +838,7 @@ class RagService:
         RAG_STAGE_DURATION.labels("rerank").observe(time.monotonic() - t0)
 
         if ctx.as_of_date is not None:
-            self._check_temporal_version_conflicts(docs)
+            docs = self._resolve_temporal_conflicts(docs)
 
         docs = await self._post_rerank_adjustments(
             docs,
@@ -844,8 +862,19 @@ class RagService:
 
         avg_sim = sum(s for _, s in docs) / len(docs) if docs else 0.0
 
+        # Compute context budget before enrichment so neighbors respect it
+        effective_breadth = Breadth.BROAD if enumerate_cases else breadth
+        num_ctx = (
+            settings.llm_num_ctx_broad if effective_breadth == Breadth.BROAD else settings.llm_num_ctx_narrow
+        )
+        history_chars = sum(len(m.content) for m in history_messages)
+        question_chars = len(question)
+        reserved_chars = history_chars + question_chars + 3000  # system + response margin
+        reserved_for_system_and_history = max(reserved_chars // CHARS_PER_TOKEN, 1500)
+        max_context_tokens = max(num_ctx - reserved_for_system_and_history, 1000)
+
         # Enrich with neighboring chunks for conditional-question cases
-        docs = await self._enrich_with_neighbors(docs, enumerate_cases)
+        docs = await self._enrich_with_neighbors(docs, enumerate_cases, max_context_tokens)
 
         # ── Step 9: Self-RAG relevance gate + retry loop ────────────────
         MAX_SELF_RAG_RETRIES = 1
@@ -909,21 +938,18 @@ class RagService:
             return
 
         # ── Step 10: Prompt building + LLM generation ───────────────────
-        # Override breadth to BROAD when enumerate_cases to get the detailed prompt
-        effective_breadth = Breadth.BROAD if enumerate_cases else breadth
-        has_legal_context = any((doc.metadata.get("doc_domain") == DocDomain.LEGAL.value) for doc, _ in docs)
         domain_addendum = self._domain_prompt_addendum(query_domain, ctx, effective_breadth)
         prompt = build_prompt(
             effective_breadth,
-            has_legal_context=has_legal_context,
             summary=ctx.summary,
             domain_addendum=domain_addendum,
+            enumerate_cases=enumerate_cases,
         )
 
-        num_ctx = (
-            settings.llm_num_ctx_broad if effective_breadth == Breadth.BROAD else settings.llm_num_ctx_narrow
-        )
-        reserved_for_system_and_history = 2000
+        # Refine budget with actual system prompt length
+        system_text = prompt.messages[0].content if prompt.messages else ""
+        reserved_chars = len(system_text) + history_chars + question_chars + 1000
+        reserved_for_system_and_history = max(reserved_chars // CHARS_PER_TOKEN, 1500)
         max_context_tokens = max(num_ctx - reserved_for_system_and_history, 1000)
         docs = group_by_section(docs)
         context = format_docs(docs, max_context_tokens=max_context_tokens)
@@ -1015,23 +1041,42 @@ class RagService:
         )
 
     @staticmethod
-    def _check_temporal_version_conflicts(docs: list) -> None:
-        """Detect several act versions of the same act among retrieved docs."""
-        versions_by_act: dict[int, set[int]] = {}
-        for doc, _score in docs:
+    def _resolve_temporal_conflicts(docs: list) -> list:
+        """Resolve temporal version conflicts by keeping only the latest version per act.
+
+        When multiple versions of the same act pass the temporal filter (overlapping
+        effective dates), keeps only the version with the most recent effective_from.
+        Non-versioned docs (no act_id) pass through unchanged.
+        """
+        from datetime import date as _date
+
+        versions_by_act: dict[int, list[tuple]] = {}
+        non_versioned: list[tuple] = []
+
+        for doc, score in docs:
             act_id = doc.metadata.get("act_id")
             act_version_id = doc.metadata.get("act_version_id")
             if act_id is None or act_version_id is None:
+                non_versioned.append((doc, score))
                 continue
-            versions_by_act.setdefault(act_id, set()).add(act_version_id)
-        conflicts = {act_id: vs for act_id, vs in versions_by_act.items() if len(vs) > 1}
-        if conflicts:
+            effective_from = doc.metadata.get("effective_from") or _date.min
+            versions_by_act.setdefault(act_id, []).append((doc, score, effective_from))
+
+        resolved = list(non_versioned)
+        for act_id, versions in versions_by_act.items():
+            if len(versions) == 1:
+                resolved.append(versions[0][:2])
+                continue
+            best = max(versions, key=lambda x: x[2])
+            resolved.append(best[:2])
+            dropped = len(versions) - 1
             RAG_TEMPORAL_VERSION_CONFLICT_TOTAL.inc()
             log.warning(
-                "Temporal version conflict: multiple act versions valid for the same act: %s — "
-                "requires manual review of effective dates",
-                {k: sorted(v) for k, v in conflicts.items()},
+                "Temporal conflict act_id=%d: kept version with effective_from=%s, dropped %d older versions",
+                act_id, best[2], dropped,
             )
+
+        return resolved
 
     async def invoke(
         self,

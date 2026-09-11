@@ -316,14 +316,17 @@ class TestBuildSystemPrompt:
         prompt = build_system_prompt()
         assert "КРАТКО" in prompt
 
-    def test_legal_context_appended(self):
-        prompt = build_system_prompt(Breadth.NARROW, has_legal_context=True)
-        assert "ЮРИДИЧЕСКОГО КОНТЕКСТА" in prompt
+    def test_domain_addendum_appears(self):
+        prompt = build_system_prompt(
+            Breadth.NARROW,
+            domain_addendum="Обязательно указывай номер статьи/пункта.",
+        )
+        assert "domain_specific_rules" in prompt
         assert "статьи/пункта" in prompt
 
-    def test_no_legal_context(self):
-        prompt = build_system_prompt(Breadth.NARROW, has_legal_context=False)
-        assert "ЮРИДИЧЕСКОГО КОНТЕКСТА" not in prompt
+    def test_no_domain_addendum(self):
+        prompt = build_system_prompt(Breadth.NARROW)
+        assert "domain_specific_rules" not in prompt
 
 
 # ===========================================================================

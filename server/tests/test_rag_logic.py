@@ -407,12 +407,21 @@ class TestShouldEnumerateCases:
         ]
         assert should_enumerate_cases("Сколько опробовать?", ctx) is True
 
-    def test_one_conditional_chunk_returns_true(self):
+    def test_one_conditional_chunk_returns_false(self):
         from domain.services.rag_policy import should_enumerate_cases
 
         ctx = [
             "Для золотых изделий: не менее 30%, но не менее 100 штук.",
             "Общее требование: проверка обязательна.",
+        ]
+        assert should_enumerate_cases("Сколько опробовать?", ctx) is False
+
+    def test_two_chunks_with_markers_returns_true(self):
+        from domain.services.rag_policy import should_enumerate_cases
+
+        ctx = [
+            "Для золотых изделий: не менее 30%, но не менее 100 штук.",
+            "Для серебряных: за исключением случаев менее 50 штук.",
         ]
         assert should_enumerate_cases("Сколько опробовать?", ctx) is True
 
@@ -685,16 +694,16 @@ class TestPromptMetricsSync:
     def test_not_found_phrase_covered_by_metrics_patterns(self):
         import re
 
-        from domain.services.rag_policy import SYSTEM_PROMPT
+        from domain.services.rag_policy import _CRITICAL_RULES_BLOCK
         from domain.value_objects.not_found_patterns import NOT_FOUND_PATTERNS
 
-        match = re.search(r'ответь ТОЛЬКО: "(.+?)" и ничего больше\.', SYSTEM_PROMPT)
-        assert match, "SYSTEM_PROMPT rule 2 must contain the quoted not-found phrase"
+        match = re.search(r'ответь ровно:\s*\n\s*"(.+?)"', _CRITICAL_RULES_BLOCK)
+        assert match, "_CRITICAL_RULES_BLOCK must contain the quoted not-found phrase"
         phrase = match.group(1)
         lower_phrase = phrase.lower()
         covered = any(p in lower_phrase for p in NOT_FOUND_PATTERNS)
         assert covered, (
-            f"The canonical not-found phrase '{phrase}' from SYSTEM_PROMPT "
+            f"The canonical not-found phrase '{phrase}' from _CRITICAL_RULES_BLOCK "
             f"is not matched by any substring in NOT_FOUND_PATTERNS: {NOT_FOUND_PATTERNS}. "
             "Add a matching substring to NOT_FOUND_PATTERNS in domain/value_objects/not_found_patterns.py."
         )

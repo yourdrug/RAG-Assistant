@@ -162,15 +162,18 @@ class TestShouldEnumerateCases:
         assert should_enumerate_cases("вопрос", texts) is True
 
     def test_exception_marker(self):
-        texts = ["За исключением случаев force majeure", "Общий порядок действует"]
+        texts = [
+            "За исключением случаев force majeure",
+            "При условии соответствия выдаётся сертификат",
+        ]
         assert should_enumerate_cases("вопрос", texts) is True
 
     def test_none_entries_in_context(self):
-        texts = [None, "В случае нарушения штраф"]
+        texts = [None, "В случае нарушения штраф", "При условии оплаты"]
         assert should_enumerate_cases("вопрос", texts) is True
 
     def test_empty_string_entries(self):
-        texts = ["", "В случае нарушения штраф"]
+        texts = ["", "В случае нарушения штраф", "При условии оплаты"]
         assert should_enumerate_cases("вопрос", texts) is True
 
 
@@ -299,33 +302,32 @@ class TestBuildSystemPrompt:
         assert "КРАТКО" in prompt
 
     def test_broad_prompt_detailed(self):
-        prompt = build_system_prompt(breadth=Breadth.BROAD)
+        prompt = build_system_prompt(breadth=Breadth.BROAD, enumerate_cases=True)
         assert "подпунктам" in prompt.lower() or "ПОДПУНКТАМ" in prompt
 
-    def test_legal_rules_added_when_legal_context(self):
-        prompt = build_system_prompt(breadth=Breadth.NARROW, has_legal_context=True)
-        assert "ЮРИДИЧЕСКОГО КОНТЕКСТА" in prompt
+    def test_broad_prompt_without_enumerate(self):
+        prompt = build_system_prompt(breadth=Breadth.BROAD, enumerate_cases=False)
+        assert "conditional_rules_expansion" not in prompt
 
-    def test_legal_rules_not_added_without_legal_context(self):
-        prompt = build_system_prompt(breadth=Breadth.NARROW, has_legal_context=False)
-        assert "ЮРИДИЧЕСКОГО КОНТЕКСТА" not in prompt
-
-    def test_domain_addendum_overrides_legal_rules(self):
+    def test_domain_addendum_appears_in_prompt(self):
         prompt = build_system_prompt(
             breadth=Breadth.NARROW,
-            has_legal_context=True,
+            domain_addendum="Обязательно указывай номер статьи/пункта.",
+        )
+        assert "domain_specific_rules" in prompt
+        assert "Обязательно указывай номер статьи/пункта." in prompt
+
+    def test_no_domain_addendum_no_domain_block(self):
+        prompt = build_system_prompt(breadth=Breadth.NARROW)
+        assert "domain_specific_rules" not in prompt
+
+    def test_domain_addendum_overrides_generic_rules(self):
+        prompt = build_system_prompt(
+            breadth=Breadth.NARROW,
             domain_addendum="Дополнительное правило домена",
         )
-        assert "ДОПОЛНИТЕЛЬНЫЕ ПРАВИЛА ДОМЕНА" in prompt
-        assert "ЮРИДИЧЕСКОГО КОНТЕКСТА" not in prompt
-
-    def test_domain_addendum_without_legal_context(self):
-        prompt = build_system_prompt(
-            breadth=Breadth.NARROW,
-            has_legal_context=False,
-            domain_addendum="Правило домена",
-        )
-        assert "ДОПОЛНИТЕЛЬНЫЕ ПРАВИЛА ДОМЕНА" in prompt
+        assert "Дополнительное правило домена" in prompt
+        assert "domain_specific_rules" in prompt
 
     def test_not_found_phrase_in_prompt(self):
         prompt = build_system_prompt()
