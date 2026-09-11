@@ -61,9 +61,6 @@ _BY_PASSPORT_RE = re.compile(r"(?<![A-Za-zА-Яа-яЁё])" r"[A-ZА-ЯЁ]{2}\d{
 # Belarusian ID card number (14 digits)
 _BY_ID_CARD_RE = re.compile(r"(?<!\d)" r"(?:ID[-\s]?карт[ауы]?[:\s]?)?\d{14}" r"(?!\d)")
 
-# Belarusian ОГРН (13 digits)
-_BY_OGRN_RE = re.compile(r"(?<!\d)" r"(?:ОГРН[:\s]?)?\d{13}" r"(?!\d)")
-
 
 # All patterns: universal + country-specific
 ALL_PATTERNS: list[tuple[str, re.Pattern]] = [

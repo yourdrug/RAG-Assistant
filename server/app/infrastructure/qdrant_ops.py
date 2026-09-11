@@ -100,7 +100,7 @@ def ensure_collection(client, vector_size: int, reset: bool = False) -> None:
 
 
 def _ensure_payload_indexes(client) -> None:
-    """Create payload indexes on ACL fields for efficient filtered search."""
+    """Create payload indexes on ACL and content fields for efficient filtered search."""
     acl_fields = [
         ("metadata.visibility", PayloadSchemaType.KEYWORD),
         ("metadata.owner_id", PayloadSchemaType.INTEGER),
@@ -108,6 +108,9 @@ def _ensure_payload_indexes(client) -> None:
         ("metadata.doc_domain", PayloadSchemaType.KEYWORD),
         ("metadata.document_id", PayloadSchemaType.INTEGER),
         ("metadata.content_hash", PayloadSchemaType.KEYWORD),
+        ("metadata.content_type", PayloadSchemaType.KEYWORD),
+        ("metadata.doc_type", PayloadSchemaType.KEYWORD),
+        ("metadata.has_dates", PayloadSchemaType.BOOL),
     ]
     for field_name, field_type in acl_fields:
         try:

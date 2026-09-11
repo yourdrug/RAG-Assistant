@@ -18,7 +18,6 @@ import httpx
 log = logging.getLogger("default")
 
 TEI_TIMEOUT = 600.0
-RERANK_BATCH_SIZE = 8
 
 
 class TEIEmbeddingsClient:

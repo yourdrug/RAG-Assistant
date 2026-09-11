@@ -18,25 +18,6 @@ logger = logging.getLogger("default")
 
 
 # ---------------------------------------------------------------------------
-# Generic list-response builder
-# ---------------------------------------------------------------------------
-
-
-def build_list_response(
-    items: list[Any],
-    total: int,
-    *,
-    container_key: str,
-) -> dict:
-    """Return ``{container_key: [...], "total": total}`` as a plain dict.
-
-    Works with any Pydantic response model that follows the
-    ``{items_key: [...], "total": int}`` convention.
-    """
-    return {container_key: items, "total": total}
-
-
-# ---------------------------------------------------------------------------
 # Source filtering helper (strip internal metadata keys)
 # ---------------------------------------------------------------------------
 

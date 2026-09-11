@@ -123,26 +123,11 @@ class MLClientRegistry:
         self._fast_llm = None
         log.info("MLClientRegistry: LLM cache invalidated")
 
-    def invalidate_embeddings(self) -> None:
-        """Clear cached embeddings model."""
-        self._embeddings = None
-        log.info("MLClientRegistry: embeddings cache invalidated")
-
     def invalidate_bm25(self) -> None:
         """Clear cached BM25 index (reload from disk on next access)."""
         self._bm25_index = None
         self._bm25_loaded = False
         log.info("MLClientRegistry: BM25 index cache invalidated")
-
-    def invalidate_reranker(self) -> None:
-        """Clear cached reranker model."""
-        self._reranker = None
-        log.info("MLClientRegistry: reranker cache invalidated")
-
-    def invalidate_qdrant(self) -> None:
-        """Clear cached Qdrant client."""
-        self._qdrant_client = None
-        log.info("MLClientRegistry: Qdrant client cache invalidated")
 
     # ------------------------------------------------------------------
     # Lifecycle

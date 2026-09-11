@@ -7,7 +7,6 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from domain.value_objects.doc_domain import DocDomain
-from domain.value_objects.roles import UserKind, UserRole
 from domain.value_objects.source_type import SourceType
 
 if TYPE_CHECKING:
@@ -69,18 +68,6 @@ class DocumentDTO:
             status=doc.status,
             **defaults,  # type: ignore[arg-type]
         )
-
-
-@dataclass(frozen=True)
-class UploadDocumentCommand:
-    filename: str
-    file_data: bytes
-    visibility: str
-    group_id: int | None = None
-    user_id: int | None = None
-    user_kind: str = UserKind.INTERNAL
-    user_role: str = UserRole.USER
-    doc_domain: str | None = None
 
 
 @dataclass(frozen=True)

@@ -97,14 +97,6 @@ class IngestionService:
         self._domain_settings = domain_settings
         self._act_versioning_service = act_versioning_service
 
-    async def _registry_get(self, filename: str):
-        if self._uow_factory is None:
-            return None
-
-        async with self._uow_factory.create(master=True) as uow:
-            repo = SQLAlchemyIngestionRegistryRepository(uow._session)
-            return await repo.get(filename)
-
     async def _registry_upsert(
         self,
         filename: str,

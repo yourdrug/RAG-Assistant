@@ -127,23 +127,6 @@ class DocumentService:
         ):
             raise BusinessRuleViolation("This document is already being processed")
 
-    async def _resolve_conflict_filename(
-        self,
-        uow,
-        existing,
-        owner_id: int | None,
-        group_id: int | None,
-        filename: str,
-        rename_on_conflict: bool,
-        versioned_domain: bool,
-    ) -> str:
-        """Return the (possibly unique-renamed) filename if a conflict exists."""
-        if not existing or existing.status not in (DocumentStatus.DONE, DocumentStatus.FAILED):
-            return filename
-        if rename_on_conflict or versioned_domain:
-            return await resolve_unique_filename(uow.documents, owner_id, group_id, filename)
-        return filename
-
     async def upload(  # noqa: C901
         self,
         filename: str,

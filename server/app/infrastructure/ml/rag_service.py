@@ -130,42 +130,6 @@ def _build_rag_settings() -> RagSettings:
 log = logging.getLogger("default")
 
 
-async def _resolve_hash_to_doc(h: str, access_filter, ml_clients: MLClientRegistry) -> LCDocument | None:
-    """Retrieve a document from Qdrant by its content_hash.
-
-    The BM25 index is global, so a sparse hit may belong to a chunk outside
-    the caller's visibility scope. The ACL filter is combined with the hash
-    condition so that foreign chunks can never be resolved.
-    """
-    client = ml_clients.qdrant_client()
-
-    must_conditions: list = [
-        FieldCondition(
-            key="metadata.content_hash",
-            match=MatchValue(value=h),
-        )
-    ]
-    if access_filter is not None and access_filter.should:
-        must_conditions.append(access_filter)
-
-    results = await asyncio.to_thread(
-        client.scroll,
-        collection_name=settings.collection_name,
-        scroll_filter=Filter(must=must_conditions),
-        limit=1,
-        with_payload=True,
-    )
-
-    points = results[0] if isinstance(results, tuple) else results
-    if not points:
-        return None
-
-    payload = points[0].payload or {}
-    page_content = payload.get("page_content", "")
-    metadata = payload.get("metadata", {})
-    return LCDocument(page_content=page_content, metadata=metadata)
-
-
 async def _resolve_hashes_batch(
     hashes: list[str],
     access_filter,

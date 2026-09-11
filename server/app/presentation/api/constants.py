@@ -11,13 +11,6 @@ from enum import StrEnum
 
 
 # ---------------------------------------------------------------------------
-# Auth scheme names
-# ---------------------------------------------------------------------------
-AUTH_SCHEME_BEARER = "bearer"
-AUTH_SCHEME_API_KEY = "api-key"
-
-
-# ---------------------------------------------------------------------------
 # Job types (must match worker task names)
 # ---------------------------------------------------------------------------
 class JobType(StrEnum):
@@ -31,7 +24,6 @@ class JobType(StrEnum):
 # Pagination defaults and limits
 # ---------------------------------------------------------------------------
 DEFAULT_PAGE_LIMIT = 50
-MIN_PAGE_LIMIT = 1
 MAX_PAGE_LIMIT = 200
 MAX_PAGE_LIMIT_LARGE = 500
 DEFAULT_PAGE_OFFSET = 0
@@ -56,7 +48,6 @@ SSE_HEARTBEAT = ": heartbeat\n\n"
 # ---------------------------------------------------------------------------
 QUESTION_LOG_MAX_CHARS = 100
 PAGE_PREVIEW_MAX_CHARS = 200
-FULL_TEXT_PREVIEW_MAX_CHARS = 2000
 
 
 # ---------------------------------------------------------------------------

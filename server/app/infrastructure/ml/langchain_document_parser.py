@@ -144,7 +144,8 @@ class LangchainDocumentParser:
             title = _extract_md_title(file_path)
             if title:
                 page_meta["doc_title"] = title
-            docs = self._sections_to_documents(parse_markdown_sections(file_path), file_path, page_meta or None)
+            md_sections = parse_markdown_sections(file_path)
+            docs = self._sections_to_documents(md_sections, file_path, page_meta or None)
             return self._apply_doc_level_fallbacks(docs, file_path)
 
         if ext in (".docx", ".doc"):
@@ -175,7 +176,7 @@ class LangchainDocumentParser:
 
     @staticmethod
     def _apply_doc_level_fallbacks(docs: list[RawDocument], file_path: Path) -> list[RawDocument]:
-        """Fill in doc_title (filename fallback) and doc_type across every chunk.
+        r"""Fill in doc_title (filename fallback) and doc_type across every chunk.
 
         Runs after format-specific parsing so a richer title already set by
         a parser (docx core properties, PDF info dict, md's first heading,
@@ -284,7 +285,7 @@ class LangchainDocumentParser:
         return docs
 
     @staticmethod
-    def _sections_to_documents(
+    def _sections_to_documents(  # noqa: C901
             sections: list[tuple[str | None, str]],
             file_path: Path,
             page_meta: dict | None = None,
@@ -378,4 +379,3 @@ class LangchainDocumentSplitter:
             return self._domain_registry.get(domain)
         except KeyError:
             return None
-       

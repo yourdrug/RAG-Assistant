@@ -676,13 +676,6 @@ RELEVANCE_SYSTEM = (
     "Не отвечай на сам вопрос — только оцени достаточность контекста."
 )
 
-RELEVANCE_PROMPT = ChatPromptTemplate.from_messages(
-    [
-        ("system", RELEVANCE_SYSTEM),
-        ("human", "Вопрос: {question}\n\nКонтекст из документов:\n{context}"),
-    ]
-)
-
 
 def _get_rag_instructor_client():
     """Create instructor client for relevance checks (Ollama or OpenRouter)."""

@@ -39,24 +39,6 @@ def _extract_images_without_alt(docx_path: Path) -> list[bytes]:
     return images
 
 
-def _has_images_without_text(docx_path: Path) -> list[bytes]:
-    """Check for paragraphs with drawings but no text content."""
-    from docx.oxml.ns import qn
-
-    doc = DocxDocumentWrapper(docx_path)
-    image_blobs: list[bytes] = []
-
-    for p in doc.paragraphs:
-        has_text = bool(p.text.strip())
-        has_drawing = bool(p._element.findall(f".//{qn('w:drawing')}"))
-        if has_drawing and not has_text:
-            blob = _extract_first_image_from_paragraph(p, doc)
-            if blob is not None:
-                image_blobs.append(blob)
-
-    return image_blobs
-
-
 class DocxDocumentWrapper:
     """Thin wrapper around python-docx Document for reuse."""
 

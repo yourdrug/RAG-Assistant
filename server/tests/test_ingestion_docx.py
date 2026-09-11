@@ -729,7 +729,8 @@ class TestParseDocxSections:
         _add_table(doc, [["A", "B"], ["1", "2"]])
         path = _save(doc, tmp_path)
         sections = parse_docx_sections(path)
-        table_sections = [(h, c) for h, c in sections if h is None and "\x00TABLE:" in c]
+        # With interleaving, table appears under the "Intro" heading
+        table_sections = [(h, c) for h, c in sections if "\x00TABLE:" in c]
         assert len(table_sections) >= 1
         assert "| A | B |" in table_sections[0][1]
 

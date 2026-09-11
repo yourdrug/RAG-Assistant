@@ -78,7 +78,7 @@ def _order_blocks_columnwise(blocks: list, page_width: float) -> list[str]:
     gap_threshold = (page_width or 1.0) * _COLUMN_GAP_RATIO
     xs = sorted(b[0] for b in blocks)
     boundaries = [xs[0]]
-    for prev, cur in zip(xs, xs[1:]):
+    for prev, cur in zip(xs, xs[1:], strict=False):
         if cur - prev > gap_threshold:
             boundaries.append(cur)
 
@@ -247,7 +247,7 @@ def _filter_boilerplate_blocks(blocks: list, boilerplate: set[str]) -> list:
 
 
 def _extract_doc_metadata(doc) -> dict:
-    """Pull PDF document-info metadata (title/author/subject) if present.
+    """Pull PDF document-info metadata (title/author/subject/keywords) if present.
 
     PyMuPDF exposes this as doc.metadata — a plain dict with string values,
     often empty strings when the producer didn't set them. Only non-empty
@@ -261,10 +261,28 @@ def _extract_doc_metadata(doc) -> dict:
         result["doc_author"] = meta["author"]
     if meta.get("subject"):
         result["doc_subject"] = meta["subject"]
+    if meta.get("keywords"):
+        result["doc_keywords"] = meta["keywords"]
+    result["page_count"] = len(doc)
     return result
 
 
-def parse_pdf(file_path: Path) -> list[Document]:
+def _compute_text_quality(page) -> float:
+    """Estimate text extraction quality as ratio of text chars to page area."""
+    try:
+        page_area = page.rect.width * page.rect.height
+        if page_area <= 0:
+            return 0.0
+        text = page.get_text("text")
+        char_count = len(text.strip())
+        # Rough heuristic: ~0.02 chars per pixel is a "full" page of text
+        expected_chars = page_area * 0.02
+        return min(1.0, char_count / expected_chars) if expected_chars > 0 else 0.0
+    except Exception:
+        return 0.0
+
+
+def parse_pdf(file_path: Path) -> list[Document]:  # noqa: C901
     doc = fitz.open(str(file_path))
     n_pages = len(doc)
     doc_metadata = _extract_doc_metadata(doc)
@@ -279,10 +297,19 @@ def parse_pdf(file_path: Path) -> list[Document]:
     pages = []
     ocr_pages_needed = []
     text_to_compare: dict[int, str] = {}
+    ocr_page_set: set[int] = set()
 
     for page_num in range(1, n_pages + 1):
         page = doc.load_page(page_num - 1)
         header, body, footer = classified[page_num - 1]
+
+        # Per-page image metadata
+        image_list = page.get_images(full=True)
+        has_images = bool(image_list)
+        image_count = len(image_list)
+
+        # Per-page text quality score
+        text_quality = _compute_text_quality(page)
 
         table_docs = _extract_page_tables(page, file_path, page_num)
         pages.extend(table_docs)
@@ -294,14 +321,22 @@ def parse_pdf(file_path: Path) -> list[Document]:
         body_lines = _order_blocks_columnwise(body, page.rect.width)
         text = "\n".join(header_lines + body_lines + footer_lines)
 
+        page_meta = {
+            "has_images": has_images,
+            "image_count": image_count,
+            "text_quality": round(text_quality, 3),
+        }
+
         min_chars = settings.ocr_min_chars
         if _should_ocr(text, min_chars, settings.ocr_enabled):
             ocr_pages_needed.append(page_num)
+            ocr_page_set.add(page_num)
             if text:
                 text_to_compare[page_num] = text
         else:
             text_doc = _process_page_text(text, bool(table_docs), page_num, file_path)
             if text_doc:
+                text_doc.metadata.update(page_meta)
                 pages.append(text_doc)
 
     # --- Batch OCR ---
@@ -310,12 +345,24 @@ def parse_pdf(file_path: Path) -> list[Document]:
         for page_num, ocr_text in ocr_results.items():
             ocr_doc = _process_ocr_result(page_num, ocr_text, text_to_compare, file_path)
             if ocr_doc:
+                ocr_doc.metadata["has_images"] = True  # OCR pages are image-heavy by definition
+                ocr_doc.metadata["image_count"] = len(
+                    doc.load_page(page_num - 1).get_images(full=True)
+                )
+                ocr_doc.metadata["text_quality"] = 0.0  # scanned = no native text
                 pages.append(ocr_doc)
+
+    # is_scanned: True if all pages needed OCR (or the majority did)
+    is_scanned = len(ocr_page_set) >= n_pages * 0.8 if n_pages > 0 else False
 
     doc.close()
 
     if doc_metadata:
         for p in pages:
             p.metadata.update(doc_metadata)
+
+    if is_scanned:
+        for p in pages:
+            p.metadata["is_scanned"] = True
 
     return pages

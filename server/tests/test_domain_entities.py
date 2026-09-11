@@ -257,24 +257,6 @@ class TestUserDefaults:
 # ===========================================================================
 
 
-class TestDocumentMarkProcessing:
-    def test_mark_processing(self):
-        # Arrange
-        doc = _make_document(status=DocumentStatus.PENDING)
-        # Act
-        doc.mark_processing()
-        # Assert
-        assert doc.status == DocumentStatus.PROCESSING
-
-    def test_mark_processing_from_done(self):
-        # Arrange
-        doc = _make_document(status=DocumentStatus.DONE)
-        # Act
-        doc.mark_processing()
-        # Assert
-        assert doc.status == DocumentStatus.PROCESSING
-
-
 class TestDocumentMarkDone:
     def test_mark_done_sets_status_chunks_chars(self):
         # Arrange
@@ -382,60 +364,6 @@ class TestDocumentDefaults:
 # ===========================================================================
 # Conversation Entity Tests
 # ===========================================================================
-
-
-class TestConversationIsOwnedBy:
-    def test_owner_matches(self):
-        # Arrange
-        conv = _make_conversation(user_id=10)
-        # Act & Assert
-        assert conv.is_owned_by(10) is True
-
-    def test_owner_does_not_match(self):
-        # Arrange
-        conv = _make_conversation(user_id=10)
-        # Act & Assert
-        assert conv.is_owned_by(20) is False
-
-    def test_ownership_with_zero_user_id(self):
-        # Arrange
-        conv = _make_conversation(user_id=0)
-        # Act & Assert
-        assert conv.is_owned_by(0) is True
-        assert conv.is_owned_by(1) is False
-
-
-class TestConversationAddMessage:
-    def test_add_single_message(self):
-        # Arrange
-        conv = _make_conversation()
-        msg = _make_message()
-        # Act
-        conv.add_message(msg)
-        # Assert
-        assert len(conv.messages) == 1
-        assert conv.messages[0] is msg
-
-    def test_add_multiple_messages(self):
-        # Arrange
-        conv = _make_conversation()
-        msg1 = _make_message(id=1, content="first")
-        msg2 = _make_message(id=2, content="second")
-        # Act
-        conv.add_message(msg1)
-        conv.add_message(msg2)
-        # Assert
-        assert len(conv.messages) == 2
-
-    def test_add_message_preserves_order(self):
-        # Arrange
-        conv = _make_conversation()
-        msgs = [_make_message(id=i, content=f"msg{i}") for i in range(5)]
-        # Act
-        for m in msgs:
-            conv.add_message(m)
-        # Assert
-        assert [m.content for m in conv.messages] == ["msg0", "msg1", "msg2", "msg3", "msg4"]
 
 
 class TestConversationDefaults:

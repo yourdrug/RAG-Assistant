@@ -45,7 +45,7 @@ def _paragraph_full_text(paragraph) -> str:
     return "".join(parts)
 
 
-def _get_numbering_formats(doc) -> dict[tuple[str, int], str]:
+def _get_numbering_formats(doc) -> dict[tuple[str, int], str]:  # noqa: C901
     """Map (numId, ilvl) -> numFmt ('bullet', 'decimal', 'lowerLetter', ...).
 
     Resolved from the document's numbering part (numId -> abstractNumId ->
@@ -241,6 +241,8 @@ def _extract_image_captions(doc) -> list[str]:
     """Extract alt text/descriptions from inline images in DOCX.
 
     Scans <w:drawing> elements for <wp:docPr descr="..."> attributes.
+    Also detects OLE objects and SmartArt, returning placeholder labels
+    for content that cannot be directly extracted.
     """
     from docx.oxml.ns import qn
 
@@ -251,6 +253,18 @@ def _extract_image_captions(doc) -> list[str]:
                 descr = docPr.get(qn("wp:descr")) or docPr.get("descr", "")
                 if descr and descr.strip():
                     captions.append(f"[image: {descr.strip()}]")
+
+        # Detect OLE objects (embedded Excel, PowerPoint, etc.)
+        for obj in p._element.findall(f".//{qn('w:object')}"):
+            ole = obj.find(f".//{qn('o:OLEObject')}")
+            if ole is not None:
+                prog_id = ole.get(qn("o:ProgID")) or "OLE object"
+                captions.append(f"[embedded: {prog_id}]")
+
+        # Detect SmartArt (DrawingML diagrams)
+        for _smart_art in p._element.findall(f".//{qn('dgm:relents')}"):
+            captions.append("[diagram: SmartArt]")
+
     return captions
 
 
@@ -279,43 +293,67 @@ def docx_table_to_markdown(table) -> str:
     return "\n".join([header, separator] + body) if body else header
 
 
-def parse_docx(file_path: Path) -> tuple[str, dict]:
+def parse_docx(file_path: Path) -> tuple[str, dict]:  # noqa: C901
     """Parse DOCX and return (text, metadata).
 
     Detects page breaks via <w:br w:type="page"/> to provide page metadata.
-    Tables are serialized as markdown tables.
+    Tables are serialized as markdown tables and interleaved with text
+    at their original document position (not appended at the end).
     List items get real prefixes: numbered lists render as "1. ", "a. ",
     "i. " etc. matching their actual Word numFmt, bullet lists as "- ".
     Hyperlinked text and image alt text are preserved.
     Headers/footers, footnotes/endnotes, and core document properties
     (title/author/dates) are extracted into metadata rather than dropped.
     """
+    from docx.oxml.ns import qn
+
     doc = docx.Document(str(file_path))
     numberer = _ListNumberer(_get_numbering_formats(doc))
     parts = []
     page_numbers: list[int] = []
     current_page = 1
+    paragraph_count = 0
+    table_count = 0
+    image_count = 0
 
-    for p in doc.paragraphs:
-        if _has_page_break(p):
-            current_page += 1
-        text = _paragraph_full_text(p)
-        if not text.strip():
-            continue
-        page_numbers.append(current_page)
+    # Walk the document body in XML order to interleave paragraphs and tables
+    body = doc.element.body
+    para_tag = qn("w:p")
+    tbl_tag = qn("w:tbl")
 
-        list_info = _paragraph_list_info(p)
-        if list_info:
-            num_id, level = list_info
-            parts.append(numberer.prefix(num_id, level) + text)
-        else:
-            parts.append(text)
+    for child in body:
+        if child.tag == para_tag:
+            paragraph_count += 1
+            # Find the corresponding python-docx Paragraph object
+            for p in doc.paragraphs:
+                if p._element is child:
+                    if _has_page_break(p):
+                        current_page += 1
+                    text = _paragraph_full_text(p)
+                    if not text.strip():
+                        break
+                    page_numbers.append(current_page)
+                    list_info = _paragraph_list_info(p)
+                    if list_info:
+                        num_id, level = list_info
+                        parts.append(numberer.prefix(num_id, level) + text)
+                    else:
+                        parts.append(text)
+                    break
+        elif child.tag == tbl_tag:
+            table_count += 1
+            # Find the corresponding python-docx Table object
+            for table in doc.tables:
+                if table._element is child:
+                    md_table = docx_table_to_markdown(table)
+                    if md_table:
+                        parts.append("")  # blank line before table
+                        parts.append(md_table)
+                    break
 
-    for table in doc.tables:
-        md_table = docx_table_to_markdown(table)
-        if md_table:
-            parts.append("")  # blank line before table
-            parts.append(md_table)
+    # Count images
+    for _drawing in body.iter(qn("w:drawing")):
+        image_count += 1
 
     # Extract image captions
     captions = _extract_image_captions(doc)
@@ -337,6 +375,10 @@ def parse_docx(file_path: Path) -> tuple[str, dict]:
         metadata["page_end"] = page_numbers[-1]
         metadata["pages"] = sorted(set(page_numbers))
 
+    metadata["paragraph_count"] = paragraph_count
+    metadata["table_count"] = table_count
+    metadata["image_count"] = image_count
+
     headers_footers = _extract_headers_footers(doc)
     if headers_footers["headers"]:
         metadata["header_text"] = "\n".join(headers_footers["headers"])
@@ -348,15 +390,18 @@ def parse_docx(file_path: Path) -> tuple[str, dict]:
     return "\n".join(parts), metadata
 
 
-def parse_docx_sections(file_path: Path) -> list[tuple[str | None, str]]:
+def parse_docx_sections(file_path: Path) -> list[tuple[str | None, str]]:  # noqa: C901
     """Split DOCX into (heading, content) sections by Heading*/Title styles.
 
+    Tables are interleaved at their original document position.
     The returned heading is a breadcrumb path ("Parent > Child > ...") built
     from the full heading hierarchy leading to that section (by Heading N
     level), so a deeply nested section stays self-describing even without
     its sibling sections for context. List items and hyperlinked text are
     preserved the same way as in parse_docx.
     """
+    from docx.oxml.ns import qn
+
     doc = docx.Document(str(file_path))
     numberer = _ListNumberer(_get_numbering_formats(doc))
     sections: list[tuple[str | None, str]] = []
@@ -370,48 +415,62 @@ def parse_docx_sections(file_path: Path) -> list[tuple[str | None, str]]:
         if content:
             sections.append((current_heading, content))
 
-    for p in doc.paragraphs:
-        text = _paragraph_full_text(p).strip()
-        if not text:
-            continue
-        style_name = (p.style.name or "").lower() if p.style else ""
+    # Build a map from XML element to python-docx Table for interleaving
+    table_map = {tbl._element: tbl for tbl in doc.tables}
 
-        heading_level = None
-        if style_name == "title":
-            heading_level = 0
-        elif style_name.startswith("heading"):
-            suffix = style_name.replace("heading", "").strip()
-            heading_level = int(suffix) if suffix.isdigit() else 1
+    body = doc.element.body
+    para_tag = qn("w:p")
+    tbl_tag = qn("w:tbl")
 
-        if heading_level is not None:
-            _flush()
-            while heading_stack and heading_stack[-1][0] >= heading_level:
-                heading_stack.pop()
-            heading_stack.append((heading_level, text))
-            current_heading = " > ".join(h for _, h in heading_stack)
-            current_lines = []
-        else:
-            list_info = _paragraph_list_info(p)
-            if list_info:
-                num_id, level = list_info
-                current_lines.append(numberer.prefix(num_id, level) + text)
-            else:
-                current_lines.append(text)
+    for child in body:
+        if child.tag == para_tag:
+            # Find corresponding paragraph
+            for p in doc.paragraphs:
+                if p._element is child:
+                    text = _paragraph_full_text(p).strip()
+                    if not text:
+                        break
+                    style_name = (p.style.name or "").lower() if p.style else ""
+
+                    heading_level = None
+                    if style_name == "title":
+                        heading_level = 0
+                    elif style_name.startswith("heading"):
+                        suffix = style_name.replace("heading", "").strip()
+                        heading_level = int(suffix) if suffix.isdigit() else 1
+
+                    if heading_level is not None:
+                        _flush()
+                        while heading_stack and heading_stack[-1][0] >= heading_level:
+                            heading_stack.pop()
+                        heading_stack.append((heading_level, text))
+                        current_heading = " > ".join(h for _, h in heading_stack)
+                        current_lines = []
+                    else:
+                        list_info = _paragraph_list_info(p)
+                        if list_info:
+                            num_id, level = list_info
+                            current_lines.append(numberer.prefix(num_id, level) + text)
+                        else:
+                            current_lines.append(text)
+                    break
+        elif child.tag == tbl_tag:
+            table = table_map.get(child)
+            if table:
+                md_table = docx_table_to_markdown(table)
+                if md_table:
+                    _flush()
+                    sections.append((current_heading, "\x00TABLE:" + md_table))
+
     _flush()
-
-    table_lines = []
-    for table in doc.tables:
-        md_table = docx_table_to_markdown(table)
-        if md_table:
-            table_lines.append(md_table)
-    if table_lines:
-        sections.append((None, "\x00TABLE:" + "\n\n".join(table_lines)))
 
     # Footnotes/endnotes aren't reachable via doc.paragraphs at all (see
     # _extract_notes), so they need to be appended as their own section here
     # rather than relying on the (unused, for this code path) parse_docx text.
-    note_lines = [f"[footnote {i}: {n}]" for i, n in enumerate(_extract_notes(doc, "footnotes", "w:footnote"), start=1)]
-    note_lines += [f"[endnote {i}: {n}]" for i, n in enumerate(_extract_notes(doc, "endnotes", "w:endnote"), start=1)]
+    fn_notes = _extract_notes(doc, "footnotes", "w:footnote")
+    en_notes = _extract_notes(doc, "endnotes", "w:endnote")
+    note_lines = [f"[footnote {i}: {n}]" for i, n in enumerate(fn_notes, start=1)]
+    note_lines += [f"[endnote {i}: {n}]" for i, n in enumerate(en_notes, start=1)]
     if note_lines:
         sections.append(("Footnotes", "\n".join(note_lines)))
 

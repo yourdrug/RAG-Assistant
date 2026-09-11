@@ -222,3 +222,22 @@ class TestParseMarkdownSections:
         assert len(sections) == 1
         assert sections[0][0] is None
         assert "Just some text" in sections[0][1]
+
+
+# ---------------------------------------------------------------------------
+# extract_date_from_filename — DD.MM.YYYY
+# ---------------------------------------------------------------------------
+
+
+class TestExtractDateExtended:
+    def test_dd_mm_yyyy(self):
+        assert extract_date_from_filename("doc-15.03.2024.pdf") == "2024-03-15"
+
+    def test_dd_mm_yyyy_normalized(self):
+        assert extract_date_from_filename("report-01.12.2023.docx") == "2023-12-01"
+
+    def test_yyyy_mm_dd_still_works(self):
+        assert extract_date_from_filename("doc-2024-01-15.pdf") == "2024-01-15"
+
+    def test_no_date(self):
+        assert extract_date_from_filename("report.pdf") is None

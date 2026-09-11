@@ -10,7 +10,6 @@ from domain.value_objects.benchmark_strategy import BenchmarkStrategy
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.search_mode import SearchMode
 from domain.value_objects.source_type import SourceType
-from domain.value_objects.visibility import DocumentVisibility
 from pydantic import BaseModel, ConfigDict, Field
 
 # ---------------------------------------------------------------------------
@@ -153,16 +152,6 @@ class LoginRequest(BaseModel):
 # ---------------------------------------------------------------------------
 # Conversations
 # ---------------------------------------------------------------------------
-
-
-class ConversationCreateRequest(BaseModel):
-    pass
-
-
-class ConversationResponse(BaseModel):
-    id: int
-    user_id: int
-    creation_date: datetime | None
 
 
 class MessageResponse(BaseModel):
@@ -411,12 +400,6 @@ class JobsStatsResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # Monitoring / Metrics
 # ---------------------------------------------------------------------------
-
-
-class MetricValue(BaseModel):
-    name: str
-    value: float
-    labels: dict[str, str] = {}
 
 
 class MetricsResponse(BaseModel):
@@ -793,9 +776,3 @@ class DryRunResponse(BaseModel):
 class PageImageResponse(BaseModel):
     image_base64: str
     page: int
-
-
-class IndexFromPreviewRequest(BaseModel):
-    visibility: str = DocumentVisibility.INTERNAL_PUBLIC.value
-    group_id: int | None = None
-    doc_domain: str | None = None

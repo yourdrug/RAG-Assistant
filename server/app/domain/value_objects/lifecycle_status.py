@@ -42,11 +42,6 @@ class LifecycleStatusMixin:
             cls._active = active
 
     @property
-    def is_terminal(self) -> bool:
-        """True for DONE, FAILED, DEAD_LETTER, CANCELLED -- no further transitions expected."""
-        return self.value in self._terminal  # type: ignore[attr-defined]
-
-    @property
     def is_active(self) -> bool:
         """True for PENDING, RUNNING, PROCESSING, INDEXING, IN_PROGRESS -- work is ongoing."""
         return self.value in self._active  # type: ignore[attr-defined]

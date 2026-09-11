@@ -15,7 +15,9 @@ _MD_HEADER_RE = re.compile(r"^(#{1,6})\s+(.*)$", re.MULTILINE)
 _MD_SETEXT_RE = re.compile(r"^([^\n|]+?)[ \t]*\n(=+|-{2,})[ \t]*$", re.MULTILINE)
 _MD_TABLE_RE = re.compile(r"^(\|.+\|)\s*$", re.MULTILINE)
 _MD_FENCE_BLOCK_RE = re.compile(r"^([`~]{3,}).*?\n.*?^\1[`~]*\s*$", re.MULTILINE | re.DOTALL)
-_DATE_IN_FILENAME_RE = re.compile(r"(\d{4}-\d{2}-\d{2})")
+_DATE_IN_FILENAME_RE = re.compile(r"(\d{4}-\d{2}-\d{2}|\d{2}\.\d{2}\.\d{4})")
+_FRONT_MATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+_HASHTAG_RE = re.compile(r"(?:^|\s)#([a-zA-Zа-яА-ЯёЁ0-9_-]+)", re.MULTILINE)
 
 _FENCE_PLACEHOLDER = "\x00CODEFENCE{}\x00"
 
@@ -48,7 +50,7 @@ def _unmask_code_fences(text: str, blocks: list[str]) -> str:
 
 
 def _normalize_setext_headers(raw: str) -> str:
-    """Rewrite setext-style headers ("Title\\n===") into ATX form ("# Title").
+    r"""Rewrite setext-style headers ("Title\\n===") into ATX form ("# Title").
 
     Lets the rest of the pipeline reason about a single header syntax.
     Applied on code-fence-masked text so underlines inside code blocks are
@@ -199,9 +201,16 @@ def parse_markdown(file_path: Path) -> str:
 
 
 def extract_date_from_filename(filename: str) -> str | None:
-    """Find YYYY-MM-DD date in filename — simple heuristic for metadata."""
+    """Find YYYY-MM-DD or DD.MM.YYYY date in filename — simple heuristic for metadata."""
     m = _DATE_IN_FILENAME_RE.search(filename)
-    return m.group(1) if m else None
+    if not m:
+        return None
+    date_str = m.group(1)
+    # Normalize DD.MM.YYYY to YYYY-MM-DD
+    if "." in date_str:
+        parts = date_str.split(".")
+        date_str = f"{parts[2]}-{parts[1]}-{parts[0]}"
+    return date_str
 
 
 def extract_doc_title(file_path: Path) -> str | None:

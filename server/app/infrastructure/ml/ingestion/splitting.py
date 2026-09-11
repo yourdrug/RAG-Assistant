@@ -45,6 +45,22 @@ LEGAL_SEPARATORS = [
     "",
 ]
 
+# Sentence-aware separators: prefer sentence boundaries, then word, then char
+SENTENCE_SEPARATORS = [
+    "\n\n",
+    "\n",
+    ". ",
+    "! ",
+    "? ",
+    ".\n",
+    "!\n",
+    "?\n",
+    "; ",
+    ": ",
+    " ",
+    "",
+]
+
 _ARTICLE_RE = re.compile(r"Статья\s+(\d+[\.\d]*)")
 
 # --- Final-chunk metadata enrichment ---------------------------------------
@@ -62,23 +78,61 @@ _DIGIT_RE = re.compile(r"\d")
 _LIST_LINE_RE = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+")
 _LIST_MIN_LINES = 2
 _LIST_MIN_RATIO = 0.6
+_SENTENCE_RE = re.compile(r"[.!?…]+[\s\n]+|[.!?…]+$")
+_DEFINTION_RE = re.compile(
+    r"(?:это|означает|представляет собой|является|определяется как|definition:|means:|is defined as)",
+    re.IGNORECASE,
+)
+_PROCEDURE_RE = re.compile(
+    r"(?:шаг\s*\d|пошагов|инструкц|порядок действий|алгоритм|procedure:|step\s*\d|instructions?:)",
+    re.IGNORECASE,
+)
 
 
 def _classify_content_shape(text: str) -> str | None:
-    """Cheap structural classification: predominantly a list, else None (leave as-is)."""
+    """Cheap structural classification: list, definition, procedure, or None."""
     lines = [ln for ln in text.split("\n") if ln.strip()]
     if len(lines) < _LIST_MIN_LINES:
+        # Short text: check definition/procedure on full text
+        if _DEFINTION_RE.search(text):
+            return "definition"
+        if _PROCEDURE_RE.search(text):
+            return "procedure"
         return None
     list_lines = sum(1 for ln in lines if _LIST_LINE_RE.match(ln))
     if list_lines / len(lines) >= _LIST_MIN_RATIO:
         return "list"
+    # Check definition/procedure patterns on multi-line text
+    if _DEFINTION_RE.search(text):
+        return "definition"
+    if _PROCEDURE_RE.search(text):
+        return "procedure"
     return None
 
 
-def _enrich_final_chunks(chunks: list[Document]) -> None:
-    """Add char_count/has_numbers/has_dates/content_type and re-number.
+def _extract_first_sentence(text: str) -> str | None:
+    """Return the first sentence of the text (up to 200 chars)."""
+    text = text.strip()
+    if not text:
+        return None
+    m = _SENTENCE_RE.search(text)
+    if m:
+        sentence = text[: m.end()].strip()
+        if len(sentence) > 200:
+            sentence = sentence[:197] + "..."
+        return sentence
+    # No sentence boundary found — return first 200 chars
+    if len(text) > 200:
+        return text[:197] + "..."
+    return text
 
-    chunk_index/total_chunks on the final chunk list, grouped by source file.
+
+def _enrich_final_chunks(chunks: list[Document]) -> None:
+    """Enrich final chunks with derived metadata and re-number.
+
+    Adds char_count, word_count, sentence_count, has_numbers, has_dates,
+    extracted_dates, first_sentence, content_type. Re-number chunk_index/
+    total_chunks grouped by source file.
 
     Mutates each Document's metadata in place. chunk_index/total_chunks are
     recomputed here (overwriting any section-level value inherited from
@@ -96,10 +150,17 @@ def _enrich_final_chunks(chunks: list[Document]) -> None:
             c.metadata["chunk_index"] = i
             c.metadata["total_chunks"] = total
             c.metadata["char_count"] = len(c.page_content)
-            if _DATE_RE.search(c.page_content):
+            c.metadata["word_count"] = len(c.page_content.split())
+            c.metadata["sentence_count"] = len(_SENTENCE_RE.findall(c.page_content))
+            dates = _DATE_RE.findall(c.page_content)
+            if dates:
                 c.metadata["has_dates"] = True
+                c.metadata["extracted_dates"] = dates
             if _DIGIT_RE.search(c.page_content):
                 c.metadata["has_numbers"] = True
+            first = _extract_first_sentence(c.page_content)
+            if first:
+                c.metadata["first_sentence"] = first
             if c.metadata.get("content_type") != PageContentType.TABLE.value:
                 shape = _classify_content_shape(c.page_content)
                 if shape:
@@ -267,7 +328,7 @@ def _split_structured(
     return result
 
 
-def _split_overflow(
+def _split_overflow(  # noqa: C901
     text: str,
     chunk_size: int,
     chunk_overlap: int,

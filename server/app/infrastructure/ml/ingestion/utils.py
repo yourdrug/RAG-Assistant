@@ -45,7 +45,7 @@ def _strip_page_number_lines(text: str) -> str:
 
 
 def clean_pdf_text(text: str) -> str:
-    """Clean extracted PDF text.
+    r"""Clean extracted PDF text.
 
     - Rejoins genuinely hyphenated words split across a line break (only
       when both sides are word characters, so we don't accidentally eat

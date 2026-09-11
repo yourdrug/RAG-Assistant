@@ -50,10 +50,6 @@ class UserContext:
         return self.user_kind == UserKind.CLIENT
 
     @property
-    def is_internal(self) -> bool:
-        return self.user_kind == UserKind.INTERNAL
-
-    @property
     def is_admin(self) -> bool:
         return self.user_role == UserRole.ADMIN
 

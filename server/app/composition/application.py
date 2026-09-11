@@ -50,25 +50,6 @@ def _get_openrouter_fetcher():
     return fetch_openrouter_models
 
 
-def _make_versioned_domain_checker(infra: "InfrastructureContainer"):
-    """Closure over the domain registry: True when the domain tracks act versions.
-
-    The application layer stays independent of the registry type — it only
-    sees a ``Callable[[str], bool]`` policy predicate.
-    """
-
-    def _is_versioned(domain: str) -> bool:
-        registry = infra.domain_registry
-        if registry is None:
-            return False
-        try:
-            return bool(registry.get(domain).is_versioned)
-        except KeyError:
-            return False
-
-    return _is_versioned
-
-
 def _make_act_versioning(infra: "InfrastructureContainer", uow_factory):
     """Create ActVersioningService if domain registry and settings are available."""
     if infra.domain_registry is None or infra.domain_settings is None:

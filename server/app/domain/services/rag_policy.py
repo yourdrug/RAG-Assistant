@@ -16,6 +16,18 @@ def classify_question_breadth(question: str) -> str:
     """Classify question as 'narrow' or 'broad' based on heuristics."""
     q = question.lower()
 
+    # Количественные вопросы, завязанные на условие/порог — почти всегда
+    # требуют полного разбора по категориям, а не одной цифры.
+    quantitative_conditional = [
+        r"сколько\s+(нужно|необходимо|следует|требуется|должно)",
+        r"сколько\s+.+\bесли\b",
+        r"какое\s+количество\s+.+\bесли\b",
+        r"в\s+каком\s+размере",
+        r"какой\s+процент\s+.+\bесли\b",
+    ]
+    if any(re.search(p, q) for p in quantitative_conditional):
+        return Breadth.BROAD
+
     narrow_overrides = [
         r"как\w*\s+(убедиться|проверить|узнать|найти|получить|скачать|открыть)",
         r"где\s+(найти|скачать|посмотреть|открыть)",
@@ -47,6 +59,7 @@ def classify_question_breadth(question: str) -> str:
         r"что\s+включ\w+",
         r"список\s+\w+",
         r"какие\s+\w+\s+нужн",
+        r"сколько\s+",  # остальные "сколько ..." тоже лучше раскрывать подробно
     ]
     return Breadth.BROAD if any(re.search(p, q) for p in broad_patterns) else Breadth.NARROW
 
@@ -60,7 +73,6 @@ COMPOUND_PATTERNS = [
     r"опиши\s+.*\s+а\s+также\s+",
     r"объясни\s+.*\s+и\s+",
 ]
-
 
 # ---------------------------------------------------------------------------
 # Conditional-rule enumeration detection
@@ -168,9 +180,9 @@ SYSTEM_PROMPT = """Ты — корпоративный ассистент. Ст�
 
 
 def build_system_prompt(
-    breadth: str = Breadth.NARROW,
-    has_legal_context: bool = False,
-    domain_addendum: str | None = None,
+        breadth: str = Breadth.NARROW,
+        has_legal_context: bool = False,
+        domain_addendum: str | None = None,
 ) -> str:
     """Build the system prompt text based on question breadth and context composition.
 
