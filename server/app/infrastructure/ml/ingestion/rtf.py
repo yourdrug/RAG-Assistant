@@ -4,23 +4,18 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from striprtf.striprtf import rtf_to_text
 
 
-# --- Raw byte -> text decoding (unchanged) --------------------------------
+# --- Raw byte -> text decoding ---------------------------------------------
 
 
 def _read_rtf_text(file_path: Path) -> str:
-    """Read raw RTF bytes, trying encodings that preserve the RTF structure.
-
-    RTF files from older Russian systems are often saved as Windows-1251.
-    Reading them as UTF-8 with errors="replace" corrupts RTF escape sequences
-    and produces garbled output.  We try utf-8 first (most common for modern
-    files), then fall back to cp1251, and finally latin-1 (never fails).
-    """
+    """Read raw RTF bytes, trying encodings that preserve the RTF structure."""
     raw = file_path.read_bytes()
     for enc in ("utf-8", "cp1251", "latin-1"):
         try:
@@ -35,19 +30,12 @@ def parse_rtf(file_path: Path) -> tuple[str, dict]:
     raw = _read_rtf_text(file_path)
     rtf_text = rtf_to_text(raw)
     meta: dict = {}
-
-    # Extract info fields from raw RTF
     info = _extract_rtf_info(raw)
     meta.update(info)
-
-    # Save codepage
     meta["codepage"] = _detect_codepage(raw)
-
-    # Estimate page count from \page markers
     page_count = len(_PAGE_RE.findall(raw))
     if page_count > 0:
         meta["estimated_page_count"] = page_count
-
     return rtf_text, meta
 
 
@@ -77,12 +65,7 @@ def _extract_rtf_info(rtf_raw: str) -> dict:
 
 
 def extract_doc_title(file_path: Path) -> str | None:
-    r"""Best-effort extraction of the \\info\\title field, if the RTF has one.
-
-    Word only writes this when a document title was explicitly set in the
-    file's properties, so this is frequently absent — callers should fall
-    back to the filename when this returns None.
-    """
+    r"""Best-effort extraction of the \\info\\title field."""
     raw = _read_rtf_text(file_path)
     m = _TITLE_GROUP_RE.search(raw[:4000])
     if not m:
@@ -91,22 +74,9 @@ def extract_doc_title(file_path: Path) -> str | None:
     return title or None
 
 
-# --- Structural section splitting ------------------------------------------
-#
-# striprtf discards all formatting, so unlike DOCX ("Heading N" paragraph
-# style) or Markdown ("#") there is no explicit, ready-made heading marker
-# to key off for RTF. Instead we walk the raw RTF control-word stream
-# ourselves, tracking just enough paragraph-level formatting (bold, font
-# size, centering) to tell a heading-styled paragraph from body text, plus a
-# handful of common numbered-heading text patterns. This is a small,
-# purpose-built walker — not a full RTF parser — so it only tracks the state
-# needed for that classification and otherwise falls back to
-# unambiguous behavior when the input doesn't look confidently structured.
+# --- Constants & dataclasses -----------------------------------------------
 
 _SKIP_DESTINATIONS = {
-    # Tables/metadata that hold no real document text: walking into these
-    # groups would otherwise leak font names, color numbers, style
-    # definitions, and embedded object data into the "paragraph" text.
     "fonttbl", "colortbl", "stylesheet", "info", "generator", "pict",
     "object", "objdata", "themedata", "colorschememapping", "latentstyles",
     "rsidtbl", "listtable", "listoverridetable", "revtbl", "xmlnstbl",
@@ -120,15 +90,7 @@ _CODEPAGE_MAP = {
     "1250": "cp1250", "1251": "cp1251", "1252": "cp1252", "1253": "cp1253",
     "1254": "cp1254", "1257": "cp1257", "65001": "utf-8", "10000": "mac_roman",
 }
-# Table detection control words
-_TABLE_INTBL_RE = re.compile(r"\\intbl\b")
-_TABLE_CELL_RE = re.compile(r"\\cell\b")
-_TABLE_ROW_RE = re.compile(r"\\row\b")
 
-# Common numbered/named heading patterns (Russian + English legal/business
-# document vocabulary) — used as a fallback signal when a heading isn't
-# distinguished purely by bold/font-size (some RTF exports flatten style
-# formatting to plain body-sized text).
 _NUMBERED_HEADING_RE = re.compile(
     r"^(Глава|Раздел|Часть|Статья|§|Пункт|Chapter|Section|Article|Appendix|Приложение)\s+\S",
     re.IGNORECASE,
@@ -137,18 +99,17 @@ _MAX_HEADING_WORDS = 12
 
 
 def _detect_codepage(rtf: str) -> str:
-    r"""Read the document's declared \\ansicpg codepage for \\'xx byte decoding."""
     m = _ANSICPG_RE.search(rtf[:1000])
     if m:
         return _CODEPAGE_MAP.get(m.group(1), "cp1251")
-    return "cp1251"  # this pipeline's RTF inputs are predominantly Cyrillic
+    return "cp1251"
 
 
 @dataclass
 class _Paragraph:
     text: str
-    font_size: float | None  # points; None if never set explicitly
-    bold: bool  # True only if every character in the paragraph was bold
+    font_size: float | None
+    bold: bool
     centered: bool
 
 
@@ -159,8 +120,6 @@ class _Table:
 
 @dataclass
 class _Segment:
-    """A paragraph or table from the RTF walker, preserving document order."""
-
     paragraph: _Paragraph | None = None
     table: _Table | None = None
 
@@ -178,240 +137,310 @@ class _GroupState:
         return _GroupState(self.bold, self.font_size, self.centered, self.skip)
 
 
-def _walk_paragraphs(rtf: str) -> list[_Segment]:  # noqa: C901
-    r"""Tokenize RTF into paragraphs and tables, preserving document order.
+@dataclass
+class _WalkerState:
+    """Mutable state shared across helper functions during _walk_paragraphs."""
 
-    Table-aware: tracks \\intbl/\\cell/\\row control words to detect table
-    boundaries. Returns a list of _Segment objects, each containing either
-    a _Paragraph (text) or _Table (rows of cells).
-    """
-    codepage = _detect_codepage(rtf)
-    pos, n = 0, len(rtf)
-    stack = [_GroupState()]
-
-    cur_chars: list[str] = []
-    cur_any_text = False
-    cur_all_bold = True
+    stack: list[_GroupState] = field(default_factory=lambda: [_GroupState()])
+    cur_chars: list[str] = field(default_factory=list)
+    cur_any_text: bool = False
+    cur_all_bold: bool = True
     cur_max_size: float | None = None
-    cur_centered = False
-    hex_buffer = bytearray()
-    hex_run_bold = True
+    cur_centered: bool = False
+    hex_buffer: bytearray = field(default_factory=bytearray)
+    hex_run_bold: bool = True
+    in_table: bool = False
+    table_rows: list[list[str]] = field(default_factory=list)
+    current_row: list[str] = field(default_factory=list)
+    current_cell_chars: list[str] = field(default_factory=list)
+    segments: list[_Segment] = field(default_factory=list)
+    codepage: str = "cp1251"
 
-    segments: list[_Segment] = []
 
-    # Table state
-    in_table = False
-    table_rows: list[list[str]] = []
-    current_row: list[str] = []
-    current_cell_chars: list[str] = []
+# --- Walker helpers (extracted from _walk_paragraphs) -----------------------
 
-    def flush_hex():
-        nonlocal hex_buffer, cur_any_text, cur_all_bold, hex_run_bold
-        if hex_buffer:
-            if not stack[-1].skip:
-                if in_table:
-                    current_cell_chars.append(bytes(hex_buffer).decode(codepage, errors="replace"))
-                else:
-                    cur_chars.append(bytes(hex_buffer).decode(codepage, errors="replace"))
-                cur_any_text = True
-                if not hex_run_bold:
-                    cur_all_bold = False
-            hex_buffer = bytearray()
-            hex_run_bold = True
 
-    def flush_cell():
-        nonlocal current_cell_chars
-        if current_cell_chars:
-            cell_text = re.sub(r"[ \t]+", " ", "".join(current_cell_chars)).strip()
-            current_row.append(cell_text)
-            current_cell_chars = []
+def _flush_hex(ws: _WalkerState) -> None:
+    """Decode accumulated hex bytes and append to current buffer."""
+    if ws.hex_buffer:
+        if not ws.stack[-1].skip:
+            text = bytes(ws.hex_buffer).decode(ws.codepage, errors="replace")
+            if ws.in_table:
+                ws.current_cell_chars.append(text)
+            else:
+                ws.cur_chars.append(text)
+            ws.cur_any_text = True
+            if not ws.hex_run_bold:
+                ws.cur_all_bold = False
+        ws.hex_buffer = bytearray()
+        ws.hex_run_bold = True
 
-    def flush_paragraph():
-        nonlocal cur_chars, cur_any_text, cur_all_bold, cur_max_size, cur_centered
-        flush_hex()
-        text = re.sub(r"[ \t]+", " ", "".join(cur_chars)).strip()
-        if text:
-            segments.append(
-                _Segment(
-                    paragraph=_Paragraph(
-                        text=text,
-                        font_size=cur_max_size,
-                        bold=cur_all_bold and cur_any_text,
-                        centered=cur_centered,
-                    )
+
+def _flush_cell(ws: _WalkerState) -> None:
+    """Finalize current table cell and append to current row."""
+    if ws.current_cell_chars:
+        cell_text = re.sub(r"[ \t]+", " ", "".join(ws.current_cell_chars)).strip()
+        ws.current_row.append(cell_text)
+        ws.current_cell_chars = []
+
+
+def _flush_paragraph(ws: _WalkerState) -> None:
+    """Finalize current paragraph text and append as a _Segment."""
+    _flush_hex(ws)
+    text = re.sub(r"[ \t]+", " ", "".join(ws.cur_chars)).strip()
+    if text:
+        ws.segments.append(
+            _Segment(
+                paragraph=_Paragraph(
+                    text=text,
+                    font_size=ws.cur_max_size,
+                    bold=ws.cur_all_bold and ws.cur_any_text,
+                    centered=ws.cur_centered,
                 )
             )
-        cur_chars, cur_any_text, cur_all_bold, cur_max_size, cur_centered = [], False, True, None, False
+        )
+    ws.cur_chars, ws.cur_any_text, ws.cur_all_bold = [], False, True
+    ws.cur_max_size, ws.cur_centered = None, False
 
-    def flush_table():
-        nonlocal table_rows, current_row, in_table
-        flush_cell()
-        if current_row:
-            table_rows.append(current_row)
-            current_row = []
-        if table_rows:
-            segments.append(_Segment(table=_Table(rows=table_rows)))
-            table_rows = []
-        in_table = False
+
+def _flush_table(ws: _WalkerState) -> None:
+    """Finalize current table and append as a _Segment."""
+    _flush_cell(ws)
+    if ws.current_row:
+        ws.table_rows.append(ws.current_row)
+        ws.current_row = []
+    if ws.table_rows:
+        ws.segments.append(_Segment(table=_Table(rows=ws.table_rows)))
+        ws.table_rows = []
+    ws.in_table = False
+
+
+def _get_target(ws: _WalkerState) -> list[str]:
+    """Return the active character buffer (table cell or paragraph)."""
+    return ws.current_cell_chars if ws.in_table else ws.cur_chars
+
+
+def _handle_pard(ws: _WalkerState, top: _GroupState, argval: int | None) -> None:
+    top.bold, top.font_size, top.centered = False, None, False
+
+
+def _handle_skip_dest(ws: _WalkerState, top: _GroupState, argval: int | None) -> None:
+    top.skip = True
+
+
+def _handle_bold(ws: _WalkerState, top: _GroupState, argval: int | None) -> None:
+    top.bold = argval != 0 if argval is not None else True
+
+
+def _handle_font_size(ws: _WalkerState, top: _GroupState, argval: int | None) -> None:
+    if argval is not None:
+        top.font_size = argval / 2.0
+
+
+def _handle_tab(ws: _WalkerState, top: _GroupState, argval: int | None) -> None:
+    if not top.skip:
+        _get_target(ws).append("\t")
+
+
+def _handle_dash(ws: _WalkerState, top: _GroupState, argval: int | None) -> None:
+    if not top.skip:
+        _get_target(ws).append("-")
+
+
+def _handle_intbl(ws: _WalkerState, top: _GroupState, argval: int | None) -> None:
+    if not ws.in_table:
+        ws.in_table = True
+
+
+def _handle_cell(ws: _WalkerState, top: _GroupState, argval: int | None) -> None:
+    if ws.in_table:
+        _flush_cell(ws)
+
+
+# Dispatch table: maps control-word strings to handler(ws, top, argval) callables.
+_CENTERING_WORDS = frozenset({"qc", "ql", "qr", "qj"})
+
+_CONTROL_HANDLERS: dict[str, Callable[..., None]] = {
+    "pard": _handle_pard,
+    "b": _handle_bold,
+    "fs": _handle_font_size,
+    "tab": _handle_tab,
+    "emdash": _handle_dash,
+    "endash": _handle_dash,
+    "intbl": _handle_intbl,
+    "cell": _handle_cell,
+}
+
+
+def _update_cur_metrics(ws: _WalkerState, top: _GroupState) -> None:
+    """Propagate font-size and centering from the current group state."""
+    if not top.skip:
+        if top.font_size is not None:
+            ws.cur_max_size = (
+                top.font_size if ws.cur_max_size is None
+                else max(ws.cur_max_size, top.font_size)
+            )
+        if top.centered:
+            ws.cur_centered = True
+
+
+def _process_control_word(
+    ws: _WalkerState, word: str, argval: int | None, m: re.Match, rtf: str, n: int
+) -> bool:
+    """Process an RTF control word. Returns True if word was handled."""
+    top = ws.stack[-1]
+
+    if word in ("par", "sect", "page"):
+        if ws.in_table:
+            _flush_cell(ws)
+        else:
+            _flush_paragraph(ws)
+        return True
+
+    if word in _SKIP_DESTINATIONS:
+        _handle_skip_dest(ws, top, argval)
+        _update_cur_metrics(ws, top)
+        return True
+
+    if word == "row":
+        _handle_row(ws, m, rtf, n)
+        _update_cur_metrics(ws, top)
+        return True
+
+    if word in _CENTERING_WORDS:
+        top.centered = word == "qc"
+        _update_cur_metrics(ws, top)
+        return True
+
+    handler = _CONTROL_HANDLERS.get(word)
+    if handler:
+        handler(ws, top, argval)
+    else:
+        return False
+
+    _update_cur_metrics(ws, top)
+    return True
+
+
+def _handle_row(ws: _WalkerState, m: re.Match, rtf: str, n: int) -> None:
+    r"""Handle \\row control word with peek-ahead for table finalization."""
+    if not ws.in_table:
+        return
+    _flush_cell(ws)
+    if ws.current_row:
+        ws.table_rows.append(ws.current_row)
+        ws.current_row = []
+    if ws.table_rows and not ws.current_row:
+        peek_pos = m.end()
+        while peek_pos < n and rtf[peek_pos] in (" ", "\n", "\r"):
+            peek_pos += 1
+        next_5 = rtf[peek_pos : peek_pos + 5] if peek_pos < n else ""
+        if next_5 not in ("\\cell", "\\intb", "\\row"):
+            _flush_table(ws)
+
+
+def _process_hex_escape(ws: _WalkerState, rtf: str, pos: int) -> int:
+    r"""Process \\'xx hex escape. Returns new position."""
+    hexm = _HEX_ESCAPE_RE.match(rtf, pos)
+    if hexm:
+        if not ws.stack[-1].skip:
+            ws.hex_buffer.append(int(hexm.group(1), 16))
+            if not ws.stack[-1].bold:
+                ws.hex_run_bold = False
+        return hexm.end()
+    return pos + 1
+
+
+def _process_special_symbol(ws: _WalkerState, nxt: str) -> None:
+    r"""Process non-letter control symbols (\\\\, \\{, \\}, \\~, \\_)."""
+    top = ws.stack[-1]
+    if top.skip:
+        return
+    target = ws.current_cell_chars if ws.in_table else ws.cur_chars
+    if nxt in ("\\", "{", "}"):
+        target.append(nxt)
+        ws.cur_any_text = True
+    elif nxt == "~":
+        target.append("\u00a0")
+    elif nxt == "_":
+        target.append("-")
+
+
+def _process_backslash(ws: _WalkerState, rtf: str, pos: int, n: int) -> int:
+    r"""Process a backslash escape at *pos*. Returns new position."""
+    new_pos = _process_hex_escape(ws, rtf, pos)
+    if new_pos != pos + 1:
+        return new_pos
+
+    _flush_hex(ws)
+    nxt = rtf[pos + 1] if pos + 1 < n else ""
+    if nxt.isalpha():
+        m = _CONTROL_WORD_RE.match(rtf, pos)
+        if not m:
+            return pos + 1
+        word, arg = m.group(1), m.group(2)
+        argval = int(arg) if arg else None
+        _process_control_word(ws, word, argval, m, rtf, n)
+        return m.end()
+
+    _process_special_symbol(ws, nxt)
+    return pos + 2
+
+
+def _finalize_walker(ws: _WalkerState) -> list[_Segment]:
+    """Flush any remaining content and return the segment list."""
+    if ws.in_table:
+        _flush_cell(ws)
+        if ws.current_row:
+            ws.table_rows.append(ws.current_row)
+        if ws.table_rows:
+            ws.segments.append(_Segment(table=_Table(rows=ws.table_rows)))
+    else:
+        _flush_paragraph(ws)
+    return ws.segments
+
+
+# --- Main walker -----------------------------------------------------------
+
+
+def _walk_paragraphs(rtf: str) -> list[_Segment]:
+    r"""Tokenize RTF into paragraphs and tables, preserving document order."""
+    ws = _WalkerState(codepage=_detect_codepage(rtf))
+    pos, n = 0, len(rtf)
 
     while pos < n:
         ch = rtf[pos]
-        top = stack[-1]
+        top = ws.stack[-1]
 
         if ch == "{":
-            flush_hex()
-            stack.append(top.copy())
+            _flush_hex(ws)
+            ws.stack.append(top.copy())
             pos += 1
             continue
         if ch == "}":
-            flush_hex()
-            if len(stack) > 1:
-                stack.pop()
+            _flush_hex(ws)
+            if len(ws.stack) > 1:
+                ws.stack.pop()
             pos += 1
             continue
-
         if ch == "\\":
-            hexm = _HEX_ESCAPE_RE.match(rtf, pos)
-            if hexm:
-                if not top.skip:
-                    hex_buffer.append(int(hexm.group(1), 16))
-                    if not top.bold:
-                        hex_run_bold = False
-                pos = hexm.end()
-                continue
-
-            flush_hex()
-            nxt = rtf[pos + 1] if pos + 1 < n else ""
-            if nxt.isalpha():
-                m = _CONTROL_WORD_RE.match(rtf, pos)
-                if not m:
-                    pos += 1
-                    continue
-                word, arg = m.group(1), m.group(2)
-                argval = int(arg) if arg else None
-
-                if word in ("par", "sect", "page"):
-                    if in_table:
-                        # End of a paragraph inside a table row — flush cell
-                        flush_cell()
-                    else:
-                        flush_paragraph()
-                    pos = m.end()
-                    continue
-                if word == "pard":
-                    top.bold, top.font_size, top.centered = False, None, False
-                elif word in _SKIP_DESTINATIONS:
-                    top.skip = True
-                elif word == "b":
-                    top.bold = argval != 0 if argval is not None else True
-                elif word == "fs" and argval is not None:
-                    top.font_size = argval / 2.0
-                elif word == "qc":
-                    top.centered = True
-                elif word in ("ql", "qr", "qj"):
-                    top.centered = False
-                elif word == "tab":
-                    if not top.skip:
-                        if in_table:
-                            current_cell_chars.append("\t")
-                        else:
-                            cur_chars.append("\t")
-                elif word in ("emdash", "endash"):
-                    if not top.skip:
-                        if in_table:
-                            current_cell_chars.append("-")
-                        else:
-                            cur_chars.append("-")
-                # Table control words
-                elif word == "intbl":
-                    if not in_table:
-                        in_table = True
-                elif word == "cell":
-                    if in_table:
-                        flush_cell()
-                elif word == "row":
-                    if in_table:
-                        flush_cell()
-                        if current_row:
-                            table_rows.append(current_row)
-                            current_row = []
-                        # A \row inside a nested group might end the table;
-                        # check if we should finalize. We finalize on \row
-                        # only when there are complete rows.
-                        if table_rows and not current_row:
-                            # Check if next token is also table-related
-                            # by peeking ahead. If not, finalize.
-                            peek_pos = m.end()
-                            peek_skip = peek_pos
-                            while peek_skip < n and rtf[peek_skip] in (" ", "\n", "\r"):
-                                peek_skip += 1
-                            if (
-                                peek_skip < n
-                                and rtf[peek_skip : peek_skip + 5] in ("\\cell", "\\intb", "\\row")
-                            ):
-                                pass  # still in table
-                            else:
-                                flush_table()
-
-                if not top.skip:
-                    if top.font_size is not None:
-                        cur_max_size = (
-                            top.font_size if cur_max_size is None
-                            else max(cur_max_size, top.font_size)
-                        )
-                    if top.centered:
-                        cur_centered = True
-                pos = m.end()
-                continue
-
-            # Non-letter control symbol: \*, \~, \-, \_, \\, \{, \} etc.
-            if nxt in ("\\", "{", "}"):
-                if not top.skip:
-                    if in_table:
-                        current_cell_chars.append(nxt)
-                    else:
-                        cur_chars.append(nxt)
-                    cur_any_text = True
-            elif nxt == "~":
-                if not top.skip:
-                    if in_table:
-                        current_cell_chars.append("\u00a0")
-                    else:
-                        cur_chars.append("\u00a0")
-            elif nxt == "_":
-                if not top.skip:
-                    if in_table:
-                        current_cell_chars.append("-")
-                    else:
-                        cur_chars.append("-")
-            # anything else (\*, \-, unknown symbols): consumed, no output
-            pos += 2
+            pos = _process_backslash(ws, rtf, pos, n)
             continue
-
         # Plain character
         if not top.skip:
-            flush_hex()
-            if in_table:
-                current_cell_chars.append(ch)
-            else:
-                cur_chars.append(ch)
+            _flush_hex(ws)
+            target = ws.current_cell_chars if ws.in_table else ws.cur_chars
+            target.append(ch)
             if ch.strip():
-                cur_any_text = True
+                ws.cur_any_text = True
                 if not top.bold:
-                    cur_all_bold = False
+                    ws.cur_all_bold = False
         pos += 1
 
-    # Flush remaining content
-    if in_table:
-        flush_cell()
-        if current_row:
-            table_rows.append(current_row)
-            current_row = []
-        if table_rows:
-            segments.append(_Segment(table=_Table(rows=table_rows)))
-    else:
-        flush_paragraph()
-    return segments
+    return _finalize_walker(ws)
+
+
+# --- Post-processing helpers -----------------------------------------------
 
 
 def _most_common_size(segments: list[_Segment]) -> float | None:
@@ -422,7 +451,6 @@ def _most_common_size(segments: list[_Segment]) -> float | None:
 
 
 def _table_to_markdown(table: _Table) -> str:
-    """Convert a _Table to markdown table format."""
     rows = table.rows
     if not rows:
         return ""
@@ -437,11 +465,7 @@ def _table_to_markdown(table: _Table) -> str:
 
 
 def extract_rtf_tables(rtf_raw: str) -> list[str]:
-    r"""Extract tables from RTF by detecting \\intbl/\\cell/\\row control words.
-
-    Returns a list of markdown-formatted table strings. This is a standalone
-    utility for callers that need only the tables without the surrounding text.
-    """
+    r"""Extract tables from RTF by detecting \\intbl/\\cell/\\row control words."""
     segments = _walk_paragraphs(rtf_raw)
     tables = []
     for seg in segments:
@@ -452,45 +476,43 @@ def extract_rtf_tables(rtf_raw: str) -> list[str]:
     return tables
 
 
-def parse_rtf_sections(file_path: Path) -> list[tuple[str | None, str]]:  # noqa: C901
-    r"""Split RTF into (heading, content) sections using paragraph formatting.
+def _is_heading(seg: _Segment, baseline: float | None) -> bool:
+    """Return True if *seg* looks like a document heading."""
+    p = seg.paragraph
+    if p is None:
+        return False
+    word_count = len(p.text.split())
+    if word_count == 0 or word_count > _MAX_HEADING_WORDS:
+        return False
+    if _NUMBERED_HEADING_RE.match(p.text):
+        return True
+    return bool(baseline is not None and p.bold and p.font_size and p.font_size > baseline)
 
-    A paragraph is treated as a heading if it's short (<= 12 words) and
-    either matches a common numbered-heading pattern ("Глава 1", "Статья 5",
-    "Section 3", ...) or is bold in a font size larger than the document's
-    baseline (most common) body size. Distinct heading sizes are ranked
-    (largest = level 1) to build a breadcrumb path the same way
-    parse_docx_sections/parse_markdown_sections do.
 
-    Tables (\\intbl/\\cell/\\row) are detected and emitted as
-    ``\\x00TABLE:``-prefixed sections so downstream code tags them with
-    ``content_type = "table"`` for row-batched splitting.
-    """
-    raw = _read_rtf_text(file_path)
-    segments = _walk_paragraphs(raw)
-    if not segments:
-        return [(None, rtf_to_text(raw))]
-
-    baseline = _most_common_size(segments)
-
-    def is_heading(seg: _Segment) -> bool:
-        p = seg.paragraph
-        if p is None:
-            return False
-        word_count = len(p.text.split())
-        if word_count == 0 or word_count > _MAX_HEADING_WORDS:
-            return False
-        if _NUMBERED_HEADING_RE.match(p.text):
-            return True
-        return bool(baseline is not None and p.bold and p.font_size and p.font_size > baseline)
-
+def _build_heading_index(
+    segments: list[_Segment], baseline: float | None
+) -> tuple[dict[float, int], int]:
+    """Map font sizes to heading levels; returns (size_to_level, fallback_level)."""
     heading_sizes = sorted(
-        {s.paragraph.font_size for s in segments if s.paragraph and s.paragraph.font_size and is_heading(s)},
+        {
+            s.paragraph.font_size
+            for s in segments
+            if s.paragraph and s.paragraph.font_size and _is_heading(s, baseline)
+        },
         reverse=True,
     )
     size_to_level = {size: i + 1 for i, size in enumerate(heading_sizes)}
-    fallback_level = len(heading_sizes) + 1  # numbered-pattern headings without a distinct larger size
+    fallback_level = len(heading_sizes) + 1
+    return size_to_level, fallback_level
 
+
+def _split_by_headings(
+    segments: list[_Segment],
+    baseline: float | None,
+    size_to_level: dict[float, int],
+    fallback_level: int,
+) -> list[tuple[str | None, str]]:
+    """Walk segments, splitting on detected headings into (heading, content) pairs."""
     sections: list[tuple[str | None, str]] = []
     stack: list[tuple[int, str]] = []
     current_heading: str | None = None
@@ -503,14 +525,13 @@ def parse_rtf_sections(file_path: Path) -> list[tuple[str | None, str]]:  # noqa
 
     for seg in segments:
         if seg.table:
-            # Emit table as a \x00TABLE:-prefixed section
             md = _table_to_markdown(seg.table)
             if md:
                 flush()
                 sections.append((current_heading, "\x00TABLE:" + md))
                 current_lines = []
         elif seg.paragraph:
-            if is_heading(seg):
+            if _is_heading(seg, baseline):
                 flush()
                 p = seg.paragraph
                 level = size_to_level.get(p.font_size, fallback_level) if p.font_size else fallback_level
@@ -522,15 +543,31 @@ def parse_rtf_sections(file_path: Path) -> list[tuple[str | None, str]]:  # noqa
             else:
                 current_lines.append(seg.paragraph.text)
     flush()
+    return sections
 
+
+def _fallback_flat_text(segments: list[_Segment]) -> str:
+    """Collect all paragraph text and table markdown into a single string."""
+    all_text: list[str] = []
+    for seg in segments:
+        if seg.paragraph:
+            all_text.append(seg.paragraph.text)
+        elif seg.table:
+            md = _table_to_markdown(seg.table)
+            if md:
+                all_text.append(md)
+    return "\n".join(all_text)
+
+
+def parse_rtf_sections(file_path: Path) -> list[tuple[str | None, str]]:
+    r"""Split RTF into (heading, content) sections using paragraph formatting."""
+    raw = _read_rtf_text(file_path)
+    segments = _walk_paragraphs(raw)
+    if not segments:
+        return [(None, rtf_to_text(raw))]
+    baseline = _most_common_size(segments)
+    size_to_level, fallback_level = _build_heading_index(segments, baseline)
+    sections = _split_by_headings(segments, baseline, size_to_level, fallback_level)
     if not sections:
-        all_text = []
-        for seg in segments:
-            if seg.paragraph:
-                all_text.append(seg.paragraph.text)
-            elif seg.table:
-                md = _table_to_markdown(seg.table)
-                if md:
-                    all_text.append(md)
-        return [(None, "\n".join(all_text))]
+        return [(None, _fallback_flat_text(segments))]
     return sections

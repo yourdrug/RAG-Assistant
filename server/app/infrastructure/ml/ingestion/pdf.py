@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from collections import Counter
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import fitz
@@ -34,6 +35,17 @@ _FOOTER_ZONE_RATIO = 0.09
 _BOILERPLATE_MIN_RATIO = 0.6
 _BOILERPLATE_MIN_PAGES = 4
 _DIGITS_RE = re.compile(r"\d+")
+
+
+@dataclass
+class _PageResult:
+    """Return type for _process_page: collects per-page outputs."""
+
+    text_doc: Document | None = None
+    ocr_needed: bool = False
+    text_for_comparison: str = ""
+    meta: dict = field(default_factory=dict)
+    table_docs: list[Document] = field(default_factory=list)
 
 
 def pymupdf_table_to_markdown(table) -> str:
@@ -282,87 +294,115 @@ def _compute_text_quality(page) -> float:
         return 0.0
 
 
-def parse_pdf(file_path: Path) -> list[Document]:  # noqa: C901
+def _process_page(
+    doc: fitz.Document,
+    page_num: int,
+    classified: list[tuple[list, list, list]],
+    boilerplate: set[str],
+    file_path: Path,
+    ocr_enabled: bool,
+    min_chars: int,
+) -> _PageResult:
+    """Process a single page: extract text, tables, decide if OCR is needed."""
+    page = doc.load_page(page_num - 1)
+    header, body, footer = classified[page_num - 1]
+
+    image_list = page.get_images(full=True)
+    page_meta = {
+        "has_images": bool(image_list),
+        "image_count": len(image_list),
+        "text_quality": round(_compute_text_quality(page), 3),
+    }
+
+    table_docs = _extract_page_tables(page, file_path, page_num)
+
+    kept_header = _filter_boilerplate_blocks(header, boilerplate)
+    kept_footer = _filter_boilerplate_blocks(footer, boilerplate)
+    header_lines = [b[4].strip() for b in sorted(kept_header, key=lambda b: b[1]) if b[4].strip()]
+    footer_lines = [b[4].strip() for b in sorted(kept_footer, key=lambda b: b[1]) if b[4].strip()]
+    body_lines = _order_blocks_columnwise(body, page.rect.width)
+    text = "\n".join(header_lines + body_lines + footer_lines)
+
+    if _should_ocr(text, min_chars, ocr_enabled):
+        return _PageResult(
+            ocr_needed=True,
+            text_for_comparison=text,
+            meta=page_meta,
+            table_docs=table_docs,
+        )
+
+    text_doc = _process_page_text(text, bool(table_docs), page_num, file_path)
+    if text_doc:
+        text_doc.metadata.update(page_meta)
+    return _PageResult(text_doc=text_doc, meta=page_meta, table_docs=table_docs)
+
+
+def _process_ocr_batch(
+    doc: fitz.Document,
+    ocr_pages_needed: list[int],
+    text_to_compare: dict[int, str],
+    file_path: Path,
+) -> list[Document]:
+    """Run OCR on flagged pages and return the resulting Documents."""
+    pages: list[Document] = []
+    ocr_results = ocr_pdf_pages(doc, ocr_pages_needed, file_path.name)
+    for page_num, ocr_text in ocr_results.items():
+        ocr_doc = _process_ocr_result(page_num, ocr_text, text_to_compare, file_path)
+        if ocr_doc:
+            ocr_doc.metadata["has_images"] = True
+            ocr_doc.metadata["image_count"] = len(
+                doc.load_page(page_num - 1).get_images(full=True)
+            )
+            ocr_doc.metadata["text_quality"] = 0.0
+            pages.append(ocr_doc)
+    return pages
+
+
+def _apply_document_metadata(
+    pages: list[Document], doc_metadata: dict, is_scanned: bool
+) -> None:
+    """Stamp doc-level metadata and scanned flag onto every page."""
+    if doc_metadata:
+        for p in pages:
+            p.metadata.update(doc_metadata)
+    if is_scanned:
+        for p in pages:
+            p.metadata["is_scanned"] = True
+
+
+def parse_pdf(file_path: Path) -> list[Document]:
     doc = fitz.open(str(file_path))
     n_pages = len(doc)
     doc_metadata = _extract_doc_metadata(doc)
 
-    # Pass 1: classify blocks per page (cheap, no OCR) and find recurring
-    # header/footer patterns across the whole document.
     classified = [_classify_page_blocks(doc.load_page(i)) for i in range(n_pages)]
     boilerplate = _find_boilerplate_patterns(classified)
     if boilerplate:
         log.info("Detected %d recurring header/footer line pattern(s)", len(boilerplate))
 
-    pages = []
-    ocr_pages_needed = []
+    pages: list[Document] = []
+    ocr_pages_needed: list[int] = []
     text_to_compare: dict[int, str] = {}
     ocr_page_set: set[int] = set()
 
     for page_num in range(1, n_pages + 1):
-        page = doc.load_page(page_num - 1)
-        header, body, footer = classified[page_num - 1]
-
-        # Per-page image metadata
-        image_list = page.get_images(full=True)
-        has_images = bool(image_list)
-        image_count = len(image_list)
-
-        # Per-page text quality score
-        text_quality = _compute_text_quality(page)
-
-        table_docs = _extract_page_tables(page, file_path, page_num)
-        pages.extend(table_docs)
-
-        kept_header = _filter_boilerplate_blocks(header, boilerplate)
-        kept_footer = _filter_boilerplate_blocks(footer, boilerplate)
-        header_lines = [b[4].strip() for b in sorted(kept_header, key=lambda b: b[1]) if b[4].strip()]
-        footer_lines = [b[4].strip() for b in sorted(kept_footer, key=lambda b: b[1]) if b[4].strip()]
-        body_lines = _order_blocks_columnwise(body, page.rect.width)
-        text = "\n".join(header_lines + body_lines + footer_lines)
-
-        page_meta = {
-            "has_images": has_images,
-            "image_count": image_count,
-            "text_quality": round(text_quality, 3),
-        }
-
-        min_chars = settings.ocr_min_chars
-        if _should_ocr(text, min_chars, settings.ocr_enabled):
+        result = _process_page(
+            doc, page_num, classified, boilerplate, file_path,
+            settings.ocr_enabled, settings.ocr_min_chars,
+        )
+        pages.extend(result.table_docs)
+        if result.ocr_needed:
             ocr_pages_needed.append(page_num)
             ocr_page_set.add(page_num)
-            if text:
-                text_to_compare[page_num] = text
-        else:
-            text_doc = _process_page_text(text, bool(table_docs), page_num, file_path)
-            if text_doc:
-                text_doc.metadata.update(page_meta)
-                pages.append(text_doc)
+            if result.text_for_comparison:
+                text_to_compare[page_num] = result.text_for_comparison
+        elif result.text_doc:
+            pages.append(result.text_doc)
 
-    # --- Batch OCR ---
     if ocr_pages_needed:
-        ocr_results = ocr_pdf_pages(doc, ocr_pages_needed, file_path.name)
-        for page_num, ocr_text in ocr_results.items():
-            ocr_doc = _process_ocr_result(page_num, ocr_text, text_to_compare, file_path)
-            if ocr_doc:
-                ocr_doc.metadata["has_images"] = True  # OCR pages are image-heavy by definition
-                ocr_doc.metadata["image_count"] = len(
-                    doc.load_page(page_num - 1).get_images(full=True)
-                )
-                ocr_doc.metadata["text_quality"] = 0.0  # scanned = no native text
-                pages.append(ocr_doc)
+        pages.extend(_process_ocr_batch(doc, ocr_pages_needed, text_to_compare, file_path))
 
-    # is_scanned: True if all pages needed OCR (or the majority did)
     is_scanned = len(ocr_page_set) >= n_pages * 0.8 if n_pages > 0 else False
-
     doc.close()
-
-    if doc_metadata:
-        for p in pages:
-            p.metadata.update(doc_metadata)
-
-    if is_scanned:
-        for p in pages:
-            p.metadata["is_scanned"] = True
-
+    _apply_document_metadata(pages, doc_metadata, is_scanned)
     return pages

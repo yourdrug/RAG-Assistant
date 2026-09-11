@@ -328,7 +328,58 @@ def _split_structured(
     return result
 
 
-def _split_overflow(  # noqa: C901
+def _split_at_boundaries(text: str, boundary_patterns: list) -> list[str]:
+    """Split text at structural boundary patterns."""
+    fragments = [text]
+    for pattern in boundary_patterns:
+        new_fragments = []
+        for frag in fragments:
+            new_fragments.extend(re.split(pattern, frag))
+        fragments = [f for f in new_fragments if f.strip()]
+    return fragments
+
+
+def _merge_fragments(fragments: list[str], chunk_size: int, chunk_overlap: int) -> list[str]:
+    """Merge fragments respecting chunk_size, with overlap for continuity."""
+    merged: list[str] = []
+    current = ""
+    for frag in fragments:
+        frag = frag.strip()
+        if not frag:
+            continue
+        if not current:
+            current = frag
+        elif len(current) + len(frag) + 1 <= chunk_size:
+            current = current + "\n" + frag
+        else:
+            merged.append(current)
+            if chunk_overlap > 0 and len(current) > chunk_overlap:
+                current = current[-chunk_overlap:] + "\n" + frag
+            else:
+                current = frag
+    if current.strip():
+        merged.append(current)
+    return merged
+
+
+def _fallback_split(chunks: list[str], chunk_size: int, chunk_overlap: int) -> list[str]:
+    """Split any remaining oversized chunks using RecursiveCharacterTextSplitter."""
+    result = []
+    for chunk in chunks:
+        if len(chunk) > chunk_size:
+            splitter = RecursiveCharacterTextSplitter(
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
+                length_function=len,
+                separators=["\n\n", "\n", ". ", " ", ""],
+            )
+            result.extend(splitter.split_text(chunk))
+        else:
+            result.append(chunk)
+    return result
+
+
+def _split_overflow(
     text: str,
     chunk_size: int,
     chunk_overlap: int,
@@ -337,55 +388,14 @@ def _split_overflow(  # noqa: C901
     """Split oversized text with overlap as a safety net.
 
     When boundary_patterns are provided (for structured domains), first split
-    at structural boundaries and merge fragments to respect chunk_size. This
-    preserves logical unit integrity — rules for different categories stay
-    together. Falls back to RecursiveCharacterTextSplitter for any remaining
+    at structural boundaries and merge fragments to respect chunk_size.
+    Falls back to RecursiveCharacterTextSplitter for any remaining
     oversized fragments.
     """
     if boundary_patterns:
-        # Step 1: Split at all boundary patterns
-        fragments = [text]
-        for pattern in boundary_patterns:
-            new_fragments = []
-            for frag in fragments:
-                new_fragments.extend(re.split(pattern, frag))
-            fragments = [f for f in fragments if f.strip()]
-
-        # Step 2: Merge fragments respecting chunk_size (with overlap)
-        merged: list[str] = []
-        current = ""
-        for frag in fragments:
-            frag = frag.strip()
-            if not frag:
-                continue
-            if not current:
-                current = frag
-            elif len(current) + len(frag) + 1 <= chunk_size:
-                current = current + "\n" + frag
-            else:
-                merged.append(current)
-                # Overlap: keep tail of current chunk
-                if chunk_overlap > 0 and len(current) > chunk_overlap:
-                    current = current[-chunk_overlap:] + "\n" + frag
-                else:
-                    current = frag
-        if current.strip():
-            merged.append(current)
-
-        # Step 3: If any fragment still exceeds chunk_size, use generic splitter
-        result = []
-        for chunk in merged:
-            if len(chunk) > chunk_size:
-                splitter = RecursiveCharacterTextSplitter(
-                    chunk_size=chunk_size,
-                    chunk_overlap=chunk_overlap,
-                    length_function=len,
-                    separators=["\n\n", "\n", ". ", " ", ""],
-                )
-                result.extend(splitter.split_text(chunk))
-            else:
-                result.append(chunk)
-        return result
+        fragments = _split_at_boundaries(text, boundary_patterns)
+        merged = _merge_fragments(fragments, chunk_size, chunk_overlap)
+        return _fallback_split(merged, chunk_size, chunk_overlap)
 
     # Fallback: no boundary patterns — use generic splitter
     splitter = RecursiveCharacterTextSplitter(

@@ -8,7 +8,7 @@ from application.services.config_admin_service import ConfigAdminService
 from application.services.config_service import ConfigService
 from fastapi import APIRouter, Depends, HTTPException
 from infrastructure.logging.actions import log_action
-from infrastructure.ml.config_subscribers import SENSITIVE_KEYS, _mask_value
+from infrastructure.ml.config.config_subscribers import SENSITIVE_KEYS, _mask_value
 
 from presentation.api.auth_dependencies import require_admin
 from presentation.api.constants import QUESTION_LOG_MAX_CHARS, STATIC_CONFIG_KEYS

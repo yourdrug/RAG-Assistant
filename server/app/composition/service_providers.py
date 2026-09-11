@@ -30,7 +30,7 @@ def create_ingestion_service(
     This is useful for CLI commands that don't need a database connection.
     """
     from application.services.act_versioning_service import ActVersioningService
-    from infrastructure.services.ingestion_service import IngestionService
+    from application.services.ingestion_orchestrator import IngestionService
 
     uow = _require(
         uow_factory if uow_factory is not None else infra.uow_factory,
@@ -61,7 +61,7 @@ def create_document_processor(
     from application.services.act_versioning_service import ActVersioningService
     from application.services.document_processor import DocumentProcessor
     from config import settings
-    from infrastructure.ml.text_quality_adapter import TextQualityAssessorAdapter
+    from infrastructure.ml.guardrails.text_quality_adapter import TextQualityAssessorAdapter
 
     uow = _require(
         uow_factory if uow_factory is not None else infra.uow_factory,
@@ -91,3 +91,24 @@ def create_document_processor(
         domain_settings=infra.domain_settings,
         act_versioning_service=act_versioning,
     )
+
+
+def create_ingest_app_service(
+    infra: InfrastructureContainer,
+    uow_factory: UnitOfWorkFactory | None = None,
+):
+    """Create an IngestAppService using infrastructure singletons.
+
+    Composes the IngestionService (from ``create_ingestion_service``) with
+    the application-layer orchestrator.  Worker tasks call this instead of
+    importing ``IngestAppService`` directly, keeping the infrastructure →
+    application dependency out of the worker layer.
+    """
+    from application.services.ingest_service import IngestAppService
+
+    uow = _require(
+        uow_factory if uow_factory is not None else infra.uow_factory,
+        "uow_factory",
+    )
+    ingestion_svc = create_ingestion_service(infra, uow_factory=uow)
+    return IngestAppService(uow_factory=uow, ingestion_service=ingestion_svc)

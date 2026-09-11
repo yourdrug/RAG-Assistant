@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from infrastructure.ml.rag import update_rolling_summary
 
 if TYPE_CHECKING:
-    from infrastructure.ml.client_registry import MLClientRegistry
+    from infrastructure.ml.clients.client_registry import MLClientRegistry
 
 
 class RollingSummaryUpdater:

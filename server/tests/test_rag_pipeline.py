@@ -95,7 +95,7 @@ class TestRagPipelineState:
         assert state.query_for_search == "test query"
         assert state.breadth is None
         assert state.fetch_k == 0
-        assert state.top_k == 0
+        assert state.rerank_top_n == 0
         assert state.docs == []
         assert state.sources == []
         assert state.terminal is False
@@ -151,7 +151,8 @@ class TestIsNotFoundAnswer:
 
     def test_all_patterns_covered(self):
         for pattern in NOT_FOUND_PATTERNS:
-            answer = f"Ответ: {pattern} в данном контексте."
+            # Use short answers so the pattern-check branch is triggered (< 50 chars)
+            answer = f"Ответ: {pattern}"
             assert _is_not_found_answer(answer) is True, f"Pattern '{pattern}' not detected"
 
     def test_empty_string(self):

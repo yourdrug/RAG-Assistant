@@ -1,6 +1,6 @@
 """Tests for domain/pdf_diag.py -- page classification, garbled detection, chunking.
 
-Mock fitz at module level before importing.
+Mock fitz at module level before importing, then restore.
 """
 
 import sys
@@ -9,10 +9,17 @@ from unittest.mock import MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-# Mock fitz before importing pdf_diag
+# Mock fitz before importing pdf_diag, then restore for other test files
+_real_fitz = sys.modules.get("fitz")
 sys.modules["fitz"] = MagicMock()
 
 from infrastructure.ml.pdf_diag import classify_page, is_garbled, simple_chunk  # noqa: E402
+
+# Restore real fitz module so other tests can use it
+if _real_fitz is not None:
+    sys.modules["fitz"] = _real_fitz
+elif "fitz" in sys.modules:
+    del sys.modules["fitz"]
 
 # ---------------------------------------------------------------------------
 # is_garbled

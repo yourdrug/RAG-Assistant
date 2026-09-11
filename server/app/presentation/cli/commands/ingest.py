@@ -9,7 +9,7 @@ import sys
 import typer
 from config import settings
 from domain.value_objects.visibility import DocumentVisibility
-from infrastructure.services.ingestion_service import IngestionService
+from application.services.ingestion_orchestrator import IngestionService
 from infrastructure.storage import get_storage
 
 logger = logging.getLogger("cli")
@@ -20,7 +20,7 @@ ingest_app = typer.Typer(help="Document indexing in Qdrant (S3 storage)")
 def _create_service() -> IngestionService:
     """Create IngestionService with proper dependencies."""
     from infrastructure.database.database import database
-    from infrastructure.repositories.qdrant_vector_store_repository import QdrantVectorStoreRepository
+    from infrastructure.repositories.vector.qdrant_vector_store_repository import QdrantVectorStoreRepository
     from infrastructure.storage import LazyStorage
     from infrastructure.uow_factory import UnitOfWorkFactory
 

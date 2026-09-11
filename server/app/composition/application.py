@@ -36,7 +36,7 @@ if TYPE_CHECKING:
     from application.services.quality_service import QualityService
     from application.services.search_service import SearchService
     from infrastructure.ml.rag_service import RagService
-    from infrastructure.services.ingestion_service import IngestionService
+    from application.services.ingestion_orchestrator import IngestionService
 
     from composition.infrastructure import InfrastructureContainer
 
@@ -121,14 +121,14 @@ class ApplicationContainer:
         from infrastructure.auth.jwt_provider import JWTProvider
         from infrastructure.auth.password_hasher import BCryptPasswordHasher
         from infrastructure.events.in_process_event_bus import event_bus
-        from infrastructure.ml.settings_adapters import (
+        from infrastructure.ml.config.settings_adapters import (
             LiveChatSettings,
             LiveChunkSettings,
             LiveConfigAdminSettings,
             LiveHealthSettings,
         )
         from infrastructure.adapters.pii_redactor_adapter import PIIRedactorAdapter
-        from infrastructure.ml.pdf_adapter import (
+        from infrastructure.ml.guardrails.pdf_adapter import (
             FitzPDFDocument,
             MLOcrRunner,
             MLPageClassifier,

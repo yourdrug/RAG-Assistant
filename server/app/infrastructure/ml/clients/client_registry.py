@@ -54,21 +54,21 @@ class MLClientRegistry:
 
     def embeddings(self) -> Any:
         if self._embeddings is None:
-            from infrastructure.ml.factories import create_embeddings
+            from infrastructure.ml.clients.factories import create_embeddings
 
             self._embeddings = create_embeddings()
         return self._embeddings
 
     def llm(self) -> Any:
         if self._llm is None:
-            from infrastructure.ml.factories import create_llm
+            from infrastructure.ml.clients.factories import create_llm
 
             self._llm = create_llm()
         return self._llm
 
     def llm_for_breadth(self, breadth: str) -> Any:
         if breadth not in self._llm_breadth_cache:
-            from infrastructure.ml.factories import create_llm_for_breadth
+            from infrastructure.ml.clients.factories import create_llm_for_breadth
 
             self._llm_breadth_cache[breadth] = create_llm_for_breadth(breadth)
         return self._llm_breadth_cache[breadth]
@@ -76,28 +76,28 @@ class MLClientRegistry:
     def fast_llm(self) -> Any:
         """Fast, lightweight LLM for auxiliary pipeline calls (condense, relevance)."""
         if self._fast_llm is None:
-            from infrastructure.ml.factories import create_fast_llm_for_auxiliary
+            from infrastructure.ml.clients.factories import create_fast_llm_for_auxiliary
 
             self._fast_llm = create_fast_llm_for_auxiliary()
         return self._fast_llm
 
     def reranker(self) -> Any:
         if self._reranker is None:
-            from infrastructure.ml.factories import create_reranker
+            from infrastructure.ml.clients.factories import create_reranker
 
             self._reranker = create_reranker()
         return self._reranker
 
     def qdrant_client(self) -> Any:
         if self._qdrant_client is None:
-            from infrastructure.ml.factories import create_qdrant_client
+            from infrastructure.ml.clients.factories import create_qdrant_client
 
             self._qdrant_client = create_qdrant_client()
         return self._qdrant_client
 
     def bm25_index(self) -> BM25Index | None:
         if not self._bm25_loaded:
-            from infrastructure.ml.factories import load_bm25_index
+            from infrastructure.ml.clients.factories import load_bm25_index
 
             self._bm25_index = load_bm25_index()
             self._bm25_loaded = True

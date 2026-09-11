@@ -12,7 +12,7 @@ import pytest
 from application.services.config_service import ConfigService
 from domain.events.config_events import ConfigParameterChanged
 from domain.domain_profile.profiles.decree import DecreeDomainProfile
-from infrastructure.domain_profile.registry import DomainProfileRegistry
+from domain.domain_profile.registry import DomainProfileRegistry
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from fakes import FakeUnitOfWorkFactory
 

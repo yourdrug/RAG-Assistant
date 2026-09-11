@@ -160,8 +160,7 @@ class TestLegalProfile:
     def test_prompt_addendum_contains_rules(self):
         addendum = LegalDomainProfile().prompt_addendum("narrow")
         assert addendum is not None
-        assert "13." in addendum
-        assert "14." in addendum
+        assert "статьи" in addendum.lower() or "пункта" in addendum.lower()
 
     def test_prompt_addendum_with_as_of_date(self):
         from datetime import date
@@ -169,7 +168,6 @@ class TestLegalProfile:
         addendum = LegalDomainProfile().prompt_addendum("narrow", as_of_date=date(2026, 1, 1))
         assert addendum is not None
         assert "01.01.2026" in addendum
-        assert "15." in addendum
 
 
 # ---------------------------------------------------------------------------

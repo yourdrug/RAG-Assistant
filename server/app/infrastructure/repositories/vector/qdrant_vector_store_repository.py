@@ -12,10 +12,10 @@ from domain.entities.chunk import Chunk
 from langchain.schema import Document as LCDocument
 from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
 
-from infrastructure.qdrant_ops import ensure_collection, upload_to_qdrant
+from infrastructure.vector.qdrant_ops import ensure_collection, upload_to_qdrant
 
 if TYPE_CHECKING:
-    from infrastructure.ml.client_registry import MLClientRegistry
+    from infrastructure.ml.clients.client_registry import MLClientRegistry
 
 log = logging.getLogger("default")
 
@@ -29,14 +29,14 @@ class QdrantVectorStoreRepository:
     def _get_qdrant_client(self):
         if self._ml_clients is not None:
             return self._ml_clients.qdrant_client()
-        from infrastructure.ml.factories import create_qdrant_client
+        from infrastructure.ml.clients.factories import create_qdrant_client
 
         return create_qdrant_client()
 
     def _get_embeddings(self):
         if self._ml_clients is not None:
             return self._ml_clients.embeddings()
-        from infrastructure.ml.factories import create_embeddings
+        from infrastructure.ml.clients.factories import create_embeddings
 
         return create_embeddings()
 

@@ -294,6 +294,11 @@ class FakeDocumentRepository:
     async def reconcile_indexing_documents(self) -> list[int]:
         return []
 
+    async def set_source_path(self, document_id: int, source_path: str) -> None:
+        doc = self._documents.get(document_id)
+        if doc is not None:
+            doc.source_path = source_path
+
 
 class FakeChatLogRepository:
     async def save(self, log) -> None:
@@ -712,7 +717,7 @@ class FakeChatRAGPort:
         yield SourcesEvent(sources=self._sources, confidence=0.9)
 
     async def invoke(self, question: str, history: list, ctx):
-        from application.dto.chat_dto import RagResult
+        from domain.value_objects.rag_result import RagResult
 
         return RagResult(
             answer=self._answer,

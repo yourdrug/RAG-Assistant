@@ -43,7 +43,8 @@ class TestCleanPdfText:
         assert clean_pdf_text("line1\nline2") == "line1\nline2"
 
     def test_collapses_multiple_newlines_to_single(self):
-        assert clean_pdf_text("para1\n\n\n\npara2") == "para1\npara2"
+        # clean_pdf_text preserves \n\n as paragraph breaks (3+ newlines → 2)
+        assert clean_pdf_text("para1\n\n\n\npara2") == "para1\n\npara2"
 
     def test_removes_dashes_separator_line(self):
         text = "Before\n---\nAfter"
@@ -87,8 +88,9 @@ class TestCleanPdfText:
     def test_mixed_whitespace_and_newlines(self):
         text = "word1   word2\n\n\n   word3"
         result = clean_pdf_text(text)
-        # Whitespace-only runs collapse to single space, multiple blank lines -> single \n
-        assert result == "word1 word2\n word3"
+        # Horizontal whitespace collapses, 3+ newlines → paragraph break (\n\n)
+        # Space after newlines is preserved (not stripped mid-string)
+        assert result == "word1 word2\n\n word3"
 
 
 # ---------------------------------------------------------------------------

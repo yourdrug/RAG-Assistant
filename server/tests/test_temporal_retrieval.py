@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 from langchain.schema import Document
 from qdrant_client.models import FieldCondition, Filter, MatchValue
 
-from infrastructure.acl import with_temporal_filter
+from infrastructure.vector.acl import with_temporal_filter
 from infrastructure.ml.rag import extract_sources
 
 

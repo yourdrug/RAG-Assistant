@@ -156,7 +156,7 @@ def invalidate_pii_detector_cache(event: ConfigParameterChanged) -> None:
     if event.key != "pii_redaction_enabled":
         return
 
-    from infrastructure.ml.guardrails import invalidate_pii_detector
+    from infrastructure.ml.guardrails.guardrails import invalidate_pii_detector
 
     invalidate_pii_detector()
     log.info("PII detector cache invalidated (pii_redaction_enabled -> %s)", event.new_value)

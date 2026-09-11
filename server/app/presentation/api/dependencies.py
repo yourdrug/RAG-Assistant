@@ -39,7 +39,7 @@ if TYPE_CHECKING:
     from application.services.search_service import SearchService
     from composition.container import Container
     from infrastructure.auth.api_key_provider import ApiKeyProvider
-    from infrastructure.services.ingestion_service import IngestionService
+    from application.services.ingestion_orchestrator import IngestionService
 
 log = logging.getLogger("default")
 

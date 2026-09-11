@@ -500,8 +500,8 @@ class TestCheckRelevance:
         mock_result.reason = "Context is sufficient"
         mock_client.chat.completions.create.return_value = mock_result
 
-        with patch.object(rag, "_get_rag_instructor_client", return_value=mock_client):
-            with patch("infrastructure.ml.llm_schemas.RelevanceCheck"):
+        with patch("infrastructure.ml.rag.rag_relevance._get_rag_instructor_client", return_value=mock_client):
+            with patch("infrastructure.ml.clients.llm_schemas.RelevanceCheck"):
                 from config import settings
 
                 settings.llm_model = "test-model"
@@ -517,8 +517,8 @@ class TestCheckRelevance:
         mock_result.reason = "Context lacks relevant information"
         mock_client.chat.completions.create.return_value = mock_result
 
-        with patch.object(rag, "_get_rag_instructor_client", return_value=mock_client):
-            with patch("infrastructure.ml.llm_schemas.RelevanceCheck"):
+        with patch("infrastructure.ml.rag.rag_relevance._get_rag_instructor_client", return_value=mock_client):
+            with patch("infrastructure.ml.clients.llm_schemas.RelevanceCheck"):
                 from config import settings
 
                 settings.llm_model = "test-model"

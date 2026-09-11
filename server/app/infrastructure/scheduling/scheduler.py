@@ -13,31 +13,13 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from functools import wraps
 from typing import Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from infrastructure.metrics.metrics import collect_infra_metrics
+from infrastructure.utils.async_exception_handler import handle_exceptions
 
 logger = logging.getLogger("default")
-
-
-def handle_exceptions(func: Callable) -> Callable:
-    """Log exceptions without crashing the scheduler."""
-
-    @wraps(func)
-    async def wrapper(*args: Any, **kwargs: Any) -> Any:
-        try:
-            return await func(*args, **kwargs)
-        except Exception as e:
-            logger.exception(
-                "Scheduler job %s failed: [%s] %s",
-                func.__name__,
-                type(e).__name__,
-                e,
-            )
-
-    return wrapper
 
 
 class Scheduler:

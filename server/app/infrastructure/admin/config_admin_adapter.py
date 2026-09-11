@@ -76,6 +76,6 @@ class QdrantInfo:
 
 
 async def fetch_openrouter_models() -> list[dict]:
-    from infrastructure.ml.factories import fetch_openrouter_models as _fetch
+    from infrastructure.ml.clients.factories import fetch_openrouter_models as _fetch
 
     return await _fetch()

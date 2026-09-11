@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-from infrastructure.domain_profile.registry import (
+from domain.domain_profile.registry import (
     DomainProfileRegistry,
 )
 from domain.domain_profile.profiles.decree import DecreeDomainProfile

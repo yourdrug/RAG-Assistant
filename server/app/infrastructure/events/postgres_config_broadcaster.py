@@ -11,7 +11,7 @@ import json
 import logging
 
 from domain.events.config_events import ConfigParameterChanged
-from infrastructure.ml.config_subscribers import SENSITIVE_KEYS
+from infrastructure.ml.config.config_subscribers import SENSITIVE_KEYS
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 

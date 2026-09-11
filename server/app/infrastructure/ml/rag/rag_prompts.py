@@ -1,0 +1,164 @@
+"""RAG prompts — query condensation, decomposition, summary, and prompt building."""
+
+import logging
+
+from domain.services.rag_policy import build_system_prompt  # noqa: F401
+from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
+
+log = logging.getLogger("default")
+
+# ---------------------------------------------------------------------------
+# Query condensation
+# ---------------------------------------------------------------------------
+
+CONDENSE_SYSTEM = (
+    "Учитывая историю диалога, перепиши следующий вопрос так, чтобы он был "
+    "самодостаточным для поиска по документам. Сохрани смысл и язык вопроса. "
+    "Если вопрос уже самодостаточен — верни его без изменений. "
+    "Отвечай ТОЛЬКО переформулированным вопросом, без пояснений."
+)
+
+CONDENSE_PROMPT = ChatPromptTemplate.from_messages(
+    [
+        ("system", CONDENSE_SYSTEM),
+        MessagesPlaceholder(variable_name="history"),
+        ("human", "{question}"),
+    ]
+)
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+    retry=retry_if_exception_type((Exception,)),
+    reraise=True,
+)
+async def condense_question(llm, question: str, history_messages: list) -> str:
+    """Rewrite a follow-up question into a self-contained query using history context."""
+    if not history_messages:
+        return question
+
+    chain = CONDENSE_PROMPT | llm
+    result = await chain.ainvoke({"history": history_messages, "question": question})
+    condensed = result.content.strip()
+
+    if not condensed or len(condensed) < 3:
+        log.warning("Condensation returned empty/garbled output, using original question")
+        return question
+
+    len_ratio = len(condensed) / len(question) if len(question) > 0 else 1.0
+    if len_ratio < 0.3 or len_ratio > 5.0:
+        log.warning(
+            "Condensation suspicious: len ratio %.2f, original=%r, condensed=%r",
+            len_ratio,
+            question,
+            condensed,
+        )
+
+    log.info("Condensed query: %r -> %r (ratio=%.2f)", question, condensed, len_ratio)
+    return condensed
+
+
+# ---------------------------------------------------------------------------
+# Query decomposition
+# ---------------------------------------------------------------------------
+
+DECOMPOSE_SYSTEM = (
+    "Разбей составной вопрос на 2-4 независимых подвопроса. "
+    "Каждый подвопрос должен быть самодостаточным для поиска по документам. "
+    "Верни ТОЛЬКО список подвопросов, каждый на новой строке, без нумерации и маркеров."
+)
+
+DECOMPOSE_PROMPT = ChatPromptTemplate.from_messages(
+    [
+        ("system", DECOMPOSE_SYSTEM),
+        ("human", "{question}"),
+    ]
+)
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+    retry=retry_if_exception_type((Exception,)),
+    reraise=True,
+)
+async def decompose_question(llm, question: str) -> list[str]:
+    """Split a compound question into independent sub-queries."""
+    chain = DECOMPOSE_PROMPT | llm
+    result = await chain.ainvoke({"question": question})
+    lines = [line.strip() for line in result.content.strip().split("\n") if line.strip()]
+
+    if len(lines) < 2:
+        log.warning("Decomposition returned %d lines, using original question", len(lines))
+        return [question]
+
+    log.info("Decomposed %r into %d sub-questions: %s", question, len(lines), lines)
+    return lines[:4]
+
+
+# ---------------------------------------------------------------------------
+# Rolling summary
+# ---------------------------------------------------------------------------
+
+SUMMARY_SYSTEM = (
+    "Составь краткое резюме диалога (3-5 предложений). "
+    "Фиксируй ключевые факты, решения и контекст. "
+    "Пиши на русском языке. Не начинай с «Резюме» — просто изложи суть."
+)
+
+SUMMARY_PROMPT = ChatPromptTemplate.from_messages(
+    [
+        ("system", SUMMARY_SYSTEM),
+        ("human", "{prompt}"),
+    ]
+)
+
+
+async def update_rolling_summary(llm, existing_summary: str | None, new_turns: list[dict]) -> str:
+    """Produce an updated rolling summary from existing summary + new dialog turns."""
+    turns_text = "\n".join(
+        f"{'Пользователь' if t['role'] == 'user' else 'Ассистент'}: {t['content'][:200]}" for t in new_turns
+    )
+    if existing_summary:
+        prompt = f"Предыдущее резюме:\n{existing_summary}\n\nНовые сообщения:\n{turns_text}"
+    else:
+        prompt = f"Сообщения диалога:\n{turns_text}"
+
+    chain = SUMMARY_PROMPT | llm
+    result = await chain.ainvoke({"prompt": prompt})
+    summary = result.content.strip()
+    log.info("Rolling summary updated (%d chars)", len(summary))
+    return summary
+
+
+# ---------------------------------------------------------------------------
+# Prompt building
+# ---------------------------------------------------------------------------
+
+
+def build_prompt(
+    breadth: str = "narrow",
+    summary: str | None = None,
+    domain_addendum: str | None = None,
+    enumerate_cases: bool = False,
+) -> ChatPromptTemplate:
+    system_text = build_system_prompt(
+        breadth,
+        domain_addendum=domain_addendum,
+        enumerate_cases=enumerate_cases,
+    )
+    messages: list = [
+        ("system", system_text),
+    ]
+    if summary:
+        messages.append(("system", f"Резюме предыдущей части диалога:\n{summary}"))
+    messages.append(MessagesPlaceholder(variable_name="history"))
+    messages.append(("human", "{question}"))
+    return ChatPromptTemplate.from_messages(messages)

@@ -20,27 +20,27 @@ if TYPE_CHECKING:
     from infrastructure.admin.config_admin_adapter import OllamaProbe, QdrantInfo
     from infrastructure.auth.api_key_provider import ApiKeyProvider
     from infrastructure.database.database import DatabaseManager
-    from infrastructure.domain_profile.registry import DomainProfileRegistry
+    from domain.domain_profile.registry import DomainProfileRegistry
     from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
     from infrastructure.events.postgres_config_broadcaster import PostgresConfigBroadcaster
     from infrastructure.events.postgres_config_listener import PostgresConfigListener
     from infrastructure.health.system_health_probe import SystemHealthProbe
-    from infrastructure.ml.client_registry import MLClientRegistry
-    from infrastructure.ml.extraction_adapter import MLContentExtractor, MLPDFQualityAssessor
+    from infrastructure.ml.clients.client_registry import MLClientRegistry
+    from infrastructure.ml.extraction.extraction_adapter import MLContentExtractor, MLPDFQualityAssessor
     from infrastructure.ml.langchain_document_parser import (
         LangchainDocumentParser,
         LangchainDocumentSplitter,
     )
     from infrastructure.metrics.metrics_adapter import PrometheusMetricsCollector
     from infrastructure.metrics.prometheus_adapter import PrometheusMetricsRegistry
-    from infrastructure.ml.summary_adapter import RollingSummaryUpdater
-    from infrastructure.repositories.qdrant_vector_store_repository import (
+    from infrastructure.ml.extraction.summary_adapter import RollingSummaryUpdater
+    from infrastructure.repositories.vector.qdrant_vector_store_repository import (
         QdrantVectorStoreRepository,
     )
-    from infrastructure.services.benchmark_service import BenchmarkService
+    from application.services.benchmark_orchestrator import BenchmarkService
     from infrastructure.storage import LazyStorage
     from infrastructure.uow_factory import UnitOfWorkFactory
-    from infrastructure.outbox_dispatcher import OutboxDispatcher
+    from infrastructure.vector.outbox_dispatcher import OutboxDispatcher
     from infrastructure.events.postgres_outbox_listener import PostgresOutboxListener
 
 log = logging.getLogger("default")
@@ -106,19 +106,19 @@ class MLContainer:
         domain_registry=None,
         domain_settings=None,
     ) -> None:
-        from infrastructure.ml.client_registry import MLClientRegistry
-        from infrastructure.ml.extraction_adapter import MLContentExtractor, MLPDFQualityAssessor
+        from infrastructure.ml.clients.client_registry import MLClientRegistry
+        from infrastructure.ml.extraction.extraction_adapter import MLContentExtractor, MLPDFQualityAssessor
         from infrastructure.ml.langchain_document_parser import (
             LangchainDocumentParser,
             LangchainDocumentSplitter,
         )
         from infrastructure.metrics.metrics_adapter import PrometheusMetricsCollector
         from infrastructure.metrics.prometheus_adapter import PrometheusMetricsRegistry
-        from infrastructure.ml.summary_adapter import RollingSummaryUpdater
-        from infrastructure.repositories.qdrant_vector_store_repository import (
+        from infrastructure.ml.extraction.summary_adapter import RollingSummaryUpdater
+        from infrastructure.repositories.vector.qdrant_vector_store_repository import (
             QdrantVectorStoreRepository,
         )
-        from infrastructure.services.benchmark_service import BenchmarkService
+        from application.services.benchmark_orchestrator import BenchmarkService
         from infrastructure.storage import LazyStorage
         from application.services.preview_cache import PreviewCache
 
@@ -190,7 +190,7 @@ class EventContainer:
         domain_settings=None,
     ) -> None:
         from infrastructure.events.postgres_config_listener import PostgresConfigListener
-        from infrastructure.outbox_dispatcher import OutboxDispatcher
+        from infrastructure.vector.outbox_dispatcher import OutboxDispatcher
         from infrastructure.events.postgres_outbox_listener import PostgresOutboxListener
         from config import settings as app_settings
 
@@ -290,7 +290,7 @@ class InfrastructureContainer:
         (ML parsing/splitting is domain-aware and consumes the registry).
         """
         from infrastructure.domain_profile import register_all_profiles
-        from infrastructure.domain_profile.registry import DomainProfileRegistry
+        from domain.domain_profile.registry import DomainProfileRegistry
         from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
         from infrastructure.events.in_process_event_bus import event_bus
 

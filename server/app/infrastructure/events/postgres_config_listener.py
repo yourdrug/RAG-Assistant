@@ -23,7 +23,7 @@ from infrastructure.metrics.metrics import (
     CONFIG_NOTIFY_RECEIVED_TOTAL,
     CONFIG_RESYNC_TOTAL,
 )
-from infrastructure.ml.config_subscribers import SENSITIVE_KEYS as _SENSITIVE_KEYS
+from infrastructure.ml.config.config_subscribers import SENSITIVE_KEYS as _SENSITIVE_KEYS
 
 if TYPE_CHECKING:
     from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
@@ -229,7 +229,33 @@ class PostgresConfigListener:
         return self._conn is not None and not self._conn.is_closed()
 
     @staticmethod
-    def _values_equal(current: object, db_value: str | None) -> bool:  # noqa: C901
+    def _normalize_to_comparable(current: object) -> object:
+        """Normalize a Python object to its JSON-equivalent form for comparison."""
+        if isinstance(current, bool):
+            return json.loads(json.dumps(current))
+        if isinstance(current, list | dict | int | float):
+            return json.loads(json.dumps(current, ensure_ascii=False, sort_keys=True))
+        return json.loads(json.dumps(str(current), ensure_ascii=False))
+
+    @staticmethod
+    def _normalize_types(
+        a: object, b: object
+    ) -> tuple[object, object]:
+        """Coerce str<->numeric mismatches so mixed types compare correctly."""
+        if isinstance(a, str) and isinstance(b, (int, float)):
+            try:
+                return float(a), b
+            except (ValueError, TypeError):
+                return a, b
+        if isinstance(b, str) and isinstance(a, (int, float)):
+            try:
+                return a, float(b)
+            except (ValueError, TypeError):
+                return a, b
+        return a, b
+
+    @staticmethod
+    def _values_equal(current: object, db_value: str | None) -> bool:
         """Compare in-memory setting with DB-stored JSON value, ignoring format differences.
 
         DB stores JSON (``["ru","en"]``), while Python objects serialise as repr
@@ -240,31 +266,12 @@ class PostgresConfigListener:
             return True
         if current is None or db_value is None:
             return False
-        # Normalise in-memory value to JSON string for comparison
-        if isinstance(current, bool):
-            current_json = json.dumps(current)
-        elif isinstance(current, list | dict | int | float):
-            current_json = json.dumps(current, ensure_ascii=False, sort_keys=True)
-        else:
-            current_json = json.dumps(str(current), ensure_ascii=False)
         try:
             db_parsed = json.loads(db_value)
         except (json.JSONDecodeError, TypeError):
-            # DB value is a plain string, not JSON
             return str(current) == db_value
-        try:
-            current_parsed = json.loads(current_json)
-        except (json.JSONDecodeError, TypeError):
-            return current_json == db_value
-        # Normalise types: "2.0" (str) == 2.0 (float) should be True
-        if isinstance(current_parsed, str) and isinstance(db_parsed, (int, float)):
-            try:
-                return float(current_parsed) == db_parsed
-            except (ValueError, TypeError):
-                return False
-        if isinstance(db_parsed, str) and isinstance(current_parsed, (int, float)):
-            try:
-                return current_parsed == float(db_parsed)
-            except (ValueError, TypeError):
-                return False
-        return current_parsed == db_parsed
+        current_parsed = PostgresConfigListener._normalize_to_comparable(current)
+        current_normalized, db_normalized = PostgresConfigListener._normalize_types(
+            current_parsed, db_parsed
+        )
+        return current_normalized == db_normalized

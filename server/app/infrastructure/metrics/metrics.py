@@ -21,7 +21,7 @@ from sqlalchemy.pool import QueuePool
 from infrastructure.database.database import database
 
 if TYPE_CHECKING:
-    from infrastructure.ml.client_registry import MLClientRegistry
+    from infrastructure.ml.clients.client_registry import MLClientRegistry
 
 log = logging.getLogger("default")
 
@@ -314,7 +314,7 @@ async def _collect_qdrant_metrics(ml_clients: MLClientRegistry | None) -> None:
     if ml_clients is not None:
         client = ml_clients.qdrant_client()
     else:
-        from infrastructure.ml.factories import create_qdrant_client
+        from infrastructure.ml.clients.factories import create_qdrant_client
 
         client = create_qdrant_client()
     # Sync qdrant-client call — must not run on the event loop.
@@ -328,7 +328,7 @@ async def _collect_bm25_metrics(ml_clients: MLClientRegistry | None) -> None:
         # tokenize the full corpus (CPU) — keep both off the event loop.
         bm25 = await asyncio.to_thread(ml_clients.bm25_index)
     else:
-        from infrastructure.ml.factories import load_bm25_index
+        from infrastructure.ml.clients.factories import load_bm25_index
 
         bm25 = await asyncio.to_thread(load_bm25_index)
     if bm25 is not None:

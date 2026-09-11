@@ -15,7 +15,7 @@ import sys
 import typer
 from config import settings
 from infrastructure.database.database import database
-from infrastructure.ml.factories import create_qdrant_client
+from infrastructure.ml.clients.factories import create_qdrant_client
 from qdrant_client.models import FieldCondition, Filter, MatchValue
 
 logger = logging.getLogger("cli")

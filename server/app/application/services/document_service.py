@@ -127,7 +127,89 @@ class DocumentService:
         ):
             raise BusinessRuleViolation("This document is already being processed")
 
-    async def upload(  # noqa: C901
+    async def _resolve_version_group(
+        self,
+        uow,
+        existing,
+        replaces_document_id: int | None,
+        pending_replace_id: int | None,
+    ) -> tuple[int | None, int | None, object]:
+        """Determine version group and adjust ``existing`` / ``pending_replace_id``.
+
+        Returns ``(version_group_id, pending_replace_id, existing)`` where
+        ``existing`` may have been replaced by the explicitly-requested document.
+        """
+        if replaces_document_id is not None:
+            replaces_doc = await uow.documents.get_by_id(replaces_document_id)
+            if replaces_doc is None:
+                raise EntityNotFound("Document", replaces_document_id)
+            version_group_id = replaces_doc.version_group_id or replaces_doc.id
+            return version_group_id, pending_replace_id, replaces_doc
+
+        if existing and existing.status in (DocumentStatus.DONE, DocumentStatus.FAILED):
+            version_group_id = existing.version_group_id or existing.id
+            return version_group_id, existing.id, existing
+
+        return None, pending_replace_id, existing
+
+    async def _persist_upload(self, uow, doc, file_data: bytes, owner_id, effective_group_id, filename: str):
+        """Save document, upload file to S3, set source path.
+
+        Returns ``(saved_doc, storage_key)``.  Performs a compensating S3
+        delete on failure so storage never accumulates orphaned objects.
+        """
+        try:
+            saved_doc = await uow.documents.save(doc)
+        except UniqueConstraintViolation as exc:
+            raise BusinessRuleViolation(
+                "This document is already being uploaded by a concurrent request"
+            ) from exc
+
+        if saved_doc.id is None:
+            raise RuntimeError("Document save returned None id")
+
+        key = generate_storage_key(owner_id, effective_group_id, saved_doc.id, filename)
+        try:
+            await self._file_storage.upload_file(key, file_data)
+            await uow.documents.set_source_path(saved_doc.id, key)
+        except BaseException:
+            try:
+                await self._file_storage.delete_file(key)
+            except Exception:
+                log.warning("Failed to clean up orphaned upload object %s", key)
+            raise
+
+        return saved_doc, key
+
+    async def _maybe_resolve_conflict_sync(
+        self,
+        doc,
+        existing,
+        pending_replace_id: int | None,
+        doc_domain: str | None,
+        uow,
+        storage_deletes: list[str],
+    ) -> int | None:
+        """Resolve version conflict synchronously when the domain is already known.
+
+        Returns updated ``pending_replace_id`` (``None`` when conflict was resolved).
+        """
+        if doc_domain is None or existing is None or pending_replace_id is None:
+            return pending_replace_id
+
+        profile = self._get_domain_profile(doc_domain)
+        old_source_path = await resolve_conflict(
+            self._uow_factory,
+            doc,
+            existing,
+            profile,
+            act_versioning_service=self._act_versioning_service,
+        )
+        if old_source_path:
+            storage_deletes.append(old_source_path)
+        return None
+
+    async def upload(
         self,
         filename: str,
         file_data: bytes,
@@ -179,23 +261,10 @@ class DocumentService:
             )
             self._validate_no_active_processing(existing)
 
-            # Determine version group and physical conflict resolution
-            version_group_id: int | None = None
-            pending_replace_id: int | None = None
+            version_group_id, pending_replace_id, existing = await self._resolve_version_group(
+                uow, existing, replaces_document_id, None
+            )
 
-            if replaces_document_id is not None:
-                # Explicit signal: this is a new version of a specific document
-                replaces_doc = await uow.documents.get_by_id(replaces_document_id)
-                if replaces_doc is None:
-                    raise EntityNotFound("Document", replaces_document_id)
-                version_group_id = replaces_doc.version_group_id or replaces_doc.id
-                existing = replaces_doc  # treat as the conflicting doc
-            elif existing and existing.status in (DocumentStatus.DONE, DocumentStatus.FAILED):
-                # Implicit signal: filename conflict → version group from existing
-                version_group_id = existing.version_group_id or existing.id
-                pending_replace_id = existing.id
-
-            # Always rename on physical conflict (independent of domain knowledge)
             if existing and existing.status in (DocumentStatus.DONE, DocumentStatus.FAILED):
                 filename = await resolve_unique_filename(
                     uow.documents, owner_id, effective_group_id, filename
@@ -210,43 +279,13 @@ class DocumentService:
                 version_group_id=version_group_id,
             )
 
-            try:
-                saved_doc = await uow.documents.save(doc)
-            except UniqueConstraintViolation as exc:
-                raise BusinessRuleViolation(
-                    "This document is already being uploaded by a concurrent request"
-                ) from exc
+            saved_doc, key = await self._persist_upload(
+                uow, doc, file_data, owner_id, effective_group_id, filename
+            )
 
-            if saved_doc.id is None:
-                raise RuntimeError("Document save returned None id")
-
-            key = generate_storage_key(owner_id, effective_group_id, saved_doc.id, filename)
-            try:
-                await self._file_storage.upload_file(key, file_data)
-                await uow.documents.set_source_path(saved_doc.id, key)
-            except BaseException:
-                # Compensating action: if anything after the S3 write fails and
-                # the DB transaction rolls back, remove the now-orphaned object
-                # so storage never accumulates objects without a DB record.
-                try:
-                    await self._file_storage.delete_file(key)
-                except Exception:
-                    log.warning("Failed to clean up orphaned upload object %s", key)
-                raise
-
-            # Sync resolve — if domain is already known
-            if doc_domain is not None and existing and pending_replace_id is not None:
-                profile = self._get_domain_profile(doc_domain)
-                old_source_path = await resolve_conflict(
-                    self._uow_factory,
-                    doc,
-                    existing,
-                    profile,
-                    act_versioning_service=self._act_versioning_service,
-                )
-                if old_source_path:
-                    storage_deletes.append(old_source_path)
-                pending_replace_id = None  # resolved, no need for async
+            pending_replace_id = await self._maybe_resolve_conflict_sync(
+                doc, existing, pending_replace_id, doc_domain, uow, storage_deletes
+            )
 
             final_doc = await uow.documents.get_by_id(saved_doc.id)
             if final_doc is None:

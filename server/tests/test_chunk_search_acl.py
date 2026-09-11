@@ -26,7 +26,7 @@ from sqlalchemy.sql.elements import (  # noqa: E402
     TextClause,
 )
 
-from infrastructure.repositories.sqlalchemy_chunk_repository import (  # noqa: E402
+from infrastructure.repositories.chunk.sqlalchemy_chunk_repository import (  # noqa: E402
     SQLAlchemyChunkRepository,
 )
 

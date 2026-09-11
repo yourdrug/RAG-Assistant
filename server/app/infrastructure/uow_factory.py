@@ -13,29 +13,55 @@ from contextlib import asynccontextmanager
 from application.uow import UnitOfWork
 
 from infrastructure.database.database import DatabaseManager
-from infrastructure.repositories.sqlalchemy_api_key_repository import SQLAlchemyApiKeyRepository
-from infrastructure.repositories.sqlalchemy_background_job_repository import SQLAlchemyBackgroundJobRepository
-from infrastructure.repositories.sqlalchemy_benchmark_question_repository import (
+from infrastructure.repositories.user.sqlalchemy_api_key_repository import (
+    SQLAlchemyApiKeyRepository,
+)
+from infrastructure.repositories.misc.sqlalchemy_background_job_repository import (
+    SQLAlchemyBackgroundJobRepository,
+)
+from infrastructure.repositories.benchmark.sqlalchemy_benchmark_question_repository import (
     SQLAlchemyBenchmarkQuestionRepository,
 )
-from infrastructure.repositories.sqlalchemy_benchmark_run_repository import SQLAlchemyBenchmarkRunRepository
-from infrastructure.repositories.sqlalchemy_benchmark_sweep_repository import (
+from infrastructure.repositories.benchmark.sqlalchemy_benchmark_run_repository import (
+    SQLAlchemyBenchmarkRunRepository,
+)
+from infrastructure.repositories.benchmark.sqlalchemy_benchmark_sweep_repository import (
     SQLAlchemyBenchmarkSweepRepository,
 )
-from infrastructure.repositories.sqlalchemy_chat_log_repository import SQLAlchemyChatLogRepository
-from infrastructure.repositories.sqlalchemy_chunk_repository import SQLAlchemyChunkRepository
-from infrastructure.repositories.sqlalchemy_config_parameter_repository import (
+from infrastructure.repositories.conversation.sqlalchemy_chat_log_repository import (
+    SQLAlchemyChatLogRepository,
+)
+from infrastructure.repositories.chunk.sqlalchemy_chunk_repository import (
+    SQLAlchemyChunkRepository,
+)
+from infrastructure.repositories.config.sqlalchemy_config_parameter_repository import (
     SQLAlchemyConfigParameterRepository,
 )
-from infrastructure.repositories.sqlalchemy_conversation_repository import SQLAlchemyConversationRepository
-from infrastructure.repositories.sqlalchemy_document_repository import SQLAlchemyDocumentRepository
-from infrastructure.repositories.sqlalchemy_group_repository import SQLAlchemyGroupRepository
-from infrastructure.repositories.sqlalchemy_message_repository import SQLAlchemyMessageRepository
-from infrastructure.repositories.sqlalchemy_regulatory_act_repository import SQLAlchemyRegulatoryActRepository
-from infrastructure.repositories.sqlalchemy_act_version_repository import SQLAlchemyActVersionRepository
-from infrastructure.repositories.sqlalchemy_assignment_repository import SQLAlchemyAssignmentRepository
-from infrastructure.repositories.sqlalchemy_user_repository import SQLAlchemyUserRepository
-from infrastructure.repositories.sqlalchemy_vector_outbox_repository import (
+from infrastructure.repositories.conversation.sqlalchemy_conversation_repository import (
+    SQLAlchemyConversationRepository,
+)
+from infrastructure.repositories.document.sqlalchemy_document_repository import (
+    SQLAlchemyDocumentRepository,
+)
+from infrastructure.repositories.user.sqlalchemy_group_repository import (
+    SQLAlchemyGroupRepository,
+)
+from infrastructure.repositories.conversation.sqlalchemy_message_repository import (
+    SQLAlchemyMessageRepository,
+)
+from infrastructure.repositories.misc.sqlalchemy_regulatory_act_repository import (
+    SQLAlchemyRegulatoryActRepository,
+)
+from infrastructure.repositories.misc.sqlalchemy_act_version_repository import (
+    SQLAlchemyActVersionRepository,
+)
+from infrastructure.repositories.user.sqlalchemy_assignment_repository import (
+    SQLAlchemyAssignmentRepository,
+)
+from infrastructure.repositories.user.sqlalchemy_user_repository import (
+    SQLAlchemyUserRepository,
+)
+from infrastructure.repositories.config.sqlalchemy_vector_outbox_repository import (
     SQLAlchemyVectorOutboxRepository,
 )
 

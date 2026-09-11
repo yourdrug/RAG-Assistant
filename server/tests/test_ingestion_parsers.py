@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 from infrastructure.ml.ingestion import clean_pdf_text  # noqa: E402
-from infrastructure.registry import file_hash  # noqa: E402
+from infrastructure.utils.registry import file_hash  # noqa: E402
 
 
 def test_clean_pdf_text_dehyphenates_line_breaks():
@@ -33,7 +33,8 @@ def test_clean_pdf_text_drops_decorative_lines():
 
 def test_clean_pdf_text_drops_blank_lines_between_paragraphs():
     raw = "Абзац 1\n\n\n\n\nАбзац 2"
-    assert clean_pdf_text(raw) == "Абзац 1\nАбзац 2"
+    # 5 newlines → collapsed to paragraph break (\n\n)
+    assert clean_pdf_text(raw) == "Абзац 1\n\nАбзац 2"
 
 
 def test_file_hash_changes_when_file_modified():

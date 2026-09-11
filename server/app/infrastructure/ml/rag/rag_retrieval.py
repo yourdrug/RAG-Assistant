@@ -1,0 +1,166 @@
+"""RAG retrieval — Qdrant dense search, hybrid search, hash resolution.
+
+These are module-level functions (no class dependency) extracted from
+rag_service.py to reduce its size and isolate the retrieval I/O layer.
+"""
+
+import asyncio
+import logging
+import time
+from typing import TYPE_CHECKING
+
+from config import settings
+from domain.value_objects.rag_settings import RagSettings
+from langchain.schema import Document as LCDocument
+from qdrant_client.models import FieldCondition, Filter, MatchValue
+
+from infrastructure.bm25.hybrid import content_hash, rrf_merge
+from infrastructure.metrics.metrics import RAG_STAGE_DURATION
+from infrastructure.ml.rag.rag_reranking import deduplicate_docs
+
+if TYPE_CHECKING:
+    from infrastructure.ml.clients.client_registry import MLClientRegistry
+
+log = logging.getLogger("default")
+
+
+async def resolve_hashes_batch(
+    hashes: list[str],
+    access_filter,
+    ml_clients: "MLClientRegistry",
+) -> dict[str, LCDocument]:
+    """Batch-resolve multiple content_hashes from Qdrant in a single scroll call."""
+    if not hashes:
+        return {}
+
+    client = ml_clients.qdrant_client()
+
+    should_conditions: list[FieldCondition] = [
+        FieldCondition(
+            key="metadata.content_hash",
+            match=MatchValue(value=h),
+        )
+        for h in hashes
+    ]
+
+    if access_filter is not None and access_filter.should:
+        scroll_filter = Filter(must=[access_filter, Filter(should=should_conditions)])  # type: ignore[arg-type]
+    else:
+        scroll_filter = Filter(should=should_conditions)  # type: ignore[arg-type]
+
+    results = await asyncio.to_thread(
+        client.scroll,
+        collection_name=settings.collection_name,
+        scroll_filter=scroll_filter,
+        limit=len(hashes),
+        with_payload=True,
+    )
+
+    points = results[0] if isinstance(results, tuple) else results
+    resolved = {}
+    for point in points:
+        payload = point.payload or {}
+        page_content = payload.get("page_content", "")
+        metadata = payload.get("metadata", {})
+        h = metadata.get("content_hash") or payload.get("content_hash")
+        if h:
+            resolved[h] = LCDocument(page_content=page_content, metadata=metadata)
+
+    return resolved
+
+
+async def qdrant_dense_search(
+    query: str, k: int, access_filter, ml_clients: "MLClientRegistry"
+) -> list[tuple[str, float, LCDocument]]:
+    """Search Qdrant directly, returning (content_hash, score, Document) tuples."""
+    client = ml_clients.qdrant_client()
+    embeddings = ml_clients.embeddings()
+
+    query_vector = await embeddings.embed_query(query)
+    qdrant_filter = None
+    if access_filter and access_filter.should:
+        qdrant_filter = access_filter
+
+    results = await asyncio.to_thread(
+        client.search,
+        collection_name=settings.collection_name,
+        query_vector=query_vector,
+        limit=k,
+        query_filter=qdrant_filter,
+    )
+
+    docs = []
+    for point in results:
+        payload = point.payload or {}
+        page_content = payload.get("page_content", "")
+        metadata = payload.get("metadata", {})
+        h = metadata.get("content_hash") or payload.get("content_hash") or content_hash(page_content)
+        doc = LCDocument(page_content=page_content, metadata=metadata)
+        docs.append((h, point.score, doc))
+    return docs
+
+
+async def run_hybrid_search(
+    query: str,
+    fetch_k: int,
+    access_filter,
+    rag: RagSettings,
+    ml_clients: "MLClientRegistry",
+    dense_weight: float | None = None,
+    sparse_weight: float | None = None,
+) -> list[LCDocument]:
+    """Run hybrid dense+BM25 search and return deduplicated candidates."""
+    bm25_index = ml_clients.bm25_index()
+
+    if rag.hybrid_search.enabled and bm25_index is not None:
+        t0 = time.monotonic()
+        dense_coro = qdrant_dense_search(query, fetch_k, access_filter, ml_clients)
+        sparse_coro = asyncio.to_thread(bm25_index.search_with_hashes, query, fetch_k)
+        dense_results, sparse_results = await asyncio.gather(dense_coro, sparse_coro)
+        elapsed = time.monotonic() - t0
+        RAG_STAGE_DURATION.labels("dense_search").observe(elapsed)
+        RAG_STAGE_DURATION.labels("sparse_search").observe(elapsed)
+        dense_by_hash = {h: (score, doc) for h, score, doc in dense_results}
+
+        effective_dense = dense_weight if dense_weight is not None else rag.hybrid_search.dense_weight
+        effective_sparse = sparse_weight if sparse_weight is not None else rag.hybrid_search.sparse_weight
+
+        merged_hashes = rrf_merge(
+            [(h, s) for h, s, _ in dense_results],
+            sparse_results,
+            k=rag.hybrid_search.rrf_k,
+            dense_weight=effective_dense,
+            sparse_weight=effective_sparse,
+        )
+
+        candidates = []
+        seen_hashes = set()
+        missing_hashes = []
+        for h in merged_hashes:
+            if h in seen_hashes:
+                continue
+            seen_hashes.add(h)
+            if h in dense_by_hash:
+                candidates.append(dense_by_hash[h][1])
+            else:
+                missing_hashes.append(h)
+
+        if missing_hashes:
+            resolved = await resolve_hashes_batch(missing_hashes, access_filter, ml_clients)
+            for h in missing_hashes:
+                if h in resolved:
+                    candidates.append(resolved[h])
+
+        log.info(
+            "Hybrid: dense=%d, sparse=%d, merged=%d candidates",
+            len(dense_results),
+            len(sparse_results),
+            len(candidates),
+        )
+    else:
+        t0 = time.monotonic()
+        dense_results = await qdrant_dense_search(query, fetch_k, access_filter, ml_clients)
+        candidates = [doc for _, _, doc in dense_results]
+        RAG_STAGE_DURATION.labels("dense_search").observe(time.monotonic() - t0)
+
+    return deduplicate_docs(candidates)

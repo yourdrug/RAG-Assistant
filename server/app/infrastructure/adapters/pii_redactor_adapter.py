@@ -12,7 +12,7 @@ class PIIRedactorAdapter:
         if not settings.pii_redaction_enabled:
             return text
 
-        from infrastructure.ml.guardrails import get_pii_detector
+        from infrastructure.ml.guardrails.guardrails import get_pii_detector
 
         detector = get_pii_detector()
         found = detector.scan(text)

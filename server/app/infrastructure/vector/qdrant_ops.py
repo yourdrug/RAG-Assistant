@@ -25,7 +25,7 @@ from qdrant_client.models import (
 
 from config import settings
 from infrastructure.bm25.hybrid import content_hash
-from infrastructure.ml.factories import create_qdrant_client
+from infrastructure.ml.clients.factories import create_qdrant_client
 
 log = logging.getLogger("default")
 

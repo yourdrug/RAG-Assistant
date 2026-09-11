@@ -21,6 +21,213 @@ from infrastructure.database.models import ChunkModel
 
 log = logging.getLogger("default")
 
+# --- Search column list (shared by exact and fuzzy modes) -------------------
+
+_SEARCH_COLUMNS = (
+    ChunkModel.id,
+    ChunkModel.document_id,
+    ChunkModel.filename,
+    ChunkModel.content,
+    ChunkModel.chunk_index,
+    ChunkModel.visibility,
+    ChunkModel.doc_domain,
+    ChunkModel.owner_id,
+    ChunkModel.group_id,
+    ChunkModel.edited_at,
+    ChunkModel.edited_by,
+    ChunkModel.manual,
+    ChunkModel.creation_date,
+)
+
+
+def _row_to_search_result(row) -> ChunkSearchResult:
+    """Convert a search query row tuple to ChunkSearchResult."""
+    return ChunkSearchResult(
+        chunk_id=row[0],
+        document_id=row[1],
+        filename=row[2],
+        content=row[3],
+        chunk_index=row[4],
+        visibility=row[5],
+        doc_domain=row[6],
+        owner_id=row[7],
+        group_id=row[8],
+        edited_at=row[9],
+        edited_by=row[10],
+        manual=row[11],
+        creation_date=row[12],
+    )
+
+
+# --- ACL clause building (extracted from search_substring) ------------------
+
+
+def _build_acl_clauses(
+    user: dict,
+    group_ids: list[int],
+    managed_client_ids: list[int] | None = None,
+    managed_internal_ids: list[int] | None = None,
+    managed_group_ids: list[int] | None = None,
+) -> list:
+    """Build per-condition ACL clauses from user context.
+
+    Each condition is an AND-group of (visibility + owner/group match).
+    The full scope is the OR of all conditions.
+    """
+    conditions = get_visibility_conditions(
+        UserKind(user["kind"]),
+        user["id"],
+        group_ids,
+        for_list=False,
+        user_role=UserRole(user.get("role", "user")),
+        managed_client_ids=managed_client_ids,
+        managed_internal_ids=managed_internal_ids,
+        managed_group_ids=managed_group_ids,
+    )
+
+    acl_clauses = []
+    for cond in conditions:
+        parts = [ChunkModel.visibility == cond.visibility.value]
+
+        if cond.owner_match == OwnerMatch.SELF.value:
+            parts.append(ChunkModel.owner_id == user["id"])
+
+        if cond.owner_match == OwnerMatch.ASSIGNED.value and cond.owner_ids:
+            parts.append(ChunkModel.owner_id.in_(cond.owner_ids))
+
+        if cond.group_match:
+            effective_group_ids = cond.group_ids if cond.group_ids is not None else group_ids
+            parts.append(ChunkModel.group_id.in_(effective_group_ids))
+
+        acl_clauses.append(and_(*parts))
+
+    return acl_clauses
+
+
+def _build_exact_search_stmt(
+    query: str, acl_clauses: list, document_id: int | None, limit: int
+):
+    """Build SELECT statement for exact word-boundary search."""
+    escaped_query = re.escape(query)
+    stmt = (
+        select(*_SEARCH_COLUMNS)
+        .where(text("chunks.content ~* :word_pattern"))
+        .where(or_(*acl_clauses) if acl_clauses else text("true"))
+        .order_by(ChunkModel.id)
+        .limit(limit)
+        .params(word_pattern=rf"\y{escaped_query}\y")
+    )
+    if document_id is not None:
+        stmt = stmt.where(ChunkModel.document_id == document_id)
+    return stmt
+
+
+def _build_fuzzy_search_stmt(
+    query: str, acl_clauses: list, document_id: int | None, limit: int
+):
+    """Build SELECT statement for ILIKE fuzzy search."""
+    stmt = (
+        select(*_SEARCH_COLUMNS)
+        .where(ChunkModel.content.ilike(f"%{query}%"))
+        .where(or_(*acl_clauses) if acl_clauses else text("true"))
+        .order_by(ChunkModel.id)
+        .limit(limit)
+    )
+    if document_id is not None:
+        stmt = stmt.where(ChunkModel.document_id == document_id)
+    return stmt
+
+
+# --- Cursor pagination helpers (extracted from list_for_document_cursor) -----
+
+
+def _build_cursor_forward_conditions(
+    cursor: tuple[int, int] | None,
+) -> list:
+    """Build WHERE conditions for forward cursor pagination."""
+    if cursor is None:
+        return []
+    ci, cid = cursor
+    return [
+        or_(
+            ChunkModel.chunk_index > ci,
+            and_(ChunkModel.chunk_index == ci, ChunkModel.id > cid),
+        )
+    ]
+
+
+def _build_cursor_backward_conditions(cursor: tuple[int, int]) -> list:
+    """Build WHERE conditions for backward cursor pagination."""
+    ci, cid = cursor
+    return [
+        or_(
+            ChunkModel.chunk_index < ci,
+            and_(ChunkModel.chunk_index == ci, ChunkModel.id < cid),
+        )
+    ]
+
+
+def _paginate_forward(
+    rows: list, limit: int, cursor: tuple[int, int] | None
+) -> CursorPage[ChunkSearchResult]:
+    """Build CursorPage from forward-fetched rows."""
+    has_extra = len(rows) > limit
+    page_rows = rows[:limit]
+    next_cur = (
+        encode_cursor(page_rows[-1].chunk_index, page_rows[-1].id)
+        if has_extra and page_rows
+        else None
+    )
+    prev_cur = (
+        encode_cursor(page_rows[0].chunk_index, page_rows[0].id)
+        if page_rows and cursor is not None
+        else None
+    )
+    items = [_row_to_search_result(r) if not isinstance(r, ChunkSearchResult) else r for r in page_rows]
+    # Handle both ORM objects and raw tuples
+    items = []
+    for r in page_rows:
+        if isinstance(r, ChunkSearchResult):
+            items.append(r)
+        else:
+            items.append(ChunkSearchResult(
+                chunk_id=r.id, document_id=r.document_id, filename=r.filename,
+                content=r.content, chunk_index=r.chunk_index, visibility=r.visibility,
+                doc_domain=r.doc_domain, owner_id=r.owner_id, group_id=r.group_id,
+                edited_at=r.edited_at, edited_by=r.edited_by, manual=r.manual,
+                creation_date=r.creation_date,
+            ))
+    return CursorPage(items=items, next_cursor=next_cur, prev_cursor=prev_cur)
+
+
+def _paginate_backward(
+    rows: list, limit: int
+) -> CursorPage[ChunkSearchResult]:
+    """Build CursorPage from backward-fetched rows."""
+    has_extra = len(rows) > limit
+    page_rows = rows[:limit]
+    page_rows.reverse()
+    prev_cur = (
+        encode_cursor(page_rows[0].chunk_index, page_rows[0].id) if has_extra and page_rows else None
+    )
+    next_cur = encode_cursor(page_rows[0].chunk_index, page_rows[0].id) if page_rows else None
+    items = []
+    for r in page_rows:
+        if isinstance(r, ChunkSearchResult):
+            items.append(r)
+        else:
+            items.append(ChunkSearchResult(
+                chunk_id=r.id, document_id=r.document_id, filename=r.filename,
+                content=r.content, chunk_index=r.chunk_index, visibility=r.visibility,
+                doc_domain=r.doc_domain, owner_id=r.owner_id, group_id=r.group_id,
+                edited_at=r.edited_at, edited_by=r.edited_by, manual=r.manual,
+                creation_date=r.creation_date,
+            ))
+    return CursorPage(items=items, next_cursor=next_cur, prev_cursor=prev_cur)
+
+
+# --- Repository ------------------------------------------------------------
+
 
 class SQLAlchemyChunkRepository:
     def __init__(self, session: AsyncSession) -> None:
@@ -51,6 +258,8 @@ class SQLAlchemyChunkRepository:
             doc_type=orm.doc_type,
         )
 
+    # --- CRUD ----------------------------------------------------------------
+
     async def bulk_insert(
         self,
         document_id: int,
@@ -74,7 +283,6 @@ class SQLAlchemyChunkRepository:
         doc_types: list[str | None] | None = None,
     ) -> list[int]:
         """Insert chunks for a document. Replaces existing chunks. Returns chunk IDs."""
-        # Delete existing chunks for this document (re-index)
         await self._session.execute(delete(ChunkModel).where(ChunkModel.document_id == document_id))
 
         if not chunks:
@@ -124,11 +332,7 @@ class SQLAlchemyChunkRepository:
         return max_index if max_index is not None else -1
 
     async def update_content(
-        self,
-        chunk_id: int,
-        content: str,
-        edited_at: datetime,
-        edited_by: int,
+        self, chunk_id: int, content: str, edited_at: datetime, edited_by: int,
     ) -> None:
         stmt = select(ChunkModel).where(ChunkModel.id == chunk_id)
         result = await self._session.execute(stmt)
@@ -141,28 +345,15 @@ class SQLAlchemyChunkRepository:
         await self._session.flush()
 
     async def insert_one(
-        self,
-        document_id: int,
-        chunk_index: int,
-        content: str,
-        filename: str,
-        visibility: str,
-        doc_domain: str,
-        owner_id: int | None = None,
-        group_id: int | None = None,
-        manual: bool = False,
+        self, document_id: int, chunk_index: int, content: str, filename: str,
+        visibility: str, doc_domain: str, owner_id: int | None = None,
+        group_id: int | None = None, manual: bool = False,
         content_hash: str | None = None,
     ) -> int:
         orm = ChunkModel(
-            document_id=document_id,
-            chunk_index=chunk_index,
-            content=content,
-            filename=filename,
-            visibility=visibility,
-            doc_domain=doc_domain,
-            owner_id=owner_id,
-            group_id=group_id,
-            manual=manual,
+            document_id=document_id, chunk_index=chunk_index, content=content,
+            filename=filename, visibility=visibility, doc_domain=doc_domain,
+            owner_id=owner_id, group_id=group_id, manual=manual,
             content_hash=content_hash,
         )
         self._session.add(orm)
@@ -176,6 +367,17 @@ class SQLAlchemyChunkRepository:
         if orm is not None:
             await self._session.delete(orm)
             await self._session.flush()
+
+    async def delete_by_document_id(self, document_id: int) -> None:
+        await self._session.execute(delete(ChunkModel).where(ChunkModel.document_id == document_id))
+
+    async def update_filename_by_document_id(self, document_id: int, new_filename: str) -> int:
+        stmt = update(ChunkModel).where(ChunkModel.document_id == document_id).values(filename=new_filename)
+        result = await self._session.execute(stmt)
+        await self._session.flush()
+        return result.rowcount
+
+    # --- Search -------------------------------------------------------------
 
     async def search_substring(
         self,
@@ -192,118 +394,22 @@ class SQLAlchemyChunkRepository:
         if len(query.strip()) < 3:
             return []
 
-        conditions = get_visibility_conditions(
-            UserKind(user["kind"]),
-            user["id"],
-            group_ids,
-            for_list=False,
-            user_role=UserRole(user.get("role", "user")),
-            managed_client_ids=managed_client_ids,
-            managed_internal_ids=managed_internal_ids,
-            managed_group_ids=managed_group_ids,
+        acl_clauses = _build_acl_clauses(
+            user, group_ids, managed_client_ids, managed_internal_ids, managed_group_ids,
         )
 
-        acl_clauses = []
-        for cond in conditions:
-            parts = [ChunkModel.visibility == cond.visibility.value]
-
-            if cond.owner_match == OwnerMatch.SELF.value:
-                parts.append(ChunkModel.owner_id == user["id"])
-
-            if cond.owner_match == OwnerMatch.ASSIGNED.value and cond.owner_ids:
-                parts.append(ChunkModel.owner_id.in_(cond.owner_ids))
-
-            if cond.group_match:
-                effective_group_ids = cond.group_ids if cond.group_ids is not None else group_ids
-                parts.append(ChunkModel.group_id.in_(effective_group_ids))
-
-            acl_clauses.append(and_(*parts))
-
         if mode == SearchMode.EXACT.value:
-            escaped_query = re.escape(query)
-            stmt = (
-                select(
-                    ChunkModel.id,
-                    ChunkModel.document_id,
-                    ChunkModel.filename,
-                    ChunkModel.content,
-                    ChunkModel.chunk_index,
-                    ChunkModel.visibility,
-                    ChunkModel.doc_domain,
-                    ChunkModel.owner_id,
-                    ChunkModel.group_id,
-                    ChunkModel.edited_at,
-                    ChunkModel.edited_by,
-                    ChunkModel.manual,
-                    ChunkModel.creation_date,
-                )
-                .where(text("chunks.content ~* :word_pattern"))
-                .where(or_(*acl_clauses) if acl_clauses else text("true"))
-                .order_by(ChunkModel.id)
-                .limit(limit)
-                .params(word_pattern=rf"\y{escaped_query}\y")
-            )
+            stmt = _build_exact_search_stmt(query, acl_clauses, document_id, limit)
         else:
-            stmt = (
-                select(
-                    ChunkModel.id,
-                    ChunkModel.document_id,
-                    ChunkModel.filename,
-                    ChunkModel.content,
-                    ChunkModel.chunk_index,
-                    ChunkModel.visibility,
-                    ChunkModel.doc_domain,
-                    ChunkModel.owner_id,
-                    ChunkModel.group_id,
-                    ChunkModel.edited_at,
-                    ChunkModel.edited_by,
-                    ChunkModel.manual,
-                    ChunkModel.creation_date,
-                )
-                .where(ChunkModel.content.ilike(f"%{query}%"))
-                .where(or_(*acl_clauses) if acl_clauses else text("true"))
-                .order_by(ChunkModel.id)
-                .limit(limit)
-            )
-
-        if document_id is not None:
-            stmt = stmt.where(ChunkModel.document_id == document_id)
+            stmt = _build_fuzzy_search_stmt(query, acl_clauses, document_id, limit)
 
         result = await self._session.execute(stmt)
-        return [
-            ChunkSearchResult(
-                chunk_id=row[0],
-                document_id=row[1],
-                filename=row[2],
-                content=row[3],
-                chunk_index=row[4],
-                visibility=row[5],
-                doc_domain=row[6],
-                owner_id=row[7],
-                group_id=row[8],
-                edited_at=row[9],
-                edited_by=row[10],
-                manual=row[11],
-                creation_date=row[12],
-            )
-            for row in result.all()
-        ]
+        return [_row_to_search_result(row) for row in result.all()]
 
-    async def delete_by_document_id(self, document_id: int) -> None:
-        await self._session.execute(delete(ChunkModel).where(ChunkModel.document_id == document_id))
-
-    async def update_filename_by_document_id(self, document_id: int, new_filename: str) -> int:
-        """Update filename for all chunks belonging to a document. Returns count of updated rows."""
-        stmt = update(ChunkModel).where(ChunkModel.document_id == document_id).values(filename=new_filename)
-        result = await self._session.execute(stmt)
-        await self._session.flush()
-        return result.rowcount
+    # --- List / Query -------------------------------------------------------
 
     async def list_for_document(
-        self,
-        document_id: int,
-        limit: int = 50,
-        offset: int = 0,
+        self, document_id: int, limit: int = 50, offset: int = 0,
         content_hashes: list[str] | None = None,
     ) -> tuple[list[ChunkSearchResult], int]:
         conditions = [ChunkModel.document_id == document_id]
@@ -322,11 +428,8 @@ class SQLAlchemyChunkRepository:
         return [self._to_chunk_search_result(c) for c in chunks], total
 
     async def list_for_document_cursor(
-        self,
-        document_id: int,
-        limit: int = 50,
-        cursor: tuple[int, int] | None = None,
-        direction: str = "next",
+        self, document_id: int, limit: int = 50,
+        cursor: tuple[int, int] | None = None, direction: str = "next",
         content_hashes: list[str] | None = None,
     ) -> CursorPage[ChunkSearchResult]:
         conditions = [ChunkModel.document_id == document_id]
@@ -334,14 +437,7 @@ class SQLAlchemyChunkRepository:
             conditions.append(ChunkModel.content_hash.in_(content_hashes))
 
         if direction == "next":
-            if cursor is not None:
-                ci, cid = cursor
-                conditions.append(
-                    or_(
-                        ChunkModel.chunk_index > ci,
-                        and_(ChunkModel.chunk_index == ci, ChunkModel.id > cid),
-                    )
-                )
+            conditions.extend(_build_cursor_forward_conditions(cursor))
             stmt = (
                 select(ChunkModel)
                 .where(*conditions)
@@ -349,34 +445,13 @@ class SQLAlchemyChunkRepository:
                 .limit(limit + 1)
             )
             result = await self._session.execute(stmt)
-            rows = list(result.scalars().all())
-            has_extra = len(rows) > limit
-            page_rows = rows[:limit]
-            next_cur = (
-                encode_cursor(page_rows[-1].chunk_index, page_rows[-1].id)
-                if has_extra and page_rows
-                else None
-            )
-            prev_cur = (
-                encode_cursor(page_rows[0].chunk_index, page_rows[0].id)
-                if page_rows and cursor is not None
-                else None
-            )
-            items = [self._to_chunk_search_result(r) for r in page_rows]
-            return CursorPage(items=items, next_cursor=next_cur, prev_cursor=prev_cur)
+            return _paginate_forward(list(result.scalars().all()), limit, cursor)
 
         # direction == "prev"
         if cursor is None:
             from domain.exceptions import ValidationError
-
             raise ValidationError("cursor is required when direction=prev")
-        ci, cid = cursor
-        conditions.append(
-            or_(
-                ChunkModel.chunk_index < ci,
-                and_(ChunkModel.chunk_index == ci, ChunkModel.id < cid),
-            )
-        )
+        conditions.extend(_build_cursor_backward_conditions(cursor))
         stmt = (
             select(ChunkModel)
             .where(*conditions)
@@ -384,19 +459,10 @@ class SQLAlchemyChunkRepository:
             .limit(limit + 1)
         )
         result = await self._session.execute(stmt)
-        rows = list(result.scalars().all())
-        has_extra = len(rows) > limit
-        page_rows = rows[:limit]
-        page_rows.reverse()
-        prev_cur = (
-            encode_cursor(page_rows[0].chunk_index, page_rows[0].id) if has_extra and page_rows else None
-        )
-        next_cur = encode_cursor(page_rows[0].chunk_index, page_rows[0].id) if page_rows else None
-        items = [self._to_chunk_search_result(r) for r in page_rows]
-        return CursorPage(items=items, next_cursor=next_cur, prev_cursor=prev_cur)
+        return _paginate_backward(list(result.scalars().all()), limit)
 
     async def find_duplicate_by_hash(
-        self, document_id: int, content_hash: str, exclude_chunk_id: int | None = None
+        self, document_id: int, content_hash: str, exclude_chunk_id: int | None = None,
     ) -> ChunkSearchResult | None:
         conditions = [
             ChunkModel.document_id == document_id,
@@ -404,7 +470,6 @@ class SQLAlchemyChunkRepository:
         ]
         if exclude_chunk_id is not None:
             conditions.append(ChunkModel.id != exclude_chunk_id)
-
         stmt = select(ChunkModel).where(*conditions).limit(1)
         result = await self._session.execute(stmt)
         chunk = result.scalar_one_or_none()
@@ -424,11 +489,10 @@ class SQLAlchemyChunkRepository:
         result = await self._session.execute(stmt)
         return [row[0] for row in result.all()]
 
+    # --- Neighbor enrichment -------------------------------------------------
+
     async def get_neighbors(
-        self,
-        document_id: int,
-        center_index: int,
-        window: int = 1,
+        self, document_id: int, center_index: int, window: int = 1,
         exclude_hashes: set[str] | None = None,
     ) -> list[ChunkSearchResult]:
         low = center_index - window
@@ -447,16 +511,10 @@ class SQLAlchemyChunkRepository:
         return [self._to_chunk_search_result(c) for c in result.scalars().all()]
 
     async def get_table_batches(
-        self,
-        document_id: int,
-        anchor_index: int,
+        self, document_id: int, anchor_index: int,
         exclude_hashes: set[str] | None = None,
     ) -> list[ChunkSearchResult]:
-        """Fetch all consecutive table batches for a document starting from anchor_index.
-
-        Used when the anchor chunk is a table (content_type == 'table') to pull
-        all batches of the same table rather than a fixed window.
-        """
+        """Fetch all consecutive table batches starting from anchor_index."""
         conditions = [
             ChunkModel.document_id == document_id,
             ChunkModel.chunk_index >= anchor_index,
@@ -469,11 +527,11 @@ class SQLAlchemyChunkRepository:
         result = await self._session.execute(stmt)
         return [self._to_chunk_search_result(c) for c in result.scalars().all()]
 
+    # --- Temporal/versioning -------------------------------------------------
+
     async def set_current_by_act_version_ids(self, act_version_ids: list[int], is_current: bool) -> int:
-        """Bulk-update the denormalized is_current flag for chunks of act versions."""
         if not act_version_ids:
             return 0
-
         result = await self._session.execute(
             update(ChunkModel)
             .where(ChunkModel.act_version_id.in_(act_version_ids))
@@ -483,12 +541,8 @@ class SQLAlchemyChunkRepository:
         return result.rowcount or 0
 
     async def update_temporal_by_act_version_id(
-        self,
-        act_version_id: int,
-        effective_from: date | None,
-        effective_to: date | None,
+        self, act_version_id: int, effective_from: date | None, effective_to: date | None,
     ) -> int:
-        """Update effective_from/to for all chunks linked to an act version."""
         result = await self._session.execute(
             update(ChunkModel)
             .where(ChunkModel.act_version_id == act_version_id)

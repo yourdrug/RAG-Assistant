@@ -32,7 +32,7 @@ from infrastructure.ml.rtf_decree_parser import parse_decree_rtf
 if TYPE_CHECKING:
     from application.ports.domain_settings import DomainSettingsPort
     from domain.domain_profile.profiles.decree import DecreeDomainProfile
-    from infrastructure.domain_profile.registry import DomainProfileRegistry
+    from domain.domain_profile.registry import DomainProfileRegistry
 
 log = logging.getLogger("detailed")
 
@@ -69,6 +69,54 @@ def _lc_to_raw(docs) -> list[RawDocument]:
 
 def _raw_to_lc(docs: list[RawDocument]):
     return [Document(page_content=d.page_content, metadata=d.metadata) for d in docs]
+
+
+def _populate_heading_metadata(metadata: dict, heading: str | None, ctx: dict) -> None:
+    """Set the 6 heading-related metadata keys from heading context."""
+    if not heading:
+        return
+    metadata["section"] = heading
+    metadata["heading"] = ctx["immediate"][heading]
+    metadata["heading_level"] = ctx["level"][heading]
+    if ctx["parent"][heading]:
+        metadata["parent_section"] = ctx["parent"][heading]
+    if ctx["prev"][heading]:
+        metadata["prev_heading"] = ctx["prev"][heading]
+    if ctx["next"][heading]:
+        metadata["next_heading"] = ctx["next"][heading]
+    if ctx["siblings"][heading]:
+        metadata["sibling_headings"] = ctx["siblings"][heading]
+
+
+def _normalize_table_content(content: str) -> tuple[str, bool]:
+    r"""Detect ``\x00TABLE:`` prefix and strip it; returns (cleaned_content, is_table)."""
+    if content.startswith("\x00TABLE:"):
+        return content[len("\x00TABLE:"):], True
+    return content, False
+
+
+def _build_section_metadata(
+        content: str,
+        heading: str | None,
+        ctx: dict,
+        file_path: Path,
+        page_meta: dict | None,
+        chunk_index: int,
+        total: int,
+        is_table: bool,
+) -> dict:
+    """Assemble the full metadata dict for a single section document."""
+    metadata: dict = {"source": file_path.name}
+    if page_meta:
+        metadata.update(page_meta)
+    if is_table:
+        metadata["content_type"] = "table"
+    metadata["chunk_index"] = chunk_index
+    metadata["total_chunks"] = total
+    _populate_heading_metadata(metadata, heading, ctx)
+    if ctx["toc"]:
+        metadata["toc"] = ctx["toc"]
+    return metadata
 
 
 def _heading_context(sections: list[tuple[str | None, str]]) -> dict:
@@ -285,50 +333,27 @@ class LangchainDocumentParser:
         return docs
 
     @staticmethod
-    def _sections_to_documents(  # noqa: C901
+    def _sections_to_documents(
             sections: list[tuple[str | None, str]],
             file_path: Path,
             page_meta: dict | None = None,
     ) -> list[RawDocument]:
         ctx = _heading_context(sections)
         total = len([1 for _h, c in sections if c.strip()])
-        docs = []
+        docs: list[RawDocument] = []
         chunk_index = 0
         for heading, content in sections:
             if not content.strip():
                 continue
 
-            metadata: dict = {"source": file_path.name}
-            if page_meta:
-                metadata.update(page_meta)
-
-            # Handle table blocks tagged by parse_markdown_sections
-            if content.startswith("\x00TABLE:"):
-                metadata["content_type"] = "table"
-                content = content[len("\x00TABLE:"):]
-
+            content, is_table = _normalize_table_content(content)
             if not content.strip():
                 continue
 
             chunk_index += 1
-            metadata["chunk_index"] = chunk_index
-            metadata["total_chunks"] = total
-
-            if heading:
-                metadata["section"] = heading
-                metadata["heading"] = ctx["immediate"][heading]
-                metadata["heading_level"] = ctx["level"][heading]
-                if ctx["parent"][heading]:
-                    metadata["parent_section"] = ctx["parent"][heading]
-                if ctx["prev"][heading]:
-                    metadata["prev_heading"] = ctx["prev"][heading]
-                if ctx["next"][heading]:
-                    metadata["next_heading"] = ctx["next"][heading]
-                if ctx["siblings"][heading]:
-                    metadata["sibling_headings"] = ctx["siblings"][heading]
-            if ctx["toc"]:
-                metadata["toc"] = ctx["toc"]
-
+            metadata = _build_section_metadata(
+                content, heading, ctx, file_path, page_meta, chunk_index, total, is_table,
+            )
             docs.append(RawDocument(page_content=content, metadata=metadata))
 
         if not docs:

@@ -17,7 +17,7 @@ from config import settings
 from domain.events.config_events import ConfigParameterChanged
 from infrastructure.database.database import database
 from infrastructure.events.in_process_event_bus import event_bus
-from infrastructure.ml.config_subscribers import apply_to_settings
+from infrastructure.ml.config.config_subscribers import apply_to_settings
 from infrastructure.uow_factory import UnitOfWorkFactory
 
 logger = logging.getLogger("cli")

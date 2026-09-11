@@ -13,7 +13,7 @@ from typing import Protocol, runtime_checkable
 from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.stream_events import StreamEvent
 
-from application.dto.chat_dto import RagResult
+from domain.value_objects.rag_result import RagResult
 
 
 @runtime_checkable

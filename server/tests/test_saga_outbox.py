@@ -70,7 +70,7 @@ def mock_vector_store():
 
 @pytest.fixture
 def dispatcher(fake_uow_factory, mock_vector_store):
-    from infrastructure.outbox_dispatcher import OutboxDispatcher
+    from infrastructure.vector.outbox_dispatcher import OutboxDispatcher
 
     return OutboxDispatcher(
         uow_factory=fake_uow_factory,
@@ -139,7 +139,7 @@ class TestDispatcherSuccess:
     @pytest.mark.asyncio
     async def test_apply_upsert_chunks(self, fake_uow_factory, mock_vector_store, fake_outbox):
         from domain.entities.document import Document
-        from infrastructure.outbox_dispatcher import OutboxDispatcher
+        from infrastructure.vector.outbox_dispatcher import OutboxDispatcher
 
         async with fake_uow_factory.create(master=True) as uow:
             await uow.documents.save(Document(id=1, filename="test.pdf"))
@@ -177,7 +177,7 @@ class TestDispatcherSuccess:
 
     @pytest.mark.asyncio
     async def test_apply_delete_by_document(self, fake_uow_factory, mock_vector_store, fake_outbox):
-        from infrastructure.outbox_dispatcher import OutboxDispatcher
+        from infrastructure.vector.outbox_dispatcher import OutboxDispatcher
 
         entry = VectorOutboxEntry(
             operation=OutboxOperation.DELETE_BY_DOCUMENT,
@@ -198,7 +198,7 @@ class TestDispatcherSuccess:
 
     @pytest.mark.asyncio
     async def test_apply_delete_chunks(self, fake_uow_factory, mock_vector_store, fake_outbox):
-        from infrastructure.outbox_dispatcher import OutboxDispatcher
+        from infrastructure.vector.outbox_dispatcher import OutboxDispatcher
 
         entry = VectorOutboxEntry(
             operation=OutboxOperation.DELETE_CHUNKS,
@@ -229,7 +229,7 @@ class TestQdrantUnavailable:
     async def test_failed_entry_gets_retried(self, fake_uow_factory, mock_vector_store, fake_outbox):
         """When Qdrant fails, entry stays in outbox for retry."""
         from domain.entities.document import Document
-        from infrastructure.outbox_dispatcher import OutboxDispatcher
+        from infrastructure.vector.outbox_dispatcher import OutboxDispatcher
 
         async with fake_uow_factory.create(master=True) as uow:
             await uow.documents.save(Document(id=1, filename="test.pdf"))
@@ -270,7 +270,7 @@ class TestQdrantUnavailable:
     ):
         """After max_attempts failures, entry goes to dead letter."""
         from domain.entities.document import Document
-        from infrastructure.outbox_dispatcher import OutboxDispatcher
+        from infrastructure.vector.outbox_dispatcher import OutboxDispatcher
 
         async with fake_uow_factory.create(master=True) as uow:
             await uow.documents.save(Document(id=1, filename="test.pdf"))
@@ -310,7 +310,7 @@ class TestQdrantUnavailable:
     async def test_success_after_retry(self, fake_uow_factory, mock_vector_store, fake_outbox):
         """Entry succeeds after previous failure."""
         from domain.entities.document import Document
-        from infrastructure.outbox_dispatcher import OutboxDispatcher
+        from infrastructure.vector.outbox_dispatcher import OutboxDispatcher
 
         async with fake_uow_factory.create(master=True) as uow:
             await uow.documents.save(Document(id=1, filename="test.pdf"))
@@ -368,7 +368,7 @@ class TestIdempotency:
     async def test_upsert_is_idempotent(self, fake_uow_factory, mock_vector_store, fake_outbox):
         """Same chunk upserted twice produces same result (no duplicate)."""
         from domain.entities.document import Document
-        from infrastructure.outbox_dispatcher import OutboxDispatcher
+        from infrastructure.vector.outbox_dispatcher import OutboxDispatcher
 
         async with fake_uow_factory.create(master=True) as uow:
             await uow.documents.save(Document(id=1, filename="test.pdf"))
@@ -402,7 +402,7 @@ class TestIdempotency:
     @pytest.mark.asyncio
     async def test_delete_nonexistent_is_noop(self, fake_uow_factory, mock_vector_store, fake_outbox):
         """Deleting non-existent points is a no-op (no error)."""
-        from infrastructure.outbox_dispatcher import OutboxDispatcher
+        from infrastructure.vector.outbox_dispatcher import OutboxDispatcher
 
         entry = VectorOutboxEntry(
             operation=OutboxOperation.DELETE_CHUNKS,
@@ -534,7 +534,7 @@ class TestFullFlowWithQdrantDown:
         4. Document becomes searchable
         """
         from domain.entities.document import Document
-        from infrastructure.outbox_dispatcher import OutboxDispatcher
+        from infrastructure.vector.outbox_dispatcher import OutboxDispatcher
 
         async with fake_uow_factory.create(master=True) as uow:
             await uow.documents.save(Document(id=1, filename="test.pdf"))
@@ -604,7 +604,7 @@ class TestFullFlowWithQdrantDown:
     ):
         """Multiple operations, some succeed, some fail."""
         from domain.entities.document import Document
-        from infrastructure.outbox_dispatcher import OutboxDispatcher
+        from infrastructure.vector.outbox_dispatcher import OutboxDispatcher
 
         async with fake_uow_factory.create(master=True) as uow:
             await uow.documents.save(Document(id=1, filename="test.pdf"))
@@ -671,7 +671,7 @@ class TestNotifyIntegration:
     @pytest.mark.asyncio
     async def test_notify_with_real_session(self):
         """Test that SQLAlchemyVectorOutboxRepository uses pg_notify."""
-        from infrastructure.repositories.sqlalchemy_vector_outbox_repository import (
+        from infrastructure.repositories.config.sqlalchemy_vector_outbox_repository import (
             SQLAlchemyVectorOutboxRepository,
         )
 

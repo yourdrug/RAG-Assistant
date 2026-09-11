@@ -14,7 +14,7 @@ from langchain.schema import Document
 from application.services.act_versioning_service import ActVersioningService
 from domain.domain_profile.profiles.decree import DecreeDomainProfile
 from fakes import FakeUnitOfWorkFactory
-from infrastructure.services.ingestion_service import IngestionService
+from application.services.ingestion_orchestrator import IngestionService
 
 
 class FakeSettings:
@@ -35,7 +35,7 @@ _DECREE_TEXT = (
 
 
 def _make_service():
-    from infrastructure.domain_profile.registry import DomainProfileRegistry
+    from domain.domain_profile.registry import DomainProfileRegistry
 
     factory = FakeUnitOfWorkFactory()
     versioning = ActVersioningService(uow_factory=factory, settings=FakeSettings())

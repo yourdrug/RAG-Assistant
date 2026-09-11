@@ -22,9 +22,9 @@ from infrastructure.benchmark.benchmark_history import (
     load_history,
     print_history,
 )
-from infrastructure.ml.factories import create_embeddings, create_qdrant_client, load_bm25_index
+from infrastructure.ml.clients.factories import create_embeddings, create_qdrant_client, load_bm25_index
 from infrastructure.bm25.hybrid import content_hash, rrf_merge
-from infrastructure.services.benchmark_service import BenchmarkService
+from application.services.benchmark_orchestrator import BenchmarkService
 from langchain.schema import Document as LCDocument
 
 logger = logging.getLogger("cli")
@@ -561,7 +561,7 @@ def benchmark_grid_search(
     ),
 ) -> None:
     """Grid search: быстрый retrieval-scoring для всех комбинаций, LLM-судья + rerank для топ-N."""
-    from infrastructure.ml.factories import create_reranker
+    from infrastructure.ml.clients.factories import create_reranker
 
     top_k_list = _parse_comma_separated_ints(top_k_values)
     fetch_k_list = _parse_comma_separated_ints(fetch_k_values)

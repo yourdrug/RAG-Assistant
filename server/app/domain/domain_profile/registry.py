@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from application.ports.domain_settings import DomainSettingsPort
+from domain.domain_profile.settings_port import DomainSettingsPort
 from domain.domain_profile.protocol import DomainProfile
 from domain.value_objects.doc_domain import DocDomain
 

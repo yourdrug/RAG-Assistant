@@ -46,30 +46,18 @@ class VisibilityCondition:
     group_ids: list[int] | None = None  # explicit group id list for group_match
 
 
-def get_visibility_conditions(  # noqa: C901
-    user_kind: UserKind,
-    user_id: int,
-    group_ids: list[int],
-    for_list: bool = True,
-    user_role: UserRole | None = None,
-    managed_client_ids: list[int] | None = None,
-    managed_internal_ids: list[int] | None = None,
-    managed_group_ids: list[int] | None = None,
-) -> list[VisibilityCondition]:
-    """Return canonical filter conditions for documents visible to this user.
+def _client_conditions(user_id: int) -> list[VisibilityCondition]:
+    """CLIENT users can only see their own CLIENT_PRIVATE docs."""
+    return [
+        VisibilityCondition(
+            visibility=DocumentVisibility.CLIENT_PRIVATE,
+            owner_match=OwnerMatch.SELF,
+        )
+    ]
 
-    Each condition is an AND-clause. The full filter is OR of all conditions.
-    This is the single source of truth -- SQL and Qdrant adapters translate these.
 
-    """
-    if user_kind == UserKind.CLIENT:
-        return [
-            VisibilityCondition(
-                visibility=DocumentVisibility.CLIENT_PRIVATE,
-                owner_match=OwnerMatch.SELF,
-            )
-        ]
-
+def _base_internal_conditions(user_kind: UserKind, group_ids: list[int]) -> list[VisibilityCondition]:
+    """Standard INTERNAL_PUBLIC + INTERNAL_PRIVATE + INTERNAL_GROUP conditions."""
     conditions: list[VisibilityCondition] = []
     allowed = ALLOWED_VISIBILITY_FOR_KIND.get(user_kind, set())
 
@@ -92,70 +80,88 @@ def get_visibility_conditions(  # noqa: C901
             )
         )
 
-    # --- CURATOR branch: managed users and groups ---
-    if user_role == UserRole.CURATOR:
-        _managed_client_ids = managed_client_ids or []
-        _managed_internal_ids = managed_internal_ids or []
-        _managed_group_ids = managed_group_ids or []
+    return conditions
 
-        # CURATOR sees assigned internal_private docs
-        if _managed_internal_ids:
-            conditions.append(
-                VisibilityCondition(
-                    visibility=DocumentVisibility.INTERNAL_PRIVATE,
-                    owner_match=OwnerMatch.ASSIGNED,
-                    owner_ids=_managed_internal_ids,
-                )
-            )
 
-        # CURATOR sees assigned client_private docs
-        if _managed_client_ids:
-            conditions.append(
-                VisibilityCondition(
-                    visibility=DocumentVisibility.CLIENT_PRIVATE,
-                    owner_match=OwnerMatch.ASSIGNED,
-                    owner_ids=_managed_client_ids,
-                )
-            )
+def _curator_conditions(
+    group_ids: list[int],
+    managed_client_ids: list[int] | None,
+    managed_internal_ids: list[int] | None,
+    managed_group_ids: list[int] | None,
+) -> list[VisibilityCondition]:
+    """CURATOR extra conditions: managed users and groups."""
+    _managed_client_ids = managed_client_ids or []
+    _managed_internal_ids = managed_internal_ids or []
+    _managed_group_ids = managed_group_ids or []
+    conditions: list[VisibilityCondition] = []
 
-        # CURATOR sees assigned group docs (union of own groups + managed groups)
-        all_group_ids = list(set(group_ids) | set(_managed_group_ids))
-        if all_group_ids:
-            conditions.append(
-                VisibilityCondition(
-                    visibility=DocumentVisibility.INTERNAL_GROUP,
-                    group_match=True,
-                    group_ids=all_group_ids,
-                )
-            )
-
-        # CURATOR: for_list == for_search (no admin bonus)
-        return conditions
-
-    # --- ADMIN branch ---
-    # Admin can view ALL internal_group docs regardless of group membership
-    if user_role == UserRole.ADMIN:
-        conditions.append(
-            VisibilityCondition(
-                visibility=DocumentVisibility.INTERNAL_GROUP,
-            )
-        )
-
-    # Admin can view ALL internal_private docs regardless of ownership
-    if user_role == UserRole.ADMIN:
+    if _managed_internal_ids:
         conditions.append(
             VisibilityCondition(
                 visibility=DocumentVisibility.INTERNAL_PRIVATE,
+                owner_match=OwnerMatch.ASSIGNED,
+                owner_ids=_managed_internal_ids,
             )
         )
 
-    # Admin can view ALL client_private docs in list mode (not search mode)
-    if for_list and user_role == UserRole.ADMIN:
+    if _managed_client_ids:
         conditions.append(
             VisibilityCondition(
                 visibility=DocumentVisibility.CLIENT_PRIVATE,
+                owner_match=OwnerMatch.ASSIGNED,
+                owner_ids=_managed_client_ids,
             )
         )
+
+    all_group_ids = list(set(group_ids) | set(_managed_group_ids))
+    if all_group_ids:
+        conditions.append(
+            VisibilityCondition(
+                visibility=DocumentVisibility.INTERNAL_GROUP,
+                group_match=True,
+                group_ids=all_group_ids,
+            )
+        )
+
+    return conditions
+
+
+def _admin_conditions(for_list: bool) -> list[VisibilityCondition]:
+    """ADMIN extra conditions: full access to all internal + optional CLIENT_PRIVATE."""
+    conditions: list[VisibilityCondition] = [
+        VisibilityCondition(visibility=DocumentVisibility.INTERNAL_GROUP),
+        VisibilityCondition(visibility=DocumentVisibility.INTERNAL_PRIVATE),
+    ]
+    if for_list:
+        conditions.append(VisibilityCondition(visibility=DocumentVisibility.CLIENT_PRIVATE))
+    return conditions
+
+
+def get_visibility_conditions(
+    user_kind: UserKind,
+    user_id: int,
+    group_ids: list[int],
+    for_list: bool = True,
+    user_role: UserRole | None = None,
+    managed_client_ids: list[int] | None = None,
+    managed_internal_ids: list[int] | None = None,
+    managed_group_ids: list[int] | None = None,
+) -> list[VisibilityCondition]:
+    """Return canonical filter conditions for documents visible to this user.
+
+    Each condition is an AND-clause. The full filter is OR of all conditions.
+    This is the single source of truth -- SQL and Qdrant adapters translate these.
+
+    """
+    if user_kind == UserKind.CLIENT:
+        return _client_conditions(user_id)
+
+    conditions = _base_internal_conditions(user_kind, group_ids)
+
+    if user_role == UserRole.CURATOR:
+        conditions.extend(_curator_conditions(group_ids, managed_client_ids, managed_internal_ids, managed_group_ids))
+    elif user_role == UserRole.ADMIN:
+        conditions.extend(_admin_conditions(for_list))
 
     return conditions
 

@@ -37,7 +37,7 @@ from infrastructure.ml.ingestion import (
     split_documents_legal,
 )
 from infrastructure.metrics.metrics import INGEST_FILES_TOTAL
-from infrastructure.repositories.sqlalchemy_ingestion_registry_repository import (
+from infrastructure.repositories.document.sqlalchemy_ingestion_registry_repository import (
     SQLAlchemyIngestionRegistryRepository,
 )
 from infrastructure.storage import FileItem, FileStorage

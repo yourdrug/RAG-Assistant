@@ -22,7 +22,7 @@ from domain.entities.benchmark_sweep import BenchmarkSweep
 from domain.value_objects.benchmark_strategy import BenchmarkStrategy
 from langchain.schema import Document as LCDocument
 
-from infrastructure.benchmark.benchmark import load_questions
+from infrastructure.benchmark.runner import load_questions
 from infrastructure.bm25.hybrid import content_hash, rrf_merge
 
 logger = logging.getLogger("default")
@@ -368,7 +368,11 @@ class SweepEngine:
             embeddings = self._ml_clients.embeddings()
             bm25_index = self._ml_clients.bm25_index()
         else:
-            from infrastructure.ml.factories import create_embeddings, create_qdrant_client, load_bm25_index
+            from infrastructure.ml.clients.factories import (
+                create_embeddings,
+                create_qdrant_client,
+                load_bm25_index,
+            )
 
             client = create_qdrant_client()
             embeddings = create_embeddings()
@@ -505,7 +509,7 @@ class SweepEngine:
         from config import get_setting
 
         if self._benchmark_service is None:
-            from infrastructure.services.benchmark_service import BenchmarkService
+            from application.services.benchmark_orchestrator import BenchmarkService
 
             self._benchmark_service = BenchmarkService()
 

@@ -33,8 +33,8 @@ from domain.value_objects.document_status import DocumentStatus
 
 if TYPE_CHECKING:
     from application.ports.domain_settings import DomainSettingsPort
-    from infrastructure.domain_profile.registry import DomainProfileRegistry
-    from infrastructure.ml.client_registry import MLClientRegistry
+    from domain.domain_profile.registry import DomainProfileRegistry
+    from infrastructure.ml.clients.client_registry import MLClientRegistry
 
 log = logging.getLogger("default")
 
@@ -230,7 +230,116 @@ class DocumentProcessor:
         if raw_chunks:
             self._metrics.inc_chunks(len(raw_chunks))
 
-    async def process(  # noqa: C901
+    async def _classify_and_resolve_conflict(
+        self,
+        document_id: int,
+        doc_domain: str | None,
+        full_text: str,
+        replace_id: int | None,
+        warning_message: str | None,
+        storage_deletes: list[str],
+    ) -> tuple[str, str | None]:
+        """Classify domain (if needed) and resolve async conflict for replacement.
+
+        Returns (doc_domain, updated_warning_message).
+        """
+        if doc_domain is None:
+            doc_domain, ambiguous_warning = self._classify_domain(full_text, document_id)
+            if ambiguous_warning:
+                warning_message = (
+                    f"{warning_message}\n{ambiguous_warning}" if warning_message else ambiguous_warning
+                )
+            log.info("Auto-detected doc_domain=%s for doc %d", doc_domain, document_id)
+
+        if replace_id is not None:
+            new_doc = await self._get_document(document_id)
+            old_doc = await self._get_document(replace_id) if replace_id else None
+            if new_doc and old_doc:
+                profile = self._domain_registry.get(doc_domain) if self._domain_registry else None
+                old_source_path = await resolve_conflict(
+                    self._uow_factory,
+                    new_doc,
+                    old_doc,
+                    profile,
+                    act_versioning_service=self._act_versioning_service,
+                )
+                if old_source_path:
+                    storage_deletes.append(old_source_path)
+
+        return doc_domain, warning_message
+
+    async def _persist_chunks_and_status(
+        self,
+        document_id: int,
+        original_filename: str,
+        raw_chunks: list,
+        visibility: str,
+        owner_id: int | None,
+        group_id: int | None,
+        doc_domain: str,
+        domain_metadata: Any,
+        act_version_id: Any,
+        act_id: Any,
+        effective_from: Any,
+        replace_id: int | None,
+        warning_message: str | None,
+        quality: PDFQualityReport | None,
+        storage_deletes: list[str],
+    ) -> bool:
+        """Persist chunks inside a single transaction.
+
+        set_domain, enrich, process_chunks, replacement, and warning/status update.
+
+        Returns True on success, False if the document was deleted mid-flight.
+        """
+        async with self._uow_factory.create(master=True) as uow:
+            existing = await uow.documents.get_by_id(document_id)
+            if existing is None:
+                log.info("Document %d deleted before outbox enqueue — aborting", document_id)
+                return False
+
+            await uow.documents.set_domain(document_id, doc_domain)
+
+            enrich_chunks_metadata(
+                raw_chunks,
+                document_id,
+                visibility,
+                owner_id,
+                group_id,
+                doc_domain,
+                domain_metadata=domain_metadata,
+                act_version_id=act_version_id,
+                act_id=act_id,
+                effective_from=effective_from,
+            )
+
+            await process_chunks(
+                uow_factory=self._uow_factory,
+                document_id=document_id,
+                filename=original_filename,
+                chunks=raw_chunks,
+                visibility=visibility,
+                owner_id=owner_id,
+                group_id=group_id,
+                doc_domain=doc_domain,
+                set_indexing=True,
+                _existing_uow=uow,
+            )
+
+            if replace_id is not None:
+                await self._handle_replacement(uow, replace_id, doc_domain, storage_deletes)
+
+            if warning_message:
+                await uow.documents.update_status(
+                    document_id,
+                    DocumentStatus.INDEXING.value,
+                    warning=warning_message,
+                    quality_score=quality.bad_ratio if quality else None,
+                )
+
+        return True
+
+    async def process(
         self,
         document_id: int,
         storage_key: str,
@@ -247,11 +356,9 @@ class DocumentProcessor:
         raw_chunks = None
         storage_deletes: list[str] = []
         try:
-            # --- Short transaction: mark as PROCESSING ---
             async with self._uow_factory.create(master=True) as uow:
                 await uow.documents.update_status(document_id, DocumentStatus.PROCESSING.value)
 
-            # --- Heavy I/O outside transaction ---
             temp_path = await self._file_storage.download_to_temp(storage_key)
             docs = self._parser.parse(temp_path)
 
@@ -261,48 +368,21 @@ class DocumentProcessor:
                 )
 
             quality, warning_message = self._assess_quality_for_docs(
-                temp_path,
-                original_filename,
-                document_id,
-                docs,
+                temp_path, original_filename, document_id, docs,
             )
 
             full_text = "\n".join(d.page_content for d in docs)
 
-            # --- Domain classification: registry-based with fallback ---
-            if doc_domain is None:
-                doc_domain, ambiguous_warning = self._classify_domain(full_text, document_id)
-                if ambiguous_warning:
-                    warning_message = (
-                        f"{warning_message}\n{ambiguous_warning}" if warning_message else ambiguous_warning
-                    )
-                log.info("Auto-detected doc_domain=%s for doc %d", doc_domain, document_id)
-
-            # --- Async resolve: if conflict was pending and domain is now known ---
-            if replace_id is not None:
-                new_doc = await self._get_document(document_id)
-                old_doc = await self._get_document(replace_id) if replace_id else None
-                if new_doc and old_doc:
-                    profile = self._domain_registry.get(doc_domain) if self._domain_registry else None
-                    old_source_path = await resolve_conflict(
-                        self._uow_factory,
-                        new_doc,
-                        old_doc,
-                        profile,
-                        act_versioning_service=self._act_versioning_service,
-                    )
-                    if old_source_path:
-                        storage_deletes.append(old_source_path)
+            doc_domain, warning_message = await self._classify_and_resolve_conflict(
+                document_id, doc_domain, full_text, replace_id, warning_message, storage_deletes,
+            )
 
             self._attach_metadata_to_docs(docs, original_filename, self._extractor)
 
             raw_chunks = self._splitter.split(docs, domain=doc_domain)
-
-            # API-specific: section enrichment
             for rc in raw_chunks:
                 self._enrich_chunk_with_section(rc, doc_domain)
 
-            # --- Extract references and effective date for versioned domains ---
             versioning = await self._handle_versioning(document_id, doc_domain, full_text)
             domain_metadata = versioning.domain_metadata
             act_version_id = versioning.act_version_id
@@ -313,69 +393,21 @@ class DocumentProcessor:
                     f"{warning_message}\n{versioning.warning}" if warning_message else versioning.warning
                 )
 
-            # --- Guard: document may have been deleted while parsing/splitting ---
             current_doc = await self._get_document(document_id)
             if current_doc is None:
                 log.info("Document %d was deleted during processing — aborting", document_id)
                 status = DocumentStatus.FAILED.value
                 return
 
-            # --- Shared pipeline: Postgres + outbox ---
-            async with self._uow_factory.create(master=True) as uow:
-                # Re-check inside transaction (row may have been deleted between
-                # the outer check and here if the PROCESSING lock was released).
-                existing = await uow.documents.get_by_id(document_id)
-                if existing is None:
-                    log.info("Document %d deleted before outbox enqueue — aborting", document_id)
-                    status = DocumentStatus.FAILED.value
-                    return
-
-                await uow.documents.set_domain(document_id, doc_domain)
-
-                # Enrich metadata
-                enrich_chunks_metadata(
-                    raw_chunks,
-                    document_id,
-                    visibility,
-                    owner_id,
-                    group_id,
-                    doc_domain,
-                    domain_metadata=domain_metadata,
-                    act_version_id=act_version_id,
-                    act_id=act_id,
-                    effective_from=effective_from,
-                )
-
-                # Pipeline: bulk_insert → outbox → indexing status.
-                # _existing_uow keeps chunks + outbox + status in THIS
-                # transaction: an inner commit here would let the outbox
-                # dispatcher race ahead and mark the document DONE before the
-                # outer transaction (warning, replacement) commits.
-                await process_chunks(
-                    uow_factory=self._uow_factory,
-                    document_id=document_id,
-                    filename=original_filename,
-                    chunks=raw_chunks,
-                    visibility=visibility,
-                    owner_id=owner_id,
-                    group_id=group_id,
-                    doc_domain=doc_domain,
-                    set_indexing=True,
-                    _existing_uow=uow,
-                )
-
-                # Handle document replacement (API-specific)
-                if replace_id is not None:
-                    await self._handle_replacement(uow, replace_id, doc_domain, storage_deletes)
-
-                # Update stats with quality warning
-                if warning_message:
-                    await uow.documents.update_status(
-                        document_id,
-                        DocumentStatus.INDEXING.value,
-                        warning=warning_message,
-                        quality_score=quality.bad_ratio if quality else None,
-                    )
+            persisted = await self._persist_chunks_and_status(
+                document_id, original_filename, raw_chunks, visibility,
+                owner_id, group_id, doc_domain, domain_metadata,
+                act_version_id, act_id, effective_from,
+                replace_id, warning_message, quality, storage_deletes,
+            )
+            if not persisted:
+                status = DocumentStatus.FAILED.value
+                return
 
             status = DocumentStatus.INDEXING.value
 
@@ -384,8 +416,6 @@ class DocumentProcessor:
         finally:
             self._finalize_processing(status, t_start, temp_path, raw_chunks)
 
-        # Storage mutation AFTER the transaction committed. On failure the
-        # DB stays consistent; the orphaned S3 object is harmless garbage.
         await self._cleanup_storage_objects(storage_deletes)
 
     async def _cleanup_storage_objects(self, keys: list[str]) -> None:

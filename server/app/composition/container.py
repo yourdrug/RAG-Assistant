@@ -89,7 +89,7 @@ class Container:
         """Subscribe config-change handlers to the event bus."""
         from domain.events.config_events import ConfigParameterChanged
         from infrastructure.events.in_process_event_bus import event_bus
-        from infrastructure.ml.config_subscribers import (
+        from infrastructure.ml.config.config_subscribers import (
             apply_to_settings,
             audit_log_config_change,
             invalidate_paddle_ocr_cache,

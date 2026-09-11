@@ -1,8 +1,8 @@
 """IngestionPort -- application-layer abstraction for the S3-only document ingestion pipeline.
 
 Defines the protocol that ``IngestAppService`` depends on.  The concrete
-implementation lives in ``infrastructure.services`` and uses S3 as the
-sole file storage backend.
+implementation lives in ``application.services.ingestion_orchestrator`` and
+uses S3 as the sole file storage backend.
 """
 
 from __future__ import annotations

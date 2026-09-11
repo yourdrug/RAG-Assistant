@@ -9,6 +9,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
+# Mock fitz before importing preview strategies, then restore
+_real_fitz = sys.modules.get("fitz")
 sys.modules["fitz"] = MagicMock()
 
 from domain.value_objects.page_content_type import PageContentType  # noqa: E402
@@ -365,3 +367,10 @@ class TestPdfPreviewStrategy:
         assert units[1].type == "ocr"
         assert units[2].type == "text"
         assert total == 350
+
+
+# Restore real fitz module so other test files can use it
+if _real_fitz is not None:
+    sys.modules["fitz"] = _real_fitz
+elif "fitz" in sys.modules:
+    del sys.modules["fitz"]
