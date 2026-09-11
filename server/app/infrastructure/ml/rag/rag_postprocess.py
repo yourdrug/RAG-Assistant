@@ -94,7 +94,9 @@ def resolve_temporal_conflicts(docs: list) -> list:
         RAG_TEMPORAL_VERSION_CONFLICT_TOTAL.inc()
         log.warning(
             "Temporal conflict act_id=%d: kept version with effective_from=%s, dropped %d older versions",
-            act_id, best[2], dropped,
+            act_id,
+            best[2],
+            dropped,
         )
 
     return resolved

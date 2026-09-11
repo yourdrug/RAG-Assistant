@@ -13,9 +13,7 @@ down_revision: str | None = "j7k8l9m0n1o2"
 
 def upgrade() -> None:
     # GIN trigram index for substring search (ILIKE '%query%')
-    op.execute(
-        "CREATE INDEX IF NOT EXISTS ix_chunks_content_trgm " "ON chunks USING GIN (content gin_trgm_ops)"
-    )
+    op.execute("CREATE INDEX IF NOT EXISTS ix_chunks_content_trgm ON chunks USING GIN (content gin_trgm_ops)")
     # ACL filter indexes
     op.execute("CREATE INDEX IF NOT EXISTS ix_chunks_owner_id ON chunks (owner_id)")
     op.execute("CREATE INDEX IF NOT EXISTS ix_chunks_group_id ON chunks (group_id)")

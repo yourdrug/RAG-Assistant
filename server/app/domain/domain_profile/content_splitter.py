@@ -98,9 +98,7 @@ def _merge_small_units(units: list[SplitUnit], min_chars: int) -> list[SplitUnit
     _BARE_NUMBER_RE = re.compile(r"^\s*\d+\.\s*$")
 
     # Pass 1: identify bare number fragments (like "2.", "4.")
-    is_bare_number = [
-        bool(_BARE_NUMBER_RE.match(u.content)) for u in units
-    ]
+    is_bare_number = [bool(_BARE_NUMBER_RE.match(u.content)) for u in units]
 
     # Pass 2: merge — first handle bare numbers (into next), then tiny fragments (into prev)
     merged: list[SplitUnit] = []
@@ -112,12 +110,14 @@ def _merge_small_units(units: list[SplitUnit], min_chars: int) -> list[SplitUnit
         if is_bare_number[i] and i + 1 < len(units):
             next_unit = units[i + 1]
             merged_content = unit.content.rstrip() + "\n" + next_unit.content
-            merged.append(SplitUnit(
-                heading=next_unit.heading,
-                content=merged_content,
-                unit_kind=next_unit.unit_kind,
-                boundary_value=next_unit.boundary_value,
-            ))
+            merged.append(
+                SplitUnit(
+                    heading=next_unit.heading,
+                    content=merged_content,
+                    unit_kind=next_unit.unit_kind,
+                    boundary_value=next_unit.boundary_value,
+                )
+            )
             i += 2  # skip both
             continue
 

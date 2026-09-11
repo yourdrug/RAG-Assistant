@@ -41,11 +41,11 @@ class SettingsBackedProfile:
 
 
 def extract_effective_date_generic(
-        text: str,
-        patterns: list[tuple[re.Pattern, float]],
-        fallback_pattern: re.Pattern,
-        fallback_confidence: float = 0.3,
-        fallback_window: int = 1500,
+    text: str,
+    patterns: list[tuple[re.Pattern, float]],
+    fallback_pattern: re.Pattern,
+    fallback_confidence: float = 0.3,
+    fallback_window: int = 1500,
 ) -> EffectiveDateCandidate | None:
     """Extract effective date using a list of (pattern, confidence) pairs.
 
@@ -65,7 +65,6 @@ def extract_effective_date_generic(
 
 def versioned_prompt_date_stamp(as_of_date: date | None) -> str:
     """Generate the shared date-stamp bullet for versioned domain prompt addenda."""
-
     if as_of_date is None:
         return ""
     return (

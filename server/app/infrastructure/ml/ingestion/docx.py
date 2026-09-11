@@ -62,9 +62,7 @@ def _parse_abstract_formats(root) -> dict[str, dict[int, str]]:
     return abstract_formats
 
 
-def _resolve_num_formats(
-    root, abstract_formats: dict[str, dict[int, str]]
-) -> dict[tuple[str, int], str]:
+def _resolve_num_formats(root, abstract_formats: dict[str, dict[int, str]]) -> dict[tuple[str, int], str]:
     """Resolve (numId, ilvl) -> numFmt from w:num elements."""
     from docx.oxml.ns import qn
 
@@ -147,8 +145,21 @@ class _ListNumberer:
 
 
 def _to_roman(n: int) -> str:
-    vals = [(1000, "M"), (900, "CM"), (500, "D"), (400, "CD"), (100, "C"), (90, "XC"),
-            (50, "L"), (40, "XL"), (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I")]
+    vals = [
+        (1000, "M"),
+        (900, "CM"),
+        (500, "D"),
+        (400, "CD"),
+        (100, "C"),
+        (90, "XC"),
+        (50, "L"),
+        (40, "XL"),
+        (10, "X"),
+        (9, "IX"),
+        (5, "V"),
+        (4, "IV"),
+        (1, "I"),
+    ]
     result = []
     for value, sym in vals:
         count, n = divmod(n, value)
@@ -168,8 +179,8 @@ def _extract_headers_footers(doc) -> dict:
 
     for section in doc.sections:
         for container, seen, bucket in (
-                (section.header, seen_headers, headers),
-                (section.footer, seen_footers, footers),
+            (section.header, seen_headers, headers),
+            (section.footer, seen_footers, footers),
         ):
             if container is None or container.is_linked_to_previous:
                 continue
@@ -269,7 +280,10 @@ def docx_table_to_markdown(table) -> str:
 
 
 def _process_docx_paragraph(
-    p, numberer: _ListNumberer, parts: list[str], page_numbers: list[int],
+    p,
+    numberer: _ListNumberer,
+    parts: list[str],
+    page_numbers: list[int],
     current_page: int,
 ) -> tuple[int, bool]:
     """Process a single paragraph for parse_docx. Returns (new_page, should_break)."""
@@ -384,7 +398,10 @@ def _process_section_child(
 
 
 def _collect_docx_metadata(
-    doc, page_numbers: list[int], paragraph_count: int, table_count: int,
+    doc,
+    page_numbers: list[int],
+    paragraph_count: int,
+    table_count: int,
     image_count: int,
 ) -> dict:
     """Build metadata dict from document statistics and properties."""
@@ -434,7 +451,11 @@ def parse_docx(file_path: Path) -> tuple[str, dict]:
             p = para_by_element.get(id(child))
             if p is not None:
                 current_page, _did_break = _process_docx_paragraph(
-                    p, numberer, parts, page_numbers, current_page,
+                    p,
+                    numberer,
+                    parts,
+                    page_numbers,
+                    current_page,
                 )
         elif child.tag == tbl_tag:
             table_count += 1

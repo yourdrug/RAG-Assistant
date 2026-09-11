@@ -57,7 +57,7 @@ def _client_conditions(user_id: int) -> list[VisibilityCondition]:
 
 
 def _base_internal_conditions(user_kind: UserKind, group_ids: list[int]) -> list[VisibilityCondition]:
-    """Standard INTERNAL_PUBLIC + INTERNAL_PRIVATE + INTERNAL_GROUP conditions."""
+    """Return standard INTERNAL_PUBLIC + INTERNAL_PRIVATE + INTERNAL_GROUP conditions."""
     conditions: list[VisibilityCondition] = []
     allowed = ALLOWED_VISIBILITY_FOR_KIND.get(user_kind, set())
 
@@ -159,7 +159,9 @@ def get_visibility_conditions(
     conditions = _base_internal_conditions(user_kind, group_ids)
 
     if user_role == UserRole.CURATOR:
-        conditions.extend(_curator_conditions(group_ids, managed_client_ids, managed_internal_ids, managed_group_ids))
+        conditions.extend(
+            _curator_conditions(group_ids, managed_client_ids, managed_internal_ids, managed_group_ids)
+        )
     elif user_role == UserRole.ADMIN:
         conditions.extend(_admin_conditions(for_list))
 

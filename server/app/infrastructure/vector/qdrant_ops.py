@@ -67,7 +67,7 @@ def ensure_collection(client, vector_size: int, reset: bool = False) -> None:
     if settings.collection_name in existing:
         if reset:
             log.info(
-                "Smart reset: deleting CLI-ingested points (owner_id=None) " "from collection '%s' ...",
+                "Smart reset: deleting CLI-ingested points (owner_id=None) from collection '%s' ...",
                 settings.collection_name,
             )
             deleted = _delete_internal_points(client)

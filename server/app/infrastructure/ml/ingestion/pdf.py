@@ -205,10 +205,10 @@ def _process_page_text(text: str, tables_found: bool, page_num: int, file_path: 
 
 
 def _process_ocr_result(
-        page_num: int,
-        ocr_text: str,
-        text_to_compare: dict,
-        file_path: Path,
+    page_num: int,
+    ocr_text: str,
+    text_to_compare: dict,
+    file_path: Path,
 ) -> Document | None:
     if not ocr_text:
         return None
@@ -220,7 +220,7 @@ def _process_ocr_result(
 
 
 def _find_boilerplate_patterns(
-        classified_pages: list[tuple[list, list, list]],
+    classified_pages: list[tuple[list, list, list]],
 ) -> set[str]:
     """Determine which header/footer line patterns repeat across most pages.
 
@@ -350,17 +350,13 @@ def _process_ocr_batch(
         ocr_doc = _process_ocr_result(page_num, ocr_text, text_to_compare, file_path)
         if ocr_doc:
             ocr_doc.metadata["has_images"] = True
-            ocr_doc.metadata["image_count"] = len(
-                doc.load_page(page_num - 1).get_images(full=True)
-            )
+            ocr_doc.metadata["image_count"] = len(doc.load_page(page_num - 1).get_images(full=True))
             ocr_doc.metadata["text_quality"] = 0.0
             pages.append(ocr_doc)
     return pages
 
 
-def _apply_document_metadata(
-    pages: list[Document], doc_metadata: dict, is_scanned: bool
-) -> None:
+def _apply_document_metadata(pages: list[Document], doc_metadata: dict, is_scanned: bool) -> None:
     """Stamp doc-level metadata and scanned flag onto every page."""
     if doc_metadata:
         for p in pages:
@@ -387,8 +383,13 @@ def parse_pdf(file_path: Path) -> list[Document]:
 
     for page_num in range(1, n_pages + 1):
         result = _process_page(
-            doc, page_num, classified, boilerplate, file_path,
-            settings.ocr_enabled, settings.ocr_min_chars,
+            doc,
+            page_num,
+            classified,
+            boilerplate,
+            file_path,
+            settings.ocr_enabled,
+            settings.ocr_min_chars,
         )
         pages.extend(result.table_docs)
         if result.ocr_needed:

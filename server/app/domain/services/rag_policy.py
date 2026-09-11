@@ -248,9 +248,9 @@ SUFFICIENCY_ASSESSMENT_SYSTEM = (
 
 
 def build_system_prompt(
-        breadth: str = Breadth.NARROW,
-        domain_addendum: str | None = None,
-        enumerate_cases: bool = False,
+    breadth: str = Breadth.NARROW,
+    domain_addendum: str | None = None,
+    enumerate_cases: bool = False,
 ) -> str:
     """Build the system prompt text based on question breadth and context composition.
 

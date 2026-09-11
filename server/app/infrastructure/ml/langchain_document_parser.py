@@ -91,19 +91,19 @@ def _populate_heading_metadata(metadata: dict, heading: str | None, ctx: dict) -
 def _normalize_table_content(content: str) -> tuple[str, bool]:
     r"""Detect ``\x00TABLE:`` prefix and strip it; returns (cleaned_content, is_table)."""
     if content.startswith("\x00TABLE:"):
-        return content[len("\x00TABLE:"):], True
+        return content[len("\x00TABLE:") :], True
     return content, False
 
 
 def _build_section_metadata(
-        content: str,
-        heading: str | None,
-        ctx: dict,
-        file_path: Path,
-        page_meta: dict | None,
-        chunk_index: int,
-        total: int,
-        is_table: bool,
+    content: str,
+    heading: str | None,
+    ctx: dict,
+    file_path: Path,
+    page_meta: dict | None,
+    chunk_index: int,
+    total: int,
+    is_table: bool,
 ) -> dict:
     """Assemble the full metadata dict for a single section document."""
     metadata: dict = {"source": file_path.name}
@@ -164,8 +164,13 @@ def _heading_context(sections: list[tuple[str | None, str]]) -> dict:
                 toc.append(immediate[h])
 
     return {
-        "level": level, "immediate": immediate, "parent": parent,
-        "prev": prev_h, "next": next_h, "siblings": siblings, "toc": toc,
+        "level": level,
+        "immediate": immediate,
+        "parent": parent,
+        "prev": prev_h,
+        "next": next_h,
+        "siblings": siblings,
+        "toc": toc,
     }
 
 
@@ -173,9 +178,9 @@ class LangchainDocumentParser:
     """Parses files into domain RawDocuments using LangChain infrastructure."""
 
     def __init__(
-            self,
-            domain_registry: "DomainProfileRegistry | None" = None,
-            domain_settings: "DomainSettingsPort | None" = None,
+        self,
+        domain_registry: "DomainProfileRegistry | None" = None,
+        domain_settings: "DomainSettingsPort | None" = None,
     ) -> None:
         self._domain_registry = domain_registry
         self._domain_settings = domain_settings
@@ -334,9 +339,9 @@ class LangchainDocumentParser:
 
     @staticmethod
     def _sections_to_documents(
-            sections: list[tuple[str | None, str]],
-            file_path: Path,
-            page_meta: dict | None = None,
+        sections: list[tuple[str | None, str]],
+        file_path: Path,
+        page_meta: dict | None = None,
     ) -> list[RawDocument]:
         ctx = _heading_context(sections)
         total = len([1 for _h, c in sections if c.strip()])
@@ -352,7 +357,14 @@ class LangchainDocumentParser:
 
             chunk_index += 1
             metadata = _build_section_metadata(
-                content, heading, ctx, file_path, page_meta, chunk_index, total, is_table,
+                content,
+                heading,
+                ctx,
+                file_path,
+                page_meta,
+                chunk_index,
+                total,
+                is_table,
             )
             docs.append(RawDocument(page_content=content, metadata=metadata))
 
@@ -365,9 +377,9 @@ class LangchainDocumentSplitter:
     """Splits domain RawDocuments into chunks using LangChain text splitters."""
 
     def __init__(
-            self,
-            domain_registry: "DomainProfileRegistry | None" = None,
-            domain_settings: "DomainSettingsPort | None" = None,
+        self,
+        domain_registry: "DomainProfileRegistry | None" = None,
+        domain_settings: "DomainSettingsPort | None" = None,
     ) -> None:
         self._domain_registry = domain_registry
         self._domain_settings = domain_settings
@@ -375,10 +387,10 @@ class LangchainDocumentSplitter:
     def split(self, documents: list[RawDocument], domain: str = "general") -> list[RawDocument]:
         profile = self._get_profile(domain)
         if (
-                profile is not None
-                and profile.content_boundaries()
-                and documents
-                and all("unit_kind" in d.metadata for d in documents)
+            profile is not None
+            and profile.content_boundaries()
+            and documents
+            and all("unit_kind" in d.metadata for d in documents)
         ):
             # Structural units produced by a domain-aware parser (decree RTF)
             # are already final chunks — pass through without re-splitting,

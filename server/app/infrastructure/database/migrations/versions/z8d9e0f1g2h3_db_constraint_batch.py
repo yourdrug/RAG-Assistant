@@ -94,8 +94,7 @@ def upgrade() -> None:
         ("ingestion_registry", "indexed_at"),
     ]:
         op.execute(
-            f"ALTER TABLE {table} ALTER COLUMN {column} TYPE timestamptz "
-            f"USING {column} AT TIME ZONE 'UTC'"
+            f"ALTER TABLE {table} ALTER COLUMN {column} TYPE timestamptz USING {column} AT TIME ZONE 'UTC'"
         )
 
     # --- outbox operation CHECK: allow all outbox ops -------------------------

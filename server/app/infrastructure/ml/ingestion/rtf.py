@@ -77,18 +77,40 @@ def extract_doc_title(file_path: Path) -> str | None:
 # --- Constants & dataclasses -----------------------------------------------
 
 _SKIP_DESTINATIONS = {
-    "fonttbl", "colortbl", "stylesheet", "info", "generator", "pict",
-    "object", "objdata", "themedata", "colorschememapping", "latentstyles",
-    "rsidtbl", "listtable", "listoverridetable", "revtbl", "xmlnstbl",
-    "footnote", "atnid", "atnauthor", "atndate",
+    "fonttbl",
+    "colortbl",
+    "stylesheet",
+    "info",
+    "generator",
+    "pict",
+    "object",
+    "objdata",
+    "themedata",
+    "colorschememapping",
+    "latentstyles",
+    "rsidtbl",
+    "listtable",
+    "listoverridetable",
+    "revtbl",
+    "xmlnstbl",
+    "footnote",
+    "atnid",
+    "atnauthor",
+    "atndate",
 }
 
 _CONTROL_WORD_RE = re.compile(r"\\([a-zA-Z]+)(-?\d+)?[ ]?")
 _HEX_ESCAPE_RE = re.compile(r"\\'([0-9a-fA-F]{2})")
 _ANSICPG_RE = re.compile(r"\\ansicpg(\d+)")
 _CODEPAGE_MAP = {
-    "1250": "cp1250", "1251": "cp1251", "1252": "cp1252", "1253": "cp1253",
-    "1254": "cp1254", "1257": "cp1257", "65001": "utf-8", "10000": "mac_roman",
+    "1250": "cp1250",
+    "1251": "cp1251",
+    "1252": "cp1252",
+    "1253": "cp1253",
+    "1254": "cp1254",
+    "1257": "cp1257",
+    "65001": "utf-8",
+    "10000": "mac_roman",
 }
 
 _NUMBERED_HEADING_RE = re.compile(
@@ -277,8 +299,7 @@ def _update_cur_metrics(ws: _WalkerState, top: _GroupState) -> None:
     if not top.skip:
         if top.font_size is not None:
             ws.cur_max_size = (
-                top.font_size if ws.cur_max_size is None
-                else max(ws.cur_max_size, top.font_size)
+                top.font_size if ws.cur_max_size is None else max(ws.cur_max_size, top.font_size)
             )
         if top.centered:
             ws.cur_centered = True
@@ -489,9 +510,7 @@ def _is_heading(seg: _Segment, baseline: float | None) -> bool:
     return bool(baseline is not None and p.bold and p.font_size and p.font_size > baseline)
 
 
-def _build_heading_index(
-    segments: list[_Segment], baseline: float | None
-) -> tuple[dict[float, int], int]:
+def _build_heading_index(segments: list[_Segment], baseline: float | None) -> tuple[dict[float, int], int]:
     """Map font sizes to heading levels; returns (size_to_level, fallback_level)."""
     heading_sizes = sorted(
         {

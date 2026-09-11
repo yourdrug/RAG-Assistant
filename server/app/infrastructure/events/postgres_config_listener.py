@@ -238,9 +238,7 @@ class PostgresConfigListener:
         return json.loads(json.dumps(str(current), ensure_ascii=False))
 
     @staticmethod
-    def _normalize_types(
-        a: object, b: object
-    ) -> tuple[object, object]:
+    def _normalize_types(a: object, b: object) -> tuple[object, object]:
         """Coerce str<->numeric mismatches so mixed types compare correctly."""
         if isinstance(a, str) and isinstance(b, (int, float)):
             try:
@@ -271,7 +269,5 @@ class PostgresConfigListener:
         except (json.JSONDecodeError, TypeError):
             return str(current) == db_value
         current_parsed = PostgresConfigListener._normalize_to_comparable(current)
-        current_normalized, db_normalized = PostgresConfigListener._normalize_types(
-            current_parsed, db_parsed
-        )
+        current_normalized, db_normalized = PostgresConfigListener._normalize_types(current_parsed, db_parsed)
         return current_normalized == db_normalized

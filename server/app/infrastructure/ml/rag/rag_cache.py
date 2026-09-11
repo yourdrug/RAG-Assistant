@@ -59,9 +59,7 @@ async def handle_cache_hit(
             log.warning("PII detected in cached answer: types=%s", pii_found)
 
     yield TextChunk(text=answer_text)
-    record_rag_answer(
-        breadth=Breadth.NARROW.value, answer=answer_text, retrieved_count=0, avg_similarity=0.0
-    )
+    record_rag_answer(breadth=Breadth.NARROW.value, answer=answer_text, retrieved_count=0, avg_similarity=0.0)
     RAG_STAGE_DURATION.labels("total").observe(time.monotonic() - t_pipeline_start)
     yield SourcesEvent(sources=cached["sources"], confidence=None)
 

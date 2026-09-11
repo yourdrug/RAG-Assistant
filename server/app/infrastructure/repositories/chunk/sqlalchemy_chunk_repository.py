@@ -104,9 +104,7 @@ def _build_acl_clauses(
     return acl_clauses
 
 
-def _build_exact_search_stmt(
-    query: str, acl_clauses: list, document_id: int | None, limit: int
-):
+def _build_exact_search_stmt(query: str, acl_clauses: list, document_id: int | None, limit: int):
     """Build SELECT statement for exact word-boundary search."""
     escaped_query = re.escape(query)
     stmt = (
@@ -122,9 +120,7 @@ def _build_exact_search_stmt(
     return stmt
 
 
-def _build_fuzzy_search_stmt(
-    query: str, acl_clauses: list, document_id: int | None, limit: int
-):
+def _build_fuzzy_search_stmt(query: str, acl_clauses: list, document_id: int | None, limit: int):
     """Build SELECT statement for ILIKE fuzzy search."""
     stmt = (
         select(*_SEARCH_COLUMNS)
@@ -173,15 +169,9 @@ def _paginate_forward(
     """Build CursorPage from forward-fetched rows."""
     has_extra = len(rows) > limit
     page_rows = rows[:limit]
-    next_cur = (
-        encode_cursor(page_rows[-1].chunk_index, page_rows[-1].id)
-        if has_extra and page_rows
-        else None
-    )
+    next_cur = encode_cursor(page_rows[-1].chunk_index, page_rows[-1].id) if has_extra and page_rows else None
     prev_cur = (
-        encode_cursor(page_rows[0].chunk_index, page_rows[0].id)
-        if page_rows and cursor is not None
-        else None
+        encode_cursor(page_rows[0].chunk_index, page_rows[0].id) if page_rows and cursor is not None else None
     )
     items = [_row_to_search_result(r) if not isinstance(r, ChunkSearchResult) else r for r in page_rows]
     # Handle both ORM objects and raw tuples
@@ -190,39 +180,55 @@ def _paginate_forward(
         if isinstance(r, ChunkSearchResult):
             items.append(r)
         else:
-            items.append(ChunkSearchResult(
-                chunk_id=r.id, document_id=r.document_id, filename=r.filename,
-                content=r.content, chunk_index=r.chunk_index, visibility=r.visibility,
-                doc_domain=r.doc_domain, owner_id=r.owner_id, group_id=r.group_id,
-                edited_at=r.edited_at, edited_by=r.edited_by, manual=r.manual,
-                creation_date=r.creation_date,
-            ))
+            items.append(
+                ChunkSearchResult(
+                    chunk_id=r.id,
+                    document_id=r.document_id,
+                    filename=r.filename,
+                    content=r.content,
+                    chunk_index=r.chunk_index,
+                    visibility=r.visibility,
+                    doc_domain=r.doc_domain,
+                    owner_id=r.owner_id,
+                    group_id=r.group_id,
+                    edited_at=r.edited_at,
+                    edited_by=r.edited_by,
+                    manual=r.manual,
+                    creation_date=r.creation_date,
+                )
+            )
     return CursorPage(items=items, next_cursor=next_cur, prev_cursor=prev_cur)
 
 
-def _paginate_backward(
-    rows: list, limit: int
-) -> CursorPage[ChunkSearchResult]:
+def _paginate_backward(rows: list, limit: int) -> CursorPage[ChunkSearchResult]:
     """Build CursorPage from backward-fetched rows."""
     has_extra = len(rows) > limit
     page_rows = rows[:limit]
     page_rows.reverse()
-    prev_cur = (
-        encode_cursor(page_rows[0].chunk_index, page_rows[0].id) if has_extra and page_rows else None
-    )
+    prev_cur = encode_cursor(page_rows[0].chunk_index, page_rows[0].id) if has_extra and page_rows else None
     next_cur = encode_cursor(page_rows[0].chunk_index, page_rows[0].id) if page_rows else None
     items = []
     for r in page_rows:
         if isinstance(r, ChunkSearchResult):
             items.append(r)
         else:
-            items.append(ChunkSearchResult(
-                chunk_id=r.id, document_id=r.document_id, filename=r.filename,
-                content=r.content, chunk_index=r.chunk_index, visibility=r.visibility,
-                doc_domain=r.doc_domain, owner_id=r.owner_id, group_id=r.group_id,
-                edited_at=r.edited_at, edited_by=r.edited_by, manual=r.manual,
-                creation_date=r.creation_date,
-            ))
+            items.append(
+                ChunkSearchResult(
+                    chunk_id=r.id,
+                    document_id=r.document_id,
+                    filename=r.filename,
+                    content=r.content,
+                    chunk_index=r.chunk_index,
+                    visibility=r.visibility,
+                    doc_domain=r.doc_domain,
+                    owner_id=r.owner_id,
+                    group_id=r.group_id,
+                    edited_at=r.edited_at,
+                    edited_by=r.edited_by,
+                    manual=r.manual,
+                    creation_date=r.creation_date,
+                )
+            )
     return CursorPage(items=items, next_cursor=next_cur, prev_cursor=prev_cur)
 
 
@@ -332,7 +338,11 @@ class SQLAlchemyChunkRepository:
         return max_index if max_index is not None else -1
 
     async def update_content(
-        self, chunk_id: int, content: str, edited_at: datetime, edited_by: int,
+        self,
+        chunk_id: int,
+        content: str,
+        edited_at: datetime,
+        edited_by: int,
     ) -> None:
         stmt = select(ChunkModel).where(ChunkModel.id == chunk_id)
         result = await self._session.execute(stmt)
@@ -345,15 +355,28 @@ class SQLAlchemyChunkRepository:
         await self._session.flush()
 
     async def insert_one(
-        self, document_id: int, chunk_index: int, content: str, filename: str,
-        visibility: str, doc_domain: str, owner_id: int | None = None,
-        group_id: int | None = None, manual: bool = False,
+        self,
+        document_id: int,
+        chunk_index: int,
+        content: str,
+        filename: str,
+        visibility: str,
+        doc_domain: str,
+        owner_id: int | None = None,
+        group_id: int | None = None,
+        manual: bool = False,
         content_hash: str | None = None,
     ) -> int:
         orm = ChunkModel(
-            document_id=document_id, chunk_index=chunk_index, content=content,
-            filename=filename, visibility=visibility, doc_domain=doc_domain,
-            owner_id=owner_id, group_id=group_id, manual=manual,
+            document_id=document_id,
+            chunk_index=chunk_index,
+            content=content,
+            filename=filename,
+            visibility=visibility,
+            doc_domain=doc_domain,
+            owner_id=owner_id,
+            group_id=group_id,
+            manual=manual,
             content_hash=content_hash,
         )
         self._session.add(orm)
@@ -395,7 +418,11 @@ class SQLAlchemyChunkRepository:
             return []
 
         acl_clauses = _build_acl_clauses(
-            user, group_ids, managed_client_ids, managed_internal_ids, managed_group_ids,
+            user,
+            group_ids,
+            managed_client_ids,
+            managed_internal_ids,
+            managed_group_ids,
         )
 
         if mode == SearchMode.EXACT.value:
@@ -409,7 +436,10 @@ class SQLAlchemyChunkRepository:
     # --- List / Query -------------------------------------------------------
 
     async def list_for_document(
-        self, document_id: int, limit: int = 50, offset: int = 0,
+        self,
+        document_id: int,
+        limit: int = 50,
+        offset: int = 0,
         content_hashes: list[str] | None = None,
     ) -> tuple[list[ChunkSearchResult], int]:
         conditions = [ChunkModel.document_id == document_id]
@@ -428,8 +458,11 @@ class SQLAlchemyChunkRepository:
         return [self._to_chunk_search_result(c) for c in chunks], total
 
     async def list_for_document_cursor(
-        self, document_id: int, limit: int = 50,
-        cursor: tuple[int, int] | None = None, direction: str = "next",
+        self,
+        document_id: int,
+        limit: int = 50,
+        cursor: tuple[int, int] | None = None,
+        direction: str = "next",
         content_hashes: list[str] | None = None,
     ) -> CursorPage[ChunkSearchResult]:
         conditions = [ChunkModel.document_id == document_id]
@@ -450,6 +483,7 @@ class SQLAlchemyChunkRepository:
         # direction == "prev"
         if cursor is None:
             from domain.exceptions import ValidationError
+
             raise ValidationError("cursor is required when direction=prev")
         conditions.extend(_build_cursor_backward_conditions(cursor))
         stmt = (
@@ -462,7 +496,10 @@ class SQLAlchemyChunkRepository:
         return _paginate_backward(list(result.scalars().all()), limit)
 
     async def find_duplicate_by_hash(
-        self, document_id: int, content_hash: str, exclude_chunk_id: int | None = None,
+        self,
+        document_id: int,
+        content_hash: str,
+        exclude_chunk_id: int | None = None,
     ) -> ChunkSearchResult | None:
         conditions = [
             ChunkModel.document_id == document_id,
@@ -492,7 +529,10 @@ class SQLAlchemyChunkRepository:
     # --- Neighbor enrichment -------------------------------------------------
 
     async def get_neighbors(
-        self, document_id: int, center_index: int, window: int = 1,
+        self,
+        document_id: int,
+        center_index: int,
+        window: int = 1,
         exclude_hashes: set[str] | None = None,
     ) -> list[ChunkSearchResult]:
         low = center_index - window
@@ -511,7 +551,9 @@ class SQLAlchemyChunkRepository:
         return [self._to_chunk_search_result(c) for c in result.scalars().all()]
 
     async def get_table_batches(
-        self, document_id: int, anchor_index: int,
+        self,
+        document_id: int,
+        anchor_index: int,
         exclude_hashes: set[str] | None = None,
     ) -> list[ChunkSearchResult]:
         """Fetch all consecutive table batches starting from anchor_index."""
@@ -541,7 +583,10 @@ class SQLAlchemyChunkRepository:
         return result.rowcount or 0
 
     async def update_temporal_by_act_version_id(
-        self, act_version_id: int, effective_from: date | None, effective_to: date | None,
+        self,
+        act_version_id: int,
+        effective_from: date | None,
+        effective_to: date | None,
     ) -> int:
         result = await self._session.execute(
             update(ChunkModel)

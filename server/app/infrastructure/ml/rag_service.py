@@ -185,12 +185,18 @@ class RagService:
 
         if state.rag.features.cache_enabled:
             await store_answer_cache(
-                state.docs, state.query_for_search, state.q_hash,
-                state.vis_hash, state.full_answer, state.sources,
+                state.docs,
+                state.query_for_search,
+                state.q_hash,
+                state.vis_hash,
+                state.full_answer,
+                state.sources,
             )
 
         yield SourcesEvent(
-            sources=state.sources, confidence=state.confidence, usage=state.usage_report,
+            sources=state.sources,
+            confidence=state.confidence,
+            usage=state.usage_report,
         )
 
     async def invoke(

@@ -35,7 +35,7 @@ def register_all_profiles(registry: DomainProfileRegistry, settings: DomainSetti
             profile._get("max_unit_chars")
         except Exception:
             log.warning(
-                "DomainSettingsPort validation failed for %s -- " "config parameters may not be seeded yet",
+                "DomainSettingsPort validation failed for %s -- config parameters may not be seeded yet",
                 cls.__name__,
             )
         registry.register(profile)

@@ -33,9 +33,7 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
     return dot / (norm_a * norm_b)
 
 
-def _find_break_points(
-        similarities: list[float], threshold: float = 0.5
-) -> list[int]:
+def _find_break_points(similarities: list[float], threshold: float = 0.5) -> list[int]:
     """Find indices where similarity drops below threshold (topic boundaries)."""
     breaks = []
     for i, sim in enumerate(similarities):

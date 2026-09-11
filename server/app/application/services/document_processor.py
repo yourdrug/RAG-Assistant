@@ -368,13 +368,21 @@ class DocumentProcessor:
                 )
 
             quality, warning_message = self._assess_quality_for_docs(
-                temp_path, original_filename, document_id, docs,
+                temp_path,
+                original_filename,
+                document_id,
+                docs,
             )
 
             full_text = "\n".join(d.page_content for d in docs)
 
             doc_domain, warning_message = await self._classify_and_resolve_conflict(
-                document_id, doc_domain, full_text, replace_id, warning_message, storage_deletes,
+                document_id,
+                doc_domain,
+                full_text,
+                replace_id,
+                warning_message,
+                storage_deletes,
             )
 
             self._attach_metadata_to_docs(docs, original_filename, self._extractor)
@@ -400,10 +408,21 @@ class DocumentProcessor:
                 return
 
             persisted = await self._persist_chunks_and_status(
-                document_id, original_filename, raw_chunks, visibility,
-                owner_id, group_id, doc_domain, domain_metadata,
-                act_version_id, act_id, effective_from,
-                replace_id, warning_message, quality, storage_deletes,
+                document_id,
+                original_filename,
+                raw_chunks,
+                visibility,
+                owner_id,
+                group_id,
+                doc_domain,
+                domain_metadata,
+                act_version_id,
+                act_id,
+                effective_from,
+                replace_id,
+                warning_message,
+                quality,
+                storage_deletes,
             )
             if not persisted:
                 status = DocumentStatus.FAILED.value

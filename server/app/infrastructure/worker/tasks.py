@@ -34,6 +34,7 @@ from infrastructure.worker.cron import (  # noqa: F401
     cron_recover_orphaned_jobs,
     cron_recover_stuck_processing,
 )
+
 # Re-export sweep task for backward compatibility
 from infrastructure.worker.sweep import run_sweep_task as run_sweep  # noqa: F401
 

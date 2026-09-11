@@ -309,9 +309,7 @@ def _split_structured(
                 meta["domain_metadata"] = refs_to_metadata(unit_refs)
 
             if len(unit.content) > chunk_size:
-                overflow_chunks = _split_overflow(
-                    unit.content, chunk_size, chunk_overlap, boundary_patterns
-                )
+                overflow_chunks = _split_overflow(unit.content, chunk_size, chunk_overlap, boundary_patterns)
                 if len(overflow_chunks) > 1:
                     # Extract first meaningful line as context prefix for non-first chunks
                     first_line = unit.content.split("\n", 1)[0].strip()

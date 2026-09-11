@@ -97,7 +97,10 @@ async def _run_retrieval(
     if query_domain == DocDomain.LEGAL.value:
         legal_filter = with_domain_filter(access_filter, DocDomain.LEGAL.value)
         candidates = await run_hybrid_search(
-            query_for_search, fetch_k, legal_filter, rag,
+            query_for_search,
+            fetch_k,
+            legal_filter,
+            rag,
             ml_clients=ml_clients,
             dense_weight=effective_dense_weight,
             sparse_weight=effective_sparse_weight,
@@ -105,14 +108,20 @@ async def _run_retrieval(
         if not candidates:
             log.info("Legal-filtered retrieval returned 0 candidates — fallback on entire corpus")
             candidates = await run_hybrid_search(
-                query_for_search, fetch_k, access_filter, rag,
+                query_for_search,
+                fetch_k,
+                access_filter,
+                rag,
                 ml_clients=ml_clients,
                 dense_weight=effective_dense_weight,
                 sparse_weight=effective_sparse_weight,
             )
     else:
         candidates = await run_hybrid_search(
-            query_for_search, fetch_k, access_filter, rag,
+            query_for_search,
+            fetch_k,
+            access_filter,
+            rag,
             ml_clients=ml_clients,
             dense_weight=effective_dense_weight,
             sparse_weight=effective_sparse_weight,
@@ -226,7 +235,9 @@ async def step_condense(state: RagPipelineState, ml_clients) -> RagPipelineState
     if state.rag.features.condense_enabled:
         async with ml_clients.llm_semaphore:
             state.query_for_search = await condense_question(
-                ml_clients.fast_llm(), state.question, state.history_messages,
+                ml_clients.fast_llm(),
+                state.question,
+                state.history_messages,
             )
     else:
         state.query_for_search = state.question
@@ -239,7 +250,9 @@ async def step_check_cache(
 ) -> tuple[RagPipelineState, AsyncIterator[StreamEvent] | None]:
     """Step 2: Semantic answer cache lookup. Returns terminal events on hit."""
     state.vis_hash = compute_visibility_scope_hash(
-        state.ctx.user_kind, state.ctx.user_id, state.ctx.user_group_ids,
+        state.ctx.user_kind,
+        state.ctx.user_id,
+        state.ctx.user_group_ids,
     )
     state.q_hash = compute_question_hash(state.query_for_search)
     cached = await check_cache(state.rag, state.q_hash, state.vis_hash)
@@ -265,8 +278,10 @@ async def step_reject_ood(
         async def _ood_events():
             yield TextChunk(text="Информация не найдена в документах.")
             record_rag_answer(
-                breadth=Breadth.NARROW.value, answer="",
-                retrieved_count=0, avg_similarity=0.0,
+                breadth=Breadth.NARROW.value,
+                answer="",
+                retrieved_count=0,
+                avg_similarity=0.0,
             )
             RAG_STAGE_DURATION.labels("total").observe(
                 time.monotonic() - state.t_pipeline_start,
@@ -279,7 +294,9 @@ async def step_reject_ood(
 
 
 async def step_retrieve(
-    state: RagPipelineState, ml_clients, chunk_search,
+    state: RagPipelineState,
+    ml_clients,
+    chunk_search,
 ) -> RagPipelineState:
     """Step 4: Hybrid retrieval with decomposition, exact search, reranking, enrichment."""
     ctx = state.ctx
@@ -313,15 +330,29 @@ async def step_retrieve(
 
         if len(sub_queries) < 2:
             candidates = await _run_retrieval(
-                query, fetch_k, state.retrieval_filter, rag,
-                ml_clients, breadth, query_domain, effective_dense_weight, effective_sparse_weight,
+                query,
+                fetch_k,
+                state.retrieval_filter,
+                rag,
+                ml_clients,
+                breadth,
+                query_domain,
+                effective_dense_weight,
+                effective_sparse_weight,
             )
             RAG_STAGE_DURATION.labels("decompose").observe(time.monotonic() - t0)
         else:
             retrieval_tasks = [
                 _run_retrieval(
-                    sq, fetch_k, state.retrieval_filter, rag,
-                    ml_clients, breadth, query_domain, effective_dense_weight, effective_sparse_weight,
+                    sq,
+                    fetch_k,
+                    state.retrieval_filter,
+                    rag,
+                    ml_clients,
+                    breadth,
+                    query_domain,
+                    effective_dense_weight,
+                    effective_sparse_weight,
                 )
                 for sq in sub_queries
             ]
@@ -337,12 +368,21 @@ async def step_retrieve(
             RAG_STAGE_DURATION.labels("decompose").observe(time.monotonic() - t0)
             log.info(
                 "Multi-query decomposition: %d sub-queries -> %d merged candidates (from %d total)",
-                len(sub_queries), len(candidates), sum(len(c) for c in all_candidates_lists),
+                len(sub_queries),
+                len(candidates),
+                sum(len(c) for c in all_candidates_lists),
             )
     else:
         candidates = await _run_retrieval(
-            query, fetch_k, state.retrieval_filter, rag,
-            ml_clients, breadth, query_domain, effective_dense_weight, effective_sparse_weight,
+            query,
+            fetch_k,
+            state.retrieval_filter,
+            rag,
+            ml_clients,
+            breadth,
+            query_domain,
+            effective_dense_weight,
+            effective_sparse_weight,
         )
         sub_queries = [query]
 
@@ -357,9 +397,12 @@ async def step_retrieve(
     # ── Reranking ────────────────────────────────────────────────────
     t0 = time.monotonic()
     docs = await rerank_documents(
-        query, candidates, top_n=rerank_top_n,
+        query,
+        candidates,
+        top_n=rerank_top_n,
         reranker=ml_clients.reranker(),
-        min_score=rag.rerank.min_score, score_gap_ratio=rag.rerank.score_gap_ratio,
+        min_score=rag.rerank.min_score,
+        score_gap_ratio=rag.rerank.score_gap_ratio,
     )
     RAG_STAGE_DURATION.labels("rerank").observe(time.monotonic() - t0)
 
@@ -368,7 +411,12 @@ async def step_retrieve(
 
     if query_domain == "legal":
         docs = await _apply_legal_rerank_fallback(
-            query, state.access_filter, rag, rerank_top_n, docs, ml_clients,
+            query,
+            state.access_filter,
+            rag,
+            rerank_top_n,
+            docs,
+            ml_clients,
         )
 
     # ── Trim + neighbor enrichment ───────────────────────────────────
@@ -409,7 +457,9 @@ async def step_retrieve(
 
 
 async def step_self_rag(
-    state: RagPipelineState, ml_clients, chunk_search,
+    state: RagPipelineState,
+    ml_clients,
+    chunk_search,
 ) -> tuple[RagPipelineState, AsyncIterator[StreamEvent] | None]:
     """Step 5: Self-RAG relevance gate with retry loop."""
     rag = state.rag
@@ -418,8 +468,12 @@ async def step_self_rag(
 
     for attempt in range(MAX_SELF_RAG_RETRIES + 1):
         is_relevant = await handle_relevance_gate(
-            query, state.docs, state.breadth, rag,
-            ml_clients.llm_semaphore, ml_clients.fast_llm(),
+            query,
+            state.docs,
+            state.breadth,
+            rag,
+            ml_clients.llm_semaphore,
+            ml_clients.fast_llm(),
         )
         avg_sim = sum(s for _, s in state.docs) / len(state.docs) if state.docs else 0.0
 
@@ -440,25 +494,41 @@ async def step_self_rag(
             if assessment.suggested_refinement:
                 log.info(
                     "Self-RAG: retrying with refined query (attempt %d/%d): %r",
-                    attempt + 1, MAX_SELF_RAG_RETRIES, assessment.suggested_refinement,
+                    attempt + 1,
+                    MAX_SELF_RAG_RETRIES,
+                    assessment.suggested_refinement,
                 )
                 RAG_SELF_RAG_RETRIES.inc()
                 query = assessment.suggested_refinement
                 state.query_for_search = query
 
                 candidates = await _run_retrieval(
-                    query, state.fetch_k, state.retrieval_filter, rag,
-                    ml_clients, state.breadth, state.query_domain,
-                    state.effective_dense_weight, state.effective_sparse_weight,
+                    query,
+                    state.fetch_k,
+                    state.retrieval_filter,
+                    rag,
+                    ml_clients,
+                    state.breadth,
+                    state.query_domain,
+                    state.effective_dense_weight,
+                    state.effective_sparse_weight,
                 )
                 docs = await rerank_documents(
-                    query, candidates, top_n=state.rerank_top_n,
+                    query,
+                    candidates,
+                    top_n=state.rerank_top_n,
                     reranker=ml_clients.reranker(),
-                    min_score=rag.rerank.min_score, score_gap_ratio=rag.rerank.score_gap_ratio,
+                    min_score=rag.rerank.min_score,
+                    score_gap_ratio=rag.rerank.score_gap_ratio,
                 )
                 if state.query_domain == "legal":
                     docs = await _apply_legal_rerank_fallback(
-                        query, state.access_filter, rag, state.rerank_top_n, docs, ml_clients,
+                        query,
+                        state.access_filter,
+                        rag,
+                        state.rerank_top_n,
+                        docs,
+                        ml_clients,
                     )
                 state.docs = docs
                 continue
@@ -468,7 +538,10 @@ async def step_self_rag(
 
     async def _rejection_events():
         async for event in reject_not_relevant(
-            state.breadth, state.docs, avg_sim, state.t_pipeline_start,
+            state.breadth,
+            state.docs,
+            avg_sim,
+            state.t_pipeline_start,
         ):
             yield event
 
@@ -477,7 +550,8 @@ async def step_self_rag(
 
 
 def step_build_context(
-    state: RagPipelineState, domain_registry,
+    state: RagPipelineState,
+    domain_registry,
 ) -> tuple[list, list]:
     """Build prompt and format messages for LLM generation.
 
@@ -487,19 +561,23 @@ def step_build_context(
     effective_breadth = Breadth.BROAD if state.enumerate_cases else state.breadth
 
     domain_addendum = _domain_prompt_addendum(
-        state.query_domain, ctx, effective_breadth, domain_registry,
+        state.query_domain,
+        ctx,
+        effective_breadth,
+        domain_registry,
     )
     prompt = build_prompt(
-        effective_breadth, summary=ctx.summary,
-        domain_addendum=domain_addendum, enumerate_cases=state.enumerate_cases,
+        effective_breadth,
+        summary=ctx.summary,
+        domain_addendum=domain_addendum,
+        enumerate_cases=state.enumerate_cases,
     )
 
     history_chars = sum(len(m.content) for m in state.history_messages)
     question_chars = len(state.question)
     system_text = prompt.messages[0].content if prompt.messages else ""
     num_ctx = (
-        settings.llm_num_ctx_broad if effective_breadth == Breadth.BROAD
-        else settings.llm_num_ctx_narrow
+        settings.llm_num_ctx_broad if effective_breadth == Breadth.BROAD else settings.llm_num_ctx_narrow
     )
     reserved_chars = len(system_text) + history_chars + question_chars + 1000
     reserved_for_system_and_history = max(reserved_chars // CHARS_PER_TOKEN, 1500)
@@ -508,13 +586,18 @@ def step_build_context(
     grouped_docs = group_by_section(state.docs)
     context = format_docs(grouped_docs, max_context_tokens=max_context_tokens)
     messages = prompt.format_messages(
-        context=context, history=state.history_messages, question=state.question,
+        context=context,
+        history=state.history_messages,
+        question=state.question,
     )
     return messages, grouped_docs
 
 
 async def step_generate(
-    state: RagPipelineState, ml_clients, messages: list, grouped_docs: list,
+    state: RagPipelineState,
+    ml_clients,
+    messages: list,
+    grouped_docs: list,
 ) -> AsyncIterator[StreamEvent]:
     """Stream LLM generation, yield TextChunk events.
 
@@ -557,7 +640,8 @@ def step_postprocess(state: RagPipelineState) -> RagPipelineState:
             full_answer, _ = detector.scan_and_redact(full_answer)
             log.warning(
                 "PII detected in LLM output [request_id=%s]: types=%s",
-                request_id_ctx.get(""), pii_found,
+                request_id_ctx.get(""),
+                pii_found,
             )
 
     # ── Token usage extraction ───────────────────────────────────────
@@ -565,18 +649,21 @@ def step_postprocess(state: RagPipelineState) -> RagPipelineState:
     if last_chunk is not None:
         input_tokens, output_tokens = extract_usage_from_langchain(last_chunk)
         model_name = (
-            settings.llm_model if settings.llm_provider == LLMProvider.OLLAMA
-            else settings.openrouter_model
+            settings.llm_model if settings.llm_provider == LLMProvider.OLLAMA else settings.openrouter_model
         )
         record_llm_usage(
-            model=model_name, operation="generate",
-            input_tokens=input_tokens, output_tokens=output_tokens,
+            model=model_name,
+            operation="generate",
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
         )
         from domain.value_objects.stream_events import UsageReport
 
         usage_report = UsageReport(
-            input_tokens=input_tokens, output_tokens=output_tokens,
-            model=model_name, operation="generate",
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            model=model_name,
+            operation="generate",
         )
 
     # ── Source extraction ────────────────────────────────────────────
@@ -588,8 +675,10 @@ def step_postprocess(state: RagPipelineState) -> RagPipelineState:
         sources = apply_citation_filter(rag, full_answer, sources)
 
     record_rag_answer(
-        breadth=state.breadth.value, answer=full_answer,
-        retrieved_count=len(docs), avg_similarity=avg_sim,
+        breadth=state.breadth.value,
+        answer=full_answer,
+        retrieved_count=len(docs),
+        avg_similarity=avg_sim,
     )
     RAG_STAGE_DURATION.labels("total").observe(time.monotonic() - state.t_pipeline_start)
 

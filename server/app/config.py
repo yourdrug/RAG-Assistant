@@ -290,8 +290,7 @@ class Settings(BaseSettings):
             self.s3_access_key in ("", "minioadmin") or self.s3_secret_key in ("", "minioadmin")
         ):
             errors.append(
-                "S3_ACCESS_KEY / S3_SECRET_KEY must be strong non-default values "
-                "(set in server/.env.secrets)"
+                "S3_ACCESS_KEY / S3_SECRET_KEY must be strong non-default values (set in server/.env.secrets)"
             )
         if self.stage == "prod":
             if self.file_backend == "local":
