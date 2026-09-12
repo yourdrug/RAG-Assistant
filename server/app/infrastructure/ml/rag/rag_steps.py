@@ -609,16 +609,20 @@ async def step_generate(
     t0 = time.monotonic()
     answer_parts: list[str] = []
     last_chunk = None
+    first_token_time: float | None = None
     async with ml_clients.llm_semaphore:
         async for chunk in ml_clients.llm_for_breadth(effective_breadth).astream(messages):
             last_chunk = chunk
             text = chunk.content
             if text:
+                if first_token_time is None:
+                    first_token_time = time.monotonic()
                 answer_parts.append(text)
                 yield TextChunk(text=text)
     RAG_STAGE_DURATION.labels("generate").observe(time.monotonic() - t0)
 
     state.full_answer = "".join(answer_parts)
+    state.ttft_sec = round(first_token_time - t0, 4) if first_token_time is not None else None
     state._last_chunk = last_chunk
     state._grouped_docs = grouped_docs
 

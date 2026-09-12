@@ -233,6 +233,10 @@ class ApplicationContainer:
         self.benchmark_result_service = BenchmarkResultService(uow_factory=uow)
         self.job_service = JobService(uow_factory=uow)
 
+        # Wire rag_service into benchmark_service for full-pipeline benchmarking
+        if infra.benchmark_service is not None:
+            infra.benchmark_service._rag_service = self.rag_service
+
     async def dispose(self) -> None:
         """Shutdown application services that have explicit shutdown methods.
 

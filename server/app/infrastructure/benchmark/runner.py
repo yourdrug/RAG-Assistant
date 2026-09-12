@@ -1,4 +1,8 @@
-"""Benchmark runner — main benchmark orchestration."""
+"""Benchmark runner — main benchmark orchestration.
+
+Runs the full RAG pipeline via RagService.invoke() with cache disabled,
+then evaluates quality via LLM judge.
+"""
 
 import asyncio
 import json
@@ -7,23 +11,7 @@ import sys
 import time
 from pathlib import Path
 
-from config import get_setting, settings
-
-from infrastructure.benchmark.judge import (
-    get_rag_answer,
-    judge_answer,
-    judge_answer_async,
-)
-from infrastructure.benchmark.metrics import (
-    compute_context_precision_recall,
-    compute_retriever_metrics,
-)
-from infrastructure.benchmark.persistence import (
-    log_question_result,
-    log_summary,
-    save_results,
-)
-from infrastructure.benchmark.retrieval import build_llm, retrieve_with_scores_hybrid
+from config import _settings_overrides, get_setting, settings
 
 logger = logging.getLogger("default")
 
@@ -57,161 +45,41 @@ def load_questions(path: str) -> list[dict]:
     return data
 
 
-def run_benchmark(
-    questions_path: str,
-    out_dir: str,
-    top_k: int,
-    judge_model: str,
-    seed: int | None = None,
-    n_runs: int = 1,
-):
-    logger.info("RAG Benchmark")
-    logger.info("  questions : %s", questions_path)
-    logger.info("  top_k     : %d", top_k)
-    logger.info("  provider  : %s", settings.llm_provider)
-    logger.info("  rag model : %s", settings.llm_model)
-    logger.info("  judge     : %s", judge_model)
-    logger.info("  seed      : %s", seed if seed is not None else "none")
-    logger.info("  n_runs    : %d", n_runs)
-    logger.info("  qdrant    : %s", settings.qdrant_url)
+def _compute_retriever_metrics_from_sources(
+    sources: list[dict],
+    source_hint: str | None,
+) -> dict:
+    """Compute retriever metrics from RagResult.sources format.
 
-    questions = load_questions(questions_path)
+    Sources from RagService are list[dict] with keys: source, max_score, pages, etc.
+    """
+    scores = [s.get("max_score", 0.0) for s in sources]
+    avg_sim = sum(scores) / len(scores) if scores else 0.0
 
-    fetch_k = int(get_setting("rag.retriever_fetch_k"))
-
-    logger.info("Подключаюсь к RAG LLM (%s) ...", settings.llm_model)
-    rag_llm = build_llm(settings.llm_model, settings.ollama_base_url, provider=settings.llm_provider)
-    if seed is not None:
-        rag_llm = rag_llm.with_config({"configurable": {"seed": seed}})
-
-    logger.info("Подключаюсь к LLM-судье (%s) ...", judge_model)
-    judge_llm = build_llm(judge_model, settings.ollama_base_url, provider=settings.llm_provider)
-    if seed is not None:
-        judge_llm = judge_llm.with_config({"configurable": {"seed": seed}})
-
-    logger.info("Прогрев моделей ...")
-    rag_llm.invoke("Привет")
-    if judge_model != settings.llm_model:
-        judge_llm.invoke("Привет")
-
-    all_results: list[dict] = []
-
-    for run_idx in range(1, n_runs + 1):
-        if n_runs > 1:
-            logger.info("=== Run %d/%d ===", run_idx, n_runs)
-
-        logger.info("Запускаю тесты (параллельные judge-выcalls)...")
-        results = []
-        total_start = time.time()
-
-        for idx, q in enumerate(questions, 1):
-            t_start = time.time()
-
-            docs_with_scores = retrieve_with_scores_hybrid(q["question"], top_k, fetch_k)
-            answer = get_rag_answer(rag_llm, docs_with_scores, q["question"])
-            retriever_metrics = compute_retriever_metrics(docs_with_scores, q.get("source_hint"))
-
-            context_for_judge = "\n\n---\n\n".join(d.page_content for d, _ in docs_with_scores)
-            generator_metrics = judge_answer(
-                question=q["question"],
-                answer=answer,
-                context=context_for_judge,
-                expected_answer=q.get("expected_answer"),
-            )
-
-            context_metrics = compute_context_precision_recall(
-                question=q["question"],
-                answer=answer,
-                docs_with_scores=docs_with_scores,
-            )
-
-            latency = time.time() - t_start
-
-            result = {
-                "id": q.get("id", str(idx)),
-                "question": q["question"],
-                "answer": answer,
-                "expected_answer": q.get("expected_answer"),
-                "source_hint": q.get("source_hint"),
-                "retriever_metrics": retriever_metrics,
-                "generator_metrics": generator_metrics,
-                "context_metrics": context_metrics,
-                "latency_sec": round(latency, 2),
-            }
-            results.append(result)
-            log_question_result(idx, len(questions), q, result)
-
-        total_time = time.time() - total_start
-        log_summary(results, total_time)
-
-        for r in results:
-            r["run"] = run_idx
-        all_results.extend(results)
-
-    if n_runs > 1:
-        save_results(all_results, out_dir, model_name=settings.llm_model, run_id="all")
-
-        logger.info("=" * 60)
-        logger.info("AGGREGATE SUMMARY (%d runs)", n_runs)
-        logger.info("=" * 60)
-
-        from infrastructure.benchmark.metrics import _safe_avg
-
-        question_ids = {r["id"] for r in all_results}
-        agg_results = []
-        for qid in question_ids:
-            q_runs = [r for r in all_results if r["id"] == qid]
-            q_questions = [r["question"] for r in q_runs]
-
-            agg = {
-                "id": qid,
-                "question": q_questions[0] if q_questions else "",
-                "n_runs": len(q_runs),
-                "retriever_metrics": {
-                    "avg_hit_rate": _safe_avg(r["retriever_metrics"]["avg_hit_rate"] for r in q_runs),
-                    "avg_mrr": _safe_avg(r["retriever_metrics"]["avg_mrr"] for r in q_runs),
-                },
-                "generator_metrics": {
-                    "faithfulness": _safe_avg(r["generator_metrics"]["faithfulness"] for r in q_runs),
-                    "relevancy": _safe_avg(r["generator_metrics"]["relevancy"] for r in q_runs),
-                    "correctness": _safe_avg(r["generator_metrics"]["correctness"] for r in q_runs),
-                },
-                "context_metrics": {
-                    "context_precision": _safe_avg(
-                        r.get("context_metrics", {}).get("context_precision") for r in q_runs
-                    ),
-                    "context_recall": _safe_avg(
-                        r.get("context_metrics", {}).get("context_recall") for r in q_runs
-                    ),
-                },
-                "latency_sec": _safe_avg(r["latency_sec"] for r in q_runs),
-            }
-            agg_results.append(agg)
-
-        agg_metrics = {
-            "avg_hit_rate": _safe_avg(r["retriever_metrics"]["avg_hit_rate"] for r in agg_results),
-            "avg_mrr": _safe_avg(r["retriever_metrics"]["avg_mrr"] for r in agg_results),
-            "avg_faithfulness": _safe_avg(r["generator_metrics"]["faithfulness"] for r in agg_results),
-            "avg_relevancy": _safe_avg(r["generator_metrics"]["relevancy"] for r in agg_results),
-            "avg_correctness": _safe_avg(r["generator_metrics"]["correctness"] for r in agg_results),
-            "avg_context_precision": _safe_avg(
-                r.get("context_metrics", {}).get("context_precision") for r in agg_results
-            ),
-            "avg_context_recall": _safe_avg(
-                r.get("context_metrics", {}).get("context_recall") for r in agg_results
-            ),
-            "avg_latency": _safe_avg(r["latency_sec"] for r in agg_results),
+    if source_hint is None:
+        return {
+            "hit_rate": None,
+            "mrr": None,
+            "avg_similarity": round(avg_sim, 4),
+            "retrieved_sources": [s.get("source", "?") for s in sources],
         }
-        logger.info("  Hit Rate:  %.3f", agg_metrics["avg_hit_rate"])
-        logger.info("  MRR:       %.4f", agg_metrics["avg_mrr"])
-        logger.info("  Faith:     %.1f/10", agg_metrics["avg_faithfulness"])
-        logger.info("  Rel:       %.1f/10", agg_metrics["avg_relevancy"])
-        logger.info("  Correct:   %.1f/10", agg_metrics["avg_correctness"])
-        logger.info("  Ctx Prec:  %.1f/10", agg_metrics["avg_context_precision"])
-        logger.info("  Ctx Rec:   %.1f/10", agg_metrics["avg_context_recall"])
-        logger.info("  Latency:   %.1fs", agg_metrics["avg_latency"])
-    else:
-        save_results(all_results, out_dir, model_name=settings.llm_model)
+
+    hit_rate = 0
+    mrr = 0.0
+    for rank, src in enumerate(sources, 1):
+        filename = src.get("source", "")
+        if source_hint.lower() in filename.lower():
+            hit_rate = 1
+            if mrr == 0.0:
+                mrr = 1.0 / rank
+            break
+
+    return {
+        "hit_rate": hit_rate,
+        "mrr": round(mrr, 4),
+        "avg_similarity": round(avg_sim, 4),
+        "retrieved_sources": [s.get("source", "?") for s in sources],
+    }
 
 
 async def run_benchmark_async(
@@ -219,37 +87,48 @@ async def run_benchmark_async(
     out_dir: str,
     top_k: int,
     judge_model: str,
-    max_concurrent: int = 4,
+    max_concurrent: int | None = None,
     seed: int | None = None,
     n_runs: int = 1,
+    rag_service=None,
 ):
-    """Async benchmark with parallel question processing and parallel judge calls."""
-    logger.info("RAG Benchmark (async, max_concurrent=%d)", max_concurrent)
+    """Async benchmark using the full RAG pipeline via RagService.invoke().
+
+    If rag_service is None, falls back to legacy standalone pipeline.
+    Cache is disabled during benchmark runs.
+    """
+    if max_concurrent is None:
+        max_concurrent = settings.benchmark_max_concurrent
+
+    from domain.value_objects.chat_context import ChatContext
+    from infrastructure.benchmark.judge import judge_answer_async
+    from infrastructure.benchmark.metrics import (
+        _estimate_cost_usd,
+        compute_context_precision_recall,
+    )
+    from infrastructure.benchmark.persistence import (
+        log_question_result,
+        log_summary,
+        save_results,
+    )
+
+    logger.info(
+        "RAG Benchmark (async, max_concurrent=%d, pipeline=%s)",
+        max_concurrent,
+        "RagService" if rag_service else "standalone",
+    )
     logger.info("  questions : %s", questions_path)
     logger.info("  top_k     : %d", top_k)
-    logger.info("  provider  : %s", settings.llm_provider)
     logger.info("  rag model : %s", settings.llm_model)
     logger.info("  judge     : %s", judge_model)
     logger.info("  seed      : %s", seed if seed is not None else "none")
     logger.info("  n_runs    : %d", n_runs)
 
     questions = load_questions(questions_path)
-    fetch_k = int(get_setting("rag.retriever_fetch_k"))
-
-    rag_llm = build_llm(settings.llm_model, settings.ollama_base_url, provider=settings.llm_provider)
-    if seed is not None:
-        rag_llm = rag_llm.with_config({"configurable": {"seed": seed}})
-
-    judge_llm = build_llm(judge_model, settings.ollama_base_url, provider=settings.llm_provider)
-    if seed is not None:
-        judge_llm = judge_llm.with_config({"configurable": {"seed": seed}})
-
-    logger.info("Прогрев моделей ...")
-    await asyncio.to_thread(rag_llm.invoke, "Привет")
-    if judge_model != settings.llm_model:
-        await asyncio.to_thread(judge_llm.invoke, "Привет")
-
     semaphore = asyncio.Semaphore(max_concurrent)
+
+    # Benchmark context — system user with full access, no ACL filtering
+    bench_ctx = ChatContext(user_id=0, user_kind="api_key", user_role="admin")
 
     all_results: list[dict] = []
 
@@ -261,13 +140,63 @@ async def run_benchmark_async(
             async with semaphore:
                 t_start = time.time()
 
-                docs_with_scores = await asyncio.to_thread(
-                    retrieve_with_scores_hybrid, q["question"], top_k, fetch_k
-                )
-                answer = await asyncio.to_thread(get_rag_answer, rag_llm, docs_with_scores, q["question"])
-                retriever_metrics = compute_retriever_metrics(docs_with_scores, q.get("source_hint"))
+                if rag_service is not None:
+                    # ── Full pipeline path via RagService ──────────────
+                    token = _settings_overrides.set({"cache_enabled": False})
+                    try:
+                        rag_result = await rag_service.invoke(
+                            question=q["question"],
+                            history=[],
+                            ctx=bench_ctx,
+                        )
+                    finally:
+                        _settings_overrides.reset(token)
 
-                context_for_judge = "\n\n---\n\n".join(d.page_content for d, _ in docs_with_scores)
+                    answer = rag_result.answer
+                    input_tokens = rag_result.input_tokens
+                    output_tokens = rag_result.output_tokens
+                    ttft_sec = rag_result.ttft_sec
+                    breadth = rag_result.breadth
+                    domain = rag_result.domain
+
+                    retriever_metrics = _compute_retriever_metrics_from_sources(
+                        rag_result.sources, q.get("source_hint")
+                    )
+
+                    # Build context_for_judge from sources
+                    context_for_judge = "\n\n---\n\n".join(
+                        s.get("content", "") for s in rag_result.sources if s.get("content")
+                    )
+                    if not context_for_judge:
+                        context_for_judge = "\n\n---\n\n".join(
+                            s.get("source", "") for s in rag_result.sources
+                        )
+
+                else:
+                    # ── Legacy standalone path (fallback) ──────────────
+                    from infrastructure.benchmark.judge import get_rag_answer_with_usage
+                    from infrastructure.benchmark.metrics import compute_retriever_metrics
+                    from infrastructure.benchmark.retrieval import build_llm, retrieve_with_scores_hybrid
+
+                    rag_llm = build_llm(
+                        settings.llm_model, settings.ollama_base_url, provider=settings.llm_provider
+                    )
+                    fetch_k = int(get_setting("rag.retriever_fetch_k"))
+                    docs_with_scores = await asyncio.to_thread(
+                        retrieve_with_scores_hybrid, q["question"], top_k, fetch_k
+                    )
+                    answer, rag_response = await asyncio.to_thread(
+                        get_rag_answer_with_usage, rag_llm, docs_with_scores, q["question"]
+                    )
+                    input_tokens, output_tokens = _extract_usage_from_response(rag_response)
+                    ttft_sec = None
+                    breadth = None
+                    domain = None
+
+                    retriever_metrics = compute_retriever_metrics(docs_with_scores, q.get("source_hint"))
+                    context_for_judge = "\n\n---\n\n".join(d.page_content for d, _ in docs_with_scores)
+
+                # ── Judge scoring (same for both paths) ──────────────
                 generator_metrics = await judge_answer_async(
                     question=q["question"],
                     answer=answer,
@@ -275,14 +204,22 @@ async def run_benchmark_async(
                     expected_answer=q.get("expected_answer"),
                 )
 
-                context_metrics = await asyncio.to_thread(
-                    compute_context_precision_recall,
-                    q["question"],
-                    answer,
-                    docs_with_scores,
+                context_metrics = (
+                    await asyncio.to_thread(
+                        compute_context_precision_recall,
+                        q["question"],
+                        answer,
+                        context_override=context_for_judge,
+                    )
+                    if context_for_judge
+                    else {
+                        "context_precision": None,
+                        "context_recall": None,
+                    }
                 )
 
                 latency = time.time() - t_start
+                cost_usd = _estimate_cost_usd(settings.llm_model, input_tokens or 0, output_tokens or 0)
 
                 result = {
                     "id": q.get("id", str(idx)),
@@ -294,6 +231,12 @@ async def run_benchmark_async(
                     "generator_metrics": generator_metrics,
                     "context_metrics": context_metrics,
                     "latency_sec": round(latency, 2),
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "cost_usd": round(cost_usd, 6),
+                    "ttft_sec": ttft_sec,
+                    "breadth": breadth,
+                    "domain": domain,
                     "run": _run_idx,
                 }
                 log_question_result(idx, len(questions), q, result)
@@ -310,3 +253,18 @@ async def run_benchmark_async(
         all_results.extend(results)
 
     save_results(all_results, out_dir, model_name=settings.llm_model, run_id="all" if n_runs > 1 else "")
+
+
+def _extract_usage_from_response(response) -> tuple[int | None, int | None]:
+    """Extract input/output token counts from a LangChain LLM response."""
+    try:
+        metadata = getattr(response, "response_metadata", {}) or {}
+        token_usage = metadata.get("token_usage", {})
+        if token_usage:
+            return token_usage.get("prompt_tokens"), token_usage.get("completion_tokens")
+        usage = metadata.get("usage", {})
+        if usage:
+            return usage.get("prompt_tokens"), usage.get("completion_tokens")
+    except Exception:
+        logger.debug("Failed to extract token usage from LLM response", exc_info=True)
+    return None, None

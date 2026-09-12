@@ -267,7 +267,9 @@ class TestBuildBm25Index:
         with (
             patch("application.services.ingestion_orchestrator.settings") as s,
             patch("application.services.ingestion_orchestrator.BM25Index") as mock_idx,
-            patch("application.services.ingestion_orchestrator.save_bm25_index_to_s3", new_callable=AsyncMock),
+            patch(
+                "application.services.ingestion_orchestrator.save_bm25_index_to_s3", new_callable=AsyncMock
+            ),
             patch(
                 "application.services.ingestion_orchestrator.publish_bm25_invalidation",
                 new_callable=AsyncMock,

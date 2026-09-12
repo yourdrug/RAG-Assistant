@@ -130,6 +130,16 @@ CONTEXT_RECALL_PROMPT = """\
 # ---------------------------------------------------------------------------
 
 
+def _get_judge_model() -> str:
+    """Resolve the judge model: explicit setting > fast model for OpenRouter > llm_model for Ollama."""
+    if settings.benchmark_judge_model:
+        return settings.benchmark_judge_model
+    if settings.llm_provider == LLMProvider.OLLAMA:
+        return settings.llm_model
+    # OpenRouter: use fast/cheap model for judge calls
+    return "meta-llama/llama-3.1-8b-instruct"
+
+
 def _get_judge_client(model: str):
     """Create an instructor-wrapped client for the judge model."""
     from infrastructure.llm.instructor_client import create_llm_instructor_client
@@ -170,6 +180,14 @@ def _judge_with_structured_output(
 
 def get_rag_answer(llm, docs_with_scores: list[tuple[Document, float]], question: str) -> str:
     """Generate answer using the production system prompt and formatted context."""
+    answer, _response = get_rag_answer_with_usage(llm, docs_with_scores, question)
+    return answer
+
+
+def get_rag_answer_with_usage(
+    llm, docs_with_scores: list[tuple[Document, float]], question: str
+) -> tuple[str, object]:
+    """Generate answer and return (answer_text, raw_llm_response) for token usage extraction."""
     system_prompt = build_system_prompt(breadth=Breadth.NARROW.value)
 
     context = format_docs(docs_with_scores, max_context_tokens=4000)
@@ -183,7 +201,8 @@ def get_rag_answer(llm, docs_with_scores: list[tuple[Document, float]], question
         try:
             response = llm.invoke(full_prompt)
             content = response.content
-            return content.strip() if isinstance(content, str) else str(content).strip()
+            answer = content.strip() if isinstance(content, str) else str(content).strip()
+            return answer, response
         except Exception as exc:
             last_exc = exc
             if attempt < JUDGE_MAX_RETRIES:
@@ -216,8 +235,8 @@ def judge_answer(
     judge_llm=None,
 ) -> dict:
     """Run judge LLM synchronously with structured output (instructor + tenacity)."""
-    client = _get_judge_client(settings.llm_model if settings.llm_provider == LLMProvider.OLLAMA else "")
-    model = settings.llm_model if settings.llm_provider == LLMProvider.OLLAMA else settings.openrouter_model
+    model = _get_judge_model()
+    client = _get_judge_client(model if settings.llm_provider == LLMProvider.OLLAMA else "")
 
     prompts = {
         "faithfulness": FAITHFULNESS_PROMPT.format(context=context, question=question, answer=answer),
@@ -253,8 +272,8 @@ async def judge_answer_async(
     judge_llm=None,
 ) -> dict:
     """Judge answer quality with structured output (instructor + tenacity)."""
-    client = _get_judge_client(settings.llm_model if settings.llm_provider == LLMProvider.OLLAMA else "")
-    model = settings.llm_model if settings.llm_provider == LLMProvider.OLLAMA else settings.openrouter_model
+    model = _get_judge_model()
+    client = _get_judge_client(model if settings.llm_provider == LLMProvider.OLLAMA else "")
 
     prompts = {
         "faithfulness": FAITHFULNESS_PROMPT.format(context=context, question=question, answer=answer),

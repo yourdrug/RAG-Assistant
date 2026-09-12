@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from domain.entities.benchmark_sweep import BenchmarkSweep
 from domain.value_objects.sweep_status import BenchmarkSweepStatus
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.database.models import BenchmarkSweepModel
@@ -39,28 +39,32 @@ class SQLAlchemyBenchmarkSweepRepository:
         return self._to_entity(orm)
 
     async def update_status(self, sweep_id: int, status: str) -> None:
-        stmt = select(BenchmarkSweepModel).where(BenchmarkSweepModel.id == sweep_id)
-        result = await self._db.execute(stmt)
-        orm = result.scalar_one_or_none()
-        if orm:
-            orm.status = status
-            await self._db.flush()
+        stmt = (
+            update(BenchmarkSweepModel)
+            .where(BenchmarkSweepModel.id == sweep_id)
+            .values(status=status, version=BenchmarkSweepModel.version + 1)
+        )
+        await self._db.execute(stmt)
 
     async def increment_evaluated(self, sweep_id: int) -> None:
-        stmt = select(BenchmarkSweepModel).where(BenchmarkSweepModel.id == sweep_id)
-        result = await self._db.execute(stmt)
-        orm = result.scalar_one_or_none()
-        if orm:
-            orm.evaluated_configs += 1
-            await self._db.flush()
+        """Atomically increment evaluated_configs (SQL-level, no read-modify-write race)."""
+        stmt = (
+            update(BenchmarkSweepModel)
+            .where(BenchmarkSweepModel.id == sweep_id)
+            .values(
+                evaluated_configs=BenchmarkSweepModel.evaluated_configs + 1,
+                version=BenchmarkSweepModel.version + 1,
+            )
+        )
+        await self._db.execute(stmt)
 
     async def set_best_run(self, sweep_id: int, run_id: int) -> None:
-        stmt = select(BenchmarkSweepModel).where(BenchmarkSweepModel.id == sweep_id)
-        result = await self._db.execute(stmt)
-        orm = result.scalar_one_or_none()
-        if orm:
-            orm.best_run_id = run_id
-            await self._db.flush()
+        stmt = (
+            update(BenchmarkSweepModel)
+            .where(BenchmarkSweepModel.id == sweep_id)
+            .values(best_run_id=run_id, version=BenchmarkSweepModel.version + 1)
+        )
+        await self._db.execute(stmt)
 
     async def list_items(
         self,
@@ -113,4 +117,5 @@ class SQLAlchemyBenchmarkSweepRepository:
             total_configs=orm.total_configs,
             evaluated_configs=orm.evaluated_configs,
             best_run_id=orm.best_run_id,
+            version=orm.version,
         )

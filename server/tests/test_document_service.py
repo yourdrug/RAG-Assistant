@@ -10,7 +10,7 @@ from domain.value_objects.document_status import DocumentStatus
 from domain.value_objects.user_context import UserContext
 from domain.value_objects.visibility import DocumentVisibility
 
-from fakes import FakeDocumentRepository, FakeUnitOfWork, FakeUnitOfWorkFactory
+from fakes import FakeUnitOfWork, FakeUnitOfWorkFactory
 
 
 # ---------------------------------------------------------------------------
@@ -60,19 +60,25 @@ def _service(uow: FakeUnitOfWork | None = None, file_storage=None):
     fs.supported_extensions = (".pdf", ".docx", ".doc", ".txt", ".md")
     fs.upload_file = AsyncMock()
     fs.delete_file = AsyncMock()
-    return DocumentService(
-        uow_factory=factory,
-        vector_store_repo=MagicMock(),
-        file_storage=fs,
-        bm25_index=MagicMock(),
-    ), uow, fs
+    return (
+        DocumentService(
+            uow_factory=factory,
+            vector_store_repo=MagicMock(),
+            file_storage=fs,
+            bm25_index=MagicMock(),
+        ),
+        uow,
+        fs,
+    )
 
 
 @pytest.fixture(autouse=True)
 def _patch_user_context_build(monkeypatch):
     """Replace UserContext.build with a stub returning a fixed context."""
+
     async def _fake_build(uow, user_id, user_kind, user_role):
         return _FAKE_CTX
+
     monkeypatch.setattr(UserContext, "build", _fake_build)
 
 
@@ -205,9 +211,7 @@ async def test_persist_upload_s3_failure_compensates():
 
     doc = _make_doc()
     with pytest.raises(RuntimeError, match="S3 down"):
-        await svc._persist_upload(
-            uow, doc, b"data", owner_id=1, effective_group_id=None, filename="test.pdf"
-        )
+        await svc._persist_upload(uow, doc, b"data", owner_id=1, effective_group_id=None, filename="test.pdf")
     fs.delete_file.assert_awaited_once()
 
 
@@ -220,9 +224,7 @@ async def test_persist_upload_s3_failure_delete_also_fails():
 
     doc = _make_doc()
     with pytest.raises(RuntimeError, match="S3 down"):
-        await svc._persist_upload(
-            uow, doc, b"data", owner_id=1, effective_group_id=None, filename="test.pdf"
-        )
+        await svc._persist_upload(uow, doc, b"data", owner_id=1, effective_group_id=None, filename="test.pdf")
     fs.delete_file.assert_awaited_once()
 
 
@@ -237,8 +239,12 @@ async def test_maybe_resolve_conflict_sync_no_domain():
     svc, uow, _ = _service()
     storage_deletes = []
     result = await svc._maybe_resolve_conflict_sync(
-        doc=MagicMock(), existing=MagicMock(), pending_replace_id=5,
-        doc_domain=None, uow=uow, storage_deletes=storage_deletes,
+        doc=MagicMock(),
+        existing=MagicMock(),
+        pending_replace_id=5,
+        doc_domain=None,
+        uow=uow,
+        storage_deletes=storage_deletes,
     )
     assert result == 5
     assert storage_deletes == []
@@ -249,8 +255,12 @@ async def test_maybe_resolve_conflict_sync_no_existing():
     """existing is None → no conflict resolution."""
     svc, uow, _ = _service()
     result = await svc._maybe_resolve_conflict_sync(
-        doc=MagicMock(), existing=None, pending_replace_id=5,
-        doc_domain="general", uow=uow, storage_deletes=[],
+        doc=MagicMock(),
+        existing=None,
+        pending_replace_id=5,
+        doc_domain="general",
+        uow=uow,
+        storage_deletes=[],
     )
     assert result == 5
 
@@ -260,8 +270,12 @@ async def test_maybe_resolve_conflict_sync_no_pending():
     """pending_replace_id is None → no conflict resolution."""
     svc, uow, _ = _service()
     result = await svc._maybe_resolve_conflict_sync(
-        doc=MagicMock(), existing=MagicMock(), pending_replace_id=None,
-        doc_domain="general", uow=uow, storage_deletes=[],
+        doc=MagicMock(),
+        existing=MagicMock(),
+        pending_replace_id=None,
+        doc_domain="general",
+        uow=uow,
+        storage_deletes=[],
     )
     assert result is None
 

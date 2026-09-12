@@ -135,7 +135,7 @@ class MLContainer:
             domain_settings=domain_settings,
         )
         self.metrics_registry = PrometheusMetricsRegistry()
-        self.benchmark_service = BenchmarkService()
+        self.benchmark_service = BenchmarkService(rag_service=None)
         self.summary_updater = RollingSummaryUpdater(ml_clients=self.ml_clients)
         self.content_extractor = MLContentExtractor()
         self.pdf_quality_assessor = MLPDFQualityAssessor()

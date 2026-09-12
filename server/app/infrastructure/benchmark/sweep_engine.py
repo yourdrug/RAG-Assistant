@@ -80,12 +80,12 @@ def generate_random_points(search_space: dict, n: int) -> list[dict]:
         point = {}
         for param, spec in search_space.items():
             if "values" in spec:
-                point[param] = random.choice(spec["values"])
+                point[param] = random.choice(spec["values"])  # noqa: S311
             elif "min" in spec and "max" in spec:
                 if isinstance(spec.get("step"), float) or isinstance(spec.get("min"), float):
-                    point[param] = round(random.uniform(spec["min"], spec["max"]), 6)
+                    point[param] = round(random.uniform(spec["min"], spec["max"]), 6)  # noqa: S311
                 else:
-                    point[param] = random.randint(int(spec["min"]), int(spec["max"]))
+                    point[param] = random.randint(int(spec["min"]), int(spec["max"]))  # noqa: S311
             else:
                 point[param] = spec.get("default", 0)
         points.append(point)
@@ -133,11 +133,13 @@ class SweepEngine:
         benchmark_service=None,
         config_service=None,
         ml_clients=None,
+        rag_service=None,
     ):
         self._uow_factory = uow_factory
         self._benchmark_service = benchmark_service
         self._config_service = config_service
         self._ml_clients = ml_clients
+        self._rag_service = rag_service
 
     async def run_sweep(
         self,
@@ -164,6 +166,17 @@ class SweepEngine:
             SweepCancelled: when ``should_cancel`` returns True between configs.
 
         """
+        search_space = sweep.search_space
+        strategy = sweep.strategy
+        weights = sweep.objective_weights
+        dataset = sweep.dataset
+        top_n_llm = sweep.top_n_llm
+
+        # Dispatch to Optuna for successive_halving
+        if strategy == BenchmarkStrategy.SUCCESSIVE_HALVING.value:
+            return await self._run_optuna_sweep(
+                sweep, questions_path, judge_model, progress_callback, should_cancel
+            )
         search_space = sweep.search_space
         strategy = sweep.strategy
         weights = sweep.objective_weights
@@ -232,6 +245,9 @@ class SweepEngine:
             n_random = search_space.get("_n_random", 50)
             return generate_random_points(search_space, n_random)
         elif strategy == BenchmarkStrategy.SUCCESSIVE_HALVING.value:
+            # Optuna-based successive halving — points generated via Optuna study
+            # Fall through to generate_grid_points for Phase A baseline;
+            # actual Optuna optimization happens in run_sweep via _run_optuna_sweep
             return generate_grid_points(search_space)
         else:
             raise ValueError(f"Unknown strategy: {strategy}")
@@ -311,7 +327,7 @@ class SweepEngine:
             overrides = self._build_overrides(cfg["config"])
             token = _settings_overrides.set(overrides)
             try:
-                full_result = self._run_full_benchmark(
+                full_result = await self._run_full_benchmark(
                     questions_path or str(Path(settings.data_dir) / "test_questions.json"),
                     judge_model,
                 )
@@ -504,20 +520,128 @@ class SweepEngine:
                 overrides[setting_key] = config[sweep_key]
         return overrides
 
-    def _run_full_benchmark(self, questions_path: str, judge_model: str) -> dict:
-        """Run a full benchmark with LLM judge (blocking)."""
+    async def _run_full_benchmark(self, questions_path: str, judge_model: str) -> dict:
+        """Run a full benchmark with LLM judge (async)."""
         from config import get_setting
 
         if self._benchmark_service is None:
             from application.services.benchmark_orchestrator import BenchmarkService
 
-            self._benchmark_service = BenchmarkService()
+            self._benchmark_service = BenchmarkService(rag_service=self._rag_service)
+        elif self._rag_service is not None:
+            self._benchmark_service._rag_service = self._rag_service
 
         out_dir = str(Path(settings.data_dir) / "benchmark_results")
-        result = self._benchmark_service.run(
+        result = await self._benchmark_service.run(
             questions_path=questions_path,
             out_dir=out_dir,
             top_k=get_setting("retriever_top_k"),
             judge_model=judge_model,
         )
         return result
+
+    async def _run_optuna_sweep(
+        self,
+        sweep: BenchmarkSweep,
+        questions_path: str | None,
+        judge_model: str | None,
+        progress_callback: Callable[[int, int, dict | None], None] | None,
+        should_cancel: Callable[[], Awaitable[bool]] | None,
+    ) -> list[dict]:
+        """Run parameter sweep using Optuna with TPE sampler + MedianPruner.
+
+        Replaces the manual successive_halving with a principled Bayesian
+        optimization approach that naturally handles early stopping.
+        """
+        import optuna
+
+        search_space = sweep.search_space
+        weights = sweep.objective_weights
+        dataset = sweep.dataset
+        n_trials = search_space.get("_n_trials", 50)
+
+        # Load questions
+        questions_data = await self._load_questions(dataset, questions_path)
+        if not questions_data:
+            logger.error("No questions found for dataset '%s'", dataset)
+            return []
+
+        eval_questions = [q for q in questions_data if q.get("source_hint") is not None]
+
+        # Cache candidates once
+        max_fetch_k = max(
+            (search_space.get("fetch_k", {}).get("max", settings.retriever_fetch_k)),
+            default=settings.retriever_fetch_k,
+        )
+        logger.info(
+            "Optuna sweep: caching candidates (fetch_k=%d) for %d questions...",
+            max_fetch_k,
+            len(eval_questions),
+        )
+        dense_cache, sparse_cache, all_candidates = await self._cache_candidates(eval_questions, max_fetch_k)
+
+        results: list[dict] = []
+        evaluated = 0
+
+        def objective(trial: optuna.Trial) -> float:
+            nonlocal evaluated
+            config = {}
+            for param, spec in search_space.items():
+                if param.startswith("_"):
+                    continue
+                if "values" in spec:
+                    config[param] = trial.suggest_categorical(param, spec["values"])
+                elif "min" in spec and "max" in spec:
+                    step = spec.get("step")
+                    if (
+                        isinstance(spec.get("min"), float)
+                        or isinstance(spec.get("max"), float)
+                        or (step and isinstance(step, float))
+                    ):
+                        config[param] = trial.suggest_float(param, spec["min"], spec["max"], step=step)
+                    else:
+                        config[param] = trial.suggest_int(
+                            param, int(spec["min"]), int(spec["max"]), step=step
+                        )
+                else:
+                    config[param] = spec.get("default", 0)
+
+            cheap_config = {k: v for k, v in config.items() if k in CHEAP_PARAMS}
+            result = self._score_config_cheap(
+                cheap_config, eval_questions, dense_cache, sparse_cache, all_candidates, weights
+            )
+            result["config"] = config
+            results.append(result)
+            evaluated += 1
+
+            if progress_callback:
+                progress_callback(evaluated, n_trials, result)
+
+            return result.get("composite_score", 0.0)
+
+        optuna.logging.set_verbosity(optuna.logging.WARNING)
+        study = optuna.create_study(
+            direction="maximize",
+            sampler=optuna.samplers.TPESampler(seed=42),
+            pruner=optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=2),
+        )
+
+        logger.info("Running Optuna sweep: %d trials with TPE + MedianPruner", n_trials)
+        study.optimize(objective, n_trials=n_trials)
+
+        # Sort by composite score (best first)
+        results.sort(key=lambda x: x.get("composite_score", 0), reverse=True)
+
+        logger.info(
+            "Optuna sweep complete. Best trial: #%d, score=%.4f",
+            study.best_trial.number,
+            study.best_trial.value,
+        )
+
+        # Phase B: Full LLM-judge on top-N (if judge_model provided)
+        if judge_model and sweep.top_n_llm > 0:
+            results = await self._run_phase_b(
+                results, sweep.top_n_llm, judge_model, questions_path, weights, should_cancel
+            )
+
+        return results

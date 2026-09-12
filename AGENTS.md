@@ -160,6 +160,51 @@ When analyzing or modifying code:
 * do not hide errors
 * do not weaken security to make implementation easier
 
+## Production code hygiene
+
+### No `assert` in production code
+
+`assert` statements are stripped when Python runs with `-O` (optimized mode). They provide zero safety in production and create a false sense of correctness.
+
+**Forbidden** in `server/app/**` (excluding `tests/`):
+
+```python
+assert user is not None          # WRONG — silently disappears
+assert status == 200             # WRONG
+assert len(items) > 0            # WRONG
+```
+
+**Required replacement** — use explicit checks with proper exceptions:
+
+```python
+if user is None:
+    raise ValueError("user must not be None")
+if status != 200:
+    raise RuntimeError(f"unexpected status {status}")
+if not items:
+    raise ValueError("items must not be empty")
+```
+
+Enforced by ruff rule **S101** (enabled in `[tool.ruff.lint] select`). Tests are exempt via `per-file-ignores`.
+
+### No lightweight nested dependencies
+
+Do not pull in transitive dependencies that are not directly used by the project. Every dependency in `pyproject.toml` must be imported explicitly in code.
+
+**Forbidden**:
+
+* Adding a library solely because it re-exports something from another library (use the source library directly).
+* Depending on a heavy umbrella package when only a small sub-module is needed.
+* Keeping a dependency "just in case" — if no code imports it, remove it.
+
+**Before adding a new dependency**, verify:
+
+1. No existing dependency already provides the needed functionality.
+2. The package is actively maintained and has a stable release.
+3. Its own dependency tree is reasonable (check with `uv tree`).
+
+After any change to `pyproject.toml`, run `task lock` to update `uv.lock`.
+
 ## Architecture
 
 The intended architectural direction is:

@@ -15,7 +15,7 @@ logger = logging.getLogger("cli")
 
 
 def runserver(
-    host: str = typer.Option("0.0.0.0", "--host", help="Bind host"),
+    host: str = typer.Option("0.0.0.0", "--host", help="Bind host"),  # noqa: S104
     port: int = typer.Option(8001, "--port", help="Bind port"),
     loop: str = "auto",
     reload: bool = False,

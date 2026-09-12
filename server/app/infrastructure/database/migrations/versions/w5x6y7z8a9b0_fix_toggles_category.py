@@ -28,11 +28,11 @@ TOGGLE_KEYS = (
 def upgrade() -> None:
     placeholders = ", ".join(f"'{k}'" for k in TOGGLE_KEYS)
     op.execute(
-        f"UPDATE config_parameters SET category = 'toggles' "
+        f"UPDATE config_parameters SET category = 'toggles' "  # noqa: S608
         f"WHERE key IN ({placeholders}) AND category != 'toggles'"
     )
 
 
 def downgrade() -> None:
     placeholders = ", ".join(f"'{k}'" for k in TOGGLE_KEYS)
-    op.execute(f"UPDATE config_parameters SET category = 'rag' WHERE key IN ({placeholders})")
+    op.execute(f"UPDATE config_parameters SET category = 'rag' WHERE key IN ({placeholders})")  # noqa: S608

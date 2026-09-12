@@ -15,12 +15,18 @@ from typing import TYPE_CHECKING
 
 from domain.value_objects.rag_result import RagResult
 from config import settings
-from domain.services.rag_policy import classify_question_breadth, classify_query_domain
 from domain.utils import compute_reranker_score
 from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.llm_provider import Breadth
-from domain.value_objects.stream_events import SourcesEvent, StatusEvent, StreamEvent, TextChunk
+from domain.value_objects.stream_events import (
+    PipelineMetaEvent,
+    SourcesEvent,
+    StatusEvent,
+    StreamEvent,
+    TextChunk,
+    UsageReport,
+)
 
 if TYPE_CHECKING:
     from infrastructure.ml.clients.client_registry import MLClientRegistry
@@ -196,7 +202,12 @@ class RagService:
         yield SourcesEvent(
             sources=state.sources,
             confidence=state.confidence,
-            usage=state.usage_report,
+            usage=state.usage_report if isinstance(state.usage_report, UsageReport) else None,
+        )
+        yield PipelineMetaEvent(
+            breadth=state.breadth,
+            domain=state.query_domain,
+            ttft_sec=state.ttft_sec,
         )
 
     async def invoke(
@@ -213,21 +224,23 @@ class RagService:
         reranker_score: float | None = None
         confidence: float | None = None
         usage_report = None
+        ttft_sec: float | None = None
 
         async for event in self.stream(question, history, ctx):
             if isinstance(event, SourcesEvent):
                 sources = event.sources
                 confidence = event.confidence
                 usage_report = event.usage
+            elif isinstance(event, PipelineMetaEvent):
+                if event.breadth is not None:
+                    breadth = event.breadth
+                if event.domain:
+                    domain = event.domain
+                if event.ttft_sec is not None:
+                    ttft_sec = event.ttft_sec
             elif isinstance(event, TextChunk):
                 answer_parts.append(event.text)
 
-        query_for_search = question
-        try:
-            breadth = Breadth(classify_question_breadth(query_for_search))
-        except Exception:
-            pass
-        domain = classify_query_domain(query_for_search)
         retrieval_count = len(sources)
         if sources:
             reranker_score = compute_reranker_score(sources)
@@ -243,4 +256,5 @@ class RagService:
             model_used=settings.llm_model,
             input_tokens=usage_report.input_tokens if usage_report else None,
             output_tokens=usage_report.output_tokens if usage_report else None,
+            ttft_sec=ttft_sec,
         )

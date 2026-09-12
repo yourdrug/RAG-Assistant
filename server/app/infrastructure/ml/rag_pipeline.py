@@ -51,6 +51,7 @@ class RagPipelineState:
     sources: list[dict] = field(default_factory=list)
     confidence: float = 0.0
     usage_report: object | None = None
+    ttft_sec: float | None = None
 
     # ── Cache ───────────────────────────────────────────────────────────
     q_hash: str = ""

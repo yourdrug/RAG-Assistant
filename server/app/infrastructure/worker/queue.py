@@ -48,7 +48,7 @@ async def close_arq_pool() -> None:
 
 def _deterministic_id(prefix: str, *parts: Any) -> str:
     raw = "|".join(str(p) for p in parts)
-    digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+    digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]  # noqa: S324
     return f"{prefix}:{digest}"
 
 

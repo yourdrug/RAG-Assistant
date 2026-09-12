@@ -33,7 +33,8 @@ class LogBufferHandler(logging.Handler):
             }
             with self._lock:
                 self._buffer.append(entry)
-        except Exception:
+        except Exception:  # noqa: S110
+            # Logging handler must not raise — swallow silently to avoid recursive failures.
             pass
 
     def get_logs(

@@ -10,7 +10,7 @@ from collections.abc import AsyncIterator
 from config import settings
 from domain.value_objects.llm_provider import Breadth
 from domain.value_objects.rag_settings import RagSettings
-from domain.value_objects.stream_events import SourcesEvent, StreamEvent, TextChunk
+from domain.value_objects.stream_events import PipelineMetaEvent, SourcesEvent, StreamEvent, TextChunk
 from infrastructure.ml.answer_cache import find_cached_answer, store_cached_answer
 from infrastructure.metrics.metrics import (
     RAG_CACHE_HITS_TOTAL,
@@ -62,6 +62,7 @@ async def handle_cache_hit(
     record_rag_answer(breadth=Breadth.NARROW.value, answer=answer_text, retrieved_count=0, avg_similarity=0.0)
     RAG_STAGE_DURATION.labels("total").observe(time.monotonic() - t_pipeline_start)
     yield SourcesEvent(sources=cached["sources"], confidence=None)
+    yield PipelineMetaEvent(breadth=None, domain="", ttft_sec=0.0)
 
 
 async def store_answer_cache(

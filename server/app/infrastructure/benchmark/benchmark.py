@@ -6,6 +6,7 @@ New code should import from the specific sub-modules directly.
 
 from infrastructure.benchmark.judge import (  # noqa: F401
     get_rag_answer,
+    get_rag_answer_with_usage,
     judge_answer,
     judge_answer_async,
 )
@@ -30,6 +31,5 @@ from infrastructure.benchmark.retrieval import (  # noqa: F401
 from infrastructure.benchmark.runner import (  # noqa: F401
     EXAMPLE_QUESTIONS,
     load_questions,
-    run_benchmark,
     run_benchmark_async,
 )

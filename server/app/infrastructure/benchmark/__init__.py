@@ -23,6 +23,7 @@ from infrastructure.benchmark.retrieval import (  # noqa: F401
 # Judge
 from infrastructure.benchmark.judge import (  # noqa: F401
     get_rag_answer,
+    get_rag_answer_with_usage,
     judge_answer,
     judge_answer_async,
 )
@@ -46,7 +47,6 @@ from infrastructure.benchmark.persistence import (  # noqa: F401
 # Runner
 from infrastructure.benchmark.runner import (  # noqa: F401
     load_questions,
-    run_benchmark,
     run_benchmark_async,
 )
 
@@ -60,6 +60,7 @@ __all__ = [
     "build_llm",
     "retrieve_with_scores_hybrid",
     "get_rag_answer",
+    "get_rag_answer_with_usage",
     "judge_answer",
     "judge_answer_async",
     "compute_context_precision_recall",
@@ -71,6 +72,5 @@ __all__ = [
     "save_results",
     "_sanitize_model_name",
     "load_questions",
-    "run_benchmark",
     "run_benchmark_async",
 ]

@@ -8,7 +8,6 @@ from typing import Any
 from typer import Typer
 
 from presentation.cli.commands.backfill_chunk_ids import backfill_app
-from presentation.cli.commands.benchmark import benchmark_app
 from presentation.cli.commands.config import config_app
 from presentation.cli.commands.ingest import ingest_app
 from presentation.cli.commands.pdf_diag import pdf_diag_app
@@ -43,9 +42,6 @@ class CLI:
 
         # Индексация документов
         self.cli.add_typer(ingest_app, name="ingest")
-
-        # Бенчмарк
-        self.cli.add_typer(benchmark_app, name="benchmark")
 
         # Диагностика PDF
         self.cli.add_typer(pdf_diag_app, name="pdf-diag")

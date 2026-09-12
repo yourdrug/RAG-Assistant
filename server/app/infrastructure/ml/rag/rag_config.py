@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from config import settings
+from config import get_setting, settings
 from domain.value_objects.rag_settings import (
     FeatureToggles,
     HybridSearchConfig,
@@ -38,7 +38,7 @@ def build_rag_settings() -> RagSettings:
             condense_enabled=settings.condense_enabled,
             decomposition_enabled=settings.decomposition_enabled,
             rolling_summary_enabled=settings.rolling_summary_enabled,
-            cache_enabled=settings.cache_enabled,
+            cache_enabled=get_setting("cache_enabled"),
         ),
         source_min_score=settings.source_min_score,
     )

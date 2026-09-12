@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 from domain.value_objects.chat_context import ChatContext  # noqa: E402
 from domain.value_objects.llm_provider import Breadth  # noqa: E402
-from domain.value_objects.stream_events import SourcesEvent, StatusEvent, TextChunk  # noqa: E402
+from domain.value_objects.stream_events import PipelineMetaEvent, SourcesEvent, StatusEvent, TextChunk  # noqa: E402
 from infrastructure.ml.rag_service import RagService  # noqa: E402
 
 
@@ -209,7 +209,7 @@ class TestStreamEventSequence:
         ):
             service = _make_service()
             events = await collect_events(service, "question")
-            assert isinstance(events[-1], SourcesEvent)
+            assert isinstance(events[-1], PipelineMetaEvent)
 
     @pytest.mark.asyncio
     async def test_sources_event_has_sources(self):

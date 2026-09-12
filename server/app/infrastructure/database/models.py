@@ -393,6 +393,7 @@ class BenchmarkSweepModel(BaseModel):
     best_run_id: Mapped[int | None] = mapped_column(
         ForeignKey("benchmark_runs.id", ondelete="SET NULL"), nullable=True
     )
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
 
 
 class BenchmarkRunModel(BaseModel):

@@ -358,9 +358,7 @@ class TestPdfPreviewStrategy:
             150,
         )
 
-        units, _, total = self.strategy.ocr_problem_units(
-            Path("/tmp/test.pdf"), [page1, page2, page3], [2]
-        )
+        units, _, total = self.strategy.ocr_problem_units(Path("/tmp/test.pdf"), [page1, page2, page3], [2])
 
         assert len(units) == 3
         assert units[0].type == "text"

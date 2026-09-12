@@ -80,6 +80,8 @@ class Settings(BaseSettings):
     llm_num_predict_narrow: int = 400
     llm_num_predict_broad: int = 2048
     llm_max_concurrent: int = 16
+    benchmark_max_concurrent: int = 3
+    benchmark_judge_model: str = ""  # empty = use fast_llm for OpenRouter, llm_model for Ollama
 
     # ── OpenRouter ──────────────────────────────────────────────────────────
     openrouter_api_key: str = ""
@@ -271,7 +273,7 @@ class Settings(BaseSettings):
     def _check_security(self) -> list[str]:
         errors: list[str] = []
         # Credential hygiene — enforced in ALL stages (weak defaults never pass).
-        if not self.jwt_secret_key or self.jwt_secret_key == "change-me-in-production":
+        if not self.jwt_secret_key or self.jwt_secret_key == "change-me-in-production":  # noqa: S105
             errors.append(
                 "JWT_SECRET_KEY must be set to a strong random value "
                 "(openssl rand -hex 32) in server/.env.secrets"

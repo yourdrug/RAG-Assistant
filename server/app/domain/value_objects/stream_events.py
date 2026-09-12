@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from domain.value_objects.llm_provider import Breadth
+
 
 @dataclass(frozen=True, slots=True)
 class TextChunk:
@@ -52,4 +54,18 @@ class MetaEvent:
     usage: UsageReport | None = None
 
 
-StreamEvent = TextChunk | SourcesEvent | StatusEvent | MetaEvent
+@dataclass(frozen=True, slots=True)
+class PipelineMetaEvent:
+    """Pipeline metadata: breadth, domain, TTFT, timings.
+
+    Yielded once by RagService.stream() after pipeline completes, carries
+    the actual breadth/domain classification that was used inside the
+    pipeline (not the re-classified version on the original question).
+    """
+
+    breadth: Breadth | None = None
+    domain: str = ""
+    ttft_sec: float | None = None
+
+
+StreamEvent = TextChunk | SourcesEvent | StatusEvent | MetaEvent | PipelineMetaEvent

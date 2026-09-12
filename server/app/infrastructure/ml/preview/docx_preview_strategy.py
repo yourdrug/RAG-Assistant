@@ -72,7 +72,7 @@ def _extract_first_image_from_paragraph(paragraph, doc_wrapper: DocxDocumentWrap
                 rel = doc_wrapper.part.rels[r_id]
                 try:
                     return rel.target_part.blob
-                except Exception:
+                except Exception:  # noqa: S112
                     continue
     return None
 

@@ -108,7 +108,7 @@ class PostgresOutboxListener:
             try:
                 await self._conn.close()
             except Exception:
-                pass
+                log.debug("Failed to close outbox listener connection", exc_info=True)
         self._conn = None
 
     async def stop(self) -> None:

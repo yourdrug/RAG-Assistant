@@ -9,9 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 from infrastructure.ml.ingestion.rtf import (  # noqa: E402
-    _GroupState,
     _Paragraph,
-    _Segment,
     _Table,
     _walk_paragraphs,
     extract_doc_title,

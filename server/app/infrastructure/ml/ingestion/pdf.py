@@ -157,7 +157,7 @@ def _extract_page_tables(page, file_path: Path, page_num: int) -> list[Document]
                         )
                     )
     except Exception:
-        pass
+        log.debug("Failed to extract tables from page %s", page_num, exc_info=True)
     return docs
 
 

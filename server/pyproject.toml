@@ -63,6 +63,8 @@ dependencies = [
     # --- Structured LLM output ---
     "instructor>=1.7.0",
     "tenacity>=9.0.0",
+    # --- Hyperparameter optimization ---
+    "optuna>=4.0.0",
 ]
 
 [project.optional-dependencies]
@@ -143,7 +145,7 @@ indent-width = 4
 include = ["*.py"]
 
 [tool.ruff.lint]
-select = ["B", "B9", "C", "D", "E", "F", "W"]
+select = ["B", "B9", "C", "D", "E", "F", "S", "W"]
 ignore = [
     "D1", # missing docstrings (too many to fix now)
     "D203", # one-blank-line-before-class (incompatible with D211)
@@ -155,6 +157,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "app/infrastructure/database/migrations/*" = ["E501", "D400", "D415"]
 "app/infrastructure/database/database.py" = ["D"]
+"tests/**" = ["S101", "S105", "S106", "S108", "S110", "D205", "D403"]  # test-specific exemptions
 
 [tool.ruff.format]
 indent-style = "space"

@@ -23,4 +23,5 @@ class BenchmarkSweep:
     evaluated_configs: int = 0
     best_run_id: int | None = None
     id: int | None = None
+    version: int = 0
     creation_date: datetime = field(default_factory=lambda: datetime.now(UTC))

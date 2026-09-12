@@ -140,7 +140,7 @@ class MLClientRegistry:
                 try:
                     await client.close()
                 except Exception:
-                    pass
+                    log.debug("Failed to close ML client during shutdown", exc_info=True)
         self._embeddings = None
         self._reranker = None
         log.info("MLClientRegistry: connection pools closed")

@@ -22,3 +22,4 @@ class RagResult:
     model_used: str | None = None
     input_tokens: int | None = None
     output_tokens: int | None = None
+    ttft_sec: float | None = None

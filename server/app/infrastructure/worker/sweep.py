@@ -100,6 +100,7 @@ async def run_sweep_task(
             uow_factory=uow_factory,
             benchmark_service=ctx["container"].infrastructure.benchmark_service,
             ml_clients=ctx["container"].infrastructure.ml_clients,
+            rag_service=ctx["container"].application.rag_service,
         )
 
         try:

@@ -1,6 +1,6 @@
-"""Benchmark service -- shared orchestration logic used by both the API endpoint and CLI.
+"""Benchmark service -- shared async orchestration logic used by the API endpoint.
 
-Delegates the actual benchmark execution to ``infrastructure.ml.benchmark``
+Delegates the actual benchmark execution to ``infrastructure.benchmark.runner``
 and handles result persistence, history tracking, and regression comparison.
 """
 
@@ -12,13 +12,17 @@ from pathlib import Path
 
 from config import settings
 
-from infrastructure.benchmark.benchmark import run_benchmark
+from infrastructure.benchmark.metrics import _percentile
+from infrastructure.benchmark.runner import run_benchmark_async
 
 log = logging.getLogger("default")
 
 
 class BenchmarkService:
-    def run(
+    def __init__(self, rag_service=None):
+        self._rag_service = rag_service
+
+    async def run(
         self,
         questions_path: str,
         out_dir: str,
@@ -26,24 +30,24 @@ class BenchmarkService:
         judge_model: str,
         seed: int | None = None,
         n_runs: int = 1,
+        max_concurrent: int = 4,
     ) -> dict:
-        """Run benchmark via shared implementation, return summary dict.
-
-        Both API and CLI call this method — behaviour is identical.
-        """
+        """Run benchmark via shared async implementation, return summary dict."""
         log.info("RAG Benchmark")
         log.info("  questions : %s", questions_path)
         log.info("  top_k     : %d", top_k)
         log.info("  rag model : %s", settings.llm_model)
         log.info("  judge     : %s", judge_model)
 
-        run_benchmark(
+        await run_benchmark_async(
             questions_path=questions_path,
             out_dir=out_dir,
             top_k=top_k,
             judge_model=judge_model,
+            max_concurrent=max_concurrent,
             seed=seed,
             n_runs=n_runs,
+            rag_service=self._rag_service,
         )
 
         # Read back the latest results JSON to return structured summary
@@ -52,13 +56,13 @@ class BenchmarkService:
             return {"status": "done", "total_questions": 0}
 
         latest = json.loads(result_files[-1].read_text(encoding="utf-8"))
-        summary = _build_summary(latest)
+        summary = compute_summary_from_results(latest)
         summary["status"] = "done"
         summary["json_path"] = str(result_files[-1])
         return summary
 
 
-def _build_summary(results: list[dict]) -> dict:
+def compute_summary_from_results(results: list[dict]) -> dict:
     """Build summary dict from benchmark results list."""
     faiths = [r["generator_metrics"]["faithfulness"] for r in results]
     rels = [r["generator_metrics"]["relevancy"] for r in results]
@@ -73,15 +77,49 @@ def _build_summary(results: list[dict]) -> dict:
     mrrs = [r["retriever_metrics"]["mrr"] for r in results if r["retriever_metrics"]["mrr"] is not None]
     sims = [r["retriever_metrics"]["avg_similarity"] for r in results]
 
+    cp_scores = [
+        r.get("context_metrics", {}).get("context_precision")
+        for r in results
+        if r.get("context_metrics", {}).get("context_precision") is not None
+    ]
+    cr_scores = [
+        r.get("context_metrics", {}).get("context_recall")
+        for r in results
+        if r.get("context_metrics", {}).get("context_recall") is not None
+    ]
+
+    latencies = sorted(r["latency_sec"] for r in results)
+    total_input_tokens = sum(r.get("input_tokens") or 0 for r in results)
+    total_output_tokens = sum(r.get("output_tokens") or 0 for r in results)
+    total_cost = sum(r.get("cost_usd") or 0.0 for r in results)
+
+    breadths = [r.get("breadth") for r in results if r.get("breadth") is not None]
+
     return {
         "total_questions": len(results),
-        "total_time_sec": round(sum(r["latency_sec"] for r in results), 1),
+        "total_time_sec": round(sum(latencies), 1),
         "hit_rate": round(sum(hit_rates) / len(hit_rates), 3) if hit_rates else None,
         "avg_mrr": round(sum(mrrs) / len(mrrs), 3) if mrrs else None,
         "avg_faithfulness": round(sum(faiths) / len(faiths), 1) if faiths else None,
         "avg_relevancy": round(sum(rels) / len(rels), 1) if rels else None,
         "avg_correctness": round(sum(corrs) / len(corrs), 1) if corrs else None,
         "avg_similarity": round(sum(sims) / len(sims), 3) if sims else 0,
+        "avg_context_precision": round(sum(cp_scores) / len(cp_scores), 1) if cp_scores else None,
+        "avg_context_recall": round(sum(cr_scores) / len(cr_scores), 1) if cr_scores else None,
+        "latency_p50": round(_percentile(latencies, 50), 2),
+        "latency_p95": round(_percentile(latencies, 95), 2),
+        "latency_p99": round(_percentile(latencies, 99), 2),
+        "latency_min": round(latencies[0], 2) if latencies else 0,
+        "latency_max": round(latencies[-1], 2) if latencies else 0,
+        "total_input_tokens": total_input_tokens,
+        "total_output_tokens": total_output_tokens,
+        "estimated_cost_usd": round(total_cost, 6),
+        "breadth_distribution": {
+            "narrow": sum(1 for b in breadths if b == "narrow"),
+            "broad": sum(1 for b in breadths if b == "broad"),
+        }
+        if breadths
+        else None,
         "results": [
             {
                 "id": r["id"],
@@ -94,7 +132,11 @@ def _build_summary(results: list[dict]) -> dict:
                 "hit_rate": r["retriever_metrics"]["hit_rate"],
                 "mrr": r["retriever_metrics"]["mrr"],
                 "avg_similarity": r["retriever_metrics"]["avg_similarity"],
+                "context_precision": r.get("context_metrics", {}).get("context_precision"),
+                "context_recall": r.get("context_metrics", {}).get("context_recall"),
                 "latency_sec": r["latency_sec"],
+                "ttft_sec": r.get("ttft_sec"),
+                "breadth": r.get("breadth"),
             }
             for r in results
         ],
