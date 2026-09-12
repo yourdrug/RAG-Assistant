@@ -20,7 +20,7 @@ from infrastructure.logging import logging_config
 from infrastructure.logging.log_buffer import attach_log_buffer
 from infrastructure.metrics.metrics import collect_infra_metrics
 from presentation.api.middleware.prometheus_setup import add_metrics_middleware
-from infrastructure.persistence.redis_client import redis_client
+from infrastructure.redis.redis_client import redis_client
 from infrastructure.scheduling.scheduler import scheduler
 from infrastructure.utils.utils import Singleton
 from presentation.api.exception_handlers import (

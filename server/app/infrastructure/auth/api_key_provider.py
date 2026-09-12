@@ -16,7 +16,7 @@ import json
 import logging
 import secrets
 
-from infrastructure.persistence.redis_client import redis_client
+from infrastructure.redis.redis_client import redis_client
 
 logger = logging.getLogger("default")
 

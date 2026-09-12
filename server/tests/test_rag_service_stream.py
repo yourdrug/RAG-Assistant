@@ -274,7 +274,7 @@ class TestStreamRelevanceGate:
                 AsyncMock(return_value=False),
             ),
             patch(
-                "infrastructure.ml.rag.rag_steps._assess_sufficiency",
+                "infrastructure.ml.rag.rag_steps.assess_sufficiency",
                 AsyncMock(return_value=MagicMock(is_sufficient=False, suggested_refinement="better query")),
             ),
         ):
@@ -353,7 +353,7 @@ class TestStreamRejection:
                 AsyncMock(return_value=False),
             ),
             patch(
-                "infrastructure.ml.rag.rag_steps._assess_sufficiency",
+                "infrastructure.ml.rag.rag_steps.assess_sufficiency",
                 AsyncMock(return_value=MagicMock(is_sufficient=False, suggested_refinement="better q")),
             ),
         ):

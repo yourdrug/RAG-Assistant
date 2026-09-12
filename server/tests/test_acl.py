@@ -21,7 +21,7 @@ from domain.services.access_control import ALLOWED_VISIBILITY_FOR_KIND  # noqa: 
 from domain.value_objects.roles import UserKind, UserRole
 from domain.value_objects.user_context import UserContext
 from domain.value_objects.visibility import DocumentVisibility
-from infrastructure.vector.acl import build_qdrant_filter  # noqa: E402
+from infrastructure.repositories.vector.acl import build_qdrant_filter  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Helpers

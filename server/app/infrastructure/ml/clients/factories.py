@@ -30,7 +30,7 @@ def create_embeddings():
         max_keepalive_connections=settings.http_pool_max_keepalive,
     )
     if settings.ml_provider == "deepinfra":
-        from infrastructure.llm.deepinfra_clients import DeepInfraEmbeddingsClient
+        from infrastructure.ml.clients.deepinfra_clients import DeepInfraEmbeddingsClient
 
         log.info("Creating DeepInfra embeddings client (model=%s) ...", settings.deepinfra_embed_model)
         return DeepInfraEmbeddingsClient(
@@ -39,7 +39,7 @@ def create_embeddings():
             model=settings.deepinfra_embed_model,
             pool_limits=pool_limits,
         )
-    from infrastructure.llm.tei_clients import TEIEmbeddingsClient
+    from infrastructure.ml.clients.tei_clients import TEIEmbeddingsClient
 
     log.info("Creating TEI embeddings client (%s) ...", settings.tei_embed_url)
     return TEIEmbeddingsClient(settings.tei_embed_url, pool_limits=pool_limits)
@@ -56,7 +56,7 @@ def create_reranker():
         max_keepalive_connections=settings.http_pool_max_keepalive // 2,
     )
     if settings.ml_provider == "deepinfra":
-        from infrastructure.llm.deepinfra_clients import DeepInfraRerankerClient
+        from infrastructure.ml.clients.deepinfra_clients import DeepInfraRerankerClient
 
         log.info("Creating DeepInfra reranker client (model=%s) ...", settings.deepinfra_rerank_model)
         return DeepInfraRerankerClient(
@@ -65,7 +65,7 @@ def create_reranker():
             model=settings.deepinfra_rerank_model,
             pool_limits=pool_limits,
         )
-    from infrastructure.llm.tei_clients import TEIRerankerClient
+    from infrastructure.ml.clients.tei_clients import TEIRerankerClient
 
     log.info("Creating TEI reranker client (%s) ...", settings.tei_rerank_url)
     return TEIRerankerClient(settings.tei_rerank_url, pool_limits=pool_limits)
@@ -76,67 +76,114 @@ def create_reranker():
 # ---------------------------------------------------------------------------
 
 
-def create_llm():
+def create_llm(
+    temperature: float | None = None,
+    top_p: float | None = None,
+    num_ctx: int | None = None,
+    num_predict: int | None = None,
+):
     """Create LLM based on configured provider (ollama or openrouter)."""
     if settings.llm_provider == LLMProvider.OPENROUTER:
-        return _create_openrouter_llm()
-    return _create_ollama_llm()
+        return _create_openrouter_llm(temperature=temperature, max_tokens=num_predict)
+    return _create_ollama_llm(temperature=temperature, top_p=top_p, num_ctx=num_ctx)
 
 
-def create_llm_for_breadth(breadth: str):
+def create_llm_for_breadth(
+    breadth: str,
+    temperature: float | None = None,
+    top_p: float | None = None,
+    num_ctx_narrow: int | None = None,
+    num_ctx_broad: int | None = None,
+    num_predict_narrow: int | None = None,
+    num_predict_broad: int | None = None,
+):
     """Create LLM with parameters matching breadth mode."""
     if settings.llm_provider == LLMProvider.OPENROUTER:
-        return _create_openrouter_llm_for_breadth(breadth)
-    return _create_ollama_llm_for_breadth(breadth)
-
-
-def _create_ollama_llm() -> ChatOllama:
-    return ChatOllama(
-        model=settings.llm_model,
-        base_url=settings.ollama_base_url,
-        temperature=settings.llm_temperature,
-        top_p=settings.llm_top_p,
-        num_ctx=settings.llm_num_ctx_narrow,
+        return _create_openrouter_llm_for_breadth(
+            breadth,
+            temperature=temperature,
+            max_tokens_narrow=num_predict_narrow,
+            max_tokens_broad=num_predict_broad,
+        )
+    return _create_ollama_llm_for_breadth(
+        breadth,
+        temperature=temperature,
+        top_p=top_p,
+        num_ctx_narrow=num_ctx_narrow,
+        num_ctx_broad=num_ctx_broad,
+        num_predict_narrow=num_predict_narrow,
+        num_predict_broad=num_predict_broad,
     )
 
 
-def _create_openrouter_llm() -> ChatOpenAI:
+def _create_ollama_llm(
+    temperature: float | None = None,
+    top_p: float | None = None,
+    num_ctx: int | None = None,
+) -> ChatOllama:
+    return ChatOllama(
+        model=settings.llm_model,
+        base_url=settings.ollama_base_url,
+        temperature=temperature if temperature is not None else settings.llm_temperature,
+        top_p=top_p if top_p is not None else settings.llm_top_p,
+        num_ctx=num_ctx if num_ctx is not None else settings.llm_num_ctx_narrow,
+    )
+
+
+def _create_openrouter_llm(temperature: float | None = None, max_tokens: int | None = None) -> ChatOpenAI:
     return ChatOpenAI(
         model_name=settings.openrouter_model,
         openai_api_key=SecretStr(settings.openrouter_api_key) if settings.openrouter_api_key else None,
         openai_api_base=settings.openrouter_base_url,
-        temperature=settings.llm_temperature,
-        max_tokens=settings.llm_num_predict_narrow,
+        temperature=temperature if temperature is not None else settings.llm_temperature,
+        max_tokens=max_tokens if max_tokens is not None else settings.llm_num_predict_narrow,
         request_timeout=120,
         max_retries=2,
         stream_usage=True,
     )
 
 
-def _create_ollama_llm_for_breadth(breadth: str) -> ChatOllama:
-    num_predict = (
-        settings.llm_num_predict_broad if breadth == Breadth.BROAD else settings.llm_num_predict_narrow
+def _create_ollama_llm_for_breadth(
+    breadth: str,
+    temperature: float | None = None,
+    top_p: float | None = None,
+    num_ctx_narrow: int | None = None,
+    num_ctx_broad: int | None = None,
+    num_predict_narrow: int | None = None,
+    num_predict_broad: int | None = None,
+) -> ChatOllama:
+    is_broad = breadth == Breadth.BROAD
+    num_predict = (num_predict_broad if is_broad else num_predict_narrow) or (
+        settings.llm_num_predict_broad if is_broad else settings.llm_num_predict_narrow
     )
-    num_ctx = settings.llm_num_ctx_broad if breadth == Breadth.BROAD else settings.llm_num_ctx_narrow
+    num_ctx = (num_ctx_broad if is_broad else num_ctx_narrow) or (
+        settings.llm_num_ctx_broad if is_broad else settings.llm_num_ctx_narrow
+    )
     return ChatOllama(
         model=settings.llm_model,
         base_url=settings.ollama_base_url,
-        temperature=settings.llm_temperature,
-        top_p=settings.llm_top_p,
+        temperature=temperature if temperature is not None else settings.llm_temperature,
+        top_p=top_p if top_p is not None else settings.llm_top_p,
         num_predict=num_predict,
         num_ctx=num_ctx,
     )
 
 
-def _create_openrouter_llm_for_breadth(breadth: str) -> ChatOpenAI:
-    max_tokens = (
-        settings.llm_num_predict_broad if breadth == Breadth.BROAD else settings.llm_num_predict_narrow
+def _create_openrouter_llm_for_breadth(
+    breadth: str,
+    temperature: float | None = None,
+    max_tokens_narrow: int | None = None,
+    max_tokens_broad: int | None = None,
+) -> ChatOpenAI:
+    is_broad = breadth == Breadth.BROAD
+    max_tokens = (max_tokens_broad if is_broad else max_tokens_narrow) or (
+        settings.llm_num_predict_broad if is_broad else settings.llm_num_predict_narrow
     )
     return ChatOpenAI(
         model_name=settings.openrouter_model,
         openai_api_key=SecretStr(settings.openrouter_api_key) if settings.openrouter_api_key else None,
         openai_api_base=settings.openrouter_base_url,
-        temperature=settings.llm_temperature,
+        temperature=temperature if temperature is not None else settings.llm_temperature,
         max_tokens=max_tokens,
         request_timeout=120,
         max_retries=2,

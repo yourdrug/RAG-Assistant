@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from infrastructure.persistence.redis_client import redis_client
+from infrastructure.redis.redis_client import redis_client
 
 log = logging.getLogger("default")
 

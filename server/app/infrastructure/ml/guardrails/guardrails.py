@@ -9,73 +9,10 @@ Integrates with the dynamic config system via ``settings.pii_redaction_enabled``
 from __future__ import annotations
 
 import logging
-import re
+
+from domain.value_objects.pii_patterns import ALL_PATTERNS
 
 log = logging.getLogger("default")
-
-# ---------------------------------------------------------------------------
-# Universal PII patterns
-# ---------------------------------------------------------------------------
-
-# Phone: +7XXXXXXXXXX (RU), +375XXXXXXXXX (BY), 8XXXXXXXXXX, various separators
-_PHONE_RE = re.compile(
-    r"(?<!\d)" r"(?:\+7|8)[\s\-]?\(?\d{3}\)?[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}" r"(?!\d)"
-)
-
-_PHONE_BY_RE = re.compile(r"(?<!\d)" r"\+375[\s\-]?\(?\d{2}\)?[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}" r"(?!\d)")
-
-# Email
-_EMAIL_RE = re.compile(
-    r"(?<![a-zA-Z0-9_.+-])" r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z]{2,}" r"(?![a-zA-Z0-9_.+-])"
-)
-
-# Bank card number (16 digits, possibly with spaces/dashes)
-_CARD_RE = re.compile(r"(?<!\d)" r"\d{4}[\s\-]?\d{4}[\s\-]?\d{4}[\s\-]?\d{4}" r"(?!\d)")
-
-# ---------------------------------------------------------------------------
-# Russian document patterns
-# ---------------------------------------------------------------------------
-
-# Russian INN (10 or 12 digits)
-_RU_INN_RE = re.compile(r"(?<!\d)" r"(?:ИНН[:\s]?)?\d{10}(?:\d{2})?" r"(?!\d)")
-
-# Russian SNILS (11 digits, formatted as XXX-XXX-XXX XX)
-_RU_SNILS_RE = re.compile(r"(?<!\d)" r"(?:СНИЛС[:\s]?)?\d{3}[\s\-]?\d{3}[\s\-]?\d{3}[\s]?\d{2}" r"(?!\d)")
-
-# Russian passport series + number (4 digits + 6 digits)
-_RU_PASSPORT_RE = re.compile(r"(?<!\d)" r"(?:паспорт[:\s]?)?\d{4}\s?\d{6}" r"(?!\d)")
-
-# Russian ОГРН (13 or 15 digits)
-_RU_OGRN_RE = re.compile(r"(?<!\d)" r"(?:ОГРН[:\s]?)?\d{13}(?:\d{2})?" r"(?!\d)")
-
-# ---------------------------------------------------------------------------
-# Belarusian document patterns
-# ---------------------------------------------------------------------------
-
-# Belarusian УНП (Учётный номер плательщика) — 9 digits
-_BY_UNP_RE = re.compile(r"(?<!\d)" r"(?:УНП[:\s]?)?\d{9}" r"(?!\d)")
-
-# Belarusian passport: 2 letters + 7 digits (e.g. AB1234567)
-_BY_PASSPORT_RE = re.compile(r"(?<![A-Za-zА-Яа-яЁё])" r"[A-ZА-ЯЁ]{2}\d{7}" r"(?![A-Za-zА-Яа-яЁё\d])")
-
-# Belarusian ID card number (14 digits)
-_BY_ID_CARD_RE = re.compile(r"(?<!\d)" r"(?:ID[-\s]?карт[ауы]?[:\s]?)?\d{14}" r"(?!\d)")
-
-
-# All patterns: universal + country-specific
-ALL_PATTERNS: list[tuple[str, re.Pattern]] = [
-    ("phone", _PHONE_RE),
-    ("phone_by", _PHONE_BY_RE),
-    ("email", _EMAIL_RE),
-    ("card", _CARD_RE),
-    ("inn", _RU_INN_RE),
-    ("snils", _RU_SNILS_RE),
-    ("passport_ru", _RU_PASSPORT_RE),
-    ("ogrn", _RU_OGRN_RE),
-    ("unp_by", _BY_UNP_RE),
-    ("passport_by", _BY_PASSPORT_RE),
-    ("id_card_by", _BY_ID_CARD_RE),
-]
 
 
 class PIIDetector:

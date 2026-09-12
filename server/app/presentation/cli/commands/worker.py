@@ -101,7 +101,7 @@ async def _on_startup(ctx: dict) -> None:
     from composition.container import Container
     from infrastructure.database.database import database
     from infrastructure.initialization import _seed_domain_config_defaults
-    from infrastructure.persistence.redis_client import redis_client
+    from infrastructure.redis.redis_client import redis_client
 
     await database.connect()
     logger.info("Worker: database connected")
@@ -137,7 +137,7 @@ async def _on_startup(ctx: dict) -> None:
 async def _on_shutdown(ctx: dict) -> None:
     """Cleanup on worker shutdown."""
     from infrastructure.database.database import database
-    from infrastructure.persistence.redis_client import redis_client
+    from infrastructure.redis.redis_client import redis_client
 
     listener = ctx.get("config_listener")
     if listener:

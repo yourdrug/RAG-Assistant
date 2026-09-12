@@ -27,8 +27,8 @@ class PreviewStrategyFactory:
         ext = extension.lower()
         if ext == ".doc":
             raise ValueError(
-                "Файлы .doc (старый формат Word 97-2003) не поддерживаются в preview. "
-                "Конвертируйте файл в .docx и повторите попытку."
+                "Legacy .doc format (Word 97-2003) is not supported for preview. "
+                "Convert the file to .docx and try again."
             )
         cls = _EXTENSION_MAP.get(ext)
         if cls is None:

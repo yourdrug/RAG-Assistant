@@ -142,7 +142,7 @@ def _get_judge_model() -> str:
 
 def _get_judge_client(model: str):
     """Create an instructor-wrapped client for the judge model."""
-    from infrastructure.llm.instructor_client import create_llm_instructor_client
+    from infrastructure.ml.clients.instructor_client import create_llm_instructor_client
 
     client, _resolved = create_llm_instructor_client(model=model)
     return client

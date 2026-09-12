@@ -51,3 +51,7 @@ class RagSettings:
     rerank: RerankConfig
     features: FeatureToggles
     source_min_score: float
+    exact_ref_sparse_boost: float = 1.0
+    llm_num_ctx_narrow: int = 4096
+    llm_num_ctx_broad: int = 8192
+    pii_redaction_enabled: bool = False

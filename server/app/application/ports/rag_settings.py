@@ -1,0 +1,73 @@
+"""RAG settings port — abstracts dynamic RAG configuration.
+
+Provides read-only access to all RAG-related settings that can be hot-reloaded
+via ``/admin/config`` without a process restart.
+"""
+
+from __future__ import annotations
+
+from typing import Protocol
+
+
+class RagSettingsPort(Protocol):
+    """All RAG pipeline settings, grouped by sub-config."""
+
+    # Retriever
+    @property
+    def retriever_fetch_k(self) -> int: ...
+    @property
+    def retriever_top_k(self) -> int: ...
+    @property
+    def retriever_fetch_k_broad(self) -> int: ...
+    @property
+    def retriever_top_k_broad(self) -> int: ...
+
+    # Hybrid search
+    @property
+    def hybrid_enabled(self) -> bool: ...
+    @property
+    def bm25_fetch_k(self) -> int: ...
+    @property
+    def rrf_k(self) -> int: ...
+    @property
+    def dense_weight(self) -> float: ...
+    @property
+    def sparse_weight(self) -> float: ...
+
+    # Rerank
+    @property
+    def rerank_min_score(self) -> float | None: ...
+    @property
+    def rerank_score_gap_ratio(self) -> float | None: ...
+
+    # Feature toggles
+    @property
+    def citation_filter_enabled(self) -> bool: ...
+    @property
+    def relevance_gate_enabled(self) -> bool: ...
+    @property
+    def condense_enabled(self) -> bool: ...
+    @property
+    def decomposition_enabled(self) -> bool: ...
+    @property
+    def rolling_summary_enabled(self) -> bool: ...
+    @property
+    def cache_enabled(self) -> bool: ...
+
+    # Source extraction
+    @property
+    def source_min_score(self) -> float: ...
+
+    # Retrieval tuning (used by rag_steps, _helpers)
+    @property
+    def exact_ref_sparse_boost(self) -> float: ...
+
+    # LLM context budget (used by _helpers, rag_steps)
+    @property
+    def llm_num_ctx_narrow(self) -> int: ...
+    @property
+    def llm_num_ctx_broad(self) -> int: ...
+
+    # PII (used by rag_steps, rag_cache)
+    @property
+    def pii_redaction_enabled(self) -> bool: ...

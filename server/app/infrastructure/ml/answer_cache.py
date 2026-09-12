@@ -11,9 +11,8 @@ import json
 import logging
 import time
 
-from config import settings
 from infrastructure.bm25.hybrid import content_hash
-from infrastructure.persistence.redis_client import redis_client
+from infrastructure.redis.redis_client import redis_client
 
 log = logging.getLogger("default")
 
@@ -40,12 +39,13 @@ def _cache_key(question_hash: str, visibility_scope_hash: str) -> str:
 async def find_cached_answer(
     question_hash: str,
     visibility_scope_hash: str,
+    cache_enabled: bool = True,
 ) -> dict | None:
     """Look up a cached answer by question hash + visibility scope.
 
     Returns the cache entry dict or None on miss.
     """
-    if not settings.cache_enabled:
+    if not cache_enabled:
         return None
 
     try:
@@ -73,9 +73,10 @@ async def store_cached_answer(
     sources: list[dict],
     visibility_scope_hash: str,
     document_ids: list[int] | None = None,
+    cache_enabled: bool = True,
 ) -> None:
     """Store a question-answer pair in the cache."""
-    if not settings.cache_enabled:
+    if not cache_enabled:
         return
 
     try:

@@ -43,7 +43,7 @@ class TestPreviewStrategyFactory:
         assert isinstance(strategy, RtfPreviewStrategy)
 
     def test_doc_raises_error(self):
-        with pytest.raises(ValueError, match="не поддерживаются"):
+        with pytest.raises(ValueError, match="not supported"):
             PreviewStrategyFactory.for_extension(".doc")
 
     def test_unknown_extension_raises(self):

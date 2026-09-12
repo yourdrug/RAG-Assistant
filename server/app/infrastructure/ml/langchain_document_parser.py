@@ -38,29 +38,11 @@ log = logging.getLogger("detailed")
 
 _DECREE_FINGERPRINT_PREFIX_CHARS = 3000
 
-# Keyword-based document-type classification. Checked in order against the
-# first ~1500 chars of the document (title + opening lines usually make the
-# document's genre obvious); the first category with a match wins. This is
-# deliberately coarse — a cheap signal for filtering/ranking, not a legal
-# classification.
-_DOC_TYPE_KEYWORDS: list[tuple[str, list[str]]] = [
-    ("order", ["приказ", "распоряжение", "постановление"]),
-    ("contract", ["договор", "контракт", "соглашение"]),
-    ("protocol", ["протокол"]),
-    ("instruction", ["инструкция", "регламент", "порядок действий"]),
-    ("policy", ["положение о"]),
-    ("letter", ["письмо", "уведомление"]),
-    ("report", ["отчёт", "отчет"]),
-]
-_DOC_TYPE_SAMPLE_CHARS = 1500
-
-
-def _classify_doc_type(text_sample: str) -> str | None:
-    lowered = text_sample.lower()
-    for doc_type, keywords in _DOC_TYPE_KEYWORDS:
-        if any(kw in lowered for kw in keywords):
-            return doc_type
-    return None
+# Keyword-based document-type classification — delegated to domain layer.
+from domain.services.document_domain_classifier import (  # noqa: E402
+    DOC_TYPE_SAMPLE_CHARS,
+    classify_doc_type,
+)
 
 
 def _lc_to_raw(docs) -> list[RawDocument]:
@@ -249,8 +231,8 @@ class LangchainDocumentParser:
         if not doc_title:
             doc_title = file_path.stem
 
-        sample = f"{doc_title}\n{docs[0].page_content[:_DOC_TYPE_SAMPLE_CHARS]}"
-        doc_type = _classify_doc_type(sample)
+        sample = f"{doc_title}\n{docs[0].page_content[:DOC_TYPE_SAMPLE_CHARS]}"
+        doc_type = classify_doc_type(sample)
 
         for d in docs:
             d.metadata.setdefault("doc_title", doc_title)

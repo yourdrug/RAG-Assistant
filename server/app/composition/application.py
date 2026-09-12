@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from composition._utils import _require
 from composition.service_providers import create_ingestion_service
+from config import settings
 from infrastructure.adapters.chunk_search_adapter import ChunkSearchAdapter
 from infrastructure.bm25.bm25_updater import BM25IndexAdapter
 
@@ -45,7 +46,7 @@ log = logging.getLogger("default")
 
 def _get_openrouter_fetcher():
     """Return the OpenRouter model fetcher function."""
-    from infrastructure.admin.config_admin_adapter import fetch_openrouter_models
+    from infrastructure.ml.clients.factories import fetch_openrouter_models
 
     return fetch_openrouter_models
 
@@ -174,7 +175,7 @@ class ApplicationContainer:
             chat_settings=LiveChatSettings(),
             chat_log_service=self.chat_log_service,
             conversation_service=self.conversation_service,
-            pii_redactor=PIIRedactorAdapter(),
+            pii_redactor=PIIRedactorAdapter(pii_redaction_enabled=settings.pii_redaction_enabled),
         )
         self.auth_service = AuthService(
             uow_factory=uow,

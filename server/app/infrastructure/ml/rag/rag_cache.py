@@ -7,7 +7,6 @@ import logging
 import time
 from collections.abc import AsyncIterator
 
-from config import settings
 from domain.value_objects.llm_provider import Breadth
 from domain.value_objects.rag_settings import RagSettings
 from domain.value_objects.stream_events import PipelineMetaEvent, SourcesEvent, StreamEvent, TextChunk
@@ -31,7 +30,7 @@ async def check_cache(
     if not rag.features.cache_enabled:
         return None
     t0 = time.monotonic()
-    cached = await find_cached_answer(q_hash, vis_hash)
+    cached = await find_cached_answer(q_hash, vis_hash, cache_enabled=rag.features.cache_enabled)
     RAG_STAGE_DURATION.labels("cache_lookup").observe(time.monotonic() - t0)
     if cached is None:
         RAG_CACHE_MISSES_TOTAL.inc()
@@ -43,13 +42,14 @@ async def handle_cache_hit(
     cached: dict,
     q_hash: str,
     t_pipeline_start: float,
+    rag: RagSettings | None = None,
 ) -> AsyncIterator[StreamEvent]:
     """Yield events for a cache hit (answer text + sources)."""
     RAG_CACHE_HITS_TOTAL.inc()
     log.info("Cache hit for question hash=%s", q_hash[:12])
     answer_text = cached["answer"]
 
-    if settings.pii_redaction_enabled:
+    if rag is not None and rag.pii_redaction_enabled:
         from infrastructure.ml.guardrails.guardrails import get_pii_detector
 
         detector = get_pii_detector()
@@ -72,6 +72,7 @@ async def store_answer_cache(
     vis_hash: str,
     full_answer: str,
     sources: list[dict],
+    cache_enabled: bool = True,
 ) -> None:
     """Persist answer to cache for future lookups."""
     doc_ids = []
@@ -86,4 +87,5 @@ async def store_answer_cache(
         sources=sources,
         visibility_scope_hash=vis_hash,
         document_ids=doc_ids,
+        cache_enabled=cache_enabled,
     )

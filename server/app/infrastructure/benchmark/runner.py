@@ -7,11 +7,11 @@ then evaluates quality via LLM judge.
 import asyncio
 import json
 import logging
-import sys
 import time
 from pathlib import Path
 
 from config import _settings_overrides, get_setting, settings
+from domain.exceptions import BenchmarkQuestionsNotFound
 
 logger = logging.getLogger("default")
 
@@ -38,7 +38,7 @@ def load_questions(path: str) -> list[dict]:
         example_path = Path(path)
         example_path.write_text(json.dumps(EXAMPLE_QUESTIONS, ensure_ascii=False, indent=2), encoding="utf-8")
         logger.info("Отредактируй %s и запусти снова.", path)
-        sys.exit(0)
+        raise BenchmarkQuestionsNotFound(path)
 
     data = json.loads(p.read_text(encoding="utf-8"))
     logger.info("Загружено вопросов: %d", len(data))
@@ -91,6 +91,7 @@ async def run_benchmark_async(
     seed: int | None = None,
     n_runs: int = 1,
     rag_service=None,
+    fetch_k: int | None = None,
 ):
     """Async benchmark using the full RAG pipeline via RagService.invoke().
 
@@ -181,9 +182,9 @@ async def run_benchmark_async(
                     rag_llm = build_llm(
                         settings.llm_model, settings.ollama_base_url, provider=settings.llm_provider
                     )
-                    fetch_k = int(get_setting("rag.retriever_fetch_k"))
+                    fetch_k_val = fetch_k or int(get_setting("rag.retriever_fetch_k"))
                     docs_with_scores = await asyncio.to_thread(
-                        retrieve_with_scores_hybrid, q["question"], top_k, fetch_k
+                        retrieve_with_scores_hybrid, q["question"], top_k, fetch_k_val
                     )
                     answer, rag_response = await asyncio.to_thread(
                         get_rag_answer_with_usage, rag_llm, docs_with_scores, q["question"]

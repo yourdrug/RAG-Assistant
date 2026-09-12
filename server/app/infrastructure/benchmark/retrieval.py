@@ -10,16 +10,18 @@ from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
-from infrastructure.bm25.hybrid import content_hash, rrf_merge
+from application.services.retrieval import HybridRetriever
+from infrastructure.bm25.hybrid import content_hash
 from infrastructure.ml.clients.factories import (
     create_embeddings,
     create_qdrant_client,
     create_reranker,
     load_bm25_index,
 )
-from infrastructure.ml.rag import deduplicate_docs
 
 logger = logging.getLogger("default")
+
+_retriever = HybridRetriever()
 
 
 def _search_dense(
@@ -60,51 +62,38 @@ def _merge_and_dedup(
     dense_by_hash: dict[str, tuple[float, Document]],
     sparse_results: list[tuple[str, float]],
     fetch_k: int,
+    rrf_k: int | None = None,
+    dense_weight: float | None = None,
+    sparse_weight: float | None = None,
 ) -> list[Document]:
     """RRF merge + deduplication. Returns deduplicated candidate docs."""
-    if sparse_results:
-        merged_hashes = rrf_merge(
-            [(k, v[0]) for k, v in dense_by_hash.items()],
-            sparse_results,
-            k=int(get_setting("rag.rrf_k")),
-            dense_weight=float(get_setting("rag.dense_weight")),
-            sparse_weight=float(get_setting("rag.sparse_weight")),
-        )
-    else:
-        merged_hashes = [h for h, _ in [(k, v[0]) for k, v in dense_by_hash.items()]]
-
-    seen = set()
-    candidate_docs: list[Document] = []
-    for h in merged_hashes:
-        if h in seen:
-            continue
-        seen.add(h)
-        if h in dense_by_hash:
-            candidate_docs.append(dense_by_hash[h][1])
-        if len(candidate_docs) >= fetch_k:
-            break
-
-    return deduplicate_docs(candidate_docs)
+    dense_results = [(h, v[0]) for h, v in dense_by_hash.items()]
+    return _retriever.merge_and_dedup(
+        dense_results=dense_results,
+        sparse_results=sparse_results,
+        dense_by_hash=dense_by_hash,
+        fetch_k=fetch_k,
+        rrf_k=rrf_k if rrf_k is not None else int(get_setting("rag.rrf_k")),
+        dense_weight=dense_weight if dense_weight is not None else float(get_setting("rag.dense_weight")),
+        sparse_weight=sparse_weight if sparse_weight is not None else float(get_setting("rag.sparse_weight")),
+    )
 
 
 def _apply_rerank_filters(
     ranked: list[tuple[Document, float]],
+    min_score: float | None = None,
+    score_gap_ratio: float | None = None,
 ) -> list[tuple[Document, float]]:
     """Apply min_score and score_gap_ratio filters to ranked results."""
-    min_score = get_setting("rag.rerank_min_score")
-    gap_ratio = get_setting("rag.rerank_score_gap_ratio")
-
-    if min_score is not None:
-        min_score = float(min_score)
-        ranked = [(d, s) for d, s in ranked if s >= min_score]
-
-    if gap_ratio is not None and ranked:
-        gap_ratio = float(gap_ratio)
-        top_score = ranked[0][1]
-        cutoff = top_score * gap_ratio
-        ranked = [(d, s) for d, s in ranked if s >= cutoff]
-
-    return ranked
+    if min_score is None:
+        min_score = get_setting("rag.rerank_min_score")
+    if score_gap_ratio is None:
+        score_gap_ratio = get_setting("rag.rerank_score_gap_ratio")
+    return _retriever.apply_rerank_filters(
+        ranked,
+        min_score=min_score,
+        score_gap_ratio=score_gap_ratio,
+    )
 
 
 def retrieve_with_scores_hybrid(question: str, top_k: int, fetch_k: int) -> list[tuple[Document, float]]:

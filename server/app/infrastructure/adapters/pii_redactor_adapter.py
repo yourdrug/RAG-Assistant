@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from config import settings
-
 
 class PIIRedactorAdapter:
     """Implements PIIRedactorPort using infrastructure.ml.guardrails.PIIDetector."""
 
+    def __init__(self, pii_redaction_enabled: bool = False) -> None:
+        self._enabled = pii_redaction_enabled
+
     def redact(self, text: str) -> str:
-        if not settings.pii_redaction_enabled:
+        if not self._enabled:
             return text
 
         from infrastructure.ml.guardrails.guardrails import get_pii_detector

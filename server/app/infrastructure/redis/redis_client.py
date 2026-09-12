@@ -2,7 +2,7 @@
 
 Usage::
 
-    from infrastructure.persistence.redis_client import redis_client
+    from infrastructure.redis.redis_client import redis_client
 
     # In lifespan startup:
     await redis_client.init()

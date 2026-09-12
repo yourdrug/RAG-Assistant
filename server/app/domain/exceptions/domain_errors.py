@@ -117,3 +117,13 @@ class PermissionDeniedError(ClientException):
         elif isinstance(required, list):
             errors["required_any_of"] = required
         super().__init__(message="Недостаточно прав", errors=errors or None)
+
+
+class BenchmarkQuestionsNotFound(ClientException):
+    """Benchmark questions file missing and example created (404)."""
+
+    def __init__(self, path: str) -> None:
+        super().__init__(
+            message=f"Benchmark questions file not found: {path}. Example file created.",
+            errors={"path": path},
+        )

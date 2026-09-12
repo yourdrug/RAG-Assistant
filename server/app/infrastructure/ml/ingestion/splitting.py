@@ -14,6 +14,7 @@ from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.page_content_type import PageContentType
 
 if TYPE_CHECKING:
+    from application.ports.chunk_settings import ChunkSettingsPort
     from application.ports.domain_settings import DomainSettingsPort
     from domain.domain_profile.protocol import DomainProfile
 
@@ -226,6 +227,7 @@ def split_documents(
     domain: str = DocDomain.GENERAL.value,
     profile: "DomainProfile | None" = None,
     settings: "DomainSettingsPort | None" = None,
+    chunk_settings: "ChunkSettingsPort | None" = None,
 ) -> list[Document]:
     """Split documents into chunks.
 
@@ -247,7 +249,7 @@ def split_documents(
     elif domain == DocDomain.LEGAL.value:
         chunks = split_documents_legal(text_docs, settings)
     else:
-        chunks = _split_char_general(text_docs)
+        chunks = _split_char_general(text_docs, chunk_settings=chunk_settings)
 
     # Split large tables into row batches with repeated headers
     for table_doc in tables:
@@ -416,11 +418,20 @@ def _get_domain_setting(settings, key: str, domain_key: str, default: int) -> in
         return default
 
 
-def _split_char_general(docs: list[Document]) -> list[Document]:
+def _split_char_general(
+    docs: list[Document],
+    chunk_settings: "ChunkSettingsPort | None" = None,
+) -> list[Document]:
     """Char-based splitting for unstructured domains (paragraph-aware separators)."""
+    if chunk_settings is not None:
+        chunk_size = chunk_settings.chunk_size
+        chunk_overlap = chunk_settings.chunk_overlap
+    else:
+        chunk_size = settings.chunk_size
+        chunk_overlap = settings.chunk_overlap
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=settings.chunk_size,
-        chunk_overlap=settings.chunk_overlap,
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
         length_function=len,
         separators=GENERAL_SEPARATORS,
     )
@@ -430,14 +441,19 @@ def _split_char_general(docs: list[Document]) -> list[Document]:
 def split_documents_legal(
     docs: list[Document],
     domain_settings: "DomainSettingsPort | None" = None,
+    chunk_settings: "ChunkSettingsPort | None" = None,
 ) -> list[Document]:
     """Split legal documents into chunks with larger size and legal-aware separators.
 
     Reads legal_chunk_size and legal_chunk_overlap from domain settings if
-    available, otherwise falls back to defaults (1000 / 250).
+    available, otherwise falls back to chunk_settings or global defaults.
     """
-    chunk_size = settings.legal_chunk_size
-    chunk_overlap = settings.legal_chunk_overlap
+    if chunk_settings is not None:
+        chunk_size = chunk_settings.legal_chunk_size
+        chunk_overlap = chunk_settings.legal_chunk_overlap
+    else:
+        chunk_size = settings.legal_chunk_size
+        chunk_overlap = settings.legal_chunk_overlap
     if domain_settings is not None:
         try:
             chunk_size = int(domain_settings.get("legal_chunk_size", "legal"))

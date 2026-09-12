@@ -45,7 +45,7 @@ from infrastructure.ml.rag.rag_steps import (
     step_self_rag,
 )
 from infrastructure.ml.rag_pipeline import RagPipelineState
-from infrastructure.vector.acl import build_qdrant_filter, with_temporal_filter
+from infrastructure.repositories.vector.acl import build_qdrant_filter, with_temporal_filter
 from shared import request_id_ctx
 
 # Backward-compat re-exports (used by test_rag_pipeline.py, test_rag_service_characterization.py)

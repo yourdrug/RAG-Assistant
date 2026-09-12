@@ -11,19 +11,22 @@ Phase B (expensive): full LLM-judge evaluation on top-N configs.
 
 from __future__ import annotations
 
-import itertools
 import logging
-import random
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from config import _settings_overrides, settings
 from domain.entities.benchmark_sweep import BenchmarkSweep
 from domain.value_objects.benchmark_strategy import BenchmarkStrategy
-from langchain.schema import Document as LCDocument
 
+from infrastructure.benchmark._sweep_scoring import (
+    cache_candidates,
+    compute_composite_score,
+    generate_grid_points,
+    generate_random_points,
+    score_config_cheap,
+)
 from infrastructure.benchmark.runner import load_questions
-from infrastructure.bm25.hybrid import content_hash, rrf_merge
 
 logger = logging.getLogger("default")
 
@@ -52,76 +55,6 @@ EXPENSIVE_PARAMS = frozenset(
         "chunk_overlap",
     }
 )
-
-
-def generate_grid_points(search_space: dict) -> list[dict]:
-    """Generate all parameter combinations (cartesian product)."""
-    param_lists = {}
-    for param, spec in search_space.items():
-        if "values" in spec:
-            param_lists[param] = spec["values"]
-        elif "min" in spec and "max" in spec and "step" in spec:
-            param_lists[param] = []
-            v = spec["min"]
-            while v <= spec["max"] + 1e-9:
-                param_lists[param].append(round(v, 6))
-                v += spec["step"]
-        else:
-            param_lists[param] = [spec.get("default", 0)]
-
-    keys = list(param_lists.keys())
-    return [dict(zip(keys, combo, strict=False)) for combo in itertools.product(*param_lists.values())]
-
-
-def generate_random_points(search_space: dict, n: int) -> list[dict]:
-    """Generate N random parameter combinations."""
-    points = []
-    for _ in range(n):
-        point = {}
-        for param, spec in search_space.items():
-            if "values" in spec:
-                point[param] = random.choice(spec["values"])  # noqa: S311
-            elif "min" in spec and "max" in spec:
-                if isinstance(spec.get("step"), float) or isinstance(spec.get("min"), float):
-                    point[param] = round(random.uniform(spec["min"], spec["max"]), 6)  # noqa: S311
-                else:
-                    point[param] = random.randint(int(spec["min"]), int(spec["max"]))  # noqa: S311
-            else:
-                point[param] = spec.get("default", 0)
-        points.append(point)
-    return points
-
-
-def compute_composite_score(
-    metrics: dict,
-    weights: dict,
-) -> float:
-    """Compute weighted composite score from retrieval + generator metrics."""
-    score = 0.0
-    total_weight = 0.0
-
-    weight_map = {
-        "hit_rate": weights.get("hit_rate", 0.0),
-        "mrr": weights.get("mrr", 0.0),
-        "faithfulness": weights.get("faithfulness", 0.0),
-        "relevancy": weights.get("relevancy", 0.0),
-        "correctness": weights.get("correctness", 0.0),
-        "avg_similarity": weights.get("avg_similarity", 0.0),
-    }
-
-    for metric, w in weight_map.items():
-        if w <= 0:
-            continue
-        val = metrics.get(metric)
-        if val is None:
-            continue
-        # Normalize LLM metrics from 0-10 to 0-1
-        if metric in ("faithfulness", "relevancy", "correctness"):
-            val = val / 10.0
-        score += w * val
-        total_weight += w
-
-    return round(score / total_weight, 4) if total_weight > 0 else 0.0
 
 
 class SweepEngine:
@@ -375,58 +308,7 @@ class SweepEngine:
 
     async def _cache_candidates(self, questions: list[dict], max_fetch_k: int) -> tuple[dict, dict, dict]:
         """Phase 1: Cache dense + sparse candidates at max fetch_k."""
-        dense_cache: dict[str, list] = {}
-        sparse_cache: dict[str, list] = {}
-        all_candidates: dict[str, LCDocument] = {}
-
-        if self._ml_clients is not None:
-            client = self._ml_clients.qdrant_client()
-            embeddings = self._ml_clients.embeddings()
-            bm25_index = self._ml_clients.bm25_index()
-        else:
-            from infrastructure.ml.clients.factories import (
-                create_embeddings,
-                create_qdrant_client,
-                load_bm25_index,
-            )
-
-            client = create_qdrant_client()
-            embeddings = create_embeddings()
-            bm25_index = load_bm25_index()
-
-        for q in questions:
-            qtext = q["question"]
-
-            # Dense search
-            dense_results = []
-            for point in client.search(
-                collection_name=settings.collection_name,
-                query_vector=embeddings.embed_query_sync(qtext),
-                limit=max_fetch_k,
-            ):
-                payload = point.payload or {}
-                page_content = payload.get("page_content", "")
-                metadata = payload.get("metadata", {})
-                h = metadata.get("content_hash") or content_hash(page_content)
-                doc = LCDocument(page_content=page_content, metadata=metadata)
-                dense_results.append((h, point.score, doc))
-                all_candidates[h] = doc
-            dense_cache[qtext] = dense_results
-
-            # Sparse search
-            if bm25_index:
-                sparse_results = bm25_index.search_with_hashes(qtext, max_fetch_k)
-            else:
-                sparse_results = []
-            sparse_cache[qtext] = sparse_results
-
-        logger.info(
-            "Cache built: %d dense, %d sparse, %d unique hashes",
-            sum(len(v) for v in dense_cache.values()),
-            sum(len(v) for v in sparse_cache.values()),
-            len(all_candidates),
-        )
-        return dense_cache, sparse_cache, all_candidates
+        return await cache_candidates(questions, max_fetch_k, ml_clients=self._ml_clients)
 
     def _score_config_cheap(
         self,
@@ -438,70 +320,7 @@ class SweepEngine:
         weights: dict,
     ) -> dict:
         """Phase A: Score a config using cached candidates (no LLM/Qdrant calls)."""
-        top_k = config.get("top_k", settings.retriever_top_k)
-        fetch_k = config.get("fetch_k", settings.retriever_fetch_k)
-        dw = config.get("dense_weight", settings.dense_weight)
-        sw = config.get("sparse_weight", settings.sparse_weight)
-        rrf_k = config.get("rrf_k", settings.rrf_k)
-
-        hit_rates = []
-        mrrs = []
-
-        for q in questions:
-            qtext = q["question"]
-            source_hint = q.get("source_hint")
-            if source_hint is None:
-                continue
-
-            # Trim to fetch_k
-            dense_trimmed = dense_cache.get(qtext, [])[:fetch_k]
-            sparse_trimmed = sparse_cache.get(qtext, [])[:fetch_k]
-
-            # RRF merge
-            merged_hashes = rrf_merge(
-                [(h, score) for h, score, _doc in dense_trimmed],
-                sparse_trimmed,
-                k=rrf_k,
-                dense_weight=dw,
-                sparse_weight=sw,
-            )
-
-            # Dedup and take top_k
-            seen = set()
-            top_hashes = []
-            for h in merged_hashes:
-                if h not in seen:
-                    seen.add(h)
-                    top_hashes.append(h)
-                    if len(top_hashes) >= top_k:
-                        break
-
-            # Compute hit_rate and MRR
-            hit = 0
-            mrr = 0.0
-            for rank, h in enumerate(top_hashes, 1):
-                doc = all_candidates.get(h)
-                if doc is None:
-                    continue
-                filename = doc.metadata.get("filename", "") or doc.metadata.get("source", "")
-                if source_hint.lower() in filename.lower():
-                    hit = 1
-                    if mrr == 0.0:
-                        mrr = 1.0 / rank
-                    break
-
-            hit_rates.append(hit)
-            mrrs.append(mrr)
-
-        avg_hr = sum(hit_rates) / len(hit_rates) if hit_rates else 0
-        avg_mrr = sum(mrrs) / len(mrrs) if mrrs else 0
-
-        metrics = {
-            "avg_hit_rate": round(avg_hr, 3),
-            "avg_mrr": round(avg_mrr, 4),
-        }
-        metrics["composite_score"] = compute_composite_score({"hit_rate": avg_hr, "mrr": avg_mrr}, weights)
-        return metrics
+        return score_config_cheap(config, questions, dense_cache, sparse_cache, all_candidates, weights)
 
     def _build_overrides(self, config: dict) -> dict[str, object]:
         """Build a settings override dict from a sweep config point."""

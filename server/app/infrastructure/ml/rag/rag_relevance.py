@@ -22,7 +22,7 @@ RELEVANCE_SYSTEM = (
 
 def _get_rag_instructor_client():
     """Create instructor client for relevance checks (Ollama or OpenRouter)."""
-    from infrastructure.llm.instructor_client import create_llm_instructor_client
+    from infrastructure.ml.clients.instructor_client import create_llm_instructor_client
 
     client, _model = create_llm_instructor_client()
     return client

@@ -14,7 +14,8 @@ from domain.value_objects.rag_settings import RagSettings
 from langchain.schema import Document as LCDocument
 from qdrant_client.models import FieldCondition, Filter, MatchValue
 
-from infrastructure.bm25.hybrid import content_hash, rrf_merge
+from application.services.retrieval import HybridRetriever
+from infrastructure.bm25.hybrid import content_hash
 from infrastructure.metrics.metrics import RAG_STAGE_DURATION
 from infrastructure.ml.rag.rag_reranking import deduplicate_docs
 
@@ -22,6 +23,8 @@ if TYPE_CHECKING:
     from infrastructure.ml.clients.client_registry import MLClientRegistry
 
 log = logging.getLogger("default")
+
+_retriever = HybridRetriever()
 
 
 async def resolve_hashes_batch(
@@ -125,26 +128,19 @@ async def run_hybrid_search(
         effective_dense = dense_weight if dense_weight is not None else rag.hybrid_search.dense_weight
         effective_sparse = sparse_weight if sparse_weight is not None else rag.hybrid_search.sparse_weight
 
-        merged_hashes = rrf_merge(
-            [(h, s) for h, s, _ in dense_results],
-            sparse_results,
-            k=rag.hybrid_search.rrf_k,
+        candidates = _retriever.merge_and_dedup(
+            dense_results=[(h, s) for h, s, _ in dense_results],
+            sparse_results=sparse_results,
+            dense_by_hash=dense_by_hash,
+            fetch_k=fetch_k,
+            rrf_k=rag.hybrid_search.rrf_k,
             dense_weight=effective_dense,
             sparse_weight=effective_sparse,
         )
 
-        candidates = []
-        seen_hashes = set()
-        missing_hashes = []
-        for h in merged_hashes:
-            if h in seen_hashes:
-                continue
-            seen_hashes.add(h)
-            if h in dense_by_hash:
-                candidates.append(dense_by_hash[h][1])
-            else:
-                missing_hashes.append(h)
-
+        # Resolve any hashes that weren't in dense_by_hash (sparse-only results)
+        seen_hashes = {content_hash(doc.page_content) for doc in candidates}
+        missing_hashes = [h for h, _ in sparse_results if h not in seen_hashes]
         if missing_hashes:
             resolved = await resolve_hashes_batch(missing_hashes, access_filter, ml_clients)
             for h in missing_hashes:

@@ -12,7 +12,7 @@ from domain.entities.chunk import Chunk
 from langchain.schema import Document as LCDocument
 from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
 
-from infrastructure.vector.qdrant_ops import ensure_collection, upload_to_qdrant
+from infrastructure.repositories.vector.qdrant_ops import ensure_collection, upload_to_qdrant
 
 if TYPE_CHECKING:
     from infrastructure.ml.clients.client_registry import MLClientRegistry

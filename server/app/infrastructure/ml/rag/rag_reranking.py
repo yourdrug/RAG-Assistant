@@ -35,15 +35,10 @@ async def rerank_documents(
 
     ranked = sorted(zip(docs, scores, strict=False), key=lambda x: x[1], reverse=True)[:top_n]
 
-    if min_score is not None:
-        ranked = [(d, s) for d, s in ranked if s >= min_score]
+    from application.services.retrieval import HybridRetriever
 
-    if score_gap_ratio is not None and ranked:
-        top_score = ranked[0][1]
-        cutoff = top_score * score_gap_ratio
-        ranked = [(d, s) for d, s in ranked if s >= cutoff]
-
-    return ranked
+    retriever = HybridRetriever()
+    return retriever.apply_rerank_filters(ranked, min_score=min_score, score_gap_ratio=score_gap_ratio)
 
 
 def deduplicate_docs(docs: list) -> list:

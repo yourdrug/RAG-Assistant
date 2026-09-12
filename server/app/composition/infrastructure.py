@@ -17,14 +17,13 @@ from composition._utils import _missing_fields, _require
 
 if TYPE_CHECKING:
     from application.services.preview_cache import PreviewCache
-    from infrastructure.admin.config_admin_adapter import OllamaProbe, QdrantInfo
     from infrastructure.auth.api_key_provider import ApiKeyProvider
     from infrastructure.database.database import DatabaseManager
     from domain.domain_profile.registry import DomainProfileRegistry
     from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
     from infrastructure.events.postgres_config_broadcaster import PostgresConfigBroadcaster
     from infrastructure.events.postgres_config_listener import PostgresConfigListener
-    from infrastructure.health.system_health_probe import SystemHealthProbe
+    from infrastructure.health.system_health_probe import OllamaProbe, QdrantInfo, SystemHealthProbe
     from infrastructure.ml.clients.client_registry import MLClientRegistry
     from infrastructure.ml.extraction.extraction_adapter import MLContentExtractor, MLPDFQualityAssessor
     from infrastructure.ml.langchain_document_parser import (
@@ -40,7 +39,7 @@ if TYPE_CHECKING:
     from application.services.benchmark_orchestrator import BenchmarkService
     from infrastructure.storage import LazyStorage
     from infrastructure.uow_factory import UnitOfWorkFactory
-    from infrastructure.vector.outbox_dispatcher import OutboxDispatcher
+    from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
     from infrastructure.events.postgres_outbox_listener import PostgresOutboxListener
 
 log = logging.getLogger("default")
@@ -190,7 +189,7 @@ class EventContainer:
         domain_settings=None,
     ) -> None:
         from infrastructure.events.postgres_config_listener import PostgresConfigListener
-        from infrastructure.vector.outbox_dispatcher import OutboxDispatcher
+        from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
         from infrastructure.events.postgres_outbox_listener import PostgresOutboxListener
         from config import settings as app_settings
 
@@ -232,13 +231,12 @@ class ServiceContainer:
     api_key_provider: ApiKeyProvider | None = field(default=None)
 
     def init(self) -> None:
-        from infrastructure.admin.config_admin_adapter import OllamaProbe, QdrantInfo
         from infrastructure.auth.api_key_provider import api_key_provider
-        from infrastructure.health.system_health_probe import SystemHealthProbe
+        from infrastructure.health.system_health_probe import OllamaProbe, QdrantInfo, SystemHealthProbe
 
         self.health_probe = SystemHealthProbe()
-        self.ollama_probe = OllamaProbe()
-        self.qdrant_info = QdrantInfo()
+        self.ollama_probe = OllamaProbe(health_probe=self.health_probe)
+        self.qdrant_info = QdrantInfo(health_probe=self.health_probe)
         self.api_key_provider = api_key_provider
 
     @property
