@@ -12,6 +12,7 @@ from domain.value_objects.capabilities import Capability
 from domain.value_objects.doc_domain import DocDomain
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from infrastructure.logging.actions import log_action
+from infrastructure.ml.answer_cache import invalidate_by_document_ids
 from infrastructure.worker.queue import enqueue_document_processing
 
 from presentation.api.auth_dependencies import get_current_user, require_capability
@@ -188,6 +189,7 @@ async def delete_document(
     document_service: DocumentService = Depends(create_document_service),
 ):
     await document_service.delete_document(document_id, current_user["id"], current_user["role"])
+    await invalidate_by_document_ids([document_id], cache_enabled=settings.cache_enabled)
     log_action("document.delete", user_id=current_user["id"], details={"document_id": document_id})
     return {"status": "deleted", "document_id": document_id}
 

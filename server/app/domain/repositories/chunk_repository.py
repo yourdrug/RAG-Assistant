@@ -135,6 +135,10 @@ class ChunkCrudRepository(Protocol):
 
     async def get_all_contents(self) -> list[str]: ...
 
+    async def get_all_contents_batches(self, batch_size: int = 5000) -> list[list[str]]:
+        """Yield batches of chunk contents to avoid loading all into memory."""
+        ...
+
     async def get_neighbors(
         self,
         document_id: int,

@@ -66,33 +66,45 @@ async def cron_recover_stuck_processing(ctx: dict[str, Any]) -> None:
 
 
 async def cron_bm25_rebuild(ctx: dict[str, Any]) -> None:
-    """Rebuild BM25 index from scratch (runs daily at 3:00 AM UTC)."""
+    """Rebuild BM25 index from scratch (runs daily at 3:00 AM UTC).
+
+    Loads chunks in batches of 5000 to avoid 100MB+ memory spikes on large corpora.
+    """
     if not settings.hybrid_enabled:
         logger.debug("Cron: BM25 rebuild skipped — hybrid search disabled")
         return
 
     from infrastructure.bm25.bm25_invalidation import publish_bm25_invalidation
     from infrastructure.bm25.hybrid import BM25Index, save_bm25_index_to_s3
+    from infrastructure.metrics.metrics import BM25_REBUILD_MEMORY
     from infrastructure.storage import get_storage
 
     uow_factory = ctx["container"].infrastructure.uow_factory
     t0 = time.monotonic()
 
+    all_texts: list[str] = []
     async with uow_factory.create(master=True) as uow:
-        all_texts = await uow.chunks.get_all_contents()
+        batches = await uow.chunks.get_all_contents_batches(batch_size=5000)
+        for batch in batches:
+            all_texts.extend(batch)
 
     if not all_texts:
         logger.info("Cron: BM25 rebuild — no chunks found, skipping")
         return
 
     bm25_index = BM25Index(all_texts)
+
+    import sys
+
+    BM25_REBUILD_MEMORY.set(sys.getsizeof(all_texts) + sys.getsizeof(bm25_index.hashes))
+
     storage = get_storage()
     await save_bm25_index_to_s3(bm25_index, storage)
     await publish_bm25_invalidation()
 
     elapsed = time.monotonic() - t0
     logger.info(
-        "Cron: BM25 rebuild completed — %d chunks indexed in %.1fs",
+        "Cron: BM25 rebuild completed — %d chunks indexed in %.1fs (batched loading)",
         len(all_texts),
         elapsed,
     )

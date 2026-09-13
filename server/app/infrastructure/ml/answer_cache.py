@@ -7,6 +7,7 @@ Uses Redis for fast in-memory lookups with TTL-based expiration.
 
 from __future__ import annotations
 
+import gzip
 import json
 import logging
 import time
@@ -55,10 +56,10 @@ async def find_cached_answer(
         if raw is None:
             return None
 
-        entry = json.loads(raw)
+        entry = json.loads(gzip.decompress(raw))
         entry["hit_count"] = entry.get("hit_count", 0) + 1
 
-        await r.set(key, json.dumps(entry), keepttl=True)
+        await r.set(key, gzip.compress(json.dumps(entry).encode()), keepttl=True)
 
         return entry
     except Exception:
@@ -90,7 +91,47 @@ async def store_cached_answer(
             "hit_count": 0,
             "created_at": time.time(),
         }
-        await r.set(key, json.dumps(entry), ex=CACHE_TTL_SECONDS)
+        await r.set(key, gzip.compress(json.dumps(entry).encode()), ex=CACHE_TTL_SECONDS)
         log.info("Cached answer for question hash=%s (ttl=%ds)", question_hash[:12], CACHE_TTL_SECONDS)
     except Exception:
         log.exception("Failed to store cached answer")
+
+
+async def invalidate_by_document_ids(
+    document_ids: list[int],
+    cache_enabled: bool = True,
+) -> int:
+    """Invalidate all cache entries containing any of the given document_ids.
+
+    Returns count of invalidated entries.
+    """
+    if not cache_enabled or not document_ids:
+        return 0
+
+    doc_id_set = set(document_ids)
+    invalidated = 0
+
+    try:
+        r = redis_client.async_redis
+        pattern = f"{CACHE_PREFIX}*"
+
+        async for key in r.scan_iter(match=pattern, count=100):
+            raw = await r.get(key)
+            if raw is None:
+                continue
+            try:
+                entry = json.loads(gzip.decompress(raw))
+            except Exception:
+                log.debug("Skipping corrupted cache entry %s", key)
+                continue
+            cached_doc_ids = entry.get("document_ids", [])
+            if any(did in doc_id_set for did in cached_doc_ids):
+                await r.delete(key)
+                invalidated += 1
+
+        if invalidated:
+            log.info("Invalidated %d cache entries for document_ids=%s", invalidated, document_ids)
+        return invalidated
+    except Exception:
+        log.exception("Cache invalidation failed")
+        return 0

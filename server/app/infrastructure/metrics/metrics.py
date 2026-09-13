@@ -222,6 +222,33 @@ HTTP_REQUESTS_TOTAL = Counter(
 )
 
 # ---------------------------------------------------------------------------
+# BM25 / Qdrant / Cache observability (Phase 6)
+# ---------------------------------------------------------------------------
+
+BM25_UPDATE_DURATION = Histogram(
+    "bm25_update_duration_seconds",
+    "Duration of BM25 incremental update operations (add/replace/remove)",
+    ["operation"],
+    buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0),
+)
+
+QDRANT_UPSERT_DURATION = Histogram(
+    "qdrant_batch_upsert_duration_seconds",
+    "Duration of Qdrant batch upsert operations",
+    buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0),
+)
+
+BM25_REBUILD_MEMORY = Gauge(
+    "bm25_rebuild_memory_bytes",
+    "Memory used during BM25 index rebuild",
+)
+
+CACHE_COMPRESSION_RATIO = Gauge(
+    "cache_compression_ratio",
+    "Ratio of compressed vs uncompressed cache entry size",
+)
+
+# ---------------------------------------------------------------------------
 # GenAI observability (OTel semantic conventions)
 # ---------------------------------------------------------------------------
 

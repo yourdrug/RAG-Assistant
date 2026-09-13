@@ -119,7 +119,7 @@ class TestDensityScoreClassification:
 
 class TestAmbiguityDetection:
     def test_sticky_prior_boosts_domain(self):
-        text = "УКАЗ ПРЕЗИДЕНТА\n" "ПОСТАНОВЛЯЮ:\n" "1. Мера.\n"
+        text = "УКАЗ ПРЕЗИДЕНТА\nПОСТАНОВЛЯЮ:\n1. Мера.\n"
         reg = _make_registry()
         # Without prior — may be ambiguous or not
         result_no_prior = reg.classify(text, settings=FakeSettings())
@@ -389,13 +389,7 @@ class TestMarginRatioRealProfiles:
         reg.register(GeneralDomainProfile())
         reg.register(LegalDomainProfile(settings=FakeSettings()))
         reg.register(DecreeDomainProfile(settings=FakeSettings()))
-        text = (
-            "УКАЗ ПРЕЗИДЕНТА\n"
-            "ПОСТАНОВЛЯЮ:\n"
-            "1. Первый пункт.\n"
-            "2. Второй пункт.\n"
-            "3. Третий пункт.\n"
-        )
+        text = "УКАЗ ПРЕЗИДЕНТА\nПОСТАНОВЛЯЮ:\n1. Первый пункт.\n2. Второй пункт.\n3. Третий пункт.\n"
         result = reg.classify(text, settings=FakeSettings())
         # Strong decree signals → should not be ambiguous
         if result.domain_key == "decree":

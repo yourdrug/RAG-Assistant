@@ -17,6 +17,7 @@ from domain.value_objects.roles import UserRole
 from fastapi import Depends
 from fastapi.security import APIKeyHeader
 
+from presentation.api.constants import AUTH_SCHEME_API_KEY, AUTH_SCHEME_BEARER
 from presentation.api.dependencies import create_api_key_provider, create_auth_service
 
 auth_key_header = APIKeyHeader(
@@ -93,10 +94,10 @@ async def get_current_user(
 
     scheme, credentials = parsed
 
-    if scheme.lower() == "bearer":
+    if scheme.lower() == AUTH_SCHEME_BEARER:
         return await _authenticate_via_jwt(credentials, auth_service)
 
-    if scheme.lower() == "api-key":
+    if scheme.lower() == AUTH_SCHEME_API_KEY:
         return await _authenticate_via_api_key(credentials, auth_service, api_key_provider)
 
     raise AuthenticationError("Unsupported authorization scheme")

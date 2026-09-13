@@ -5,12 +5,15 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Literal
 
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
+
 from domain.value_objects.benchmark_dataset import BenchmarkDataset
 from domain.value_objects.benchmark_strategy import BenchmarkStrategy
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.search_mode import SearchMode
 from domain.value_objects.source_type import SourceType
-from pydantic import BaseModel, ConfigDict, Field
+from presentation.api.constants import AUTH_SCHEME_BEARER
+
 
 # ---------------------------------------------------------------------------
 # Health
@@ -38,6 +41,8 @@ class HealthResponse(BaseModel):
 
 
 class BenchmarkRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     questions_path: str | None = None
     out_dir: str | None = None
     top_k: int | None = None
@@ -82,6 +87,8 @@ class UploadStatusResponse(BaseModel):
 
 
 class DocumentRenameRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     filename: str = Field(..., min_length=1, max_length=255)
 
 
@@ -145,8 +152,10 @@ class UploadResponse(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    email: str
-    password: str
+    model_config = ConfigDict(extra="forbid")
+
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=128)
 
 
 # ---------------------------------------------------------------------------
@@ -163,6 +172,8 @@ class MessageResponse(BaseModel):
 
 
 class ChatRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     question: str = Field(..., min_length=1, max_length=16000)
     conversation_id: int | None = None
     depth: Literal["narrow", "broad"] | None = None
@@ -204,6 +215,8 @@ class GroupMemberResponse(BaseModel):
 
 
 class ApiKeyCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str
 
 
@@ -229,15 +242,17 @@ class ApiKeyResponse(BaseModel):
 
 
 class CreateUserRequest(BaseModel):
-    email: str
-    password: str
+    model_config = ConfigDict(extra="forbid")
+
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=128)
     role: str | None = None
     kind: str | None = None
 
 
 class TokenResponse(BaseModel):
     access_token: str
-    token_type: str = "bearer"
+    token_type: str = AUTH_SCHEME_BEARER
 
 
 class UserResponse(BaseModel):
@@ -256,6 +271,8 @@ class UserListResponse(BaseModel):
 
 
 class ChangeRoleRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     role: str
 
 
@@ -296,10 +313,14 @@ class ConversationListResponse(BaseModel):
 
 
 class CreateGroupRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str
 
 
 class GroupMemberRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     user_id: int
 
 
@@ -320,6 +341,8 @@ class ConfigParamResponse(BaseModel):
 
 
 class ConfigParamUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     value: str
 
 
@@ -469,6 +492,8 @@ class ChatLogsResponse(BaseModel):
 
 
 class ExactSearchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     query: str = Field(..., min_length=3, max_length=200, description="Search query (min 3 chars)")
     mode: str = Field(
         SearchMode.EXACT.value,
@@ -525,12 +550,16 @@ class ChunkResponse(BaseModel):
 
 
 class ChunkCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     content: str = Field(..., min_length=1, max_length=10000)
     page: int | None = Field(None, description="Page number (optional)")
     section: str | None = Field(None, description="Section name (optional)")
 
 
 class ChunkEditRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     content: str = Field(..., min_length=1, max_length=10000)
 
 
@@ -548,6 +577,8 @@ class ChunkCursorListResponse(BaseModel):
 
 
 class ManualDocumentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     title: str = Field(..., min_length=1, max_length=255)
     visibility: str
     group_id: int | None = None
@@ -596,6 +627,8 @@ class BenchmarkQuestionsListResponse(BaseModel):
 
 
 class BenchmarkQuestionsImportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     questions: list[BenchmarkQuestionCreate]
 
 
@@ -609,6 +642,8 @@ class BenchmarkQuestionsImportResponse(BaseModel):
 
 
 class SweepCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     strategy: str = Field(BenchmarkStrategy.GRID.value, pattern="^(grid|random|successive_halving)$")
     search_space: dict
     objective_weights: dict = Field(

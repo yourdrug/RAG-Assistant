@@ -192,7 +192,7 @@ class TestEffectiveDateFallback:
         from datetime import date
 
         profile = LegalDomainProfile()
-        text = "Федеральный закон вступает в силу со дня 1 июня 2026 года.\n" "Статья 1. Общие положения.\n"
+        text = "Федеральный закон вступает в силу со дня 1 июня 2026 года.\nСтатья 1. Общие положения.\n"
         result = profile.extract_effective_date(text)
         assert result is not None
         assert result.effective_from == date(2026, 6, 1)
@@ -225,7 +225,7 @@ class TestDecreeFingerprintVariations:
     def test_fingerprint_with_postanovlyaet(self):
         """ПОСТАНОВЛЯЕТ (not ПОСТАНОВЛЯЮ) should also fire fingerprint."""
         profile = DecreeDomainProfile(settings=FakeSettings())
-        text = "УКАЗ ПРЕЗИДЕНТА\n" "ПОСТАНОВЛЯЕТ:\n" "1. Пункт первый.\n"
+        text = "УКАЗ ПРЕЗИДЕНТА\nПОСТАНОВЛЯЕТ:\n1. Пункт первый.\n"
         assert profile.structural_fingerprint(text) is True
 
     def test_fingerprint_requires_all_three_elements(self):
@@ -238,7 +238,7 @@ class TestDecreeFingerprintVariations:
     def test_fingerprint_ignores_lowercase_ukaz(self):
         """'указ' (lowercase) should not fire fingerprint."""
         profile = DecreeDomainProfile(settings=FakeSettings())
-        text = "указ президента\n" "ПОСТАНОВЛЯЮ:\n" "1. Пункт.\n"
+        text = "указ президента\nПОСТАНОВЛЯЮ:\n1. Пункт.\n"
         assert profile.structural_fingerprint(text) is False
 
 
@@ -258,7 +258,7 @@ class TestLegalProfileEdgeCases:
     def test_classify_score_with_federal_law_bonus(self):
         """'Федеральный закон' adds +2.0 to legal score."""
         profile = LegalDomainProfile(settings=FakeSettings())
-        text = "Федеральный закон о чём-то.\n" "Статья 1. Текст.\n" "Статья 2. Текст.\n" "Глава 1. Раздел.\n"
+        text = "Федеральный закон о чём-то.\nСтатья 1. Текст.\nСтатья 2. Текст.\nГлава 1. Раздел.\n"
         score = profile.classify_score(text)
         # Base: 0.5*2 + 0.3*1 + 0.2*0 = 1.3, +2.0 for Федеральный закон = 3.3
         assert score >= 3.0
@@ -266,12 +266,7 @@ class TestLegalProfileEdgeCases:
     def test_classify_score_with_contract_language(self):
         """Contract language adds +1.5 to legal score."""
         profile = LegalDomainProfile(settings=FakeSettings())
-        text = (
-            "Стороны договорились о следующем.\n"
-            "Статья 1. Текст.\n"
-            "Статья 2. Текст.\n"
-            "Глава 1. Раздел.\n"
-        )
+        text = "Стороны договорились о следующем.\nСтатья 1. Текст.\nСтатья 2. Текст.\nГлава 1. Раздел.\n"
         score = profile.classify_score(text)
         # Base: 1.3, +1.5 for contract language = 2.8
         assert score >= 2.5

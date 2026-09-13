@@ -526,6 +526,27 @@ class SQLAlchemyChunkRepository:
         result = await self._session.execute(stmt)
         return [row[0] for row in result.all()]
 
+    async def get_all_contents_batches(self, batch_size: int = 5000) -> list[list[str]]:
+        """Load chunk contents in batches to reduce peak memory usage."""
+        batches: list[list[str]] = []
+        offset = 0
+        while True:
+            stmt = (
+                select(ChunkModel.content)
+                .order_by(ChunkModel.document_id, ChunkModel.chunk_index)
+                .offset(offset)
+                .limit(batch_size)
+            )
+            result = await self._session.execute(stmt)
+            rows = list(result.all())
+            if not rows:
+                break
+            batches.append([row[0] for row in rows])
+            if len(rows) < batch_size:
+                break
+            offset += batch_size
+        return batches
+
     # --- Neighbor enrichment -------------------------------------------------
 
     async def get_neighbors(

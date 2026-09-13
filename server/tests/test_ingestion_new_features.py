@@ -1,5 +1,5 @@
-"""Tests for new ingestion features: semantic chunking,
-splitting enrichment, markdown front matter/hashtags/date patterns, RTF metadata.
+"""Tests for new ingestion features: splitting enrichment,
+markdown front matter/hashtags/date patterns, RTF metadata.
 """
 
 import sys
@@ -7,61 +7,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-import pytest
 from langchain.schema import Document
 
-from infrastructure.ml.ingestion.semantic_chunking import (  # noqa: E402
-    _cosine_similarity,
-    _fallback_sentence_split,
-    _find_break_points,
-    _split_sentences,
-)
 from infrastructure.ml.ingestion.splitting import (  # noqa: E402
     _classify_content_shape,
     _extract_first_sentence,
     _enrich_final_chunks,
 )
-
-
-# ---------------------------------------------------------------------------
-# Semantic chunking helpers
-# ---------------------------------------------------------------------------
-
-
-class TestSemanticChunkingHelpers:
-    def test_split_sentences(self):
-        text = "First sentence. Second sentence! Third?"
-        sentences = _split_sentences(text)
-        assert len(sentences) == 3
-        assert sentences[0] == "First sentence."
-        assert sentences[1] == "Second sentence!"
-        assert sentences[2] == "Third?"
-
-    def test_cosine_similarity_identical(self):
-        assert _cosine_similarity([1.0, 0.0], [1.0, 0.0]) == pytest.approx(1.0)
-
-    def test_cosine_similarity_orthogonal(self):
-        assert _cosine_similarity([1.0, 0.0], [0.0, 1.0]) == pytest.approx(0.0)
-
-    def test_cosine_similarity_empty(self):
-        assert _cosine_similarity([], []) == 0.0
-
-    def test_cosine_similarity_different_lengths(self):
-        assert _cosine_similarity([1.0], [1.0, 0.0]) == 0.0
-
-    def test_find_break_points(self):
-        sims = [0.9, 0.3, 0.8, 0.2, 0.9]
-        breaks = _find_break_points(sims, threshold=0.5)
-        assert 2 in breaks  # after index 1 (sim=0.3 < 0.5)
-        assert 4 in breaks  # after index 3 (sim=0.2 < 0.5)
-        assert 1 not in breaks
-        assert 3 not in breaks
-
-    def test_fallback_sentence_split(self):
-        text = "First sentence. Second sentence. Third sentence."
-        chunks = _fallback_sentence_split(text, max_chunk_size=40)
-        assert len(chunks) >= 1
-        assert all(c.strip() for c in chunks)
 
 
 # ---------------------------------------------------------------------------

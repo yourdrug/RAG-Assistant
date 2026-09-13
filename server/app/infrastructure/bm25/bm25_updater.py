@@ -12,20 +12,23 @@ the index to S3, acting as a safety net against drift.
 from __future__ import annotations
 
 import logging
+import threading
+import time
 from typing import TYPE_CHECKING
+
+from infrastructure.metrics.metrics import BM25_UPDATE_DURATION
 
 if TYPE_CHECKING:
     from infrastructure.ml.clients.client_registry import MLClientRegistry
 
 log = logging.getLogger("default")
 
+_bm25_lock = threading.Lock()
+
 
 def _find_index_by_hash(idx, old_hash: str) -> int | None:
-    """Find the BM25 internal index for a given content hash (O(n) scan)."""
-    try:
-        return idx.hashes.index(old_hash)
-    except ValueError:
-        return None
+    """Find the BM25 internal index for a given content hash (O(1) via reverse index)."""
+    return idx.find_by_hash(old_hash)
 
 
 def bm25_add(registry: MLClientRegistry, text: str, text_hash: str | None = None) -> None:
@@ -33,11 +36,15 @@ def bm25_add(registry: MLClientRegistry, text: str, text_hash: str | None = None
     idx = registry.bm25_index()
     if idx is None:
         return
+    start = time.perf_counter()
     try:
-        idx.add_text(text, text_hash=text_hash)
+        with _bm25_lock:
+            idx.add_text(text, text_hash=text_hash)
         log.debug("BM25: added text (hash=%s, n_docs=%d)", text_hash, idx.n_docs)
     except Exception:
         log.exception("BM25: failed to add text")
+    finally:
+        BM25_UPDATE_DURATION.labels(operation="add").observe(time.perf_counter() - start)
 
 
 def bm25_replace(
@@ -54,16 +61,20 @@ def bm25_replace(
     idx = registry.bm25_index()
     if idx is None:
         return
+    start = time.perf_counter()
     try:
-        pos = _find_index_by_hash(idx, old_hash)
-        if pos is not None:
-            idx.replace_text(pos, new_text, new_hash=new_hash)
-            log.debug("BM25: replaced text at pos %d (n_docs=%d)", pos, idx.n_docs)
-        else:
-            idx.add_text(new_text, text_hash=new_hash)
-            log.debug("BM25: old hash %s not found, appended new text", old_hash)
+        with _bm25_lock:
+            pos = _find_index_by_hash(idx, old_hash)
+            if pos is not None:
+                idx.replace_text(pos, new_text, new_hash=new_hash)
+                log.debug("BM25: replaced text at pos %d (n_docs=%d)", pos, idx.n_docs)
+            else:
+                idx.add_text(new_text, text_hash=new_hash)
+                log.debug("BM25: old hash %s not found, appended new text", old_hash)
     except Exception:
         log.exception("BM25: failed to replace text for hash %s", old_hash)
+    finally:
+        BM25_UPDATE_DURATION.labels(operation="replace").observe(time.perf_counter() - start)
 
 
 def bm25_remove(registry: MLClientRegistry, old_hash: str) -> None:
@@ -75,15 +86,19 @@ def bm25_remove(registry: MLClientRegistry, old_hash: str) -> None:
     idx = registry.bm25_index()
     if idx is None:
         return
+    start = time.perf_counter()
     try:
-        pos = _find_index_by_hash(idx, old_hash)
-        if pos is not None:
-            idx.remove_text(pos)
-            log.debug("BM25: removed text at pos %d (n_docs=%d)", pos, idx.n_docs)
-        else:
-            log.debug("BM25: hash %s not found, skip remove", old_hash)
+        with _bm25_lock:
+            pos = _find_index_by_hash(idx, old_hash)
+            if pos is not None:
+                idx.remove_text(pos)
+                log.debug("BM25: removed text at pos %d (n_docs=%d)", pos, idx.n_docs)
+            else:
+                log.debug("BM25: hash %s not found, skip remove", old_hash)
     except Exception:
         log.exception("BM25: failed to remove text for hash %s", old_hash)
+    finally:
+        BM25_UPDATE_DURATION.labels(operation="remove").observe(time.perf_counter() - start)
 
 
 class BM25IndexAdapter:

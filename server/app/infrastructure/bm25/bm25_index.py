@@ -30,6 +30,7 @@ class BM25Index:
         self.b = b
         self.texts = texts
         self.hashes = hashes or [content_hash(t) for t in texts]
+        self._hash_to_idx: dict[str, int] = {h: i for i, h in enumerate(self.hashes)}
         self.n_docs = len(texts)
         self.doc_lens: list[int] = []
         self.avgdl: float = 0.0
@@ -43,6 +44,7 @@ class BM25Index:
         self.token_freqs.clear()
         self.doc_lens.clear()
         self.inverted_index.clear()
+        self._hash_to_idx = {h: i for i, h in enumerate(self.hashes)}
 
         total_len = 0
         for idx, text in enumerate(self.texts):
@@ -118,12 +120,17 @@ class BM25Index:
             b=data.get("b", 0.75),
         )
 
+    def find_by_hash(self, target_hash: str) -> int | None:
+        """O(1) lookup by content hash."""
+        return self._hash_to_idx.get(target_hash)
+
     def add_text(self, text: str, text_hash: str | None = None) -> int:
         """Add a new text to the index. Returns the index of the new text."""
         idx = self.n_docs
         self.texts.append(text)
         h = text_hash or content_hash(text)
         self.hashes.append(h)
+        self._hash_to_idx[h] = idx
 
         tokens = tokenize(text)
         doc_len = len(tokens)
@@ -165,7 +172,11 @@ class BM25Index:
                         del self.inverted_index[t]
 
         self.texts[index] = new_text
-        self.hashes[index] = new_hash or content_hash(new_text)
+        old_hash = self.hashes[index]
+        new_hash_val = new_hash or content_hash(new_text)
+        self.hashes[index] = new_hash_val
+        self._hash_to_idx.pop(old_hash, None)
+        self._hash_to_idx[new_hash_val] = index
 
         new_tf: dict[str, int] = {}
         for t in new_tokens:
@@ -240,6 +251,7 @@ class BM25Index:
         old_tf = self.token_freqs[index]
 
         self._remove_old_tokens(self.doc_freq, self.inverted_index, old_tokens, old_tf, index)
+        removed_hash = self.hashes[index]
         removed_len = self._remove_from_lists(self.texts, self.hashes, self.doc_lens, self.token_freqs, index)
 
         self.n_docs -= 1
@@ -247,3 +259,5 @@ class BM25Index:
         self.avgdl = total_len / self.n_docs if self.n_docs > 0 else 1.0
 
         self.inverted_index = self._rebuild_inverted_indices(self.inverted_index, index)
+        self._hash_to_idx.pop(removed_hash, None)
+        self._hash_to_idx = {h: i for i, h in enumerate(self.hashes)}
