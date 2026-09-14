@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
 
+from domain.value_objects.curator_scope import CuratorScope
+
 
 @dataclass(frozen=True)
 class ChatContext:
@@ -24,6 +26,7 @@ class ChatContext:
     user_kind: str
     user_role: str = "user"
     user_group_ids: list[int] = field(default_factory=list)
+    curator_scope: CuratorScope | None = None
     depth: str | None = None
     summary: str | None = None
     as_of_date: date | None = None  # temporal retrieval: None = current state

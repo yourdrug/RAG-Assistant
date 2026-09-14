@@ -125,7 +125,14 @@ class RagService:
             request_id_ctx.set(req_id)
 
         user = {"id": ctx.user_id, "kind": ctx.user_kind, "role": ctx.user_role}
-        access_filter = build_qdrant_filter(user, ctx.user_group_ids)
+        scope = ctx.curator_scope
+        access_filter = build_qdrant_filter(
+            user,
+            ctx.user_group_ids,
+            managed_client_ids=list(scope.managed_client_ids) if scope else None,
+            managed_internal_ids=list(scope.managed_internal_ids) if scope else None,
+            managed_group_ids=list(scope.managed_group_ids) if scope else None,
+        )
         retrieval_filter = with_temporal_filter(access_filter, ctx.as_of_date)
 
         history_dicts = self._prepare_history_dicts(history)

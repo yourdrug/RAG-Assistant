@@ -25,6 +25,7 @@ from domain.entities.conversation import Conversation
 from domain.entities.message import Message
 from domain.utils import compute_reranker_score
 from domain.value_objects.chat_context import ChatContext
+from domain.value_objects.curator_scope import CuratorScope
 from domain.value_objects.message_role import MessageRole
 from domain.value_objects.user_context import UserContext
 from domain.value_objects.stream_events import (
@@ -92,6 +93,15 @@ class ChatService:
             user_kind=user_kind,
             user_role=user_role,
             user_group_ids=user_ctx.group_ids,
+            curator_scope=(
+                CuratorScope(
+                    managed_client_ids=tuple(user_ctx.managed_client_ids),
+                    managed_internal_ids=tuple(user_ctx.managed_internal_ids),
+                    managed_group_ids=tuple(user_ctx.managed_group_ids),
+                )
+                if user_ctx.is_curator
+                else None
+            ),
             depth=depth,
             summary=conv.summary,
             as_of_date=as_of_date,

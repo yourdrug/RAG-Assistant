@@ -4,6 +4,7 @@ from domain.value_objects.benchmark_dataset import BenchmarkDataset
 from domain.value_objects.benchmark_strategy import BenchmarkStrategy
 from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.config_value_type import ConfigValueType
+from domain.value_objects.curator_scope import CuratorScope
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.document_status import DocumentStatus
 from domain.value_objects.file_backend import FileBackend
@@ -33,6 +34,7 @@ __all__ = [
     "Breadth",
     "ChatContext",
     "ConfigValueType",
+    "CuratorScope",
     "DocDomain",
     "DocumentStatus",
     "DocumentVisibility",

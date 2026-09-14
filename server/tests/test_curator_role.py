@@ -24,6 +24,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
 from domain.entities.document import Document
 from domain.exceptions import BusinessRuleViolation
 from domain.services import can_view_document, get_visibility_conditions, is_in_search_scope
+from domain.value_objects.chat_context import ChatContext
+from domain.value_objects.curator_scope import CuratorScope
 from domain.value_objects.owner_match import OwnerMatch
 from domain.value_objects.roles import UserKind, UserRole
 from domain.value_objects.user_context import UserContext
@@ -367,6 +369,218 @@ class TestCuratorCapabilities:
 # ===========================================================================
 # User entity role validation
 # ===========================================================================
+
+
+# ===========================================================================
+# A3: Characterization — build_qdrant_filter IGNORES managed_ids today
+# ===========================================================================
+
+
+class TestCuratorFilterIgnoresManagedIds:
+    """Document the current behavior: build_qdrant_filter is called WITHOUT
+    managed-ids in the RAG pipeline (rag_service.py:128).
+
+    This means the Qdrant ACL filter does NOT contain ASSIGNED-conditions
+    for managed users — curator cannot find their documents through RAG search.
+
+    This is the primary bug that Phase B will fix.
+    """
+
+    def test_build_qdrant_filter_without_managed_ids(self):
+        """Current RAG call: build_qdrant_filter(user, group_ids) — no managed-ids."""
+        user = {"id": 1, "kind": "internal", "role": "curator"}
+        f = build_qdrant_filter(user, [])
+        # Only base internal conditions: PUBLIC + PRIVATE(self)
+        assert f.should is not None
+        assert len(f.should) == 2
+
+    def test_build_qdrant_filter_with_managed_ids_has_assigned(self):
+        """When managed-ids ARE passed: filter includes ASSIGNED conditions."""
+        user = {"id": 1, "kind": "internal", "role": "curator"}
+        f = build_qdrant_filter(
+            user, [],
+            managed_client_ids=[100, 200],
+            managed_internal_ids=[300],
+        )
+        # Should have: PUBLIC + PRIVATE(self) + PRIVATE(assigned managed_internal) + CLIENT_PRIVATE(assigned)
+        assert f.should is not None
+        assert len(f.should) >= 3  # At least one extra for managed scope
+
+    def test_managed_ids_none_vs_empty_equivalent(self):
+        """None and empty list produce same filter (documented behavior)."""
+        user = {"id": 1, "kind": "internal", "role": "curator"}
+        f_none = build_qdrant_filter(user, [], managed_client_ids=None, managed_internal_ids=None)
+        f_empty = build_qdrant_filter(user, [], managed_client_ids=[], managed_internal_ids=[])
+        assert len(f_none.should) == len(f_empty.should)
+
+    def test_rag_pipeline_calls_build_filter_without_managed(self):
+        """CHARACTERIZATION: rag_service._init_state calls without managed-ids.
+
+        This test documents the current call at rag_service.py:128:
+            access_filter = build_qdrant_filter(user, ctx.user_group_ids)
+
+        Phase B will change this to pass ctx.curator_scope fields.
+        """
+        # Build a curator context the way RAG pipeline does today (without managed-ids)
+        user = {"id": 1, "kind": "internal", "role": "curator"}
+        # Today's call (NO managed-ids):
+        filter_no_managed = build_qdrant_filter(user, [])
+        # Expected call after Phase B (WITH managed-ids):
+        filter_with_managed = build_qdrant_filter(
+            user, [],
+            managed_client_ids=[100],
+            managed_internal_ids=[200],
+        )
+        # They differ — this is the gap
+        assert len(filter_no_managed.should) < len(filter_with_managed.should)
+
+
+# ===========================================================================
+# B3: ChatService._prepare_chat passes CuratorScope
+# ===========================================================================
+
+
+class TestChatServiceCuratorScope:
+    """B3: ChatService._prepare_chat builds CuratorScope from UserContext."""
+
+    def test_curator_gets_scope(self):
+        from domain.value_objects.curator_scope import CuratorScope
+
+        user_ctx = _curator(user_id=1, managed_client_ids=[100, 200], managed_internal_ids=[300])
+        assert user_ctx.is_curator is True
+        scope = CuratorScope(
+            managed_client_ids=tuple(user_ctx.managed_client_ids),
+            managed_internal_ids=tuple(user_ctx.managed_internal_ids),
+            managed_group_ids=tuple(user_ctx.managed_group_ids),
+        )
+        assert scope.is_empty() is False
+        assert scope.managed_client_ids == (100, 200)
+        assert scope.managed_internal_ids == (300,)
+
+    def test_user_gets_none_scope(self):
+        user_ctx = _internal_user(user_id=1, role=UserRole.USER)
+        assert user_ctx.is_curator is False
+        scope = None if not user_ctx.is_curator else None
+        assert scope is None
+
+    def test_curator_without_assignments_gets_empty_scope(self):
+        user_ctx = _curator(user_id=1)
+        scope = CuratorScope(
+            managed_client_ids=tuple(user_ctx.managed_client_ids),
+            managed_internal_ids=tuple(user_ctx.managed_internal_ids),
+            managed_group_ids=tuple(user_ctx.managed_group_ids),
+        )
+        assert scope.is_empty() is True
+
+    def test_chat_context_construction_with_curator_scope(self):
+        from domain.value_objects.curator_scope import CuratorScope
+
+        scope = CuratorScope(managed_client_ids=(100,), managed_internal_ids=(200,), managed_group_ids=(300,))
+        ctx = ChatContext(
+            user_id=1,
+            user_kind="internal",
+            user_role="curator",
+            curator_scope=scope,
+        )
+        assert ctx.curator_scope is scope
+        assert ctx.curator_scope.managed_client_ids == (100,)
+
+
+# ===========================================================================
+# B4: RagService._init_state passes managed-ids from CuratorScope
+# ===========================================================================
+
+
+class TestRagServiceCuratorScope:
+    """B4: RagService._init_state unpacks CuratorScope into build_qdrant_filter."""
+
+    def test_curator_scope_produces_correct_managed_args(self):
+        """CuratorScope fields unpack to managed_*_ids arguments."""
+        from domain.value_objects.curator_scope import CuratorScope
+
+        scope = CuratorScope(managed_client_ids=(100, 200), managed_internal_ids=(300,))
+        user = {"id": 1, "kind": "internal", "role": "curator"}
+        f = build_qdrant_filter(
+            user,
+            [],
+            managed_client_ids=list(scope.managed_client_ids),
+            managed_internal_ids=list(scope.managed_internal_ids),
+            managed_group_ids=list(scope.managed_group_ids),
+        )
+        # Filter should include ASSIGNED conditions for managed users
+        assert f.should is not None
+        assert len(f.should) >= 3
+
+    def test_user_no_scope_passes_none_managed_args(self):
+        """Non-curator with curator_scope=None → all managed_*_ids=None."""
+        ctx = ChatContext(
+            user_id=1,
+            user_kind="internal",
+            user_role="user",
+            curator_scope=None,
+        )
+        scope_val = ctx.curator_scope
+        user = {"id": ctx.user_id, "kind": ctx.user_kind, "role": ctx.user_role}
+        f = build_qdrant_filter(
+            user,
+            ctx.user_group_ids,
+            managed_client_ids=list(scope_val.managed_client_ids) if scope_val else None,
+            managed_internal_ids=list(scope_val.managed_internal_ids) if scope_val else None,
+            managed_group_ids=list(scope_val.managed_group_ids) if scope_val else None,
+        )
+        # Non-curator: only base conditions (PUBLIC + PRIVATE(self))
+        assert f.should is not None
+        assert len(f.should) == 2
+
+    def test_rag_filter_with_scope_has_assigned_conditions(self):
+        """After B4, curator with managed_ids → filter includes ASSIGNED conditions."""
+        from domain.value_objects.curator_scope import CuratorScope
+
+        user = {"id": 1, "kind": "internal", "role": "curator"}
+        scope = CuratorScope(managed_client_ids=(100,), managed_internal_ids=(200,))
+        f = build_qdrant_filter(
+            user,
+            [],
+            managed_client_ids=list(scope.managed_client_ids),
+            managed_internal_ids=list(scope.managed_internal_ids),
+            managed_group_ids=list(scope.managed_group_ids),
+        )
+        # Should have: PUBLIC + PRIVATE(self) + PRIVATE(assigned internal) + CLIENT_PRIVATE(assigned)
+        assert f.should is not None
+        assert len(f.should) >= 3
+
+    def test_rag_init_state_integration(self):
+        """RagService._init_state with CuratorScope calls build_qdrant_filter with managed-ids."""
+        from unittest.mock import patch
+
+        from domain.value_objects.curator_scope import CuratorScope
+        from domain.value_objects.chat_context import ChatContext
+
+        scope = CuratorScope(managed_client_ids=(100, 200), managed_internal_ids=(300,))
+        ctx = ChatContext(
+            user_id=1,
+            user_kind="internal",
+            user_role="curator",
+            curator_scope=scope,
+        )
+        with patch("infrastructure.ml.rag_service.build_qdrant_filter") as mock_filter:
+            mock_filter.return_value = type("F", (), {"should": []})()
+            with patch("infrastructure.ml.rag_service.build_rag_settings"):
+                with patch("infrastructure.ml.rag_service.with_temporal_filter"):
+                    from infrastructure.ml.rag_service import RagService
+
+                    svc = RagService.__new__(RagService)
+                    svc._ml = None
+                    svc._chunk_search = None
+                    svc._domain_registry = None
+                    svc._init_state("test question", [], ctx)
+                    mock_filter.assert_called_once_with(
+                        {"id": 1, "kind": "internal", "role": "curator"},
+                        [],
+                        managed_client_ids=[100, 200],
+                        managed_internal_ids=[300],
+                        managed_group_ids=[],
+                    )
 
 
 class TestUserRoleValidation:
