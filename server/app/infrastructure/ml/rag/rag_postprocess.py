@@ -114,6 +114,8 @@ async def enrich_with_neighbors(
     enumerate_cases: bool,
     chunk_search,
     max_context_tokens: int = 6000,
+    user: dict | None = None,
+    group_ids: list[int] | None = None,
 ) -> list[tuple]:
     """Add neighboring chunks from the same document for richer context."""
     if not chunk_search or not enumerate_cases:
@@ -137,11 +139,13 @@ async def enrich_with_neighbors(
         try:
             if is_table:
                 neighbors = await chunk_search.get_table_batches(
-                    document_id, chunk_index, exclude_hashes=existing_hashes
+                    document_id, chunk_index, exclude_hashes=existing_hashes,
+                    user=user, group_ids=group_ids,
                 )
             else:
                 neighbors = await chunk_search.get_neighbors(
-                    document_id, chunk_index, window=3, exclude_hashes=existing_hashes
+                    document_id, chunk_index, window=3, exclude_hashes=existing_hashes,
+                    user=user, group_ids=group_ids,
                 )
         except Exception:
             log.warning(

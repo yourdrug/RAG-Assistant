@@ -69,7 +69,8 @@ class QdrantVectorStoreRepository:
     async def generate_embeddings(self, text: str) -> list[float]:
         return await self._get_embeddings().embed_query(text)
 
-    async def similarity_search_with_score(self, query: str, k: int) -> list[tuple[Chunk, float]]:
+    async def _similarity_search_with_score(self, query: str, k: int) -> list[tuple[Chunk, float]]:
+        """Use internally only. No ACL enforcement. Use search_with_filter() for user queries."""
         client = self._get_qdrant_client()
         embeddings = self._get_embeddings()
 

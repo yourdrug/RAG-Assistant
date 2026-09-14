@@ -145,6 +145,8 @@ class ChunkCrudRepository(Protocol):
         center_index: int,
         window: int = 1,
         exclude_hashes: set[str] | None = None,
+        user: dict | None = None,
+        group_ids: list[int] | None = None,
     ) -> list[ChunkSearchResult]: ...
 
     async def get_table_batches(
@@ -152,6 +154,8 @@ class ChunkCrudRepository(Protocol):
         document_id: int,
         anchor_index: int,
         exclude_hashes: set[str] | None = None,
+        user: dict | None = None,
+        group_ids: list[int] | None = None,
     ) -> list[ChunkSearchResult]: ...
 
     async def update_filename_by_document_id(self, document_id: int, new_filename: str) -> int: ...

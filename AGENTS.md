@@ -460,3 +460,16 @@ UserContext.build()          → managed_*_ids from DB (CURATOR only)
             → resolve_hashes_batch()         → second barrier (Qdrant + access_filter)
         → answer_cache.compute_visibility_scope_hash() → cache key (v3)
 ```
+
+## Refactor status
+
+Полный план: `docs/refactor/REFACTOR_PLAN.md`
+
+| Фаза | Статус | Описание |
+|---|---|---|
+| Фаза 1: Security | ✅ DONE | CuratorScope, BM25 pre-filter, neighbors ACL, answer cache v3, dead code removal |
+| Фаза 2: Resilience | ❌ NOT STARTED | Circuit breaker, async client, separate semaphores, Qdrant timeout/retry |
+| Фаза 3: Decoupling | ❌ NOT STARTED | 15+ infrastructure imports в application, uow._session, LangChain |
+| Фаза 4: API | 🟡 PARTIAL | extra="forbid" ✅, cache invalidation ✅, email validation ✅; schemas split ❌, rate limiting ❌ |
+| Фаза 5: God-Files | ✅ DONE | rag_service stream → rag_steps, ingestion → parsers, benchmark → modules |
+| Фаза 6: Performance | ✅ DONE | BM25 thread safety, reverse index, gzip, batch rebuild, metrics |

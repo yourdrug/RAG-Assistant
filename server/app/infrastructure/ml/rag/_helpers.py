@@ -356,6 +356,10 @@ async def rerank_and_enrich(
         num_ctx_narrow=rag.llm_num_ctx_narrow,
         num_ctx_broad=rag.llm_num_ctx_broad,
     )
-    docs = await enrich_with_neighbors(docs, enumerate_cases, chunk_search, max_context_tokens)
+    docs = await enrich_with_neighbors(
+        docs, enumerate_cases, chunk_search, max_context_tokens,
+        user={"id": ctx.user_id, "kind": ctx.user_kind, "role": ctx.user_role},
+        group_ids=ctx.user_group_ids,
+    )
 
     return docs, [d for d, _ in docs] if docs and isinstance(docs[0], tuple) else docs, avg_sim
