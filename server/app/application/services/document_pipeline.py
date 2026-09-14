@@ -21,6 +21,34 @@ if TYPE_CHECKING:
 log = logging.getLogger("default")
 
 
+def tag_chunks(
+    chunks: list,
+    visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC,
+    owner_id: int | None = None,
+    group_id: int | None = None,
+    client_id: int | None = None,
+) -> None:
+    """Tag chunks with ACL visibility metadata.
+
+    Shared policy used by both the API upload path and the CLI ingestion path.
+    """
+    for c in chunks:
+        c.metadata.update(
+            {
+                "visibility": visibility.value,
+                "owner_id": owner_id,
+                "group_id": group_id,
+                "client_id": client_id,
+            }
+        )
+
+
+def tag_domain(chunks: list, doc_domain: str) -> None:
+    """Tag chunks with document domain classification."""
+    for c in chunks:
+        c.metadata["doc_domain"] = doc_domain
+
+
 def classify_domain(
     text: str,
     *,

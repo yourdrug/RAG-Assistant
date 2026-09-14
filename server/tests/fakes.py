@@ -24,6 +24,7 @@ from contextlib import asynccontextmanager
 
 from domain.entities.message import Message
 from domain.entities.vector_outbox_entry import OutboxStatus, VectorOutboxEntry
+from domain.repositories.ingestion_registry_repository import IngestionRegistryEntry
 from domain.value_objects.stream_events import SourcesEvent, TextChunk
 
 # ---------------------------------------------------------------------------
@@ -640,6 +641,29 @@ class FakeAssignmentRepository:
         return [c for (c, g) in self._group_assignments if g == group_id]
 
 
+class FakeIngestionRegistryRepository:
+    """In-memory ingestion registry for unit tests."""
+
+    def __init__(self) -> None:
+        self._entries: dict[str, IngestionRegistryEntry] = {}
+
+    async def get(self, filename: str) -> IngestionRegistryEntry | None:
+        return self._entries.get(filename)
+
+    async def upsert(self, entry: IngestionRegistryEntry) -> None:
+        self._entries[entry.filename] = entry
+
+    async def delete(self, filename: str) -> None:
+        self._entries.pop(filename, None)
+
+    async def list_all(self) -> dict[str, IngestionRegistryEntry]:
+        return dict(self._entries)
+
+    async def is_already_indexed(self, filename: str, file_hash: str) -> bool:
+        entry = self._entries.get(filename)
+        return entry is not None and entry.file_hash == file_hash
+
+
 class FakeUnitOfWork:
     """In-memory UnitOfWork for unit tests."""
 
@@ -661,6 +685,7 @@ class FakeUnitOfWork:
         self.regulatory_acts = FakeRegulatoryActRepository()
         self.act_versions = FakeActVersionRepository()
         self.assignments = FakeAssignmentRepository()
+        self.ingestion_registry = FakeIngestionRegistryRepository()
         self._event_handlers: list = []
         self._committed = False
         self._rolled_back = False

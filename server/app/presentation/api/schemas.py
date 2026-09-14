@@ -590,6 +590,8 @@ class ManualDocumentRequest(BaseModel):
 
 
 class BenchmarkQuestionCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     question: str = Field(..., min_length=1, max_length=5000)
     expected_answer: str | None = None
     source_hint: str | None = None
@@ -599,6 +601,8 @@ class BenchmarkQuestionCreate(BaseModel):
 
 
 class BenchmarkQuestionUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     question: str | None = None
     expected_answer: str | None = None
     source_hint: str | None = None

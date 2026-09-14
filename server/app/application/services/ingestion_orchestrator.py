@@ -1,4 +1,4 @@
-"""Infrastructure implementation of the S3-only document ingestion pipeline.
+"""S3 document ingestion pipeline.
 
 Scans an S3 bucket prefix, parses each supported file, splits into chunks,
 generates embeddings, uploads to Qdrant, builds a BM25 index for hybrid
@@ -12,10 +12,20 @@ import logging
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from application.dto.versioning_dto import VersioningResult
-from application.services.document_pipeline import classify_domain, enrich_chunks_metadata, process_chunks
+from application.ports.document_parser import DocumentParserPort, DocumentSplitterPort, FileMeta, SplitContext
+from application.ports.file_storage import FileItem, FileStorage
+from application.ports.sparse_index import ChunkRef, SparseIndexAdminPort
+from application.ports.unit_of_work_factory import UnitOfWorkFactory
+from application.services.document_pipeline import (
+    classify_domain,
+    enrich_chunks_metadata,
+    process_chunks,
+    tag_chunks,
+    tag_domain,
+)
 from config import settings
 from domain.entities.document import Document as DocEntity
 from domain.entities.raw_document import RawDocument
@@ -25,51 +35,11 @@ from domain.repositories.vector_store_repository import VectorStoreRepository
 from domain.services.document_domain_classifier import classify_document_domain
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.visibility import DocumentVisibility
-from langchain.schema import Document
-
-from infrastructure.bm25.bm25_invalidation import publish_bm25_invalidation
-from infrastructure.bm25.hybrid import BM25Index, load_bm25_index_from_s3, save_bm25_index_to_s3
-from infrastructure.ml.ingestion import (
-    PARSERS,
-    merge_pdf_pages,
-    parse_pdf,
-    split_documents,
-    split_documents_legal,
-)
-from infrastructure.metrics.metrics import INGEST_FILES_TOTAL
-from infrastructure.repositories.document.sqlalchemy_ingestion_registry_repository import (
-    SQLAlchemyIngestionRegistryRepository,
-)
-from infrastructure.storage import FileItem, FileStorage
-from infrastructure.uow_factory import UnitOfWorkFactory
 
 if TYPE_CHECKING:
     pass
 
 log = logging.getLogger("default")
-
-
-def _tag_chunks(
-    chunks: list,
-    visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC,
-    owner_id: int | None = None,
-    group_id: int | None = None,
-    client_id: int | None = None,
-) -> None:
-    for c in chunks:
-        c.metadata.update(
-            {
-                "visibility": visibility.value,
-                "owner_id": owner_id,
-                "group_id": group_id,
-                "client_id": client_id,
-            }
-        )
-
-
-def _tag_domain(chunks: list, doc_domain: str) -> None:
-    for c in chunks:
-        c.metadata["doc_domain"] = doc_domain
 
 
 def _s3_file_hash(file_item: FileItem) -> str:
@@ -86,9 +56,12 @@ class IngestionService:
         vector_store_repo: VectorStoreRepository,
         file_storage: FileStorage,
         uow_factory: UnitOfWorkFactory | None = None,
-        domain_registry=None,
-        domain_settings=None,
-        act_versioning_service=None,
+        domain_registry: Any | None = None,
+        domain_settings: Any | None = None,
+        act_versioning_service: Any | None = None,
+        parser: DocumentParserPort | None = None,
+        splitter: DocumentSplitterPort | None = None,
+        sparse_index_admin: SparseIndexAdminPort | None = None,
     ) -> None:
         self._vector_store = vector_store_repo
         self._file_storage = file_storage
@@ -96,6 +69,11 @@ class IngestionService:
         self._domain_registry = domain_registry
         self._domain_settings = domain_settings
         self._act_versioning_service = act_versioning_service
+        self._parser = parser
+        self._splitter = splitter
+        self._sparse_index_admin = sparse_index_admin
+
+    # -- Registry helpers (via UoW port, no uow._session access) -------------
 
     async def _registry_upsert(
         self,
@@ -110,7 +88,6 @@ class IngestionService:
             return
 
         async with self._uow_factory.create(master=True) as uow:
-            repo = SQLAlchemyIngestionRegistryRepository(uow._session)
             entry = IngestionRegistryEntry(
                 filename=filename,
                 file_hash=file_hash_val,
@@ -119,23 +96,21 @@ class IngestionService:
                 chars=chars,
                 indexed_at=indexed_at or datetime.now(),
             )
-            await repo.upsert(entry)
+            await uow.ingestion_registry.upsert(entry)
 
     async def _registry_is_indexed(self, filename: str, file_hash_val: str) -> bool:
         if self._uow_factory is None:
             return False
 
         async with self._uow_factory.create(master=True) as uow:
-            repo = SQLAlchemyIngestionRegistryRepository(uow._session)
-            return await repo.is_already_indexed(filename, file_hash_val)
+            return await uow.ingestion_registry.is_already_indexed(filename, file_hash_val)
 
     async def _registry_list_all(self) -> dict:
         if self._uow_factory is None:
             return {}
 
         async with self._uow_factory.create(master=True) as uow:
-            repo = SQLAlchemyIngestionRegistryRepository(uow._session)
-            entries = await repo.list_all()
+            entries = await uow.ingestion_registry.list_all()
             return {
                 name: {
                     "hash": e.file_hash,
@@ -152,8 +127,7 @@ class IngestionService:
             return
 
         async with self._uow_factory.create(master=True) as uow:
-            repo = SQLAlchemyIngestionRegistryRepository(uow._session)
-            await repo.delete(filename)
+            await uow.ingestion_registry.delete(filename)
 
     @staticmethod
     def _log_ingest_config(reset: bool, docs_dir: str | None) -> None:
@@ -272,8 +246,8 @@ class IngestionService:
                 log.error("No documents loaded. Check S3 prefix and formats.")
             return
 
-        chunks = split_documents(merge_pdf_pages(docs))
-        _tag_chunks(chunks, visibility=visibility, owner_id=None, group_id=group_id, client_id=client_id)
+        chunks = await self._split_docs(docs)
+        tag_chunks(chunks, visibility=visibility, owner_id=None, group_id=group_id, client_id=client_id)
 
         # Per-source full text — the same classification/versioning input the
         # API upload path uses (whole document, not a first chunk)
@@ -288,7 +262,7 @@ class IngestionService:
 
         for chunk in chunks:
             src = chunk.metadata.get("source", "")
-            _tag_domain([chunk], source_domain.get(src, DocDomain.GENERAL.value))
+            tag_domain([chunk], source_domain.get(src, DocDomain.GENERAL.value))
 
         # Collect registry entries in memory; persist them only AFTER the sync
         # transaction commits — otherwise a crash between upsert and sync
@@ -309,51 +283,37 @@ class IngestionService:
         )
         await self._persist_registry_entries(entries)
 
-        # BM25 index (separate concern, not via outbox)
-        await self._build_bm25_index(chunks, reset=reset)
+        # Sparse index (separate concern, not via outbox)
+        await self._build_sparse_index(chunks, reset=reset)
 
         total_elapsed = time.monotonic() - t_start
         log.info("=" * 55)
         log.info("DONE  |  %d chunks  |  %.1fs total", len(chunks), total_elapsed)
         log.info("=" * 55)
 
-    async def _build_bm25_index(self, chunks: list, reset: bool = False) -> None:
-        """Build and persist BM25 index for hybrid search."""
+    async def _build_sparse_index(self, chunks: list, reset: bool = False) -> None:
+        """Build and persist sparse index for hybrid search via port."""
         if not settings.hybrid_enabled:
             return
+        if self._sparse_index_admin is None:
+            log.warning("SparseIndexAdminPort not injected — skipping sparse index build")
+            return
 
-        new_texts = [c.page_content for c in chunks]
-        new_vis = [c.metadata.get("visibility") for c in chunks]
-        new_owners = [c.metadata.get("owner_id") for c in chunks]
-        new_groups = [c.metadata.get("group_id") for c in chunks]
+        chunk_refs = [
+            ChunkRef(
+                text=c.page_content,
+                content_hash=c.metadata.get("content_hash", ""),
+                visibility=c.metadata.get("visibility", "internal_public"),
+                owner_id=c.metadata.get("owner_id"),
+                group_id=c.metadata.get("group_id"),
+            )
+            for c in chunks
+        ]
 
         if reset:
-            all_texts = new_texts
-            all_vis = new_vis
-            all_owners = new_owners
-            all_groups = new_groups
-            log.info("BM25: reset mode — rebuilding index from scratch (%d texts)", len(all_texts))
+            await self._sparse_index_admin.rebuild(chunk_refs)
         else:
-            existing = await load_bm25_index_from_s3(self._file_storage)
-            if existing is not None:
-                all_texts = existing.texts + new_texts
-                all_vis = existing.doc_visibility + new_vis
-                all_owners = existing.doc_owner_id + new_owners
-                all_groups = existing.doc_group_id + new_groups
-            else:
-                all_texts = new_texts
-                all_vis = new_vis
-                all_owners = new_owners
-                all_groups = new_groups
-
-        bm25_index = BM25Index(
-            all_texts,
-            doc_visibility=all_vis,
-            doc_owner_id=all_owners,
-            doc_group_id=all_groups,
-        )
-        await save_bm25_index_to_s3(bm25_index, self._file_storage)
-        await publish_bm25_invalidation()
+            await self._sparse_index_admin.extend(chunk_refs)
 
     async def _sync_documents_to_db(
         self,
@@ -599,7 +559,7 @@ class IngestionService:
         log.info("doc_domain=%s for %s", file_domain, file_info.filename)
 
         chunks = await self._index_docs(docs, domain=file_domain)
-        _tag_chunks(chunks, visibility=visibility, owner_id=None, group_id=group_id, client_id=client_id)
+        tag_chunks(chunks, visibility=visibility, owner_id=None, group_id=group_id, client_id=client_id)
         source = _s3_source_key(file_info)
 
         # sync documents/chunks FIRST, persist the registry row only after
@@ -632,19 +592,58 @@ class IngestionService:
         )
         return chunks
 
+    async def _split_docs(self, docs: list) -> list:
+        """Split parsed documents into chunks via splitter port."""
+        if self._splitter is not None:
+            context = SplitContext(domain="general")
+            return self._splitter.split(
+                [
+                    RawDocument(page_content=d.page_content, metadata=dict(d.metadata))
+                    for d in docs
+                ],
+                context,
+            )
+        # Fallback: direct infrastructure call (for backward compatibility)
+        from infrastructure.ml.ingestion import merge_pdf_pages, split_documents
+
+        return split_documents(merge_pdf_pages(docs))
+
     async def _index_docs(self, docs: list, domain: str = "general") -> list:
         """Parse and split documents into chunks. No direct Qdrant upload."""
-        merged = merge_pdf_pages(docs)
-        profile = self._get_profile(domain)
-        if profile is not None and profile.content_boundaries() and self._domain_settings is not None:
-            # Structured domain → content-based splitting (TZ section 4.3)
-            chunks = split_documents(merged, domain=domain, profile=profile, settings=self._domain_settings)
-        elif domain == DocDomain.LEGAL.value:
-            chunks = split_documents_legal(merged)
+        if self._splitter is not None:
+            profile = self._get_profile(domain)
+            context = SplitContext(
+                domain=domain,
+                profile=profile,
+                settings=self._domain_settings,
+                legal_mode=(domain == DocDomain.LEGAL.value),
+            )
+            chunks = self._splitter.split(
+                [
+                    RawDocument(page_content=d.page_content, metadata=dict(d.metadata))
+                    for d in docs
+                ],
+                context,
+            )
         else:
-            chunks = split_documents(merged)
-        _tag_chunks(chunks)
-        _tag_domain(chunks, domain)
+            # Fallback: direct infrastructure call
+            from infrastructure.ml.ingestion import (
+                merge_pdf_pages,
+                split_documents,
+                split_documents_legal,
+            )
+
+            merged = merge_pdf_pages(docs)
+            profile = self._get_profile(domain)
+            if profile is not None and profile.content_boundaries() and self._domain_settings is not None:
+                chunks = split_documents(merged, domain=domain, profile=profile, settings=self._domain_settings)
+            elif domain == DocDomain.LEGAL.value:
+                chunks = split_documents_legal(merged)
+            else:
+                chunks = split_documents(merged)
+
+        tag_chunks(chunks)
+        tag_domain(chunks, domain)
         return chunks
 
     def _get_profile(self, domain: str):
@@ -684,6 +683,24 @@ class IngestionService:
         return docs_dir
 
     def _parse_file(self, source: FileItem, temp_path: Path) -> list | None:
+        if self._parser is not None:
+            meta = FileMeta(
+                source_key=_s3_source_key(source),
+                filename=source.filename,
+                extension=source.extension,
+                size_bytes=source.size_bytes,
+            )
+            try:
+                docs = self._parser.parse(temp_path, meta)
+                return docs if docs else None
+            except Exception as e:
+                log.error("  ERROR %s: %s", source.filename, e)
+                return None
+
+        # Fallback: direct infrastructure call
+        from infrastructure.ml.ingestion import PARSERS, parse_pdf
+        from langchain.schema import Document
+
         path = temp_path
         ext = source.extension
 
@@ -750,7 +767,6 @@ class IngestionService:
             if not force and await self._registry_is_indexed(file_item.filename, _s3_file_hash(file_item)):
                 log.info("%s CACHED  %s", tag, file_item.filename)
                 skipped_cached += 1
-                INGEST_FILES_TOTAL.labels(status="cached").inc()
                 continue
 
             size_kb = file_item.size_bytes / 1024
@@ -776,10 +792,8 @@ class IngestionService:
                     elapsed,
                 )
                 ok += 1
-                INGEST_FILES_TOTAL.labels(status="ok").inc()
             else:
                 errors += 1
-                INGEST_FILES_TOTAL.labels(status="error").inc()
 
         log.info("Parsing complete: %d loaded, %d errors, %d already in registry", ok, errors, skipped_cached)
         return documents, skipped_cached

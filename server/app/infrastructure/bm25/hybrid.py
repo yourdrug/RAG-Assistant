@@ -21,7 +21,7 @@ from infrastructure.bm25.persistence import (  # noqa: F401
     save_bm25_index,
     save_bm25_index_to_s3,
 )
-from infrastructure.bm25.rrf import rrf_merge  # noqa: F401
+from domain.utils import rrf_merge  # noqa: F401
 
 # Re-export from domain for backward compatibility
 from domain.utils import content_hash  # noqa: F401

@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from domain.utils import deduplicate_docs  # noqa: F401
 from infrastructure.bm25.hybrid import content_hash
 
 
@@ -39,18 +40,6 @@ async def rerank_documents(
 
     retriever = HybridRetriever()
     return retriever.apply_rerank_filters(ranked, min_score=min_score, score_gap_ratio=score_gap_ratio)
-
-
-def deduplicate_docs(docs: list) -> list:
-    """Remove near-duplicate chunks by content_hash to improve context diversity."""
-    seen_hashes = set()
-    unique_docs = []
-    for doc in docs:
-        h = content_hash(doc.page_content)
-        if h not in seen_hashes:
-            seen_hashes.add(h)
-            unique_docs.append(doc)
-    return unique_docs
 
 
 def group_by_section(docs: list[tuple]) -> list[tuple]:

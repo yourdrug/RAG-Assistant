@@ -118,6 +118,7 @@ class MLContainer:
             QdrantVectorStoreRepository,
         )
         from application.services.benchmark_orchestrator import BenchmarkService
+        from infrastructure.benchmark.runner_adapter import AsyncBenchmarkRunner
         from infrastructure.storage import LazyStorage
         from application.services.preview_cache import PreviewCache
 
@@ -134,7 +135,7 @@ class MLContainer:
             domain_settings=domain_settings,
         )
         self.metrics_registry = PrometheusMetricsRegistry()
-        self.benchmark_service = BenchmarkService(rag_service=None)
+        self.benchmark_service = BenchmarkService(rag_service=None, runner=AsyncBenchmarkRunner())
         self.summary_updater = RollingSummaryUpdater(ml_clients=self.ml_clients)
         self.content_extractor = MLContentExtractor()
         self.pdf_quality_assessor = MLPDFQualityAssessor()

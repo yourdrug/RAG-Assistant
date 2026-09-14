@@ -8,8 +8,7 @@ rerank-filter logic.
 
 from __future__ import annotations
 
-from infrastructure.bm25.hybrid import rrf_merge
-from infrastructure.ml.rag.rag_reranking import deduplicate_docs
+from domain.utils import deduplicate_docs, rrf_merge
 
 
 class HybridRetriever:

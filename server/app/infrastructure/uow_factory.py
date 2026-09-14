@@ -64,6 +64,9 @@ from infrastructure.repositories.user.sqlalchemy_user_repository import (
 from infrastructure.repositories.config.sqlalchemy_vector_outbox_repository import (
     SQLAlchemyVectorOutboxRepository,
 )
+from infrastructure.repositories.document.sqlalchemy_ingestion_registry_repository import (
+    SQLAlchemyIngestionRegistryRepository,
+)
 
 
 class UnitOfWorkFactory:
@@ -98,6 +101,7 @@ class UnitOfWorkFactory:
             regulatory_acts=SQLAlchemyRegulatoryActRepository(session),
             act_versions=SQLAlchemyActVersionRepository(session),
             assignments=SQLAlchemyAssignmentRepository(session),
+            ingestion_registry=SQLAlchemyIngestionRegistryRepository(session),
         )
         if self._config_broadcaster is not None:
             broadcaster = self._config_broadcaster

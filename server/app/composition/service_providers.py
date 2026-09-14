@@ -31,6 +31,11 @@ def create_ingestion_service(
     """
     from application.services.act_versioning_service import ActVersioningService
     from application.services.ingestion_orchestrator import IngestionService
+    from infrastructure.bm25.sparse_index_admin import S3SparseIndexAdmin
+    from infrastructure.ingestion.document_parser_adapter import (
+        IngestionDocumentParser,
+        IngestionDocumentSplitter,
+    )
 
     uow = _require(
         uow_factory if uow_factory is not None else infra.uow_factory,
@@ -43,13 +48,18 @@ def create_ingestion_service(
         # the API upload path does (TZ section 8.4)
         act_versioning = ActVersioningService(uow_factory=uow, settings=infra.domain_settings)
 
+    file_storage = _require(infra.file_storage, "file_storage")
+
     return IngestionService(
         vector_store_repo=_require(infra.vector_store_repo, "vector_store_repo"),
-        file_storage=_require(infra.file_storage, "file_storage"),
+        file_storage=file_storage,
         uow_factory=uow,
         domain_registry=infra.domain_registry,
         domain_settings=infra.domain_settings,
         act_versioning_service=act_versioning,
+        parser=IngestionDocumentParser(),
+        splitter=IngestionDocumentSplitter(),
+        sparse_index_admin=S3SparseIndexAdmin(file_storage=file_storage),
     )
 
 

@@ -23,6 +23,7 @@ from domain.repositories.conversation_repository import ConversationRepository
 from domain.repositories.assignment_repository import AssignmentRepository
 from domain.repositories.document_repository import DocumentRepository
 from domain.repositories.group_repository import GroupRepository
+from domain.repositories.ingestion_registry_repository import IngestionRegistryRepository
 from domain.repositories.message_repository import MessageRepository
 from domain.repositories.regulatory_act_repository import RegulatoryActRepository
 from domain.repositories.user_repository import UserRepository
@@ -59,6 +60,7 @@ class UnitOfWork(BaseUnitOfWork):
     regulatory_acts: RegulatoryActRepository
     act_versions: ActVersionRepository
     assignments: AssignmentRepository
+    ingestion_registry: IngestionRegistryRepository
 
     def __init__(
         self,
@@ -80,6 +82,7 @@ class UnitOfWork(BaseUnitOfWork):
         regulatory_acts: RegulatoryActRepository,
         act_versions: ActVersionRepository,
         assignments: AssignmentRepository,
+        ingestion_registry: IngestionRegistryRepository,
     ) -> None:
         super().__init__(session)
         self.users = users
@@ -99,6 +102,7 @@ class UnitOfWork(BaseUnitOfWork):
         self.regulatory_acts = regulatory_acts
         self.act_versions = act_versions
         self.assignments = assignments
+        self.ingestion_registry = ingestion_registry
         self._event_handlers: list[Callable[[object], Coroutine[Any, Any, None]]] = []
 
     def on_event(self, handler: Callable[[object], Coroutine[Any, Any, None]]) -> None:

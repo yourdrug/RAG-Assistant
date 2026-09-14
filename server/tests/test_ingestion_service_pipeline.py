@@ -21,9 +21,8 @@ from application.services.ingestion_orchestrator import (  # noqa: E402
     IngestionService,
     _s3_file_hash,
     _s3_source_key,
-    _tag_chunks,
-    _tag_domain,
 )
+from application.services.document_pipeline import tag_chunks as _tag_chunks, tag_domain as _tag_domain  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -248,42 +247,53 @@ class TestParseFile:
 
 
 # ---------------------------------------------------------------------------
-# _build_bm25_index
+# _build_sparse_index
 # ---------------------------------------------------------------------------
 
 
-class TestBuildBm25Index:
+class TestBuildSparseIndex:
     @pytest.mark.asyncio
     async def test_skips_when_hybrid_disabled(self):
         svc = _make_service()
         with patch("application.services.ingestion_orchestrator.settings") as s:
             s.hybrid_enabled = False
-            await svc._build_bm25_index([], reset=False)
+            await svc._build_sparse_index([], reset=False)
             # No error, just returns
 
     @pytest.mark.asyncio
-    async def test_reset_builds_from_scratch(self):
+    async def test_skips_when_no_port(self):
         svc = _make_service()
-        with (
-            patch("application.services.ingestion_orchestrator.settings") as s,
-            patch("application.services.ingestion_orchestrator.BM25Index") as mock_idx,
-            patch(
-                "application.services.ingestion_orchestrator.save_bm25_index_to_s3", new_callable=AsyncMock
-            ),
-            patch(
-                "application.services.ingestion_orchestrator.publish_bm25_invalidation",
-                new_callable=AsyncMock,
-            ),
-        ):
+        svc._sparse_index_admin = None
+        with patch("application.services.ingestion_orchestrator.settings") as s:
+            s.hybrid_enabled = True
+            await svc._build_sparse_index([], reset=False)
+            # No error, just returns with warning
+
+    @pytest.mark.asyncio
+    async def test_reset_calls_rebuild(self):
+        svc = _make_service()
+        mock_admin = AsyncMock()
+        svc._sparse_index_admin = mock_admin
+        with patch("application.services.ingestion_orchestrator.settings") as s:
             s.hybrid_enabled = True
             chunks = [Document(page_content="hello world"), Document(page_content="foo bar")]
-            await svc._build_bm25_index(chunks, reset=True)
-            mock_idx.assert_called_once_with(
-                ["hello world", "foo bar"],
-                doc_visibility=[None, None],
-                doc_owner_id=[None, None],
-                doc_group_id=[None, None],
-            )
+            await svc._build_sparse_index(chunks, reset=True)
+            mock_admin.rebuild.assert_called_once()
+            call_args = mock_admin.rebuild.call_args[0][0]
+            assert len(call_args) == 2
+            assert call_args[0].text == "hello world"
+            assert call_args[1].text == "foo bar"
+
+    @pytest.mark.asyncio
+    async def test_append_calls_extend(self):
+        svc = _make_service()
+        mock_admin = AsyncMock()
+        svc._sparse_index_admin = mock_admin
+        with patch("application.services.ingestion_orchestrator.settings") as s:
+            s.hybrid_enabled = True
+            chunks = [Document(page_content="test content")]
+            await svc._build_sparse_index(chunks, reset=False)
+            mock_admin.extend.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -393,6 +403,8 @@ class TestRunFullIngestion:
         mock_uow = MagicMock()
         mock_uow.documents.delete_internal_documents = AsyncMock(return_value=5)
         mock_uow._session = mock_session
+        mock_uow.ingestion_registry = MagicMock()
+        mock_uow.ingestion_registry.list_all = AsyncMock(return_value={})
 
         mock_ctx = AsyncMock()
         mock_ctx.__aenter__ = AsyncMock(return_value=mock_uow)

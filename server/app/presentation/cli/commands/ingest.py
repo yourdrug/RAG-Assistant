@@ -18,17 +18,15 @@ ingest_app = typer.Typer(help="Document indexing in Qdrant (S3 storage)")
 
 
 def _create_service() -> IngestionService:
-    """Create IngestionService with proper dependencies."""
-    from infrastructure.database.database import database
-    from infrastructure.repositories.vector.qdrant_vector_store_repository import QdrantVectorStoreRepository
-    from infrastructure.storage import LazyStorage
-    from infrastructure.uow_factory import UnitOfWorkFactory
+    """Create IngestionService with proper dependencies via composition."""
+    from composition.service_providers import create_ingestion_service
 
-    return IngestionService(
-        vector_store_repo=QdrantVectorStoreRepository(),
-        file_storage=LazyStorage(),
-        uow_factory=UnitOfWorkFactory(database=database),
-    )
+    from infrastructure.database.database import database
+    from composition.infrastructure import InfrastructureContainer
+
+    infra = InfrastructureContainer()
+    infra.init(database)
+    return create_ingestion_service(infra)
 
 
 @ingest_app.command("run")
