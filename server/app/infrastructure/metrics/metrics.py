@@ -77,6 +77,13 @@ RAG_DECOMPOSED_TOTAL = Counter(
     "Number of queries that were decomposed into sub-queries",
 )
 
+RAG_SPARSE_SURVIVAL_RATIO = Histogram(
+    "rag_sparse_survival_ratio",
+    "Fraction of BM25 candidates surviving ACL pre-filter",
+    ["role"],
+    buckets=(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0),
+)
+
 RAG_RELEVANCE_GATE_TOTAL = Counter(
     "rag_relevance_gate_total",
     "Relevance gate check results",

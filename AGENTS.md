@@ -398,12 +398,12 @@ grep -rln "^from \(infrastructure\|presentation\)\|^import \(infrastructure\|pre
 
 | # | Файл                                                  | Строк | Проблема                                                                                                                          | Тесты сейчас                                                          |
 |---|-------------------------------------------------------|-------|-----------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------|
-| 1 | `server/app/infrastructure/ml/rag_service.py`         | 928   | `RagService.stream()` — строки ~610–883, 270 строк в одном методе, `# noqa: C901`                                                 | НЕТ (только в `tests/fakes.py` как fake)                              |
-| 2 | `server/app/infrastructure/ml/benchmark.py`           | 1087  | Всё на module-level функциях: retrieval + judge + метрики + отчёты в одном файле                                                  | Косвенно, нет unit-тестов на `judge_answer`/`compute_summary_metrics` |
-| 3 | `server/app/infrastructure/ml/ingestion.py`           | 722   | PDF/DOCX/RTF/MD парсинг в одном файле, хотя рядом `infrastructure/ml/preview/` уже показывает Strategy-паттерн для этой же задачи | Частично (`test_ingestion_parsers.py`, `test_ingestion_text.py`)      |
-| 4 | `server/app/presentation/api/schemas.py`              | 761   | Все Pydantic-схемы (chat/admin/document/auth) в одном файле                                                                       | —                                                                     |
-| 5 | `server/app/application/services/document_service.py` | 508   | Смешаны оркестрация pipeline и CRUD                                                                                               | —                                                                     |
-| 6 | `server/app/application/services/chunk_service.py`    | 445   | —                                                                                                                                 | `tests/test_chunk_service.py` есть, но частично                       |
+| 1 | `server/app/infrastructure/ml/rag_service.py`         | 283   | ~~`stream()` 270 строк~~ → рефакторинг: `stream()` вынесен в `rag/rag_steps.py`, retrieval — в `rag/rag_retrieval.py`             | `test_curator_role.py`, `test_rag_chain.py`, `tests/fakes.py`         |
+| 2 | `server/app/infrastructure/ml/benchmark/`             | ~1200 | Разбит на `benchmark.py` (35) + `runner.py`, `retrieval.py`, `_sweep_scoring.py`, `report.py` —但仍无 unit-тестов на judge/metrics | Косвенно через `test_benchmark*.py`                                   |
+| 3 | `server/app/infrastructure/ml/ingestion/`             | ~1900 | Разбит по форматам: `pdf.py`, `docx.py`, `markdown.py`, `rtf.py`, `splitting.py` — Strategy-паттерн применён                      | `test_ingestion_parsers.py`, `test_ingestion_text.py`                 |
+| 4 | `server/app/presentation/api/schemas.py`              | 813   | Все Pydantic-схемы (chat/admin/document/auth) в одном файле                                                                       | —                                                                     |
+| 5 | `server/app/application/services/document_service.py` | 518   | Смешаны оркестрация pipeline и CRUD                                                                                               | —                                                                     |
+| 6 | `server/app/application/services/chunk_service.py`    | 532   | Добавлена передача ACL в BM25 при add/replace                                                                                     | `tests/test_chunk_service.py` есть, но частично                       |
 
 Правило: **не трогать файл из этого списка без предварительного `/add-characterization-tests`**
 на затрагиваемый публичный метод. Baseline тестов должен быть зелёным ДО рефакторинга.
@@ -416,7 +416,47 @@ grep -rln "^from \(infrastructure\|presentation\)\|^import \(infrastructure\|pre
 - Чистая доменная логика классификации/промптов живёт в `domain/services/rag_policy.py` —
   новую бизнес-логику (не зависящую от LangChain/Qdrant/Ollama) добавлять туда, а не в
   `infrastructure/ml/rag.py` или `rag_service.py`.
-- Ретеривал: dense — `infrastructure/ml/rag_service.py::_qdrant_dense_search`,
-  гибридный — `infrastructure/ml/hybrid.py`. При рефакторинге `stream()` эти функции
-  должны остаться чистыми (без побочных эффектов логирования вперемешку с бизнес-логикой).
-- 
+- Ретеривал: dense — `infrastructure/ml/rag/rag_retrieval.py::qdrant_dense_search`,
+  гибридный — `infrastructure/ml/rag/rag_retrieval.py::run_hybrid_search`. При рефакторинге
+  эти функции должны остаться чистыми (без побочных эффектов логирования вперемешку с бизнес-логикой).
+- **ACL-инвариант** (нарушение = data leak): `is_in_search_scope(doc, ctx)` ⇔ `build_qdrant_filter`
+  ⇔ `BM25Index._doc_matches_acl`. Тройной треугольник покрыт property-тестами:
+  - `tests/test_acl.py::TestACLInvariant` — domain ⇔ Qdrant filter
+  - `tests/test_bm25_acl.py::TestBM25PredicateInvariant` — domain ⇔ BM25 predicate
+- **CuratorScope**: `domain/value_objects/curator_scope.py` — frozen VO, snapshot полномочий куратора
+  на момент запроса. Пробрасывается через `ChatContext.curator_scope` в `RagService._init_state`.
+  Максимальный размер managed-списков: `CURATOR_SCOPE_MAX_IDS` (config, по умолчанию 1000),
+  проверяется в `ChatService._prepare_chat`.
+- **BM25 ACL pre-filter**: `infrastructure/bm25/bm25_index.py` хранит per-doc ACL-метаданные
+  (`doc_visibility/owner_id/group_id`), pre-filter до скоринга через `_doc_matches_acl`.
+  Второй рубеж (Qdrant resolve с `access_filter`) **никогда не убирается** — defense in depth.
+  `last_survival_ratio` на индексе → метрика `rag_sparse_survival_ratio` с лейблом `role`
+  в `rag_steps.py::step_retrieve`.
+- **Answer cache**: `CACHE_PREFIX = "rag:cache:v3:"`. Hash включает `user_kind:user_role:user_id:sorted(groups):curator_scope`.
+  Смена assignments или роли → новый хэш → cache miss (fail-closed).
+- `domain/services/access_control.py` — single source of truth для ACL. Все пути (CRUD listing,
+  Qdrant filter, BM25 predicate) берут условия из `get_visibility_conditions()`.
+
+### Invariant tests (никогда не удалять)
+
+| Тест                                                  | Что фиксирует                                                         |
+|-------------------------------------------------------|-----------------------------------------------------------------------|
+| `test_acl.py::TestACLInvariant`                       | `is_in_search_scope` ⇔ `build_qdrant_filter` (USER/ADMIN/CURATOR)    |
+| `test_bm25_acl.py::TestBM25PredicateInvariant`        | `is_in_search_scope` ⇔ `BM25Index._doc_matches_acl` (USER/ADMIN/CURATOR) |
+| `test_answer_cache.py::TestCacheHashIncludesRoleAndScope` | Cache hash includes role + scope; downgrade → different hash       |
+| `test_curator_role.py::TestRagServiceCuratorScope`    | `RagService._init_state` passes managed-ids from CuratorScope         |
+| `test_bm25_acl.py::TestBM25SearchWithACL`             | BM25 pre-filter correctly excludes docs by visibility/owner/group     |
+
+## ACL data flow
+
+```
+UserContext.build()          → managed_*_ids from DB (CURATOR only)
+  → ChatService._prepare_chat → CuratorScope VO (CURATOR_SCOPE_MAX_IDS checked)
+    → ChatContext.curator_scope
+      → RagService._init_state
+        → get_visibility_conditions(for_list=False) → VisibilityCondition[]
+          → build_qdrant_filter()            → Qdrant Filter (dense + resolve)
+          → BM25Index.search_with_hashes()   → pre-filter (first barrier)
+            → resolve_hashes_batch()         → second barrier (Qdrant + access_filter)
+        → answer_cache.compute_visibility_scope_hash() → cache key (v3)
+```

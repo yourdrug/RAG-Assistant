@@ -6,10 +6,13 @@ for fast candidate filtering during search.
 
 from __future__ import annotations
 
+import logging
 import math
 
 from domain.utils import content_hash
 from infrastructure.bm25._tokenizer import tokenize
+
+log = logging.getLogger("default")
 
 
 class BM25Index:
@@ -17,6 +20,7 @@ class BM25Index:
 
     Stores content hashes alongside texts for hybrid search merge.
     Uses an inverted index for fast candidate filtering during search.
+    Optionally stores per-document ACL metadata for pre-filtering.
     """
 
     def __init__(
@@ -25,6 +29,9 @@ class BM25Index:
         hashes: list[str] | None = None,
         k1: float = 1.5,
         b: float = 0.75,
+        doc_visibility: list[str | None] | None = None,
+        doc_owner_id: list[int | None] | None = None,
+        doc_group_id: list[int | None] | None = None,
     ):
         self.k1 = k1
         self.b = b
@@ -37,6 +44,10 @@ class BM25Index:
         self.token_freqs: list[dict[str, int]] = []
         self.doc_freq: dict[str, int] = {}
         self.inverted_index: dict[str, set[int]] = {}
+        self.doc_visibility: list[str | None] = doc_visibility or [None] * len(texts)
+        self.doc_owner_id: list[int | None] = doc_owner_id or [None] * len(texts)
+        self.doc_group_id: list[int | None] = doc_group_id or [None] * len(texts)
+        self.last_survival_ratio: float | None = None
         self._build()
 
     def _build(self) -> None:
@@ -79,6 +90,36 @@ class BM25Index:
             score += idf * numerator / denominator
         return score
 
+    def _doc_matches_acl(
+        self,
+        doc_idx: int,
+        visibility_conditions: list,
+        user_id: int,
+        user_group_ids: list[int],
+    ) -> bool:
+        """Check if doc at doc_idx matches any VisibilityCondition."""
+        vis = self.doc_visibility[doc_idx]
+        if vis is None:
+            return True
+
+        owner = self.doc_owner_id[doc_idx]
+        group = self.doc_group_id[doc_idx]
+
+        for cond in visibility_conditions:
+            if cond.visibility.value != vis:
+                continue
+            if cond.owner_match == "self" and owner != user_id:
+                continue
+            if cond.owner_match == "assigned":
+                if owner is None or cond.owner_ids is None or owner not in cond.owner_ids:
+                    continue
+            if cond.group_match:
+                effective_groups = cond.group_ids if cond.group_ids is not None else user_group_ids
+                if group is None or group not in effective_groups:
+                    continue
+            return True
+        return False
+
     def search(self, query: str, k: int = 25) -> list[tuple[int, float]]:
         """Return (doc_index, score) pairs sorted by descending score."""
         q_tokens = tokenize(query)
@@ -98,18 +139,61 @@ class BM25Index:
         scored.sort(key=lambda x: x[1], reverse=True)
         return scored[:k]
 
-    def search_with_hashes(self, query: str, k: int = 25) -> list[tuple[str, float]]:
-        """Return (content_hash, score) pairs sorted by descending score."""
-        results = self.search(query, k)
-        return [(self.hashes[idx], score) for idx, score in results]
+    def search_with_hashes(
+        self,
+        query: str,
+        k: int = 25,
+        visibility_conditions: list | None = None,
+        user_id: int | None = None,
+        user_group_ids: list[int] | None = None,
+    ) -> list[tuple[str, float]]:
+        """Return (content_hash, score) pairs sorted by descending score.
+
+        When visibility_conditions is provided, candidates are pre-filtered
+        by ACL before scoring (defense-in-depth: Qdrant resolve still applies).
+        """
+        q_tokens = tokenize(query)
+        if not q_tokens:
+            return []
+
+        candidate_indices: set[int] = set()
+        for t in q_tokens:
+            posting = self.inverted_index.get(t)
+            if posting:
+                candidate_indices.update(posting)
+
+        if visibility_conditions is not None and user_id is not None and user_group_ids is not None:
+            before_count = len(candidate_indices)
+            candidate_indices = {
+                i for i in candidate_indices
+                if self._doc_matches_acl(i, visibility_conditions, user_id, user_group_ids)
+            }
+            after_count = len(candidate_indices)
+            if before_count > 0:
+                self.last_survival_ratio = after_count / before_count
+            else:
+                self.last_survival_ratio = None
+
+        if not candidate_indices:
+            return []
+
+        scored = [(i, self.score(q_tokens, i)) for i in candidate_indices]
+        scored.sort(key=lambda x: x[1], reverse=True)
+        return [(self.hashes[idx], score) for idx, score in scored[:k]]
 
     def to_dict(self) -> dict:
-        return {
+        d: dict = {
             "k1": self.k1,
             "b": self.b,
             "texts": self.texts,
             "hashes": self.hashes,
         }
+        has_acl = any(v is not None for v in self.doc_visibility)
+        if has_acl:
+            d["doc_visibility"] = self.doc_visibility
+            d["doc_owner_id"] = self.doc_owner_id
+            d["doc_group_id"] = self.doc_group_id
+        return d
 
     @classmethod
     def from_dict(cls, data: dict) -> BM25Index:
@@ -118,13 +202,23 @@ class BM25Index:
             hashes=data.get("hashes"),
             k1=data.get("k1", 1.5),
             b=data.get("b", 0.75),
+            doc_visibility=data.get("doc_visibility"),
+            doc_owner_id=data.get("doc_owner_id"),
+            doc_group_id=data.get("doc_group_id"),
         )
 
     def find_by_hash(self, target_hash: str) -> int | None:
         """O(1) lookup by content hash."""
         return self._hash_to_idx.get(target_hash)
 
-    def add_text(self, text: str, text_hash: str | None = None) -> int:
+    def add_text(
+        self,
+        text: str,
+        text_hash: str | None = None,
+        visibility: str | None = None,
+        owner_id: int | None = None,
+        group_id: int | None = None,
+    ) -> int:
         """Add a new text to the index. Returns the index of the new text."""
         idx = self.n_docs
         self.texts.append(text)
@@ -144,32 +238,35 @@ class BM25Index:
             self.inverted_index.setdefault(t, set()).add(idx)
         self.token_freqs.append(tf)
 
+        self.doc_visibility.append(visibility)
+        self.doc_owner_id.append(owner_id)
+        self.doc_group_id.append(group_id)
+
         total_len = self.avgdl * self.n_docs + doc_len
         self.n_docs += 1
         self.avgdl = total_len / self.n_docs if self.n_docs > 0 else 1.0
 
         return idx
 
-    def replace_text(self, index: int, new_text: str, new_hash: str | None = None) -> None:
+    def replace_text(
+        self,
+        index: int,
+        new_text: str,
+        new_hash: str | None = None,
+        visibility: str | None = None,
+        owner_id: int | None = None,
+        group_id: int | None = None,
+    ) -> None:
         """Replace text at given index. Updates all BM25 statistics."""
         if index < 0 or index >= self.n_docs:
             raise IndexError(f"Index {index} out of range [0, {self.n_docs})")
 
-        old_text = self.texts[index]
-        old_tokens = tokenize(old_text)
+        old_tokens = tokenize(self.texts[index])
         new_tokens = tokenize(new_text)
 
-        old_tf = self.token_freqs[index]
-        for t in old_tokens:
-            if old_tf.get(t, 0) > 0:
-                if old_tf[t] == 1 and t in self.doc_freq:
-                    self.doc_freq[t] -= 1
-                    if self.doc_freq[t] <= 0:
-                        del self.doc_freq[t]
-                if t in self.inverted_index:
-                    self.inverted_index[t].discard(index)
-                    if not self.inverted_index[t]:
-                        del self.inverted_index[t]
+        self._remove_old_tokens(
+            self.doc_freq, self.inverted_index, old_tokens, self.token_freqs[index], index
+        )
 
         self.texts[index] = new_text
         old_hash = self.hashes[index]
@@ -191,6 +288,13 @@ class BM25Index:
         self.doc_lens[index] = new_len
         total_len = self.avgdl * self.n_docs - old_len + new_len
         self.avgdl = total_len / self.n_docs if self.n_docs > 0 else 1.0
+
+        if visibility is not None:
+            self.doc_visibility[index] = visibility
+        if owner_id is not None:
+            self.doc_owner_id[index] = owner_id
+        if group_id is not None:
+            self.doc_group_id[index] = group_id
 
     @staticmethod
     def _remove_old_tokens(
@@ -253,6 +357,10 @@ class BM25Index:
         self._remove_old_tokens(self.doc_freq, self.inverted_index, old_tokens, old_tf, index)
         removed_hash = self.hashes[index]
         removed_len = self._remove_from_lists(self.texts, self.hashes, self.doc_lens, self.token_freqs, index)
+
+        del self.doc_visibility[index]
+        del self.doc_owner_id[index]
+        del self.doc_group_id[index]
 
         self.n_docs -= 1
         total_len = self.avgdl * (self.n_docs + 1) - removed_len

@@ -111,14 +111,26 @@ async def run_hybrid_search(
     ml_clients: "MLClientRegistry",
     dense_weight: float | None = None,
     sparse_weight: float | None = None,
+    visibility_conditions: list | None = None,
+    user_id: int | None = None,
+    user_group_ids: list[int] | None = None,
 ) -> list[LCDocument]:
-    """Run hybrid dense+BM25 search and return deduplicated candidates."""
+    """Run hybrid dense+BM25 search and return deduplicated candidates.
+
+    When visibility_conditions is provided, BM25 pre-filters candidates
+    by ACL before scoring (defense-in-depth: Qdrant resolve still applies).
+    """
     bm25_index = ml_clients.bm25_index()
 
     if rag.hybrid_search.enabled and bm25_index is not None:
         t0 = time.monotonic()
         dense_coro = qdrant_dense_search(query, fetch_k, access_filter, ml_clients)
-        sparse_coro = asyncio.to_thread(bm25_index.search_with_hashes, query, fetch_k)
+        sparse_coro = asyncio.to_thread(
+            bm25_index.search_with_hashes, query, fetch_k,
+            visibility_conditions=visibility_conditions,
+            user_id=user_id,
+            user_group_ids=user_group_ids or [],
+        )
         dense_results, sparse_results = await asyncio.gather(dense_coro, sparse_coro)
         elapsed = time.monotonic() - t0
         RAG_STAGE_DURATION.labels("dense_search").observe(elapsed)

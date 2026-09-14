@@ -8,13 +8,11 @@ from __future__ import annotations
 
 import itertools
 import logging
-from typing import TYPE_CHECKING
+
+from langchain.schema import Document as LCDocument
 
 from config import settings
 from infrastructure.bm25.hybrid import content_hash, rrf_merge
-
-if TYPE_CHECKING:
-    from langchain.schema import Document as LCDocument
 
 logger = logging.getLogger("default")
 
@@ -56,9 +54,9 @@ def generate_random_points(search_space: dict, n: int) -> list[dict]:
             elif "min" in spec and "max" in spec:
                 step = spec.get("step")
                 is_float = (
-                    isinstance(spec.get("min"), float)
-                    or isinstance(spec.get("max"), float)
-                    or (step and isinstance(step, float))
+                        isinstance(spec.get("min"), float)
+                        or isinstance(spec.get("max"), float)
+                        or (step and isinstance(step, float))
                 )
                 if is_float:
                     point[param] = _random.uniform(spec["min"], spec["max"])  # noqa: S311
@@ -71,8 +69,8 @@ def generate_random_points(search_space: dict, n: int) -> list[dict]:
 
 
 def compute_composite_score(
-    metrics: dict,
-    weights: dict | None = None,
+        metrics: dict,
+        weights: dict | None = None,
 ) -> float:
     """Compute weighted composite score from individual metrics."""
     if weights is None:
@@ -99,13 +97,13 @@ def compute_composite_score(
 
 
 def score_config_cheap(  # noqa: C901
-    config: dict,
-    questions: list[dict],
-    dense_cache: dict,
-    sparse_cache: dict,
-    all_candidates: dict,
-    weights: dict,
-    defaults: dict | None = None,
+        config: dict,
+        questions: list[dict],
+        dense_cache: dict,
+        sparse_cache: dict,
+        all_candidates: dict,
+        weights: dict,
+        defaults: dict | None = None,
 ) -> dict:
     """Phase A: Score a config using cached candidates (no LLM/Qdrant calls).
 
@@ -177,9 +175,9 @@ def score_config_cheap(  # noqa: C901
 
 
 async def cache_candidates(
-    questions: list[dict],
-    max_fetch_k: int,
-    ml_clients=None,
+        questions: list[dict],
+        max_fetch_k: int,
+        ml_clients=None,
 ) -> tuple[dict, dict, dict]:
     """Phase 1: Cache dense + sparse candidates at max fetch_k."""
     dense_cache: dict[str, list] = {}
@@ -206,15 +204,14 @@ async def cache_candidates(
 
         dense_results = []
         for point in client.search(
-            collection_name=settings.collection_name,
-            query_vector=embeddings.embed_query_sync(qtext),
-            limit=max_fetch_k,
+                collection_name=settings.collection_name,
+                query_vector=embeddings.embed_query_sync(qtext),
+                limit=max_fetch_k,
         ):
             payload = point.payload or {}
             page_content = payload.get("page_content", "")
             metadata = payload.get("metadata", {})
             h = metadata.get("content_hash") or content_hash(page_content)
-            from langchain.schema import Document as LCDocument
 
             doc = LCDocument(page_content=page_content, metadata=metadata)
             dense_results.append((h, point.score, doc))

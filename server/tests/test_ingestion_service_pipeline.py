@@ -278,7 +278,12 @@ class TestBuildBm25Index:
             s.hybrid_enabled = True
             chunks = [Document(page_content="hello world"), Document(page_content="foo bar")]
             await svc._build_bm25_index(chunks, reset=True)
-            mock_idx.assert_called_once_with(["hello world", "foo bar"])
+            mock_idx.assert_called_once_with(
+                ["hello world", "foo bar"],
+                doc_visibility=[None, None],
+                doc_owner_id=[None, None],
+                doc_group_id=[None, None],
+            )
 
 
 # ---------------------------------------------------------------------------

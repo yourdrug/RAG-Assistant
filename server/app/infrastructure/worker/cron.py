@@ -69,6 +69,7 @@ async def cron_bm25_rebuild(ctx: dict[str, Any]) -> None:
     """Rebuild BM25 index from scratch (runs daily at 3:00 AM UTC).
 
     Loads chunks in batches of 5000 to avoid 100MB+ memory spikes on large corpora.
+    Includes ACL metadata (visibility, owner_id, group_id) for pre-filtering.
     """
     if not settings.hybrid_enabled:
         logger.debug("Cron: BM25 rebuild skipped — hybrid search disabled")
@@ -83,16 +84,29 @@ async def cron_bm25_rebuild(ctx: dict[str, Any]) -> None:
     t0 = time.monotonic()
 
     all_texts: list[str] = []
+    all_visibilities: list[str | None] = []
+    all_owner_ids: list[int | None] = []
+    all_group_ids: list[int | None] = []
+
     async with uow_factory.create(master=True) as uow:
-        batches = await uow.chunks.get_all_contents_batches(batch_size=5000)
+        batches = await uow.chunks.get_all_contents_batches_with_acl(batch_size=5000)
         for batch in batches:
-            all_texts.extend(batch)
+            for content, visibility, owner_id, group_id in batch:
+                all_texts.append(content)
+                all_visibilities.append(visibility)
+                all_owner_ids.append(owner_id)
+                all_group_ids.append(group_id)
 
     if not all_texts:
         logger.info("Cron: BM25 rebuild — no chunks found, skipping")
         return
 
-    bm25_index = BM25Index(all_texts)
+    bm25_index = BM25Index(
+        all_texts,
+        doc_visibility=all_visibilities,
+        doc_owner_id=all_owner_ids,
+        doc_group_id=all_group_ids,
+    )
 
     import sys
 
@@ -104,7 +118,7 @@ async def cron_bm25_rebuild(ctx: dict[str, Any]) -> None:
 
     elapsed = time.monotonic() - t0
     logger.info(
-        "Cron: BM25 rebuild completed — %d chunks indexed in %.1fs (batched loading)",
+        "Cron: BM25 rebuild completed — %d chunks indexed in %.1fs (batched loading, ACL metadata)",
         len(all_texts),
         elapsed,
     )

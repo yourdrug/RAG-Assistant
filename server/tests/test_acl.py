@@ -410,6 +410,135 @@ class TestACLInvariant:
                 f"is_in_search_scope={scope_result}, filter={filter_result}"
             )
 
+    def test_curator_managed_client_invariant(self):
+        """CURATOR with managed_client_ids: sees assigned CLIENT_PRIVATE."""
+        ctx = UserContext(
+            user_id=1, user_kind="internal", user_role="curator",
+            managed_client_ids=[100],
+        )
+        user = {"id": 1, "kind": "internal", "role": "curator"}
+        f = build_qdrant_filter(user, [], managed_client_ids=[100])
+
+        docs = [
+            SimpleNamespace(visibility="client_private", owner_id=100, group_id=None),
+            SimpleNamespace(visibility="client_private", owner_id=200, group_id=None),
+            SimpleNamespace(visibility="internal_public", owner_id=None, group_id=None),
+            SimpleNamespace(visibility="internal_private", owner_id=1, group_id=None),
+        ]
+        for doc in docs:
+            scope_result = is_in_search_scope(doc, ctx)
+            filter_result = self._filter_allows(f, doc)
+            assert scope_result == filter_result, (
+                f"Mismatch for {doc.visibility} owner={doc.owner_id}: "
+                f"is_in_search_scope={scope_result}, filter={filter_result}"
+            )
+
+    def test_curator_managed_internal_invariant(self):
+        """CURATOR with managed_internal_ids: sees assigned INTERNAL_PRIVATE."""
+        ctx = UserContext(
+            user_id=1, user_kind="internal", user_role="curator",
+            managed_internal_ids=[20],
+        )
+        user = {"id": 1, "kind": "internal", "role": "curator"}
+        f = build_qdrant_filter(user, [], managed_internal_ids=[20])
+
+        docs = [
+            SimpleNamespace(visibility="internal_private", owner_id=20, group_id=None),
+            SimpleNamespace(visibility="internal_private", owner_id=30, group_id=None),
+            SimpleNamespace(visibility="internal_private", owner_id=1, group_id=None),
+            SimpleNamespace(visibility="internal_public", owner_id=None, group_id=None),
+        ]
+        for doc in docs:
+            scope_result = is_in_search_scope(doc, ctx)
+            filter_result = self._filter_allows(f, doc)
+            assert scope_result == filter_result, (
+                f"Mismatch for {doc.visibility} owner={doc.owner_id}: "
+                f"is_in_search_scope={scope_result}, filter={filter_result}"
+            )
+
+    def test_curator_managed_group_invariant(self):
+        """CURATOR with managed_group_ids: sees assigned group docs."""
+        ctx = UserContext(
+            user_id=1, user_kind="internal", user_role="curator",
+            managed_group_ids=[5],
+        )
+        user = {"id": 1, "kind": "internal", "role": "curator"}
+        f = build_qdrant_filter(user, [], managed_group_ids=[5])
+
+        docs = [
+            SimpleNamespace(visibility="internal_group", owner_id=None, group_id=5),
+            SimpleNamespace(visibility="internal_group", owner_id=None, group_id=99),
+            SimpleNamespace(visibility="internal_public", owner_id=None, group_id=None),
+        ]
+        for doc in docs:
+            scope_result = is_in_search_scope(doc, ctx)
+            filter_result = self._filter_allows(f, doc)
+            assert scope_result == filter_result, (
+                f"Mismatch for {doc.visibility} owner={doc.owner_id} group={doc.group_id}: "
+                f"is_in_search_scope={scope_result}, filter={filter_result}"
+            )
+
+    def test_curator_all_managed_invariant(self):
+        """CURATOR with all managed IDs: full scope."""
+        ctx = UserContext(
+            user_id=1, user_kind="internal", user_role="curator",
+            group_ids=[5],
+            managed_client_ids=[100],
+            managed_internal_ids=[20],
+            managed_group_ids=[15],
+        )
+        user = {"id": 1, "kind": "internal", "role": "curator"}
+        f = build_qdrant_filter(
+            user, [5],
+            managed_client_ids=[100],
+            managed_internal_ids=[20],
+            managed_group_ids=[15],
+        )
+
+        docs = [
+            SimpleNamespace(visibility="internal_public", owner_id=None, group_id=None),
+            SimpleNamespace(visibility="internal_private", owner_id=1, group_id=None),
+            SimpleNamespace(visibility="internal_private", owner_id=20, group_id=None),
+            SimpleNamespace(visibility="internal_private", owner_id=99, group_id=None),
+            SimpleNamespace(visibility="client_private", owner_id=100, group_id=None),
+            SimpleNamespace(visibility="client_private", owner_id=999, group_id=None),
+            SimpleNamespace(visibility="internal_group", owner_id=None, group_id=5),
+            SimpleNamespace(visibility="internal_group", owner_id=None, group_id=15),
+            SimpleNamespace(visibility="internal_group", owner_id=None, group_id=99),
+        ]
+        for doc in docs:
+            scope_result = is_in_search_scope(doc, ctx)
+            filter_result = self._filter_allows(f, doc)
+            assert scope_result == filter_result, (
+                f"Mismatch for {doc.visibility} owner={doc.owner_id} group={doc.group_id}: "
+                f"is_in_search_scope={scope_result}, filter={filter_result}"
+            )
+
+    def test_admin_with_groups_invariant(self):
+        """ADMIN with groups: bypasses group membership, no CLIENT_PRIVATE in search."""
+        ctx = UserContext(
+            user_id=1, user_kind="internal", user_role="admin",
+            group_ids=[5],
+        )
+        user = {"id": 1, "kind": "internal", "role": "admin"}
+        f = build_qdrant_filter(user, [5])
+
+        docs = [
+            SimpleNamespace(visibility="internal_public", owner_id=None, group_id=None),
+            SimpleNamespace(visibility="internal_private", owner_id=1, group_id=None),
+            SimpleNamespace(visibility="internal_private", owner_id=99, group_id=None),
+            SimpleNamespace(visibility="internal_group", owner_id=None, group_id=5),
+            SimpleNamespace(visibility="internal_group", owner_id=None, group_id=99),
+            SimpleNamespace(visibility="client_private", owner_id=100, group_id=None),
+        ]
+        for doc in docs:
+            scope_result = is_in_search_scope(doc, ctx)
+            filter_result = self._filter_allows(f, doc)
+            assert scope_result == filter_result, (
+                f"Mismatch for {doc.visibility} owner={doc.owner_id} group={doc.group_id}: "
+                f"is_in_search_scope={scope_result}, filter={filter_result}"
+            )
+
     def test_conditions_count_matches_role(self):
         """Number of filter conditions matches expected visibility conditions.
 

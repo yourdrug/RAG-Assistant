@@ -55,6 +55,9 @@ async def run_retrieval(
     query_domain: str,
     effective_dense_weight: float,
     effective_sparse_weight: float,
+    visibility_conditions: list | None = None,
+    user_id: int | None = None,
+    user_group_ids: list[int] | None = None,
 ) -> list[LCDocument]:
     """Run hybrid search with legal-domain fallback."""
     if query_domain == DocDomain.LEGAL.value:
@@ -67,6 +70,9 @@ async def run_retrieval(
             ml_clients=ml_clients,
             dense_weight=effective_dense_weight,
             sparse_weight=effective_sparse_weight,
+            visibility_conditions=visibility_conditions,
+            user_id=user_id,
+            user_group_ids=user_group_ids,
         )
         if not candidates:
             log.info("Legal-filtered retrieval returned 0 candidates — fallback on entire corpus")
@@ -78,6 +84,9 @@ async def run_retrieval(
                 ml_clients=ml_clients,
                 dense_weight=effective_dense_weight,
                 sparse_weight=effective_sparse_weight,
+                visibility_conditions=visibility_conditions,
+                user_id=user_id,
+                user_group_ids=user_group_ids,
             )
     else:
         candidates = await run_hybrid_search(
@@ -88,6 +97,9 @@ async def run_retrieval(
             ml_clients=ml_clients,
             dense_weight=effective_dense_weight,
             sparse_weight=effective_sparse_weight,
+            visibility_conditions=visibility_conditions,
+            user_id=user_id,
+            user_group_ids=user_group_ids,
         )
     return candidates
 
@@ -201,6 +213,9 @@ async def retrieve_with_decomposition(
     query_domain: str,
     effective_dense_weight: float,
     effective_sparse_weight: float,
+    visibility_conditions: list | None = None,
+    user_id: int | None = None,
+    user_group_ids: list[int] | None = None,
 ) -> tuple[list[LCDocument], list[str]]:
     """Run hybrid retrieval with optional multi-query decomposition.
 
@@ -225,6 +240,9 @@ async def retrieve_with_decomposition(
                 query_domain,
                 effective_dense_weight,
                 effective_sparse_weight,
+                visibility_conditions=visibility_conditions,
+                user_id=user_id,
+                user_group_ids=user_group_ids,
             )
             RAG_STAGE_DURATION.labels("decompose").observe(time.monotonic() - t0)
         else:
@@ -239,6 +257,9 @@ async def retrieve_with_decomposition(
                     query_domain,
                     effective_dense_weight,
                     effective_sparse_weight,
+                    visibility_conditions=visibility_conditions,
+                    user_id=user_id,
+                    user_group_ids=user_group_ids,
                 )
                 for sq in sub_queries
             ]
@@ -269,6 +290,9 @@ async def retrieve_with_decomposition(
             query_domain,
             effective_dense_weight,
             effective_sparse_weight,
+            visibility_conditions=visibility_conditions,
+            user_id=user_id,
+            user_group_ids=user_group_ids,
         )
         sub_queries = [query]
 

@@ -323,18 +323,35 @@ class IngestionService:
             return
 
         new_texts = [c.page_content for c in chunks]
+        new_vis = [c.metadata.get("visibility") for c in chunks]
+        new_owners = [c.metadata.get("owner_id") for c in chunks]
+        new_groups = [c.metadata.get("group_id") for c in chunks]
 
         if reset:
             all_texts = new_texts
+            all_vis = new_vis
+            all_owners = new_owners
+            all_groups = new_groups
             log.info("BM25: reset mode — rebuilding index from scratch (%d texts)", len(all_texts))
         else:
             existing = await load_bm25_index_from_s3(self._file_storage)
             if existing is not None:
                 all_texts = existing.texts + new_texts
+                all_vis = existing.doc_visibility + new_vis
+                all_owners = existing.doc_owner_id + new_owners
+                all_groups = existing.doc_group_id + new_groups
             else:
                 all_texts = new_texts
+                all_vis = new_vis
+                all_owners = new_owners
+                all_groups = new_groups
 
-        bm25_index = BM25Index(all_texts)
+        bm25_index = BM25Index(
+            all_texts,
+            doc_visibility=all_vis,
+            doc_owner_id=all_owners,
+            doc_group_id=all_groups,
+        )
         await save_bm25_index_to_s3(bm25_index, self._file_storage)
         await publish_bm25_invalidation()
 

@@ -14,17 +14,31 @@ import time
 
 from infrastructure.bm25.hybrid import content_hash
 from infrastructure.redis.redis_client import redis_client
+from domain.value_objects.curator_scope import CuratorScope
+from domain.value_objects.roles import UserRole
 
 log = logging.getLogger("default")
 
 CACHE_TTL_SECONDS = 7 * 24 * 3600  # 7 days
-CACHE_PREFIX = "rag:cache:v2:"
+CACHE_PREFIX = "rag:cache:v3:"
 
 
-def compute_visibility_scope_hash(user_kind: str, user_id: int, group_ids: list[int]) -> str:
+def compute_visibility_scope_hash(
+    user_kind: str,
+    user_id: int,
+    group_ids: list[int],
+    user_role: str = UserRole.USER,
+    curator_scope: CuratorScope | None = None,
+) -> str:
     """Deterministic hash of the user's ACL context."""
-    scope = f"{user_kind}:{user_id}:{sorted(group_ids)}"
-    return content_hash(scope)
+    has_scope = curator_scope is not None and not curator_scope.is_empty()
+    scope_repr = (
+        f"curator:{sorted(curator_scope.managed_client_ids)}:"
+        f"{sorted(curator_scope.managed_internal_ids)}:"
+        f"{sorted(curator_scope.managed_group_ids)}"
+        if has_scope else ""
+    )
+    return content_hash(f"{user_kind}:{user_role}:{user_id}:{sorted(group_ids)}:{scope_repr}")
 
 
 def compute_question_hash(question_text: str) -> str:

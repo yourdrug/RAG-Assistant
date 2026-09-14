@@ -141,6 +141,9 @@ class Settings(BaseSettings):
     dense_weight: float = 1.5
     sparse_weight: float = 0.5
 
+    # ── RAG: curator scope ─────────────────────────────────────────────────
+    curator_scope_max_ids: int = 1000
+
     # ── RAG: feature toggles ───────────────────────────────────────────────
     relevance_gate_enabled: bool = False
     condense_enabled: bool = False

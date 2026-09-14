@@ -126,6 +126,21 @@ class RagService:
 
         user = {"id": ctx.user_id, "kind": ctx.user_kind, "role": ctx.user_role}
         scope = ctx.curator_scope
+
+        from domain.services import get_visibility_conditions
+        from domain.value_objects.roles import UserKind, UserRole
+
+        visibility_conditions = get_visibility_conditions(
+            UserKind(ctx.user_kind),
+            ctx.user_id,
+            ctx.user_group_ids,
+            for_list=False,
+            user_role=UserRole(ctx.user_role) if ctx.user_role else None,
+            managed_client_ids=list(scope.managed_client_ids) if scope else None,
+            managed_internal_ids=list(scope.managed_internal_ids) if scope else None,
+            managed_group_ids=list(scope.managed_group_ids) if scope else None,
+        )
+
         access_filter = build_qdrant_filter(
             user,
             ctx.user_group_ids,
@@ -146,6 +161,7 @@ class RagService:
             user=user,
             access_filter=access_filter,
             retrieval_filter=retrieval_filter,
+            visibility_conditions=visibility_conditions,
             req_id=req_id,
             history_messages=history_messages,
         )

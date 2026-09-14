@@ -27,6 +27,7 @@ class RagPipelineState:
     access_filter: object
     retrieval_filter: object
     req_id: str = ""
+    visibility_conditions: list = field(default_factory=list)
 
     # ── History ─────────────────────────────────────────────────────────
     history_messages: list = field(default_factory=list)

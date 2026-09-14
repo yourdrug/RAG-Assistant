@@ -248,7 +248,11 @@ class ChunkService:
 
             # Incremental BM25 update
             if chunk.content_hash is not None:
-                self._bm25_index.replace(chunk.content_hash, content, new_hash=new_hash)
+                vis = doc.visibility.value if hasattr(doc.visibility, "value") else doc.visibility
+                self._bm25_index.replace(
+                    chunk.content_hash, content, new_hash=new_hash,
+                    visibility=vis, owner_id=doc.owner_id, group_id=doc.group_id,
+                )
 
             log.info(
                 "Chunk %d edited by user %d in document %d",
@@ -356,7 +360,11 @@ class ChunkService:
             )
 
             # Incremental BM25 update
-            self._bm25_index.add(content, text_hash=new_hash)
+            vis = doc.visibility.value if hasattr(doc.visibility, "value") else doc.visibility
+            self._bm25_index.add(
+                content, text_hash=new_hash,
+                visibility=vis, owner_id=doc.owner_id, group_id=doc.group_id,
+            )
 
             await uow.documents.set_has_manual_edits(document_id, True)
             await self._update_document_stats(uow, document_id)

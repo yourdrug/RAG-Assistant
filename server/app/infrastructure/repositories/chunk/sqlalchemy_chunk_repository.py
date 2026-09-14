@@ -547,6 +547,38 @@ class SQLAlchemyChunkRepository:
             offset += batch_size
         return batches
 
+    async def get_all_contents_batches_with_acl(
+        self, batch_size: int = 5000
+    ) -> list[list[tuple[str, str, int | None, int | None]]]:
+        """Load chunk contents + ACL metadata in batches.
+
+        Returns list of batches, each batch is list of
+        (content, visibility, owner_id, group_id) tuples.
+        """
+        batches: list[list[tuple[str, str, int | None, int | None]]] = []
+        offset = 0
+        while True:
+            stmt = (
+                select(
+                    ChunkModel.content,
+                    ChunkModel.visibility,
+                    ChunkModel.owner_id,
+                    ChunkModel.group_id,
+                )
+                .order_by(ChunkModel.document_id, ChunkModel.chunk_index)
+                .offset(offset)
+                .limit(batch_size)
+            )
+            result = await self._session.execute(stmt)
+            rows = list(result.all())
+            if not rows:
+                break
+            batches.append([(row[0], row[1], row[2], row[3]) for row in rows])
+            if len(rows) < batch_size:
+                break
+            offset += batch_size
+        return batches
+
     # --- Neighbor enrichment -------------------------------------------------
 
     async def get_neighbors(

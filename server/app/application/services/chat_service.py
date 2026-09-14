@@ -21,8 +21,10 @@ from application.ports.pii_redactor import PIIRedactorPort
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
 from application.services.chat_log_service import ChatLogService
 from application.services.conversation_service import ConversationService
+from config import settings
 from domain.entities.conversation import Conversation
 from domain.entities.message import Message
+from domain.exceptions import BusinessRuleViolation
 from domain.utils import compute_reranker_score
 from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.curator_scope import CuratorScope
@@ -106,6 +108,24 @@ class ChatService:
             summary=conv.summary,
             as_of_date=as_of_date,
         )
+
+        scope = ctx.curator_scope
+        if scope is not None:
+            total_ids = (
+                len(scope.managed_client_ids)
+                + len(scope.managed_internal_ids)
+                + len(scope.managed_group_ids)
+            )
+            if total_ids > settings.curator_scope_max_ids:
+                log.warning(
+                    "Curator %d scope exceeds max: %d > %d",
+                    user_id, total_ids, settings.curator_scope_max_ids,
+                )
+                raise BusinessRuleViolation(
+                    f"Curator scope ({total_ids} ids) exceeds retrieval limit "
+                    f"({settings.curator_scope_max_ids}); use group-based assignment"
+                )
+
         pii_question = self._pii_redactor.redact(question)
         return ChatSetup(conv=conv, history=history, ctx=ctx, pii_question=pii_question)
 

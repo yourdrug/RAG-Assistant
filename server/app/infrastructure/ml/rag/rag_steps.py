@@ -39,6 +39,7 @@ from infrastructure.metrics.metrics import (
     RAG_BREADTH_TOTAL,
     RAG_RELEVANCE_GATE_TOTAL,
     RAG_SELF_RAG_RETRIES,
+    RAG_SPARSE_SURVIVAL_RATIO,
     RAG_STAGE_DURATION,
     extract_usage_from_langchain,
     record_llm_usage,
@@ -101,6 +102,8 @@ async def step_check_cache(
         state.ctx.user_kind,
         state.ctx.user_id,
         state.ctx.user_group_ids,
+        user_role=state.ctx.user_role,
+        curator_scope=state.ctx.curator_scope,
     )
     state.q_hash = compute_question_hash(state.query_for_search)
     cached = await check_cache(state.rag, state.q_hash, state.vis_hash)
@@ -170,7 +173,15 @@ async def step_retrieve(
         query_domain,
         params["effective_dense_weight"],
         params["effective_sparse_weight"],
+        visibility_conditions=state.visibility_conditions,
+        user_id=state.user["id"],
+        user_group_ids=ctx.user_group_ids,
     )
+
+    # Record sparse survival ratio per role
+    bm25_idx = ml_clients.bm25_index()
+    if bm25_idx is not None and bm25_idx.last_survival_ratio is not None:
+        RAG_SPARSE_SURVIVAL_RATIO.labels(role=ctx.user_role).observe(bm25_idx.last_survival_ratio)
 
     # ── Exact-search integration ─────────────────────────────────────
     if params["use_exact_ref_boost"]:
@@ -268,6 +279,9 @@ async def step_self_rag(
                     state.query_domain,
                     state.effective_dense_weight,
                     state.effective_sparse_weight,
+                    visibility_conditions=state.visibility_conditions,
+                    user_id=state.user["id"],
+                    user_group_ids=state.ctx.user_group_ids,
                 )
                 docs, _, _ = await rerank_and_enrich(
                     query,

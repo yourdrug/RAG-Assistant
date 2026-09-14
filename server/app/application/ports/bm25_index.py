@@ -11,6 +11,23 @@ class BM25IndexPort(Protocol):
 
     def remove(self, content_hash: str) -> None: ...
 
-    def add(self, text: str, *, text_hash: str) -> None: ...
+    def add(
+        self,
+        text: str,
+        *,
+        text_hash: str,
+        visibility: str | None = None,
+        owner_id: int | None = None,
+        group_id: int | None = None,
+    ) -> None: ...
 
-    def replace(self, old_hash: str, new_text: str, *, new_hash: str) -> None: ...
+    def replace(
+        self,
+        old_hash: str,
+        new_text: str,
+        *,
+        new_hash: str,
+        visibility: str | None = None,
+        owner_id: int | None = None,
+        group_id: int | None = None,
+    ) -> None: ...

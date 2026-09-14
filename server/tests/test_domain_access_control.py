@@ -322,29 +322,51 @@ class TestCanViewDocumentParameterized:
     """Parameterized matrix of visibility × user kind combinations."""
 
     @pytest.mark.parametrize(
-        "visibility,owner_id,group_id,kind,user_id,groups,expected,role",
+        "visibility,owner_id,group_id,kind,user_id,groups,expected,role,"
+        "managed_client_ids,managed_internal_ids,managed_group_ids",
         [
             # INTERNAL_PUBLIC
-            ("internal_public", None, None, "internal", 1, [], True, "admin"),
-            ("internal_public", None, None, "client", 1, [], False, None),
+            ("internal_public", None, None, "internal", 1, [], True, "admin", None, None, None),
+            ("internal_public", None, None, "client", 1, [], False, None, None, None, None),
+            ("internal_public", None, None, "internal", 1, [], True, "curator", None, None, None),
             # INTERNAL_GROUP
-            ("internal_group", None, 5, "internal", 1, [5], True, "admin"),
-            ("internal_group", None, 5, "internal", 1, [3], True, "admin"),  # admin bypasses group membership
-            ("internal_group", None, 5, "client", 1, [], False, None),
+            ("internal_group", None, 5, "internal", 1, [5], True, "admin", None, None, None),
+            ("internal_group", None, 5, "internal", 1, [3], True, "admin", None, None, None),
+            ("internal_group", None, 5, "client", 1, [], False, None, None, None, None),
+            ("internal_group", None, 5, "internal", 1, [5], True, "curator", None, None, [5]),
+            ("internal_group", None, 5, "internal", 1, [], False, "curator", None, None, []),
             # INTERNAL_PRIVATE
-            ("internal_private", 10, None, "internal", 10, [], True, "admin"),
-            ("internal_private", 10, None, "internal", 20, [], True, "admin"),
-            ("internal_private", 10, None, "client", 10, [], False, None),
-            # CLIENT_PRIVATE - admin can view any
-            ("client_private", 10, None, "client", 10, [], True, None),
-            ("client_private", 10, None, "client", 20, [], False, None),
-            ("client_private", 10, None, "internal", 1, [], True, "admin"),
-            ("client_private", 10, None, "internal", 1, [], False, "user"),
+            ("internal_private", 10, None, "internal", 10, [], True, "admin", None, None, None),
+            ("internal_private", 10, None, "internal", 20, [], True, "admin", None, None, None),
+            ("internal_private", 10, None, "client", 10, [], False, None, None, None, None),
+            # CURATOR: own private
+            ("internal_private", 1, None, "internal", 1, [], True, "curator", None, None, None),
+            # CURATOR: assigned internal
+            ("internal_private", 20, None, "internal", 1, [], True, "curator", None, [20], None),
+            # CURATOR: unassigned internal
+            ("internal_private", 30, None, "internal", 1, [], False, "curator", None, [20], None),
+            # CLIENT_PRIVATE
+            ("client_private", 10, None, "client", 10, [], True, None, None, None, None),
+            ("client_private", 10, None, "client", 20, [], False, None, None, None, None),
+            ("client_private", 10, None, "internal", 1, [], True, "admin", None, None, None),
+            ("client_private", 10, None, "internal", 1, [], False, "user", None, None, None),
+            # CURATOR: assigned client
+            ("client_private", 100, None, "internal", 1, [], True, "curator", [100], None, None),
+            # CURATOR: unassigned client
+            ("client_private", 200, None, "internal", 1, [], False, "curator", [100], None, None),
         ],
     )
-    def test_visibility_matrix(self, visibility, owner_id, group_id, kind, user_id, groups, expected, role):
+    def test_visibility_matrix(
+        self, visibility, owner_id, group_id, kind, user_id, groups, expected, role,
+        managed_client_ids, managed_internal_ids, managed_group_ids,
+    ):
         doc = SimpleNamespace(visibility=visibility, owner_id=owner_id, group_id=group_id)
-        ctx = UserContext(user_id=user_id, user_kind=kind, user_role=role or "user", group_ids=groups)
+        ctx = UserContext(
+            user_id=user_id, user_kind=kind, user_role=role or "user", group_ids=groups,
+            managed_client_ids=managed_client_ids or [],
+            managed_internal_ids=managed_internal_ids or [],
+            managed_group_ids=managed_group_ids or [],
+        )
         result = can_view_document(doc, ctx)
         assert result is expected
 
