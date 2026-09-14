@@ -16,6 +16,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from config import settings
+from domain.value_objects.llm_provider import LLMProvider
 
 if TYPE_CHECKING:
     from infrastructure.bm25.hybrid import BM25Index
@@ -46,7 +47,10 @@ class MLClientRegistry:
         self._qdrant_client: Any = None
         self._bm25_index: BM25Index | None = None
         self._bm25_loaded: bool = False
-        self._llm_semaphore: asyncio.Semaphore | None = None
+        self._generation_semaphore: asyncio.Semaphore | None = None
+        self._auxiliary_semaphore: asyncio.Semaphore | None = None
+        self._qdrant_search_semaphore: asyncio.Semaphore | None = None
+        self._instructor: Any = None
 
     # ------------------------------------------------------------------
     # Accessors (lazy init via factories)
@@ -104,10 +108,43 @@ class MLClientRegistry:
         return self._bm25_index
 
     @property
-    def llm_semaphore(self) -> asyncio.Semaphore:
-        if self._llm_semaphore is None:
-            self._llm_semaphore = asyncio.Semaphore(settings.llm_max_concurrent)
-        return self._llm_semaphore
+    def generation_semaphore(self) -> asyncio.Semaphore:
+        """Semaphore for heavy LLM operations (generation, 10-30s)."""
+        if self._generation_semaphore is None:
+            self._generation_semaphore = asyncio.Semaphore(settings.llm_generation_max_concurrent)
+        return self._generation_semaphore
+
+    @property
+    def auxiliary_semaphore(self) -> asyncio.Semaphore:
+        """Semaphore for light LLM operations (condense, relevance, 1-3s)."""
+        if self._auxiliary_semaphore is None:
+            self._auxiliary_semaphore = asyncio.Semaphore(settings.llm_auxiliary_max_concurrent)
+        return self._auxiliary_semaphore
+
+    @property
+    def qdrant_search_semaphore(self) -> asyncio.Semaphore:
+        """Semaphore for Qdrant search operations (prevents thundering herd on decomposition retries)."""
+        if self._qdrant_search_semaphore is None:
+            self._qdrant_search_semaphore = asyncio.Semaphore(settings.qdrant_search_max_concurrent)
+        return self._qdrant_search_semaphore
+
+    @property
+    def instructor_client(self):
+        """Cached async instructor client for structured LLM output (sufficiency, relevance)."""
+        if self._instructor is None:
+            from infrastructure.ml.clients.instructor_client import create_async_instructor_client
+
+            if settings.llm_provider == LLMProvider.OPENROUTER:
+                self._instructor = create_async_instructor_client(
+                    base_url=settings.openrouter_base_url,
+                    api_key=settings.openrouter_api_key,
+                )
+            else:
+                self._instructor = create_async_instructor_client(
+                    base_url=f"{settings.ollama_base_url}/v1",
+                    api_key="ollama",
+                )
+        return self._instructor
 
     # ------------------------------------------------------------------
     # Invalidation (with dependency cascades)
@@ -116,11 +153,12 @@ class MLClientRegistry:
     def invalidate_llm(self) -> None:
         """Clear cached LLM instance (model/provider/params changed).
 
-        Cascades: clears all breadth-specific LLM caches too.
+        Cascades: clears all breadth-specific LLM caches and instructor client.
         """
         self._llm = None
         self._llm_breadth_cache.clear()
         self._fast_llm = None
+        self._instructor = None
         log.info("MLClientRegistry: LLM cache invalidated")
 
     def invalidate_bm25(self) -> None:
@@ -135,12 +173,19 @@ class MLClientRegistry:
 
     async def close(self) -> None:
         """Close all HTTP connection pools. Call during app shutdown."""
-        for client in (self._embeddings, self._reranker):
+        for client in (self._embeddings, self._reranker, self._instructor):
             if client is not None and hasattr(client, "close"):
                 try:
                     await client.close()
                 except Exception:
                     log.debug("Failed to close ML client during shutdown", exc_info=True)
+        if self._qdrant_client is not None and hasattr(self._qdrant_client, "close"):
+            try:
+                self._qdrant_client.close()
+            except Exception:
+                log.debug("Failed to close Qdrant client during shutdown", exc_info=True)
         self._embeddings = None
         self._reranker = None
+        self._instructor = None
+        self._qdrant_client = None
         log.info("MLClientRegistry: connection pools closed")

@@ -221,7 +221,11 @@ def create_fast_llm_for_auxiliary():
 
 
 def create_qdrant_client() -> QdrantClient:
-    return QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key)
+    return QdrantClient(
+        url=settings.qdrant_url,
+        api_key=settings.qdrant_api_key,
+        timeout=settings.qdrant_timeout,
+    )
 
 
 # ---------------------------------------------------------------------------

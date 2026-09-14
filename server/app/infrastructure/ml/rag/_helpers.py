@@ -170,7 +170,13 @@ async def apply_legal_rerank_fallback(
 async def assess_sufficiency(
     question: str, docs: list, ml_clients, llm_client=None, model: str = ""
 ) -> SufficiencyAssessment:
-    """Self-RAG: assess whether retrieved context is sufficient to answer."""
+    """Self-RAG: assess whether retrieved context is sufficient to answer.
+
+    Uses instructor's ``max_retries=1`` (combined with auxiliary semaphore timeout
+    to bound total hold time).
+    """
+    import asyncio
+
     from domain.services.rag_policy import SUFFICIENCY_ASSESSMENT_SYSTEM
 
     if not docs:
@@ -180,26 +186,42 @@ async def assess_sufficiency(
             suggested_refinement=question,
         )
 
-    from infrastructure.ml.clients.instructor_client import create_llm_instructor_client
+    from config import settings
+    from domain.value_objects.llm_provider import LLMProvider
 
     if llm_client is None:
-        llm_client, model = create_llm_instructor_client()
+        llm_client = ml_clients.instructor_client
+        if settings.llm_provider == LLMProvider.OLLAMA:
+            model = settings.llm_model
+        else:
+            model = settings.openrouter_model
 
     context = format_docs(docs, max_context_tokens=2000)
     user_msg = f"Вопрос: {question}\n\nКонтекст:\n{context}"
 
-    async with ml_clients.llm_semaphore:
-        result = await asyncio.to_thread(
-            lambda: llm_client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": SUFFICIENCY_ASSESSMENT_SYSTEM},
-                    {"role": "user", "content": user_msg},
-                ],
-                response_model=SufficiencyAssessment,
-                max_retries=3,
+    from infrastructure.resilience.circuit_breaker import get_breaker
+
+    breaker = get_breaker("llm_auxiliary")
+    breaker.check_open()
+
+    async with ml_clients.auxiliary_semaphore:
+        try:
+            result = await asyncio.wait_for(
+                llm_client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": SUFFICIENCY_ASSESSMENT_SYSTEM},
+                        {"role": "user", "content": user_msg},
+                    ],
+                    response_model=SufficiencyAssessment,
+                    max_retries=1,
+                ),
+                timeout=settings.llm_auxiliary_timeout,
             )
-        )
+        except Exception:
+            await breaker.report_failure()
+            raise
+        await breaker.report_success()
     return result
 
 
@@ -224,7 +246,7 @@ async def retrieve_with_decomposition(
     if rag.features.decomposition_enabled:
         t0 = time.monotonic()
         try:
-            sub_queries = await decompose_question(ml_clients.fast_llm(), query)
+            sub_queries = await decompose_question(ml_clients.fast_llm(), query, ml_clients=ml_clients)
         except Exception as e:
             log.warning("Decomposition failed, falling back to single query: %s", e)
             sub_queries = [query]

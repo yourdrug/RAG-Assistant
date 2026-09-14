@@ -30,15 +30,25 @@ async def handle_relevance_gate(
     docs: list,
     breadth: Breadth,
     rag: RagSettings,
-    llm_semaphore,
-    fast_llm,
+    ml_clients,
 ) -> bool:
     """Check relevance gate. Returns True if relevant, False if rejected."""
     if not rag.features.relevance_gate_enabled:
         return True
     t0 = time.monotonic()
-    async with llm_semaphore:
-        is_relevant, reason = await check_relevance(fast_llm, query_for_search, docs)
+
+    from infrastructure.resilience.circuit_breaker import get_breaker
+
+    breaker = get_breaker("llm_auxiliary")
+    breaker.check_open()
+
+    async with ml_clients.auxiliary_semaphore:
+        try:
+            is_relevant, reason = await check_relevance(ml_clients, query_for_search, docs)
+        except Exception:
+            await breaker.report_failure()
+            raise
+        await breaker.report_success()
     RAG_STAGE_DURATION.labels("relevance_gate").observe(time.monotonic() - t0)
     if not is_relevant:
         RAG_RELEVANCE_GATE_TOTAL.labels(result="rejected").inc()

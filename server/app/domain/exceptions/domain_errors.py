@@ -127,3 +127,17 @@ class BenchmarkQuestionsNotFound(ClientException):
             message=f"Benchmark questions file not found: {path}. Example file created.",
             errors={"path": path},
         )
+
+
+class LLMUnavailableError(ServerException):
+    """LLM provider temporarily unavailable (circuit breaker OPEN or timeout).
+
+    Used by infrastructure/resilience/circuit_breaker.py and caught by
+    the SSE layer to present a user-friendly error message.
+    """
+
+    def __init__(self, detail: str = "LLM временно недоступен, попробуйте позже") -> None:
+        super().__init__(
+            message=detail,
+            errors={"code": "llm_unavailable"},
+        )

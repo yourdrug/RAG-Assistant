@@ -1,14 +1,16 @@
 """RAG prompts — query condensation, decomposition, summary, and prompt building."""
 
+import asyncio
 import logging
 
+from config import settings
 from domain.services.rag_policy import build_system_prompt  # noqa: F401
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from tenacity import (
     retry,
     retry_if_exception_type,
     stop_after_attempt,
-    wait_exponential,
+    wait_exponential_jitter,
 )
 
 log = logging.getLogger("default")
@@ -35,17 +37,34 @@ CONDENSE_PROMPT = ChatPromptTemplate.from_messages(
 
 @retry(
     stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=1, max=10),
+    wait=wait_exponential_jitter(initial=1, max=10),
     retry=retry_if_exception_type((Exception,)),
     reraise=True,
 )
-async def condense_question(llm, question: str, history_messages: list) -> str:
-    """Rewrite a follow-up question into a self-contained query using history context."""
+async def condense_question(llm, question: str, history_messages: list, ml_clients=None) -> str:
+    """Rewrite a follow-up question into a self-contained query using history context.
+
+    If *ml_clients* is provided the auxiliary semaphore is acquired per-attempt
+    (inside the retry loop) so that a retry storm does not hold the slot for
+    the entire chain duration.
+    """
     if not history_messages:
         return question
 
     chain = CONDENSE_PROMPT | llm
-    result = await chain.ainvoke({"history": history_messages, "question": question})
+
+    async def _call():
+        return await asyncio.wait_for(
+            chain.ainvoke({"history": history_messages, "question": question}),
+            timeout=settings.llm_auxiliary_timeout,
+        )
+
+    if ml_clients is not None:
+        async with ml_clients.auxiliary_semaphore:
+            result = await _call()
+    else:
+        result = await _call()
+
     condensed = result.content.strip()
 
     if not condensed or len(condensed) < 3:
@@ -85,14 +104,29 @@ DECOMPOSE_PROMPT = ChatPromptTemplate.from_messages(
 
 @retry(
     stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=1, max=10),
+    wait=wait_exponential_jitter(initial=1, max=10),
     retry=retry_if_exception_type((Exception,)),
     reraise=True,
 )
-async def decompose_question(llm, question: str) -> list[str]:
-    """Split a compound question into independent sub-queries."""
+async def decompose_question(llm, question: str, ml_clients=None) -> list[str]:
+    """Split a compound question into independent sub-queries.
+
+    If *ml_clients* is provided the auxiliary semaphore is acquired per-attempt.
+    """
     chain = DECOMPOSE_PROMPT | llm
-    result = await chain.ainvoke({"question": question})
+
+    async def _call():
+        return await asyncio.wait_for(
+            chain.ainvoke({"question": question}),
+            timeout=settings.llm_auxiliary_timeout,
+        )
+
+    if ml_clients is not None:
+        async with ml_clients.auxiliary_semaphore:
+            result = await _call()
+    else:
+        result = await _call()
+
     lines = [line.strip() for line in result.content.strip().split("\n") if line.strip()]
 
     if len(lines) < 2:

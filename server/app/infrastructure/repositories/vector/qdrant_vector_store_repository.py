@@ -13,6 +13,7 @@ from langchain.schema import Document as LCDocument
 from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
 
 from infrastructure.repositories.vector.qdrant_ops import ensure_collection, upload_to_qdrant
+from infrastructure.resilience.retry import retry_on_transient
 
 if TYPE_CHECKING:
     from infrastructure.ml.clients.client_registry import MLClientRegistry
@@ -52,23 +53,26 @@ class QdrantVectorStoreRepository:
         lcdocs = [LCDocument(page_content=c.content, metadata=c.metadata) for c in chunks]
         await upload_to_qdrant(lcdocs, self._get_embeddings(), should_cancel=should_cancel)
 
+    @retry_on_transient
     async def delete_by_document_id(self, document_id: int) -> None:
-        try:
-            await asyncio.to_thread(
-                self._get_qdrant_client().delete,
+        """Delete all vector points for a document."""
+        client = self._get_qdrant_client()
+
+        def _delete() -> None:
+            client.delete(
                 collection_name=settings.collection_name,
                 points_selector=Filter(
                     must=[FieldCondition(key="metadata.document_id", match=MatchValue(value=document_id))]
                 ),
             )
-            log.info("Qdrant: deleted points for document_id=%d", document_id)
-        except Exception as e:
-            log.exception("Qdrant: failed to delete points for document_id=%d", document_id)
-            raise RuntimeError(f"Failed to delete vector data for document {document_id}: {e}") from e
+
+        await asyncio.to_thread(_delete)
+        log.info("Qdrant: deleted points for document_id=%d", document_id)
 
     async def generate_embeddings(self, text: str) -> list[float]:
         return await self._get_embeddings().embed_query(text)
 
+    @retry_on_transient
     async def _similarity_search_with_score(self, query: str, k: int) -> list[tuple[Chunk, float]]:
         """Use internally only. No ACL enforcement. Use search_with_filter() for user queries."""
         client = self._get_qdrant_client()
@@ -93,6 +97,7 @@ class QdrantVectorStoreRepository:
             for doc, score in results
         ]
 
+    @retry_on_transient
     async def upsert_point(self, point_id: int, vector: list[float], payload: dict) -> None:
         """Upsert a single point with deterministic ID (chunk.id)."""
         client = self._get_qdrant_client()
@@ -179,9 +184,26 @@ class QdrantVectorStoreRepository:
 
     @staticmethod
     def _patch_metadata(client, points_filter: Filter, metadata_updates: dict) -> None:
-        """Read matching points, merge metadata_updates, and write back."""
+        """Read matching points, merge metadata_updates, and write back.
+
+        Includes a 30-second safety timeout to prevent unbounded thread pool occupation.
+        Raises ``RuntimeError`` if the timeout is exceeded before all points are processed.
+        """
+        import time
+
+        _PATCH_TIMEOUT_SEC = 30
+        t_start = time.monotonic()
         offset = None
         while True:
+            if time.monotonic() - t_start > _PATCH_TIMEOUT_SEC:
+                log.error(
+                    "_patch_metadata: timed out after %ds — partial update possible",
+                    _PATCH_TIMEOUT_SEC,
+                )
+                raise RuntimeError(
+                    f"_patch_metadata timed out after {_PATCH_TIMEOUT_SEC}s. "
+                    "Some points may not have been updated."
+                )
             result, offset = client.scroll(
                 collection_name=settings.collection_name,
                 scroll_filter=points_filter,

@@ -8,6 +8,7 @@ from domain.exceptions.domain_errors import (
     ClientException,
     DatabaseError,
     EntityNotFound,
+    LLMUnavailableError,
     PermissionDeniedError,
     ServerException,
     UniqueConstraintViolation,
@@ -26,4 +27,5 @@ __all__ = [
     "UniqueConstraintViolation",
     "AuthenticationError",
     "PermissionDeniedError",
+    "LLMUnavailableError",
 ]

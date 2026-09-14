@@ -7,6 +7,7 @@ import logging
 import uuid
 
 from application.services.chat_service import ChatService
+from domain.exceptions import LLMUnavailableError
 from domain.value_objects.stream_events import MetaEvent, StatusEvent, TextChunk
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -28,6 +29,11 @@ from presentation.api.schemas import ChatRequest, ChatResponse
 router = APIRouter(tags=["chat"])
 
 logger = logging.getLogger("default")
+
+
+def _sse_error_event(code: str, message: str) -> str:
+    """Build a uniform SSE error event payload."""
+    return f"event: error\ndata: {json.dumps({'error': message, 'code': code}, ensure_ascii=False)}\n\n"
 
 
 @router.post("/chat")
@@ -77,9 +83,15 @@ async def chat_stream(
                         yield f"event: status\ndata: {stage_payload}\n\n"
                     elif isinstance(event, TextChunk):
                         yield f"data: {json.dumps({'text': event.text}, ensure_ascii=False)}\n\n"
+            except LLMUnavailableError as exc:
+                logger.warning("LLM unavailable (circuit breaker): %s", exc)
+                yield _sse_error_event("llm_unavailable", "LLM временно недоступен, попробуйте позже")
+            except TimeoutError:
+                logger.warning("LLM auxiliary timeout", exc_info=True)
+                yield _sse_error_event("llm_unavailable", "LLM временно недоступен, попробуйте позже")
             except Exception:
                 logger.exception("Chat stream error")
-                yield f"event: error\ndata: {json.dumps({'error': 'Internal error'})}\n\n"
+                yield _sse_error_event("internal_error", "Internal error")
 
         return StreamingResponse(
             event_generator(),
@@ -127,5 +139,12 @@ async def chat_sync(
             input_tokens=result.input_tokens,
             output_tokens=result.output_tokens,
         )
+    except LLMUnavailableError as exc:
+        logger.warning("LLM unavailable (sync): %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail="LLM временно недоступен, попробуйте позже",
+            headers={"Retry-After": "30"},
+        ) from None
     finally:
         request_id_ctx.reset(token)

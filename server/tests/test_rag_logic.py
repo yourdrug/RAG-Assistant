@@ -7,6 +7,9 @@ import asyncio
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
@@ -492,42 +495,207 @@ class TestCheckRelevance:
         assert result == (False, "Нет документов для проверки")
 
     def test_relevant_answer_detected(self):
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import AsyncMock, MagicMock, patch
 
-        mock_client = MagicMock()
         mock_result = MagicMock()
         mock_result.is_relevant = True
         mock_result.reason = "Context is sufficient"
-        mock_client.chat.completions.create.return_value = mock_result
 
-        with patch(
-            "infrastructure.ml.rag.rag_relevance._get_rag_instructor_client", return_value=mock_client
-        ):
-            with patch("infrastructure.ml.clients.llm_schemas.RelevanceCheck"):
-                from config import settings
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=mock_result)
 
-                settings.llm_model = "test-model"
-                result = asyncio.run(rag.check_relevance(None, "question", [_doc("some context")]))
+        mock_ml_clients = MagicMock()
+        mock_ml_clients.instructor_client = mock_client
+
+        with patch("infrastructure.ml.clients.llm_schemas.RelevanceCheck"):
+            with patch("config.settings") as mock_settings:
+                mock_settings.llm_provider = MagicMock(value="ollama")
+                mock_settings.llm_model = "test-model"
+                mock_settings.llm_auxiliary_timeout = 30
+                result = asyncio.run(rag.check_relevance(mock_ml_clients, "question", [_doc("some context")]))
                 assert result[0] is True
 
     def test_irrelevant_answer_detected(self):
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import AsyncMock, MagicMock, patch
 
-        mock_client = MagicMock()
         mock_result = MagicMock()
         mock_result.is_relevant = False
         mock_result.reason = "Context lacks relevant information"
-        mock_client.chat.completions.create.return_value = mock_result
 
-        with patch(
-            "infrastructure.ml.rag.rag_relevance._get_rag_instructor_client", return_value=mock_client
-        ):
-            with patch("infrastructure.ml.clients.llm_schemas.RelevanceCheck"):
-                from config import settings
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=mock_result)
 
-                settings.llm_model = "test-model"
-                result = asyncio.run(rag.check_relevance(None, "question", [_doc("some context")]))
+        mock_ml_clients = MagicMock()
+        mock_ml_clients.instructor_client = mock_client
+
+        with patch("infrastructure.ml.clients.llm_schemas.RelevanceCheck"):
+            with patch("config.settings") as mock_settings:
+                mock_settings.llm_provider = MagicMock(value="ollama")
+                mock_settings.llm_model = "test-model"
+                mock_settings.llm_auxiliary_timeout = 30
+                result = asyncio.run(rag.check_relevance(mock_ml_clients, "question", [_doc("some context")]))
                 assert result[0] is False
+
+
+# ---------------------------------------------------------------------------
+# assess_sufficiency (mocked LLM)
+# ---------------------------------------------------------------------------
+
+
+class TestAssessSufficiency:
+    def test_empty_docs_returns_insufficient(self):
+        from infrastructure.ml.rag._helpers import assess_sufficiency
+
+        result = asyncio.run(assess_sufficiency("question", [], None))
+        assert result.is_sufficient is False
+        assert "No documents" in result.reasoning
+
+    def test_ollama_provider_uses_llm_model(self):
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from infrastructure.ml.rag._helpers import assess_sufficiency
+
+        mock_result = MagicMock()
+        mock_result.is_sufficient = True
+        mock_result.reasoning = "Context is good"
+        mock_result.suggested_refinement = None
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=mock_result)
+
+        mock_ml = MagicMock()
+        mock_ml.instructor_client = mock_client
+        mock_ml.auxiliary_semaphore = AsyncMock()
+        mock_ml.auxiliary_semaphore.__aenter__ = AsyncMock()
+        mock_ml.auxiliary_semaphore.__aexit__ = AsyncMock(return_value=False)
+
+        doc = MagicMock()
+        doc.page_content = "some legal context"
+        doc.metadata = {"source": "test.pdf", "document_id": 1}
+
+        with patch("config.settings") as mock_settings:
+            from domain.value_objects.llm_provider import LLMProvider
+
+            mock_settings.llm_provider = LLMProvider.OLLAMA
+            mock_settings.llm_model = "qwen2.5"
+            mock_settings.llm_auxiliary_timeout = 30
+
+            result = asyncio.run(assess_sufficiency("question", [doc], mock_ml))
+            assert result.is_sufficient is True
+            call_kwargs = mock_client.chat.completions.create.call_args
+            assert call_kwargs.kwargs["model"] == "qwen2.5"
+
+    def test_openrouter_provider_uses_openrouter_model(self):
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from infrastructure.ml.rag._helpers import assess_sufficiency
+
+        mock_result = MagicMock()
+        mock_result.is_sufficient = False
+        mock_result.reasoning = "Not enough"
+        mock_result.suggested_refinement = "refined question"
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=mock_result)
+
+        mock_ml = MagicMock()
+        mock_ml.instructor_client = mock_client
+        mock_ml.auxiliary_semaphore = AsyncMock()
+        mock_ml.auxiliary_semaphore.__aenter__ = AsyncMock()
+        mock_ml.auxiliary_semaphore.__aexit__ = AsyncMock(return_value=False)
+
+        doc = MagicMock()
+        doc.page_content = "some legal context"
+        doc.metadata = {"source": "test.pdf", "document_id": 1}
+
+        with patch("config.settings") as mock_settings:
+            from domain.value_objects.llm_provider import LLMProvider
+
+            mock_settings.llm_provider = LLMProvider.OPENROUTER
+            mock_settings.openrouter_model = "qwen/qwen-2.5-7b-instruct"
+            mock_settings.llm_auxiliary_timeout = 30
+
+            result = asyncio.run(assess_sufficiency("question", [doc], mock_ml))
+            assert result.is_sufficient is False
+            call_kwargs = mock_client.chat.completions.create.call_args
+            assert call_kwargs.kwargs["model"] == "qwen/qwen-2.5-7b-instruct"
+
+
+# ---------------------------------------------------------------------------
+# handle_relevance_gate (mocked LLM)
+# ---------------------------------------------------------------------------
+
+
+class TestHandleRelevanceGate:
+    def test_gate_disabled_returns_true(self):
+        from unittest.mock import MagicMock
+
+        from infrastructure.ml.rag.rag_postprocess import handle_relevance_gate
+
+        rag = MagicMock()
+        rag.features.relevance_gate_enabled = False
+
+        result = asyncio.run(handle_relevance_gate("q", [], None, rag, None))
+        assert result is True
+
+    def test_gate_enabled_relevant_returns_true(self):
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from infrastructure.ml.rag.rag_postprocess import handle_relevance_gate
+
+        rag = MagicMock()
+        rag.features.relevance_gate_enabled = True
+
+        mock_ml = MagicMock()
+        mock_ml.auxiliary_semaphore = AsyncMock()
+        mock_ml.auxiliary_semaphore.__aenter__ = AsyncMock()
+        mock_ml.auxiliary_semaphore.__aexit__ = AsyncMock(return_value=False)
+
+        target = "infrastructure.ml.rag.rag_postprocess.check_relevance"
+        with patch(target, new_callable=AsyncMock) as mock_check:
+            mock_check.return_value = (True, "good context")
+            result = asyncio.run(handle_relevance_gate("q", ["doc"], None, rag, mock_ml))
+            assert result is True
+
+    def test_gate_enabled_not_relevant_returns_false(self):
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from infrastructure.ml.rag.rag_postprocess import handle_relevance_gate
+
+        rag = MagicMock()
+        rag.features.relevance_gate_enabled = True
+
+        mock_ml = MagicMock()
+        mock_ml.auxiliary_semaphore = AsyncMock()
+        mock_ml.auxiliary_semaphore.__aenter__ = AsyncMock()
+        mock_ml.auxiliary_semaphore.__aexit__ = AsyncMock(return_value=False)
+
+        target = "infrastructure.ml.rag.rag_postprocess.check_relevance"
+        with patch(target, new_callable=AsyncMock) as mock_check:
+            mock_check.return_value = (False, "not relevant")
+            result = asyncio.run(handle_relevance_gate("q", ["doc"], None, rag, mock_ml))
+            assert result is False
+
+    def test_uses_auxiliary_semaphore(self):
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from infrastructure.ml.rag.rag_postprocess import handle_relevance_gate
+
+        rag = MagicMock()
+        rag.features.relevance_gate_enabled = True
+
+        mock_sem = AsyncMock()
+        mock_sem.__aenter__ = AsyncMock()
+        mock_sem.__aexit__ = AsyncMock(return_value=False)
+
+        mock_ml = MagicMock()
+        mock_ml.auxiliary_semaphore = mock_sem
+
+        target = "infrastructure.ml.rag.rag_postprocess.check_relevance"
+        with patch(target, new_callable=AsyncMock) as mock_check:
+            mock_check.return_value = (True, "ok")
+            asyncio.run(handle_relevance_gate("q", ["doc"], None, rag, mock_ml))
+            mock_sem.__aenter__.assert_awaited()
 
 
 # ---------------------------------------------------------------------------
@@ -830,3 +998,127 @@ class TestRerankSectionPrefix:
         reranker = SimpleNamespace(predict=capture_predict)
         asyncio.run(rag.rerank_documents("q", docs, top_n=1, reranker=reranker))
         assert "(decree.pdf)" not in captured_pairs[0][1]
+
+
+# ---------------------------------------------------------------------------
+# Circuit breaker integration tests
+# ---------------------------------------------------------------------------
+
+
+class TestCircuitBreakerIntegration:
+    """Verify pipeline steps properly interact with circuit breakers."""
+
+    @pytest.mark.asyncio
+    async def test_handle_relevance_gate_calls_breaker_check_open(self):
+        from unittest.mock import MagicMock, patch
+
+        from infrastructure.ml.rag.rag_postprocess import handle_relevance_gate
+
+        rag = MagicMock()
+        rag.features.relevance_gate_enabled = True
+
+        mock_breaker = MagicMock()
+        mock_breaker.report_success = AsyncMock()
+        mock_breaker.report_failure = AsyncMock()
+        mock_ml = MagicMock()
+        mock_ml.auxiliary_semaphore = MagicMock()
+        mock_ml.auxiliary_semaphore.__aenter__ = AsyncMock()
+        mock_ml.auxiliary_semaphore.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("infrastructure.resilience.circuit_breaker.get_breaker", return_value=mock_breaker):
+            target = "infrastructure.ml.rag.rag_postprocess.check_relevance"
+            with patch(target, new_callable=AsyncMock) as mock_check:
+                mock_check.return_value = (True, "ok")
+                await handle_relevance_gate("q", ["doc"], None, rag, mock_ml)
+                mock_breaker.check_open.assert_called_once()
+                mock_breaker.report_success.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_handle_relevance_gate_calls_breaker_on_failure(self):
+        from unittest.mock import MagicMock, patch
+
+        from infrastructure.ml.rag.rag_postprocess import handle_relevance_gate
+
+        rag = MagicMock()
+        rag.features.relevance_gate_enabled = True
+
+        mock_breaker = MagicMock()
+        mock_breaker.report_success = AsyncMock()
+        mock_breaker.report_failure = AsyncMock()
+        mock_ml = MagicMock()
+        mock_ml.auxiliary_semaphore = MagicMock()
+        mock_ml.auxiliary_semaphore.__aenter__ = AsyncMock()
+        mock_ml.auxiliary_semaphore.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("infrastructure.resilience.circuit_breaker.get_breaker", return_value=mock_breaker):
+            target = "infrastructure.ml.rag.rag_postprocess.check_relevance"
+            with patch(target, new_callable=AsyncMock) as mock_check:
+                mock_check.side_effect = RuntimeError("LLM down")
+                with pytest.raises(RuntimeError, match="LLM down"):
+                    await handle_relevance_gate("q", ["doc"], None, rag, mock_ml)
+                mock_breaker.report_failure.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_assess_sufficiency_calls_breaker_check_open(self):
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from infrastructure.ml.rag._helpers import assess_sufficiency
+
+        mock_breaker = MagicMock()
+        mock_breaker.report_success = AsyncMock()
+        mock_breaker.report_failure = AsyncMock()
+        mock_ml = MagicMock()
+        mock_ml.auxiliary_semaphore = MagicMock()
+        mock_ml.auxiliary_semaphore.__aenter__ = AsyncMock()
+        mock_ml.auxiliary_semaphore.__aexit__ = AsyncMock(return_value=False)
+
+        mock_result = MagicMock()
+        mock_result.is_sufficient = True
+        mock_result.reasoning = "ok"
+        mock_result.suggested_refinement = None
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=mock_result)
+        mock_ml.instructor_client = mock_client
+
+        with patch("infrastructure.resilience.circuit_breaker.get_breaker", return_value=mock_breaker):
+            with patch("config.settings") as mock_settings:
+                mock_settings.llm_provider = MagicMock(value="ollama")
+                mock_settings.llm_model = "test"
+                mock_settings.llm_auxiliary_timeout = 30
+                doc = MagicMock()
+                doc.page_content = "context"
+                doc.metadata = {"source": "test.pdf", "document_id": 1}
+                await assess_sufficiency("q", [doc], mock_ml)
+                mock_breaker.check_open.assert_called_once()
+                mock_breaker.report_success.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_assess_sufficiency_calls_breaker_on_failure(self):
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from infrastructure.ml.rag._helpers import assess_sufficiency
+
+        mock_breaker = MagicMock()
+        mock_breaker.report_success = AsyncMock()
+        mock_breaker.report_failure = AsyncMock()
+        mock_ml = MagicMock()
+        mock_ml.auxiliary_semaphore = MagicMock()
+        mock_ml.auxiliary_semaphore.__aenter__ = AsyncMock()
+        mock_ml.auxiliary_semaphore.__aexit__ = AsyncMock(return_value=False)
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = AsyncMock(side_effect=RuntimeError("LLM down"))
+        mock_ml.instructor_client = mock_client
+
+        with patch("infrastructure.resilience.circuit_breaker.get_breaker", return_value=mock_breaker):
+            with patch("config.settings") as mock_settings:
+                mock_settings.llm_provider = MagicMock(value="ollama")
+                mock_settings.llm_model = "test"
+                mock_settings.llm_auxiliary_timeout = 30
+                doc = MagicMock()
+                doc.page_content = "context"
+                doc.metadata = {"source": "test.pdf", "document_id": 1}
+                with pytest.raises(RuntimeError, match="LLM down"):
+                    await assess_sufficiency("q", [doc], mock_ml)
+                mock_breaker.report_failure.assert_awaited_once()

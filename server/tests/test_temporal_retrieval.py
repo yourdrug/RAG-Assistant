@@ -23,10 +23,12 @@ def _acl_filter() -> Filter:
 
 class TestWithTemporalFilter:
     def test_as_of_none_requires_current(self):
-        result = with_temporal_filter(Filter(), None)
-        cond = result.must[0]
-        assert cond.key == "metadata.is_current"
-        assert cond.match.value is True
+        result = with_temporal_filter(_acl_filter(), None)
+        # ACL filter + temporal condition both in must
+        assert len(result.must) == 2
+        temporal = result.must[1]
+        assert temporal.key == "metadata.is_current"
+        assert temporal.match.value is True
 
     def test_as_of_date_combines_with_acl_filter(self):
         result = with_temporal_filter(_acl_filter(), date(2026, 1, 1))
@@ -40,9 +42,10 @@ class TestWithTemporalFilter:
             assert len(group.should) == 2
 
     def test_as_of_date_without_acl(self):
-        result = with_temporal_filter(Filter(), date(2026, 6, 1))
-        assert len(result.must) == 1
-        group = result.must[0].must[0]
+        result = with_temporal_filter(_acl_filter(), date(2026, 6, 1))
+        assert len(result.must) == 2
+        temporal = result.must[1]
+        group = temporal.must[0]
         ranges = [c for c in group.should if hasattr(c, "range")]
         assert ranges, "range condition for effective_from must be present"
 

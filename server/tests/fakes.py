@@ -18,6 +18,7 @@ Usage::
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -742,11 +743,17 @@ class FakeMLClientRegistry:
         self._llm_response = llm_response
         self._invalidated_llm = False
         self._invalidated_bm25 = False
+        self._auxiliary_semaphore = asyncio.Semaphore(4)
+        self._generation_semaphore = asyncio.Semaphore(12)
+        self._qdrant_search_semaphore = asyncio.Semaphore(8)
 
     def llm(self):
         return self
 
     def llm_for_breadth(self, breadth: str):
+        return self
+
+    def fast_llm(self):
         return self
 
     def embeddings(self):
@@ -763,6 +770,28 @@ class FakeMLClientRegistry:
 
     def vector_store(self):
         return self
+
+    @property
+    def instructor_client(self):
+        from unittest.mock import AsyncMock, MagicMock
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = AsyncMock(
+            return_value=MagicMock(is_relevant=True, reason="fake", is_sufficient=True, reasoning="fake")
+        )
+        return mock_client
+
+    @property
+    def auxiliary_semaphore(self):
+        return self._auxiliary_semaphore
+
+    @property
+    def generation_semaphore(self):
+        return self._generation_semaphore
+
+    @property
+    def qdrant_search_semaphore(self):
+        return self._qdrant_search_semaphore
 
     async def astream(self, messages):
         yield type("Chunk", (), {"content": self._llm_response})()

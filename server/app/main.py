@@ -100,6 +100,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     if container.infrastructure.outbox_listener is not None:
         await container.infrastructure.outbox_listener.start()
 
+    # --- Circuit breakers ---
+    from infrastructure.resilience.circuit_breaker import init_breakers
+
+    init_breakers(
+        fail_max=settings.llm_breaker_fail_max,
+        timeout_duration=settings.llm_breaker_timeout_duration,
+    )
+
     # Ensure Qdrant collection exists
     if container.infrastructure.vector_store_repo is not None:
         try:

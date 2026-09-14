@@ -66,6 +66,8 @@ class Settings(BaseSettings):
     qdrant_url: str
     qdrant_api_key: str = ""
     collection_name: str
+    qdrant_timeout: int = 10
+    qdrant_search_max_concurrent: int = 16  # caps concurrent Qdrant searches (prevents thundering herd)
 
     # ── Ollama ──────────────────────────────────────────────────────────────
     ollama_base_url: str = "http://localhost:11434"
@@ -80,6 +82,9 @@ class Settings(BaseSettings):
     llm_num_predict_narrow: int = 400
     llm_num_predict_broad: int = 2048
     llm_max_concurrent: int = 16
+    llm_generation_max_concurrent: int = 12
+    llm_auxiliary_max_concurrent: int = 4
+    llm_auxiliary_timeout: int = 30  # seconds, caps semaphore hold time for auxiliary LLM calls
     benchmark_max_concurrent: int = 3
     benchmark_judge_model: str = ""  # empty = use fast_llm for OpenRouter, llm_model for Ollama
 
@@ -239,6 +244,10 @@ class Settings(BaseSettings):
     cost_rate_limit_enabled: bool = False
     cost_hourly_limit: float = 1.0
     cost_daily_limit: float = 5.0
+
+    # ── Circuit breaker ────────────────────────────────────────────────────
+    llm_breaker_fail_max: int = 5
+    llm_breaker_timeout_duration: int = 300  # 5 min OPEN state
 
     model_config = SettingsConfigDict(
         env_file=(

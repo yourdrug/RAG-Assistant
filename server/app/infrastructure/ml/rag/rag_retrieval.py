@@ -9,15 +9,15 @@ import logging
 import time
 from typing import TYPE_CHECKING
 
+from application.services.retrieval import HybridRetriever
 from config import settings
 from domain.value_objects.rag_settings import RagSettings
-from langchain.schema import Document as LCDocument
-from qdrant_client.models import FieldCondition, Filter, MatchValue
-
-from application.services.retrieval import HybridRetriever
 from infrastructure.bm25.hybrid import content_hash
 from infrastructure.metrics.metrics import RAG_STAGE_DURATION
 from infrastructure.ml.rag.rag_reranking import deduplicate_docs
+from infrastructure.resilience.retry import retry_on_transient
+from langchain.schema import Document as LCDocument
+from qdrant_client.models import FieldCondition, Filter, MatchValue
 
 if TYPE_CHECKING:
     from infrastructure.ml.clients.client_registry import MLClientRegistry
@@ -27,12 +27,17 @@ log = logging.getLogger("default")
 _retriever = HybridRetriever()
 
 
+@retry_on_transient
 async def resolve_hashes_batch(
     hashes: list[str],
     access_filter,
     ml_clients: "MLClientRegistry",
 ) -> dict[str, LCDocument]:
-    """Batch-resolve multiple content_hashes from Qdrant in a single scroll call."""
+    """Batch-resolve multiple content_hashes from Qdrant in a single scroll call.
+
+    Wrapped with ``qdrant_search_semaphore`` to cap concurrent Qdrant requests
+    and prevent thundering herd during decomposition retries.
+    """
     if not hashes:
         return {}
 
@@ -46,18 +51,19 @@ async def resolve_hashes_batch(
         for h in hashes
     ]
 
-    if access_filter is not None and access_filter.should:
+    if access_filter is not None:
         scroll_filter = Filter(must=[access_filter, Filter(should=should_conditions)])  # type: ignore[arg-type]
     else:
         scroll_filter = Filter(should=should_conditions)  # type: ignore[arg-type]
 
-    results = await asyncio.to_thread(
-        client.scroll,
-        collection_name=settings.collection_name,
-        scroll_filter=scroll_filter,
-        limit=len(hashes),
-        with_payload=True,
-    )
+    async with ml_clients.qdrant_search_semaphore:
+        results = await asyncio.to_thread(
+            client.scroll,
+            collection_name=settings.collection_name,
+            scroll_filter=scroll_filter,
+            limit=len(hashes),
+            with_payload=True,
+        )
 
     points = results[0] if isinstance(results, tuple) else results
     resolved = {}
@@ -72,25 +78,28 @@ async def resolve_hashes_batch(
     return resolved
 
 
+@retry_on_transient
 async def qdrant_dense_search(
     query: str, k: int, access_filter, ml_clients: "MLClientRegistry"
 ) -> list[tuple[str, float, LCDocument]]:
-    """Search Qdrant directly, returning (content_hash, score, Document) tuples."""
+    """Search Qdrant directly, returning (content_hash, score, Document) tuples.
+
+    Wrapped with ``qdrant_search_semaphore`` to cap concurrent Qdrant requests.
+    """
     client = ml_clients.qdrant_client()
     embeddings = ml_clients.embeddings()
 
     query_vector = await embeddings.embed_query(query)
-    qdrant_filter = None
-    if access_filter and access_filter.should:
-        qdrant_filter = access_filter
+    qdrant_filter = access_filter if access_filter is not None else None
 
-    results = await asyncio.to_thread(
-        client.search,
-        collection_name=settings.collection_name,
-        query_vector=query_vector,
-        limit=k,
-        query_filter=qdrant_filter,
-    )
+    async with ml_clients.qdrant_search_semaphore:
+        results = await asyncio.to_thread(
+            client.search,
+            collection_name=settings.collection_name,
+            query_vector=query_vector,
+            limit=k,
+            query_filter=qdrant_filter,
+        )
 
     docs = []
     for point in results:

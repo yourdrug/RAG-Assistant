@@ -1,7 +1,8 @@
 """Instructor-wrapped LLM clients for structured output.
 
-Provides ``create_instructor_client`` that wraps OpenAI/Ollama clients
-with ``instructor`` for Pydantic-validated, auto-retried LLM calls.
+Provides ``create_instructor_client`` (sync) and ``create_async_instructor_client``
+that wraps OpenAI/Ollama clients with ``instructor`` for Pydantic-validated,
+auto-retried LLM calls.
 """
 
 from __future__ import annotations
@@ -9,7 +10,7 @@ from __future__ import annotations
 import logging
 
 import instructor
-from openai import OpenAI
+from openai import AsyncOpenAI, OpenAI
 
 from config import settings
 from domain.value_objects.llm_provider import LLMProvider
@@ -18,7 +19,7 @@ log = logging.getLogger("default")
 
 
 def create_instructor_client(base_url: str, api_key: str = "ollama", model: str = ""):
-    """Create an instructor-wrapped OpenAI client.
+    """Create a sync instructor-wrapped OpenAI client.
 
     Works with both Ollama (http://localhost:11434/v1) and OpenRouter.
     The returned client supports ``client.chat.completions.create()``
@@ -28,8 +29,17 @@ def create_instructor_client(base_url: str, api_key: str = "ollama", model: str 
     return instructor.from_openai(raw_client)
 
 
+def create_async_instructor_client(base_url: str, api_key: str = "ollama", model: str = ""):
+    """Create an async instructor-wrapped OpenAI client.
+
+    Cached in MLClientRegistry to avoid creating new TCP connections per call.
+    """
+    raw_client = AsyncOpenAI(base_url=base_url, api_key=api_key)
+    return instructor.from_openai(raw_client)
+
+
 def create_llm_instructor_client(model: str | None = None):
-    """Create an instructor client configured for the active LLM provider.
+    """Create a sync instructor client configured for the active LLM provider.
 
     Returns (client, model_name). If *model* is given it is used as-is;
     otherwise the default model for the current provider is selected.

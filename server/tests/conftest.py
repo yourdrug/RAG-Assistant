@@ -7,9 +7,15 @@ Postgres, Qdrant, Redis, or LLM.
 
 import os
 import sys
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+
+# ---------------------------------------------------------------------------
+# Ensure app directory is on sys.path for all tests
+# ---------------------------------------------------------------------------
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 # ---------------------------------------------------------------------------
 # Ensure required env vars are set before any module imports Settings().
@@ -37,6 +43,19 @@ _TEST_DEFAULTS = {
 }
 for _key, _val in _TEST_DEFAULTS.items():
     os.environ.setdefault(_key, _val)
+
+# Initialize circuit breakers for all tests (required by step_generate, handle_relevance_gate, etc.)
+from infrastructure.resilience.circuit_breaker import init_breakers  # noqa: E402
+
+init_breakers(fail_max=5, timeout_duration=300)
+
+
+@pytest.fixture(autouse=True)
+def _reset_breakers_between_tests():
+    """Reset circuit breaker state between tests to prevent cross-test contamination."""
+    init_breakers(fail_max=5, timeout_duration=300)
+    yield
+    init_breakers(fail_max=5, timeout_duration=300)
 
 # Mock surya before any test module imports domain.ingestion
 _surya_mock = MagicMock()

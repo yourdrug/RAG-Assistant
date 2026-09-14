@@ -82,12 +82,12 @@ async def step_condense(state: RagPipelineState, ml_clients) -> RagPipelineState
     """Step 1: Query condensation via LLM."""
     t0 = time.monotonic()
     if state.rag.features.condense_enabled:
-        async with ml_clients.llm_semaphore:
-            state.query_for_search = await condense_question(
-                ml_clients.fast_llm(),
-                state.question,
-                state.history_messages,
-            )
+        state.query_for_search = await condense_question(
+            ml_clients.fast_llm(),
+            state.question,
+            state.history_messages,
+            ml_clients=ml_clients,
+        )
     else:
         state.query_for_search = state.question
     RAG_STAGE_DURATION.labels("condense").observe(time.monotonic() - t0)
@@ -239,8 +239,7 @@ async def step_self_rag(
             state.docs,
             state.breadth,
             rag,
-            ml_clients.llm_semaphore,
-            ml_clients.fast_llm(),
+            ml_clients,
         )
         avg_sim = sum(s for _, s in state.docs) / len(state.docs) if state.docs else 0.0
 
@@ -378,15 +377,26 @@ async def step_generate(
     answer_parts: list[str] = []
     last_chunk = None
     first_token_time: float | None = None
-    async with ml_clients.llm_semaphore:
-        async for chunk in ml_clients.llm_for_breadth(effective_breadth).astream(messages):
-            last_chunk = chunk
-            text = chunk.content
-            if text:
-                if first_token_time is None:
-                    first_token_time = time.monotonic()
-                answer_parts.append(text)
-                yield TextChunk(text=text)
+
+    from infrastructure.resilience.circuit_breaker import get_breaker
+
+    breaker = get_breaker("llm_generate")
+    breaker.check_open()
+
+    async with ml_clients.generation_semaphore:
+        try:
+            async for chunk in ml_clients.llm_for_breadth(effective_breadth).astream(messages):
+                last_chunk = chunk
+                text = chunk.content
+                if text:
+                    if first_token_time is None:
+                        first_token_time = time.monotonic()
+                    answer_parts.append(text)
+                    yield TextChunk(text=text)
+        except Exception:
+            await breaker.report_failure()
+            raise
+        await breaker.report_success()
     RAG_STAGE_DURATION.labels("generate").observe(time.monotonic() - t0)
 
     state.full_answer = "".join(answer_parts)
