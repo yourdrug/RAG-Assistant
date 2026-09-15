@@ -6,11 +6,11 @@ import logging
 from typing import TYPE_CHECKING
 
 from application.dto.document_dto import DocumentDTO
+from application.services.user_context_factory import UserContextFactory
 from domain.entities.document import Document
 from domain.services import compute_owner_and_group, validate_document_visibility
 from domain.value_objects.document_status import DocumentStatus
 from domain.value_objects.source_type import SourceType
-from domain.value_objects.user_context import UserContext
 from domain.value_objects.visibility import DocumentVisibility
 
 if TYPE_CHECKING:
@@ -22,8 +22,11 @@ log = logging.getLogger(__name__)
 class ManualDocumentService:
     """Creates virtual document containers for manual chunks."""
 
-    def __init__(self, uow_factory: "UnitOfWorkFactory") -> None:
+    def __init__(
+        self, uow_factory: "UnitOfWorkFactory", user_ctx_factory: UserContextFactory | None = None
+    ) -> None:
         self._uow_factory = uow_factory
+        self._user_ctx_factory = user_ctx_factory or UserContextFactory()
 
     async def create_manual_document(
         self,
@@ -37,7 +40,7 @@ class ManualDocumentService:
         vis = DocumentVisibility.validate(visibility)
 
         async with self._uow_factory.create(master=True) as uow:
-            ctx = await UserContext.build(uow, user_id, user_kind, user_role)
+            ctx = await self._user_ctx_factory.build(uow, user_id, user_kind, user_role)
             validate_document_visibility(vis, group_id, ctx)
 
             owner_id, effective_group_id = compute_owner_and_group(vis, group_id, user_id)

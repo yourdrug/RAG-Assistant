@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query
-from infrastructure.logging.log_buffer import log_buffer
 
 from presentation.api.auth_dependencies import require_admin
 from presentation.api.constants import MAX_PAGE_LIMIT_LARGE
+from presentation.api.dependencies import create_log_buffer
 from presentation.api.schemas import LogEntry, LogsResponse
 
 router = APIRouter(tags=["admin-logs"])
@@ -18,6 +18,7 @@ async def list_logs(
     level: str | None = Query(None),
     search: str | None = Query(None),
     admin: dict = Depends(require_admin),
+    log_buffer=Depends(create_log_buffer),
 ):
     raw = log_buffer.get_logs(limit=limit, level=level, search=search)
     logs = [

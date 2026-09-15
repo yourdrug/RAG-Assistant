@@ -21,6 +21,7 @@ from application.ports.pii_redactor import PIIRedactorPort
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
 from application.services.chat_log_service import ChatLogService
 from application.services.conversation_service import ConversationService
+from application.services.user_context_factory import UserContextFactory
 from domain.entities.conversation import Conversation
 from domain.entities.message import Message
 from domain.exceptions import BusinessRuleViolation
@@ -28,7 +29,6 @@ from domain.utils import compute_reranker_score
 from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.curator_scope import CuratorScope
 from domain.value_objects.message_role import MessageRole
-from domain.value_objects.user_context import UserContext
 from domain.value_objects.stream_events import (
     MetaEvent,
     SourcesEvent,
@@ -58,6 +58,7 @@ class ChatService:
         chat_log_service: ChatLogService,
         conversation_service: ConversationService,
         pii_redactor: PIIRedactorPort,
+        user_ctx_factory: UserContextFactory | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._rag_service = rag_service
@@ -65,6 +66,7 @@ class ChatService:
         self._chat_log_service = chat_log_service
         self._conversation_service = conversation_service
         self._pii_redactor = pii_redactor
+        self._user_ctx_factory = user_ctx_factory or UserContextFactory()
 
     # ------------------------------------------------------------------
     # Helpers
@@ -81,7 +83,7 @@ class ChatService:
         as_of_date: date | None,
     ) -> ChatSetup:
         async with self._uow_factory.create(master=True) as uow:
-            user_ctx = await UserContext.build(uow, user_id, user_kind, user_role=user_role)
+            user_ctx = await self._user_ctx_factory.build(uow, user_id, user_kind, user_role=user_role)
             conv = await uow.conversations.get_or_create(conversation_id, user_id)
             if conv.id is None:
                 raise RuntimeError("Conversation get_or_create returned None id")

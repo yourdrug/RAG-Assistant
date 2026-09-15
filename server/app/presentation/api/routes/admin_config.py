@@ -7,12 +7,15 @@ import logging
 from application.services.config_admin_service import ConfigAdminService
 from application.services.config_service import ConfigService
 from fastapi import APIRouter, Depends, HTTPException
-from infrastructure.logging.actions import log_action
-from infrastructure.ml.config.config_subscribers import SENSITIVE_KEYS, _mask_value
 
 from presentation.api.auth_dependencies import require_admin
 from presentation.api.constants import QUESTION_LOG_MAX_CHARS, STATIC_CONFIG_KEYS
-from presentation.api.dependencies import create_config_admin_service, create_config_service
+from presentation.api.dependencies import (
+    create_action_logger,
+    create_config_admin_service,
+    create_config_masker,
+    create_config_service,
+)
 from presentation.api.schemas import (
     ConfigParamResponse,
     ConfigParamUpdateRequest,
@@ -32,12 +35,13 @@ router = APIRouter(tags=["admin-config"])
 async def list_config(
     admin: dict = Depends(require_admin),
     config_service: ConfigService = Depends(create_config_service),
+    masker=Depends(create_config_masker),
 ):
     rows = await config_service.list_parameters()
     return [
         ConfigParamResponse(
             key=r.key,
-            value=_mask_value(r.value) if r.key in SENSITIVE_KEYS else r.normalize(r.value),
+            value=masker.mask_value(r.value) if r.key in masker.sensitive_keys else r.normalize(r.value),
             value_type=r.value_type,
             category=r.category,
             description=r.description,
@@ -56,6 +60,8 @@ async def update_config(
     body: ConfigParamUpdateRequest,
     admin: dict = Depends(require_admin),
     config_service: ConfigService = Depends(create_config_service),
+    log=Depends(create_action_logger),
+    masker=Depends(create_config_masker),
     domain: str | None = None,
 ):
     if key in STATIC_CONFIG_KEYS:
@@ -64,15 +70,16 @@ async def update_config(
             detail=f"'{key}' is a static parameter — set it in server/.env and restart",
         )
     param = await config_service.update_parameter(key, body.value, changed_by=admin["id"], domain_key=domain)
-    masked_value = _mask_value(body.value) if key in SENSITIVE_KEYS else body.value[:QUESTION_LOG_MAX_CHARS]
-    log_action(
+    is_sensitive = key in masker.sensitive_keys
+    masked_value = masker.mask_value(body.value) if is_sensitive else body.value[:QUESTION_LOG_MAX_CHARS]
+    log(
         "config.update",
         user_id=admin["id"],
         details={"key": key, "value": masked_value, "domain": domain},
     )
     return ConfigParamResponse(
         key=param.key,
-        value=_mask_value(param.value) if param.key in SENSITIVE_KEYS else param.value,
+        value=masker.mask_value(param.value) if param.key in masker.sensitive_keys else param.value,
         value_type=param.value_type,
         category=param.category,
         description=param.description,

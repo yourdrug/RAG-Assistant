@@ -7,11 +7,11 @@ from typing import TYPE_CHECKING
 
 from application.dto.chunk_dto import ChunkItemDTO
 from application.services.chunk_mappers import to_chunk_dto
+from application.services.user_context_factory import UserContextFactory
 from domain.exceptions import EntityNotFound
 from domain.services import check_document_access
 from domain.utils import decode_cursor
 from domain.value_objects.cursor_page import CursorPage
-from domain.value_objects.user_context import UserContext
 
 if TYPE_CHECKING:
     from application.ports.unit_of_work_factory import UnitOfWorkFactory
@@ -22,8 +22,11 @@ log = logging.getLogger(__name__)
 class ChunkQueryService:
     """List/query chunk operations."""
 
-    def __init__(self, uow_factory: "UnitOfWorkFactory") -> None:
+    def __init__(
+        self, uow_factory: "UnitOfWorkFactory", user_ctx_factory: UserContextFactory | None = None
+    ) -> None:
         self._uow_factory = uow_factory
+        self._user_ctx_factory = user_ctx_factory or UserContextFactory()
 
     async def list_chunks(
         self,
@@ -41,7 +44,7 @@ class ChunkQueryService:
             if doc is None:
                 raise EntityNotFound("Document", document_id)
 
-            ctx = await UserContext.build(uow, user_id, user_kind, user_role)
+            ctx = await self._user_ctx_factory.build(uow, user_id, user_kind, user_role)
             check_document_access(doc, ctx)
 
             chunks, total = await uow.chunks.list_for_document(
@@ -72,7 +75,7 @@ class ChunkQueryService:
             if doc is None:
                 raise EntityNotFound("Document", document_id)
 
-            ctx = await UserContext.build(uow, user_id, user_kind, user_role)
+            ctx = await self._user_ctx_factory.build(uow, user_id, user_kind, user_role)
             check_document_access(doc, ctx)
 
             page = await uow.chunks.list_for_document_cursor(

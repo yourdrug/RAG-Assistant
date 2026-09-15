@@ -10,12 +10,16 @@ from application.services.ingest_service import IngestAppService
 from application.services.job_service import JobService
 from domain.value_objects.visibility import DocumentVisibility
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from infrastructure.logging.actions import log_action
-from infrastructure.worker.queue import enqueue_ingest, enqueue_ingest_file
 
 from presentation.api.auth_dependencies import require_admin
 from presentation.api.constants import JobType
-from presentation.api.dependencies import create_ingest_service, create_ingestion_port, create_job_service
+from presentation.api.dependencies import (
+    create_action_logger,
+    create_ingest_service,
+    create_ingestion_port,
+    create_job_enqueuer,
+    create_job_service,
+)
 from presentation.api.schemas import (
     IngestRegistryItem,
     IngestRegistryResponse,
@@ -48,6 +52,8 @@ async def ingest_documents(
     admin: dict = Depends(require_admin),
     service: IngestAppService = Depends(create_ingest_service),
     job_service: JobService = Depends(create_job_service),
+    log=Depends(create_action_logger),
+    job_enqueuer=Depends(create_job_enqueuer),
 ):
     _validate_data_relative_path(docs_dir)
     try:
@@ -57,13 +63,13 @@ async def ingest_documents(
 
     job_id = await job_service.create_job(JobType.INGEST)
 
-    log_action(
+    log(
         "ingest.full",
         user_id=admin["id"],
         details={"docs_dir": resolved, "reset": reset, "domain": domain, "visibility": visibility.value},
     )
 
-    await enqueue_ingest(
+    await job_enqueuer.enqueue_ingest(
         resolved_dir=resolved,
         reset=reset,
         domain=domain,
@@ -87,6 +93,8 @@ async def ingest_single_file(
     admin: dict = Depends(require_admin),
     service: IngestAppService = Depends(create_ingest_service),
     job_service: JobService = Depends(create_job_service),
+    log=Depends(create_action_logger),
+    job_enqueuer=Depends(create_job_enqueuer),
 ):
     _validate_data_relative_path(file_path)
     try:
@@ -99,13 +107,13 @@ async def ingest_single_file(
 
     job_id = await job_service.create_job(JobType.INGEST, related_id=None)
 
-    log_action(
+    log(
         "ingest.file",
         user_id=admin["id"],
         details={"file": resolved, "force": force, "domain": domain, "visibility": visibility.value},
     )
 
-    await enqueue_ingest_file(
+    await job_enqueuer.enqueue_ingest_file(
         resolved=resolved,
         domain=domain,
         job_id=job_id,

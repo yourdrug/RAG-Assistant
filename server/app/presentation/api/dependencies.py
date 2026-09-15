@@ -198,3 +198,28 @@ def create_domain_registry(request: Request):
 def create_domain_settings(request: Request):
     c = _create_container(request)
     return c.infrastructure.domain_settings
+
+
+# ---------------------------------------------------------------------------
+# Presentation-layer adapters (infrastructure ports)
+# ---------------------------------------------------------------------------
+
+
+def create_action_logger(request: Request):
+    return _create_container(request).infrastructure.action_logger
+
+
+def create_cache_invalidator(request: Request):
+    return _create_container(request).infrastructure.cache_invalidator
+
+
+def create_job_enqueuer(request: Request):
+    return _create_container(request).infrastructure.job_enqueuer
+
+
+def create_config_masker(request: Request):
+    return _create_container(request).infrastructure.config_masker
+
+
+def create_log_buffer(request: Request):
+    return _create_container(request).infrastructure.log_buffer

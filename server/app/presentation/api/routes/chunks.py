@@ -7,10 +7,9 @@ import logging
 from application.services.chunk_service import ChunkService
 from domain.value_objects.capabilities import Capability
 from fastapi import APIRouter, Depends, Query
-from infrastructure.logging.actions import log_action
 
 from presentation.api.auth_dependencies import get_current_user, require_capability
-from presentation.api.dependencies import create_chunk_service
+from presentation.api.dependencies import create_action_logger, create_chunk_service
 from presentation.api.schemas import (
     ChunkCreateRequest,
     ChunkCursorListResponse,
@@ -139,6 +138,7 @@ async def add_chunk(
     request: ChunkCreateRequest,
     current_user: dict = Depends(require_capability(Capability.CHUNKS_MANAGE)),
     chunk_service: ChunkService = Depends(create_chunk_service),
+    log=Depends(create_action_logger),
 ):
     """Add a new chunk to an existing document."""
     result = await chunk_service.add_chunk(
@@ -150,7 +150,7 @@ async def add_chunk(
         section=request.section,
     )
 
-    log_action(
+    log(
         "chunk.create",
         user_id=current_user["id"],
         details={"document_id": document_id, "chunk_id": result.id},
@@ -173,6 +173,7 @@ async def edit_chunk(
     request: ChunkEditRequest,
     current_user: dict = Depends(require_capability(Capability.CHUNKS_MANAGE)),
     chunk_service: ChunkService = Depends(create_chunk_service),
+    log=Depends(create_action_logger),
 ):
     """Edit an existing chunk's content with automatic re-embedding."""
     result = await chunk_service.edit_chunk(
@@ -183,7 +184,7 @@ async def edit_chunk(
         user_role=current_user["role"],
     )
 
-    log_action(
+    log(
         "chunk.edit",
         user_id=current_user["id"],
         details={"document_id": document_id, "chunk_id": chunk_id},
@@ -207,6 +208,7 @@ async def delete_chunk(
     chunk_id: int,
     current_user: dict = Depends(require_capability(Capability.CHUNKS_MANAGE)),
     chunk_service: ChunkService = Depends(create_chunk_service),
+    log=Depends(create_action_logger),
 ):
     """Delete a single chunk."""
     await chunk_service.delete_chunk(
@@ -216,7 +218,7 @@ async def delete_chunk(
         user_role=current_user["role"],
     )
 
-    log_action(
+    log(
         "chunk.delete",
         user_id=current_user["id"],
         details={"document_id": document_id, "chunk_id": chunk_id},
@@ -230,6 +232,7 @@ async def create_manual_document(
     request: ManualDocumentRequest,
     current_user: dict = Depends(require_capability(Capability.CHUNKS_MANAGE)),
     chunk_service: ChunkService = Depends(create_chunk_service),
+    log=Depends(create_action_logger),
 ):
     """Create a virtual document container for manual chunks."""
     result = await chunk_service.create_manual_document(
@@ -241,7 +244,7 @@ async def create_manual_document(
         group_id=request.group_id,
     )
 
-    log_action(
+    log(
         "document.create_manual",
         user_id=current_user["id"],
         details={"document_id": result.id, "title": request.title},

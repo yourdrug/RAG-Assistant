@@ -278,6 +278,26 @@ class TestDocumentMarkDone:
         # Assert
         assert doc.indexed_at >= before
 
+    def test_mark_done_from_pending(self):
+        doc = _make_document(status=DocumentStatus.PENDING)
+        doc.mark_done(chunks=1, chars=100)
+        assert doc.status == DocumentStatus.DONE
+
+    def test_mark_done_from_indexing(self):
+        doc = _make_document(status=DocumentStatus.INDEXING)
+        doc.mark_done(chunks=3, chars=300)
+        assert doc.status == DocumentStatus.DONE
+
+    def test_mark_done_on_done_raises(self):
+        doc = _make_document(status=DocumentStatus.DONE)
+        with pytest.raises(BusinessRuleViolation, match="Cannot mark document as DONE"):
+            doc.mark_done(chunks=1, chars=1)
+
+    def test_mark_done_on_failed_raises(self):
+        doc = _make_document(status=DocumentStatus.FAILED)
+        with pytest.raises(BusinessRuleViolation, match="Cannot mark document as DONE"):
+            doc.mark_done(chunks=1, chars=1)
+
 
 class TestDocumentMarkFailed:
     def test_mark_failed_sets_error(self):
@@ -296,6 +316,26 @@ class TestDocumentMarkFailed:
         doc.mark_failed("new error")
         # Assert
         assert doc.error_message == "new error"
+
+    def test_mark_failed_from_pending(self):
+        doc = _make_document(status=DocumentStatus.PENDING)
+        doc.mark_failed("timeout")
+        assert doc.status == DocumentStatus.FAILED
+
+    def test_mark_failed_from_indexing(self):
+        doc = _make_document(status=DocumentStatus.INDEXING)
+        doc.mark_failed("ocr error")
+        assert doc.status == DocumentStatus.FAILED
+
+    def test_mark_failed_on_done_raises(self):
+        doc = _make_document(status=DocumentStatus.DONE)
+        with pytest.raises(BusinessRuleViolation, match="Cannot mark document as FAILED"):
+            doc.mark_failed("oops")
+
+    def test_mark_failed_on_failed_raises(self):
+        doc = _make_document(status=DocumentStatus.FAILED)
+        with pytest.raises(BusinessRuleViolation, match="Cannot mark document as FAILED"):
+            doc.mark_failed("double fail")
 
 
 class TestDocumentCanBeDeletedBy:

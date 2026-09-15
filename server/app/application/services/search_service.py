@@ -6,16 +6,19 @@ import logging
 
 from domain.repositories.chunk_repository import ChunkSearchResult
 from domain.value_objects.roles import UserKind
-from domain.value_objects.user_context import UserContext
 
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
+from application.services.user_context_factory import UserContextFactory
 
 log = logging.getLogger("default")
 
 
 class SearchService:
-    def __init__(self, uow_factory: UnitOfWorkFactory) -> None:
+    def __init__(
+        self, uow_factory: UnitOfWorkFactory, user_ctx_factory: UserContextFactory | None = None
+    ) -> None:
         self._uow_factory = uow_factory
+        self._user_ctx_factory = user_ctx_factory or UserContextFactory()
 
     async def exact_search(
         self,
@@ -28,7 +31,7 @@ class SearchService:
         async with self._uow_factory.create() as uow:
             user_kind = user.get("kind", UserKind.INTERNAL)
             user_role = user.get("role", "user")
-            ctx = await UserContext.build(uow, user["id"], user_kind, user_role)
+            ctx = await self._user_ctx_factory.build(uow, user["id"], user_kind, user_role)
             return await uow.chunks.search_substring(
                 query=query,
                 user=user,

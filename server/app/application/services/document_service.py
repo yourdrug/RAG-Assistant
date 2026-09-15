@@ -1,544 +1,122 @@
-"""Application service for document lifecycle management.
+"""DocumentService — facade delegating to DocumentCommandService + DocumentQueryService.
 
-Provides upload, rename, delete, permission management and storage-key
-resolution for user documents. Each public method opens its own async
-UnitOfWork via the injected UnitOfWorkFactory, keeping the service
-stateless and transaction-safe.
+Preserves the original public API for backward compatibility while the
+actual logic lives in the focused sub-services.
 """
 
 from __future__ import annotations
-
-import logging
-from dataclasses import replace
-from pathlib import Path
 
 from application.dto.document_dto import ClientInfo, DocumentDTO
 from application.ports.bm25_index import BM25IndexPort
 from application.ports.file_storage import FileStorage
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
-from application.services.document_pipeline import build_outbox_metadata
-from domain.entities.document import Document
-from domain.entities.vector_outbox_entry import OutboxOperation, VectorOutboxEntry
-from domain.exceptions import (
-    BusinessRuleViolation,
-    EntityNotFound,
-    UniqueConstraintViolation,
-    ValidationError,
-)
-from domain.repositories.vector_store_repository import VectorStoreRepository
-from domain.services import (
-    check_document_access,
-    check_ownership,
-    compute_owner_and_group,
-    is_in_search_scope,
-    validate_document_visibility,
-)
-from application.services.document_conflict_resolver import resolve_conflict
-from application.services.document_utils import generate_storage_key, resolve_unique_filename
-from domain.value_objects.doc_domain import DocDomain
-from domain.value_objects.document_status import DocumentStatus
-from domain.value_objects.roles import UserKind, UserRole
-from domain.value_objects.user_context import UserContext
-from domain.value_objects.visibility import DocumentVisibility
-
-log = logging.getLogger(__name__)
+from application.services.document_command_service import DocumentCommandService
+from application.services.document_query_service import DocumentQueryService
+from application.services.user_context_factory import UserContextFactory
 
 
 class DocumentService:
+    """Thin facade — delegates to DocumentCommandService and DocumentQueryService."""
+
     def __init__(
         self,
         uow_factory: UnitOfWorkFactory,
-        vector_store_repo: VectorStoreRepository,
+        vector_store_repo,
         file_storage: FileStorage,
         bm25_index: BM25IndexPort,
         domain_registry=None,
         act_versioning_service=None,
+        user_ctx_factory: UserContextFactory | None = None,
     ) -> None:
-        self._uow_factory = uow_factory
-        self._vector_store = vector_store_repo
-        self._file_storage = file_storage
-        self._bm25_index = bm25_index
-        self._domain_registry = domain_registry
-        self._act_versioning_service = act_versioning_service
-
-    def _get_domain_profile(self, doc_domain: str):
-        """Get DomainProfile for the given domain, or None if not registered."""
-        if self._domain_registry is None:
-            return None
-        try:
-            return self._domain_registry.get(doc_domain)
-        except KeyError:
-            return None
-
-    async def _remove_document_from_bm25(self, uow, document_id: int) -> None:
-        """Remove all chunks of a document from the in-memory BM25 index."""
-        chunks, _ = await uow.chunks.list_for_document(document_id, limit=10000)
-        for chunk in chunks:
-            if chunk.content_hash is not None:
-                self._bm25_index.remove(chunk.content_hash)
-
-    async def _enrich_with_outbox_status(self, uow, dto: DocumentDTO) -> DocumentDTO:
-        """Enrich a DTO with outbox pending/failed counts for INDEXING documents."""
-        if dto.status != DocumentStatus.INDEXING.value:
-            return dto
-        outbox = await uow.vector_outbox.count_by_document(dto.id)
-        failed = None
-        if outbox["failed"] > 0:
-            failed = await uow.vector_outbox.get_failed_details(dto.id)
-        return replace(
-            dto,
-            outbox_pending=outbox["pending"],
-            outbox_failed=outbox["failed"],
-            outbox_failed_details=failed,
+        self._cmd = DocumentCommandService(
+            uow_factory=uow_factory,
+            vector_store_repo=vector_store_repo,
+            file_storage=file_storage,
+            bm25_index=bm25_index,
+            domain_registry=domain_registry,
+            act_versioning_service=act_versioning_service,
+            user_ctx_factory=user_ctx_factory,
+        )
+        self._query = DocumentQueryService(
+            uow_factory=uow_factory,
+            user_ctx_factory=user_ctx_factory,
         )
 
-    async def _resolve_effective_owner_id(
-        self,
-        uow,
-        vis: DocumentVisibility,
-        user_id: int,
-        user_kind: str,
-        client_id: int | None,
-        user_role: str = UserRole.USER,
-        managed_client_ids: list[int] | None = None,
-    ) -> int:
-        if vis != DocumentVisibility.CLIENT_PRIVATE:
-            return user_id
-        if user_kind == UserKind.CLIENT:
-            return user_id
-        if client_id is None:
-            raise ValidationError("client_id required for client_private upload")
-        client_user = await uow.users.get_by_id(client_id)
-        if client_user is None or client_user.kind != UserKind.CLIENT:
-            raise ValidationError("client_id must be a user with kind='client'")
-        # CURATOR: validate client_id is in managed scope
-        if user_role == UserRole.CURATOR:
-            if managed_client_ids is None or client_id not in managed_client_ids:
-                raise BusinessRuleViolation("You can only upload documents for assigned clients")
-        return client_id
+    @property
+    def _uow_factory(self):
+        return self._cmd._uow_factory
+
+    @property
+    def _vector_store(self):
+        return self._cmd._vector_store
+
+    @property
+    def _file_storage(self):
+        return self._cmd._file_storage
+
+    @property
+    def _bm25_index(self):
+        return self._cmd._bm25_index
+
+    @property
+    def _domain_registry(self):
+        return self._cmd._domain_registry
+
+    @property
+    def _act_versioning_service(self):
+        return self._cmd._act_versioning_service
+
+    @property
+    def _user_ctx_factory(self):
+        return self._cmd._user_ctx_factory
+
+    def _get_domain_profile(self, doc_domain: str):
+        return self._cmd._get_domain_profile(doc_domain)
+
+    async def _resolve_version_group(self, uow, existing, replaces_document_id, pending_replace_id):
+        return await self._cmd._resolve_version_group(uow, existing, replaces_document_id, pending_replace_id)
+
+    async def _persist_upload(self, uow, doc, file_data, owner_id, effective_group_id, filename):
+        return await self._cmd._persist_upload(uow, doc, file_data, owner_id, effective_group_id, filename)
+
+    async def _maybe_resolve_conflict_sync(
+        self, doc, existing, pending_replace_id, doc_domain, uow, storage_deletes
+    ):
+        return await self._cmd._maybe_resolve_conflict_sync(
+            doc, existing, pending_replace_id, doc_domain, uow, storage_deletes
+        )
 
     @staticmethod
     def _validate_no_active_processing(existing) -> None:
-        """Reject if the slot is occupied by an in-flight document."""
-        if existing and existing.status in (
-            DocumentStatus.PENDING,
-            DocumentStatus.PROCESSING,
-            DocumentStatus.INDEXING,
-        ):
-            raise BusinessRuleViolation("This document is already being processed")
+        DocumentCommandService._validate_no_active_processing(existing)
 
-    async def _resolve_version_group(
-        self,
-        uow,
-        existing,
-        replaces_document_id: int | None,
-        pending_replace_id: int | None,
-    ) -> tuple[int | None, int | None, object]:
-        """Determine version group and adjust ``existing`` / ``pending_replace_id``.
+    async def _remove_document_from_bm25(self, uow, document_id: int) -> None:
+        return await self._cmd._remove_document_from_bm25(uow, document_id)
 
-        Returns ``(version_group_id, pending_replace_id, existing)`` where
-        ``existing`` may have been replaced by the explicitly-requested document.
-        """
-        if replaces_document_id is not None:
-            replaces_doc = await uow.documents.get_by_id(replaces_document_id)
-            if replaces_doc is None:
-                raise EntityNotFound("Document", replaces_document_id)
-            version_group_id = replaces_doc.version_group_id or replaces_doc.id
-            return version_group_id, pending_replace_id, replaces_doc
+    async def _enrich_with_outbox_status(self, uow, dto):
+        return await self._query._enrich_with_outbox_status(uow, dto)
 
-        if existing and existing.status in (DocumentStatus.DONE, DocumentStatus.FAILED):
-            version_group_id = existing.version_group_id or existing.id
-            return version_group_id, existing.id, existing
-
-        return None, pending_replace_id, existing
-
-    async def _persist_upload(self, uow, doc, file_data: bytes, owner_id, effective_group_id, filename: str):
-        """Save document, upload file to S3, set source path.
-
-        Returns ``(saved_doc, storage_key)``.  Performs a compensating S3
-        delete on failure so storage never accumulates orphaned objects.
-        """
-        try:
-            saved_doc = await uow.documents.save(doc)
-        except UniqueConstraintViolation as exc:
-            raise BusinessRuleViolation(
-                "This document is already being uploaded by a concurrent request"
-            ) from exc
-
-        if saved_doc.id is None:
-            raise RuntimeError("Document save returned None id")
-
-        key = generate_storage_key(owner_id, effective_group_id, saved_doc.id, filename)
-        try:
-            await self._file_storage.upload_file(key, file_data)
-            await uow.documents.set_source_path(saved_doc.id, key)
-        except BaseException:
-            try:
-                await self._file_storage.delete_file(key)
-            except Exception:
-                log.warning("Failed to clean up orphaned upload object %s", key)
-            raise
-
-        return saved_doc, key
-
-    async def _maybe_resolve_conflict_sync(
-        self,
-        doc,
-        existing,
-        pending_replace_id: int | None,
-        doc_domain: str | None,
-        uow,
-        storage_deletes: list[str],
-    ) -> int | None:
-        """Resolve version conflict synchronously when the domain is already known.
-
-        Returns updated ``pending_replace_id`` (``None`` when conflict was resolved).
-        """
-        if doc_domain is None or existing is None or pending_replace_id is None:
-            return pending_replace_id
-
-        profile = self._get_domain_profile(doc_domain)
-        old_source_path = await resolve_conflict(
-            self._uow_factory,
-            doc,
-            existing,
-            profile,
-            act_versioning_service=self._act_versioning_service,
-        )
-        if old_source_path:
-            storage_deletes.append(old_source_path)
-        return None
-
-    async def upload(
-        self,
-        filename: str,
-        file_data: bytes,
-        visibility: str,
-        group_id: int | None,
-        user_id: int,
-        user_kind: str,
-        user_role: str,
-        client_id: int | None = None,
-        rename_on_conflict: bool = False,
-        doc_domain: str | None = None,
-        replaces_document_id: int | None = None,
-    ) -> DocumentDTO:
-        ext = Path(filename).suffix.lower()
-        if ext not in self._file_storage.supported_extensions:
-            raise ValidationError(f"Unsupported file format: {ext}")
-
-        vis = DocumentVisibility.validate(visibility)
-
-        storage_deletes: list[str] = []
-        async with self._uow_factory.create(master=True) as uow:
-            ctx = await UserContext.build(uow, user_id, user_kind, user_role)
-            validate_document_visibility(vis, group_id, ctx)
-
-            if vis == DocumentVisibility.INTERNAL_GROUP:
-                if group_id is None:
-                    raise ValidationError("group_id required for internal_group visibility")
-                groups = await uow.groups.list_by_ids([group_id])
-                if not groups:
-                    raise EntityNotFound("Group", group_id)
-
-            effective_owner_id = await self._resolve_effective_owner_id(
-                uow,
-                vis,
-                user_id,
-                user_kind,
-                client_id,
-                user_role=user_role,
-                managed_client_ids=ctx.managed_client_ids if user_role == UserRole.CURATOR else None,
-            )
-
-            owner_id, effective_group_id = compute_owner_and_group(vis, group_id, effective_owner_id)
-
-            existing = await uow.documents.find_active_slot(
-                owner_id,
-                filename,
-                effective_group_id,
-                for_update=True,
-            )
-            self._validate_no_active_processing(existing)
-
-            version_group_id, pending_replace_id, existing = await self._resolve_version_group(
-                uow, existing, replaces_document_id, None
-            )
-
-            if existing and existing.status in (DocumentStatus.DONE, DocumentStatus.FAILED):
-                filename = await resolve_unique_filename(
-                    uow.documents, owner_id, effective_group_id, filename
-                )
-
-            doc = Document(
-                filename=filename,
-                visibility=vis,
-                owner_id=owner_id,
-                group_id=effective_group_id,
-                doc_domain=doc_domain or DocDomain.GENERAL.value,
-                version_group_id=version_group_id,
-            )
-
-            saved_doc, key = await self._persist_upload(
-                uow, doc, file_data, owner_id, effective_group_id, filename
-            )
-
-            pending_replace_id = await self._maybe_resolve_conflict_sync(
-                doc, existing, pending_replace_id, doc_domain, uow, storage_deletes
-            )
-
-            final_doc = await uow.documents.get_by_id(saved_doc.id)
-            if final_doc is None:
-                raise EntityNotFound("Document", saved_doc.id)
-            dto = DocumentDTO.from_entity(
-                final_doc,
-                storage_key=key,
-                replace_id=pending_replace_id,
-            )
-
-        for old_key in storage_deletes:
-            try:
-                await self._file_storage.delete_file(old_key)
-            except Exception:
-                log.warning("Failed to delete replaced document object %s from storage — orphaned", old_key)
-        return dto
-
-    async def list_uploadable_clients(self, user_id: int, user_kind: str, user_role: str) -> list[ClientInfo]:
-        async with self._uow_factory.create() as uow:
-            if user_kind == UserKind.CLIENT:
-                return []
-            if user_role == UserRole.ADMIN:
-                all_users = await uow.users.list_all()
-                return [
-                    ClientInfo(id=u.id, email=u.email)
-                    for u in all_users
-                    if u.kind == UserKind.CLIENT and u.id is not None
-                ]
-            if user_role == UserRole.CURATOR:
-                managed_client_ids = await uow.assignments.get_managed_client_ids(user_id)
-                if not managed_client_ids:
-                    return []
-                all_users = await uow.users.list_all()
-                return [
-                    ClientInfo(id=u.id, email=u.email)
-                    for u in all_users
-                    if u.kind == UserKind.CLIENT and u.id is not None and u.id in managed_client_ids
-                ]
-            return []
-
-    async def list_documents(
-        self,
-        user_id: int,
-        user_kind: str,
-        user_role: str | UserRole = UserRole.USER,
-        limit: int = 200,
-        offset: int = 0,
-    ) -> list[DocumentDTO]:
-        async with self._uow_factory.create() as uow:
-            ctx = await UserContext.build(uow, user_id, user_kind, user_role)
-            if ctx.is_admin:
-                docs = await uow.documents.list_all(limit=limit, offset=offset)
-                dtos = [DocumentDTO.from_entity(d, in_search_scope=is_in_search_scope(d, ctx)) for d in docs]
-            elif ctx.is_curator:
-                docs = await uow.documents.list_visible(
-                    user_kind=user_kind,
-                    user_id=user_id,
-                    group_ids=ctx.group_ids or [],
-                    user_role=user_role,
-                    limit=limit,
-                    offset=offset,
-                    managed_client_ids=ctx.managed_client_ids,
-                    managed_internal_ids=ctx.managed_internal_ids,
-                    managed_group_ids=ctx.managed_group_ids,
-                )
-                dtos = [DocumentDTO.from_entity(d) for d in docs]
-            elif ctx.is_client:
-                docs = await uow.documents.list_visible(
-                    user_kind=user_kind,
-                    user_id=user_id,
-                    group_ids=[],
-                    user_role=user_role,
-                    limit=limit,
-                    offset=offset,
-                )
-                dtos = [DocumentDTO.from_entity(d) for d in docs]
-            else:
-                docs = await uow.documents.list_visible(
-                    user_kind=user_kind,
-                    user_id=user_id,
-                    group_ids=ctx.group_ids or [],
-                    user_role=user_role,
-                    limit=limit,
-                    offset=offset,
-                )
-                dtos = [DocumentDTO.from_entity(d) for d in docs]
-
-            return [await self._enrich_with_outbox_status(uow, dto) for dto in dtos]
-
-    async def get_document(
-        self, document_id: int, user_id: int, user_kind: str, user_role: str
-    ) -> DocumentDTO:
-        async with self._uow_factory.create() as uow:
-            doc = await uow.documents.get_by_id(document_id)
-            if doc is None:
-                raise EntityNotFound("Document", document_id)
-
-            ctx = await UserContext.build(uow, user_id, user_kind, user_role)
-            check_document_access(doc, ctx)
-
-            dto = DocumentDTO.from_entity(doc)
-            return await self._enrich_with_outbox_status(uow, dto)
+    async def upload(self, **kwargs) -> DocumentDTO:
+        return await self._cmd.upload(**kwargs)
 
     async def delete_document(self, document_id: int, user_id: int, user_role: str) -> None:
-        async with self._uow_factory.create(master=True) as uow:
-            doc = await uow.documents.get_by_id(document_id)
-            if doc is None:
-                raise EntityNotFound("Document", document_id)
-
-            ctx = await UserContext.build(uow, user_id, UserKind.INTERNAL, user_role)
-            check_ownership(doc, ctx, "delete")
-
-            # Enqueue vector store deletion via outbox (atomic with Postgres)
-            await uow.vector_outbox.enqueue(
-                VectorOutboxEntry(
-                    operation=OutboxOperation.DELETE_BY_DOCUMENT,
-                    aggregate_type="document",
-                    aggregate_id=document_id,
-                    payload={"document_id": document_id},
-                )
-            )
-
-            # Remove chunks from BM25 index before DB cascade delete
-            await self._remove_document_from_bm25(uow, document_id)
-
-            source_path = doc.source_path
-
-            # Invalidate conversation summaries that reference the deleted document
-            await uow.conversations.clear_summaries_referencing(document_id)
-
-            # DB delete cascades to chunks via FK
-            await uow.documents.delete(document_id)
-
-        if source_path:
-            try:
-                await self._file_storage.delete_file(source_path)
-            except Exception:
-                log.warning(
-                    "Failed to delete storage object %s for document %d — orphaned",
-                    source_path,
-                    document_id,
-                )
+        return await self._cmd.delete_document(document_id, user_id, user_role)
 
     async def rename_document(
         self, document_id: int, new_filename: str, user_id: int, user_role: str
     ) -> DocumentDTO:
-        ext = Path(new_filename).suffix.lower()
-        if ext not in self._file_storage.supported_extensions:
-            raise ValidationError(f"Unsupported file format: {ext}")
+        return await self._cmd.rename_document(document_id, new_filename, user_id, user_role)
 
-        copied_paths: list[str] = []
-        try:
-            async with self._uow_factory.create(master=True) as uow:
-                dto, old_source_path = await self._rename_in_transaction(
-                    uow, document_id, new_filename, user_id, user_role, copied_paths
-                )
-        except BaseException:
-            if copied_paths:
-                try:
-                    await self._file_storage.delete_file(copied_paths[0])
-                except Exception:
-                    log.warning(
-                        "Failed to clean up orphaned copy %s for document %d",
-                        copied_paths[0], document_id,
-                    )
-            raise
+    async def list_documents(self, **kwargs) -> list[DocumentDTO]:
+        return await self._query.list_documents(**kwargs)
 
-        if old_source_path:
-            try:
-                await self._file_storage.delete_file(old_source_path)
-            except Exception:
-                log.warning(
-                    "Failed to delete old storage object %s after rename of document %d — orphaned",
-                    old_source_path,
-                    document_id,
-                )
-        return dto
+    async def get_document(
+        self, document_id: int, user_id: int, user_kind: str, user_role: str
+    ) -> DocumentDTO:
+        return await self._query.get_document(document_id, user_id, user_kind, user_role)
 
-    async def _rename_in_transaction(
-        self, uow, document_id: int, new_filename: str, user_id: int, user_role: str,
-        copied_paths: list[str],
-    ) -> tuple[DocumentDTO, str | None]:
-        """Execute rename inside a transaction. Returns (dto, old_source_path).
-
-        If S3 copy is performed, the new path is appended to *copied_paths*
-        for compensation if the transaction fails.
-        """
-        doc = await uow.documents.get_by_id(document_id)
-        if doc is None:
-            raise EntityNotFound("Document", document_id)
-
-        ctx = await UserContext.build(uow, user_id, UserKind.INTERNAL, user_role)
-        check_ownership(doc, ctx, "rename")
-
-        owner_id, effective_group_id = doc.owner_id, doc.group_id
-        existing = await uow.documents.find_active_slot(
-            owner_id, new_filename, effective_group_id, for_update=True
-        )
-        if existing and existing.id != document_id:
-            if existing.status in (
-                DocumentStatus.PENDING,
-                DocumentStatus.PROCESSING,
-                DocumentStatus.INDEXING,
-            ):
-                raise BusinessRuleViolation("This document name is already being processed")
-            if existing.status in (DocumentStatus.DONE, DocumentStatus.FAILED):
-                new_filename = await resolve_unique_filename(
-                    uow.documents, owner_id, effective_group_id, new_filename
-                )
-
-        new_source_path = generate_storage_key(owner_id, effective_group_id, document_id, new_filename)
-
-        old_source_path: str | None = None
-
-        if doc.source_path and doc.source_path != new_source_path:
-            await self._file_storage.copy_file(doc.source_path, new_source_path)
-            copied_paths.append(new_source_path)
-            old_source_path = doc.source_path
-
-        await uow.documents.update_filename(document_id, new_filename, new_source_path)
-        await uow.chunks.update_filename_by_document_id(document_id, new_filename)
-
-        await uow.vector_outbox.enqueue(
-            VectorOutboxEntry(
-                operation=OutboxOperation.UPSERT_CHUNKS,
-                aggregate_type="document",
-                aggregate_id=document_id,
-                payload={
-                    "points": [
-                        {
-                            "chunk_id": c.chunk_id,
-                            "page_content": c.content,
-                            "metadata": build_outbox_metadata(
-                                document_id=document_id,
-                                visibility=c.visibility,
-                                owner_id=c.owner_id,
-                                group_id=c.group_id,
-                                filename=new_filename,
-                                doc_domain=c.doc_domain,
-                                content_hash=c.content_hash,
-                            ),
-                        }
-                        for c in (await uow.chunks.list_for_document(document_id, limit=10000))[0]
-                    ]
-                },
-            )
-        )
-
-        final_doc = await uow.documents.get_by_id(document_id)
-        if final_doc is None:
-            raise EntityNotFound("Document", document_id)
-        return DocumentDTO.from_entity(final_doc), old_source_path
+    async def list_uploadable_clients(self, user_id: int, user_kind: str, user_role: str) -> list[ClientInfo]:
+        return await self._query.list_uploadable_clients(user_id, user_kind, user_role)
 
     async def list_source_files(self, search: str | None = None) -> list[str]:
-        async with self._uow_factory.create() as uow:
-            return await uow.documents.list_distinct_filenames(search=search, limit=100)
+        return await self._query.list_source_files(search=search)

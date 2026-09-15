@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from composition._utils import _missing_fields, _require
 
@@ -224,21 +224,36 @@ class EventContainer:
 
 @dataclass
 class ServiceContainer:
-    """Auxiliary infrastructure services: health, admin, auth."""
+    """Auxiliary infrastructure services: health, admin, auth, presentation adapters."""
 
     health_probe: SystemHealthProbe | None = field(default=None)
     ollama_probe: OllamaProbe | None = field(default=None)
     qdrant_info: QdrantInfo | None = field(default=None)
     api_key_provider: ApiKeyProvider | None = field(default=None)
+    action_logger: Any = field(default=None)
+    cache_invalidator: Any = field(default=None)
+    job_enqueuer: Any = field(default=None)
+    config_masker: Any = field(default=None)
+    log_buffer: Any = field(default=None)
 
     def init(self) -> None:
         from infrastructure.auth.api_key_provider import api_key_provider
         from infrastructure.health.system_health_probe import OllamaProbe, QdrantInfo, SystemHealthProbe
+        from infrastructure.adapters.action_logger_adapter import ActionLoggerAdapter
+        from infrastructure.adapters.cache_invalidator_adapter import CacheInvalidatorAdapter
+        from infrastructure.adapters.job_enqueuer_adapter import JobEnqueuerAdapter
+        from infrastructure.adapters.config_masker_adapter import ConfigMaskerAdapter
+        from infrastructure.adapters.log_buffer_adapter import LogBufferAdapter
 
         self.health_probe = SystemHealthProbe()
         self.ollama_probe = OllamaProbe(health_probe=self.health_probe)
         self.qdrant_info = QdrantInfo(health_probe=self.health_probe)
         self.api_key_provider = api_key_provider
+        self.action_logger = ActionLoggerAdapter()
+        self.cache_invalidator = CacheInvalidatorAdapter()
+        self.job_enqueuer = JobEnqueuerAdapter()
+        self.config_masker = ConfigMaskerAdapter()
+        self.log_buffer = LogBufferAdapter()
 
     @property
     def health(self) -> SystemHealthProbe:
@@ -441,3 +456,23 @@ class InfrastructureContainer:
     @property
     def outbox_listener(self) -> PostgresOutboxListener:
         return _require(self.events.outbox_listener, "outbox_listener")
+
+    @property
+    def action_logger(self):
+        return _require(self.services.action_logger, "action_logger")
+
+    @property
+    def cache_invalidator(self):
+        return _require(self.services.cache_invalidator, "cache_invalidator")
+
+    @property
+    def job_enqueuer(self):
+        return _require(self.services.job_enqueuer, "job_enqueuer")
+
+    @property
+    def config_masker(self):
+        return _require(self.services.config_masker, "config_masker")
+
+    @property
+    def log_buffer(self):
+        return _require(self.services.log_buffer, "log_buffer")

@@ -10,7 +10,6 @@ import logging
 from typing import Any, Protocol, runtime_checkable
 
 from domain.value_objects.document_status import DocumentStatus
-from infrastructure.logging.actions import log_action
 
 from presentation.api.constants import JobType
 
@@ -74,6 +73,7 @@ async def upload_and_enqueue(
     job_service: _JobService,
     enqueue_fn: Any,
     action_name: str,
+    log_fn: Any = None,
 ) -> dict[str, Any]:
     """Shared upload → job-create → enqueue logic used by multiple routes.
 
@@ -93,7 +93,8 @@ async def upload_and_enqueue(
         replaces_document_id=replaces_document_id,
     )
 
-    log_action(action_name, user_id=user_id, details={"filename": filename, "visibility": visibility})
+    if log_fn is not None:
+        log_fn(action_name, user_id=user_id, details={"filename": filename, "visibility": visibility})
 
     job_id = await job_service.create_job(JobType.DOCUMENT_PROCESSING, related_id=result.id)
 

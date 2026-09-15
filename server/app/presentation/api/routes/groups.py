@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from application.services.group_service import GroupService
 from fastapi import APIRouter, Depends
-from infrastructure.logging.actions import log_action
 
 from presentation.api.auth_dependencies import get_current_user, require_admin
-from presentation.api.dependencies import create_group_service
+from presentation.api.dependencies import create_action_logger, create_group_service
 from presentation.api.schemas import (
     CreateGroupRequest,
     GroupMemberRequest,
@@ -23,9 +22,10 @@ async def create_group_endpoint(
     req: CreateGroupRequest,
     admin: dict = Depends(require_admin),
     service: GroupService = Depends(create_group_service),
+    log=Depends(create_action_logger),
 ):
     group_id = await service.create(req.name)
-    log_action("group.create", user_id=admin["id"], details={"name": req.name})
+    log("group.create", user_id=admin["id"], details={"name": req.name})
     return GroupResponse(id=group_id, name=req.name)
 
 
@@ -54,9 +54,10 @@ async def add_group_member(
     req: GroupMemberRequest,
     admin: dict = Depends(require_admin),
     service: GroupService = Depends(create_group_service),
+    log=Depends(create_action_logger),
 ):
     await service.add_member(group_id, req.user_id)
-    log_action(
+    log(
         "group.add_member", user_id=admin["id"], details={"group_id": group_id, "user_id": req.user_id}
     )
     return {"group_id": group_id, "user_id": req.user_id}
@@ -68,7 +69,8 @@ async def remove_group_member(
     user_id: int,
     admin: dict = Depends(require_admin),
     service: GroupService = Depends(create_group_service),
+    log=Depends(create_action_logger),
 ):
     await service.remove_member(group_id, user_id)
-    log_action("group.remove_member", user_id=admin["id"], details={"group_id": group_id, "user_id": user_id})
+    log("group.remove_member", user_id=admin["id"], details={"group_id": group_id, "user_id": user_id})
     return {"group_id": group_id, "user_id": user_id}

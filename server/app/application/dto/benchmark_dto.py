@@ -6,6 +6,31 @@ from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
+class BenchmarkQuestionCreateDTO:
+    """DTO for creating a benchmark question — replaces presentation schema dependency."""
+
+    question: str
+    expected_answer: str | None = None
+    source_hint: str | None = None
+    tags: list[str] | None = None
+    dataset: str = "main"
+    notes: str | None = None
+
+
+@dataclass(frozen=True)
+class SweepCreateDTO:
+    """DTO for creating a benchmark sweep — replaces presentation schema dependency."""
+
+    strategy: str = "grid"
+    search_space: dict = field(default_factory=dict)
+    objective_weights: dict = field(
+        default_factory=lambda: {"hit_rate": 0.4, "faithfulness": 0.3, "relevancy": 0.3}
+    )
+    dataset: str = "main"
+    top_n_llm: int = 3
+
+
+@dataclass(frozen=True)
 class ApplyConfigResult:
     """Result of applying a benchmark run's config to the live system."""
 

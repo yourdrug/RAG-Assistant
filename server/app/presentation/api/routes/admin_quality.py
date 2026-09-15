@@ -14,7 +14,6 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from application.services.pdf_diagnostic_service import PDFDiagnosticService
 from application.services.quality_service import QualityService
 from infrastructure.ml.preview.factory import PreviewStrategyFactory
-from infrastructure.worker.queue import enqueue_document_processing
 
 from presentation.api.auth_dependencies import require_admin
 from presentation.api.constants import (
@@ -24,9 +23,11 @@ from presentation.api.constants import (
     QUALITY_BAD_RATIO_THRESHOLD,
 )
 from presentation.api.dependencies import (
+    create_action_logger,
     create_document_service,
     create_domain_registry,
     create_domain_settings,
+    create_job_enqueuer,
     create_job_service,
     create_pdf_diagnostic_service,
     create_preview_cache,
@@ -399,6 +400,8 @@ async def index_from_preview(
     preview_cache=Depends(create_preview_cache),
     document_service=Depends(create_document_service),
     job_service=Depends(create_job_service),
+    job_enqueuer=Depends(create_job_enqueuer),
+    log=Depends(create_action_logger),
 ):
     """Index the cached document through the standard ingestion pipeline.
 
@@ -426,8 +429,9 @@ async def index_from_preview(
         doc_domain=doc_domain,
         document_service=document_service,
         job_service=job_service,
-        enqueue_fn=enqueue_document_processing,
+        enqueue_fn=job_enqueuer.enqueue_document_processing,
         action_name="document.upload_from_preview",
+        log_fn=log,
     )
 
     return {"document_id": result["document_id"], "filename": filename, "status": result["status"]}

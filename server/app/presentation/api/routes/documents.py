@@ -11,14 +11,14 @@ from config import settings
 from domain.value_objects.capabilities import Capability
 from domain.value_objects.doc_domain import DocDomain
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
-from infrastructure.logging.actions import log_action
-from infrastructure.ml.answer_cache import invalidate_by_document_ids
-from infrastructure.worker.queue import enqueue_document_processing
 
 from presentation.api.auth_dependencies import get_current_user, require_capability
 from presentation.api.constants import FILE_TOO_LARGE_STATUS, MAGIC_BYTES
 from presentation.api.dependencies import (
+    create_action_logger,
+    create_cache_invalidator,
     create_document_service,
+    create_job_enqueuer,
     create_job_service,
 )
 from presentation.api.helpers import upload_and_enqueue
@@ -119,6 +119,8 @@ async def upload_document(
     replaces_document_id: int | None = Form(None),
     document_service: DocumentService = Depends(create_document_service),
     job_service: JobService = Depends(create_job_service),
+    job_enqueuer=Depends(create_job_enqueuer),
+    log=Depends(create_action_logger),
 ):
     filename = file.filename or "unnamed"
     ext = Path(filename).suffix.lower()
@@ -152,8 +154,9 @@ async def upload_document(
         replaces_document_id=replaces_document_id,
         document_service=document_service,
         job_service=job_service,
-        enqueue_fn=enqueue_document_processing,
+        enqueue_fn=job_enqueuer.enqueue_document_processing,
         action_name="document.upload",
+        log_fn=log,
     )
 
     return UploadStatusResponse(status=result["status"], document_id=result["document_id"], filename=filename)
@@ -187,10 +190,12 @@ async def delete_document(
     document_id: int,
     current_user: dict = Depends(require_capability(Capability.DOCUMENTS_MANAGE)),
     document_service: DocumentService = Depends(create_document_service),
+    log=Depends(create_action_logger),
+    cache_inv=Depends(create_cache_invalidator),
 ):
     await document_service.delete_document(document_id, current_user["id"], current_user["role"])
-    await invalidate_by_document_ids([document_id], cache_enabled=settings.cache_enabled)
-    log_action("document.delete", user_id=current_user["id"], details={"document_id": document_id})
+    await cache_inv.invalidate_by_document_ids([document_id], cache_enabled=settings.cache_enabled)
+    log("document.delete", user_id=current_user["id"], details={"document_id": document_id})
     return {"status": "deleted", "document_id": document_id}
 
 
@@ -200,6 +205,7 @@ async def rename_document(
     body: DocumentRenameRequest,
     current_user: dict = Depends(require_capability(Capability.DOCUMENTS_MANAGE)),
     document_service: DocumentService = Depends(create_document_service),
+    log=Depends(create_action_logger),
 ):
     result = await document_service.rename_document(
         document_id=document_id,
@@ -207,7 +213,7 @@ async def rename_document(
         user_id=current_user["id"],
         user_role=current_user["role"],
     )
-    log_action(
+    log(
         "document.rename",
         user_id=current_user["id"],
         details={"document_id": document_id, "new_filename": body.filename},

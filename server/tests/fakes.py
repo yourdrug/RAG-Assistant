@@ -321,6 +321,35 @@ class FakeDocumentRepository:
     async def list_all(self, limit: int = 200, offset: int = 0):
         return list(self._documents.values())[offset : offset + limit]
 
+    async def list_visible(
+        self,
+        *,
+        user_kind: str = "internal",
+        user_id: int = 0,
+        group_ids: list[int] | None = None,
+        user_role: str = "user",
+        limit: int = 200,
+        offset: int = 0,
+        managed_client_ids: list[int] | None = None,
+        managed_internal_ids: list[int] | None = None,
+        managed_group_ids: list[int] | None = None,
+    ):
+        from domain.services.access_control import is_in_search_scope
+
+        class _FakeCtx:
+            def __init__(self):
+                self.user_id = user_id
+                self.user_kind = user_kind
+                self.user_role = user_role
+                self.group_ids = group_ids or []
+                self.managed_client_ids = managed_client_ids or []
+                self.managed_internal_ids = managed_internal_ids or []
+                self.managed_group_ids = managed_group_ids or []
+
+        ctx = _FakeCtx()
+        visible = [d for d in self._documents.values() if is_in_search_scope(d, ctx)]
+        return visible[offset : offset + limit]
+
     async def save(self, doc):
         doc.id = self._next_id
         self._next_id += 1
@@ -457,8 +486,22 @@ class FakeVectorOutboxRepository:
 
 
 class FakeUserRepository:
+    def __init__(self) -> None:
+        self._users: dict[int, object] = {}
+        self._next_id = 1
+
     async def get_by_id(self, user_id: int):
-        return None
+        return self._users.get(user_id)
+
+    async def list_all(self):
+        return list(self._users.values())
+
+    def add_user(self, user_id: int, email: str = "user@test.com", kind: str = "internal"):
+        from types import SimpleNamespace
+
+        u = SimpleNamespace(id=user_id, email=email, kind=kind)
+        self._users[user_id] = u
+        return u
 
 
 class FakeConfigParameterRepository:

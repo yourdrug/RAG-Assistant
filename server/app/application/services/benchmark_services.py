@@ -5,9 +5,13 @@ from __future__ import annotations
 import builtins
 import logging
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, TypeAlias
+from typing import TypeAlias
 
-from application.dto.benchmark_dto import ApplyConfigResult
+from application.dto.benchmark_dto import (
+    ApplyConfigResult,
+    BenchmarkQuestionCreateDTO,
+    SweepCreateDTO,
+)
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
 from application.services.config_service import ConfigService
 from domain.entities.benchmark_question import BenchmarkQuestion
@@ -15,9 +19,6 @@ from domain.entities.benchmark_run import BenchmarkRun
 from domain.entities.benchmark_sweep import BenchmarkSweep
 from domain.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
 from domain.value_objects.sweep_status import BenchmarkSweepStatus
-
-if TYPE_CHECKING:
-    from presentation.api.schemas import BenchmarkQuestionCreate, SweepCreateRequest
 
 RunCompareResult: TypeAlias = tuple[list[BenchmarkRun], dict[str, list[dict]]]
 
@@ -61,7 +62,7 @@ class BenchmarkQuestionService:
             )
             return questions, total
 
-    async def create(self, body: BenchmarkQuestionCreate, created_by: int) -> BenchmarkQuestion:
+    async def create(self, body: BenchmarkQuestionCreateDTO, created_by: int) -> BenchmarkQuestion:
         entity = BenchmarkQuestion(
             question=body.question,
             expected_answer=body.expected_answer,
@@ -90,7 +91,7 @@ class BenchmarkQuestionService:
             raise EntityNotFound("BenchmarkQuestion", question_id)
         return True
 
-    async def bulk_create(self, bodies: builtins.list[BenchmarkQuestionCreate], created_by: int) -> int:
+    async def bulk_create(self, bodies: builtins.list[BenchmarkQuestionCreateDTO], created_by: int) -> int:
         entities = [
             BenchmarkQuestion(
                 question=q.question,
@@ -114,7 +115,7 @@ class BenchmarkSweepService:
     def __init__(self, uow_factory: UnitOfWorkFactory) -> None:
         self._uow_factory = uow_factory
 
-    async def create(self, body: SweepCreateRequest) -> BenchmarkSweep:
+    async def create(self, body: SweepCreateDTO) -> BenchmarkSweep:
         async with self._uow_factory.create(master=True) as uow:
             if await uow.benchmark_sweeps.has_active():
                 raise BusinessRuleViolation(

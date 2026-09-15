@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from application.services.document_service import DocumentService
+from application.services.user_context_factory import UserContextFactory
 from domain.entities.document import Document
 from domain.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
 from domain.value_objects.document_status import DocumentStatus
@@ -37,10 +38,11 @@ def _make_doc(
     group_id: int | None = None,
     version_group_id: int | None = None,
     source_path: str | None = None,
+    visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC,
 ) -> Document:
     doc = Document(
         filename=filename,
-        visibility=DocumentVisibility.INTERNAL_PUBLIC,
+        visibility=visibility,
         owner_id=owner_id,
         group_id=group_id,
         status=status,
@@ -74,12 +76,12 @@ def _service(uow: FakeUnitOfWork | None = None, file_storage=None):
 
 @pytest.fixture(autouse=True)
 def _patch_user_context_build(monkeypatch):
-    """Replace UserContext.build with a stub returning a fixed context."""
+    """Replace UserContextFactory.build with a stub returning a fixed context."""
 
-    async def _fake_build(uow, user_id, user_kind, user_role):
+    async def _fake_build(self, uow, user_id, user_kind, user_role):
         return _FAKE_CTX
 
-    monkeypatch.setattr(UserContext, "build", _fake_build)
+    monkeypatch.setattr(UserContextFactory, "build", _fake_build)
 
 
 # ---------------------------------------------------------------------------
@@ -624,3 +626,247 @@ async def test_rename_document_copy_fails_no_compensation():
 
     # No compensation delete (copy failed, nothing to clean up)
     fs.delete_file.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# list_documents (characterization)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_list_documents_admin_sees_all():
+    """Admin sees all documents."""
+    svc, uow, _ = _service()
+    await uow.documents.save(_make_doc(doc_id=1, filename="a.pdf"))
+    await uow.documents.save(_make_doc(doc_id=2, filename="b.pdf"))
+
+    result = await svc.list_documents(user_id=99, user_kind="internal", user_role="admin")
+
+    assert len(result) == 2
+    filenames = {d.filename for d in result}
+    assert filenames == {"a.pdf", "b.pdf"}
+
+
+@pytest.mark.asyncio
+async def test_list_documents_empty():
+    """No documents → empty list."""
+    svc, _, _ = _service()
+    result = await svc.list_documents(user_id=1, user_kind="internal", user_role="user")
+    assert result == []
+
+
+@pytest.mark.asyncio
+async def test_list_documents_user_sees_only_own():
+    """Regular user only sees own PRIVATE documents (via ACL)."""
+    svc, uow, _ = _service()
+    await uow.documents.save(_make_doc(
+        doc_id=1, filename="own.pdf", owner_id=1,
+        visibility=DocumentVisibility.INTERNAL_PRIVATE,
+    ))
+    await uow.documents.save(_make_doc(
+        doc_id=2, filename="other.pdf", owner_id=2,
+        visibility=DocumentVisibility.INTERNAL_PRIVATE,
+    ))
+
+    from unittest.mock import patch
+
+    async def _user_ctx(self_factory, uow, user_id, user_kind, user_role):
+        return UserContext(
+            user_id=user_id, user_kind=user_kind, user_role=user_role,
+            group_ids=[], managed_client_ids=[], managed_internal_ids=[], managed_group_ids=[],
+        )
+
+    with patch.object(UserContextFactory, "build", _user_ctx):
+        result = await svc.list_documents(user_id=1, user_kind="internal", user_role="user")
+
+    assert len(result) == 1
+    assert result[0].filename == "own.pdf"
+
+
+@pytest.mark.asyncio
+async def test_list_documents_client_sees_only_own():
+    """Client user only sees own CLIENT_PRIVATE documents."""
+    svc, uow, _ = _service()
+    await uow.documents.save(_make_doc(
+        doc_id=1, filename="own.pdf", owner_id=10,
+        visibility=DocumentVisibility.CLIENT_PRIVATE,
+    ))
+    await uow.documents.save(_make_doc(
+        doc_id=2, filename="other.pdf", owner_id=20,
+        visibility=DocumentVisibility.CLIENT_PRIVATE,
+    ))
+
+    from unittest.mock import patch
+
+    async def _user_ctx(self_factory, uow, user_id, user_kind, user_role):
+        return UserContext(
+            user_id=user_id, user_kind=user_kind, user_role=user_role,
+            group_ids=[], managed_client_ids=[], managed_internal_ids=[], managed_group_ids=[],
+        )
+
+    with patch.object(UserContextFactory, "build", _user_ctx):
+        result = await svc.list_documents(user_id=10, user_kind="client", user_role="user")
+
+    assert len(result) == 1
+    assert result[0].filename == "own.pdf"
+
+
+@pytest.mark.asyncio
+async def test_list_documents_with_limit_offset():
+    """Pagination works."""
+    svc, uow, _ = _service()
+    for i in range(5):
+        await uow.documents.save(_make_doc(filename=f"doc{i}.pdf", owner_id=1))
+
+    result = await svc.list_documents(
+        user_id=99, user_kind="internal", user_role="user", limit=2, offset=0
+    )
+    assert len(result) == 2
+
+    result2 = await svc.list_documents(
+        user_id=99, user_kind="internal", user_role="user", limit=2, offset=2
+    )
+    assert len(result2) == 2
+
+
+# ---------------------------------------------------------------------------
+# get_document (characterization)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_document_happy_path():
+    """get_document: existing doc + ACL OK → returns DTO."""
+    svc, uow, _ = _service()
+    doc = _make_doc(doc_id=1, filename="report.pdf")
+    await uow.documents.save(doc)
+
+    dto = await svc.get_document(document_id=1, user_id=1, user_kind="internal", user_role="admin")
+
+    assert dto.id == 1
+    assert dto.filename == "report.pdf"
+
+
+@pytest.mark.asyncio
+async def test_get_document_not_found():
+    """get_document: non-existent doc → EntityNotFound."""
+    svc, _, _ = _service()
+    with pytest.raises(EntityNotFound):
+        await svc.get_document(document_id=999, user_id=1, user_kind="internal", user_role="admin")
+
+
+# ---------------------------------------------------------------------------
+# list_uploadable_clients (characterization)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_list_uploadable_clients_admin():
+    """Admin sees all client users."""
+    svc, uow, _ = _service()
+    uow.users.add_user(10, email="client1@test.com", kind="client")
+    uow.users.add_user(20, email="client2@test.com", kind="client")
+    uow.users.add_user(30, email="internal@test.com", kind="internal")
+
+    result = await svc.list_uploadable_clients(user_id=99, user_kind="internal", user_role="admin")
+
+    assert len(result) == 2
+    emails = {c.email for c in result}
+    assert emails == {"client1@test.com", "client2@test.com"}
+
+
+@pytest.mark.asyncio
+async def test_list_uploadable_clients_curator():
+    """Curator sees only managed clients."""
+    svc, uow, _ = _service()
+    uow.users.add_user(10, email="managed@test.com", kind="client")
+    uow.users.add_user(20, email="unmanaged@test.com", kind="client")
+    uow.users.add_user(30, email="other@test.com", kind="client")
+    uow.assignments.set_user_kind(10, "client")
+    uow.assignments.set_user_kind(20, "client")
+    await uow.assignments.assign_user(curator_id=1, target_user_id=10, assigned_by=99)
+
+    result = await svc.list_uploadable_clients(user_id=1, user_kind="internal", user_role="curator")
+
+    assert len(result) == 1
+    assert result[0].id == 10
+
+
+@pytest.mark.asyncio
+async def test_list_uploadable_clients_client_returns_empty():
+    """Client users get empty list."""
+    svc, _, _ = _service()
+    result = await svc.list_uploadable_clients(user_id=10, user_kind="client", user_role="user")
+    assert result == []
+
+
+@pytest.mark.asyncio
+async def test_list_uploadable_clients_user_returns_empty():
+    """Regular users get empty list."""
+    svc, _, _ = _service()
+    result = await svc.list_uploadable_clients(user_id=1, user_kind="internal", user_role="user")
+    assert result == []
+
+
+# ---------------------------------------------------------------------------
+# list_source_files (characterization)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_list_source_files_basic():
+    """Returns distinct filenames."""
+    svc, uow, _ = _service()
+    await uow.documents.save(_make_doc(filename="report.pdf"))
+    await uow.documents.save(_make_doc(filename="report.pdf"))
+    await uow.documents.save(_make_doc(filename="other.pdf"))
+
+    result = await svc.list_source_files()
+
+    assert sorted(result) == ["other.pdf", "report.pdf"]
+
+
+@pytest.mark.asyncio
+async def test_list_source_files_with_search():
+    """Search filters filenames."""
+    svc, uow, _ = _service()
+    await uow.documents.save(_make_doc(filename="report.pdf"))
+    await uow.documents.save(_make_doc(filename="data.csv"))
+    await uow.documents.save(_make_doc(filename="report_v2.pdf"))
+
+    result = await svc.list_source_files(search="report")
+
+    assert sorted(result) == ["report.pdf", "report_v2.pdf"]
+
+
+@pytest.mark.asyncio
+async def test_list_source_files_empty():
+    """No documents → empty list."""
+    svc, _, _ = _service()
+    result = await svc.list_source_files()
+    assert result == []
+
+
+# ---------------------------------------------------------------------------
+# delete_document — permission checks
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_delete_document_not_owner_not_admin():
+    """Non-owner non-admin → BusinessRuleViolation (via check_ownership)."""
+    svc, uow, _ = _service()
+    doc = _make_doc(doc_id=1, owner_id=10)
+    await uow.documents.save(doc)
+
+    from unittest.mock import patch
+
+    async def _user_ctx(self_factory, uow, user_id, user_kind, user_role):
+        return UserContext(
+            user_id=user_id, user_kind=user_kind, user_role=user_role,
+            group_ids=[], managed_client_ids=[], managed_internal_ids=[], managed_group_ids=[],
+        )
+
+    with patch.object(UserContextFactory, "build", _user_ctx):
+        with pytest.raises(BusinessRuleViolation):
+            await svc.delete_document(document_id=1, user_id=99, user_role="user")

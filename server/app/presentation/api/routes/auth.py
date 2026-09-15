@@ -6,10 +6,9 @@ from application.dto.auth_dto import ChangeRoleCommand, CreateUserCommand, Login
 from application.services.auth_service import AuthService
 from domain.value_objects.roles import UserKind, UserRole
 from fastapi import APIRouter, Depends, Query
-from infrastructure.logging.actions import log_action
 
 from presentation.api.auth_dependencies import get_current_user, require_admin
-from presentation.api.dependencies import create_auth_service
+from presentation.api.dependencies import create_action_logger, create_auth_service
 from presentation.api.schemas import (
     ChangeRoleRequest,
     CreateUserRequest,
@@ -26,9 +25,13 @@ router = APIRouter(prefix="/auth", tags=["auth"])
     "/login",
     response_model=TokenResponse,
 )
-async def login(req: LoginRequest, auth_service: AuthService = Depends(create_auth_service)):
+async def login(
+    req: LoginRequest,
+    auth_service: AuthService = Depends(create_auth_service),
+    log=Depends(create_action_logger),
+):
     result = await auth_service.authenticate(LoginCommand(email=req.email, password=req.password))
-    log_action("login", details={"email": req.email})
+    log("login", details={"email": req.email})
     return TokenResponse(**result.__dict__)
 
 
@@ -42,6 +45,7 @@ async def add_user(
     req: CreateUserRequest,
     admin: dict = Depends(require_admin),
     auth_service: AuthService = Depends(create_auth_service),
+    log=Depends(create_action_logger),
 ):
     result = await auth_service.create_user(
         CreateUserCommand(
@@ -52,7 +56,7 @@ async def add_user(
         ),
         creator_role=admin["role"],
     )
-    log_action("user.create", user_id=admin["id"], details={"email": req.email, "role": req.role})
+    log("user.create", user_id=admin["id"], details={"email": req.email, "role": req.role})
     return result
 
 
@@ -60,11 +64,12 @@ async def add_user(
 async def list_all_users(
     admin: dict = Depends(require_admin),
     auth_service: AuthService = Depends(create_auth_service),
+    log=Depends(create_action_logger),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ):
     users, total = await auth_service.list_users(limit=limit, offset=offset)
-    log_action("user.list", user_id=admin["id"], details={"limit": limit, "offset": offset})
+    log("user.list", user_id=admin["id"], details={"limit": limit, "offset": offset})
     response_users = [
         UserResponse(id=u.id, email=u.email, role=u.role, kind=u.kind, is_active=u.is_active) for u in users
     ]
@@ -77,9 +82,10 @@ async def toggle_user_active(
     is_active: bool,
     admin: dict = Depends(require_admin),
     auth_service: AuthService = Depends(create_auth_service),
+    log=Depends(create_action_logger),
 ):
     result = await auth_service.toggle_active(user_id, is_active, admin["id"])
-    log_action(
+    log(
         "user.toggle_active", user_id=admin["id"], details={"target_user": user_id, "is_active": is_active}
     )
     return {"id": result.id, "is_active": result.is_active}
@@ -91,12 +97,13 @@ async def change_user_role(
     body: ChangeRoleRequest,
     admin: dict = Depends(require_admin),
     auth_service: AuthService = Depends(create_auth_service),
+    log=Depends(create_action_logger),
 ):
     result = await auth_service.change_role(
         ChangeRoleCommand(user_id=user_id, new_role=body.role),
         admin_id=admin["id"],
     )
-    log_action(
+    log(
         "user.change_role",
         user_id=admin["id"],
         details={"target_user": user_id, "new_role": body.role},

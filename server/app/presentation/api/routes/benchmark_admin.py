@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 
+from application.dto.benchmark_dto import BenchmarkQuestionCreateDTO, SweepCreateDTO
 from application.services.benchmark_services import (
     BenchmarkQuestionService,
     BenchmarkRunService,
@@ -22,7 +23,6 @@ from domain.entities.benchmark_run import BenchmarkRun
 from domain.entities.benchmark_sweep import BenchmarkSweep
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
-from infrastructure.worker.queue import enqueue_sweep
 
 from presentation.api.auth_dependencies import require_admin
 from presentation.api.constants import (
@@ -38,6 +38,7 @@ from presentation.api.dependencies import (
     create_benchmark_sweep_service,
     create_config_service,
     create_document_service,
+    create_job_enqueuer,
     create_job_service,
 )
 from presentation.api.schemas import (
@@ -69,6 +70,27 @@ router = APIRouter(tags=["benchmark-admin"])
 # ---------------------------------------------------------------------------
 # Helpers — response mapping
 # ---------------------------------------------------------------------------
+
+
+def _question_create_to_dto(body: BenchmarkQuestionCreate) -> BenchmarkQuestionCreateDTO:
+    return BenchmarkQuestionCreateDTO(
+        question=body.question,
+        expected_answer=body.expected_answer,
+        source_hint=body.source_hint,
+        tags=body.tags,
+        dataset=body.dataset,
+        notes=body.notes,
+    )
+
+
+def _sweep_create_to_dto(body: SweepCreateRequest) -> SweepCreateDTO:
+    return SweepCreateDTO(
+        strategy=body.strategy,
+        search_space=body.search_space,
+        objective_weights=body.objective_weights,
+        dataset=body.dataset,
+        top_n_llm=body.top_n_llm,
+    )
 
 
 def _question_to_response(q: BenchmarkQuestion) -> BenchmarkQuestionResponse:
@@ -154,7 +176,7 @@ async def create_question(
     admin: dict = Depends(require_admin),
     service: BenchmarkQuestionService = Depends(create_benchmark_question_service),
 ):
-    created = await service.create(body, created_by=admin["id"])
+    created = await service.create(_question_create_to_dto(body), created_by=admin["id"])
     return _question_to_response(created)
 
 
@@ -186,7 +208,9 @@ async def import_questions(
     admin: dict = Depends(require_admin),
     service: BenchmarkQuestionService = Depends(create_benchmark_question_service),
 ):
-    count = await service.bulk_create(body.questions, created_by=admin["id"])
+    count = await service.bulk_create(
+        [_question_create_to_dto(q) for q in body.questions], created_by=admin["id"]
+    )
     return BenchmarkQuestionsImportResponse(imported=count)
 
 
@@ -232,8 +256,9 @@ async def create_sweep(
     admin: dict = Depends(require_admin),
     service: BenchmarkSweepService = Depends(create_benchmark_sweep_service),
     job_service: JobService = Depends(create_job_service),
+    job_enqueuer=Depends(create_job_enqueuer),
 ):
-    sweep = await service.create(body)
+    sweep = await service.create(_sweep_create_to_dto(body))
 
     job_id = await job_service.create_job(JobType.SWEEP, related_id=sweep.id)
     if sweep.id is None:
@@ -241,7 +266,7 @@ async def create_sweep(
 
     await service.update_status(sweep.id, "pending")
 
-    await enqueue_sweep(sweep_id=sweep.id, job_id=job_id)
+    await job_enqueuer.enqueue_sweep(sweep_id=sweep.id, job_id=job_id)
 
     return _sweep_to_response(sweep, job_id=job_id)
 

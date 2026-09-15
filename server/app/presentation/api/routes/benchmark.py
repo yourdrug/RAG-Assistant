@@ -11,11 +11,14 @@ from application.services.benchmark_result_service import (
 from application.services.job_service import JobService
 from config import settings
 from fastapi import APIRouter, Depends, HTTPException
-from infrastructure.worker.queue import enqueue_benchmark
 
 from presentation.api.auth_dependencies import require_admin
 from presentation.api.constants import JobType
-from presentation.api.dependencies import create_benchmark_result_service, create_job_service
+from presentation.api.dependencies import (
+    create_benchmark_result_service,
+    create_job_enqueuer,
+    create_job_service,
+)
 from presentation.api.schemas import (
     BenchmarkRequest,
     BenchmarkResponse,
@@ -54,6 +57,7 @@ async def run_benchmark(
     req: BenchmarkRequest,
     admin: dict = Depends(require_admin),
     job_service: JobService = Depends(create_job_service),
+    job_enqueuer=Depends(create_job_enqueuer),
 ):
     job_id = await job_service.create_job(JobType.BENCHMARK)
 
@@ -64,7 +68,7 @@ async def run_benchmark(
     k = req.top_k or settings.retriever_top_k
     judge = req.judge_model or settings.llm_model
 
-    await enqueue_benchmark(
+    await job_enqueuer.enqueue_benchmark(
         questions_path=q_path,
         out_dir=o_dir,
         top_k=k,

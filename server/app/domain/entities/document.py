@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
+from domain.exceptions import BusinessRuleViolation
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.document_status import DocumentStatus
 from domain.value_objects.roles import UserRole
@@ -48,6 +49,10 @@ class Document:
     def mark_done(
         self, chunks: int, chars: int, warning_message: str | None = None, quality_score: float | None = None
     ) -> None:
+        if not self.status.is_active:
+            raise BusinessRuleViolation(
+                f"Cannot mark document as DONE: status is {self.status.value!r} (expected active state)"
+            )
         self.status = DocumentStatus.DONE
         self.chunks = chunks
         self.chars = chars
@@ -56,6 +61,10 @@ class Document:
         self.quality_score = quality_score
 
     def mark_failed(self, error: str) -> None:
+        if not self.status.is_active:
+            raise BusinessRuleViolation(
+                f"Cannot mark document as FAILED: status is {self.status.value!r} (expected active state)"
+            )
         self.status = DocumentStatus.FAILED
         self.error_message = error
 

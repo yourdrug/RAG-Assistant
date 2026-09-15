@@ -4,18 +4,21 @@ from __future__ import annotations
 
 from domain.exceptions import EntityNotFound, ValidationError
 from domain.value_objects.roles import UserKind
-from domain.value_objects.user_context import UserContext
 
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
+from application.services.user_context_factory import UserContextFactory
 
 
 class GroupService:
-    def __init__(self, uow_factory: UnitOfWorkFactory) -> None:
+    def __init__(
+        self, uow_factory: UnitOfWorkFactory, user_ctx_factory: UserContextFactory | None = None
+    ) -> None:
         self._uow_factory = uow_factory
+        self._user_ctx_factory = user_ctx_factory or UserContextFactory()
 
     async def list_for_user(self, user_id: int, user_role: str, user_kind: str):
         async with self._uow_factory.create() as uow:
-            ctx = await UserContext.build(uow, user_id, user_kind, user_role)
+            ctx = await self._user_ctx_factory.build(uow, user_id, user_kind, user_role)
             if ctx.is_admin:
                 return await uow.groups.list_all()
             elif ctx.is_client:

@@ -11,7 +11,6 @@ from domain.exceptions import LLMUnavailableError
 from domain.value_objects.stream_events import MetaEvent, StatusEvent, TextChunk
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from infrastructure.logging.actions import log_action
 from shared import request_id_ctx
 
 from presentation.api.auth_dependencies import get_current_user
@@ -22,7 +21,7 @@ from presentation.api.constants import (
     SSE_HEADERS,
     SSE_MEDIA_TYPE,
 )
-from presentation.api.dependencies import create_chat_service
+from presentation.api.dependencies import create_action_logger, create_chat_service
 from presentation.api.helpers import filter_sources
 from presentation.api.schemas import ChatRequest, ChatResponse
 
@@ -61,13 +60,14 @@ async def chat_stream(
     request: Request,
     current_user: dict = Depends(get_current_user),
     chat_service: ChatService = Depends(create_chat_service),
+    log=Depends(create_action_logger),
 ):
     if not req.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty")
 
     req_id = uuid.uuid4().hex[:12]
 
-    log_action(
+    log(
         "chat",
         user_id=current_user["id"],
         details={
@@ -119,6 +119,7 @@ async def chat_sync(
     req: ChatRequest,
     current_user: dict = Depends(get_current_user),
     chat_service: ChatService = Depends(create_chat_service),
+    log=Depends(create_action_logger),
 ):
     if not req.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty")
@@ -126,7 +127,7 @@ async def chat_sync(
     req_id = uuid.uuid4().hex[:12]
     token = request_id_ctx.set(req_id)
     try:
-        log_action(
+        log(
             "chat.sync",
             user_id=current_user["id"],
             details={
