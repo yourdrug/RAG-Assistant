@@ -15,6 +15,8 @@ from zoneinfo import ZoneInfo
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from domain.value_objects.app_stage import AppStage
+
 _settings_overrides: ContextVar[dict[str, object] | None] = ContextVar("settings_overrides", default=None)
 
 
@@ -85,6 +87,8 @@ class Settings(BaseSettings):
     llm_generation_max_concurrent: int = 12
     llm_auxiliary_max_concurrent: int = 4
     llm_auxiliary_timeout: int = 30  # seconds, caps semaphore hold time for auxiliary LLM calls
+    reranker_max_concurrent: int = 8
+    bm25_search_max_concurrent: int = 8
     benchmark_max_concurrent: int = 3
     benchmark_judge_model: str = ""  # empty = use fast_llm for OpenRouter, llm_model for Ollama
 
@@ -150,7 +154,7 @@ class Settings(BaseSettings):
     curator_scope_max_ids: int = 1000
 
     # ── RAG: feature toggles ───────────────────────────────────────────────
-    relevance_gate_enabled: bool = False
+    relevance_gate_enabled: bool = True
     condense_enabled: bool = False
     decomposition_enabled: bool = False
     rolling_summary_enabled: bool = True
@@ -222,7 +226,7 @@ class Settings(BaseSettings):
     # ── App metadata ────────────────────────────────────────────────────────
     version: str = ""
     service_start_datetime: str = ""
-    stage: str = "development"
+    stage: AppStage = AppStage.DEVELOPMENT
 
     @property
     def uptime_seconds(self) -> float:
@@ -275,7 +279,7 @@ class Settings(BaseSettings):
         provider_errors = self._check_ml_provider()
         if provider_errors:
             msg = "Configuration errors:\n" + "\n".join(f"  - {e}" for e in provider_errors)
-            if self.stage == "prod":
+            if self.stage == AppStage.PROD:
                 sys.stderr.write(msg + "\n")
                 sys.exit(1)
             logging.getLogger("default").warning(msg)
@@ -306,7 +310,7 @@ class Settings(BaseSettings):
             errors.append(
                 "S3_ACCESS_KEY / S3_SECRET_KEY must be strong non-default values (set in server/.env.secrets)"
             )
-        if self.stage == "prod":
+        if self.stage == AppStage.PROD:
             if self.file_backend == "local":
                 errors.append("FILE_BACKEND must be 's3' in production")
             if self.allowed_origins.strip() == "*":

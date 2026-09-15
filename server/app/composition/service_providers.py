@@ -36,6 +36,7 @@ def create_ingestion_service(
         IngestionDocumentParser,
         IngestionDocumentSplitter,
     )
+    from infrastructure.ml.config.settings_adapters import LiveIngestionSettings
 
     uow = _require(
         uow_factory if uow_factory is not None else infra.uow_factory,
@@ -53,12 +54,13 @@ def create_ingestion_service(
     return IngestionService(
         vector_store_repo=_require(infra.vector_store_repo, "vector_store_repo"),
         file_storage=file_storage,
+        parser=IngestionDocumentParser(),
+        splitter=IngestionDocumentSplitter(),
+        ingestion_settings=LiveIngestionSettings(),
         uow_factory=uow,
         domain_registry=infra.domain_registry,
         domain_settings=infra.domain_settings,
         act_versioning_service=act_versioning,
-        parser=IngestionDocumentParser(),
-        splitter=IngestionDocumentSplitter(),
         sparse_index_admin=S3SparseIndexAdmin(file_storage=file_storage),
     )
 
@@ -96,7 +98,6 @@ def create_document_processor(
         text_quality_assessor=TextQualityAssessorAdapter(),
         metrics=_require(infra.metrics_collector, "metrics_collector"),
         domain_marker_threshold=settings.document_domain_marker_threshold,
-        ml_registry=infra.ml_clients,
         domain_registry=infra.domain_registry,
         domain_settings=infra.domain_settings,
         act_versioning_service=act_versioning,

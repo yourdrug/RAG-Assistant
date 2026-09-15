@@ -157,14 +157,15 @@ async def apply_legal_rerank_fallback(
     fallback_candidates = await run_hybrid_search(
         query_for_search, rag.retriever.fetch_k, access_filter, rag, ml_clients=ml_clients
     )
-    return await rerank_documents(
-        query_for_search,
-        fallback_candidates,
-        top_n=top_k,
-        reranker=ml_clients.reranker(),
-        min_score=rag.rerank.min_score,
-        score_gap_ratio=rag.rerank.score_gap_ratio,
-    )
+    async with ml_clients.reranker_semaphore:
+        return await rerank_documents(
+            query_for_search,
+            fallback_candidates,
+            top_n=top_k,
+            reranker=ml_clients.reranker(),
+            min_score=rag.rerank.min_score,
+            score_gap_ratio=rag.rerank.score_gap_ratio,
+        )
 
 
 async def assess_sufficiency(
@@ -341,14 +342,15 @@ async def rerank_and_enrich(
     Returns (docs_with_scores, final_docs, avg_sim).
     """
     t0 = time.monotonic()
-    docs = await rerank_documents(
-        query,
-        candidates,
-        top_n=rerank_top_n,
-        reranker=ml_clients.reranker(),
-        min_score=rag.rerank.min_score,
-        score_gap_ratio=rag.rerank.score_gap_ratio,
-    )
+    async with ml_clients.reranker_semaphore:
+        docs = await rerank_documents(
+            query,
+            candidates,
+            top_n=rerank_top_n,
+            reranker=ml_clients.reranker(),
+            min_score=rag.rerank.min_score,
+            score_gap_ratio=rag.rerank.score_gap_ratio,
+        )
     RAG_STAGE_DURATION.labels("rerank").observe(time.monotonic() - t0)
 
     if ctx.as_of_date is not None:

@@ -3,6 +3,7 @@
 Locks down the full RAG pipeline orchestration BEFORE refactoring.
 Every test mocks external I/O (Qdrant, Ollama, Redis) and verifies
 the event sequence produced by stream().
+
 """
 
 import asyncio
@@ -12,6 +13,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+pytestmark = pytest.mark.slow
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
@@ -76,7 +79,10 @@ def _make_service(llm_response: str = "Ответ из документов.", *
     mock_ml.embeddings.return_value.embed_query = AsyncMock(return_value=[0.1] * 384)
     mock_ml.qdrant_client.return_value.search.return_value = []
     mock_ml.qdrant_client.return_value.scroll.return_value = ([], None)
-    mock_ml.bm25_index.return_value = None
+    mock_ml._ensure_bm25_loaded = AsyncMock(return_value=None)
+    mock_ml.bm25_search_semaphore = asyncio.Semaphore(8)
+    mock_ml.reranker_semaphore = asyncio.Semaphore(8)
+    mock_ml.embedding_semaphore = asyncio.Semaphore(8)
 
     chunk_search = overrides.pop("chunk_search", None)
     domain_registry = overrides.pop("domain_registry", None)
@@ -101,6 +107,7 @@ async def collect_events(service, question, history=None, ctx=None):
 _STREAM_PATCHES = {
     "infrastructure.ml.rag_service.build_qdrant_filter": MagicMock(return_value=MagicMock(should=[])),
     "infrastructure.ml.rag_service.with_temporal_filter": MagicMock(return_value=MagicMock(should=[])),
+    "infrastructure.ml.rag.rag_steps.handle_relevance_gate": AsyncMock(return_value=True),
     "infrastructure.ml.rag.rag_steps.compute_visibility_scope_hash": MagicMock(return_value="vis_hash"),
     "infrastructure.ml.rag.rag_steps.compute_question_hash": MagicMock(return_value="q_hash"),
     "infrastructure.ml.rag.rag_steps.classify_query_domain": MagicMock(return_value="general"),

@@ -33,7 +33,7 @@ def _make_ml_clients(qdrant_client=None, embeddings=None, bm25_index=None):
     embs = embeddings or MagicMock()
     embs.embed_query = AsyncMock(return_value=[0.1] * 384)
     ml.embeddings.return_value = embs
-    ml.bm25_index.return_value = bm25_index
+    ml._ensure_bm25_loaded = AsyncMock(return_value=bm25_index)
     return ml
 
 

@@ -17,9 +17,14 @@ from application.services.ingestion_orchestrator import IngestionService  # noqa
 def service():
     from unittest.mock import MagicMock
 
+    settings = MagicMock()
+    settings.s3_bucket = "test-bucket"
     return IngestionService(
         vector_store_repo=MagicMock(),
         file_storage=MagicMock(),
+        parser=MagicMock(),
+        splitter=MagicMock(),
+        ingestion_settings=settings,
     )
 
 

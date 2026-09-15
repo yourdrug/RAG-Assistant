@@ -11,8 +11,6 @@ import logging
 from pathlib import Path
 
 from application.ports.document_parser import (
-    DocumentParserPort,
-    DocumentSplitterPort,
     FileMeta,
     SplitContext,
 )

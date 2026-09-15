@@ -89,7 +89,8 @@ async def qdrant_dense_search(
     client = ml_clients.qdrant_client()
     embeddings = ml_clients.embeddings()
 
-    query_vector = await embeddings.embed_query(query)
+    async with ml_clients.embedding_semaphore:
+        query_vector = await embeddings.embed_query(query)
     qdrant_filter = access_filter if access_filter is not None else None
 
     async with ml_clients.qdrant_search_semaphore:
@@ -129,21 +130,24 @@ async def run_hybrid_search(
     When visibility_conditions is provided, BM25 pre-filters candidates
     by ACL before scoring (defense-in-depth: Qdrant resolve still applies).
     """
-    bm25_index = ml_clients.bm25_index()
+    bm25_index = await ml_clients._ensure_bm25_loaded()
 
     if rag.hybrid_search.enabled and bm25_index is not None:
         t0 = time.monotonic()
         dense_coro = qdrant_dense_search(query, fetch_k, access_filter, ml_clients)
-        sparse_coro = asyncio.to_thread(
-            bm25_index.search_with_hashes, query, fetch_k,
-            visibility_conditions=visibility_conditions,
-            user_id=user_id,
-            user_group_ids=user_group_ids or [],
-        )
-        dense_results, sparse_results = await asyncio.gather(dense_coro, sparse_coro)
+
+        async def _bm25_search():
+            async with ml_clients.bm25_search_semaphore:
+                return await asyncio.to_thread(
+                    bm25_index.search_with_hashes, query, fetch_k,
+                    visibility_conditions=visibility_conditions,
+                    user_id=user_id,
+                    user_group_ids=user_group_ids or [],
+                )
+
+        dense_results, sparse_results = await asyncio.gather(dense_coro, _bm25_search())
         elapsed = time.monotonic() - t0
-        RAG_STAGE_DURATION.labels("dense_search").observe(elapsed)
-        RAG_STAGE_DURATION.labels("sparse_search").observe(elapsed)
+        RAG_STAGE_DURATION.labels("hybrid_search").observe(elapsed)
         dense_by_hash = {h: (score, doc) for h, score, doc in dense_results}
 
         effective_dense = dense_weight if dense_weight is not None else rag.hybrid_search.dense_weight

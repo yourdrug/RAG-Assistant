@@ -16,6 +16,7 @@ import functools
 import logging
 import shutil
 import tempfile
+import threading
 from pathlib import Path
 
 import boto3
@@ -246,14 +247,18 @@ class LazyStorage:
     """Lazy proxy — calls get_storage() on first attribute access.
 
     After get_storage().cache_clear() the next access creates a fresh instance.
+    Thread-safe via double-checked locking.
     """
 
     def __init__(self):
         self._resolved = None
+        self._lock = threading.Lock()
 
     def _ensure(self):
         if self._resolved is None:
-            self._resolved = get_storage()
+            with self._lock:
+                if self._resolved is None:
+                    self._resolved = get_storage()
         return self._resolved
 
     def __getattr__(self, name):

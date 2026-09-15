@@ -48,6 +48,9 @@ def _make_service():
     service = IngestionService(
         vector_store_repo=vector_store,
         file_storage=MagicMock(),
+        parser=MagicMock(),
+        splitter=MagicMock(),
+        ingestion_settings=MagicMock(s3_bucket="test-bucket"),
         uow_factory=factory,
         domain_registry=registry,
         domain_settings=FakeSettings(),

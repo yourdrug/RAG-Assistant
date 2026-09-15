@@ -3,6 +3,7 @@
 import asyncio
 import logging
 
+import httpx
 from config import settings
 from domain.services.rag_policy import build_system_prompt  # noqa: F401
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -12,6 +13,8 @@ from tenacity import (
     stop_after_attempt,
     wait_exponential_jitter,
 )
+
+_RETRYABLE_ERRORS = (TimeoutError, ConnectionError, httpx.TransportError, OSError)
 
 log = logging.getLogger("default")
 
@@ -38,7 +41,7 @@ CONDENSE_PROMPT = ChatPromptTemplate.from_messages(
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential_jitter(initial=1, max=10),
-    retry=retry_if_exception_type((Exception,)),
+    retry=retry_if_exception_type(_RETRYABLE_ERRORS),
     reraise=True,
 )
 async def condense_question(llm, question: str, history_messages: list, ml_clients=None) -> str:
@@ -105,7 +108,7 @@ DECOMPOSE_PROMPT = ChatPromptTemplate.from_messages(
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential_jitter(initial=1, max=10),
-    retry=retry_if_exception_type((Exception,)),
+    retry=retry_if_exception_type(_RETRYABLE_ERRORS),
     reraise=True,
 )
 async def decompose_question(llm, question: str, ml_clients=None) -> list[str]:

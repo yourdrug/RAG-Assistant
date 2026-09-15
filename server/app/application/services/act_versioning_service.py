@@ -215,6 +215,34 @@ class ActVersioningService:
         async with self._uow_factory.create() as uow:
             return await uow.act_versions.list_pending_review()
 
+    async def list_recent_acts(self, limit: int = 20) -> list:
+        """Recent acts — linkage suggestions for versions pending manual review."""
+        from dataclasses import dataclass
+
+        @dataclass
+        class ActSummary:
+            id: int
+            act_type: str
+            act_number: str | None
+            title: str
+
+        async with self._uow_factory.create() as uow:
+            acts = await uow.regulatory_acts.list_all()
+        return [
+            ActSummary(id=a.id, act_type=a.act_type, act_number=a.act_number, title=a.title)
+            for a in acts[-limit:]
+        ]
+
+    async def get_document_filenames(self, document_ids: list[int]) -> dict[int, str]:
+        """Fetch filenames for a list of document IDs (for display in admin UI)."""
+        async with self._uow_factory.create() as uow:
+            result: dict[int, str] = {}
+            for did in document_ids:
+                doc = await uow.documents.get_by_id(did)
+                if doc is not None:
+                    result[did] = doc.filename
+            return result
+
     async def update_version(
         self,
         version_id: int,

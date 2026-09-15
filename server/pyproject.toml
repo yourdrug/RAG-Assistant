@@ -212,6 +212,12 @@ testpaths = ["tests"]
 
 asyncio_default_fixture_loop_scope = "function"
 
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests requiring external services (deselect with '-m \"not integration\"')",
+    "security: marks security-sensitive tests",
+]
+
 python_classes = "*Test Test*"
 python_files = "test_* *_test tests_* *_tests unit* *unit func* *func"
 python_functions = "test_* *_test"

@@ -5,12 +5,13 @@ from __future__ import annotations
 import logging
 from datetime import date
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from application.services.act_versioning_service import ActVersioningService
 
 from presentation.api.auth_dependencies import require_admin
+from presentation.api.dependencies import create_act_versioning_service
 
 logger = logging.getLogger("default")
 
@@ -48,52 +49,22 @@ class ActVersionUpdateRequest(BaseModel):
     act_id: int | None = None
 
 
-def _get_act_versioning_service(request: Request) -> ActVersioningService:
-    container = getattr(request.app.state, "container", None)
-    if container is None:
-        raise RuntimeError("Container not initialized")
-    return ActVersioningService(
-        uow_factory=container.infrastructure.uow_factory,
-        settings=container.infrastructure.domain_settings,
-    )
-
-
-async def _list_recent_acts(request: Request, limit: int = 20) -> list[ActSummary]:
-    """Recent acts — linkage suggestions for versions pending manual review."""
-    container = getattr(request.app.state, "container", None)
-    if container is None:
-        return []
-    async with container.infrastructure.uow_factory.create() as uow:
-        acts = await uow.regulatory_acts.list_all()
-    return [
-        ActSummary(id=a.id, act_type=a.act_type, act_number=a.act_number, title=a.title)
-        for a in acts[-limit:]
-    ]
-
-
 @router.get("/admin/act-versions", response_model=ActVersionListResponse)
 async def list_act_versions(
-    request: Request,
     review: str | None = None,
     admin: dict = Depends(require_admin),
+    service: ActVersioningService = Depends(create_act_versioning_service),
 ):
     """List act versions pending review (date_source='extracted' or act_id IS NULL)."""
-    service = _get_act_versioning_service(request)
     if review != "pending":
         return ActVersionListResponse(versions=[], total=0)
 
     versions = await service.list_pending_review()
 
     doc_ids = list({v.document_id for v in versions})
-    doc_filenames: dict[int, str] = {}
-    if doc_ids:
-        container = getattr(request.app.state, "container", None)
-        if container is not None:
-            async with container.infrastructure.uow_factory.create() as uow:
-                for did in doc_ids:
-                    doc = await uow.documents.get_by_id(did)
-                    if doc is not None:
-                        doc_filenames[did] = doc.filename
+    doc_filenames = await service.get_document_filenames(doc_ids) if doc_ids else {}
+
+    acts = await service.list_recent_acts()
 
     return ActVersionListResponse(
         versions=[
@@ -111,7 +82,7 @@ async def list_act_versions(
             for v in versions
         ],
         total=len(versions),
-        acts=await _list_recent_acts(request),
+        acts=acts,
     )
 
 
@@ -119,11 +90,10 @@ async def list_act_versions(
 async def update_act_version(
     version_id: int,
     body: ActVersionUpdateRequest,
-    request: Request,
     admin: dict = Depends(require_admin),
+    service: ActVersioningService = Depends(create_act_versioning_service),
 ):
     """Update act version dates/linkage. Sets date_source='manual'."""
-    service = _get_act_versioning_service(request)
     await service.update_version(
         version_id=version_id,
         effective_from=body.effective_from,

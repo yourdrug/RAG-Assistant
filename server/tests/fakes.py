@@ -86,6 +86,18 @@ class FakeConversationRepository:
                 "summary": getattr(conv, "summary", None),
             }
 
+    async def clear_summaries_referencing(self, document_id: int) -> int:
+        """Clear summaries for conversations whose messages cite the given document_id.
+
+        Fake implementation: clears ALL summaries (conservative, matches pre-fix behavior).
+        """
+        count = 0
+        for conv in self._convs.values():
+            if conv.get("summary") is not None:
+                conv["summary"] = None
+                count += 1
+        return count
+
     async def list_by_user(self, user_id: int, limit: int = 50, offset: int = 0):
         return []
 
@@ -154,7 +166,7 @@ class FakeChunkRepository:
         # Remove existing chunks for this document
         self._chunks = [c for c in self._chunks if c["document_id"] != document_id]
         ids = []
-        for _i, content in enumerate(chunks):
+        for i, content in enumerate(chunks):
             chunk_id = self._next_id
             self._next_id += 1
             self._chunks.append(
@@ -167,6 +179,13 @@ class FakeChunkRepository:
                     "effective_from": effective_from,
                     "effective_to": effective_to,
                     "is_current": is_current,
+                    "filename": filename,
+                    "visibility": visibility,
+                    "doc_domain": doc_domain,
+                    "owner_id": owner_id,
+                    "group_id": group_id,
+                    "chunk_index": i,
+                    "content_hash": content_hashes[i] if content_hashes and i < len(content_hashes) else None,
                 }
             )
             ids.append(chunk_id)
@@ -196,6 +215,43 @@ class FakeChunkRepository:
 
     async def get_all_contents(self) -> list[str]:
         return []
+
+    async def list_for_document(
+        self,
+        document_id: int,
+        limit: int = 50,
+        offset: int = 0,
+        content_hashes: list[str] | None = None,
+    ) -> tuple[list, int]:
+        from domain.repositories.chunk_repository import ChunkSearchResult
+
+        rows = [c for c in self._chunks if c["document_id"] == document_id]
+        total = len(rows)
+        rows = rows[offset: offset + limit]
+        items = [
+            ChunkSearchResult(
+                chunk_id=c["id"],
+                document_id=c["document_id"],
+                filename=c.get("filename", ""),
+                content=c.get("content", ""),
+                chunk_index=c.get("chunk_index", 0),
+                visibility=c.get("visibility", ""),
+                doc_domain=c.get("doc_domain", "general"),
+                owner_id=c.get("owner_id"),
+                group_id=c.get("group_id"),
+                content_hash=c.get("content_hash"),
+            )
+            for c in rows
+        ]
+        return items, total
+
+    async def update_filename_by_document_id(self, document_id: int, new_filename: str) -> int:
+        count = 0
+        for c in self._chunks:
+            if c["document_id"] == document_id:
+                c["filename"] = new_filename
+                count += 1
+        return count
 
     async def list_for_document_cursor(
         self,
@@ -300,6 +356,21 @@ class FakeDocumentRepository:
         doc = self._documents.get(document_id)
         if doc is not None:
             doc.source_path = source_path
+
+    async def delete(self, document_id: int) -> None:
+        self._documents.pop(document_id, None)
+
+    async def update_filename(self, document_id: int, new_filename: str, new_source_path: str) -> None:
+        doc = self._documents.get(document_id)
+        if doc is not None:
+            doc.filename = new_filename
+            doc.source_path = new_source_path
+
+    async def list_distinct_filenames(self, search: str | None = None, limit: int = 100) -> list[str]:
+        names = list({d.filename for d in self._documents.values() if d.filename})
+        if search:
+            names = [n for n in names if search.lower() in n.lower()]
+        return sorted(names)[:limit]
 
 
 class FakeChatLogRepository:
@@ -771,6 +842,9 @@ class FakeMLClientRegistry:
         self._auxiliary_semaphore = asyncio.Semaphore(4)
         self._generation_semaphore = asyncio.Semaphore(12)
         self._qdrant_search_semaphore = asyncio.Semaphore(8)
+        self._bm25_search_semaphore = asyncio.Semaphore(8)
+        self._reranker_semaphore = asyncio.Semaphore(8)
+        self._embedding_semaphore = asyncio.Semaphore(8)
 
     def llm(self):
         return self
@@ -817,6 +891,18 @@ class FakeMLClientRegistry:
     @property
     def qdrant_search_semaphore(self):
         return self._qdrant_search_semaphore
+
+    @property
+    def bm25_search_semaphore(self):
+        return self._bm25_search_semaphore
+
+    @property
+    def reranker_semaphore(self):
+        return self._reranker_semaphore
+
+    @property
+    def embedding_semaphore(self):
+        return self._embedding_semaphore
 
     async def astream(self, messages):
         yield type("Chunk", (), {"content": self._llm_response})()

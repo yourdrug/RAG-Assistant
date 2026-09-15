@@ -9,7 +9,7 @@ from pathlib import Path
 
 from config import settings
 from domain.value_objects.file_backend import FileBackend
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from application.services.pdf_diagnostic_service import PDFDiagnosticService
 from application.services.quality_service import QualityService
@@ -25,6 +25,8 @@ from presentation.api.constants import (
 )
 from presentation.api.dependencies import (
     create_document_service,
+    create_domain_registry,
+    create_domain_settings,
     create_job_service,
     create_pdf_diagnostic_service,
     create_preview_cache,
@@ -42,23 +44,11 @@ from presentation.api.schemas import (
 )
 
 logger = logging.getLogger("default")
-
 router = APIRouter(tags=["admin-quality"])
 
 IMAGE_AVAILABLE = settings.file_backend == FileBackend.S3.value
 
 _DRY_RUN_EXTENSIONS = {".pdf", ".docx", ".doc", ".rtf"}
-
-
-def _domain_preview_kwargs(request: Request) -> dict:
-    """Domain registry/settings for strategies that need structural awareness."""
-    container = getattr(request.app.state, "container", None) if request is not None else None
-    if container is None or container.infrastructure.domain_registry is None:
-        return {}
-    return {
-        "domain_registry": container.infrastructure.domain_registry,
-        "domain_settings": container.infrastructure.domain_settings,
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -216,11 +206,12 @@ async def diagnose_document(
 
 @router.post("/admin/documents/preview", response_model=DryRunResponse)
 async def dry_run_preview(
-    request: Request,
     file: UploadFile = File(...),
     admin: dict = Depends(require_admin),
     diag_service: PDFDiagnosticService = Depends(create_pdf_diagnostic_service),
     preview_cache=Depends(create_preview_cache),
+    domain_registry=Depends(create_domain_registry),
+    domain_settings=Depends(create_domain_settings),
 ):
     """Phase 1: Fast dry-run — text layer only, no OCR."""
     data = await _validate_upload(file, diag_service)
@@ -230,7 +221,9 @@ async def dry_run_preview(
 
     try:
         strategy = PreviewStrategyFactory.for_extension(
-            ext, diag_service=diag_service, **_domain_preview_kwargs(request)
+            ext, diag_service=diag_service,
+            domain_registry=domain_registry,
+            domain_settings=domain_settings,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -263,13 +256,14 @@ async def dry_run_preview(
 
 @router.post("/admin/documents/preview-ocr", response_model=DryRunResponse)
 async def dry_run_ocr_phase2(
-    request: Request,
     file: UploadFile = File(None),
     preview_id: str = Form(""),
     pages: str = Form(""),
     admin: dict = Depends(require_admin),
     diag_service: PDFDiagnosticService = Depends(create_pdf_diagnostic_service),
     preview_cache=Depends(create_preview_cache),
+    domain_registry=Depends(create_domain_registry),
+    domain_settings=Depends(create_domain_settings),
 ):
     """Phase 2: Run OCR on specific problem units and return updated results.
 
@@ -288,7 +282,9 @@ async def dry_run_ocr_phase2(
         ext = Path(fname).suffix.lower()
         try:
             strategy = PreviewStrategyFactory.for_extension(
-                ext, diag_service=diag_service, **_domain_preview_kwargs(request)
+                ext, diag_service=diag_service,
+                domain_registry=domain_registry,
+                domain_settings=domain_settings,
             )
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e

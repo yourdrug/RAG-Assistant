@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from application.ports.ingestion_port import IngestionPort
 from application.services.ingest_service import IngestAppService
@@ -27,6 +28,15 @@ logger = logging.getLogger("default")
 router = APIRouter(tags=["ingest"])
 
 
+def _validate_data_relative_path(path_str: str) -> str:
+    """Reject paths containing '..' or absolute paths to prevent path traversal."""
+    if ".." in path_str:
+        raise HTTPException(status_code=400, detail="Path must not contain '..'")
+    if Path(path_str).is_absolute():
+        raise HTTPException(status_code=400, detail="Absolute paths are not allowed")
+    return path_str
+
+
 @router.post("/ingest", response_model=IngestStatusResponse)
 async def ingest_documents(
     docs_dir: str = "docs/",
@@ -39,6 +49,7 @@ async def ingest_documents(
     service: IngestAppService = Depends(create_ingest_service),
     job_service: JobService = Depends(create_job_service),
 ):
+    _validate_data_relative_path(docs_dir)
     try:
         resolved = service.resolve_docs_dir(docs_dir)
     except ValueError as e:
@@ -77,6 +88,7 @@ async def ingest_single_file(
     service: IngestAppService = Depends(create_ingest_service),
     job_service: JobService = Depends(create_job_service),
 ):
+    _validate_data_relative_path(file_path)
     try:
         resolved = service.resolve_ingest_target(file_path)
     except ValueError as e:

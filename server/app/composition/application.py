@@ -236,16 +236,21 @@ class ApplicationContainer:
 
         # Wire rag_service into benchmark_service for full-pipeline benchmarking
         if infra.benchmark_service is not None:
-            infra.benchmark_service._rag_service = self.rag_service
+            infra.benchmark_service.set_rag_service(self.rag_service)
 
     async def dispose(self) -> None:
-        """Shutdown application services that have explicit shutdown methods.
+        """Shutdown all application services that have explicit shutdown methods.
 
-        Other services (job_service, ingestion_service, etc.) are stateless
-        and require no shutdown — they hold no resources beyond references
-        to infrastructure singletons that are disposed separately.
+        Iterates over all fields — any service with a ``shutdown()`` method
+        gets called.  Failures are logged but do not prevent remaining
+        services from being cleaned up.
         """
-        if self.chat_service is not None and hasattr(self.chat_service, "shutdown"):
-            await self.chat_service.shutdown()
-        if self.conversation_service is not None and hasattr(self.conversation_service, "shutdown"):
-            await self.conversation_service.shutdown()
+        import dataclasses
+
+        for f in dataclasses.fields(self):
+            svc = getattr(self, f.name, None)
+            if svc is not None and hasattr(svc, "shutdown"):
+                try:
+                    await svc.shutdown()
+                except Exception:
+                    log.warning("Failed to shutdown %s", f.name, exc_info=True)

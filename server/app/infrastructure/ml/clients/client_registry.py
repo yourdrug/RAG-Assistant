@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
+import time
 from typing import TYPE_CHECKING, Any
 
 from config import settings
@@ -39,6 +41,7 @@ class MLClientRegistry:
     """
 
     def __init__(self) -> None:
+        self._init_lock = threading.Lock()
         self._embeddings: Any = None
         self._llm: Any = None
         self._llm_breadth_cache: dict[str, Any] = {}
@@ -47,64 +50,113 @@ class MLClientRegistry:
         self._qdrant_client: Any = None
         self._bm25_index: BM25Index | None = None
         self._bm25_loaded: bool = False
+        self._bm25_last_reload: float = 0.0
+        self._bm25_reload_lock: asyncio.Lock | None = None
         self._generation_semaphore: asyncio.Semaphore | None = None
         self._auxiliary_semaphore: asyncio.Semaphore | None = None
         self._qdrant_search_semaphore: asyncio.Semaphore | None = None
+        self._reranker_semaphore: asyncio.Semaphore | None = None
+        self._bm25_search_semaphore: asyncio.Semaphore | None = None
+        self._embedding_semaphore: asyncio.Semaphore | None = None
         self._instructor: Any = None
 
     # ------------------------------------------------------------------
-    # Accessors (lazy init via factories)
+    # Accessors (lazy init via factories, thread-safe)
     # ------------------------------------------------------------------
 
     def embeddings(self) -> Any:
         if self._embeddings is None:
-            from infrastructure.ml.clients.factories import create_embeddings
+            with self._init_lock:
+                if self._embeddings is None:
+                    from infrastructure.ml.clients.factories import create_embeddings
 
-            self._embeddings = create_embeddings()
+                    self._embeddings = create_embeddings()
         return self._embeddings
 
     def llm(self) -> Any:
         if self._llm is None:
-            from infrastructure.ml.clients.factories import create_llm
+            with self._init_lock:
+                if self._llm is None:
+                    from infrastructure.ml.clients.factories import create_llm
 
-            self._llm = create_llm()
+                    self._llm = create_llm()
         return self._llm
 
     def llm_for_breadth(self, breadth: str) -> Any:
         if breadth not in self._llm_breadth_cache:
-            from infrastructure.ml.clients.factories import create_llm_for_breadth
+            with self._init_lock:
+                if breadth not in self._llm_breadth_cache:
+                    from infrastructure.ml.clients.factories import create_llm_for_breadth
 
-            self._llm_breadth_cache[breadth] = create_llm_for_breadth(breadth)
+                    self._llm_breadth_cache[breadth] = create_llm_for_breadth(breadth)
         return self._llm_breadth_cache[breadth]
 
     def fast_llm(self) -> Any:
         """Fast, lightweight LLM for auxiliary pipeline calls (condense, relevance)."""
         if self._fast_llm is None:
-            from infrastructure.ml.clients.factories import create_fast_llm_for_auxiliary
+            with self._init_lock:
+                if self._fast_llm is None:
+                    from infrastructure.ml.clients.factories import create_fast_llm_for_auxiliary
 
-            self._fast_llm = create_fast_llm_for_auxiliary()
+                    self._fast_llm = create_fast_llm_for_auxiliary()
         return self._fast_llm
 
     def reranker(self) -> Any:
         if self._reranker is None:
-            from infrastructure.ml.clients.factories import create_reranker
+            with self._init_lock:
+                if self._reranker is None:
+                    from infrastructure.ml.clients.factories import create_reranker
 
-            self._reranker = create_reranker()
+                    self._reranker = create_reranker()
         return self._reranker
 
     def qdrant_client(self) -> Any:
         if self._qdrant_client is None:
-            from infrastructure.ml.clients.factories import create_qdrant_client
+            with self._init_lock:
+                if self._qdrant_client is None:
+                    from infrastructure.ml.clients.factories import create_qdrant_client
 
-            self._qdrant_client = create_qdrant_client()
+                    self._qdrant_client = create_qdrant_client()
         return self._qdrant_client
 
-    def bm25_index(self) -> BM25Index | None:
-        if not self._bm25_loaded:
+    async def _ensure_bm25_loaded(self) -> BM25Index | None:
+        """Load BM25 index from S3 with thundering-herd protection.
+
+        Uses an asyncio.Lock so that concurrent coroutines after invalidation
+        do not all trigger a synchronous S3 download simultaneously.  The
+        threading-level double-checked lock (``_init_lock``) is kept for
+        thread-safety during the very first access from a non-async context.
+        """
+        if self._bm25_loaded:
+            return self._bm25_index
+
+        if self._bm25_reload_lock is None:
+            self._bm25_reload_lock = asyncio.Lock()
+
+        async with self._bm25_reload_lock:
+            # Re-check after acquiring lock — another coroutine may have reloaded.
+            now = time.monotonic()
+            if self._bm25_loaded or (now - self._bm25_last_reload) <= 5.0:
+                return self._bm25_index
+
             from infrastructure.ml.clients.factories import load_bm25_index
 
-            self._bm25_index = load_bm25_index()
+            self._bm25_index = await asyncio.to_thread(load_bm25_index)
             self._bm25_loaded = True
+            self._bm25_last_reload = now
+            return self._bm25_index
+
+    def bm25_index(self) -> BM25Index | None:
+        """Synchronous access — blocks on first load (thread-safe via _init_lock)."""
+        if not self._bm25_loaded:
+            with self._init_lock:
+                now = time.monotonic()
+                if not self._bm25_loaded and (now - self._bm25_last_reload) > 5.0:
+                    from infrastructure.ml.clients.factories import load_bm25_index
+
+                    self._bm25_index = load_bm25_index()
+                    self._bm25_loaded = True
+                    self._bm25_last_reload = now
         return self._bm25_index
 
     @property
@@ -129,21 +181,46 @@ class MLClientRegistry:
         return self._qdrant_search_semaphore
 
     @property
+    def reranker_semaphore(self) -> asyncio.Semaphore:
+        """Semaphore for reranker operations."""
+        if self._reranker_semaphore is None:
+            self._reranker_semaphore = asyncio.Semaphore(settings.reranker_max_concurrent)
+        return self._reranker_semaphore
+
+    @property
+    def bm25_search_semaphore(self) -> asyncio.Semaphore:
+        """Semaphore for BM25 search operations (prevents data race with ingestion)."""
+        if self._bm25_search_semaphore is None:
+            self._bm25_search_semaphore = asyncio.Semaphore(settings.bm25_search_max_concurrent)
+        return self._bm25_search_semaphore
+
+    @property
+    def embedding_semaphore(self) -> asyncio.Semaphore:
+        """Semaphore for embedding operations."""
+        if self._embedding_semaphore is None:
+            self._embedding_semaphore = asyncio.Semaphore(settings.reranker_max_concurrent)
+        return self._embedding_semaphore
+
+    @property
     def instructor_client(self):
         """Cached async instructor client for structured LLM output (sufficiency, relevance)."""
         if self._instructor is None:
-            from infrastructure.ml.clients.instructor_client import create_async_instructor_client
+            with self._init_lock:
+                if self._instructor is None:
+                    from infrastructure.ml.clients.instructor_client import (
+                        create_async_instructor_client,
+                    )
 
-            if settings.llm_provider == LLMProvider.OPENROUTER:
-                self._instructor = create_async_instructor_client(
-                    base_url=settings.openrouter_base_url,
-                    api_key=settings.openrouter_api_key,
-                )
-            else:
-                self._instructor = create_async_instructor_client(
-                    base_url=f"{settings.ollama_base_url}/v1",
-                    api_key="ollama",
-                )
+                    if settings.llm_provider == LLMProvider.OPENROUTER:
+                        self._instructor = create_async_instructor_client(
+                            base_url=settings.openrouter_base_url,
+                            api_key=settings.openrouter_api_key,
+                        )
+                    else:
+                        self._instructor = create_async_instructor_client(
+                            base_url=f"{settings.ollama_base_url}/v1",
+                            api_key="ollama",
+                        )
         return self._instructor
 
     # ------------------------------------------------------------------
@@ -173,7 +250,15 @@ class MLClientRegistry:
 
     async def close(self) -> None:
         """Close all HTTP connection pools. Call during app shutdown."""
-        for client in (self._embeddings, self._reranker, self._instructor):
+        clients_to_close = [
+            self._embeddings,
+            self._reranker,
+            self._instructor,
+            self._llm,
+            self._fast_llm,
+        ]
+        clients_to_close.extend(self._llm_breadth_cache.values())
+        for client in clients_to_close:
             if client is not None and hasattr(client, "close"):
                 try:
                     await client.close()
@@ -188,4 +273,7 @@ class MLClientRegistry:
         self._reranker = None
         self._instructor = None
         self._qdrant_client = None
+        self._llm = None
+        self._fast_llm = None
+        self._llm_breadth_cache.clear()
         log.info("MLClientRegistry: connection pools closed")

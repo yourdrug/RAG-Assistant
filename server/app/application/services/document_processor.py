@@ -34,7 +34,6 @@ from domain.value_objects.document_status import DocumentStatus
 if TYPE_CHECKING:
     from application.ports.domain_settings import DomainSettingsPort
     from domain.domain_profile.registry import DomainProfileRegistry
-    from infrastructure.ml.clients.client_registry import MLClientRegistry
 
 log = logging.getLogger("default")
 
@@ -52,7 +51,6 @@ class DocumentProcessor:
         text_quality_assessor: TextQualityAssessorPort,
         metrics: MetricsCollectorPort,
         domain_marker_threshold: float = 1.0,
-        ml_registry: MLClientRegistry | None = None,
         domain_registry: DomainProfileRegistry | None = None,
         domain_settings: "DomainSettingsPort | None" = None,
         act_versioning_service=None,
@@ -67,7 +65,6 @@ class DocumentProcessor:
         self._text_quality_assessor = text_quality_assessor
         self._metrics = metrics
         self._domain_marker_threshold = domain_marker_threshold
-        self._ml_registry = ml_registry
         self._domain_registry = domain_registry
         self._domain_settings = domain_settings
         self._act_versioning_service = act_versioning_service

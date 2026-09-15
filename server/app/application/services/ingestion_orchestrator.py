@@ -1,53 +1,34 @@
 """S3 document ingestion pipeline.
 
-Scans an S3 bucket prefix, parses each supported file, splits into chunks,
-generates embeddings, uploads to Qdrant, builds a BM25 index for hybrid
-search, and synchronises document metadata to Postgres via the Unit-of-Work
-factory.  Supports both full-reset and incremental (append) modes.
+Thin facade that orchestrates IngestionRegistry, DocumentSyncService,
+and S3DocumentLoader.  Implements IngestionPort for CLI and API consumers.
 """
 
 from __future__ import annotations
 
 import logging
 import time
-from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-from application.dto.versioning_dto import VersioningResult
-from application.ports.document_parser import DocumentParserPort, DocumentSplitterPort, FileMeta, SplitContext
-from application.ports.file_storage import FileItem, FileStorage
+from application.ports.document_parser import DocumentParserPort, DocumentSplitterPort
+from application.ports.file_storage import FileStorage
+from application.ports.ingestion_settings import IngestionSettingsPort
 from application.ports.sparse_index import ChunkRef, SparseIndexAdminPort
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
-from application.services.document_pipeline import (
-    classify_domain,
-    enrich_chunks_metadata,
-    process_chunks,
-    tag_chunks,
-    tag_domain,
-)
-from config import settings
-from domain.entities.document import Document as DocEntity
-from domain.entities.raw_document import RawDocument
-from domain.entities.vector_outbox_entry import OutboxOperation, VectorOutboxEntry
-from domain.repositories.ingestion_registry_repository import IngestionRegistryEntry
+from application.services.document_loader import S3DocumentLoader
+from application.services.document_pipeline import classify_domain, tag_chunks, tag_domain  # noqa: F401 — re-export for test patching
+from application.services.ingestion_registry import IngestionRegistry, s3_file_hash  # noqa: F401 — re-export
+from application.services.ingestion_sync import DocumentSyncService
 from domain.repositories.vector_store_repository import VectorStoreRepository
-from domain.services.document_domain_classifier import classify_document_domain
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.visibility import DocumentVisibility
-
-if TYPE_CHECKING:
-    pass
 
 log = logging.getLogger("default")
 
 
-def _s3_file_hash(file_item: FileItem) -> str:
+def _s3_file_hash(file_item) -> str:
     return f"{file_item.size_bytes}_{file_item.last_modified}"
-
-
-def _s3_source_key(file_item: FileItem) -> str:
-    return f"s3://{settings.s3_bucket}/{file_item.key}"
 
 
 class IngestionService:
@@ -55,25 +36,50 @@ class IngestionService:
         self,
         vector_store_repo: VectorStoreRepository,
         file_storage: FileStorage,
+        parser: DocumentParserPort,
+        splitter: DocumentSplitterPort,
+        ingestion_settings: IngestionSettingsPort,
         uow_factory: UnitOfWorkFactory | None = None,
         domain_registry: Any | None = None,
         domain_settings: Any | None = None,
         act_versioning_service: Any | None = None,
-        parser: DocumentParserPort | None = None,
-        splitter: DocumentSplitterPort | None = None,
         sparse_index_admin: SparseIndexAdminPort | None = None,
     ) -> None:
         self._vector_store = vector_store_repo
         self._file_storage = file_storage
-        self._uow_factory = uow_factory
-        self._domain_registry = domain_registry
-        self._domain_settings = domain_settings
-        self._act_versioning_service = act_versioning_service
         self._parser = parser
         self._splitter = splitter
+        self._ingestion_settings = ingestion_settings
+        self._domain_registry = domain_registry
+        self._domain_settings = domain_settings
         self._sparse_index_admin = sparse_index_admin
 
-    # -- Registry helpers (via UoW port, no uow._session access) -------------
+        # Collaborators
+        if uow_factory is not None:
+            self._registry = IngestionRegistry(uow_factory, file_storage)
+            self._sync = DocumentSyncService(
+                uow_factory, act_versioning_service, domain_registry, domain_settings
+            )
+        else:
+            self._registry = None
+            self._sync = None
+
+        self._loader = S3DocumentLoader(
+            file_storage,
+            parser,
+            splitter,
+            ingestion_settings,
+            domain_registry=domain_registry,
+            domain_settings=domain_settings,
+            registry=self._registry,
+        )
+
+    # -- Registry proxies (preserve existing callers) ----------------------
+
+    async def _registry_list_all(self) -> dict:
+        if self._registry is None:
+            return {}
+        return await self._registry.list_all()
 
     async def _registry_upsert(
         self,
@@ -82,85 +88,43 @@ class IngestionService:
         source: str,
         chunks_count: int,
         chars: int,
-        indexed_at: datetime | None = None,
+        indexed_at=None,
     ):
-        if self._uow_factory is None:
+        if self._registry is None:
             return
-
-        async with self._uow_factory.create(master=True) as uow:
-            entry = IngestionRegistryEntry(
-                filename=filename,
-                file_hash=file_hash_val,
-                source=source,
-                chunks=chunks_count,
-                chars=chars,
-                indexed_at=indexed_at or datetime.now(),
-            )
-            await uow.ingestion_registry.upsert(entry)
+        await self._registry.upsert(filename, file_hash_val, source, chunks_count, chars, indexed_at)
 
     async def _registry_is_indexed(self, filename: str, file_hash_val: str) -> bool:
-        if self._uow_factory is None:
+        if self._registry is None:
             return False
-
-        async with self._uow_factory.create(master=True) as uow:
-            return await uow.ingestion_registry.is_already_indexed(filename, file_hash_val)
-
-    async def _registry_list_all(self) -> dict:
-        if self._uow_factory is None:
-            return {}
-
-        async with self._uow_factory.create(master=True) as uow:
-            entries = await uow.ingestion_registry.list_all()
-            return {
-                name: {
-                    "hash": e.file_hash,
-                    "source": e.source,
-                    "chunks": e.chunks,
-                    "chars": e.chars,
-                    "indexed_at": e.indexed_at,
-                }
-                for name, e in entries.items()
-            }
+        return await self._registry.is_indexed(filename, file_hash_val)
 
     async def _registry_delete(self, filename: str):
-        if self._uow_factory is None:
+        if self._registry is None:
             return
+        await self._registry.delete(filename)
 
-        async with self._uow_factory.create(master=True) as uow:
-            await uow.ingestion_registry.delete(filename)
+    # -- Delegation --------------------------------------------------------
 
-    @staticmethod
-    def _log_ingest_config(reset: bool, docs_dir: str | None) -> None:
+    def _s3_source_key(self, file_item) -> str:
+        return self._loader.s3_source_key(file_item)
+
+    def _log_ingest_config(self, reset: bool, docs_dir: str | None) -> None:
         log.info("=" * 55)
         log.info("RAG Ingestion  |  mode: %s", "RESET" if reset else "APPEND")
         log.info("backend  : s3")
-        log.info("prefix   : %s (bucket: %s)", docs_dir or "docs/", settings.s3_bucket)
-        log.info("tei_embed: %s", settings.tei_embed_url)
-        log.info("qdrant   : %s  /  collection: %s", settings.qdrant_url, settings.collection_name)
+        log.info("prefix   : %s (bucket: %s)", docs_dir or "docs/", self._ingestion_settings.s3_bucket)
+        log.info("tei_embed: %s", self._ingestion_settings.tei_embed_url)
+        qdrant = self._ingestion_settings.qdrant_url
+        coll = self._ingestion_settings.collection_name
+        log.info("qdrant   : %s  /  collection: %s", qdrant, coll)
         log.info("=" * 55)
 
     def _classify_text_domain(self, text: str, domain: str) -> str:
-        """Registry-based classification with legacy fallback.
-
-        The SAME path the API upload uses (TZ section 2).
-        """
-        if domain != "auto":
-            return domain
-
-        return classify_domain(
-            text,
-            domain_registry=self._domain_registry,
-            domain_settings=self._domain_settings,
-            fallback_threshold=settings.document_domain_marker_threshold,
-            legacy_classifier=classify_document_domain,
-        )
+        return self._loader.classify_text_domain(text, domain)
 
     def _classify_source_domains(self, full_text_by_source: dict[str, str], domain: str) -> dict[str, str]:
-        source_domain: dict[str, str] = {}
-        for src, full_text in full_text_by_source.items():
-            source_domain[src] = self._classify_text_domain(full_text, domain)
-            log.info("doc_domain=%s for source=%s", source_domain[src], src)
-        return source_domain
+        return self._loader.classify_source_domains(full_text_by_source, domain)
 
     def _collect_registry_entries(
         self,
@@ -168,54 +132,71 @@ class IngestionService:
         chunks: list,
         source_chars: dict[str, int],
     ) -> dict[str, dict]:
-        """Build registry entries in memory (no DB write).
-
-        The registry row must only be committed AFTER the document/chunk
-        sync transaction — a committed 'indexed' row without the data it
-        claims exists makes the next incremental run report CACHED and
-        silently skip the file forever.
-        """
-        entries: dict[str, dict] = {}
-        for src, chars in source_chars.items():
-            fname = Path(src).name
-            key = "/".join(src.split("/")[3:])
-            file_info = self._file_storage.get_file_info(key)
-            if file_info:
-                h = _s3_file_hash(file_info)
-            else:
-                h = "unknown"
-            chunks_count = sum(1 for c in chunks if c.metadata.get("source") == src)
-            entries[fname] = {
-                "hash": h,
-                "source": src,
-                "chunks": chunks_count,
-                "chars": chars,
-            }
-        return entries
+        if self._registry is None:
+            return {}
+        return self._registry.collect_entries(docs, chunks, source_chars)
 
     async def _persist_registry_entries(self, entries: dict[str, dict]) -> None:
-        """Upsert collected registry entries (call after the sync committed)."""
-        for fname, info in entries.items():
-            await self._registry_upsert(
-                fname,
-                info["hash"],
-                info["source"],
-                info["chunks"],
-                info["chars"],
-                indexed_at=datetime.now(),
-            )
+        if self._registry is None:
+            return
+        await self._registry.persist_entries(entries)
 
     async def _delete_internal_documents(self) -> None:
-        """Delete all internal documents (owner_id=NULL, non-manual) from DB.
-
-        Called during reset to remove stale document records whose vectors
-        have already been deleted from Qdrant. Manual documents are preserved.
-        """
-        if self._uow_factory is None:
+        if self._sync is None:
             return
-        async with self._uow_factory.create(master=True) as uow:
-            deleted = await uow.documents.delete_internal_documents()
-            log.info("Deleted %d internal documents from database", deleted)
+        await self._sync.delete_internal_documents()
+
+    async def _sync_documents_to_db(
+        self,
+        registry: dict,
+        source_chars: dict,
+        chunks: list,
+        full_text_by_source: dict[str, str] | None = None,
+        visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC,
+        group_id: int | None = None,
+        client_id: int | None = None,
+    ) -> None:
+        if self._sync is None:
+            return
+        await self._sync.sync_documents_to_db(
+            registry,
+            source_chars,
+            chunks,
+            full_text_by_source,
+            visibility=visibility,
+            group_id=group_id,
+            client_id=client_id,
+        )
+
+    async def _split_docs(self, docs: list) -> list:
+        return self._loader.split_docs(docs)
+
+    async def _index_docs(self, docs: list, domain: str = "general") -> list:
+        return self._loader.index_docs(docs, domain)
+
+    def _get_profile(self, domain: str):
+        if self._domain_registry is None:
+            return None
+        try:
+            return self._domain_registry.get(domain)
+        except KeyError:
+            return None
+
+    def _parse_file(self, source, temp_path: Path) -> list | None:
+        return self._loader._parse_file(source, temp_path)
+
+    def _base_metadata(self, source) -> dict:
+        return self._loader._base_metadata(source)
+
+    async def _load_documents(
+        self,
+        registry: dict,
+        force: bool = False,
+        prefix: str | None = None,
+    ) -> tuple[list, int]:
+        return await self._loader.load_documents(registry, force=force, prefix=prefix)
+
+    # -- Public API (IngestionPort) ----------------------------------------
 
     async def run_full_ingestion(
         self,
@@ -233,7 +214,7 @@ class IngestionService:
         if reset:
             registry = {}
 
-        await self._vector_store.ensure_collection(settings.embed_dim, reset=reset)
+        await self._vector_store.ensure_collection(self._ingestion_settings.embed_dim, reset=reset)
 
         if reset:
             await self._delete_internal_documents()
@@ -249,8 +230,6 @@ class IngestionService:
         chunks = await self._split_docs(docs)
         tag_chunks(chunks, visibility=visibility, owner_id=None, group_id=group_id, client_id=client_id)
 
-        # Per-source full text — the same classification/versioning input the
-        # API upload path uses (whole document, not a first chunk)
         full_text_by_source: dict[str, str] = {}
         source_chars: dict[str, int] = {}
         for doc in docs:
@@ -264,14 +243,9 @@ class IngestionService:
             src = chunk.metadata.get("source", "")
             tag_domain([chunk], source_domain.get(src, DocDomain.GENERAL.value))
 
-        # Collect registry entries in memory; persist them only AFTER the sync
-        # transaction commits — otherwise a crash between upsert and sync
-        # marks the file 'indexed' while nothing was ever stored, and the next
-        # incremental run silently skips it as CACHED.
         entries = self._collect_registry_entries(docs, chunks, source_chars)
         registry = {**registry, **entries}
 
-        # Sync to Postgres + enqueue outbox (Qdrant via dispatcher)
         await self._sync_documents_to_db(
             registry,
             source_chars,
@@ -283,7 +257,6 @@ class IngestionService:
         )
         await self._persist_registry_entries(entries)
 
-        # Sparse index (separate concern, not via outbox)
         await self._build_sparse_index(chunks, reset=reset)
 
         total_elapsed = time.monotonic() - t_start
@@ -293,7 +266,7 @@ class IngestionService:
 
     async def _build_sparse_index(self, chunks: list, reset: bool = False) -> None:
         """Build and persist sparse index for hybrid search via port."""
-        if not settings.hybrid_enabled:
+        if not self._ingestion_settings.hybrid_enabled:
             return
         if self._sparse_index_admin is None:
             log.warning("SparseIndexAdminPort not injected — skipping sparse index build")
@@ -314,181 +287,6 @@ class IngestionService:
             await self._sparse_index_admin.rebuild(chunk_refs)
         else:
             await self._sparse_index_admin.extend(chunk_refs)
-
-    async def _sync_documents_to_db(
-        self,
-        registry: dict,
-        source_chars: dict,
-        chunks: list,
-        full_text_by_source: dict[str, str] | None = None,
-        visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC,
-        group_id: int | None = None,
-        client_id: int | None = None,
-    ) -> None:
-        """Sync documents and chunks to Postgres, enqueue outbox for Qdrant.
-
-        Two phases so that act-version rows (created in their own transaction,
-        exactly like the API upload path) can reference committed documents:
-          Phase 1: resolve/create document rows (committed).
-          Phase 2: per document — versioning (own tx) + chunks + outbox.
-        """
-        if self._uow_factory is None:
-            return
-
-        full_text_by_source = full_text_by_source or {}
-
-        # Group chunks by source for per-document processing
-        chunks_by_source: dict[str, list] = {}
-        for c in chunks:
-            src = c.metadata.get("source", "")
-            chunks_by_source.setdefault(src, []).append(c)
-
-        # --- Phase 1: document rows (single committed transaction) ---
-        doc_ids = await self._ensure_document_rows(
-            registry, visibility=visibility, group_id=group_id, client_id=client_id
-        )
-
-        # --- Phase 2: versioning + chunks + outbox (per document) ---
-        for fname, info in registry.items():
-            doc_id = doc_ids.get(fname)
-            if doc_id is None:
-                continue
-            src = info.get("source", "")
-            file_chunks = chunks_by_source.get(src, [])
-            if not file_chunks:
-                continue
-            await self._sync_one_document(
-                fname=fname,
-                doc_id=doc_id,
-                src=src,
-                file_chunks=file_chunks,
-                full_text=full_text_by_source.get(src, ""),
-            )
-
-        log.info("Synced %d documents to database via outbox", len(registry))
-
-    async def _ensure_document_rows(
-        self,
-        registry: dict,
-        visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC,
-        group_id: int | None = None,
-        client_id: int | None = None,
-    ) -> dict[str, int]:
-        """Phase 1: get-or-create document rows for all registry filenames."""
-        doc_ids: dict[str, int] = {}
-        if self._uow_factory is None:
-            raise RuntimeError("UnitOfWorkFactory not initialized")
-        async with self._uow_factory.create(master=True) as uow:
-            # Determine owner_id based on visibility
-            owner_id = None  # CLI ingest has no user context
-
-            for fname in registry:
-                # Use find_active_slot with correct owner_id/group_id to match unique constraint
-                existing = await uow.documents.find_active_slot(
-                    owner_id=owner_id,
-                    filename=fname,
-                    group_id=group_id,
-                )
-                if existing:
-                    if existing.id is None:
-                        raise RuntimeError(f"Document {fname} has None id after find_active_slot")
-                    doc_ids[fname] = existing.id
-                else:
-                    doc = DocEntity(
-                        filename=fname,
-                        visibility=visibility,
-                        owner_id=owner_id,
-                        group_id=group_id,
-                    )
-                    saved = await uow.documents.save(doc)
-                    if saved.id is None:
-                        raise RuntimeError(f"Document {fname} has None id after save")
-                    doc_ids[fname] = saved.id
-        return doc_ids
-
-    async def _sync_one_document(
-        self,
-        fname: str,
-        doc_id: int,
-        src: str,
-        file_chunks: list,
-        full_text: str,
-    ) -> None:
-        """Phase 2: versioning (own tx) + chunk persist + outbox, one document."""
-        first_chunk = file_chunks[0]
-        vis = first_chunk.metadata.get("visibility", "internal_public")
-        owner = first_chunk.metadata.get("owner_id")
-        group = first_chunk.metadata.get("group_id")
-        chunk_domain = first_chunk.metadata.get("doc_domain", DocDomain.GENERAL.value)
-
-        # Versioning — the same unified mechanism the API upload uses
-        versioning = VersioningResult(
-            domain_metadata=None,
-            act_version_id=None,
-            act_id=None,
-            effective_from=None,
-            warning=None,
-        )
-        profile = self._get_profile(chunk_domain)
-        if self._act_versioning_service is not None and profile is not None:
-            versioning = await self._act_versioning_service.process_document_versioning(
-                profile, doc_id, full_text
-            )
-            if versioning.warning:
-                log.warning("Versioning warning for %s: %s", fname, versioning.warning)
-
-        raw_chunks = [
-            RawDocument(page_content=c.page_content, metadata=dict(c.metadata)) for c in file_chunks
-        ]
-
-        if self._uow_factory is None:
-            raise RuntimeError("UnitOfWorkFactory not initialized")
-        async with self._uow_factory.create(master=True) as uow:
-            enrich_chunks_metadata(
-                raw_chunks,
-                doc_id,
-                vis,
-                owner,
-                group,
-                chunk_domain,
-                domain_metadata=versioning.domain_metadata,
-                act_version_id=versioning.act_version_id,
-                act_id=versioning.act_id,
-                effective_from=versioning.effective_from,
-            )
-
-            # Save versioning warning to document
-            if versioning.warning:
-                await uow.documents.update_status(
-                    doc_id,
-                    status=None,
-                    warning=versioning.warning,
-                )
-
-            await process_chunks(
-                uow_factory=self._uow_factory,
-                document_id=doc_id,
-                filename=fname,
-                chunks=raw_chunks,
-                visibility=vis,
-                owner_id=owner,
-                group_id=group,
-                doc_domain=chunk_domain,
-                set_indexing=False,  # CLI: done immediately (outbox async)
-                _existing_uow=uow,
-            )
-
-            # Link vectors to document ID — via the outbox: a vector-store
-            # mutation must not run inline; a DB rollback must not leave Qdrant
-            # patched with a document id that was never committed.
-            await uow.vector_outbox.enqueue(
-                VectorOutboxEntry(
-                    operation=OutboxOperation.SET_DOCUMENT_ID,
-                    aggregate_type="document",
-                    aggregate_id=doc_id,
-                    payload={"source": src, "document_id": doc_id},
-                )
-            )
 
     async def run_single_file(
         self,
@@ -560,12 +358,8 @@ class IngestionService:
 
         chunks = await self._index_docs(docs, domain=file_domain)
         tag_chunks(chunks, visibility=visibility, owner_id=None, group_id=group_id, client_id=client_id)
-        source = _s3_source_key(file_info)
+        source = self._s3_source_key(file_info)
 
-        # sync documents/chunks FIRST, persist the registry row only after
-        # the sync transaction committed. A crash in between leaves no 'indexed'
-        # row, so the next run re-indexes the file (safe) instead of skipping it
-        # as CACHED (silent data loss).
         entry = {
             file_info.filename: {
                 "hash": file_hash_str,
@@ -591,68 +385,6 @@ class IngestionService:
             total_chars,
         )
         return chunks
-
-    async def _split_docs(self, docs: list) -> list:
-        """Split parsed documents into chunks via splitter port."""
-        if self._splitter is not None:
-            context = SplitContext(domain="general")
-            return self._splitter.split(
-                [
-                    RawDocument(page_content=d.page_content, metadata=dict(d.metadata))
-                    for d in docs
-                ],
-                context,
-            )
-        # Fallback: direct infrastructure call (for backward compatibility)
-        from infrastructure.ml.ingestion import merge_pdf_pages, split_documents
-
-        return split_documents(merge_pdf_pages(docs))
-
-    async def _index_docs(self, docs: list, domain: str = "general") -> list:
-        """Parse and split documents into chunks. No direct Qdrant upload."""
-        if self._splitter is not None:
-            profile = self._get_profile(domain)
-            context = SplitContext(
-                domain=domain,
-                profile=profile,
-                settings=self._domain_settings,
-                legal_mode=(domain == DocDomain.LEGAL.value),
-            )
-            chunks = self._splitter.split(
-                [
-                    RawDocument(page_content=d.page_content, metadata=dict(d.metadata))
-                    for d in docs
-                ],
-                context,
-            )
-        else:
-            # Fallback: direct infrastructure call
-            from infrastructure.ml.ingestion import (
-                merge_pdf_pages,
-                split_documents,
-                split_documents_legal,
-            )
-
-            merged = merge_pdf_pages(docs)
-            profile = self._get_profile(domain)
-            if profile is not None and profile.content_boundaries() and self._domain_settings is not None:
-                chunks = split_documents(merged, domain=domain, profile=profile, settings=self._domain_settings)
-            elif domain == DocDomain.LEGAL.value:
-                chunks = split_documents_legal(merged)
-            else:
-                chunks = split_documents(merged)
-
-        tag_chunks(chunks)
-        tag_domain(chunks, domain)
-        return chunks
-
-    def _get_profile(self, domain: str):
-        if self._domain_registry is None:
-            return None
-        try:
-            return self._domain_registry.get(domain)
-        except KeyError:
-            return None
 
     async def upload_files(self, files, prefix: str = "docs/") -> list[str]:
         uploaded: list[str] = []
@@ -681,119 +413,3 @@ class IngestionService:
 
     def resolve_docs_dir(self, docs_dir: str) -> str:
         return docs_dir
-
-    def _parse_file(self, source: FileItem, temp_path: Path) -> list | None:
-        if self._parser is not None:
-            meta = FileMeta(
-                source_key=_s3_source_key(source),
-                filename=source.filename,
-                extension=source.extension,
-                size_bytes=source.size_bytes,
-            )
-            try:
-                docs = self._parser.parse(temp_path, meta)
-                return docs if docs else None
-            except Exception as e:
-                log.error("  ERROR %s: %s", source.filename, e)
-                return None
-
-        # Fallback: direct infrastructure call
-        from infrastructure.ml.ingestion import PARSERS, parse_pdf
-        from langchain.schema import Document
-
-        path = temp_path
-        ext = source.extension
-
-        if ext == ".pdf":
-            try:
-                pages = parse_pdf(path)
-                if not pages:
-                    return None
-                base = self._base_metadata(source)
-                for doc in pages:
-                    doc.metadata.update(base)
-                return pages
-            except Exception as e:
-                log.error("  ERROR %s: %s", source.filename, e)
-                return None
-
-        parser = PARSERS.get(ext)
-        if parser is None:
-            log.debug("  SKIP  unsupported format: %s", source.filename)
-            return None
-        try:
-            result = parser(path)
-            if isinstance(result, tuple):
-                text, extra_meta = result
-            else:
-                text, extra_meta = result, {}
-            if not text or len(text.strip()) < 20:
-                log.warning("  SKIP  too little text: %s", source.filename)
-                return None
-            base = self._base_metadata(source)
-            base.update(extra_meta)
-            return [
-                Document(
-                    page_content=text,
-                    metadata=base,
-                )
-            ]
-        except Exception as e:
-            log.error("  ERROR %s: %s", source.filename, e)
-            return None
-
-    def _base_metadata(self, source: FileItem) -> dict:
-        return {
-            "source": _s3_source_key(source),
-            "filename": source.filename,
-            "extension": source.extension,
-            "size_bytes": source.size_bytes,
-        }
-
-    async def _load_documents(
-        self,
-        registry: dict,
-        force: bool = False,
-        prefix: str | None = None,
-    ) -> tuple[list, int]:
-        s3_prefix = prefix or "docs/"
-        items = self._file_storage.list_files(s3_prefix)
-        log.info("Found %d files in s3://%s/%s", len(items), settings.s3_bucket, s3_prefix)
-
-        documents, skipped_cached, ok, errors = [], 0, 0, 0
-
-        for i, file_item in enumerate(items, 1):
-            tag = f"[{i:>3}/{len(items)}]"
-            if not force and await self._registry_is_indexed(file_item.filename, _s3_file_hash(file_item)):
-                log.info("%s CACHED  %s", tag, file_item.filename)
-                skipped_cached += 1
-                continue
-
-            size_kb = file_item.size_bytes / 1024
-            log.info("%s PARSE   %s  (%.1f KB)", tag, file_item.filename, size_kb)
-            t0 = time.monotonic()
-
-            temp_path = await self._file_storage.download_to_temp(file_item.key)
-            try:
-                docs = self._parse_file(file_item, temp_path)
-            finally:
-                temp_path.unlink(missing_ok=True)
-
-            elapsed = time.monotonic() - t0
-            if docs:
-                documents.extend(docs)
-                total_chars = sum(len(d.page_content) for d in docs)
-                log.info(
-                    "%s OK      %s — %s chars, %d pages, %.2fs",
-                    tag,
-                    file_item.filename,
-                    f"{total_chars:,}",
-                    len(docs),
-                    elapsed,
-                )
-                ok += 1
-            else:
-                errors += 1
-
-        log.info("Parsing complete: %d loaded, %d errors, %d already in registry", ok, errors, skipped_cached)
-        return documents, skipped_cached

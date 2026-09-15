@@ -131,6 +131,10 @@ class LiveChatSettings:
     def rolling_summary_enabled(self) -> bool:
         return settings.rolling_summary_enabled
 
+    @property
+    def curator_scope_max_ids(self) -> int:
+        return settings.curator_scope_max_ids
+
 
 class LiveHealthSettings:
     """Each property read returns the current value from the global settings singleton."""
@@ -194,3 +198,35 @@ class LiveConfigAdminSettings:
     @property
     def collection_name(self) -> str:
         return settings.collection_name
+
+
+class LiveIngestionSettings:
+    """Ingestion settings adapter — reads from global settings at access time."""
+
+    @property
+    def s3_bucket(self) -> str:
+        return settings.s3_bucket
+
+    @property
+    def embed_dim(self) -> int:
+        return settings.embed_dim
+
+    @property
+    def collection_name(self) -> str:
+        return settings.collection_name
+
+    @property
+    def hybrid_enabled(self) -> bool:
+        return settings.hybrid_enabled
+
+    @property
+    def document_domain_marker_threshold(self) -> float:
+        return settings.document_domain_marker_threshold
+
+    @property
+    def tei_embed_url(self) -> str:
+        return settings.tei_embed_url
+
+    @property
+    def qdrant_url(self) -> str:
+        return settings.qdrant_url

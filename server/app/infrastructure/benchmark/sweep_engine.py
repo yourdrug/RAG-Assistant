@@ -345,10 +345,13 @@ class SweepEngine:
 
         if self._benchmark_service is None:
             from application.services.benchmark_orchestrator import BenchmarkService
+            from infrastructure.benchmark.runner import AsyncBenchmarkRunner
 
-            self._benchmark_service = BenchmarkService(rag_service=self._rag_service)
+            self._benchmark_service = BenchmarkService(
+                rag_service=self._rag_service, runner=AsyncBenchmarkRunner()
+            )
         elif self._rag_service is not None:
-            self._benchmark_service._rag_service = self._rag_service
+            self._benchmark_service.set_rag_service(self._rag_service)
 
         out_dir = str(Path(settings.data_dir) / "benchmark_results")
         result = await self._benchmark_service.run(

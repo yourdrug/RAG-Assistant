@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 
-from application.ports.sparse_index import ChunkRef, SparseIndexAdminPort
+from application.ports.sparse_index import ChunkRef
 from infrastructure.bm25.bm25_index import BM25Index
 from infrastructure.bm25.bm25_invalidation import publish_bm25_invalidation
 from infrastructure.bm25.persistence import load_bm25_index_from_s3, save_bm25_index_to_s3

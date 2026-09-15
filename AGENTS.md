@@ -124,6 +124,13 @@ Root-level `QDRANT_API_KEY` and `VITE_API_URL` for docker-compose interpolation 
 - `task clean` deletes all data (postgres, qdrant, ollama models) — destructive
 - First request after restart loads models (~2.5 min) — preloading mitigates this
 
+## Deferred decisions
+
+- **API versioning (FINDING-010 / API-001)**: Намеренно не реализовано внутри FastAPI-роутеров.
+  Версионирование будет делаться через nginx (`api.example.com/v1/`) на уровне reverse proxy.
+  Это позволяет версионировать API без изменения кода приложений и даёт гибкость при
+  миграции клиентов между версиями.
+
 ## Docker
 
 - **Compose files**: `docker-compose.yml` (base) + `docker-compose.override.yml` (dev: build + bind-mounts) +

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from domain.entities.conversation import Conversation
 from domain.repositories.conversation_repository import ConversationListItem
-from sqlalchemy import func, select
+from sqlalchemy import Integer, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.database.models import ConversationModel, MessageModel
@@ -111,15 +111,38 @@ class SQLAlchemyConversationRepository:
         result = await self._db.execute(stmt)
         return result.rowcount == 1
 
-    async def clear_all_summaries(self) -> int:
-        """Reset all non-null conversation summaries to NULL.
+    async def clear_summaries_referencing(self, document_id: int) -> int:
+        """Reset summaries for conversations whose assistant messages cite the given document.
 
-        Called after document deletion to invalidate stale summaries that may
-        reference deleted content. Returns the number of affected rows.
+        Queries the JSON ``sources`` column on assistant messages to find
+        conversations that referenced the deleted document, then NULLs their
+        summary.  Conversations without a matching citation are left untouched.
+        Returns the number of affected rows.
+
+        Edge case: legacy messages where ``sources`` is NULL or lacks
+        ``document_id`` will not match — those summaries stay stale but
+        are harmless (summary only affects condensation, not retrieval).
         """
-        from sqlalchemy import update
+        from sqlalchemy import func, text
 
-        stmt = update(ConversationModel).where(ConversationModel.summary.isnot(None)).values(summary=None)
+        cited_conv_ids = (
+            select(MessageModel.conversation_id)
+            .where(MessageModel.role == "assistant")
+            .where(
+                func.json_array_elements(
+                    func.coalesce(MessageModel.sources, text("'[]'::json"))
+                ).op("->>")("document_id").cast(Integer) == document_id
+            )
+            .distinct()
+            .subquery()
+        )
+
+        stmt = (
+            update(ConversationModel)
+            .where(ConversationModel.summary.isnot(None))
+            .where(ConversationModel.id.in_(select(cited_conv_ids.c.conversation_id)))
+            .values(summary=None)
+        )
         result = await self._db.execute(stmt)
         await self._db.flush()
         return result.rowcount

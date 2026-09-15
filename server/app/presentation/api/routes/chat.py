@@ -9,7 +9,7 @@ import uuid
 from application.services.chat_service import ChatService
 from domain.exceptions import LLMUnavailableError
 from domain.value_objects.stream_events import MetaEvent, StatusEvent, TextChunk
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from infrastructure.logging.actions import log_action
 from shared import request_id_ctx
@@ -36,9 +36,29 @@ def _sse_error_event(code: str, message: str) -> str:
     return f"event: error\ndata: {json.dumps({'error': message, 'code': code}, ensure_ascii=False)}\n\n"
 
 
+def _format_sse_event(event, req_id: str) -> str | None:
+    """Format a single RAG pipeline event into an SSE data string."""
+    if isinstance(event, MetaEvent):
+        sources = filter_sources(event.sources, exclude_keys=frozenset({CONFIDENCE_KEY}))
+        payload = {
+            "conversation_id": event.conversation_id,
+            "sources": sources,
+            "confidence": event.confidence,
+            "request_id": req_id,
+        }
+        return f"event: done\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+    if isinstance(event, StatusEvent):
+        stage_payload = json.dumps({"stage": event.stage}, ensure_ascii=False)
+        return f"event: status\ndata: {stage_payload}\n\n"
+    if isinstance(event, TextChunk):
+        return f"data: {json.dumps({'text': event.text}, ensure_ascii=False)}\n\n"
+    return None
+
+
 @router.post("/chat")
 async def chat_stream(
     req: ChatRequest,
+    request: Request,
     current_user: dict = Depends(get_current_user),
     chat_service: ChatService = Depends(create_chat_service),
 ):
@@ -46,60 +66,52 @@ async def chat_stream(
         raise HTTPException(status_code=400, detail="Question cannot be empty")
 
     req_id = uuid.uuid4().hex[:12]
-    token = request_id_ctx.set(req_id)
-    try:
-        log_action(
-            "chat",
-            user_id=current_user["id"],
-            details={
-                "question": req.question[:QUESTION_LOG_MAX_CHARS],
-                "request_id": req_id,
-            },
-        )
 
-        async def event_generator():
-            try:
-                yield SSE_HEARTBEAT
-                async for event in chat_service.stream_chat(
-                    req.question,
-                    req.conversation_id,
-                    current_user["id"],
-                    current_user["kind"],
-                    current_user["role"],
-                    depth=req.depth,
-                    as_of_date=req.as_of_date,
-                ):
-                    if isinstance(event, MetaEvent):
-                        sources = filter_sources(event.sources, exclude_keys=frozenset({CONFIDENCE_KEY}))
-                        payload = {
-                            "conversation_id": event.conversation_id,
-                            "sources": sources,
-                            "confidence": event.confidence,
-                            "request_id": req_id,
-                        }
-                        yield f"event: done\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
-                    elif isinstance(event, StatusEvent):
-                        stage_payload = json.dumps({"stage": event.stage}, ensure_ascii=False)
-                        yield f"event: status\ndata: {stage_payload}\n\n"
-                    elif isinstance(event, TextChunk):
-                        yield f"data: {json.dumps({'text': event.text}, ensure_ascii=False)}\n\n"
-            except LLMUnavailableError as exc:
-                logger.warning("LLM unavailable (circuit breaker): %s", exc)
-                yield _sse_error_event("llm_unavailable", "LLM временно недоступен, попробуйте позже")
-            except TimeoutError:
-                logger.warning("LLM auxiliary timeout", exc_info=True)
-                yield _sse_error_event("llm_unavailable", "LLM временно недоступен, попробуйте позже")
-            except Exception:
-                logger.exception("Chat stream error")
-                yield _sse_error_event("internal_error", "Internal error")
+    log_action(
+        "chat",
+        user_id=current_user["id"],
+        details={
+            "question": req.question[:QUESTION_LOG_MAX_CHARS],
+            "request_id": req_id,
+        },
+    )
 
-        return StreamingResponse(
-            event_generator(),
-            media_type=SSE_MEDIA_TYPE,
-            headers=SSE_HEADERS,
-        )
-    finally:
-        request_id_ctx.reset(token)
+    async def event_generator():
+        token = request_id_ctx.set(req_id)
+        try:
+            yield SSE_HEARTBEAT
+            async for event in chat_service.stream_chat(
+                req.question,
+                req.conversation_id,
+                current_user["id"],
+                current_user["kind"],
+                current_user["role"],
+                depth=req.depth,
+                as_of_date=req.as_of_date,
+            ):
+                if await request.is_disconnected():
+                    logger.info("Client disconnected, stopping stream (request_id=%s)", req_id)
+                    break
+                sse_data = _format_sse_event(event, req_id)
+                if sse_data is not None:
+                    yield sse_data
+        except LLMUnavailableError as exc:
+            logger.warning("LLM unavailable (circuit breaker): %s", exc)
+            yield _sse_error_event("llm_unavailable", "LLM временно недоступен, попробуйте позже")
+        except TimeoutError:
+            logger.warning("LLM auxiliary timeout", exc_info=True)
+            yield _sse_error_event("llm_unavailable", "LLM временно недоступен, попробуйте позже")
+        except Exception:
+            logger.exception("Chat stream error")
+            yield _sse_error_event("internal_error", "Internal error")
+        finally:
+            request_id_ctx.reset(token)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type=SSE_MEDIA_TYPE,
+        headers=SSE_HEADERS,
+    )
 
 
 @router.post("/chat/sync", response_model=ChatResponse)

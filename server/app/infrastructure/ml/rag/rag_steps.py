@@ -179,7 +179,7 @@ async def step_retrieve(
     )
 
     # Record sparse survival ratio per role
-    bm25_idx = ml_clients.bm25_index()
+    bm25_idx = await ml_clients._ensure_bm25_loaded()
     if bm25_idx is not None and bm25_idx.last_survival_ratio is not None:
         RAG_SPARSE_SURVIVAL_RATIO.labels(role=ctx.user_role).observe(bm25_idx.last_survival_ratio)
 
@@ -417,9 +417,8 @@ def step_postprocess(state: RagPipelineState) -> RagPipelineState:
         from infrastructure.ml.guardrails.guardrails import get_pii_detector
 
         detector = get_pii_detector()
-        pii_found = detector.scan(full_answer)
+        full_answer, pii_found = detector.scan_and_redact(full_answer)
         if pii_found:
-            full_answer, _ = detector.scan_and_redact(full_answer)
             log.warning(
                 "PII detected in LLM output [request_id=%s]: types=%s",
                 request_id_ctx.get(""),

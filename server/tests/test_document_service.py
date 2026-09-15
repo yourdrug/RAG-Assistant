@@ -385,3 +385,242 @@ async def test_upload_concurrent_duplicate_rejected():
             user_kind="internal",
             user_role="user",
         )
+
+
+# ---------------------------------------------------------------------------
+# delete_document (characterization)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_delete_document_happy_path():
+    """delete_document: outbox enqueued, BM25 removal, summary clear, doc deleted, storage deleted."""
+    svc, uow, fs = _service()
+    fs.copy_file = AsyncMock()
+    doc = _make_doc(doc_id=1, source_path="s3://bucket/docs/1/test.pdf")
+    await uow.documents.save(doc)
+
+    # Add a chunk with content_hash for BM25 removal verification
+    await uow.chunks.bulk_insert(
+        document_id=1, filename="test.pdf", visibility="internal_public",
+        chunks=["chunk content"], content_hashes=["hash_abc"],
+    )
+
+    await svc.delete_document(document_id=1, user_id=1, user_role="admin")
+
+    # 1. Outbox entry enqueued with DELETE_BY_DOCUMENT
+    outbox_entries = list(uow.vector_outbox._entries.values())
+    assert len(outbox_entries) == 1
+    assert outbox_entries[0].operation.value == "delete_by_document"
+    assert outbox_entries[0].payload == {"document_id": 1}
+
+    # 2. BM25 index: remove called for the chunk's content_hash
+    svc._bm25_index.remove.assert_called_once_with("hash_abc")
+
+    # 3. Summaries cleared (all in the fake)
+    for conv in uow.conversations._convs.values():
+        assert conv.get("summary") is None
+
+    # 4. Document deleted from repository
+    assert await uow.documents.get_by_id(1) is None
+
+    # 5. Storage file deleted (after transaction commit)
+    fs.delete_file.assert_awaited_once_with("s3://bucket/docs/1/test.pdf")
+
+
+@pytest.mark.asyncio
+async def test_delete_document_not_found():
+    """delete_document: non-existent doc → EntityNotFound."""
+    svc, _, _ = _service()
+    with pytest.raises(EntityNotFound):
+        await svc.delete_document(document_id=999, user_id=1, user_role="admin")
+
+
+@pytest.mark.asyncio
+async def test_delete_document_no_source_path():
+    """delete_document: doc without source_path → storage delete skipped."""
+    svc, uow, fs = _service()
+    doc = _make_doc(doc_id=1, source_path=None)
+    await uow.documents.save(doc)
+
+    await svc.delete_document(document_id=1, user_id=1, user_role="admin")
+
+    fs.delete_file.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_delete_document_storage_delete_failure_logs_warning():
+    """delete_document: S3 delete fails → warning logged, no exception raised."""
+    svc, uow, fs = _service()
+    doc = _make_doc(doc_id=1, source_path="s3://bucket/docs/1/test.pdf")
+    await uow.documents.save(doc)
+    fs.delete_file = AsyncMock(side_effect=RuntimeError("S3 down"))
+
+    # Should not raise — storage delete failure is best-effort
+    await svc.delete_document(document_id=1, user_id=1, user_role="admin")
+
+    # Document still deleted from DB
+    assert await uow.documents.get_by_id(1) is None
+    fs.delete_file.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# rename_document (characterization)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_rename_document_different_path_copies_and_deletes_old():
+    """rename_document: different path → S3 copy, DB updated, outbox enqueued, old file deleted."""
+    svc, uow, fs = _service()
+    fs.copy_file = AsyncMock()
+    doc = _make_doc(doc_id=1, source_path="s3://bucket/u/1/1/old.pdf", filename="old.pdf")
+    await uow.documents.save(doc)
+    await uow.chunks.bulk_insert(
+        document_id=1, filename="old.pdf", visibility="internal_public",
+        chunks=["content"], content_hashes=["h1"],
+    )
+
+    dto = await svc.rename_document(
+        document_id=1, new_filename="new.pdf", user_id=1, user_role="admin"
+    )
+
+    # 1. S3 copy called (old → new)
+    fs.copy_file.assert_awaited_once()
+    src, dst = fs.copy_file.call_args[0]
+    assert "old.pdf" in src
+    assert "new.pdf" in dst
+
+    # 2. Document filename updated in DB
+    assert dto.filename == "new.pdf"
+
+    # 3. Outbox entry enqueued with UPSERT_CHUNKS
+    outbox_entries = list(uow.vector_outbox._entries.values())
+    assert len(outbox_entries) == 1
+    assert outbox_entries[0].operation.value == "upsert_chunks"
+
+    # 4. Old source file deleted (after transaction commit)
+    fs.delete_file.assert_awaited_once_with("s3://bucket/u/1/1/old.pdf")
+
+
+@pytest.mark.asyncio
+async def test_rename_document_same_path_no_copy():
+    """rename_document: doc without source_path → no S3 copy needed."""
+    svc, uow, fs = _service()
+    fs.copy_file = AsyncMock()
+    doc = _make_doc(doc_id=1, source_path=None, filename="test.pdf")
+    await uow.documents.save(doc)
+
+    await svc.rename_document(
+        document_id=1, new_filename="test.pdf", user_id=1, user_role="admin"
+    )
+
+    # No S3 copy (source_path is None → condition skips copy)
+    fs.copy_file.assert_not_awaited()
+    # No old file deletion (nothing changed)
+    fs.delete_file.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_rename_document_unsupported_extension():
+    """rename_document: unsupported extension → ValidationError."""
+    svc, _, _ = _service()
+    with pytest.raises(ValidationError, match="Unsupported file format"):
+        await svc.rename_document(
+            document_id=1, new_filename="data.xyz", user_id=1, user_role="admin"
+        )
+
+
+@pytest.mark.asyncio
+async def test_rename_document_not_found():
+    """rename_document: non-existent doc → EntityNotFound."""
+    svc, _, _ = _service()
+    with pytest.raises(EntityNotFound):
+        await svc.rename_document(
+            document_id=999, new_filename="new.pdf", user_id=1, user_role="admin"
+        )
+
+
+@pytest.mark.asyncio
+async def test_rename_document_conflict_with_pending_doc():
+    """rename_document: existing doc with same name in PENDING → BusinessRuleViolation."""
+    svc, uow, _ = _service()
+    # Create two docs with different IDs but same name-slot target
+    doc1 = _make_doc(doc_id=1, filename="a.pdf", owner_id=1, group_id=None)
+    doc2 = _make_doc(doc_id=2, filename="b.pdf", status=DocumentStatus.PENDING, owner_id=1, group_id=None)
+    await uow.documents.save(doc1)
+    await uow.documents.save(doc2)
+
+    with pytest.raises(BusinessRuleViolation, match="already being processed"):
+        await svc.rename_document(
+            document_id=1, new_filename="b.pdf", user_id=1, user_role="admin"
+        )
+
+
+@pytest.mark.asyncio
+async def test_rename_document_conflict_with_done_doc_renames():
+    """rename_document: existing DONE doc with same name → auto-resolves to unique name."""
+    svc, uow, fs = _service()
+    fs.copy_file = AsyncMock()
+    doc1 = _make_doc(doc_id=1, filename="a.pdf", source_path="s3://bucket/u/1/1/a.pdf", owner_id=1)
+    doc2 = _make_doc(doc_id=2, filename="report.pdf", status=DocumentStatus.DONE, owner_id=1)
+    await uow.documents.save(doc1)
+    await uow.documents.save(doc2)
+
+    dto = await svc.rename_document(
+        document_id=1, new_filename="report.pdf", user_id=1, user_role="admin"
+    )
+
+    # Filename should have been auto-resolved to avoid collision
+    assert dto.filename != "report.pdf"
+
+
+# ---------------------------------------------------------------------------
+# rename_document — compensation tests (DDD-003)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_rename_document_copy_succeeds_db_fails_compensates():
+    """rename_document: S3 copy OK, DB update fails → compensating delete of orphaned copy."""
+    svc, uow, fs = _service()
+    fs.copy_file = AsyncMock()
+
+    doc = _make_doc(doc_id=1, source_path="s3://bucket/u/1/1/old.pdf", filename="old.pdf")
+    await uow.documents.save(doc)
+
+    # Make update_filename raise to simulate DB failure after S3 copy
+    async def failing_update(*args, **kwargs):
+        raise RuntimeError("DB failure")
+
+    uow.documents.update_filename = failing_update
+
+    with pytest.raises(RuntimeError, match="DB failure"):
+        await svc.rename_document(
+            document_id=1, new_filename="new.pdf", user_id=1, user_role="admin"
+        )
+
+    # S3 copy was attempted
+    fs.copy_file.assert_awaited_once()
+    # Compensating: orphaned copy deleted (uses the computed storage key, not the hardcoded path)
+    assert fs.delete_file.await_count == 1
+    deleted_path = fs.delete_file.call_args[0][0]
+    assert "new.pdf" in deleted_path
+
+
+@pytest.mark.asyncio
+async def test_rename_document_copy_fails_no_compensation():
+    """rename_document: S3 copy fails → no compensation delete, exception propagates."""
+    svc, uow, fs = _service()
+    fs.copy_file = AsyncMock(side_effect=RuntimeError("S3 down"))
+
+    doc = _make_doc(doc_id=1, source_path="s3://bucket/u/1/1/old.pdf", filename="old.pdf")
+    await uow.documents.save(doc)
+
+    with pytest.raises(RuntimeError, match="S3 down"):
+        await svc.rename_document(
+            document_id=1, new_filename="new.pdf", user_id=1, user_role="admin"
+        )
+
+    # No compensation delete (copy failed, nothing to clean up)
+    fs.delete_file.assert_not_awaited()

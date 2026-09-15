@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING
 
 from composition.application import ApplicationContainer
 from composition.infrastructure import InfrastructureContainer
+from config import settings
+from domain.value_objects.app_stage import AppStage
 
 if TYPE_CHECKING:
     from infrastructure.database.database import DatabaseManager
@@ -65,7 +67,10 @@ class Container:
 
         issues = self.infrastructure.validate()
         if issues:
-            log.warning("Infrastructure validation issues: %s", issues)
+            msg = "Infrastructure validation issues: %s" % issues
+            if settings.stage == AppStage.PROD:
+                raise RuntimeError(msg)
+            log.warning(msg)
 
         log.info(
             "Container initialized: %d infrastructure + %d application objects",

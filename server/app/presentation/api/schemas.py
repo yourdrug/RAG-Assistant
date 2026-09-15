@@ -11,7 +11,9 @@ from domain.value_objects.benchmark_dataset import BenchmarkDataset
 from domain.value_objects.benchmark_strategy import BenchmarkStrategy
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.search_mode import SearchMode
+from domain.value_objects.roles import UserKind, UserRole
 from domain.value_objects.source_type import SourceType
+from domain.value_objects.visibility import DocumentVisibility
 from presentation.api.constants import AUTH_SCHEME_BEARER
 
 
@@ -217,7 +219,7 @@ class GroupMemberResponse(BaseModel):
 class ApiKeyCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    name: str
+    name: str = Field(..., min_length=1, max_length=100)
 
 
 class ApiKeyCreateResponse(BaseModel):
@@ -246,8 +248,8 @@ class CreateUserRequest(BaseModel):
 
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
-    role: str | None = None
-    kind: str | None = None
+    role: UserRole | None = None
+    kind: UserKind | None = None
 
 
 class TokenResponse(BaseModel):
@@ -273,7 +275,7 @@ class UserListResponse(BaseModel):
 class ChangeRoleRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    role: str
+    role: UserRole
 
 
 class CuratorScopeResponse(BaseModel):
@@ -315,7 +317,7 @@ class ConversationListResponse(BaseModel):
 class CreateGroupRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    name: str
+    name: str = Field(..., min_length=1, max_length=100)
 
 
 class GroupMemberRequest(BaseModel):
@@ -580,7 +582,7 @@ class ManualDocumentRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     title: str = Field(..., min_length=1, max_length=255)
-    visibility: str
+    visibility: DocumentVisibility
     group_id: int | None = None
 
 
@@ -633,7 +635,7 @@ class BenchmarkQuestionsListResponse(BaseModel):
 class BenchmarkQuestionsImportRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    questions: list[BenchmarkQuestionCreate]
+    questions: list[BenchmarkQuestionCreate] = Field(..., max_length=500)
 
 
 class BenchmarkQuestionsImportResponse(BaseModel):

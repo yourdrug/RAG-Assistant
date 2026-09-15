@@ -15,3 +15,6 @@ class ChatSettingsPort(Protocol):
 
     @property
     def rolling_summary_enabled(self) -> bool: ...
+
+    @property
+    def curator_scope_max_ids(self) -> int: ...

@@ -178,3 +178,23 @@ def create_benchmark_history_port():
     from infrastructure.benchmark.benchmark_history_adapter import BenchmarkHistoryAdapter
 
     return BenchmarkHistoryAdapter()
+
+
+def create_act_versioning_service(request: Request):
+    from application.services.act_versioning_service import ActVersioningService
+
+    c = _create_container(request)
+    return ActVersioningService(
+        uow_factory=c.infrastructure.uow_factory,
+        settings=c.infrastructure.domain_settings,
+    )
+
+
+def create_domain_registry(request: Request):
+    c = _create_container(request)
+    return c.infrastructure.domain_registry
+
+
+def create_domain_settings(request: Request):
+    c = _create_container(request)
+    return c.infrastructure.domain_settings

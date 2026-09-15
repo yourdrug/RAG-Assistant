@@ -1,4 +1,4 @@
-"""Document parser and splitter ports — application-layer abstractions for parsing files and splitting documents.
+"""Document parser and splitter ports — application-layer abstractions for parsing files.
 
 Consolidates ``DocumentParser``/``DocumentSplitter`` from
 ``domain/services/document_parser.py`` into a single application port module.
@@ -12,7 +12,7 @@ leak through the contract.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 

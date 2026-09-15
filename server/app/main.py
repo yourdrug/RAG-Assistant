@@ -74,6 +74,29 @@ async def _seed_domain_config_defaults(container) -> None:
     )
 
 
+async def _shutdown(container, scheduler, database, redis_client) -> None:
+    """Gracefully shut down all resources. Each step isolated to prevent cascading failures."""
+    shutdown_log = logging.getLogger("default")
+
+    async def _safe(coro, label):
+        try:
+            await coro
+        except Exception:
+            shutdown_log.warning("Failed to %s", label, exc_info=True)
+
+    # container.dispose() handles: config_listener.stop(), outbox_listener.stop(),
+    # ML client cache cleanup.  Do NOT duplicate those calls here.
+    await _safe(container.dispose(), "dispose container")
+    await _safe(container.infrastructure.ml_clients.close(), "close ml_clients")
+    await _safe(scheduler.shutdown(), "shutdown scheduler")
+
+    from infrastructure.worker.queue import close_arq_pool
+
+    await _safe(close_arq_pool(), "close arq pool")
+    await _safe(database.disconnect(), "disconnect database")
+    await _safe(redis_client.aclose(), "close redis")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator:
     logging.config.dictConfig(logging_config)
@@ -141,23 +164,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
         bm25_listener_task.cancel()
         await asyncio.gather(bm25_listener_task, return_exceptions=True)
 
-    # --- Shutdown (reverse order) ---
-    if container.infrastructure.outbox_listener is not None:
-        await container.infrastructure.outbox_listener.stop()
-
-    if container.infrastructure.config_listener is not None:
-        await container.infrastructure.config_listener.stop()
-
-    if container.infrastructure.ml_clients is not None:
-        await container.infrastructure.ml_clients.close()
-
-    await container.dispose()
-    await scheduler.shutdown()
-    from infrastructure.worker.queue import close_arq_pool
-
-    await close_arq_pool()
-    await database.disconnect()
-    await redis_client.aclose()
+    await _shutdown(container, scheduler, database, redis_client)
 
 
 # ---------------------------------------------------------------------------

@@ -27,6 +27,15 @@ from presentation.api.schemas import (
 router = APIRouter(tags=["benchmark"])
 
 
+def _validate_data_path(path_str: str) -> str:
+    """Resolve path and ensure it's within settings.data_dir to prevent path traversal."""
+    resolved = Path(path_str).resolve()
+    data_root = Path(settings.data_dir).resolve()
+    if not str(resolved).startswith(str(data_root) + "/") and resolved != data_root:
+        raise HTTPException(status_code=400, detail="Path must be within the data directory")
+    return str(resolved)
+
+
 def _summary_to_response(s: ResultSummaryDTO) -> BenchmarkResultSummary:
     return BenchmarkResultSummary(
         id=s.id,
@@ -50,6 +59,8 @@ async def run_benchmark(
 
     q_path = req.questions_path or str(Path(settings.data_dir) / "test_questions.json")
     o_dir = req.out_dir or str(Path(settings.data_dir) / "benchmark_results")
+    q_path = _validate_data_path(q_path)
+    o_dir = _validate_data_path(o_dir)
     k = req.top_k or settings.retriever_top_k
     judge = req.judge_model or settings.llm_model
 

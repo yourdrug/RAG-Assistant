@@ -413,8 +413,8 @@ class DocumentService:
 
             source_path = doc.source_path
 
-            # Invalidate all conversation summaries (they may reference deleted content)
-            await uow.conversations.clear_all_summaries()
+            # Invalidate conversation summaries that reference the deleted document
+            await uow.conversations.clear_summaries_referencing(document_id)
 
             # DB delete cascades to chunks via FK
             await uow.documents.delete(document_id)
@@ -436,71 +436,22 @@ class DocumentService:
         if ext not in self._file_storage.supported_extensions:
             raise ValidationError(f"Unsupported file format: {ext}")
 
-        async with self._uow_factory.create(master=True) as uow:
-            doc = await uow.documents.get_by_id(document_id)
-            if doc is None:
-                raise EntityNotFound("Document", document_id)
-
-            ctx = await UserContext.build(uow, user_id, UserKind.INTERNAL, user_role)
-            check_ownership(doc, ctx, "rename")
-
-            owner_id, effective_group_id = doc.owner_id, doc.group_id
-            existing = await uow.documents.find_active_slot(
-                owner_id, new_filename, effective_group_id, for_update=True
-            )
-            if existing and existing.id != document_id:
-                if existing.status in (
-                    DocumentStatus.PENDING,
-                    DocumentStatus.PROCESSING,
-                    DocumentStatus.INDEXING,
-                ):
-                    raise BusinessRuleViolation("This document name is already being processed")
-                if existing.status in (DocumentStatus.DONE, DocumentStatus.FAILED):
-                    new_filename = await resolve_unique_filename(
-                        uow.documents, owner_id, effective_group_id, new_filename
-                    )
-
-            new_source_path = generate_storage_key(owner_id, effective_group_id, document_id, new_filename)
-
-            old_source_path: str | None = None
-
-            if doc.source_path and doc.source_path != new_source_path:
-                await self._file_storage.copy_file(doc.source_path, new_source_path)
-                old_source_path = doc.source_path
-
-            await uow.documents.update_filename(document_id, new_filename, new_source_path)
-            await uow.chunks.update_filename_by_document_id(document_id, new_filename)
-
-            await uow.vector_outbox.enqueue(
-                VectorOutboxEntry(
-                    operation=OutboxOperation.UPSERT_CHUNKS,
-                    aggregate_type="document",
-                    aggregate_id=document_id,
-                    payload={
-                        "points": [
-                            {
-                                "chunk_id": c.chunk_id,
-                                "page_content": c.content,
-                                "metadata": build_outbox_metadata(
-                                    document_id=document_id,
-                                    visibility=c.visibility,
-                                    owner_id=c.owner_id,
-                                    group_id=c.group_id,
-                                    filename=new_filename,
-                                    doc_domain=c.doc_domain,
-                                    content_hash=c.content_hash,
-                                ),
-                            }
-                            for c in (await uow.chunks.list_for_document(document_id, limit=10000))[0]
-                        ]
-                    },
+        copied_paths: list[str] = []
+        try:
+            async with self._uow_factory.create(master=True) as uow:
+                dto, old_source_path = await self._rename_in_transaction(
+                    uow, document_id, new_filename, user_id, user_role, copied_paths
                 )
-            )
-
-            final_doc = await uow.documents.get_by_id(document_id)
-            if final_doc is None:
-                raise EntityNotFound("Document", document_id)
-            dto = DocumentDTO.from_entity(final_doc)
+        except BaseException:
+            if copied_paths:
+                try:
+                    await self._file_storage.delete_file(copied_paths[0])
+                except Exception:
+                    log.warning(
+                        "Failed to clean up orphaned copy %s for document %d",
+                        copied_paths[0], document_id,
+                    )
+            raise
 
         if old_source_path:
             try:
@@ -512,6 +463,81 @@ class DocumentService:
                     document_id,
                 )
         return dto
+
+    async def _rename_in_transaction(
+        self, uow, document_id: int, new_filename: str, user_id: int, user_role: str,
+        copied_paths: list[str],
+    ) -> tuple[DocumentDTO, str | None]:
+        """Execute rename inside a transaction. Returns (dto, old_source_path).
+
+        If S3 copy is performed, the new path is appended to *copied_paths*
+        for compensation if the transaction fails.
+        """
+        doc = await uow.documents.get_by_id(document_id)
+        if doc is None:
+            raise EntityNotFound("Document", document_id)
+
+        ctx = await UserContext.build(uow, user_id, UserKind.INTERNAL, user_role)
+        check_ownership(doc, ctx, "rename")
+
+        owner_id, effective_group_id = doc.owner_id, doc.group_id
+        existing = await uow.documents.find_active_slot(
+            owner_id, new_filename, effective_group_id, for_update=True
+        )
+        if existing and existing.id != document_id:
+            if existing.status in (
+                DocumentStatus.PENDING,
+                DocumentStatus.PROCESSING,
+                DocumentStatus.INDEXING,
+            ):
+                raise BusinessRuleViolation("This document name is already being processed")
+            if existing.status in (DocumentStatus.DONE, DocumentStatus.FAILED):
+                new_filename = await resolve_unique_filename(
+                    uow.documents, owner_id, effective_group_id, new_filename
+                )
+
+        new_source_path = generate_storage_key(owner_id, effective_group_id, document_id, new_filename)
+
+        old_source_path: str | None = None
+
+        if doc.source_path and doc.source_path != new_source_path:
+            await self._file_storage.copy_file(doc.source_path, new_source_path)
+            copied_paths.append(new_source_path)
+            old_source_path = doc.source_path
+
+        await uow.documents.update_filename(document_id, new_filename, new_source_path)
+        await uow.chunks.update_filename_by_document_id(document_id, new_filename)
+
+        await uow.vector_outbox.enqueue(
+            VectorOutboxEntry(
+                operation=OutboxOperation.UPSERT_CHUNKS,
+                aggregate_type="document",
+                aggregate_id=document_id,
+                payload={
+                    "points": [
+                        {
+                            "chunk_id": c.chunk_id,
+                            "page_content": c.content,
+                            "metadata": build_outbox_metadata(
+                                document_id=document_id,
+                                visibility=c.visibility,
+                                owner_id=c.owner_id,
+                                group_id=c.group_id,
+                                filename=new_filename,
+                                doc_domain=c.doc_domain,
+                                content_hash=c.content_hash,
+                            ),
+                        }
+                        for c in (await uow.chunks.list_for_document(document_id, limit=10000))[0]
+                    ]
+                },
+            )
+        )
+
+        final_doc = await uow.documents.get_by_id(document_id)
+        if final_doc is None:
+            raise EntityNotFound("Document", document_id)
+        return DocumentDTO.from_entity(final_doc), old_source_path
 
     async def list_source_files(self, search: str | None = None) -> list[str]:
         async with self._uow_factory.create() as uow:

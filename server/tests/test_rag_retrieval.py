@@ -205,7 +205,7 @@ async def test_hybrid_search_fallback_to_dense_when_bm25_disabled(mock_settings,
     ml_clients = MagicMock()
     ml_clients.qdrant_client.return_value = mock_client
     ml_clients.embeddings.return_value = mock_embeddings
-    ml_clients.bm25_index.return_value = None  # no BM25
+    ml_clients._ensure_bm25_loaded = AsyncMock(return_value=None)  # no BM25
 
     results = await run_hybrid_search("test", 10, None, rag, ml_clients)
 
@@ -269,7 +269,7 @@ async def test_hybrid_search_uses_rrf_when_bm25_available(mock_settings, mock_me
     ml_clients = MagicMock()
     ml_clients.qdrant_client.return_value = mock_client
     ml_clients.embeddings.return_value = mock_embeddings
-    ml_clients.bm25_index.return_value = mock_bm25
+    ml_clients._ensure_bm25_loaded = AsyncMock(return_value=mock_bm25)
 
     results = await run_hybrid_search("test", 10, None, rag, ml_clients)
 

@@ -3,7 +3,6 @@
 from pathlib import Path
 
 from domain.utils import deduplicate_docs  # noqa: F401
-from infrastructure.bm25.hybrid import content_hash
 
 
 async def rerank_documents(

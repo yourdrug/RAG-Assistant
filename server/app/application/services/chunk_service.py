@@ -1,38 +1,26 @@
-"""Application service for chunk lifecycle management.
+"""ChunkService -- thin facade for chunk lifecycle management.
 
-Provides edit, add, delete, and list operations for document chunks.
+Delegates to ChunkQueryService, ChunkMutationService, and ManualDocumentService.
 Each public method opens its own async UnitOfWork via the injected UnitOfWorkFactory.
 """
 
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
-
-from domain.entities.document import Document
-from domain.entities.vector_outbox_entry import OutboxOperation, VectorOutboxEntry
-from domain.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
-from domain.repositories.vector_store_repository import VectorStoreRepository
-from domain.services import (
-    check_document_access,
-    compute_owner_and_group,
-    validate_document_visibility,
-)
-from domain.utils import content_hash, decode_cursor
-from domain.value_objects.cursor_page import CursorPage
-from domain.value_objects.document_status import DocumentStatus
-from domain.value_objects.source_type import SourceType
-from domain.value_objects.roles import UserKind, UserRole
-from domain.value_objects.user_context import UserContext
-from domain.value_objects.visibility import DocumentVisibility
-
-from application.services.document_pipeline import build_outbox_metadata
+from typing import TYPE_CHECKING
 
 from application.dto.chunk_dto import AddChunkResult, ChunkItemDTO, EditChunkResult
 from application.dto.document_dto import DocumentDTO
-from application.ports.bm25_index import BM25IndexPort
-from application.ports.chunk_settings import ChunkSettingsPort
-from application.ports.unit_of_work_factory import UnitOfWorkFactory
+from application.services.chunk_mutation_service import ChunkMutationService
+from application.services.chunk_query_service import ChunkQueryService
+from application.services.manual_document_service import ManualDocumentService
+from domain.value_objects.cursor_page import CursorPage
+
+if TYPE_CHECKING:
+    from application.ports.bm25_index import BM25IndexPort
+    from application.ports.chunk_settings import ChunkSettingsPort
+    from application.ports.unit_of_work_factory import UnitOfWorkFactory
+    from domain.repositories.vector_store_repository import VectorStoreRepository
 
 log = logging.getLogger(__name__)
 
@@ -40,19 +28,23 @@ log = logging.getLogger(__name__)
 class ChunkService:
     def __init__(
         self,
-        uow_factory: UnitOfWorkFactory,
-        vector_store_repo: VectorStoreRepository,
-        chunk_settings: ChunkSettingsPort,
-        bm25_index: BM25IndexPort,
+        uow_factory: "UnitOfWorkFactory",
+        vector_store_repo: "VectorStoreRepository",
+        chunk_settings: "ChunkSettingsPort",
+        bm25_index: "BM25IndexPort",
         chunk_min_len_ratio: float = 0.3,
         chunk_max_len_ratio: float = 2.0,
     ) -> None:
         self._uow_factory = uow_factory
         self._vector_store = vector_store_repo
-        self._settings = chunk_settings
-        self._bm25_index = bm25_index
-        self._chunk_min_len_ratio = chunk_min_len_ratio
-        self._chunk_max_len_ratio = chunk_max_len_ratio
+
+        self._query = ChunkQueryService(uow_factory)
+        self._mutation = ChunkMutationService(
+            uow_factory, chunk_settings, bm25_index,
+            chunk_min_len_ratio=chunk_min_len_ratio,
+            chunk_max_len_ratio=chunk_max_len_ratio,
+        )
+        self._manual_doc = ManualDocumentService(uow_factory)
 
     async def list_chunks(
         self,
@@ -64,47 +56,15 @@ class ChunkService:
         offset: int = 0,
         content_hashes: list[str] | None = None,
     ) -> tuple[list[ChunkItemDTO], int]:
-        """List chunks for a document with pagination."""
-        async with self._uow_factory.create() as uow:
-            doc = await uow.documents.get_by_id(document_id)
-            if doc is None:
-                raise EntityNotFound("Document", document_id)
-
-            ctx = await UserContext.build(uow, user_id, user_kind, user_role)
-            check_document_access(doc, ctx)
-
-            chunks, total = await uow.chunks.list_for_document(
-                document_id,
-                limit=limit,
-                offset=offset,
-                content_hashes=content_hashes,
-            )
-
-            return [
-                ChunkItemDTO(
-                    id=c.chunk_id,
-                    document_id=c.document_id,
-                    chunk_index=c.chunk_index,
-                    content=c.content,
-                    filename=c.filename,
-                    visibility=c.visibility,
-                    doc_domain=c.doc_domain,
-                    owner_id=c.owner_id,
-                    group_id=c.group_id,
-                    edited_at=c.edited_at.isoformat() if c.edited_at else None,
-                    edited_by=c.edited_by,
-                    manual=c.manual,
-                    creation_date=c.creation_date.isoformat() if c.creation_date else None,
-                    content_hash=c.content_hash,
-                    section=c.section,
-                    heading=c.heading,
-                    heading_level=c.heading_level,
-                    content_type=c.content_type,
-                    doc_title=c.doc_title,
-                    doc_type=c.doc_type,
-                )
-                for c in chunks
-            ], total
+        return await self._query.list_chunks(
+            document_id=document_id,
+            user_id=user_id,
+            user_kind=user_kind,
+            user_role=user_role,
+            limit=limit,
+            offset=offset,
+            content_hashes=content_hashes,
+        )
 
     async def list_chunks_cursor(
         self,
@@ -117,54 +77,16 @@ class ChunkService:
         direction: str = "next",
         content_hashes: list[str] | None = None,
     ) -> CursorPage[ChunkItemDTO]:
-        """List chunks for a document with cursor-based pagination."""
-        decoded = decode_cursor(cursor) if cursor else None
-
-        async with self._uow_factory.create() as uow:
-            doc = await uow.documents.get_by_id(document_id)
-            if doc is None:
-                raise EntityNotFound("Document", document_id)
-
-            ctx = await UserContext.build(uow, user_id, user_kind, user_role)
-            check_document_access(doc, ctx)
-
-            page = await uow.chunks.list_for_document_cursor(
-                document_id,
-                limit=limit,
-                cursor=decoded,
-                direction=direction,
-                content_hashes=content_hashes,
-            )
-
-            return CursorPage(
-                items=[
-                    ChunkItemDTO(
-                        id=c.chunk_id,
-                        document_id=c.document_id,
-                        chunk_index=c.chunk_index,
-                        content=c.content,
-                        filename=c.filename,
-                        visibility=c.visibility,
-                        doc_domain=c.doc_domain,
-                        owner_id=c.owner_id,
-                        group_id=c.group_id,
-                        edited_at=c.edited_at.isoformat() if c.edited_at else None,
-                        edited_by=c.edited_by,
-                        manual=c.manual,
-                        creation_date=c.creation_date.isoformat() if c.creation_date else None,
-                        content_hash=c.content_hash,
-                        section=c.section,
-                        heading=c.heading,
-                        heading_level=c.heading_level,
-                        content_type=c.content_type,
-                        doc_title=c.doc_title,
-                        doc_type=c.doc_type,
-                    )
-                    for c in page.items
-                ],
-                next_cursor=page.next_cursor,
-                prev_cursor=page.prev_cursor,
-            )
+        return await self._query.list_chunks_cursor(
+            document_id=document_id,
+            user_id=user_id,
+            user_kind=user_kind,
+            user_role=user_role,
+            limit=limit,
+            cursor=cursor,
+            direction=direction,
+            content_hashes=content_hashes,
+        )
 
     async def edit_chunk(
         self,
@@ -174,103 +96,13 @@ class ChunkService:
         user_id: int,
         user_role: str,
     ) -> EditChunkResult:
-        """Edit an existing chunk's content. Embedding is done async by outbox dispatcher."""
-        role = UserRole(user_role)
-
-        async with self._uow_factory.create(master=True) as uow:
-            doc = await uow.documents.get_by_id(document_id)
-            if doc is None:
-                raise EntityNotFound("Document", document_id)
-
-            ctx = await UserContext.build(uow, user_id, UserKind.INTERNAL, user_role)
-            if not doc.can_edit_chunks(
-                user_id,
-                role,
-                ctx.group_ids,
-                managed_client_ids=ctx.managed_client_ids,
-                managed_internal_ids=ctx.managed_internal_ids,
-                managed_group_ids=ctx.managed_group_ids,
-            ):
-                raise BusinessRuleViolation("No permission to edit chunks for this document")
-
-            chunk = await uow.chunks.get_by_id(chunk_id)
-            if chunk is None:
-                raise EntityNotFound("Chunk", chunk_id)
-
-            if chunk.document_id != document_id:
-                raise BusinessRuleViolation("Chunk does not belong to this document")
-
-            self._validate_chunk_content(content, is_manual=(doc.source_type == SourceType.MANUAL.value))
-
-            warning = await self._check_duplicate_content(uow, content, document_id, chunk_id)
-
-            new_hash = content_hash(content)
-            now = datetime.now(UTC)
-
-            await uow.chunks.update_content(
-                chunk_id=chunk_id,
-                content=content,
-                edited_at=now,
-                edited_by=user_id,
-            )
-
-            await uow.documents.set_has_manual_edits(document_id, True)
-            await self._update_document_stats(uow, document_id)
-
-            # Enqueue outbox entry for async embedding + upsert
-            metadata = build_outbox_metadata(
-                document_id=document_id,
-                visibility=doc.visibility,
-                owner_id=doc.owner_id,
-                group_id=doc.group_id,
-                filename=doc.filename,
-                doc_domain=doc.doc_domain,
-                content_hash=new_hash,
-                edited=True,
-                edited_at=now.isoformat(),
-            )
-            await uow.vector_outbox.enqueue(
-                VectorOutboxEntry(
-                    operation=OutboxOperation.UPSERT_CHUNKS,
-                    aggregate_type="document",
-                    aggregate_id=document_id,
-                    payload={
-                        "points": [
-                            {
-                                "chunk_id": chunk_id,
-                                "page_content": content,
-                                "metadata": metadata,
-                            }
-                        ]
-                    },
-                )
-            )
-
-            # Incremental BM25 update
-            if chunk.content_hash is not None:
-                vis = doc.visibility.value if hasattr(doc.visibility, "value") else doc.visibility
-                self._bm25_index.replace(
-                    chunk.content_hash, content, new_hash=new_hash,
-                    visibility=vis, owner_id=doc.owner_id, group_id=doc.group_id,
-                )
-
-            log.info(
-                "Chunk %d edited by user %d in document %d",
-                chunk_id,
-                user_id,
-                document_id,
-            )
-
-            return EditChunkResult(
-                id=chunk_id,
-                document_id=document_id,
-                chunk_index=chunk.chunk_index,
-                content=content,
-                edited_at=now.isoformat(),
-                edited_by=user_id,
-                manual=chunk.manual,
-                warning=warning,
-            )
+        return await self._mutation.edit_chunk(
+            document_id=document_id,
+            chunk_id=chunk_id,
+            content=content,
+            user_id=user_id,
+            user_role=user_role,
+        )
 
     async def add_chunk(
         self,
@@ -281,109 +113,14 @@ class ChunkService:
         page: int | None = None,
         section: str | None = None,
     ) -> AddChunkResult:
-        """Add a new chunk to an existing document. Embedding is done async by outbox dispatcher."""
-        role = UserRole(user_role)
-
-        async with self._uow_factory.create(master=True) as uow:
-            doc = await uow.documents.get_by_id(document_id)
-            if doc is None:
-                raise EntityNotFound("Document", document_id)
-
-            if doc.status not in (DocumentStatus.DONE, DocumentStatus.INDEXING):
-                raise BusinessRuleViolation(
-                    "Can only add chunks to documents with status 'done' or 'indexing'"
-                )
-
-            ctx = await UserContext.build(uow, user_id, UserKind.INTERNAL, user_role)
-            if not doc.can_edit_chunks(
-                user_id,
-                role,
-                ctx.group_ids,
-                managed_client_ids=ctx.managed_client_ids,
-                managed_internal_ids=ctx.managed_internal_ids,
-                managed_group_ids=ctx.managed_group_ids,
-            ):
-                raise BusinessRuleViolation("No permission to add chunks for this document")
-
-            self._validate_chunk_content(content, is_manual=(doc.source_type == SourceType.MANUAL.value))
-
-            warning = await self._check_duplicate_content(uow, content, document_id)
-
-            max_index = await uow.chunks.get_max_chunk_index(document_id)
-            next_index = max_index + 1
-
-            new_hash = content_hash(content)
-
-            chunk_id = await uow.chunks.insert_one(
-                document_id=document_id,
-                chunk_index=next_index,
-                content=content,
-                filename=doc.filename,
-                visibility=doc.visibility.value if hasattr(doc.visibility, "value") else doc.visibility,
-                doc_domain=doc.doc_domain,
-                owner_id=doc.owner_id,
-                group_id=doc.group_id,
-                manual=True,
-                content_hash=new_hash,
-            )
-            metadata = build_outbox_metadata(
-                document_id=document_id,
-                visibility=doc.visibility,
-                owner_id=doc.owner_id,
-                group_id=doc.group_id,
-                filename=doc.filename,
-                doc_domain=doc.doc_domain,
-                content_hash=new_hash,
-                manual=True,
-            )
-            if page is not None:
-                metadata["page"] = page
-            if section is not None:
-                metadata["section"] = section
-
-            # Enqueue outbox entry for async embedding + upsert
-            await uow.vector_outbox.enqueue(
-                VectorOutboxEntry(
-                    operation=OutboxOperation.UPSERT_CHUNKS,
-                    aggregate_type="document",
-                    aggregate_id=document_id,
-                    payload={
-                        "points": [
-                            {
-                                "chunk_id": chunk_id,
-                                "page_content": content,
-                                "metadata": metadata,
-                            }
-                        ]
-                    },
-                )
-            )
-
-            # Incremental BM25 update
-            vis = doc.visibility.value if hasattr(doc.visibility, "value") else doc.visibility
-            self._bm25_index.add(
-                content, text_hash=new_hash,
-                visibility=vis, owner_id=doc.owner_id, group_id=doc.group_id,
-            )
-
-            await uow.documents.set_has_manual_edits(document_id, True)
-            await self._update_document_stats(uow, document_id)
-
-            log.info(
-                "Chunk %d added to document %d by user %d",
-                chunk_id,
-                document_id,
-                user_id,
-            )
-
-            return AddChunkResult(
-                id=chunk_id,
-                document_id=document_id,
-                chunk_index=next_index,
-                content=content,
-                manual=True,
-                warning=warning,
-            )
+        return await self._mutation.add_chunk(
+            document_id=document_id,
+            content=content,
+            user_id=user_id,
+            user_role=user_role,
+            page=page,
+            section=section,
+        )
 
     async def delete_chunk(
         self,
@@ -392,56 +129,12 @@ class ChunkService:
         user_id: int,
         user_role: str,
     ) -> None:
-        """Delete a single chunk."""
-        role = UserRole(user_role)
-
-        async with self._uow_factory.create(master=True) as uow:
-            doc = await uow.documents.get_by_id(document_id)
-            if doc is None:
-                raise EntityNotFound("Document", document_id)
-
-            ctx = await UserContext.build(uow, user_id, UserKind.INTERNAL, user_role)
-            if not doc.can_edit_chunks(
-                user_id,
-                role,
-                ctx.group_ids,
-                managed_client_ids=ctx.managed_client_ids,
-                managed_internal_ids=ctx.managed_internal_ids,
-                managed_group_ids=ctx.managed_group_ids,
-            ):
-                raise BusinessRuleViolation("No permission to delete chunks for this document")
-
-            chunk = await uow.chunks.get_by_id(chunk_id)
-            if chunk is None:
-                raise EntityNotFound("Chunk", chunk_id)
-
-            if chunk.document_id != document_id:
-                raise BusinessRuleViolation("Chunk does not belong to this document")
-
-            await uow.chunks.delete_one(chunk_id)
-
-            # Enqueue vector store deletion via outbox
-            await uow.vector_outbox.enqueue(
-                VectorOutboxEntry(
-                    operation=OutboxOperation.DELETE_CHUNKS,
-                    aggregate_type="document",
-                    aggregate_id=document_id,
-                    payload={"chunk_ids": [chunk_id]},
-                )
-            )
-
-            # Incremental BM25 update
-            if chunk.content_hash is not None:
-                self._bm25_index.remove(chunk.content_hash)
-
-            await self._update_document_stats(uow, document_id)
-
-            log.info(
-                "Chunk %d deleted from document %d by user %d",
-                chunk_id,
-                document_id,
-                user_id,
-            )
+        await self._mutation.delete_chunk(
+            document_id=document_id,
+            chunk_id=chunk_id,
+            user_id=user_id,
+            user_role=user_role,
+        )
 
     async def create_manual_document(
         self,
@@ -452,81 +145,14 @@ class ChunkService:
         user_role: str,
         group_id: int | None = None,
     ) -> DocumentDTO:
-        """Create a virtual document container for manual chunks."""
-        vis = DocumentVisibility.validate(visibility)
-
-        async with self._uow_factory.create(master=True) as uow:
-            ctx = await UserContext.build(uow, user_id, user_kind, user_role)
-            validate_document_visibility(vis, group_id, ctx)
-
-            owner_id, effective_group_id = compute_owner_and_group(vis, group_id, user_id)
-
-            doc = Document(
-                filename=title,
-                source_path="",
-                visibility=vis,
-                owner_id=owner_id,
-                group_id=effective_group_id,
-                status=DocumentStatus.DONE,
-                source_type=SourceType.MANUAL.value,
-                chunks=0,
-                chars=0,
-            )
-
-            saved_doc = await uow.documents.save(doc)
-
-            log.info(
-                "Manual document %d created by user %d: %s",
-                saved_doc.id,
-                user_id,
-                title,
-            )
-
-            return DocumentDTO.from_entity(saved_doc, chunks=0, chars=0, source_type=SourceType.MANUAL.value)
+        return await self._manual_doc.create_manual_document(
+            title=title,
+            visibility=visibility,
+            user_id=user_id,
+            user_kind=user_kind,
+            user_role=user_role,
+            group_id=group_id,
+        )
 
     def _validate_chunk_content(self, content: str, *, is_manual: bool = False) -> None:
-        """Validate chunk content length."""
-        if not content or not content.strip():
-            raise ValidationError("Chunk content cannot be empty")
-
-        chunk_size = self._settings.chunk_size
-        min_ratio = 0.05 if is_manual else self._chunk_min_len_ratio
-        min_len = int(min_ratio * chunk_size)
-        max_len = int(self._chunk_max_len_ratio * chunk_size)
-
-        if len(content) < min_len:
-            raise ValidationError(
-                f"Chunk content too short ({len(content)} chars). "
-                f"Minimum approximately {min_len} chars. "
-                f"Consider adding more content or merging with adjacent chunks."
-            )
-
-        if len(content) > max_len:
-            raise ValidationError(
-                f"Chunk content too long ({len(content)} chars). "
-                f"Maximum approximately {max_len} chars. "
-                f"Consider splitting into multiple chunks using separate POST requests."
-            )
-
-    async def _check_duplicate_content(
-        self,
-        uow,
-        content: str,
-        document_id: int,
-        exclude_chunk_id: int | None = None,
-    ) -> str | None:
-        """Check for duplicate content hash. Returns warning message if duplicate found."""
-        new_hash = content_hash(content)
-        duplicate = await uow.chunks.find_duplicate_by_hash(
-            document_id=document_id,
-            content_hash=new_hash,
-            exclude_chunk_id=exclude_chunk_id,
-        )
-        if duplicate is not None:
-            return f"Text matches existing chunk #{duplicate.chunk_id}"
-        return None
-
-    async def _update_document_stats(self, uow, document_id: int) -> None:
-        """Update document chunks and chars counts."""
-        stats = await uow.chunks.get_document_stats(document_id)
-        await uow.documents.update_chunk_stats(document_id, stats.total_chunks, stats.total_chars)
+        self._mutation._validate_chunk_content(content, is_manual=is_manual)

@@ -19,6 +19,7 @@ from infrastructure.resilience.circuit_breaker import (
 )
 
 
+@pytest.mark.slow
 class TestLLMCircuitBreaker:
     """Core circuit breaker behaviour."""
 

@@ -11,7 +11,6 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from config import settings
 from domain.utils import percentile as _percentile
 
 if TYPE_CHECKING:
@@ -21,9 +20,13 @@ log = logging.getLogger("default")
 
 
 class BenchmarkService:
-    def __init__(self, rag_service=None, runner: BenchmarkRunnerPort | None = None):
+    def __init__(self, rag_service=None, runner: BenchmarkRunnerPort = None):
         self._rag_service = rag_service
         self._runner = runner
+
+    def set_rag_service(self, rag_service) -> None:
+        """Wire rag_service for full-pipeline benchmarking."""
+        self._rag_service = rag_service
 
     async def run(
         self,
@@ -39,25 +42,10 @@ class BenchmarkService:
         log.info("RAG Benchmark")
         log.info("  questions : %s", questions_path)
         log.info("  top_k     : %d", top_k)
-        log.info("  rag model : %s", settings.llm_model)
         log.info("  judge     : %s", judge_model)
 
         if self._runner is not None:
             await self._runner.run(
-                questions_path=questions_path,
-                out_dir=out_dir,
-                top_k=top_k,
-                judge_model=judge_model,
-                max_concurrent=max_concurrent,
-                seed=seed,
-                n_runs=n_runs,
-                rag_service=self._rag_service,
-            )
-        else:
-            # Fallback for backward compatibility (tests, direct construction)
-            from infrastructure.benchmark.runner import run_benchmark_async
-
-            await run_benchmark_async(
                 questions_path=questions_path,
                 out_dir=out_dir,
                 top_k=top_k,

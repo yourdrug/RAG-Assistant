@@ -20,7 +20,6 @@ from domain.value_objects.visibility import DocumentVisibility  # noqa: E402
 from application.services.ingestion_orchestrator import (  # noqa: E402
     IngestionService,
     _s3_file_hash,
-    _s3_source_key,
 )
 from application.services.document_pipeline import tag_chunks as _tag_chunks, tag_domain as _tag_domain  # noqa: E402
 
@@ -62,10 +61,23 @@ def _make_service(**overrides):
     mock_file_storage.list_files = MagicMock(return_value=[])
     mock_file_storage.get_file_info = MagicMock(return_value=None)
     mock_file_storage.download_to_temp = AsyncMock(return_value=Path("/tmp/test.pdf"))
+    mock_parser = MagicMock()
+    mock_splitter = MagicMock()
+    mock_ingestion_settings = MagicMock()
+    mock_ingestion_settings.s3_bucket = "test-bucket"
+    mock_ingestion_settings.embed_dim = 384
+    mock_ingestion_settings.collection_name = "test-collection"
+    mock_ingestion_settings.hybrid_enabled = False
+    mock_ingestion_settings.document_domain_marker_threshold = 1.0
+    mock_ingestion_settings.tei_embed_url = "http://localhost:8080"
+    mock_ingestion_settings.qdrant_url = "http://localhost:6333"
 
     defaults = {
         "vector_store_repo": mock_vector_store,
         "file_storage": mock_file_storage,
+        "parser": mock_parser,
+        "splitter": mock_splitter,
+        "ingestion_settings": mock_ingestion_settings,
         "uow_factory": None,
         "domain_registry": None,
         "domain_settings": None,
@@ -113,10 +125,9 @@ class TestS3Helpers:
 
     def test_s3_source_key(self):
         item = _make_file_item(key="docs/test.pdf")
-        with patch("application.services.ingestion_orchestrator.settings") as s:
-            s.s3_bucket = "my-bucket"
-            result = _s3_source_key(item)
-            assert result == "s3://my-bucket/docs/test.pdf"
+        svc = _make_service()
+        result = svc._s3_source_key(item)
+        assert result == "s3://test-bucket/docs/test.pdf"
 
 
 # ---------------------------------------------------------------------------
@@ -186,64 +197,77 @@ class TestGetProfile:
 
 class TestParseFile:
     def test_pdf_parsing(self, tmp_path):
-        import fitz
-
         pdf_path = tmp_path / "test.pdf"
+        # Create a real PDF
+        import fitz
         doc = fitz.open()
         page = doc.new_page()
         page.insert_text((72, 72), "Hello world content for testing.")
         doc.save(str(pdf_path))
         doc.close()
 
+        # Configure mock parser to return a list of RawDocuments
+        from domain.entities.raw_document import RawDocument
         svc = _make_service()
+        svc._parser.parse.return_value = [
+            RawDocument(page_content="Hello world content for testing.", metadata={"source": "test"})
+        ]
         file_item = _make_file_item(extension=".pdf")
-        with patch("infrastructure.ml.ingestion.pdf.settings") as mock_settings:
-            mock_settings.ocr_enabled = False
-            mock_settings.ocr_min_chars = 50
-            try:
-                result = svc._parse_file(file_item, pdf_path)
-            except Exception as e:
-                pytest.fail(f"_parse_file raised: {e}")
-        assert result is not None, f"parse_pdf returned None (ocr_enabled={mock_settings.ocr_enabled})"
+        result = svc._parse_file(file_item, pdf_path)
+        assert result is not None
         assert len(result) >= 1
 
     def test_unsupported_extension(self):
         svc = _make_service()
+        svc._parser.parse.return_value = []
         file_item = _make_file_item(extension=".xyz")
         result = svc._parse_file(file_item, Path("/tmp/x.xyz"))
         assert result is None
 
     def test_txt_parsing(self, tmp_path):
+        from domain.entities.raw_document import RawDocument
         txt_path = tmp_path / "test.txt"
         txt_path.write_text("This is a test document with enough content to pass validation.")
 
         svc = _make_service()
+        svc._parser.parse.return_value = [
+            RawDocument(
+                page_content="This is a test document with enough content to pass validation.",
+                metadata={},
+            )
+        ]
         file_item = _make_file_item(filename="test.txt", extension=".txt")
         result = svc._parse_file(file_item, txt_path)
         assert result is not None
         assert len(result) == 1
 
     def test_base_metadata_added(self, tmp_path):
-        import fitz
-
+        from domain.entities.raw_document import RawDocument
         pdf_path = tmp_path / "meta.pdf"
-        doc = fitz.open()
-        page = doc.new_page()
-        page.insert_text((72, 72), "Metadata test content.")
-        doc.save(str(pdf_path))
-        doc.close()
 
         svc = _make_service()
+        svc._parser.parse.return_value = [
+            RawDocument(page_content="Metadata test content.", metadata={
+                "source": "s3://test-bucket/docs/test.pdf",
+                "filename": "test.pdf",
+                "extension": ".pdf",
+                "size_bytes": 1024,
+            })
+        ]
         file_item = _make_file_item()
-        with patch("infrastructure.ml.ingestion.pdf.settings") as mock_settings:
-            mock_settings.ocr_enabled = False
-            mock_settings.ocr_min_chars = 10
-            result = svc._parse_file(file_item, pdf_path)
+        result = svc._parse_file(file_item, pdf_path)
         assert result is not None
         meta = result[0].metadata
         assert "source" in meta
         assert "filename" in meta
         assert meta["filename"] == "test.pdf"
+
+    def test_parser_exception_returns_none(self, tmp_path):
+        svc = _make_service()
+        svc._parser.parse.side_effect = RuntimeError("parse failed")
+        file_item = _make_file_item(extension=".pdf")
+        result = svc._parse_file(file_item, tmp_path / "bad.pdf")
+        assert result is None
 
 
 # ---------------------------------------------------------------------------
@@ -255,45 +279,41 @@ class TestBuildSparseIndex:
     @pytest.mark.asyncio
     async def test_skips_when_hybrid_disabled(self):
         svc = _make_service()
-        with patch("application.services.ingestion_orchestrator.settings") as s:
-            s.hybrid_enabled = False
-            await svc._build_sparse_index([], reset=False)
-            # No error, just returns
+        svc._ingestion_settings.hybrid_enabled = False
+        await svc._build_sparse_index([], reset=False)
+        # No error, just returns
 
     @pytest.mark.asyncio
     async def test_skips_when_no_port(self):
         svc = _make_service()
         svc._sparse_index_admin = None
-        with patch("application.services.ingestion_orchestrator.settings") as s:
-            s.hybrid_enabled = True
-            await svc._build_sparse_index([], reset=False)
-            # No error, just returns with warning
+        svc._ingestion_settings.hybrid_enabled = True
+        await svc._build_sparse_index([], reset=False)
+        # No error, just returns with warning
 
     @pytest.mark.asyncio
     async def test_reset_calls_rebuild(self):
         svc = _make_service()
         mock_admin = AsyncMock()
         svc._sparse_index_admin = mock_admin
-        with patch("application.services.ingestion_orchestrator.settings") as s:
-            s.hybrid_enabled = True
-            chunks = [Document(page_content="hello world"), Document(page_content="foo bar")]
-            await svc._build_sparse_index(chunks, reset=True)
-            mock_admin.rebuild.assert_called_once()
-            call_args = mock_admin.rebuild.call_args[0][0]
-            assert len(call_args) == 2
-            assert call_args[0].text == "hello world"
-            assert call_args[1].text == "foo bar"
+        svc._ingestion_settings.hybrid_enabled = True
+        chunks = [Document(page_content="hello world"), Document(page_content="foo bar")]
+        await svc._build_sparse_index(chunks, reset=True)
+        mock_admin.rebuild.assert_called_once()
+        call_args = mock_admin.rebuild.call_args[0][0]
+        assert len(call_args) == 2
+        assert call_args[0].text == "hello world"
+        assert call_args[1].text == "foo bar"
 
     @pytest.mark.asyncio
     async def test_append_calls_extend(self):
         svc = _make_service()
         mock_admin = AsyncMock()
         svc._sparse_index_admin = mock_admin
-        with patch("application.services.ingestion_orchestrator.settings") as s:
-            s.hybrid_enabled = True
-            chunks = [Document(page_content="test content")]
-            await svc._build_sparse_index(chunks, reset=False)
-            mock_admin.extend.assert_called_once()
+        svc._ingestion_settings.hybrid_enabled = True
+        chunks = [Document(page_content="test content")]
+        await svc._build_sparse_index(chunks, reset=False)
+        mock_admin.extend.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -332,8 +352,9 @@ class TestRegistryOperations:
 
 class TestLogIngestConfig:
     def test_no_error(self):
-        IngestionService._log_ingest_config(reset=True, docs_dir="my-docs/")
-        IngestionService._log_ingest_config(reset=False, docs_dir=None)
+        svc = _make_service()
+        svc._log_ingest_config(reset=True, docs_dir="my-docs/")
+        svc._log_ingest_config(reset=False, docs_dir=None)
 
 
 # ---------------------------------------------------------------------------
@@ -391,8 +412,6 @@ class TestRunFullIngestion:
 
     @pytest.mark.asyncio
     async def test_reset_deletes_internal_documents(self):
-        svc = _make_service()
-        svc._file_storage.list_files = MagicMock(return_value=[])
         mock_session = AsyncMock()
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = []
@@ -409,8 +428,11 @@ class TestRunFullIngestion:
         mock_ctx = AsyncMock()
         mock_ctx.__aenter__ = AsyncMock(return_value=mock_uow)
         mock_ctx.__aexit__ = AsyncMock(return_value=False)
-        svc._uow_factory = MagicMock()
-        svc._uow_factory.create = MagicMock(return_value=mock_ctx)
+        mock_factory = MagicMock()
+        mock_factory.create = MagicMock(return_value=mock_ctx)
+
+        svc = _make_service(uow_factory=mock_factory)
+        svc._file_storage.list_files = MagicMock(return_value=[])
 
         await svc.run_full_ingestion(docs_dir="empty/", reset=True)
         mock_uow.documents.delete_internal_documents.assert_called_once()
