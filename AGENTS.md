@@ -23,7 +23,6 @@ docker compose exec server python main.py ingest run --docs-dir /code/project/da
 docker compose exec server python main.py ingest file /code/project/data/docs_sample/report.pdf
 docker compose exec server python main.py ingest list
 docker compose exec server python main.py benchmark run --questions /code/project/data/test_questions.json
-docker compose exec server python main.py pdf-diag run /code/project/data/docs_sample/report.pdf
 
 # Load testing
 task loadtest:setup-users  # Create 50 test users via API
@@ -53,7 +52,7 @@ server/app/domain/       ← Business logic (entities, value objects, exceptions
 server/app/application/  ← Services, ports (protocols), DTOs
 server/app/infrastructure/ ← SQLAlchemy, Qdrant, Ollama, S3 implementations
 server/app/presentation/ ← FastAPI routes, middleware, exception handlers
-server/app/presentation/cli/  ← CLI commands (runserver, ingest, benchmark, pdf-diag)
+server/app/presentation/cli/  ← CLI commands (runserver, ingest, benchmark)
 server/app/config.py     ← Pydantic settings (reads server/.env)
 server/app/infrastructure/logging/logging_config.py  ← Logging config dict
 server/tests/            ← pytest tests
@@ -72,7 +71,6 @@ loadtest/                ← Load testing (k6 + Locust)
 | `ingest file PATH --force`                              | Ingest single file            |
 | `ingest list`                                           | Show indexed files            |
 | `benchmark run --questions --out --top-k --judge-model` | RAG quality benchmark         |
-| `pdf-diag run PATH --dump`                              | Diagnose PDF before ingestion |
 
 ## Environment Variables
 

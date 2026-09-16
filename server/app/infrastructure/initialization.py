@@ -165,7 +165,7 @@ async def _seed_config_defaults(uow_factory) -> None:
         logger.warning("Failed to seed config defaults: %s", e)
 
 
-async def _seed_domain_config_defaults(uow_factory, registry) -> None:
+async def seed_domain_config_defaults(uow_factory, registry) -> None:
     """Seed domain-specific config defaults from DomainProfile.config_defaults().
 
     Each profile declares its own defaults. Seeding is generic — adding a new

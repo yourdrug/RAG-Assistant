@@ -39,10 +39,12 @@ def worker(
 ) -> None:
     """Запустить Arq worker для обработки фоновых задач.
 
-    Слушает очереди: document_processing, ingest, benchmark.
+    Слушает очередь: background_tasks.
     Cron-задачи: job_cleanup (2x/day), recover_orphaned (15 мин), bm25_rebuild (3:00 UTC).
     Использует Redis как брокер.
     """
+    from infrastructure.worker.queue import QUEUE_NAME
+
     try:
         redis_settings = RedisSettings.from_dsn(settings.redis_url)
 
@@ -74,14 +76,15 @@ def worker(
             redis_settings=redis_settings,
             max_jobs=max_jobs,
             health_check_interval=health_check_interval,
-            queue_name="document_processing",
+            queue_name=QUEUE_NAME,
             on_startup=_on_startup,
             on_shutdown=_on_shutdown,
         )
 
         logger.info(
-            "Arq worker starting — queues: document_processing, ingest, benchmark "
+            "Arq worker starting — queue: %s "
             "cron: cleanup/recover/reconcile/bm25 max_jobs=%d redis=%s",
+            QUEUE_NAME,
             max_jobs,
             settings.redis_host,
         )
@@ -98,7 +101,7 @@ async def _on_startup(ctx: dict) -> None:
     """Initialize database and infrastructure on worker startup."""
     from composition.container import Container
     from infrastructure.database.database import database
-    from infrastructure.initialization import _seed_domain_config_defaults
+    from infrastructure.initialization import seed_domain_config_defaults
     from infrastructure.redis.redis_client import redis_client
 
     await database.connect()
@@ -118,7 +121,7 @@ async def _on_startup(ctx: dict) -> None:
     # config parameters (e.g. fingerprint_min_articles) during first ingestion.
     domain_registry = container.infrastructure.domain_registry
     if domain_registry is not None and container.infrastructure.uow_factory is not None:
-        await _seed_domain_config_defaults(container.infrastructure.uow_factory, domain_registry)
+        await seed_domain_config_defaults(container.infrastructure.uow_factory, domain_registry)
 
     listener = container.infrastructure.config_listener
     if listener is None:

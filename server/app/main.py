@@ -66,9 +66,9 @@ async def _seed_domain_config_defaults(container) -> None:
     """Seed domain config defaults from DomainProfile.config_defaults() (TZ section 3)."""
     if container.infrastructure.domain_registry is None:
         return
-    from infrastructure.initialization import _seed_domain_config_defaults
+    from infrastructure.initialization import seed_domain_config_defaults
 
-    await _seed_domain_config_defaults(
+    await seed_domain_config_defaults(
         container.infrastructure.uow_factory,
         container.infrastructure.domain_registry,
     )

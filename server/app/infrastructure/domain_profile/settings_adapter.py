@@ -21,7 +21,7 @@ class DomainSettingsAdapter:
         """Get a config value for a specific domain.
 
         No fallback: every domain seeds and reads its own keys explicitly
-        (see DomainProfile.config_defaults / _seed_domain_config_defaults).
+        (see DomainProfile.config_defaults / seed_domain_config_defaults).
         Raises KeyError if the parameter is missing — a loud failure, never
         a silent fallback to a global value.
         """

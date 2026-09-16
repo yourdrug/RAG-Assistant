@@ -25,7 +25,7 @@ from config import settings
 
 logger = logging.getLogger("default")
 
-_QUEUE_NAME = "document_processing"
+QUEUE_NAME = "background_tasks"
 
 _pool = None
 
@@ -92,7 +92,7 @@ async def enqueue_document_processing(
 ) -> None:
     """Enqueue document processing via Arq."""
     await _enqueue_arq(
-        _QUEUE_NAME,
+        QUEUE_NAME,
         "process_document",
         arq_job_id=f"process_doc:{document_id}:{job_id}",
         document_id=document_id,
@@ -119,7 +119,7 @@ async def enqueue_ingest(
 ) -> None:
     """Enqueue full ingestion via Arq (deduplicated per parameters)."""
     await _enqueue_arq(
-        _QUEUE_NAME,
+        QUEUE_NAME,
         "run_full_ingest",
         arq_job_id=_deterministic_id("ingest_full", resolved_dir, reset, domain),
         resolved_dir=resolved_dir,
@@ -143,7 +143,7 @@ async def enqueue_ingest_file(
 ) -> None:
     """Enqueue single-file ingestion via Arq (deduplicated per parameters)."""
     await _enqueue_arq(
-        _QUEUE_NAME,
+        QUEUE_NAME,
         "run_single_ingest",
         arq_job_id=_deterministic_id("ingest_file", resolved, domain),
         resolved=resolved,
@@ -165,7 +165,7 @@ async def enqueue_benchmark(
 ) -> None:
     """Enqueue benchmark run via Arq (deduplicated per parameters)."""
     await _enqueue_arq(
-        _QUEUE_NAME,
+        QUEUE_NAME,
         "run_benchmark",
         arq_job_id=_deterministic_id("benchmark", questions_path, out_dir, top_k, judge_model),
         questions_path=questions_path,
@@ -183,7 +183,7 @@ async def enqueue_sweep(
 ) -> None:
     """Enqueue parameter sweep via Arq (deduplicated per sweep)."""
     await _enqueue_arq(
-        _QUEUE_NAME,
+        QUEUE_NAME,
         "run_sweep",
         arq_job_id=f"sweep:{sweep_id}",
         sweep_id=sweep_id,
