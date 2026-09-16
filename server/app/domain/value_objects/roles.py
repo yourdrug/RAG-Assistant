@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from domain.value_objects._base import ValidatedEnumMixin
+from domain.value_objects.base import ValidatedEnumMixin
 
 
 class UserRole(ValidatedEnumMixin, StrEnum, label="role"):

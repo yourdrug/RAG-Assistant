@@ -13,6 +13,7 @@ from presentation.api.schemas import (
     ConversationHistoryResponse,
     ConversationListItem,
     ConversationListResponse,
+    CurrentUser,
     MessageResponse,
     NewConversationResponse,
 )
@@ -22,12 +23,12 @@ router = APIRouter(prefix="/conversations", tags=["conversations"])
 
 @router.get("", response_model=ConversationListResponse)
 async def list_conversations(
-    current_user: dict = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     service: ConversationService = Depends(create_conversation_service),
     limit: int = Query(default=DEFAULT_PAGE_LIMIT, ge=1, le=100),
     offset: int = Query(default=DEFAULT_PAGE_OFFSET, ge=0),
 ):
-    items = await service.list_by_user(current_user["id"], limit=limit, offset=offset)
+    items = await service.list_by_user(current_user.id, limit=limit, offset=offset)
     return ConversationListResponse(
         conversations=[
             ConversationListItem(
@@ -43,20 +44,20 @@ async def list_conversations(
 
 @router.post("", response_model=NewConversationResponse)
 async def new_conversation(
-    current_user: dict = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     service: ConversationService = Depends(create_conversation_service),
 ):
-    conv = await service.create(current_user["id"])
+    conv = await service.create(current_user.id)
     return NewConversationResponse(conversation_id=conv.id)
 
 
 @router.get("/{conversation_id}", response_model=ConversationHistoryResponse)
 async def get_conversation_history(
     conversation_id: int,
-    current_user: dict = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     service: ConversationService = Depends(create_conversation_service),
 ):
-    messages = await service.get_history(conversation_id, current_user["id"], current_user["role"])
+    messages = await service.get_history(conversation_id, current_user.id, current_user.role)
     msg_responses = [
         MessageResponse(
             id=m.id,

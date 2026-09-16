@@ -149,13 +149,20 @@ async def enrich_with_neighbors(
         try:
             if is_table:
                 neighbors = await chunk_search.get_table_batches(
-                    document_id, chunk_index, exclude_hashes=existing_hashes,
-                    user=user, group_ids=group_ids,
+                    document_id,
+                    chunk_index,
+                    exclude_hashes=existing_hashes,
+                    user=user,
+                    group_ids=group_ids,
                 )
             else:
                 neighbors = await chunk_search.get_neighbors(
-                    document_id, chunk_index, window=3, exclude_hashes=existing_hashes,
-                    user=user, group_ids=group_ids,
+                    document_id,
+                    chunk_index,
+                    window=3,
+                    exclude_hashes=existing_hashes,
+                    user=user,
+                    group_ids=group_ids,
                 )
         except Exception:
             log.warning(

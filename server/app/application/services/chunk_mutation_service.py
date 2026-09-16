@@ -149,8 +149,12 @@ class ChunkMutationService:
             if chunk.content_hash is not None:
                 vis = doc.visibility.value if hasattr(doc.visibility, "value") else doc.visibility
                 self._bm25_index.replace(
-                    chunk.content_hash, content, new_hash=new_hash,
-                    visibility=vis, owner_id=doc.owner_id, group_id=doc.group_id,
+                    chunk.content_hash,
+                    content,
+                    new_hash=new_hash,
+                    visibility=vis,
+                    owner_id=doc.owner_id,
+                    group_id=doc.group_id,
                 )
 
             log.info(
@@ -238,8 +242,11 @@ class ChunkMutationService:
 
             vis = doc.visibility.value if hasattr(doc.visibility, "value") else doc.visibility
             self._bm25_index.add(
-                content, text_hash=new_hash,
-                visibility=vis, owner_id=doc.owner_id, group_id=doc.group_id,
+                content,
+                text_hash=new_hash,
+                visibility=vis,
+                owner_id=doc.owner_id,
+                group_id=doc.group_id,
             )
 
             await uow.documents.set_has_manual_edits(document_id, True)

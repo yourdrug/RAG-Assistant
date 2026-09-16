@@ -65,6 +65,16 @@ def _delete_internal_points(client) -> int:
 def ensure_collection(client, vector_size: int, reset: bool = False) -> None:
     existing = [c.name for c in client.get_collections().collections]
     if settings.collection_name in existing:
+        info = client.get_collection(settings.collection_name)
+        # Validate vector dimension matches expected size
+        vectors_config = info.config.params.vectors
+        existing_dim = vectors_config.size if hasattr(vectors_config, "size") else None
+        if existing_dim is not None and existing_dim != vector_size:
+            raise ValueError(
+                f"Collection '{settings.collection_name}' has vector dimension {existing_dim}, "
+                f"but the current embedding model requires {vector_size}. "
+                f"To migrate: create a new collection with the correct dimension and re-ingest documents."
+            )
         if reset:
             log.info(
                 "Smart reset: deleting CLI-ingested points (owner_id=None) from collection '%s' ...",
@@ -74,12 +84,12 @@ def ensure_collection(client, vector_size: int, reset: bool = False) -> None:
             log.info("Deleted %d internal points. API-uploaded points preserved.", deleted)
             _ensure_payload_indexes(client)
         else:
-            info = client.get_collection(settings.collection_name)
             count = info.points_count or 0
             log.info(
-                "Collection '%s' exists — %d points. Adding new documents.",
+                "Collection '%s' exists — %d points (dim=%d). Adding new documents.",
                 settings.collection_name,
                 count,
+                existing_dim,
             )
             _ensure_payload_indexes(client)
         return
@@ -208,6 +218,7 @@ async def upload_to_qdrant(
                 client.upsert,
                 collection_name=settings.collection_name,
                 points=pending_points[:qdrant_batch],
+                timeout=settings.qdrant_timeout * 3,
             )
             pending_points = pending_points[qdrant_batch:]
 
@@ -229,6 +240,7 @@ async def upload_to_qdrant(
             client.upsert,
             collection_name=settings.collection_name,
             points=pending_points,
+            timeout=settings.qdrant_timeout * 3,
         )
 
     log.info("Qdrant upload completed in %.1fs", time.monotonic() - t0)

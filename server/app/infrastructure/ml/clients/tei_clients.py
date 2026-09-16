@@ -17,7 +17,7 @@ import httpx
 
 log = logging.getLogger("default")
 
-TEI_TIMEOUT = 600.0
+TEI_TIMEOUT = 60.0
 
 
 class TEIEmbeddingsClient:

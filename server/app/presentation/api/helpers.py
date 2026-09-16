@@ -1,19 +1,30 @@
-"""Reusable presentation helpers — response mapping, document upload orchestration.
+"""Reusable presentation helpers — validation, file upload, response building.
 
-Eliminates duplicated DTO-to-response and document-upload-and-enqueue patterns
-that were previously copy-pasted across route handlers.
+Consolidates duplicated validation, upload-read, quality-warning, and
+response-building patterns that were previously scattered across route handlers.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any, Protocol, runtime_checkable
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from domain.value_objects.document_status import DocumentStatus
+from fastapi import HTTPException
 
-from presentation.api.constants import JobType
+from presentation.api.constants import (
+    JobType,
+    PAGE_PREVIEW_MAX_CHARS,
+    QUALITY_BAD_RATIO_THRESHOLD,
+)
+
+if TYPE_CHECKING:
+    from fastapi import UploadFile
 
 logger = logging.getLogger("default")
+
+CHUNK_READ_SIZE = 64 * 1024  # 64 KB per read iteration
 
 
 # ---------------------------------------------------------------------------
@@ -115,3 +126,226 @@ async def upload_and_enqueue(
         "filename": filename,
         "status": DocumentStatus.PROCESSING.value,
     }
+
+
+# ---------------------------------------------------------------------------
+# File upload
+# ---------------------------------------------------------------------------
+
+
+async def read_upload_with_limit(file: UploadFile, max_bytes: int) -> bytes:
+    """Read file content in chunks up to max_bytes; raise 413 if exceeded."""
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(CHUNK_READ_SIZE)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File too large: >{max_bytes / 1024 / 1024:.0f} MB limit",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+# ---------------------------------------------------------------------------
+# Path traversal prevention
+# ---------------------------------------------------------------------------
+
+
+def validate_data_path_within_dir(path_str: str, data_dir: str) -> str:
+    """Resolve path and ensure it's within data_dir to prevent path traversal.
+
+    Raises:
+        HTTPException: 400 if path escapes data_dir.
+
+    """
+    resolved = Path(path_str).resolve()
+    data_root = Path(data_dir).resolve()
+    if not str(resolved).startswith(str(data_root) + "/") and resolved != data_root:
+        raise HTTPException(status_code=400, detail="Path must be within the data directory")
+    return str(resolved)
+
+
+# ---------------------------------------------------------------------------
+# Dry-run quality analysis
+# ---------------------------------------------------------------------------
+
+
+def compute_quality_warning(page_results: list, types_count: dict, warning_prefix: str) -> str | None:
+    """Compute quality warning from page analysis results."""
+    total = len(page_results)
+    bad = types_count.get("scan", 0) + types_count.get("garbled", 0) + types_count.get("empty", 0)
+    bad_ratio = bad / total if total else 0.0
+    if bad_ratio > QUALITY_BAD_RATIO_THRESHOLD:
+        return (
+            f"{warning_prefix}: {types_count.get('scan', 0)} scan + "
+            f"{types_count.get('garbled', 0)} garbled + "
+            f"{types_count.get('empty', 0)} empty "
+            f"out of {total} units ({bad_ratio:.0%} bad)"
+        )
+    return None
+
+
+def build_dry_run_response(
+    filename: str,
+    page_results: list,
+    types_count: dict,
+    total_chars: int,
+    warning: str | None,
+    *,
+    preview_id: str | None = None,
+    suggestion: str | None = None,
+    image_available: bool = False,
+) -> Any:
+    """Build DryRunResponse from page analysis results.
+
+    Imports ``DryRunResponse`` and ``DryRunPageResult`` from schemas to avoid
+    circular imports at module level.
+    """
+    from presentation.api.schemas import DryRunPageResult, DryRunResponse
+
+    total_pages = len(page_results)
+    bad = types_count.get("scan", 0) + types_count.get("garbled", 0) + types_count.get("empty", 0)
+    bad_ratio = bad / total_pages if total_pages else 0.0
+    text_previews = (p.preview for p in page_results if p.type == "text")
+    full_text_preview = "\n\n".join(text_previews)[:PAGE_PREVIEW_MAX_CHARS]
+    return DryRunResponse(
+        filename=filename,
+        total_pages=total_pages,
+        pages=[
+            DryRunPageResult(
+                page=p.page,
+                type=p.type,
+                content_type=p.content_type,
+                chars=p.chars,
+                preview=p.preview,
+                full_text=p.full_text,
+                problem_spans=p.problem_spans,
+                previous_type=p.previous_type,
+                image_available=image_available and p.unit_kind == "page",
+                unit_kind=p.unit_kind,
+                label=p.label,
+            )
+            for p in page_results
+        ],
+        total_chars=total_chars,
+        quality_score=bad_ratio,
+        warning=warning,
+        full_text_preview=full_text_preview,
+        summary=types_count,
+        preview_id=preview_id,
+        suggestion=suggestion,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Benchmark DTO ↔ Schema mappers
+# ---------------------------------------------------------------------------
+
+
+def question_create_to_dto(body: Any) -> Any:
+    """Map ``BenchmarkQuestionCreate`` schema → ``BenchmarkQuestionCreateDTO``."""
+    from application.dto.benchmark_dto import BenchmarkQuestionCreateDTO
+
+    return BenchmarkQuestionCreateDTO(
+        question=body.question,
+        expected_answer=body.expected_answer,
+        source_hint=body.source_hint,
+        tags=body.tags,
+        dataset=body.dataset,
+        notes=body.notes,
+    )
+
+
+def sweep_create_to_dto(body: Any) -> Any:
+    """Map ``SweepCreateRequest`` schema → ``SweepCreateDTO``."""
+    from application.dto.benchmark_dto import SweepCreateDTO
+
+    return SweepCreateDTO(
+        strategy=body.strategy,
+        search_space=body.search_space,
+        objective_weights=body.objective_weights,
+        dataset=body.dataset,
+        top_n_llm=body.top_n_llm,
+    )
+
+
+def question_to_response(q: Any) -> Any:
+    """Map ``BenchmarkQuestion`` entity → ``BenchmarkQuestionResponse`` schema."""
+    from presentation.api.schemas import BenchmarkQuestionResponse
+
+    if q.id is None:
+        raise RuntimeError("BenchmarkQuestion saved with None id")
+    return BenchmarkQuestionResponse(
+        id=q.id,
+        question=q.question,
+        expected_answer=q.expected_answer,
+        source_hint=q.source_hint,
+        tags=q.tags,
+        dataset=q.dataset,
+        is_active=q.is_active,
+        created_by=q.created_by,
+        notes=q.notes,
+        creation_date=q.creation_date,
+    )
+
+
+def run_to_response(r: Any) -> Any:
+    """Map ``BenchmarkRun`` entity → ``BenchmarkRunResponse`` schema."""
+    from presentation.api.schemas import BenchmarkRunResponse
+
+    if r.id is None:
+        raise RuntimeError("BenchmarkRun saved with None id")
+    return BenchmarkRunResponse(
+        id=r.id,
+        sweep_id=r.sweep_id,
+        config_json=r.config_json,
+        summary_metrics=r.summary_metrics,
+        duration_sec=r.duration_sec,
+        llm_evaluated=r.llm_evaluated,
+        dataset=r.dataset,
+        filename=r.filename,
+        creation_date=r.creation_date,
+    )
+
+
+def sweep_to_response(s: Any, *, job_id: int | None = None) -> Any:
+    """Map ``BenchmarkSweep`` entity → ``SweepResponse`` schema."""
+    from presentation.api.schemas import SweepResponse
+
+    if s.id is None:
+        raise RuntimeError("BenchmarkSweep saved with None id")
+    return SweepResponse(
+        id=s.id,
+        status=s.status,
+        strategy=s.strategy,
+        search_space=s.search_space,
+        objective_weights=s.objective_weights,
+        dataset=s.dataset,
+        top_n_llm=s.top_n_llm,
+        total_configs=s.total_configs,
+        evaluated_configs=s.evaluated_configs,
+        best_run_id=s.best_run_id,
+        job_id=job_id if job_id is not None else s.job_id,
+        creation_date=s.creation_date,
+    )
+
+
+def summary_to_response(s: Any) -> Any:
+    """Map ``BenchmarkResultSummary`` DTO → ``BenchmarkResultSummary`` schema."""
+    from presentation.api.schemas import BenchmarkResultSummary
+
+    return BenchmarkResultSummary(
+        id=s.id,
+        config_json=s.config_json,
+        summary_metrics=s.summary_metrics,
+        duration_sec=s.duration_sec,
+        llm_evaluated=s.llm_evaluated,
+        dataset=s.dataset,
+        sweep_id=s.sweep_id,
+        creation_date=s.creation_date,
+    )

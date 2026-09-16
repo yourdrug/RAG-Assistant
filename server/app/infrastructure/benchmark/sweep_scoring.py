@@ -54,9 +54,9 @@ def generate_random_points(search_space: dict, n: int) -> list[dict]:
             elif "min" in spec and "max" in spec:
                 step = spec.get("step")
                 is_float = (
-                        isinstance(spec.get("min"), float)
-                        or isinstance(spec.get("max"), float)
-                        or (step and isinstance(step, float))
+                    isinstance(spec.get("min"), float)
+                    or isinstance(spec.get("max"), float)
+                    or (step and isinstance(step, float))
                 )
                 if is_float:
                     point[param] = _random.uniform(spec["min"], spec["max"])  # noqa: S311
@@ -69,8 +69,8 @@ def generate_random_points(search_space: dict, n: int) -> list[dict]:
 
 
 def compute_composite_score(
-        metrics: dict,
-        weights: dict | None = None,
+    metrics: dict,
+    weights: dict | None = None,
 ) -> float:
     """Compute weighted composite score from individual metrics."""
     if weights is None:
@@ -97,13 +97,13 @@ def compute_composite_score(
 
 
 def score_config_cheap(  # noqa: C901
-        config: dict,
-        questions: list[dict],
-        dense_cache: dict,
-        sparse_cache: dict,
-        all_candidates: dict,
-        weights: dict,
-        defaults: dict | None = None,
+    config: dict,
+    questions: list[dict],
+    dense_cache: dict,
+    sparse_cache: dict,
+    all_candidates: dict,
+    weights: dict,
+    defaults: dict | None = None,
 ) -> dict:
     """Phase A: Score a config using cached candidates (no LLM/Qdrant calls).
 
@@ -175,11 +175,19 @@ def score_config_cheap(  # noqa: C901
 
 
 async def cache_candidates(
-        questions: list[dict],
-        max_fetch_k: int,
-        ml_clients=None,
+    questions: list[dict],
+    max_fetch_k: int,
+    ml_clients=None,
+    access_filter=None,
+    visibility_conditions=None,
+    user_id: int | None = None,
+    user_group_ids: list[int] | None = None,
 ) -> tuple[dict, dict, dict]:
-    """Phase 1: Cache dense + sparse candidates at max fetch_k."""
+    """Phase 1: Cache dense + sparse candidates at max fetch_k.
+
+    ACL parameters are forwarded to Qdrant search and BM25 pre-filter
+    to ensure sweep retrieval respects document visibility.
+    """
     dense_cache: dict[str, list] = {}
     sparse_cache: dict[str, list] = {}
     all_candidates: dict[str, "LCDocument"] = {}
@@ -204,9 +212,10 @@ async def cache_candidates(
 
         dense_results = []
         for point in client.search(
-                collection_name=settings.collection_name,
-                query_vector=embeddings.embed_query_sync(qtext),
-                limit=max_fetch_k,
+            collection_name=settings.collection_name,
+            query_vector=embeddings.embed_query_sync(qtext),
+            limit=max_fetch_k,
+            query_filter=access_filter,
         ):
             payload = point.payload or {}
             page_content = payload.get("page_content", "")
@@ -219,7 +228,13 @@ async def cache_candidates(
         dense_cache[qtext] = dense_results
 
         if bm25_index:
-            sparse_results = bm25_index.search_with_hashes(qtext, max_fetch_k)
+            sparse_results = bm25_index.search_with_hashes(
+                qtext,
+                max_fetch_k,
+                visibility_conditions=visibility_conditions,
+                user_id=user_id,
+                user_group_ids=user_group_ids or [],
+            )
         else:
             sparse_results = []
         sparse_cache[qtext] = sparse_results

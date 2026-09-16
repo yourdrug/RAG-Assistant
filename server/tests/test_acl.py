@@ -366,13 +366,18 @@ class TestACLInvariant:
         verify the invariant holds when Phase B fixes the gap.
         """
         ctx = UserContext(
-            user_id=1, user_kind="internal", user_role="curator",
-            managed_client_ids=[100], managed_internal_ids=[200],
+            user_id=1,
+            user_kind="internal",
+            user_role="curator",
+            managed_client_ids=[100],
+            managed_internal_ids=[200],
         )
         user = {"id": 1, "kind": "internal", "role": "curator"}
         f = build_qdrant_filter(
-            user, [],
-            managed_client_ids=[100], managed_internal_ids=[200],
+            user,
+            [],
+            managed_client_ids=[100],
+            managed_internal_ids=[200],
         )
 
         docs = [
@@ -413,7 +418,9 @@ class TestACLInvariant:
     def test_curator_managed_client_invariant(self):
         """CURATOR with managed_client_ids: sees assigned CLIENT_PRIVATE."""
         ctx = UserContext(
-            user_id=1, user_kind="internal", user_role="curator",
+            user_id=1,
+            user_kind="internal",
+            user_role="curator",
             managed_client_ids=[100],
         )
         user = {"id": 1, "kind": "internal", "role": "curator"}
@@ -436,7 +443,9 @@ class TestACLInvariant:
     def test_curator_managed_internal_invariant(self):
         """CURATOR with managed_internal_ids: sees assigned INTERNAL_PRIVATE."""
         ctx = UserContext(
-            user_id=1, user_kind="internal", user_role="curator",
+            user_id=1,
+            user_kind="internal",
+            user_role="curator",
             managed_internal_ids=[20],
         )
         user = {"id": 1, "kind": "internal", "role": "curator"}
@@ -459,7 +468,9 @@ class TestACLInvariant:
     def test_curator_managed_group_invariant(self):
         """CURATOR with managed_group_ids: sees assigned group docs."""
         ctx = UserContext(
-            user_id=1, user_kind="internal", user_role="curator",
+            user_id=1,
+            user_kind="internal",
+            user_role="curator",
             managed_group_ids=[5],
         )
         user = {"id": 1, "kind": "internal", "role": "curator"}
@@ -481,7 +492,9 @@ class TestACLInvariant:
     def test_curator_all_managed_invariant(self):
         """CURATOR with all managed IDs: full scope."""
         ctx = UserContext(
-            user_id=1, user_kind="internal", user_role="curator",
+            user_id=1,
+            user_kind="internal",
+            user_role="curator",
             group_ids=[5],
             managed_client_ids=[100],
             managed_internal_ids=[20],
@@ -489,7 +502,8 @@ class TestACLInvariant:
         )
         user = {"id": 1, "kind": "internal", "role": "curator"}
         f = build_qdrant_filter(
-            user, [5],
+            user,
+            [5],
             managed_client_ids=[100],
             managed_internal_ids=[20],
             managed_group_ids=[15],
@@ -517,7 +531,9 @@ class TestACLInvariant:
     def test_admin_with_groups_invariant(self):
         """ADMIN with groups: bypasses group membership, no CLIENT_PRIVATE in search."""
         ctx = UserContext(
-            user_id=1, user_kind="internal", user_role="admin",
+            user_id=1,
+            user_kind="internal",
+            user_role="admin",
             group_ids=[5],
         )
         user = {"id": 1, "kind": "internal", "role": "admin"}
@@ -587,14 +603,17 @@ class TestACLInvariant:
         ]
         for kind, uid, role, groups, managed in test_cases:
             conds = get_visibility_conditions(
-                UserKind(kind), uid, groups,
+                UserKind(kind),
+                uid,
+                groups,
                 for_list=False,
                 user_role=UserRole(role),
                 **managed,
             )
             user_dict = {"id": uid, "kind": kind, "role": role}
             f = build_qdrant_filter(
-                user_dict, groups,
+                user_dict,
+                groups,
                 managed_client_ids=managed.get("managed_client_ids"),
                 managed_internal_ids=managed.get("managed_internal_ids"),
                 managed_group_ids=managed.get("managed_group_ids"),

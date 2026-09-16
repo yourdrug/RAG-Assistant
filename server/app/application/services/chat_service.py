@@ -113,14 +113,14 @@ class ChatService:
         scope = ctx.curator_scope
         if scope is not None:
             total_ids = (
-                len(scope.managed_client_ids)
-                + len(scope.managed_internal_ids)
-                + len(scope.managed_group_ids)
+                len(scope.managed_client_ids) + len(scope.managed_internal_ids) + len(scope.managed_group_ids)
             )
             if total_ids > self._settings.curator_scope_max_ids:
                 log.warning(
                     "Curator %d scope exceeds max: %d > %d",
-                    user_id, total_ids, self._settings.curator_scope_max_ids,
+                    user_id,
+                    total_ids,
+                    self._settings.curator_scope_max_ids,
                 )
                 raise BusinessRuleViolation(
                     f"Curator scope ({total_ids} ids) exceeds retrieval limit "

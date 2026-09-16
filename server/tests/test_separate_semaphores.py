@@ -19,12 +19,12 @@ class TestSeparateSemaphores:
     def test_generation_semaphore_has_correct_permits(self):
         reg = MLClientRegistry()
         sem = reg.generation_semaphore
-        assert sem._value == 12  # settings.llm_generation_max_concurrent
+        assert sem._sem._value == 12  # settings.llm_generation_max_concurrent
 
     def test_auxiliary_semaphore_has_correct_permits(self):
         reg = MLClientRegistry()
         sem = reg.auxiliary_semaphore
-        assert sem._value == 4  # settings.llm_auxiliary_max_concurrent
+        assert sem._sem._value == 4  # settings.llm_auxiliary_max_concurrent
 
     def test_semaphores_are_different_objects(self):
         reg = MLClientRegistry()

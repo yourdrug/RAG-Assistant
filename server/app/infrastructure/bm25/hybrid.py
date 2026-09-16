@@ -10,8 +10,8 @@
     - ``domain.utils.content_hash``
 """
 
-from infrastructure.bm25._stemmer import stem_token  # noqa: F401
-from infrastructure.bm25._tokenizer import tokenize, tokenize_raw  # noqa: F401
+from infrastructure.bm25.stemmer import stem_token  # noqa: F401
+from infrastructure.bm25.tokenizer import tokenize, tokenize_raw  # noqa: F401
 from infrastructure.bm25.bm25_index import BM25Index  # noqa: F401
 from infrastructure.bm25.persistence import (  # noqa: F401
     BM25_S3_KEY,

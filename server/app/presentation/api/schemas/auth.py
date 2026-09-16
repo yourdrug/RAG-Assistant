@@ -8,6 +8,19 @@ from domain.value_objects.roles import UserKind, UserRole
 from presentation.api.constants import AUTH_SCHEME_BEARER
 
 
+class CurrentUser(BaseModel):
+    """Authenticated user context returned by auth dependencies."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: int
+    email: str
+    role: str
+    kind: str
+    is_active: bool
+    api_key_id: int | None = None
+
+
 class LoginRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from composition._utils import _require
+from composition.utils import _require
 
 if TYPE_CHECKING:
     from composition.infrastructure import InfrastructureContainer

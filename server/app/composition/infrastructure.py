@@ -13,7 +13,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from composition._utils import _missing_fields, _require
+from composition.utils import _missing_fields, _require
 
 if TYPE_CHECKING:
     from application.services.preview_cache import PreviewCache

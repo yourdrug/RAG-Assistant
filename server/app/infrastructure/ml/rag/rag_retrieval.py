@@ -57,12 +57,16 @@ async def resolve_hashes_batch(
         scroll_filter = Filter(should=should_conditions)  # type: ignore[arg-type]
 
     async with ml_clients.qdrant_search_semaphore:
-        results = await asyncio.to_thread(
-            client.scroll,
-            collection_name=settings.collection_name,
-            scroll_filter=scroll_filter,
-            limit=len(hashes),
-            with_payload=True,
+        results = await asyncio.wait_for(
+            asyncio.to_thread(
+                client.scroll,
+                collection_name=settings.collection_name,
+                scroll_filter=scroll_filter,
+                limit=len(hashes),
+                with_payload=True,
+                timeout=settings.qdrant_timeout,
+            ),
+            timeout=settings.qdrant_timeout + 2,
         )
 
     points = results[0] if isinstance(results, tuple) else results
@@ -94,12 +98,16 @@ async def qdrant_dense_search(
     qdrant_filter = access_filter if access_filter is not None else None
 
     async with ml_clients.qdrant_search_semaphore:
-        results = await asyncio.to_thread(
-            client.search,
-            collection_name=settings.collection_name,
-            query_vector=query_vector,
-            limit=k,
-            query_filter=qdrant_filter,
+        results = await asyncio.wait_for(
+            asyncio.to_thread(
+                client.search,
+                collection_name=settings.collection_name,
+                query_vector=query_vector,
+                limit=k,
+                query_filter=qdrant_filter,
+                timeout=settings.qdrant_timeout,
+            ),
+            timeout=settings.qdrant_timeout + 2,
         )
 
     docs = []
@@ -139,7 +147,9 @@ async def run_hybrid_search(
         async def _bm25_search():
             async with ml_clients.bm25_search_semaphore:
                 return await asyncio.to_thread(
-                    bm25_index.search_with_hashes, query, fetch_k,
+                    bm25_index.search_with_hashes,
+                    query,
+                    fetch_k,
                     visibility_conditions=visibility_conditions,
                     user_id=user_id,
                     user_group_ids=user_group_ids or [],

@@ -19,6 +19,7 @@ from presentation.api.dependencies import (
 from presentation.api.schemas import (
     ConfigParamResponse,
     ConfigParamUpdateRequest,
+    CurrentUser,
     ModelsInfoResponse,
     OpenRouterModelInfo,
     OpenRouterModelsResponse,
@@ -33,7 +34,7 @@ router = APIRouter(tags=["admin-config"])
 
 @router.get("/admin/config", response_model=list[ConfigParamResponse])
 async def list_config(
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     config_service: ConfigService = Depends(create_config_service),
     masker=Depends(create_config_masker),
 ):
@@ -58,7 +59,7 @@ async def list_config(
 async def update_config(
     key: str,
     body: ConfigParamUpdateRequest,
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     config_service: ConfigService = Depends(create_config_service),
     log=Depends(create_action_logger),
     masker=Depends(create_config_masker),
@@ -69,12 +70,12 @@ async def update_config(
             status_code=400,
             detail=f"'{key}' is a static parameter — set it in server/.env and restart",
         )
-    param = await config_service.update_parameter(key, body.value, changed_by=admin["id"], domain_key=domain)
+    param = await config_service.update_parameter(key, body.value, changed_by=admin.id, domain_key=domain)
     is_sensitive = key in masker.sensitive_keys
     masked_value = masker.mask_value(body.value) if is_sensitive else body.value[:QUESTION_LOG_MAX_CHARS]
     log(
         "config.update",
-        user_id=admin["id"],
+        user_id=admin.id,
         details={"key": key, "value": masked_value, "domain": domain},
     )
     return ConfigParamResponse(
@@ -91,7 +92,7 @@ async def update_config(
 
 @router.get("/admin/models/info", response_model=ModelsInfoResponse)
 async def models_info(
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     admin_service: ConfigAdminService = Depends(create_config_admin_service),
 ):
     info = await admin_service.get_models_info()
@@ -112,7 +113,7 @@ async def models_info(
 
 @router.get("/admin/models/openrouter", response_model=OpenRouterModelsResponse)
 async def openrouter_models(
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     admin_service: ConfigAdminService = Depends(create_config_admin_service),
 ):
     info = await admin_service.get_openrouter_models()
@@ -124,7 +125,7 @@ async def openrouter_models(
 
 @router.get("/admin/vectordb/info", response_model=VectorDBInfoResponse)
 async def vectordb_info(
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     admin_service: ConfigAdminService = Depends(create_config_admin_service),
 ):
     info = admin_service.get_vectordb_info()

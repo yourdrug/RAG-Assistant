@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, Query
 from presentation.api.auth_dependencies import require_capability
 from presentation.api.constants import DEFAULT_PAGE_LIMIT, DEFAULT_PAGE_OFFSET, MAX_PAGE_LIMIT
 from presentation.api.dependencies import create_chat_log_service, create_assignment_service
-from presentation.api.schemas import ChatLogEntry, ChatLogsResponse
+from presentation.api.schemas import ChatLogEntry, ChatLogsResponse, CurrentUser
 
 router = APIRouter(tags=["admin-chat-logs"])
 
@@ -27,15 +27,15 @@ async def list_chat_logs(
     search: str | None = Query(None),
     limit: int = Query(DEFAULT_PAGE_LIMIT, ge=1, le=MAX_PAGE_LIMIT),
     offset: int = Query(DEFAULT_PAGE_OFFSET, ge=0),
-    current_user: dict = Depends(require_capability(Capability.SYSTEM_OBSERVE)),
+    current_user: CurrentUser = Depends(require_capability(Capability.SYSTEM_OBSERVE)),
     service: ChatLogService = Depends(create_chat_log_service),
     assignment_service: AssignmentService = Depends(create_assignment_service),
 ):
     # Curator sees only logs of managed users (+ self); admin sees all
     user_ids_filter = None
-    if current_user["role"] == UserRole.CURATOR:
-        scope = await assignment_service.get_scope(current_user["id"])
-        managed_ids = scope["managed_client_ids"] + scope["managed_internal_ids"] + [current_user["id"]]
+    if current_user.role == UserRole.CURATOR:
+        scope = await assignment_service.get_scope(current_user.id)
+        managed_ids = scope["managed_client_ids"] + scope["managed_internal_ids"] + [current_user.id]
         user_ids_filter = managed_ids
 
     total = await service.count_logs(

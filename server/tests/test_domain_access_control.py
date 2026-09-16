@@ -357,12 +357,25 @@ class TestCanViewDocumentParameterized:
         ],
     )
     def test_visibility_matrix(
-        self, visibility, owner_id, group_id, kind, user_id, groups, expected, role,
-        managed_client_ids, managed_internal_ids, managed_group_ids,
+        self,
+        visibility,
+        owner_id,
+        group_id,
+        kind,
+        user_id,
+        groups,
+        expected,
+        role,
+        managed_client_ids,
+        managed_internal_ids,
+        managed_group_ids,
     ):
         doc = SimpleNamespace(visibility=visibility, owner_id=owner_id, group_id=group_id)
         ctx = UserContext(
-            user_id=user_id, user_kind=kind, user_role=role or "user", group_ids=groups,
+            user_id=user_id,
+            user_kind=kind,
+            user_role=role or "user",
+            group_ids=groups,
             managed_client_ids=managed_client_ids or [],
             managed_internal_ids=managed_internal_ids or [],
             managed_group_ids=managed_group_ids or [],

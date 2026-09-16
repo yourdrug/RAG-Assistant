@@ -4,69 +4,46 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from application.services.benchmark_result_service import (
-    BenchmarkResultService,
-    BenchmarkResultSummary as ResultSummaryDTO,
-)
+from application.services.benchmark_result_service import BenchmarkResultService
 from application.services.job_service import JobService
-from config import settings
 from fastapi import APIRouter, Depends, HTTPException
 
 from presentation.api.auth_dependencies import require_admin
 from presentation.api.constants import JobType
 from presentation.api.dependencies import (
+    create_benchmark_config,
     create_benchmark_result_service,
     create_job_enqueuer,
     create_job_service,
 )
+from presentation.api.helpers import summary_to_response, validate_data_path_within_dir
 from presentation.api.schemas import (
     BenchmarkRequest,
     BenchmarkResponse,
     BenchmarkResultDetail,
     BenchmarkResultsListResponse,
-    BenchmarkResultSummary,
+    CurrentUser,
 )
 
 router = APIRouter(tags=["benchmark"])
 
 
-def _validate_data_path(path_str: str) -> str:
-    """Resolve path and ensure it's within settings.data_dir to prevent path traversal."""
-    resolved = Path(path_str).resolve()
-    data_root = Path(settings.data_dir).resolve()
-    if not str(resolved).startswith(str(data_root) + "/") and resolved != data_root:
-        raise HTTPException(status_code=400, detail="Path must be within the data directory")
-    return str(resolved)
-
-
-def _summary_to_response(s: ResultSummaryDTO) -> BenchmarkResultSummary:
-    return BenchmarkResultSummary(
-        id=s.id,
-        config_json=s.config_json,
-        summary_metrics=s.summary_metrics,
-        duration_sec=s.duration_sec,
-        llm_evaluated=s.llm_evaluated,
-        dataset=s.dataset,
-        sweep_id=s.sweep_id,
-        creation_date=s.creation_date,
-    )
-
-
 @router.post("/benchmark", response_model=BenchmarkResponse)
 async def run_benchmark(
     req: BenchmarkRequest,
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     job_service: JobService = Depends(create_job_service),
     job_enqueuer=Depends(create_job_enqueuer),
+    bench_cfg=Depends(create_benchmark_config),
 ):
     job_id = await job_service.create_job(JobType.BENCHMARK)
 
-    q_path = req.questions_path or str(Path(settings.data_dir) / "test_questions.json")
-    o_dir = req.out_dir or str(Path(settings.data_dir) / "benchmark_results")
-    q_path = _validate_data_path(q_path)
-    o_dir = _validate_data_path(o_dir)
-    k = req.top_k or settings.retriever_top_k
-    judge = req.judge_model or settings.llm_model
+    q_path = req.questions_path or str(Path(bench_cfg.data_dir) / "test_questions.json")
+    o_dir = req.out_dir or str(Path(bench_cfg.data_dir) / "benchmark_results")
+    q_path = validate_data_path_within_dir(q_path, bench_cfg.data_dir)
+    o_dir = validate_data_path_within_dir(o_dir, bench_cfg.data_dir)
+    k = req.top_k or bench_cfg.retriever_top_k
+    judge = req.judge_model or bench_cfg.llm_model
 
     await job_enqueuer.enqueue_benchmark(
         questions_path=q_path,
@@ -80,12 +57,12 @@ async def run_benchmark(
 
 @router.get("/benchmark/results", response_model=BenchmarkResultsListResponse)
 async def list_benchmark_results(
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     service: BenchmarkResultService = Depends(create_benchmark_result_service),
 ):
     result = await service.list_results()
     return BenchmarkResultsListResponse(
-        results=[_summary_to_response(s) for s in result.results],
+        results=[summary_to_response(s) for s in result.results],
         total=result.total,
     )
 
@@ -93,7 +70,7 @@ async def list_benchmark_results(
 @router.get("/benchmark/results/{run_id}", response_model=BenchmarkResultDetail)
 async def get_benchmark_result(
     run_id: int,
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     service: BenchmarkResultService = Depends(create_benchmark_result_service),
 ):
     detail = await service.get_result(run_id)
@@ -102,6 +79,6 @@ async def get_benchmark_result(
 
     return BenchmarkResultDetail(
         id=detail.id,
-        summary=_summary_to_response(detail.summary),
+        summary=summary_to_response(detail.summary),
         per_question_results=detail.per_question_results,
     )

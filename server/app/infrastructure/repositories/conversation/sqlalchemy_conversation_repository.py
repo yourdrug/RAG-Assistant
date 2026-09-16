@@ -129,9 +129,10 @@ class SQLAlchemyConversationRepository:
             select(MessageModel.conversation_id)
             .where(MessageModel.role == "assistant")
             .where(
-                func.json_array_elements(
-                    func.coalesce(MessageModel.sources, text("'[]'::json"))
-                ).op("->>")("document_id").cast(Integer) == document_id
+                func.json_array_elements(func.coalesce(MessageModel.sources, text("'[]'::json")))
+                .op("->>")("document_id")
+                .cast(Integer)
+                == document_id
             )
             .distinct()
             .subquery()

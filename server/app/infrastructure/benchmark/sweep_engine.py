@@ -19,7 +19,7 @@ from config import _settings_overrides, settings
 from domain.entities.benchmark_sweep import BenchmarkSweep
 from domain.value_objects.benchmark_strategy import BenchmarkStrategy
 
-from infrastructure.benchmark._sweep_scoring import (
+from infrastructure.benchmark.sweep_scoring import (
     cache_candidates,
     compute_composite_score,
     generate_grid_points,
@@ -307,8 +307,21 @@ class SweepEngine:
         return load_questions(path)
 
     async def _cache_candidates(self, questions: list[dict], max_fetch_k: int) -> tuple[dict, dict, dict]:
-        """Phase 1: Cache dense + sparse candidates at max fetch_k."""
-        return await cache_candidates(questions, max_fetch_k, ml_clients=self._ml_clients)
+        """Phase 1: Cache dense + sparse candidates at max fetch_k.
+
+        Uses admin-level ACL filter to respect document visibility.
+        """
+        from domain.value_objects.roles import UserKind, UserRole
+        from infrastructure.repositories.vector.acl import build_qdrant_filter
+
+        bench_user = {"id": 0, "kind": UserKind.INTERNAL, "role": UserRole.ADMIN}
+        access_filter = build_qdrant_filter(user=bench_user, group_ids=[])
+        return await cache_candidates(
+            questions,
+            max_fetch_k,
+            ml_clients=self._ml_clients,
+            access_filter=access_filter,
+        )
 
     def _score_config_cheap(
         self,

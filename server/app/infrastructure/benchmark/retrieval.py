@@ -25,9 +25,16 @@ _retriever = HybridRetriever()
 
 
 def _search_dense(
-    question: str, fetch_k: int
+    question: str,
+    fetch_k: int,
+    access_filter=None,
 ) -> tuple[list[tuple[Document, float]], dict[str, tuple[float, Document]]]:
-    """Dense search via Qdrant client. Returns (dense_docs, dense_by_hash)."""
+    """Dense search via Qdrant client. Returns (dense_docs, dense_by_hash).
+
+    When *access_filter* is provided, only documents matching the ACL
+    filter are returned (defense-in-depth: same filter used in production
+    RAG retrieval).
+    """
     client = create_qdrant_client()
     embeddings = create_embeddings()
     query_vector = embeddings.embed_query_sync(question)
@@ -35,6 +42,7 @@ def _search_dense(
         collection_name=settings.collection_name,
         query_vector=query_vector,
         limit=fetch_k,
+        query_filter=access_filter,
     )
 
     dense_docs: list[tuple[Document, float]] = []
@@ -50,11 +58,27 @@ def _search_dense(
     return dense_docs, dense_by_hash
 
 
-def _search_sparse(question: str, fetch_k: int) -> list[tuple[str, float]]:
-    """BM25 sparse search via loaded index."""
+def _search_sparse(
+    question: str,
+    fetch_k: int,
+    visibility_conditions=None,
+    user_id: int | None = None,
+    user_group_ids: list[int] | None = None,
+) -> list[tuple[str, float]]:
+    """BM25 sparse search via loaded index.
+
+    When *visibility_conditions* is provided, candidates are pre-filtered
+    by ACL before scoring (defense-in-depth: Qdrant resolve still applies).
+    """
     bm25_index = load_bm25_index()
     if bm25_index is not None:
-        return bm25_index.search_with_hashes(question, fetch_k)
+        return bm25_index.search_with_hashes(
+            question,
+            fetch_k,
+            visibility_conditions=visibility_conditions,
+            user_id=user_id,
+            user_group_ids=user_group_ids or [],
+        )
     return []
 
 
@@ -96,10 +120,28 @@ def _apply_rerank_filters(
     )
 
 
-def retrieve_with_scores_hybrid(question: str, top_k: int, fetch_k: int) -> list[tuple[Document, float]]:
-    """Retrieve using the production hybrid pipeline: dense + BM25 + RRF + reranker."""
-    _, dense_by_hash = _search_dense(question, fetch_k)
-    sparse_results = _search_sparse(question, fetch_k)
+def retrieve_with_scores_hybrid(
+    question: str,
+    top_k: int,
+    fetch_k: int,
+    access_filter=None,
+    visibility_conditions=None,
+    user_id: int | None = None,
+    user_group_ids: list[int] | None = None,
+) -> list[tuple[Document, float]]:
+    """Retrieve using the production hybrid pipeline: dense + BM25 + RRF + reranker.
+
+    ACL parameters are forwarded to dense and sparse search to ensure
+    benchmark retrieval respects document visibility.
+    """
+    _, dense_by_hash = _search_dense(question, fetch_k, access_filter=access_filter)
+    sparse_results = _search_sparse(
+        question,
+        fetch_k,
+        visibility_conditions=visibility_conditions,
+        user_id=user_id,
+        user_group_ids=user_group_ids,
+    )
     candidate_docs = _merge_and_dedup(dense_by_hash, sparse_results, fetch_k)
 
     if not candidate_docs:

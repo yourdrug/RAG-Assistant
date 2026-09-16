@@ -36,7 +36,8 @@ def compute_visibility_scope_hash(
         f"curator:{sorted(curator_scope.managed_client_ids)}:"
         f"{sorted(curator_scope.managed_internal_ids)}:"
         f"{sorted(curator_scope.managed_group_ids)}"
-        if has_scope else ""
+        if has_scope
+        else ""
     )
     return content_hash(f"{user_kind}:{user_role}:{user_id}:{sorted(group_ids)}:{scope_repr}")
 

@@ -587,7 +587,8 @@ class SQLAlchemyChunkRepository:
         center_index: int,
         window: int = 1,
         exclude_hashes: set[str] | None = None,
-        user: dict | None = None,
+        *,
+        user: dict,
         group_ids: list[int] | None = None,
     ) -> list[ChunkSearchResult]:
         low = center_index - window
@@ -601,10 +602,9 @@ class SQLAlchemyChunkRepository:
             safe_hashes = {h for h in exclude_hashes if h is not None}
             if safe_hashes:
                 conditions.append(~ChunkModel.content_hash.in_(safe_hashes))
-        if user and group_ids is not None:
-            acl_clauses = _build_acl_clauses(user, group_ids)
-            if acl_clauses:
-                conditions.append(or_(*acl_clauses))
+        acl_clauses = _build_acl_clauses(user, group_ids or [])
+        if acl_clauses:
+            conditions.append(or_(*acl_clauses))
         stmt = select(ChunkModel).where(and_(*conditions)).order_by(ChunkModel.chunk_index)
         result = await self._session.execute(stmt)
         return [self._to_chunk_search_result(c) for c in result.scalars().all()]
@@ -614,7 +614,8 @@ class SQLAlchemyChunkRepository:
         document_id: int,
         anchor_index: int,
         exclude_hashes: set[str] | None = None,
-        user: dict | None = None,
+        *,
+        user: dict,
         group_ids: list[int] | None = None,
     ) -> list[ChunkSearchResult]:
         """Fetch all consecutive table batches starting from anchor_index."""
@@ -626,10 +627,9 @@ class SQLAlchemyChunkRepository:
             safe_hashes = {h for h in exclude_hashes if h is not None}
             if safe_hashes:
                 conditions.append(~ChunkModel.content_hash.in_(safe_hashes))
-        if user and group_ids is not None:
-            acl_clauses = _build_acl_clauses(user, group_ids)
-            if acl_clauses:
-                conditions.append(or_(*acl_clauses))
+        acl_clauses = _build_acl_clauses(user, group_ids or [])
+        if acl_clauses:
+            conditions.append(or_(*acl_clauses))
         stmt = select(ChunkModel).where(and_(*conditions)).order_by(ChunkModel.chunk_index)
         result = await self._session.execute(stmt)
         return [self._to_chunk_search_result(c) for c in result.scalars().all()]

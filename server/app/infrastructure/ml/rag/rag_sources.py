@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from infrastructure.ml.rag._utils import clean_source_name as _clean_source_name
+from infrastructure.ml.rag.utils import clean_source_name as _clean_source_name
 
 
 def _merge_list(target: list, source: list) -> None:

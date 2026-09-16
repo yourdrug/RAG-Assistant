@@ -2,9 +2,10 @@
 
 import logging
 
+from domain.services.rag_policy import sanitize_for_prompt
 from domain.value_objects.message_role import MessageRole
 from domain.value_objects.page_content_type import PageContentType
-from infrastructure.ml.rag._utils import clean_source_name as _clean_source_name
+from infrastructure.ml.rag.utils import clean_source_name as _clean_source_name
 from langchain_core.messages import AIMessage, HumanMessage
 
 log = logging.getLogger("default")
@@ -67,7 +68,7 @@ def format_docs(docs, max_context_tokens: int = 6000) -> str:
     for i, item in enumerate(docs, 1):
         doc = item[0] if isinstance(item, tuple) else item
         header = _build_header(doc, i)
-        content = doc.page_content
+        content = sanitize_for_prompt(doc.page_content)
         part_text = f"{header}\n{content}"
         part_chars = len(part_text)
 

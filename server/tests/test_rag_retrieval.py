@@ -34,6 +34,7 @@ async def test_resolve_hashes_batch_calls_scroll(mock_settings):
     from infrastructure.ml.rag.rag_retrieval import resolve_hashes_batch
 
     mock_settings.collection_name = "test_col"
+    mock_settings.qdrant_timeout = 10
 
     mock_client = MagicMock()
     point = MagicMock()
@@ -61,6 +62,7 @@ async def test_resolve_hashes_batch_with_access_filter(mock_settings):
     from qdrant_client.models import FieldCondition, Filter, MatchValue
 
     mock_settings.collection_name = "test_col"
+    mock_settings.qdrant_timeout = 10
 
     mock_client = MagicMock()
     point = MagicMock()
@@ -93,6 +95,7 @@ async def test_qdrant_dense_search_returns_hash_score_doc_tuples(mock_settings):
     from infrastructure.ml.rag.rag_retrieval import qdrant_dense_search
 
     mock_settings.collection_name = "test_col"
+    mock_settings.qdrant_timeout = 10
 
     point = MagicMock()
     point.score = 0.85
@@ -127,6 +130,7 @@ async def test_qdrant_dense_search_generates_hash_when_missing(mock_settings):
     from infrastructure.ml.rag.rag_retrieval import qdrant_dense_search
 
     mock_settings.collection_name = "test_col"
+    mock_settings.qdrant_timeout = 10
 
     point = MagicMock()
     point.score = 0.7
@@ -171,6 +175,7 @@ async def test_hybrid_search_fallback_to_dense_when_bm25_disabled(mock_settings,
     from infrastructure.ml.rag.rag_retrieval import run_hybrid_search
 
     mock_settings.collection_name = "test_col"
+    mock_settings.qdrant_timeout = 10
 
     rag = RagSettings(
         retriever=RetrieverConfig(fetch_k=20, top_k=5, fetch_k_broad=40, top_k_broad=10),
@@ -228,6 +233,7 @@ async def test_hybrid_search_uses_rrf_when_bm25_available(mock_settings, mock_me
     from infrastructure.ml.rag.rag_retrieval import run_hybrid_search
 
     mock_settings.collection_name = "test_col"
+    mock_settings.qdrant_timeout = 10
 
     rag = RagSettings(
         retriever=RetrieverConfig(fetch_k=20, top_k=5, fetch_k_broad=40, top_k_broad=10),

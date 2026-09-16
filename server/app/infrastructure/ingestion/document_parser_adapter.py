@@ -43,8 +43,7 @@ class IngestionDocumentParser:
             return []
         base = self._base_metadata(meta)
         return [
-            RawDocument(page_content=doc.page_content, metadata={**base, **doc.metadata})
-            for doc in pages
+            RawDocument(page_content=doc.page_content, metadata={**base, **doc.metadata}) for doc in pages
         ]
 
     def _parse_generic(self, path: Path, meta: FileMeta) -> list[RawDocument]:
@@ -111,7 +110,4 @@ class IngestionDocumentSplitter:
         else:
             chunks = split_documents(merged)
 
-        return [
-            RawDocument(page_content=c.page_content, metadata=dict(c.metadata))
-            for c in chunks
-        ]
+        return [RawDocument(page_content=c.page_content, metadata=dict(c.metadata)) for c in chunks]

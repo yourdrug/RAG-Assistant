@@ -398,7 +398,8 @@ class TestCuratorFilterIgnoresManagedIds:
         """When managed-ids ARE passed: filter includes ASSIGNED conditions."""
         user = {"id": 1, "kind": "internal", "role": "curator"}
         f = build_qdrant_filter(
-            user, [],
+            user,
+            [],
             managed_client_ids=[100, 200],
             managed_internal_ids=[300],
         )
@@ -427,7 +428,8 @@ class TestCuratorFilterIgnoresManagedIds:
         filter_no_managed = build_qdrant_filter(user, [])
         # Expected call after Phase B (WITH managed-ids):
         filter_with_managed = build_qdrant_filter(
-            user, [],
+            user,
+            [],
             managed_client_ids=[100],
             managed_internal_ids=[200],
         )

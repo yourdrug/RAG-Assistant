@@ -128,8 +128,20 @@ async def run_benchmark_async(
     questions = load_questions(questions_path)
     semaphore = asyncio.Semaphore(max_concurrent)
 
-    # Benchmark context — system user with full access, no ACL filtering
-    bench_ctx = ChatContext(user_id=0, user_kind="api_key", user_role="admin")
+    # Benchmark context — admin user with full internal access.
+    # ACL filter is built from admin visibility conditions to ensure
+    # benchmark retrieval does not leak CLIENT_PRIVATE documents.
+    bench_ctx = ChatContext(user_id=0, user_kind="internal", user_role="admin")
+
+    from domain.value_objects.roles import UserKind, UserRole
+    from infrastructure.repositories.vector.acl import build_qdrant_filter
+
+    bench_user_dict = {"id": 0, "kind": UserKind.INTERNAL, "role": UserRole.ADMIN}
+    access_filter = build_qdrant_filter(
+        user=bench_user_dict,
+        group_ids=[],
+    )
+    visibility_conditions = None  # BM25 pre-filter not needed for admin (no CLIENT_PRIVATE in search scope)
 
     all_results: list[dict] = []
 
@@ -184,7 +196,14 @@ async def run_benchmark_async(
                     )
                     fetch_k_val = fetch_k or int(get_setting("rag.retriever_fetch_k"))
                     docs_with_scores = await asyncio.to_thread(
-                        retrieve_with_scores_hybrid, q["question"], top_k, fetch_k_val
+                        retrieve_with_scores_hybrid,
+                        q["question"],
+                        top_k,
+                        fetch_k_val,
+                        access_filter=access_filter,
+                        visibility_conditions=visibility_conditions,
+                        user_id=bench_ctx.user_id,
+                        user_group_ids=bench_ctx.user_group_ids,
                     )
                     answer, rag_response = await asyncio.to_thread(
                         get_rag_answer_with_usage, rag_llm, docs_with_scores, q["question"]

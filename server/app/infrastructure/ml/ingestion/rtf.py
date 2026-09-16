@@ -9,7 +9,7 @@ from pathlib import Path
 from striprtf.striprtf import rtf_to_text
 
 # Re-export walker internals for backward compatibility (tests import these)
-from infrastructure.ml.ingestion._rtf_walker import (  # noqa: F401
+from infrastructure.ml.ingestion.rtf_walker import (  # noqa: F401
     _Paragraph,
     _Segment,
     _Table,

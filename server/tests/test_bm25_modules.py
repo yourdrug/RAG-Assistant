@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-from infrastructure.bm25._stemmer import stem_token  # noqa: E402
+from infrastructure.bm25.stemmer import stem_token  # noqa: E402
 from infrastructure.bm25.bm25_index import BM25Index  # noqa: E402
 
 

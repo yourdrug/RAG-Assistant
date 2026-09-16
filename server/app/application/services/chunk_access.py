@@ -79,9 +79,7 @@ async def load_doc_for_add(
         raise EntityNotFound("Document", document_id)
 
     if doc.status not in (DocumentStatus.DONE, DocumentStatus.INDEXING):
-        raise BusinessRuleViolation(
-            "Can only add chunks to documents with status 'done' or 'indexing'"
-        )
+        raise BusinessRuleViolation("Can only add chunks to documents with status 'done' or 'indexing'")
 
     role = UserRole(user_role)
     factory = user_ctx_factory or _default_factory

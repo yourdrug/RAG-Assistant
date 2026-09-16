@@ -223,3 +223,40 @@ def create_config_masker(request: Request):
 
 def create_log_buffer(request: Request):
     return _create_container(request).infrastructure.log_buffer
+
+
+# ---------------------------------------------------------------------------
+# Route config dataclasses (typed, immutable config for presentation layer)
+# ---------------------------------------------------------------------------
+
+
+def create_upload_config(request: Request):
+    from application.ports.route_configs import UploadConfig
+
+    s = _create_container(request).infrastructure.domain_settings
+    return UploadConfig(max_upload_size_mb=s.max_upload_size_mb)
+
+
+def create_benchmark_config(request: Request):
+    from application.ports.route_configs import BenchmarkConfig
+
+    s = _create_container(request).infrastructure.domain_settings
+    return BenchmarkConfig(
+        data_dir=s.data_dir,
+        retriever_top_k=s.retriever_top_k,
+        llm_model=s.llm_model,
+    )
+
+
+def create_cache_config(request: Request):
+    from application.ports.route_configs import CacheConfig
+
+    s = _create_container(request).infrastructure.domain_settings
+    return CacheConfig(cache_enabled=s.cache_enabled)
+
+
+def create_storage_config(request: Request):
+    from application.ports.route_configs import StorageConfig
+
+    s = _create_container(request).infrastructure.domain_settings
+    return StorageConfig(file_backend=s.file_backend, redis_url=s.redis_url)

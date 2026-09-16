@@ -3,56 +3,29 @@
 from __future__ import annotations
 
 import logging
-from datetime import date
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
 
 from application.services.act_versioning_service import ActVersioningService
 
 from presentation.api.auth_dependencies import require_admin
 from presentation.api.dependencies import create_act_versioning_service
+from presentation.api.schemas import (
+    ActVersionListResponse,
+    ActVersionReviewItem,
+    ActVersionUpdateRequest,
+    CurrentUser,
+)
 
 logger = logging.getLogger("default")
 
 router = APIRouter(tags=["admin-act-versions"])
 
 
-class ActVersionReviewItem(BaseModel):
-    id: int
-    act_id: int | None
-    document_id: int
-    document_filename: str
-    effective_from: date | None
-    effective_to: date | None
-    is_current: bool
-    date_source: str
-    date_confidence: float | None
-
-
-class ActSummary(BaseModel):
-    id: int
-    act_type: str
-    act_number: str | None
-    title: str
-
-
-class ActVersionListResponse(BaseModel):
-    versions: list[ActVersionReviewItem]
-    total: int
-    acts: list[ActSummary] = []
-
-
-class ActVersionUpdateRequest(BaseModel):
-    effective_from: date | None = None
-    effective_to: date | None = None
-    act_id: int | None = None
-
-
 @router.get("/admin/act-versions", response_model=ActVersionListResponse)
 async def list_act_versions(
     review: str | None = None,
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     service: ActVersioningService = Depends(create_act_versioning_service),
 ):
     """List act versions pending review (date_source='extracted' or act_id IS NULL)."""
@@ -90,7 +63,7 @@ async def list_act_versions(
 async def update_act_version(
     version_id: int,
     body: ActVersionUpdateRequest,
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     service: ActVersioningService = Depends(create_act_versioning_service),
 ):
     """Update act version dates/linkage. Sets date_source='manual'."""
@@ -99,6 +72,6 @@ async def update_act_version(
         effective_from=body.effective_from,
         effective_to=body.effective_to,
         act_id=body.act_id,
-        verified_by=admin["id"],
+        verified_by=admin.id,
     )
     return {"status": "updated", "version_id": version_id}

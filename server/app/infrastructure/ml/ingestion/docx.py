@@ -40,7 +40,7 @@ def _paragraph_full_text(paragraph) -> str:
 
 # --- Numbering format resolution — delegated to _docx_numbering ---
 
-from infrastructure.ml.ingestion._docx_numbering import (  # noqa: E402, F401
+from infrastructure.ml.ingestion.docx_numbering import (  # noqa: E402, F401
     _get_numbering_formats,
     _ListNumberer,
     _paragraph_list_info,

@@ -6,7 +6,6 @@ import asyncio
 import json
 import logging
 
-from application.dto.benchmark_dto import BenchmarkQuestionCreateDTO, SweepCreateDTO
 from application.services.benchmark_services import (
     BenchmarkQuestionService,
     BenchmarkRunService,
@@ -17,10 +16,6 @@ from application.services.benchmark_result_service import BenchmarkResultService
 from application.services.config_service import ConfigService
 from application.services.document_service import DocumentService
 from application.services.job_service import JobService
-from config import settings
-from domain.entities.benchmark_question import BenchmarkQuestion
-from domain.entities.benchmark_run import BenchmarkRun
-from domain.entities.benchmark_sweep import BenchmarkSweep
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 
@@ -31,6 +26,7 @@ from presentation.api.constants import (
     SSE_MEDIA_TYPE,
 )
 from presentation.api.dependencies import (
+    create_benchmark_config,
     create_benchmark_history_port,
     create_benchmark_question_service,
     create_benchmark_result_service,
@@ -40,6 +36,14 @@ from presentation.api.dependencies import (
     create_document_service,
     create_job_enqueuer,
     create_job_service,
+    create_storage_config,
+)
+from presentation.api.helpers import (
+    question_create_to_dto,
+    question_to_response,
+    run_to_response,
+    sweep_create_to_dto,
+    sweep_to_response,
 )
 from presentation.api.schemas import (
     BenchmarkHistoryPoint,
@@ -52,6 +56,7 @@ from presentation.api.schemas import (
     BenchmarkQuestionUpdate,
     BenchmarkRunResponse,
     BenchmarkRunsListResponse,
+    CurrentUser,
     RegressionCheckResponse,
     RegressionCheckResult,
     RunApplyFailed,
@@ -68,84 +73,6 @@ router = APIRouter(tags=["benchmark-admin"])
 
 
 # ---------------------------------------------------------------------------
-# Helpers — response mapping
-# ---------------------------------------------------------------------------
-
-
-def _question_create_to_dto(body: BenchmarkQuestionCreate) -> BenchmarkQuestionCreateDTO:
-    return BenchmarkQuestionCreateDTO(
-        question=body.question,
-        expected_answer=body.expected_answer,
-        source_hint=body.source_hint,
-        tags=body.tags,
-        dataset=body.dataset,
-        notes=body.notes,
-    )
-
-
-def _sweep_create_to_dto(body: SweepCreateRequest) -> SweepCreateDTO:
-    return SweepCreateDTO(
-        strategy=body.strategy,
-        search_space=body.search_space,
-        objective_weights=body.objective_weights,
-        dataset=body.dataset,
-        top_n_llm=body.top_n_llm,
-    )
-
-
-def _question_to_response(q: BenchmarkQuestion) -> BenchmarkQuestionResponse:
-    if q.id is None:
-        raise RuntimeError("BenchmarkQuestion saved with None id")
-    return BenchmarkQuestionResponse(
-        id=q.id,
-        question=q.question,
-        expected_answer=q.expected_answer,
-        source_hint=q.source_hint,
-        tags=q.tags,
-        dataset=q.dataset,
-        is_active=q.is_active,
-        created_by=q.created_by,
-        notes=q.notes,
-        creation_date=q.creation_date,
-    )
-
-
-def _run_to_response(r: BenchmarkRun) -> BenchmarkRunResponse:
-    if r.id is None:
-        raise RuntimeError("BenchmarkRun saved with None id")
-    return BenchmarkRunResponse(
-        id=r.id,
-        sweep_id=r.sweep_id,
-        config_json=r.config_json,
-        summary_metrics=r.summary_metrics,
-        duration_sec=r.duration_sec,
-        llm_evaluated=r.llm_evaluated,
-        dataset=r.dataset,
-        filename=r.filename,
-        creation_date=r.creation_date,
-    )
-
-
-def _sweep_to_response(s: BenchmarkSweep, *, job_id: int | None = None) -> SweepResponse:
-    if s.id is None:
-        raise RuntimeError("BenchmarkSweep saved with None id")
-    return SweepResponse(
-        id=s.id,
-        status=s.status,
-        strategy=s.strategy,
-        search_space=s.search_space,
-        objective_weights=s.objective_weights,
-        dataset=s.dataset,
-        top_n_llm=s.top_n_llm,
-        total_configs=s.total_configs,
-        evaluated_configs=s.evaluated_configs,
-        best_run_id=s.best_run_id,
-        job_id=job_id if job_id is not None else s.job_id,
-        creation_date=s.creation_date,
-    )
-
-
-# ---------------------------------------------------------------------------
 # Questions CRUD
 # ---------------------------------------------------------------------------
 
@@ -158,14 +85,14 @@ async def list_questions(
     is_active: bool | None = None,
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     service: BenchmarkQuestionService = Depends(create_benchmark_question_service),
 ):
     questions, total = await service.list(
         dataset=dataset, tag=tag, search=search, is_active=is_active, limit=limit, offset=offset
     )
     return BenchmarkQuestionsListResponse(
-        questions=[_question_to_response(q) for q in questions],
+        questions=[question_to_response(q) for q in questions],
         total=total,
     )
 
@@ -173,29 +100,29 @@ async def list_questions(
 @router.post("/admin/benchmark/questions", response_model=BenchmarkQuestionResponse)
 async def create_question(
     body: BenchmarkQuestionCreate,
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     service: BenchmarkQuestionService = Depends(create_benchmark_question_service),
 ):
-    created = await service.create(_question_create_to_dto(body), created_by=admin["id"])
-    return _question_to_response(created)
+    created = await service.create(question_create_to_dto(body), created_by=admin.id)
+    return question_to_response(created)
 
 
 @router.put("/admin/benchmark/questions/{question_id}", response_model=BenchmarkQuestionResponse)
 async def update_question(
     question_id: int,
     body: BenchmarkQuestionUpdate,
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     service: BenchmarkQuestionService = Depends(create_benchmark_question_service),
 ):
     fields = body.model_dump(exclude_unset=True)
     updated = await service.update(question_id, fields)
-    return _question_to_response(updated)
+    return question_to_response(updated)
 
 
 @router.delete("/admin/benchmark/questions/{question_id}")
 async def delete_question(
     question_id: int,
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     service: BenchmarkQuestionService = Depends(create_benchmark_question_service),
 ):
     await service.delete(question_id)
@@ -205,11 +132,11 @@ async def delete_question(
 @router.post("/admin/benchmark/questions/import", response_model=BenchmarkQuestionsImportResponse)
 async def import_questions(
     body: BenchmarkQuestionsImportRequest,
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     service: BenchmarkQuestionService = Depends(create_benchmark_question_service),
 ):
     count = await service.bulk_create(
-        [_question_create_to_dto(q) for q in body.questions], created_by=admin["id"]
+        [question_create_to_dto(q) for q in body.questions], created_by=admin.id
     )
     return BenchmarkQuestionsImportResponse(imported=count)
 
@@ -217,7 +144,7 @@ async def import_questions(
 @router.get("/admin/benchmark/questions/export")
 async def export_questions(
     dataset: str | None = None,
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     service: BenchmarkQuestionService = Depends(create_benchmark_question_service),
 ):
     questions = await service.export(dataset=dataset)
@@ -237,7 +164,7 @@ async def export_questions(
 @router.get("/admin/benchmark/source-files")
 async def list_source_files(
     search: str | None = None,
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     document_service: DocumentService = Depends(create_document_service),
 ):
     """Return distinct indexed document filenames for source_hint picker."""
@@ -253,12 +180,12 @@ async def list_source_files(
 @router.post("/admin/benchmark/sweep", response_model=SweepResponse)
 async def create_sweep(
     body: SweepCreateRequest,
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     service: BenchmarkSweepService = Depends(create_benchmark_sweep_service),
     job_service: JobService = Depends(create_job_service),
     job_enqueuer=Depends(create_job_enqueuer),
 ):
-    sweep = await service.create(_sweep_create_to_dto(body))
+    sweep = await service.create(sweep_create_to_dto(body))
 
     job_id = await job_service.create_job(JobType.SWEEP, related_id=sweep.id)
     if sweep.id is None:
@@ -268,29 +195,29 @@ async def create_sweep(
 
     await job_enqueuer.enqueue_sweep(sweep_id=sweep.id, job_id=job_id)
 
-    return _sweep_to_response(sweep, job_id=job_id)
+    return sweep_to_response(sweep, job_id=job_id)
 
 
 @router.get("/admin/benchmark/sweep/{sweep_id}", response_model=SweepResponse)
 async def get_sweep(
     sweep_id: int,
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     service: BenchmarkSweepService = Depends(create_benchmark_sweep_service),
 ):
     sweep = await service.get(sweep_id)
-    return _sweep_to_response(sweep)
+    return sweep_to_response(sweep)
 
 
 @router.get("/admin/benchmark/sweeps", response_model=SweepsListResponse)
 async def list_sweeps(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     service: BenchmarkSweepService = Depends(create_benchmark_sweep_service),
 ):
     sweeps, total = await service.list(limit=limit, offset=offset)
     return SweepsListResponse(
-        sweeps=[_sweep_to_response(s) for s in sweeps],
+        sweeps=[sweep_to_response(s) for s in sweeps],
         total=total,
     )
 
@@ -298,7 +225,8 @@ async def list_sweeps(
 @router.get("/admin/benchmark/sweep/{sweep_id}/stream")
 async def sweep_progress_stream(
     sweep_id: int,
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
+    storage_cfg=Depends(create_storage_config),
 ):
     """SSE stream: live progress + new results as they complete."""
 
@@ -307,7 +235,7 @@ async def sweep_progress_stream(
             from arq import create_pool
             from arq.connections import RedisSettings
 
-            redis_settings = RedisSettings.from_dsn(settings.redis_url)
+            redis_settings = RedisSettings.from_dsn(storage_cfg.redis_url)
             pool = await create_pool(redis_settings)
             try:
                 pubsub = pool.pubsub()
@@ -348,7 +276,7 @@ async def sweep_progress_stream(
 @router.post("/admin/benchmark/sweep/{sweep_id}/cancel")
 async def cancel_sweep(
     sweep_id: int,
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     service: BenchmarkSweepService = Depends(create_benchmark_sweep_service),
 ):
     await service.cancel(sweep_id)
@@ -368,7 +296,7 @@ async def list_runs(
     sort_order: str = Query("desc", pattern="^(asc|desc)$"),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     service: BenchmarkRunService = Depends(create_benchmark_run_service),
 ):
     runs, total = await service.list(
@@ -380,7 +308,7 @@ async def list_runs(
         offset=offset,
     )
     return BenchmarkRunsListResponse(
-        runs=[_run_to_response(r) for r in runs],
+        runs=[run_to_response(r) for r in runs],
         total=total,
     )
 
@@ -388,22 +316,22 @@ async def list_runs(
 @router.get("/admin/benchmark/runs/{run_id}", response_model=BenchmarkRunResponse)
 async def get_run(
     run_id: int,
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     service: BenchmarkRunService = Depends(create_benchmark_run_service),
 ):
     run = await service.get(run_id)
-    return _run_to_response(run)
+    return run_to_response(run)
 
 
 @router.post("/admin/benchmark/runs/{run_id}/apply", response_model=RunApplyResponse)
 async def apply_run_config(
     run_id: int,
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     service: BenchmarkRunService = Depends(create_benchmark_run_service),
     config_service: ConfigService = Depends(create_config_service),
 ):
     """Apply a run's config_json to the live system via ConfigService."""
-    result = await service.apply_config(run_id, admin["id"], config_service)
+    result = await service.apply_config(run_id, admin.id, config_service)
     return RunApplyResponse(
         applied=result.applied,
         keys=result.keys,
@@ -414,7 +342,7 @@ async def apply_run_config(
 @router.get("/admin/benchmark/runs/compare", response_model=RunCompareResponse)
 async def compare_runs(
     ids: str = Query(..., description="Comma-separated run IDs"),
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     service: BenchmarkRunService = Depends(create_benchmark_run_service),
 ):
     """Compare multiple benchmark runs side by side."""
@@ -423,7 +351,7 @@ async def compare_runs(
     runs, diff = await service.compare(id_list)
 
     return RunCompareResponse(
-        runs=[_run_to_response(r) for r in runs],
+        runs=[run_to_response(r) for r in runs],
         diff=diff,
     )
 
@@ -439,7 +367,7 @@ async def benchmark_history(
     dataset: str | None = None,
     days: int = Query(30, ge=1, le=365),
     limit: int = Query(100, ge=1, le=1000),
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     service: BenchmarkRunService = Depends(create_benchmark_run_service),
 ):
     """Get benchmark history as time-series data for trend charts."""
@@ -469,14 +397,13 @@ async def regression_check(
         None,
         description="DB run ID to check; if omitted, compares last two history entries",
     ),
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     result_service: BenchmarkResultService = Depends(create_benchmark_result_service),
     history_port=Depends(create_benchmark_history_port),
+    bench_cfg=Depends(create_benchmark_config),
 ):
     """Check for regression: compare a run (or latest) against the last baseline."""
-    from config import settings
-
-    data_dir = str(settings.data_dir)
+    data_dir = str(bench_cfg.data_dir)
     output = await result_service.check_regression(run_id, history_port, data_dir)
     return RegressionCheckResponse(
         passed=output.passed,

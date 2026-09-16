@@ -29,8 +29,9 @@ class ChunkSearchAdapter:
                 mode=mode,
             )
 
-    async def get_neighbors(self, document_id, center_index, window=1, exclude_hashes=None,
-                            user=None, group_ids=None):
+    async def get_neighbors(
+        self, document_id, center_index, window=1, exclude_hashes=None, *, user, group_ids=None
+    ):
         async with self._uow_factory.create() as uow:
             return await uow.chunks.get_neighbors(
                 document_id=document_id,
@@ -41,8 +42,9 @@ class ChunkSearchAdapter:
                 group_ids=group_ids,
             )
 
-    async def get_table_batches(self, document_id, anchor_index, exclude_hashes=None,
-                                user=None, group_ids=None):
+    async def get_table_batches(
+        self, document_id, anchor_index, exclude_hashes=None, *, user, group_ids=None
+    ):
         async with self._uow_factory.create() as uow:
             return await uow.chunks.get_table_batches(
                 document_id=document_id,

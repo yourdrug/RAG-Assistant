@@ -13,6 +13,12 @@ from presentation.api.schemas.admin_config import (
     VectorDBCollectionInfo,
     VectorDBInfoResponse,
 )
+from presentation.api.schemas.admin_act_versions import (
+    ActSummary,
+    ActVersionListResponse,
+    ActVersionReviewItem,
+    ActVersionUpdateRequest,
+)
 from presentation.api.schemas.admin_jobs import JobResponse, JobsListResponse, JobsStatsResponse
 from presentation.api.schemas.admin_logs import (
     ChatLogEntry,
@@ -29,12 +35,14 @@ from presentation.api.schemas.admin_quality import (
     DryRunResponse,
     PageDiagnostic,
     PageImageResponse,
+    PreviewFile,
 )
 from presentation.api.schemas.api_keys import ApiKeyCreateRequest, ApiKeyCreateResponse, ApiKeyResponse
 from presentation.api.schemas.auth import (
     ChangeRoleRequest,
     CreateUserRequest,
     CuratorScopeResponse,
+    CurrentUser,
     LoginRequest,
     TokenResponse,
     UserListResponse,
@@ -97,8 +105,14 @@ from presentation.api.schemas.groups import (
 from presentation.api.schemas.health import HealthCheck, HealthResponse
 from presentation.api.schemas.ingest import IngestRegistryItem, IngestRegistryResponse, IngestStatusResponse
 from presentation.api.schemas.search import ExactSearchRequest, ExactSearchResponse, ExactSearchResult
+from presentation.api.schemas.validators import FileContent, SafeRelativePath
 
 __all__ = [
+    # admin_act_versions
+    "ActSummary",
+    "ActVersionListResponse",
+    "ActVersionReviewItem",
+    "ActVersionUpdateRequest",
     # admin_config
     "ConfigParamResponse",
     "ConfigParamUpdateRequest",
@@ -126,6 +140,7 @@ __all__ = [
     "DryRunResponse",
     "PageDiagnostic",
     "PageImageResponse",
+    "PreviewFile",
     # api_keys
     "ApiKeyCreateRequest",
     "ApiKeyCreateResponse",
@@ -134,6 +149,7 @@ __all__ = [
     "ChangeRoleRequest",
     "CreateUserRequest",
     "CuratorScopeResponse",
+    "CurrentUser",
     "LoginRequest",
     "TokenResponse",
     "UserListResponse",
@@ -198,4 +214,7 @@ __all__ = [
     "ExactSearchRequest",
     "ExactSearchResponse",
     "ExactSearchResult",
+    # validators
+    "FileContent",
+    "SafeRelativePath",
 ]

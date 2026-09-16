@@ -28,7 +28,7 @@ from domain.value_objects.llm_provider import BREADTH_ALIASES, Breadth, LLMProvi
 from domain.value_objects.stream_events import SourcesEvent, StreamEvent, TextChunk
 
 from config import settings
-from infrastructure.ml.rag._helpers import (
+from infrastructure.ml.rag.helpers import (
     apply_exact_search,
     assess_sufficiency,
     domain_prompt_addendum,

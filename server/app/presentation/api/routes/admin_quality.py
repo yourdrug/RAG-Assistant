@@ -7,7 +7,6 @@ import base64
 import logging
 from pathlib import Path
 
-from config import settings
 from domain.value_objects.file_backend import FileBackend
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
@@ -16,12 +15,7 @@ from application.services.quality_service import QualityService
 from infrastructure.ml.preview.factory import PreviewStrategyFactory
 
 from presentation.api.auth_dependencies import require_admin
-from presentation.api.constants import (
-    FILE_TOO_LARGE_STATUS,
-    PAGE_IMAGE_DPI,
-    PAGE_PREVIEW_MAX_CHARS,
-    QUALITY_BAD_RATIO_THRESHOLD,
-)
+from presentation.api.constants import FILE_TOO_LARGE_STATUS, PAGE_IMAGE_DPI
 from presentation.api.dependencies import (
     create_action_logger,
     create_document_service,
@@ -32,115 +26,26 @@ from presentation.api.dependencies import (
     create_pdf_diagnostic_service,
     create_preview_cache,
     create_quality_service,
+    create_storage_config,
 )
-from presentation.api.helpers import upload_and_enqueue
+from presentation.api.helpers import (
+    build_dry_run_response,
+    compute_quality_warning,
+    upload_and_enqueue,
+)
 from presentation.api.schemas import (
+    CurrentUser,
     DocumentDiagnoseResponse,
     DocumentQualityItem,
     DocumentQualityListResponse,
-    DryRunPageResult,
     DryRunResponse,
     PageDiagnostic,
     PageImageResponse,
+    PreviewFile,
 )
 
 logger = logging.getLogger("default")
 router = APIRouter(tags=["admin-quality"])
-
-IMAGE_AVAILABLE = settings.file_backend == FileBackend.S3.value
-
-_DRY_RUN_EXTENSIONS = {".pdf", ".docx", ".doc", ".rtf"}
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-async def _validate_upload(file: UploadFile, diag_service: PDFDiagnosticService) -> bytes:
-    """Validate uploaded file is a supported format and within size limits. Returns file data."""
-    filename = file.filename or "unnamed"
-    ext = Path(filename).suffix.lower()
-    if ext not in _DRY_RUN_EXTENSIONS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported file type: {ext}. Supported: {', '.join(sorted(_DRY_RUN_EXTENSIONS))}",
-        )
-    if ext == ".doc":
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Файлы .doc (старый формат Word 97-2003) не поддерживаются. "
-                "Конвертируйте файл в .docx и повторите попытку."
-            ),
-        )
-    data = await file.read()
-    if len(data) > diag_service._max_bytes:
-        raise HTTPException(
-            status_code=FILE_TOO_LARGE_STATUS,
-            detail="File too large for dry-run (max 50 MB)",
-        )
-    return data
-
-
-def _compute_quality_warning(page_results: list, types_count: dict, warning_prefix: str) -> str | None:
-    """Compute quality warning from page analysis results."""
-    total = len(page_results)
-    bad = types_count.get("scan", 0) + types_count.get("garbled", 0) + types_count.get("empty", 0)
-    bad_ratio = bad / total if total else 0.0
-    if bad_ratio > QUALITY_BAD_RATIO_THRESHOLD:
-        return (
-            f"{warning_prefix}: {types_count.get('scan', 0)} scan + "
-            f"{types_count.get('garbled', 0)} garbled + "
-            f"{types_count.get('empty', 0)} empty "
-            f"out of {total} units ({bad_ratio:.0%} bad)"
-        )
-    return None
-
-
-def _build_dry_run_response(
-    filename: str,
-    page_results: list,
-    types_count: dict,
-    total_chars: int,
-    warning: str | None,
-    *,
-    preview_id: str | None = None,
-    suggestion: str | None = None,
-) -> DryRunResponse:
-    """Build DryRunResponse from page analysis results."""
-    total_pages = len(page_results)
-    bad = types_count.get("scan", 0) + types_count.get("garbled", 0) + types_count.get("empty", 0)
-    bad_ratio = bad / total_pages if total_pages else 0.0
-    text_previews = (p.preview for p in page_results if p.type == "text")
-    full_text_preview = "\n\n".join(text_previews)[:PAGE_PREVIEW_MAX_CHARS]
-    return DryRunResponse(
-        filename=filename,
-        total_pages=total_pages,
-        pages=[
-            DryRunPageResult(
-                page=p.page,
-                type=p.type,
-                content_type=p.content_type,
-                chars=p.chars,
-                preview=p.preview,
-                full_text=p.full_text,
-                problem_spans=p.problem_spans,
-                previous_type=p.previous_type,
-                image_available=IMAGE_AVAILABLE and p.unit_kind == "page",
-                unit_kind=p.unit_kind,
-                label=p.label,
-            )
-            for p in page_results
-        ],
-        total_chars=total_chars,
-        quality_score=bad_ratio,
-        warning=warning,
-        full_text_preview=full_text_preview,
-        summary=types_count,
-        preview_id=preview_id,
-        suggestion=suggestion,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -150,7 +55,7 @@ def _build_dry_run_response(
 
 @router.get("/admin/documents/quality", response_model=DocumentQualityListResponse)
 async def list_quality_documents(
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     quality_service: QualityService = Depends(create_quality_service),
 ):
     """List documents with quality warnings, sorted by quality_score descending."""
@@ -177,7 +82,7 @@ async def list_quality_documents(
 @router.post("/admin/documents/{document_id}/diagnose", response_model=DocumentDiagnoseResponse)
 async def diagnose_document(
     document_id: int,
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     diag_service: PDFDiagnosticService = Depends(create_pdf_diagnostic_service),
     quality_service: QualityService = Depends(create_quality_service),
 ):
@@ -208,21 +113,33 @@ async def diagnose_document(
 @router.post("/admin/documents/preview", response_model=DryRunResponse)
 async def dry_run_preview(
     file: UploadFile = File(...),
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     diag_service: PDFDiagnosticService = Depends(create_pdf_diagnostic_service),
     preview_cache=Depends(create_preview_cache),
     domain_registry=Depends(create_domain_registry),
     domain_settings=Depends(create_domain_settings),
+    storage_cfg=Depends(create_storage_config),
 ):
     """Phase 1: Fast dry-run — text layer only, no OCR."""
-    data = await _validate_upload(file, diag_service)
-
     filename = file.filename or "unnamed"
+    try:
+        PreviewFile(filename=filename)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    data = await file.read()
+    if len(data) > diag_service._max_bytes:
+        raise HTTPException(
+            status_code=FILE_TOO_LARGE_STATUS,
+            detail="File too large for dry-run (max 50 MB)",
+        )
+
     ext = Path(filename).suffix.lower()
 
     try:
         strategy = PreviewStrategyFactory.for_extension(
-            ext, diag_service=diag_service,
+            ext,
+            diag_service=diag_service,
             domain_registry=domain_registry,
             domain_settings=domain_settings,
         )
@@ -237,9 +154,9 @@ async def dry_run_preview(
         # PyMuPDF over every page is CPU-heavy: run in a worker thread so the
         # event loop (single uvicorn process) stays responsive.
         page_results, types_count, total_chars = await asyncio.to_thread(strategy.analyze, tmp_path)
-        warning = _compute_quality_warning(page_results, types_count, "Low quality")
+        warning = compute_quality_warning(page_results, types_count, "Low quality")
         suggestion = PDFDiagnosticService.suggest_action(page_results, types_count)
-        return _build_dry_run_response(
+        return build_dry_run_response(
             filename,
             page_results,
             types_count,
@@ -247,6 +164,7 @@ async def dry_run_preview(
             warning,
             preview_id=preview_id,
             suggestion=suggestion,
+            image_available=storage_cfg.file_backend == FileBackend.S3.value,
         )
 
 
@@ -260,11 +178,12 @@ async def dry_run_ocr_phase2(
     file: UploadFile = File(None),
     preview_id: str = Form(""),
     pages: str = Form(""),
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     diag_service: PDFDiagnosticService = Depends(create_pdf_diagnostic_service),
     preview_cache=Depends(create_preview_cache),
     domain_registry=Depends(create_domain_registry),
     domain_settings=Depends(create_domain_settings),
+    storage_cfg=Depends(create_storage_config),
 ):
     """Phase 2: Run OCR on specific problem units and return updated results.
 
@@ -283,7 +202,8 @@ async def dry_run_ocr_phase2(
         ext = Path(fname).suffix.lower()
         try:
             strategy = PreviewStrategyFactory.for_extension(
-                ext, diag_service=diag_service,
+                ext,
+                diag_service=diag_service,
                 domain_registry=domain_registry,
                 domain_settings=domain_settings,
             )
@@ -298,9 +218,9 @@ async def dry_run_ocr_phase2(
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
 
-        warning = _compute_quality_warning(page_results, types_count, "Still low quality after OCR")
+        warning = compute_quality_warning(page_results, types_count, "Still low quality after OCR")
         suggestion = PDFDiagnosticService.suggest_action(page_results, types_count)
-        return _build_dry_run_response(
+        return build_dry_run_response(
             fname,
             page_results,
             types_count,
@@ -308,6 +228,7 @@ async def dry_run_ocr_phase2(
             warning,
             preview_id=effective_preview_id,
             suggestion=suggestion,
+            image_available=storage_cfg.file_backend == FileBackend.S3.value,
         )
 
     # Resolve the file: cached file takes precedence over a fresh upload
@@ -323,15 +244,36 @@ async def dry_run_ocr_phase2(
             status_code=400,
             detail="Provide either a file upload or a valid preview_id",
         )
-    data = await _validate_upload(file, diag_service)
+    return await _run_ocr_from_upload(file, diag_service, preview_cache, _run_ocr)
+
+
+async def _run_ocr_from_upload(
+    file: UploadFile,
+    diag_service: PDFDiagnosticService,
+    preview_cache,
+    run_ocr_fn,
+) -> DryRunResponse:
+    """Handle fresh file upload for OCR: validate, cache, run OCR."""
     fname = file.filename or "unnamed"
+    try:
+        PreviewFile(filename=fname)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    data = await file.read()
+    if len(data) > diag_service._max_bytes:
+        raise HTTPException(
+            status_code=FILE_TOO_LARGE_STATUS,
+            detail="File too large for dry-run (max 50 MB)",
+        )
+
     ext = Path(fname).suffix.lower()
     new_preview_id = await preview_cache.store(data, suffix=ext, original_filename=fname)
 
     async with preview_cache.get_path(new_preview_id) as tmp_path:
         if tmp_path is None:
             raise HTTPException(status_code=500, detail="Failed to store preview")
-        return await _run_ocr(tmp_path, new_preview_id, fname)
+        return await run_ocr_fn(tmp_path, new_preview_id, fname)
 
 
 # ---------------------------------------------------------------------------
@@ -358,12 +300,13 @@ def _render_page_image_sync(diag_service: PDFDiagnosticService, tmp_path: Path, 
 async def get_page_image(
     preview_id: str = Form(...),
     page: int = Form(...),
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     diag_service: PDFDiagnosticService = Depends(create_pdf_diagnostic_service),
     preview_cache=Depends(create_preview_cache),
+    storage_cfg=Depends(create_storage_config),
 ):
     """Render a single page of the cached PDF as a PNG image (base64-encoded)."""
-    if not IMAGE_AVAILABLE:
+    if storage_cfg.file_backend != FileBackend.S3.value:
         raise HTTPException(
             status_code=404,
             detail="Page image rendering is not available (requires S3 storage backend)",
@@ -396,7 +339,7 @@ async def index_from_preview(
     group_id: int | None = Form(None),
     client_id: int | None = Form(None),
     doc_domain: str | None = Form(None),
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     preview_cache=Depends(create_preview_cache),
     document_service=Depends(create_document_service),
     job_service=Depends(create_job_service),
@@ -422,9 +365,9 @@ async def index_from_preview(
         visibility=visibility,
         group_id=group_id,
         client_id=client_id,
-        user_id=admin["id"],
-        user_kind=admin["kind"],
-        user_role=admin["role"],
+        user_id=admin.id,
+        user_kind=admin.kind,
+        user_role=admin.role,
         rename_on_conflict=False,
         doc_domain=doc_domain,
         document_service=document_service,

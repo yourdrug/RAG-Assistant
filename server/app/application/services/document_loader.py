@@ -74,10 +74,7 @@ class S3DocumentLoader:
         """Split parsed documents into chunks via splitter port."""
         context = SplitContext(domain="general")
         return self._splitter.split(
-            [
-                RawDocument(page_content=d.page_content, metadata=dict(d.metadata))
-                for d in docs
-            ],
+            [RawDocument(page_content=d.page_content, metadata=dict(d.metadata)) for d in docs],
             context,
         )
 
@@ -91,10 +88,7 @@ class S3DocumentLoader:
             legal_mode=(domain == DocDomain.LEGAL.value),
         )
         chunks = self._splitter.split(
-            [
-                RawDocument(page_content=d.page_content, metadata=dict(d.metadata))
-                for d in docs
-            ],
+            [RawDocument(page_content=d.page_content, metadata=dict(d.metadata)) for d in docs],
             context,
         )
         tag_chunks(chunks)
@@ -143,8 +137,10 @@ class S3DocumentLoader:
 
         for i, file_item in enumerate(items, 1):
             tag = f"[{i:>3}/{len(items)}]"
-            if not force and self._registry is not None and await self._registry.is_indexed(
-                file_item.filename, s3_file_hash(file_item)
+            if (
+                not force
+                and self._registry is not None
+                and await self._registry.is_indexed(file_item.filename, s3_file_hash(file_item))
             ):
                 log.info("%s CACHED  %s", tag, file_item.filename)
                 skipped_cached += 1

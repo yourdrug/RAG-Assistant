@@ -23,7 +23,7 @@ from presentation.api.constants import (
 )
 from presentation.api.dependencies import create_action_logger, create_chat_service
 from presentation.api.helpers import filter_sources
-from presentation.api.schemas import ChatRequest, ChatResponse
+from presentation.api.schemas import ChatRequest, ChatResponse, CurrentUser
 
 router = APIRouter(tags=["chat"])
 
@@ -58,7 +58,7 @@ def _format_sse_event(event, req_id: str) -> str | None:
 async def chat_stream(
     req: ChatRequest,
     request: Request,
-    current_user: dict = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     chat_service: ChatService = Depends(create_chat_service),
     log=Depends(create_action_logger),
 ):
@@ -69,7 +69,7 @@ async def chat_stream(
 
     log(
         "chat",
-        user_id=current_user["id"],
+        user_id=current_user.id,
         details={
             "question": req.question[:QUESTION_LOG_MAX_CHARS],
             "request_id": req_id,
@@ -83,9 +83,9 @@ async def chat_stream(
             async for event in chat_service.stream_chat(
                 req.question,
                 req.conversation_id,
-                current_user["id"],
-                current_user["kind"],
-                current_user["role"],
+                current_user.id,
+                current_user.kind,
+                current_user.role,
                 depth=req.depth,
                 as_of_date=req.as_of_date,
             ):
@@ -117,7 +117,7 @@ async def chat_stream(
 @router.post("/chat/sync", response_model=ChatResponse)
 async def chat_sync(
     req: ChatRequest,
-    current_user: dict = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     chat_service: ChatService = Depends(create_chat_service),
     log=Depends(create_action_logger),
 ):
@@ -129,7 +129,7 @@ async def chat_sync(
     try:
         log(
             "chat.sync",
-            user_id=current_user["id"],
+            user_id=current_user.id,
             details={
                 "question": req.question[:QUESTION_LOG_MAX_CHARS],
                 "request_id": req_id,
@@ -139,9 +139,9 @@ async def chat_sync(
         result = await chat_service.sync_chat(
             req.question,
             req.conversation_id,
-            current_user["id"],
-            current_user["kind"],
-            current_user["role"],
+            current_user.id,
+            current_user.kind,
+            current_user.role,
             depth=req.depth,
             as_of_date=req.as_of_date,
         )

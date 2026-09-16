@@ -23,6 +23,7 @@ from infrastructure.repositories.vector.acl import (  # noqa: E402
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _user(kind="internal", uid=5):
     return {"id": uid, "kind": kind, "role": "user"}
 
@@ -40,6 +41,7 @@ def _make_ml_clients(qdrant_client=None, embeddings=None, bm25_index=None):
 # ---------------------------------------------------------------------------
 # qdrant_dense_search: must-style filter must be passed to client.search
 # ---------------------------------------------------------------------------
+
 
 class TestDenseSearchACLFilter:
     def test_normal_acl_filter_passed_to_search(self):
@@ -70,8 +72,7 @@ class TestDenseSearchACLFilter:
         call_kwargs = mock_client.search.call_args
         applied_filter = call_kwargs.kwargs["query_filter"]
         assert applied_filter is not None, (
-            "Must-style filter from with_temporal_filter was dropped — "
-            "dense search ran without ACL!"
+            "Must-style filter from with_temporal_filter was dropped — " "dense search ran without ACL!"
         )
         assert applied_filter is temporal_af
 
@@ -108,6 +109,7 @@ class TestDenseSearchACLFilter:
 # ---------------------------------------------------------------------------
 # resolve_hashes_batch: must-style filter must wrap scroll_filter
 # ---------------------------------------------------------------------------
+
 
 class TestResolveHashesACLFilter:
     def test_must_style_filter_includes_acl_in_scroll(self):

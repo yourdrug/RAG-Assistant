@@ -544,7 +544,7 @@ class TestCheckRelevance:
 
 class TestAssessSufficiency:
     def test_empty_docs_returns_insufficient(self):
-        from infrastructure.ml.rag._helpers import assess_sufficiency
+        from infrastructure.ml.rag.helpers import assess_sufficiency
 
         result = asyncio.run(assess_sufficiency("question", [], None))
         assert result.is_sufficient is False
@@ -553,7 +553,7 @@ class TestAssessSufficiency:
     def test_ollama_provider_uses_llm_model(self):
         from unittest.mock import AsyncMock, MagicMock, patch
 
-        from infrastructure.ml.rag._helpers import assess_sufficiency
+        from infrastructure.ml.rag.helpers import assess_sufficiency
 
         mock_result = MagicMock()
         mock_result.is_sufficient = True
@@ -588,7 +588,7 @@ class TestAssessSufficiency:
     def test_openrouter_provider_uses_openrouter_model(self):
         from unittest.mock import AsyncMock, MagicMock, patch
 
-        from infrastructure.ml.rag._helpers import assess_sufficiency
+        from infrastructure.ml.rag.helpers import assess_sufficiency
 
         mock_result = MagicMock()
         mock_result.is_sufficient = False
@@ -1062,7 +1062,7 @@ class TestCircuitBreakerIntegration:
     async def test_assess_sufficiency_calls_breaker_check_open(self):
         from unittest.mock import AsyncMock, MagicMock, patch
 
-        from infrastructure.ml.rag._helpers import assess_sufficiency
+        from infrastructure.ml.rag.helpers import assess_sufficiency
 
         mock_breaker = MagicMock()
         mock_breaker.report_success = AsyncMock()
@@ -1097,7 +1097,7 @@ class TestCircuitBreakerIntegration:
     async def test_assess_sufficiency_calls_breaker_on_failure(self):
         from unittest.mock import AsyncMock, MagicMock, patch
 
-        from infrastructure.ml.rag._helpers import assess_sufficiency
+        from infrastructure.ml.rag.helpers import assess_sufficiency
 
         mock_breaker = MagicMock()
         mock_breaker.report_success = AsyncMock()

@@ -57,6 +57,7 @@ def _reset_breakers_between_tests():
     yield
     init_breakers(fail_max=5, timeout_duration=300)
 
+
 # Mock surya before any test module imports domain.ingestion
 _surya_mock = MagicMock()
 sys.modules.setdefault("surya", _surya_mock)

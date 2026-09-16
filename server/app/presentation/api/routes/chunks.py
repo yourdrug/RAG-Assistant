@@ -16,6 +16,7 @@ from presentation.api.schemas import (
     ChunkEditRequest,
     ChunkListResponse,
     ChunkResponse,
+    CurrentUser,
     DocumentResponse,
     ManualDocumentRequest,
 )
@@ -31,16 +32,16 @@ async def list_chunks(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     highlight: str | None = Query(None, description="Comma-separated content_hashes to filter"),
-    current_user: dict = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     chunk_service: ChunkService = Depends(create_chunk_service),
 ):
     """List chunks for a document. When highlight is set, only matching chunks are returned."""
     content_hashes = [h.strip() for h in highlight.split(",") if h.strip()] if highlight else None
     chunks, total = await chunk_service.list_chunks(
         document_id=document_id,
-        user_id=current_user["id"],
-        user_kind=current_user["kind"],
-        user_role=current_user["role"],
+        user_id=current_user.id,
+        user_kind=current_user.kind,
+        user_role=current_user.role,
         limit=limit,
         offset=offset,
         content_hashes=content_hashes,
@@ -84,16 +85,16 @@ async def list_chunks_cursor(
     cursor: str | None = Query(None, description="Opaque cursor from previous response"),
     direction: str = Query("next", pattern="^(next|prev)$"),
     highlight: str | None = Query(None, description="Comma-separated content_hashes to filter"),
-    current_user: dict = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     chunk_service: ChunkService = Depends(create_chunk_service),
 ):
     """List chunks with cursor-based (keyset) pagination."""
     content_hashes = [h.strip() for h in highlight.split(",") if h.strip()] if highlight else None
     page = await chunk_service.list_chunks_cursor(
         document_id=document_id,
-        user_id=current_user["id"],
-        user_kind=current_user["kind"],
-        user_role=current_user["role"],
+        user_id=current_user.id,
+        user_kind=current_user.kind,
+        user_role=current_user.role,
         limit=limit,
         cursor=cursor,
         direction=direction,
@@ -136,7 +137,7 @@ async def list_chunks_cursor(
 async def add_chunk(
     document_id: int,
     request: ChunkCreateRequest,
-    current_user: dict = Depends(require_capability(Capability.CHUNKS_MANAGE)),
+    current_user: CurrentUser = Depends(require_capability(Capability.CHUNKS_MANAGE)),
     chunk_service: ChunkService = Depends(create_chunk_service),
     log=Depends(create_action_logger),
 ):
@@ -144,15 +145,15 @@ async def add_chunk(
     result = await chunk_service.add_chunk(
         document_id=document_id,
         content=request.content,
-        user_id=current_user["id"],
-        user_role=current_user["role"],
+        user_id=current_user.id,
+        user_role=current_user.role,
         page=request.page,
         section=request.section,
     )
 
     log(
         "chunk.create",
-        user_id=current_user["id"],
+        user_id=current_user.id,
         details={"document_id": document_id, "chunk_id": result.id},
     )
 
@@ -171,7 +172,7 @@ async def edit_chunk(
     document_id: int,
     chunk_id: int,
     request: ChunkEditRequest,
-    current_user: dict = Depends(require_capability(Capability.CHUNKS_MANAGE)),
+    current_user: CurrentUser = Depends(require_capability(Capability.CHUNKS_MANAGE)),
     chunk_service: ChunkService = Depends(create_chunk_service),
     log=Depends(create_action_logger),
 ):
@@ -180,13 +181,13 @@ async def edit_chunk(
         document_id=document_id,
         chunk_id=chunk_id,
         content=request.content,
-        user_id=current_user["id"],
-        user_role=current_user["role"],
+        user_id=current_user.id,
+        user_role=current_user.role,
     )
 
     log(
         "chunk.edit",
-        user_id=current_user["id"],
+        user_id=current_user.id,
         details={"document_id": document_id, "chunk_id": chunk_id},
     )
 
@@ -206,7 +207,7 @@ async def edit_chunk(
 async def delete_chunk(
     document_id: int,
     chunk_id: int,
-    current_user: dict = Depends(require_capability(Capability.CHUNKS_MANAGE)),
+    current_user: CurrentUser = Depends(require_capability(Capability.CHUNKS_MANAGE)),
     chunk_service: ChunkService = Depends(create_chunk_service),
     log=Depends(create_action_logger),
 ):
@@ -214,13 +215,13 @@ async def delete_chunk(
     await chunk_service.delete_chunk(
         document_id=document_id,
         chunk_id=chunk_id,
-        user_id=current_user["id"],
-        user_role=current_user["role"],
+        user_id=current_user.id,
+        user_role=current_user.role,
     )
 
     log(
         "chunk.delete",
-        user_id=current_user["id"],
+        user_id=current_user.id,
         details={"document_id": document_id, "chunk_id": chunk_id},
     )
 
@@ -230,7 +231,7 @@ async def delete_chunk(
 @router.post("/documents/manual", response_model=DocumentResponse)
 async def create_manual_document(
     request: ManualDocumentRequest,
-    current_user: dict = Depends(require_capability(Capability.CHUNKS_MANAGE)),
+    current_user: CurrentUser = Depends(require_capability(Capability.CHUNKS_MANAGE)),
     chunk_service: ChunkService = Depends(create_chunk_service),
     log=Depends(create_action_logger),
 ):
@@ -238,15 +239,15 @@ async def create_manual_document(
     result = await chunk_service.create_manual_document(
         title=request.title,
         visibility=request.visibility,
-        user_id=current_user["id"],
-        user_kind=current_user["kind"],
-        user_role=current_user["role"],
+        user_id=current_user.id,
+        user_kind=current_user.kind,
+        user_role=current_user.role,
         group_id=request.group_id,
     )
 
     log(
         "document.create_manual",
-        user_id=current_user["id"],
+        user_id=current_user.id,
         details={"document_id": result.id, "title": request.title},
     )
 

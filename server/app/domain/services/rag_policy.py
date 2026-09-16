@@ -12,6 +12,31 @@ from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.llm_provider import Breadth
 
 
+# ---------------------------------------------------------------------------
+# Prompt injection defense
+# ---------------------------------------------------------------------------
+
+# Unicode fullwidth angle brackets — visually similar but structurally
+# different from the << / >> markers used to delimit document context.
+_MARKER_ESCAPE_TABLE: dict[str, str] = {
+    "\u003c\u003c": "\u2039\u2039",  # << → ‹‹
+    "\u003e\u003e": "\u203a\u203a",  # >> → ››
+}
+
+
+def sanitize_for_prompt(text: str) -> str:
+    """Escape document-context markers in user-supplied text to prevent prompt injection.
+
+    Replaces ``<<`` and ``>>`` with visually similar Unicode fullwidth
+    angle brackets so that an attacker cannot forge
+    ``<<END_DOCUMENT_CONTEXT>>`` inside a document chunk to break out of
+    the sandboxed context block.
+    """
+    for raw, escaped in _MARKER_ESCAPE_TABLE.items():
+        text = text.replace(raw, escaped)
+    return text
+
+
 def classify_question_breadth(question: str) -> str:
     """Classify question as 'narrow' or 'broad' based on heuristics."""
     q = question.lower()

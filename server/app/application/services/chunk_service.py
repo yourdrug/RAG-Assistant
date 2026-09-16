@@ -40,7 +40,9 @@ class ChunkService:
 
         self._query = ChunkQueryService(uow_factory)
         self._mutation = ChunkMutationService(
-            uow_factory, chunk_settings, bm25_index,
+            uow_factory,
+            chunk_settings,
+            bm25_index,
             chunk_min_len_ratio=chunk_min_len_ratio,
             chunk_max_len_ratio=chunk_max_len_ratio,
         )

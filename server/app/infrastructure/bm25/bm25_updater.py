@@ -47,8 +47,11 @@ def bm25_add(
     try:
         with _bm25_lock:
             idx.add_text(
-                text, text_hash=text_hash,
-                visibility=visibility, owner_id=owner_id, group_id=group_id,
+                text,
+                text_hash=text_hash,
+                visibility=visibility,
+                owner_id=owner_id,
+                group_id=group_id,
             )
         log.debug("BM25: added text (hash=%s, n_docs=%d)", text_hash, idx.n_docs)
     except Exception:
@@ -80,14 +83,21 @@ def bm25_replace(
             pos = _find_index_by_hash(idx, old_hash)
             if pos is not None:
                 idx.replace_text(
-                    pos, new_text, new_hash=new_hash,
-                    visibility=visibility, owner_id=owner_id, group_id=group_id,
+                    pos,
+                    new_text,
+                    new_hash=new_hash,
+                    visibility=visibility,
+                    owner_id=owner_id,
+                    group_id=group_id,
                 )
                 log.debug("BM25: replaced text at pos %d (n_docs=%d)", pos, idx.n_docs)
             else:
                 idx.add_text(
-                    new_text, text_hash=new_hash,
-                    visibility=visibility, owner_id=owner_id, group_id=group_id,
+                    new_text,
+                    text_hash=new_hash,
+                    visibility=visibility,
+                    owner_id=owner_id,
+                    group_id=group_id,
                 )
                 log.debug("BM25: old hash %s not found, appended new text", old_hash)
     except Exception:
@@ -130,19 +140,39 @@ class BM25IndexAdapter:
         bm25_remove(self._registry, content_hash)
 
     def add(
-        self, text: str, *, text_hash: str,
-        visibility: str | None = None, owner_id: int | None = None, group_id: int | None = None,
+        self,
+        text: str,
+        *,
+        text_hash: str,
+        visibility: str | None = None,
+        owner_id: int | None = None,
+        group_id: int | None = None,
     ) -> None:
         bm25_add(
-            self._registry, text, text_hash=text_hash,
-            visibility=visibility, owner_id=owner_id, group_id=group_id,
+            self._registry,
+            text,
+            text_hash=text_hash,
+            visibility=visibility,
+            owner_id=owner_id,
+            group_id=group_id,
         )
 
     def replace(
-        self, old_hash: str, new_text: str, *, new_hash: str,
-        visibility: str | None = None, owner_id: int | None = None, group_id: int | None = None,
+        self,
+        old_hash: str,
+        new_text: str,
+        *,
+        new_hash: str,
+        visibility: str | None = None,
+        owner_id: int | None = None,
+        group_id: int | None = None,
     ) -> None:
         bm25_replace(
-            self._registry, old_hash, new_text, new_hash=new_hash,
-            visibility=visibility, owner_id=owner_id, group_id=group_id,
+            self._registry,
+            old_hash,
+            new_text,
+            new_hash=new_hash,
+            visibility=visibility,
+            owner_id=owner_id,
+            group_id=group_id,
         )

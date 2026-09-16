@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 
-
 class AsyncBenchmarkRunner:
     """Wraps ``infrastructure.benchmark.runner.run_benchmark_async`` behind the port."""
 

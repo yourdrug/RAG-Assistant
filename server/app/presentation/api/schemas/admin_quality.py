@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 
 from pydantic import BaseModel, Field
+
+from presentation.api.constants import DRY_RUN_EXTENSIONS
 
 
 class DocumentQualityItem(BaseModel):
@@ -68,3 +71,27 @@ class DryRunResponse(BaseModel):
 class PageImageResponse(BaseModel):
     image_base64: str
     page: int
+
+
+class PreviewFile(BaseModel):
+    """Validate uploaded file for dry-run preview — extension must be in DRY_RUN_EXTENSIONS.
+
+    Use after reading file data to additionally check size:
+        PreviewFile(filename=file.filename)
+        data = await file.read()
+        if len(data) > max_bytes: raise ...
+    """
+
+    filename: str
+
+    def model_post_init(self, __context: object) -> None:
+        ext = Path(self.filename).suffix.lower()
+        if ext not in DRY_RUN_EXTENSIONS:
+            raise ValueError(
+                f"Unsupported file type: {ext}. Supported: {', '.join(sorted(DRY_RUN_EXTENSIONS))}"
+            )
+        if ext == ".doc":
+            raise ValueError(
+                "Файлы .doc (старый формат Word 97-2003) не поддерживаются. "
+                "Конвертируйте файл в .docx и повторите попытку."
+            )

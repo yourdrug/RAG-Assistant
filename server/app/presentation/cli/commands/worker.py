@@ -9,6 +9,7 @@ from collections.abc import Sequence
 from arq.connections import RedisSettings
 from arq.cron import cron
 from arq.worker import Function, Worker, func as arq_func
+
 from config import settings
 from infrastructure.worker.tasks import (
     cron_bm25_rebuild,
@@ -24,9 +25,6 @@ from infrastructure.worker.tasks import (
 
 logger = logging.getLogger("cli")
 
-# Explicit per-function timeouts (C-4): arq's default 300 s cancels long jobs
-# past every `except Exception` handler. Timeouts are sized per job class with
-# headroom over the worst realistic duration.
 _PROCESS_TIMEOUT = 60 * 30  # single document incl. OCR: 30 min
 _SINGLE_INGEST_TIMEOUT = 60 * 30  # single file ingest: 30 min
 _FULL_INGEST_TIMEOUT = 60 * 120  # whole corpus ingest: 2 h
@@ -36,8 +34,8 @@ _CRON_TIMEOUT = 60 * 10  # maintenance cron jobs: 10 min
 
 
 def worker(
-    max_jobs: int | None = None,
-    health_check_interval: int = 10,
+        max_jobs: int | None = None,
+        health_check_interval: int = 10,
 ) -> None:
     """Запустить Arq worker для обработки фоновых задач.
 

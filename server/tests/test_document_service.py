@@ -404,8 +404,11 @@ async def test_delete_document_happy_path():
 
     # Add a chunk with content_hash for BM25 removal verification
     await uow.chunks.bulk_insert(
-        document_id=1, filename="test.pdf", visibility="internal_public",
-        chunks=["chunk content"], content_hashes=["hash_abc"],
+        document_id=1,
+        filename="test.pdf",
+        visibility="internal_public",
+        chunks=["chunk content"],
+        content_hashes=["hash_abc"],
     )
 
     await svc.delete_document(document_id=1, user_id=1, user_role="admin")
@@ -479,13 +482,14 @@ async def test_rename_document_different_path_copies_and_deletes_old():
     doc = _make_doc(doc_id=1, source_path="s3://bucket/u/1/1/old.pdf", filename="old.pdf")
     await uow.documents.save(doc)
     await uow.chunks.bulk_insert(
-        document_id=1, filename="old.pdf", visibility="internal_public",
-        chunks=["content"], content_hashes=["h1"],
+        document_id=1,
+        filename="old.pdf",
+        visibility="internal_public",
+        chunks=["content"],
+        content_hashes=["h1"],
     )
 
-    dto = await svc.rename_document(
-        document_id=1, new_filename="new.pdf", user_id=1, user_role="admin"
-    )
+    dto = await svc.rename_document(document_id=1, new_filename="new.pdf", user_id=1, user_role="admin")
 
     # 1. S3 copy called (old → new)
     fs.copy_file.assert_awaited_once()
@@ -513,9 +517,7 @@ async def test_rename_document_same_path_no_copy():
     doc = _make_doc(doc_id=1, source_path=None, filename="test.pdf")
     await uow.documents.save(doc)
 
-    await svc.rename_document(
-        document_id=1, new_filename="test.pdf", user_id=1, user_role="admin"
-    )
+    await svc.rename_document(document_id=1, new_filename="test.pdf", user_id=1, user_role="admin")
 
     # No S3 copy (source_path is None → condition skips copy)
     fs.copy_file.assert_not_awaited()
@@ -528,9 +530,7 @@ async def test_rename_document_unsupported_extension():
     """rename_document: unsupported extension → ValidationError."""
     svc, _, _ = _service()
     with pytest.raises(ValidationError, match="Unsupported file format"):
-        await svc.rename_document(
-            document_id=1, new_filename="data.xyz", user_id=1, user_role="admin"
-        )
+        await svc.rename_document(document_id=1, new_filename="data.xyz", user_id=1, user_role="admin")
 
 
 @pytest.mark.asyncio
@@ -538,9 +538,7 @@ async def test_rename_document_not_found():
     """rename_document: non-existent doc → EntityNotFound."""
     svc, _, _ = _service()
     with pytest.raises(EntityNotFound):
-        await svc.rename_document(
-            document_id=999, new_filename="new.pdf", user_id=1, user_role="admin"
-        )
+        await svc.rename_document(document_id=999, new_filename="new.pdf", user_id=1, user_role="admin")
 
 
 @pytest.mark.asyncio
@@ -554,9 +552,7 @@ async def test_rename_document_conflict_with_pending_doc():
     await uow.documents.save(doc2)
 
     with pytest.raises(BusinessRuleViolation, match="already being processed"):
-        await svc.rename_document(
-            document_id=1, new_filename="b.pdf", user_id=1, user_role="admin"
-        )
+        await svc.rename_document(document_id=1, new_filename="b.pdf", user_id=1, user_role="admin")
 
 
 @pytest.mark.asyncio
@@ -569,9 +565,7 @@ async def test_rename_document_conflict_with_done_doc_renames():
     await uow.documents.save(doc1)
     await uow.documents.save(doc2)
 
-    dto = await svc.rename_document(
-        document_id=1, new_filename="report.pdf", user_id=1, user_role="admin"
-    )
+    dto = await svc.rename_document(document_id=1, new_filename="report.pdf", user_id=1, user_role="admin")
 
     # Filename should have been auto-resolved to avoid collision
     assert dto.filename != "report.pdf"
@@ -598,9 +592,7 @@ async def test_rename_document_copy_succeeds_db_fails_compensates():
     uow.documents.update_filename = failing_update
 
     with pytest.raises(RuntimeError, match="DB failure"):
-        await svc.rename_document(
-            document_id=1, new_filename="new.pdf", user_id=1, user_role="admin"
-        )
+        await svc.rename_document(document_id=1, new_filename="new.pdf", user_id=1, user_role="admin")
 
     # S3 copy was attempted
     fs.copy_file.assert_awaited_once()
@@ -620,9 +612,7 @@ async def test_rename_document_copy_fails_no_compensation():
     await uow.documents.save(doc)
 
     with pytest.raises(RuntimeError, match="S3 down"):
-        await svc.rename_document(
-            document_id=1, new_filename="new.pdf", user_id=1, user_role="admin"
-        )
+        await svc.rename_document(document_id=1, new_filename="new.pdf", user_id=1, user_role="admin")
 
     # No compensation delete (copy failed, nothing to clean up)
     fs.delete_file.assert_not_awaited()
@@ -659,21 +649,34 @@ async def test_list_documents_empty():
 async def test_list_documents_user_sees_only_own():
     """Regular user only sees own PRIVATE documents (via ACL)."""
     svc, uow, _ = _service()
-    await uow.documents.save(_make_doc(
-        doc_id=1, filename="own.pdf", owner_id=1,
-        visibility=DocumentVisibility.INTERNAL_PRIVATE,
-    ))
-    await uow.documents.save(_make_doc(
-        doc_id=2, filename="other.pdf", owner_id=2,
-        visibility=DocumentVisibility.INTERNAL_PRIVATE,
-    ))
+    await uow.documents.save(
+        _make_doc(
+            doc_id=1,
+            filename="own.pdf",
+            owner_id=1,
+            visibility=DocumentVisibility.INTERNAL_PRIVATE,
+        )
+    )
+    await uow.documents.save(
+        _make_doc(
+            doc_id=2,
+            filename="other.pdf",
+            owner_id=2,
+            visibility=DocumentVisibility.INTERNAL_PRIVATE,
+        )
+    )
 
     from unittest.mock import patch
 
     async def _user_ctx(self_factory, uow, user_id, user_kind, user_role):
         return UserContext(
-            user_id=user_id, user_kind=user_kind, user_role=user_role,
-            group_ids=[], managed_client_ids=[], managed_internal_ids=[], managed_group_ids=[],
+            user_id=user_id,
+            user_kind=user_kind,
+            user_role=user_role,
+            group_ids=[],
+            managed_client_ids=[],
+            managed_internal_ids=[],
+            managed_group_ids=[],
         )
 
     with patch.object(UserContextFactory, "build", _user_ctx):
@@ -687,21 +690,34 @@ async def test_list_documents_user_sees_only_own():
 async def test_list_documents_client_sees_only_own():
     """Client user only sees own CLIENT_PRIVATE documents."""
     svc, uow, _ = _service()
-    await uow.documents.save(_make_doc(
-        doc_id=1, filename="own.pdf", owner_id=10,
-        visibility=DocumentVisibility.CLIENT_PRIVATE,
-    ))
-    await uow.documents.save(_make_doc(
-        doc_id=2, filename="other.pdf", owner_id=20,
-        visibility=DocumentVisibility.CLIENT_PRIVATE,
-    ))
+    await uow.documents.save(
+        _make_doc(
+            doc_id=1,
+            filename="own.pdf",
+            owner_id=10,
+            visibility=DocumentVisibility.CLIENT_PRIVATE,
+        )
+    )
+    await uow.documents.save(
+        _make_doc(
+            doc_id=2,
+            filename="other.pdf",
+            owner_id=20,
+            visibility=DocumentVisibility.CLIENT_PRIVATE,
+        )
+    )
 
     from unittest.mock import patch
 
     async def _user_ctx(self_factory, uow, user_id, user_kind, user_role):
         return UserContext(
-            user_id=user_id, user_kind=user_kind, user_role=user_role,
-            group_ids=[], managed_client_ids=[], managed_internal_ids=[], managed_group_ids=[],
+            user_id=user_id,
+            user_kind=user_kind,
+            user_role=user_role,
+            group_ids=[],
+            managed_client_ids=[],
+            managed_internal_ids=[],
+            managed_group_ids=[],
         )
 
     with patch.object(UserContextFactory, "build", _user_ctx):
@@ -718,14 +734,10 @@ async def test_list_documents_with_limit_offset():
     for i in range(5):
         await uow.documents.save(_make_doc(filename=f"doc{i}.pdf", owner_id=1))
 
-    result = await svc.list_documents(
-        user_id=99, user_kind="internal", user_role="user", limit=2, offset=0
-    )
+    result = await svc.list_documents(user_id=99, user_kind="internal", user_role="user", limit=2, offset=0)
     assert len(result) == 2
 
-    result2 = await svc.list_documents(
-        user_id=99, user_kind="internal", user_role="user", limit=2, offset=2
-    )
+    result2 = await svc.list_documents(user_id=99, user_kind="internal", user_role="user", limit=2, offset=2)
     assert len(result2) == 2
 
 
@@ -863,8 +875,13 @@ async def test_delete_document_not_owner_not_admin():
 
     async def _user_ctx(self_factory, uow, user_id, user_kind, user_role):
         return UserContext(
-            user_id=user_id, user_kind=user_kind, user_role=user_role,
-            group_ids=[], managed_client_ids=[], managed_internal_ids=[], managed_group_ids=[],
+            user_id=user_id,
+            user_kind=user_kind,
+            user_role=user_role,
+            group_ids=[],
+            managed_client_ids=[],
+            managed_internal_ids=[],
+            managed_group_ids=[],
         )
 
     with patch.object(UserContextFactory, "build", _user_ctx):

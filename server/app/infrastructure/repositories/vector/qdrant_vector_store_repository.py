@@ -73,8 +73,19 @@ class QdrantVectorStoreRepository:
         return await self._get_embeddings().embed_query(text)
 
     @retry_on_transient
-    async def _similarity_search_with_score(self, query: str, k: int) -> list[tuple[Chunk, float]]:
-        """Use internally only. No ACL enforcement. Use search_with_filter() for user queries."""
+    async def _similarity_search_with_score(
+        self, query: str, k: int, *, allow_unfiltered: bool = False
+    ) -> list[tuple[Chunk, float]]:
+        """Internal-only search without ACL enforcement.
+
+        Raises RuntimeError unless *allow_unfiltered* is explicitly True.
+        For user-facing queries, use ``search_with_filter()`` instead.
+        """
+        if not allow_unfiltered:
+            raise RuntimeError(
+                "_similarity_search_with_score() requires ACL. "
+                "Use search_with_filter() or pass allow_unfiltered=True for internal use."
+            )
         client = self._get_qdrant_client()
         embeddings = self._get_embeddings()
 
@@ -108,20 +119,38 @@ class QdrantVectorStoreRepository:
 
         await asyncio.to_thread(_upsert)
 
-    async def get_point_payload(self, point_id: int) -> dict | None:
-        """Fetch a single point's payload by ID. Returns None if the point does not exist."""
-        client = self._get_qdrant_client()
+    async def get_point_payload(self, point_id: int, access_filter: Filter | None = None) -> dict | None:
+        """Fetch a single point's payload by ID with mandatory ACL enforcement.
 
-        def _get() -> dict | None:
-            result = client.retrieve(
+        Raises ``RuntimeError`` if *access_filter* is not provided — all callers
+        must pass an ACL filter to prevent cross-tenant data leaks.
+        Returns None if the point does not exist or is outside ACL scope.
+        """
+        if access_filter is None:
+            raise RuntimeError(
+                "get_point_payload() requires access_filter for ACL enforcement. "
+                "Build one via build_qdrant_filter() before calling."
+            )
+
+        client = self._get_qdrant_client()
+        combined_filter = Filter(
+            must=[
+                FieldCondition(key="id", match=MatchValue(value=point_id)),
+                access_filter,
+            ]
+        )
+
+        def _scroll() -> dict | None:
+            results, _ = client.scroll(
                 collection_name=settings.collection_name,
-                ids=[point_id],
+                scroll_filter=combined_filter,
+                limit=1,
                 with_payload=True,
                 with_vectors=False,
             )
-            return result[0].payload if result else None
+            return results[0].payload if results else None
 
-        return await asyncio.to_thread(_get)
+        return await asyncio.to_thread(_scroll)
 
     async def delete_by_ids(self, ids: list[int]) -> None:
         """Delete points by their IDs."""

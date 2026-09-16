@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends
 
 from presentation.api.auth_dependencies import require_admin
 from presentation.api.dependencies import create_action_logger, create_assignment_service
-from presentation.api.schemas import CuratorScopeResponse
+from presentation.api.schemas import CuratorScopeResponse, CurrentUser
 
 router = APIRouter(prefix="/admin/curators", tags=["admin", "curators"])
 
@@ -16,14 +16,14 @@ router = APIRouter(prefix="/admin/curators", tags=["admin", "curators"])
 async def assign_user_to_curator(
     curator_id: int,
     target_user_id: int,
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     assignment_service: AssignmentService = Depends(create_assignment_service),
     log=Depends(create_action_logger),
 ):
-    await assignment_service.assign_user(curator_id, target_user_id, admin["id"])
+    await assignment_service.assign_user(curator_id, target_user_id, admin.id)
     log(
         "curator.assign_user",
-        user_id=admin["id"],
+        user_id=admin.id,
         details={"curator_id": curator_id, "target_user_id": target_user_id},
     )
     return {"status": "assigned"}
@@ -33,14 +33,14 @@ async def assign_user_to_curator(
 async def unassign_user_from_curator(
     curator_id: int,
     target_user_id: int,
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     assignment_service: AssignmentService = Depends(create_assignment_service),
     log=Depends(create_action_logger),
 ):
     await assignment_service.unassign_user(curator_id, target_user_id)
     log(
         "curator.unassign_user",
-        user_id=admin["id"],
+        user_id=admin.id,
         details={"curator_id": curator_id, "target_user_id": target_user_id},
     )
     return {"status": "unassigned"}
@@ -50,14 +50,14 @@ async def unassign_user_from_curator(
 async def assign_group_to_curator(
     curator_id: int,
     group_id: int,
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     assignment_service: AssignmentService = Depends(create_assignment_service),
     log=Depends(create_action_logger),
 ):
-    await assignment_service.assign_group(curator_id, group_id, admin["id"])
+    await assignment_service.assign_group(curator_id, group_id, admin.id)
     log(
         "curator.assign_group",
-        user_id=admin["id"],
+        user_id=admin.id,
         details={"curator_id": curator_id, "group_id": group_id},
     )
     return {"status": "assigned"}
@@ -67,14 +67,14 @@ async def assign_group_to_curator(
 async def unassign_group_from_curator(
     curator_id: int,
     group_id: int,
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     assignment_service: AssignmentService = Depends(create_assignment_service),
     log=Depends(create_action_logger),
 ):
     await assignment_service.unassign_group(curator_id, group_id)
     log(
         "curator.unassign_group",
-        user_id=admin["id"],
+        user_id=admin.id,
         details={"curator_id": curator_id, "group_id": group_id},
     )
     return {"status": "unassigned"}
@@ -83,7 +83,7 @@ async def unassign_group_from_curator(
 @router.get("/{curator_id}/scope", response_model=CuratorScopeResponse)
 async def get_curator_scope(
     curator_id: int,
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     assignment_service: AssignmentService = Depends(create_assignment_service),
 ):
     scope = await assignment_service.get_scope(curator_id)

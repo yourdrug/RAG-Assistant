@@ -19,6 +19,7 @@ from fastapi.security import APIKeyHeader
 
 from presentation.api.constants import AUTH_SCHEME_API_KEY, AUTH_SCHEME_BEARER
 from presentation.api.dependencies import create_api_key_provider, create_auth_service
+from presentation.api.schemas import CurrentUser
 
 auth_key_header = APIKeyHeader(
     name="Authorization",
@@ -26,7 +27,7 @@ auth_key_header = APIKeyHeader(
 )
 
 
-async def _authenticate_via_jwt(token: str, auth_service: AuthService) -> dict:
+async def _authenticate_via_jwt(token: str, auth_service: AuthService) -> CurrentUser:
     try:
         payload = auth_service.decode_token(token)
     except _jwt.ExpiredSignatureError:
@@ -38,16 +39,18 @@ async def _authenticate_via_jwt(token: str, auth_service: AuthService) -> dict:
     if user is None or not user.is_active:
         raise AuthenticationError("User not found or deactivated")
 
-    return {
-        "id": user.id,
-        "email": user.email,
-        "role": user.role,
-        "kind": user.kind,
-        "is_active": user.is_active,
-    }
+    return CurrentUser(
+        id=user.id,
+        email=user.email,
+        role=user.role,
+        kind=user.kind,
+        is_active=user.is_active,
+    )
 
 
-async def _authenticate_via_api_key(raw_key: str, auth_service: AuthService, api_key_provider) -> dict:
+async def _authenticate_via_api_key(
+    raw_key: str, auth_service: AuthService, api_key_provider
+) -> CurrentUser:
     key_hash = api_key_provider.hash_key(raw_key)
     cached = await api_key_provider.get_cached(key_hash)
 
@@ -63,14 +66,14 @@ async def _authenticate_via_api_key(raw_key: str, auth_service: AuthService, api
     if result is None:
         raise AuthenticationError("Invalid or revoked API key")
 
-    return {
-        "id": result.id,
-        "email": result.email,
-        "role": result.role,
-        "kind": result.kind,
-        "is_active": result.is_active,
-        "api_key_id": result.api_key_id,
-    }
+    return CurrentUser(
+        id=result.id,
+        email=result.email,
+        role=result.role,
+        kind=result.kind,
+        is_active=result.is_active,
+        api_key_id=result.api_key_id,
+    )
 
 
 def _parse_auth_header_value(value: str) -> tuple[str, str] | None:
@@ -84,7 +87,7 @@ async def get_current_user(
     authorization: str | None = Depends(auth_key_header),
     auth_service: AuthService = Depends(create_auth_service),
     api_key_provider=Depends(create_api_key_provider),
-) -> dict:
+) -> CurrentUser:
     if authorization is None:
         raise AuthenticationError("Not authenticated")
 
@@ -103,8 +106,8 @@ async def get_current_user(
     raise AuthenticationError("Unsupported authorization scheme")
 
 
-def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
-    if current_user["role"] != UserRole.ADMIN:
+def require_admin(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+    if current_user.role != UserRole.ADMIN:
         raise PermissionDeniedError("admin")
     return current_user
 
@@ -112,8 +115,8 @@ def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
 def require_capability(cap: Capability):
     """Return a dependency that checks if the current user has the given capability."""
 
-    def _dep(current_user: dict = Depends(get_current_user)) -> dict:
-        role = UserRole(current_user["role"])
+    def _dep(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+        role = UserRole(current_user.role)
         if cap not in get_role_capabilities(role):
             raise PermissionDeniedError(cap.value)
         return current_user

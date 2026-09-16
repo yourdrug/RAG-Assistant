@@ -70,9 +70,7 @@ class TestCacheHashIncludesRoleAndScope:
         h1 = compute_visibility_scope_hash(
             "internal", 42, [], user_role="curator", curator_scope=scope_before
         )
-        h2 = compute_visibility_scope_hash(
-            "internal", 42, [], user_role="curator", curator_scope=scope_after
-        )
+        h2 = compute_visibility_scope_hash("internal", 42, [], user_role="curator", curator_scope=scope_after)
         assert h1 != h2
 
 

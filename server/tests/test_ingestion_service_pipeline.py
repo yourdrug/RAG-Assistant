@@ -200,6 +200,7 @@ class TestParseFile:
         pdf_path = tmp_path / "test.pdf"
         # Create a real PDF
         import fitz
+
         doc = fitz.open()
         page = doc.new_page()
         page.insert_text((72, 72), "Hello world content for testing.")
@@ -208,6 +209,7 @@ class TestParseFile:
 
         # Configure mock parser to return a list of RawDocuments
         from domain.entities.raw_document import RawDocument
+
         svc = _make_service()
         svc._parser.parse.return_value = [
             RawDocument(page_content="Hello world content for testing.", metadata={"source": "test"})
@@ -226,6 +228,7 @@ class TestParseFile:
 
     def test_txt_parsing(self, tmp_path):
         from domain.entities.raw_document import RawDocument
+
         txt_path = tmp_path / "test.txt"
         txt_path.write_text("This is a test document with enough content to pass validation.")
 
@@ -243,16 +246,20 @@ class TestParseFile:
 
     def test_base_metadata_added(self, tmp_path):
         from domain.entities.raw_document import RawDocument
+
         pdf_path = tmp_path / "meta.pdf"
 
         svc = _make_service()
         svc._parser.parse.return_value = [
-            RawDocument(page_content="Metadata test content.", metadata={
-                "source": "s3://test-bucket/docs/test.pdf",
-                "filename": "test.pdf",
-                "extension": ".pdf",
-                "size_bytes": 1024,
-            })
+            RawDocument(
+                page_content="Metadata test content.",
+                metadata={
+                    "source": "s3://test-bucket/docs/test.pdf",
+                    "filename": "test.pdf",
+                    "extension": ".pdf",
+                    "size_bytes": 1024,
+                },
+            )
         ]
         file_item = _make_file_item()
         result = svc._parse_file(file_item, pdf_path)

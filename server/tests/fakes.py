@@ -227,7 +227,7 @@ class FakeChunkRepository:
 
         rows = [c for c in self._chunks if c["document_id"] == document_id]
         total = len(rows)
-        rows = rows[offset: offset + limit]
+        rows = rows[offset : offset + limit]
         items = [
             ChunkSearchResult(
                 chunk_id=c["id"],

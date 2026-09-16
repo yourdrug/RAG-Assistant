@@ -88,6 +88,12 @@ STATIC_CONFIG_KEYS: frozenset[str] = frozenset({"file_backend", "data_dir"})
 
 
 # ---------------------------------------------------------------------------
+# Dry-run preview: accepted file extensions
+# ---------------------------------------------------------------------------
+DRY_RUN_EXTENSIONS: frozenset[str] = frozenset({".pdf", ".docx", ".doc", ".rtf"})
+
+
+# ---------------------------------------------------------------------------
 # Default quality warning threshold (bad-page ratio)
 # ---------------------------------------------------------------------------
 QUALITY_BAD_RATIO_THRESHOLD: float = 0.3

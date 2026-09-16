@@ -99,11 +99,11 @@ class TestBM25SearchWithACL:
         """Index with mixed visibility docs."""
         idx = BM25Index(
             texts=[
-                "public document",       # 0: internal_public
-                "private document",      # 1: internal_private, owner=10
-                "other private document", # 2: internal_private, owner=20
-                "client document",       # 3: client_private, owner=100
-                "group document",        # 4: internal_group, group=5
+                "public document",  # 0: internal_public
+                "private document",  # 1: internal_private, owner=10
+                "other private document",  # 2: internal_private, owner=20
+                "client document",  # 3: client_private, owner=100
+                "group document",  # 4: internal_group, group=5
             ],
             doc_visibility=[
                 "internal_public",
@@ -131,7 +131,8 @@ class TestBM25SearchWithACL:
             VisibilityCondition(visibility=DocumentVisibility.INTERNAL_PRIVATE, owner_match=OwnerMatch.SELF),
         ]
         results = idx.search_with_hashes(
-            "document", k=10,
+            "document",
+            k=10,
             visibility_conditions=conditions,
             user_id=10,
             user_group_ids=[],
@@ -149,7 +150,8 @@ class TestBM25SearchWithACL:
             VisibilityCondition(visibility=DocumentVisibility.INTERNAL_PRIVATE, owner_match=OwnerMatch.SELF),
         ]
         results = idx.search_with_hashes(
-            "document", k=10,
+            "document",
+            k=10,
             visibility_conditions=conditions,
             user_id=10,
             user_group_ids=[],
@@ -169,7 +171,8 @@ class TestBM25SearchWithACL:
             ),
         ]
         results = idx.search_with_hashes(
-            "document", k=10,
+            "document",
+            k=10,
             visibility_conditions=conditions,
             user_id=10,
             user_group_ids=[],
@@ -183,7 +186,8 @@ class TestBM25SearchWithACL:
             VisibilityCondition(visibility=DocumentVisibility.INTERNAL_GROUP, group_match=True),
         ]
         results = idx.search_with_hashes(
-            "document", k=10,
+            "document",
+            k=10,
             visibility_conditions=conditions,
             user_id=99,
             user_group_ids=[5],
@@ -197,7 +201,8 @@ class TestBM25SearchWithACL:
             VisibilityCondition(visibility=DocumentVisibility.INTERNAL_GROUP, group_match=True),
         ]
         results = idx.search_with_hashes(
-            "document", k=10,
+            "document",
+            k=10,
             visibility_conditions=conditions,
             user_id=99,
             user_group_ids=[999],
@@ -208,7 +213,8 @@ class TestBM25SearchWithACL:
     def test_empty_conditions_no_match(self):
         idx = self._make_index_with_acl()
         results = idx.search_with_hashes(
-            "document", k=10,
+            "document",
+            k=10,
             visibility_conditions=[],
             user_id=10,
             user_group_ids=[],
@@ -230,7 +236,8 @@ class TestBM25ACLBackwardCompat:
             VisibilityCondition(visibility=DocumentVisibility.INTERNAL_PRIVATE, owner_match=OwnerMatch.SELF),
         ]
         results = idx.search_with_hashes(
-            "doc", k=10,
+            "doc",
+            k=10,
             visibility_conditions=conditions,
             user_id=999,
             user_group_ids=[],
@@ -294,6 +301,7 @@ class TestBM25ACLBackwardCompat:
 class TestCuratorScopeMaxIds:
     def test_config_default(self):
         from config import settings
+
         assert settings.curator_scope_max_ids == 1000
 
 
@@ -327,8 +335,14 @@ class TestBM25PredicateInvariant:
         return idx._doc_matches_acl(doc_pos, conditions, user_id, group_ids)
 
     def _run_invariant(
-        self, user_id, group_ids, user_role, get_conditions_fn,
-        managed_client_ids=None, managed_internal_ids=None, managed_group_ids=None,
+        self,
+        user_id,
+        group_ids,
+        user_role,
+        get_conditions_fn,
+        managed_client_ids=None,
+        managed_internal_ids=None,
+        managed_group_ids=None,
     ):
         """Check BM25 predicate matches domain is_in_search_scope for all docs."""
         from types import SimpleNamespace
@@ -356,6 +370,7 @@ class TestBM25PredicateInvariant:
             doc = SimpleNamespace(visibility=vis, owner_id=owner, group_id=grp)
 
             from domain.services.access_control import is_in_search_scope
+
             domain_result = is_in_search_scope(doc, ctx)
             bm25_result = self._bm25_matches(idx, i, conditions, user_id, group_ids)
 
@@ -374,7 +389,11 @@ class TestBM25PredicateInvariant:
             group_ids=[5],
             user_role="user",
             get_conditions_fn=lambda: get_visibility_conditions(
-                UserKind.INTERNAL, 10, [5], for_list=False, user_role=UserRole.USER,
+                UserKind.INTERNAL,
+                10,
+                [5],
+                for_list=False,
+                user_role=UserRole.USER,
             ),
         )
 
@@ -388,7 +407,11 @@ class TestBM25PredicateInvariant:
             group_ids=[],
             user_role="admin",
             get_conditions_fn=lambda: get_visibility_conditions(
-                UserKind.INTERNAL, 1, [], for_list=False, user_role=UserRole.ADMIN,
+                UserKind.INTERNAL,
+                1,
+                [],
+                for_list=False,
+                user_role=UserRole.ADMIN,
             ),
         )
 
@@ -402,7 +425,10 @@ class TestBM25PredicateInvariant:
             group_ids=[5],
             user_role="curator",
             get_conditions_fn=lambda: get_visibility_conditions(
-                UserKind.INTERNAL, 10, [5], for_list=False,
+                UserKind.INTERNAL,
+                10,
+                [5],
+                for_list=False,
                 user_role=UserRole.CURATOR,
                 managed_internal_ids=[20],
                 managed_client_ids=[100],

@@ -89,6 +89,7 @@ class Settings(BaseSettings):
     llm_auxiliary_timeout: int = 30  # seconds, caps semaphore hold time for auxiliary LLM calls
     reranker_max_concurrent: int = 8
     bm25_search_max_concurrent: int = 8
+    semaphore_acquire_timeout: int = 30  # seconds, max wait for semaphore acquire before 429/503
     benchmark_max_concurrent: int = 3
     benchmark_judge_model: str = ""  # empty = use fast_llm for OpenRouter, llm_model for Ollama
 
@@ -129,7 +130,7 @@ class Settings(BaseSettings):
     rerank_min_score: float | None = 0.15
     rerank_score_gap_ratio: float | None = 0.1
     source_min_score: float = 0.3
-    citation_filter_enabled: bool = False
+    citation_filter_enabled: bool = True
     exact_ref_sparse_boost: float = 2.5
     document_domain_marker_threshold: float = 2.0
 

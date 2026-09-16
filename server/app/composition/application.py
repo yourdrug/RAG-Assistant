@@ -6,7 +6,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from composition._utils import _require
+from composition.utils import _require
 from composition.service_providers import create_ingestion_service
 from config import settings
 from infrastructure.adapters.chunk_search_adapter import ChunkSearchAdapter

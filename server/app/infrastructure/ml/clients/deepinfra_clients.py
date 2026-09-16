@@ -16,7 +16,7 @@ import httpx
 
 log = logging.getLogger("default")
 
-DEEPINFRA_TIMEOUT = 600.0
+DEEPINFRA_TIMEOUT = 60.0
 
 
 class DeepInfraEmbeddingsClient:

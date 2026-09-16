@@ -12,6 +12,7 @@ from presentation.api.dependencies import create_action_logger, create_auth_serv
 from presentation.api.schemas import (
     ChangeRoleRequest,
     CreateUserRequest,
+    CurrentUser,
     LoginRequest,
     TokenResponse,
     UserListResponse,
@@ -36,14 +37,14 @@ async def login(
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_me(current_user: dict = Depends(get_current_user)):
+async def get_me(current_user: CurrentUser = Depends(get_current_user)):
     return current_user
 
 
 @router.post("/users", response_model=UserResponse)
 async def add_user(
     req: CreateUserRequest,
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     auth_service: AuthService = Depends(create_auth_service),
     log=Depends(create_action_logger),
 ):
@@ -54,22 +55,22 @@ async def add_user(
             role=req.role or UserRole.USER,
             kind=req.kind or UserKind.INTERNAL,
         ),
-        creator_role=admin["role"],
+        creator_role=admin.role,
     )
-    log("user.create", user_id=admin["id"], details={"email": req.email, "role": req.role})
+    log("user.create", user_id=admin.id, details={"email": req.email, "role": req.role})
     return result
 
 
 @router.get("/users", response_model=UserListResponse)
 async def list_all_users(
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     auth_service: AuthService = Depends(create_auth_service),
     log=Depends(create_action_logger),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ):
     users, total = await auth_service.list_users(limit=limit, offset=offset)
-    log("user.list", user_id=admin["id"], details={"limit": limit, "offset": offset})
+    log("user.list", user_id=admin.id, details={"limit": limit, "offset": offset})
     response_users = [
         UserResponse(id=u.id, email=u.email, role=u.role, kind=u.kind, is_active=u.is_active) for u in users
     ]
@@ -80,14 +81,12 @@ async def list_all_users(
 async def toggle_user_active(
     user_id: int,
     is_active: bool,
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     auth_service: AuthService = Depends(create_auth_service),
     log=Depends(create_action_logger),
 ):
-    result = await auth_service.toggle_active(user_id, is_active, admin["id"])
-    log(
-        "user.toggle_active", user_id=admin["id"], details={"target_user": user_id, "is_active": is_active}
-    )
+    result = await auth_service.toggle_active(user_id, is_active, admin.id)
+    log("user.toggle_active", user_id=admin.id, details={"target_user": user_id, "is_active": is_active})
     return {"id": result.id, "is_active": result.is_active}
 
 
@@ -95,17 +94,17 @@ async def toggle_user_active(
 async def change_user_role(
     user_id: int,
     body: ChangeRoleRequest,
-    admin: dict = Depends(require_admin),
+    admin: CurrentUser = Depends(require_admin),
     auth_service: AuthService = Depends(create_auth_service),
     log=Depends(create_action_logger),
 ):
     result = await auth_service.change_role(
         ChangeRoleCommand(user_id=user_id, new_role=body.role),
-        admin_id=admin["id"],
+        admin_id=admin.id,
     )
     log(
         "user.change_role",
-        user_id=admin["id"],
+        user_id=admin.id,
         details={"target_user": user_id, "new_role": body.role},
     )
     return result

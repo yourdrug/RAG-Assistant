@@ -10,7 +10,7 @@ import logging
 import math
 
 from domain.utils import content_hash
-from infrastructure.bm25._tokenizer import tokenize
+from infrastructure.bm25.tokenizer import tokenize
 
 log = logging.getLogger("default")
 
@@ -165,7 +165,8 @@ class BM25Index:
         if visibility_conditions is not None and user_id is not None and user_group_ids is not None:
             before_count = len(candidate_indices)
             candidate_indices = {
-                i for i in candidate_indices
+                i
+                for i in candidate_indices
                 if self._doc_matches_acl(i, visibility_conditions, user_id, user_group_ids)
             }
             after_count = len(candidate_indices)
