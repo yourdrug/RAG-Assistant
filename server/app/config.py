@@ -70,6 +70,7 @@ class Settings(BaseSettings):
     collection_name: str
     qdrant_timeout: int = 10
     qdrant_search_max_concurrent: int = 16  # caps concurrent Qdrant searches (prevents thundering herd)
+    qdrant_write_max_concurrent: int = 8  # caps concurrent Qdrant upserts (prevents write contention)
 
     # ── Ollama ──────────────────────────────────────────────────────────────
     ollama_base_url: str = "http://localhost:11434"
@@ -87,6 +88,8 @@ class Settings(BaseSettings):
     llm_generation_max_concurrent: int = 12
     llm_auxiliary_max_concurrent: int = 4
     llm_auxiliary_timeout: int = 30  # seconds, caps semaphore hold time for auxiliary LLM calls
+    embedding_max_concurrent: int = 16
+    ingestion_max_concurrent: int = 8
     reranker_max_concurrent: int = 8
     bm25_search_max_concurrent: int = 8
     semaphore_acquire_timeout: int = 30  # seconds, max wait for semaphore acquire before 429/503

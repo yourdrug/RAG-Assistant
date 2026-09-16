@@ -41,6 +41,12 @@ async def resolve_hashes_batch(
     if not hashes:
         return {}
 
+    if access_filter is None:
+        raise RuntimeError(
+            "resolve_hashes_batch() requires access_filter for ACL enforcement. "
+            "Build one via build_qdrant_filter() before calling."
+        )
+
     client = ml_clients.qdrant_client()
 
     should_conditions: list[FieldCondition] = [
@@ -51,22 +57,16 @@ async def resolve_hashes_batch(
         for h in hashes
     ]
 
-    if access_filter is not None:
-        scroll_filter = Filter(must=[access_filter, Filter(should=should_conditions)])  # type: ignore[arg-type]
-    else:
-        scroll_filter = Filter(should=should_conditions)  # type: ignore[arg-type]
+    scroll_filter = Filter(must=[access_filter, Filter(should=should_conditions)])  # type: ignore[arg-type]
 
     async with ml_clients.qdrant_search_semaphore:
-        results = await asyncio.wait_for(
-            asyncio.to_thread(
-                client.scroll,
-                collection_name=settings.collection_name,
-                scroll_filter=scroll_filter,
-                limit=len(hashes),
-                with_payload=True,
-                timeout=settings.qdrant_timeout,
-            ),
-            timeout=settings.qdrant_timeout + 2,
+        results = await asyncio.to_thread(
+            client.scroll,
+            collection_name=settings.collection_name,
+            scroll_filter=scroll_filter,
+            limit=len(hashes),
+            with_payload=True,
+            timeout=settings.qdrant_timeout,
         )
 
     points = results[0] if isinstance(results, tuple) else results
@@ -98,16 +98,13 @@ async def qdrant_dense_search(
     qdrant_filter = access_filter if access_filter is not None else None
 
     async with ml_clients.qdrant_search_semaphore:
-        results = await asyncio.wait_for(
-            asyncio.to_thread(
-                client.search,
-                collection_name=settings.collection_name,
-                query_vector=query_vector,
-                limit=k,
-                query_filter=qdrant_filter,
-                timeout=settings.qdrant_timeout,
-            ),
-            timeout=settings.qdrant_timeout + 2,
+        results = await asyncio.to_thread(
+            client.search,
+            collection_name=settings.collection_name,
+            query_vector=query_vector,
+            limit=k,
+            query_filter=qdrant_filter,
+            timeout=settings.qdrant_timeout,
         )
 
     docs = []
@@ -146,13 +143,16 @@ async def run_hybrid_search(
 
         async def _bm25_search():
             async with ml_clients.bm25_search_semaphore:
-                return await asyncio.to_thread(
-                    bm25_index.search_with_hashes,
-                    query,
-                    fetch_k,
-                    visibility_conditions=visibility_conditions,
-                    user_id=user_id,
-                    user_group_ids=user_group_ids or [],
+                return await asyncio.wait_for(
+                    asyncio.to_thread(
+                        bm25_index.search_with_hashes,
+                        query,
+                        fetch_k,
+                        visibility_conditions=visibility_conditions,
+                        user_id=user_id,
+                        user_group_ids=user_group_ids or [],
+                    ),
+                    timeout=5,
                 )
 
         dense_results, sparse_results = await asyncio.gather(dense_coro, _bm25_search())

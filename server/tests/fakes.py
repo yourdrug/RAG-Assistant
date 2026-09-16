@@ -875,6 +875,28 @@ class FakeChatRAGPort:
 # ---------------------------------------------------------------------------
 
 
+class FakeTimeoutSemaphore:
+    """Fake semaphore that supports timeout semantics for integration-style tests."""
+
+    def __init__(self, value: int = 8, timeout: float = 30.0) -> None:
+        self._sem = asyncio.Semaphore(value)
+        self._timeout = timeout
+
+    async def acquire(self) -> bool:
+        await asyncio.wait_for(self._sem.acquire(), timeout=self._timeout)
+        return True
+
+    def release(self) -> None:
+        self._sem.release()
+
+    async def __aenter__(self):
+        await self.acquire()
+        return self
+
+    async def __aexit__(self, *args):
+        self.release()
+
+
 class FakeMLClientRegistry:
     """Lightweight substitute for MLClientRegistry in unit tests."""
 
@@ -882,12 +904,14 @@ class FakeMLClientRegistry:
         self._llm_response = llm_response
         self._invalidated_llm = False
         self._invalidated_bm25 = False
-        self._auxiliary_semaphore = asyncio.Semaphore(4)
-        self._generation_semaphore = asyncio.Semaphore(12)
-        self._qdrant_search_semaphore = asyncio.Semaphore(8)
-        self._bm25_search_semaphore = asyncio.Semaphore(8)
-        self._reranker_semaphore = asyncio.Semaphore(8)
-        self._embedding_semaphore = asyncio.Semaphore(8)
+        self._auxiliary_semaphore = FakeTimeoutSemaphore(4)
+        self._generation_semaphore = FakeTimeoutSemaphore(12)
+        self._qdrant_search_semaphore = FakeTimeoutSemaphore(8)
+        self._bm25_search_semaphore = FakeTimeoutSemaphore(8)
+        self._reranker_semaphore = FakeTimeoutSemaphore(8)
+        self._embedding_semaphore = FakeTimeoutSemaphore(16)
+        self._ingestion_semaphore = FakeTimeoutSemaphore(8)
+        self._qdrant_write_semaphore = FakeTimeoutSemaphore(8)
 
     def llm(self):
         return self
@@ -946,6 +970,14 @@ class FakeMLClientRegistry:
     @property
     def embedding_semaphore(self):
         return self._embedding_semaphore
+
+    @property
+    def ingestion_semaphore(self):
+        return self._ingestion_semaphore
+
+    @property
+    def qdrant_write_semaphore(self):
+        return self._qdrant_write_semaphore
 
     async def astream(self, messages):
         yield type("Chunk", (), {"content": self._llm_response})()

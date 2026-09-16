@@ -14,6 +14,7 @@ from presentation.api.schemas import (
     CreateUserRequest,
     CurrentUser,
     LoginRequest,
+    MeResponse,
     TokenResponse,
     UserListResponse,
     UserResponse,
@@ -36,7 +37,7 @@ async def login(
     return TokenResponse(**result.__dict__)
 
 
-@router.get("/me", response_model=UserResponse)
+@router.get("/me", response_model=MeResponse)
 async def get_me(current_user: CurrentUser = Depends(get_current_user)):
     return current_user
 

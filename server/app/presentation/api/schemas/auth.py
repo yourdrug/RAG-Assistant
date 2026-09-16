@@ -50,6 +50,18 @@ class UserResponse(BaseModel):
     is_active: bool
 
 
+class MeResponse(BaseModel):
+    """Response for GET /auth/me — explicit schema without api_key_id."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: int
+    email: str
+    role: str
+    kind: str
+    is_active: bool
+
+
 class UserListResponse(BaseModel):
     total: int
     limit: int

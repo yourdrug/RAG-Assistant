@@ -51,7 +51,14 @@ class QdrantVectorStoreRepository:
         should_cancel: Callable[[], Awaitable[bool]] | None = None,
     ) -> None:
         lcdocs = [LCDocument(page_content=c.content, metadata=c.metadata) for c in chunks]
-        await upload_to_qdrant(lcdocs, self._get_embeddings(), should_cancel=should_cancel)
+        async with self._ml_clients.ingestion_semaphore:
+            await upload_to_qdrant(
+                lcdocs,
+                self._get_embeddings(),
+                client=self._get_qdrant_client(),
+                write_semaphore=self._ml_clients.qdrant_write_semaphore,
+                should_cancel=should_cancel,
+            )
 
     @retry_on_transient
     async def delete_by_document_id(self, document_id: int) -> None:
@@ -73,42 +80,6 @@ class QdrantVectorStoreRepository:
         return await self._get_embeddings().embed_query(text)
 
     @retry_on_transient
-    async def _similarity_search_with_score(
-        self, query: str, k: int, *, allow_unfiltered: bool = False
-    ) -> list[tuple[Chunk, float]]:
-        """Internal-only search without ACL enforcement.
-
-        Raises RuntimeError unless *allow_unfiltered* is explicitly True.
-        For user-facing queries, use ``search_with_filter()`` instead.
-        """
-        if not allow_unfiltered:
-            raise RuntimeError(
-                "_similarity_search_with_score() requires ACL. "
-                "Use search_with_filter() or pass allow_unfiltered=True for internal use."
-            )
-        client = self._get_qdrant_client()
-        embeddings = self._get_embeddings()
-
-        query_vector = await embeddings.embed_query(query)
-
-        results = await asyncio.to_thread(
-            client.search,
-            collection_name=settings.collection_name,
-            query_vector=query_vector,
-            limit=k,
-        )
-        return [
-            (
-                Chunk(
-                    content=doc.payload.get("page_content", ""),
-                    metadata=doc.payload.get("metadata", {}),
-                ),
-                score,
-            )
-            for doc, score in results
-        ]
-
-    @retry_on_transient
     async def upsert_point(self, point_id: int, vector: list[float], payload: dict) -> None:
         """Upsert a single point with deterministic ID (chunk.id)."""
         client = self._get_qdrant_client()
@@ -119,19 +90,13 @@ class QdrantVectorStoreRepository:
 
         await asyncio.to_thread(_upsert)
 
-    async def get_point_payload(self, point_id: int, access_filter: Filter | None = None) -> dict | None:
+    async def get_point_payload(self, point_id: int, access_filter: Filter) -> dict | None:
         """Fetch a single point's payload by ID with mandatory ACL enforcement.
 
         Raises ``RuntimeError`` if *access_filter* is not provided — all callers
         must pass an ACL filter to prevent cross-tenant data leaks.
         Returns None if the point does not exist or is outside ACL scope.
         """
-        if access_filter is None:
-            raise RuntimeError(
-                "get_point_payload() requires access_filter for ACL enforcement. "
-                "Build one via build_qdrant_filter() before calling."
-            )
-
         client = self._get_qdrant_client()
         combined_filter = Filter(
             must=[

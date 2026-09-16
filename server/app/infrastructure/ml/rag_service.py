@@ -19,6 +19,7 @@ from domain.utils import compute_reranker_score
 from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.llm_provider import Breadth
+from domain.value_objects.user_context import UserContext
 from domain.value_objects.stream_events import (
     PipelineMetaEvent,
     SourcesEvent,
@@ -124,7 +125,7 @@ class RagService:
             req_id = uuid.uuid4().hex[:12]
             request_id_ctx.set(req_id)
 
-        user = {"id": ctx.user_id, "kind": ctx.user_kind, "role": ctx.user_role}
+        user = UserContext(user_id=ctx.user_id, user_kind=ctx.user_kind, user_role=ctx.user_role)
         scope = ctx.curator_scope
 
         from domain.services import get_visibility_conditions

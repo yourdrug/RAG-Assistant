@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 import pytest
+from qdrant_client.models import FieldCondition, Filter, MatchValue
 
 
 # ---------------------------------------------------------------------------
@@ -47,7 +48,9 @@ async def test_resolve_hashes_batch_calls_scroll(mock_settings):
     ml_clients = MagicMock()
     ml_clients.qdrant_client.return_value = mock_client
 
-    result = await resolve_hashes_batch(["abc123"], None, ml_clients)
+    result = await resolve_hashes_batch(
+        ["abc123"], Filter(must=[FieldCondition(key="id", match=MatchValue(value=0))]), ml_clients
+    )
 
     assert "abc123" in result
     assert result["abc123"].page_content == "hello world"
@@ -59,7 +62,6 @@ async def test_resolve_hashes_batch_calls_scroll(mock_settings):
 @patch("infrastructure.ml.rag.rag_retrieval.settings")
 async def test_resolve_hashes_batch_with_access_filter(mock_settings):
     from infrastructure.ml.rag.rag_retrieval import resolve_hashes_batch
-    from qdrant_client.models import FieldCondition, Filter, MatchValue
 
     mock_settings.collection_name = "test_col"
     mock_settings.qdrant_timeout = 10
@@ -212,7 +214,9 @@ async def test_hybrid_search_fallback_to_dense_when_bm25_disabled(mock_settings,
     ml_clients.embeddings.return_value = mock_embeddings
     ml_clients._ensure_bm25_loaded = AsyncMock(return_value=None)  # no BM25
 
-    results = await run_hybrid_search("test", 10, None, rag, ml_clients)
+    _acl_filter = Filter(must=[FieldCondition(key="id", match=MatchValue(value=0))])
+
+    results = await run_hybrid_search("test", 10, _acl_filter, rag, ml_clients)
 
     assert len(results) >= 1
     assert results[0].page_content == "result"
@@ -277,7 +281,8 @@ async def test_hybrid_search_uses_rrf_when_bm25_available(mock_settings, mock_me
     ml_clients.embeddings.return_value = mock_embeddings
     ml_clients._ensure_bm25_loaded = AsyncMock(return_value=mock_bm25)
 
-    results = await run_hybrid_search("test", 10, None, rag, ml_clients)
+    _acl_filter = Filter(must=[FieldCondition(key="id", match=MatchValue(value=0))])
+    results = await run_hybrid_search("test", 10, _acl_filter, rag, ml_clients)
 
     mock_rrf.assert_called_once()
     assert len(results) >= 1

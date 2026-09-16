@@ -7,7 +7,7 @@ import logging
 import uuid
 
 from application.services.chat_service import ChatService
-from domain.exceptions import LLMUnavailableError
+from domain.exceptions import LLMUnavailableError, SemaphoreTimeoutError
 from domain.value_objects.stream_events import MetaEvent, StatusEvent, TextChunk
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -98,6 +98,9 @@ async def chat_stream(
         except LLMUnavailableError as exc:
             logger.warning("LLM unavailable (circuit breaker): %s", exc)
             yield _sse_error_event("llm_unavailable", "LLM временно недоступен, попробуйте позже")
+        except SemaphoreTimeoutError as exc:
+            logger.warning("Semaphore timeout (backpressure): %s", exc)
+            yield _sse_error_event("server_busy", "Сервер перегружен, повторите позже")
         except TimeoutError:
             logger.warning("LLM auxiliary timeout", exc_info=True)
             yield _sse_error_event("llm_unavailable", "LLM временно недоступен, попробуйте позже")

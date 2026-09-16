@@ -76,10 +76,8 @@ class PageImageResponse(BaseModel):
 class PreviewFile(BaseModel):
     """Validate uploaded file for dry-run preview — extension must be in DRY_RUN_EXTENSIONS.
 
-    Use after reading file data to additionally check size:
-        PreviewFile(filename=file.filename)
-        data = await file.read()
-        if len(data) > max_bytes: raise ...
+    First-pass path traversal filter. Downstream ``_validate_s3_key`` performs
+    its own checks as defense-in-depth.
     """
 
     filename: str
@@ -95,3 +93,11 @@ class PreviewFile(BaseModel):
                 "Файлы .doc (старый формат Word 97-2003) не поддерживаются. "
                 "Конвертируйте файл в .docx и повторите попытку."
             )
+
+
+class IndexFromPreviewResponse(BaseModel):
+    """Response for POST /admin/quality/index-from-preview."""
+
+    document_id: int
+    filename: str
+    status: str

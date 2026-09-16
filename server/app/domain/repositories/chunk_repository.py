@@ -14,6 +14,7 @@ from typing import Protocol, runtime_checkable
 from domain.value_objects.cursor_page import CursorPage
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.search_mode import SearchMode
+from domain.value_objects.user_context import UserContext
 
 
 @dataclass
@@ -146,8 +147,7 @@ class ChunkCrudRepository(Protocol):
         window: int = 1,
         exclude_hashes: set[str] | None = None,
         *,
-        user: dict,
-        group_ids: list[int] | None = None,
+        user: UserContext,
     ) -> list[ChunkSearchResult]: ...
 
     async def get_table_batches(
@@ -156,8 +156,7 @@ class ChunkCrudRepository(Protocol):
         anchor_index: int,
         exclude_hashes: set[str] | None = None,
         *,
-        user: dict,
-        group_ids: list[int] | None = None,
+        user: UserContext,
     ) -> list[ChunkSearchResult]: ...
 
     async def update_filename_by_document_id(self, document_id: int, new_filename: str) -> int: ...
@@ -170,14 +169,10 @@ class ChunkSearchRepository(Protocol):
     async def search_substring(
         self,
         query: str,
-        user: dict,
-        group_ids: list[int],
+        user: UserContext,
         limit: int = 20,
         mode: str = SearchMode.EXACT.value,
         document_id: int | None = None,
-        managed_client_ids: list[int] | None = None,
-        managed_internal_ids: list[int] | None = None,
-        managed_group_ids: list[int] | None = None,
     ) -> list[ChunkSearchResult]: ...
 
 

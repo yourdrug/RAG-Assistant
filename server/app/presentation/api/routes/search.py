@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from application.services.search_service import SearchService
+from domain.value_objects.user_context import UserContext
 from fastapi import APIRouter, Depends
 
 from presentation.api.auth_dependencies import get_current_user
@@ -29,7 +30,7 @@ async def exact_search(
     """
     results = await search_service.exact_search(
         query=req.query,
-        user={"id": current_user.id, "kind": current_user.kind, "role": current_user.role},
+        user=UserContext(user_id=current_user.id, user_kind=current_user.kind, user_role=current_user.role),
         limit=req.limit,
         mode=req.mode,
         document_id=req.document_id,

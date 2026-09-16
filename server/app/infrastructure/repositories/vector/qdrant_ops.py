@@ -137,11 +137,33 @@ def _ensure_payload_indexes(client) -> None:
                 log.warning("Failed to create payload index %s: %s", field_name, e)
 
 
+async def _upsert_with_semaphore(
+    client, points: list, write_semaphore=None
+) -> None:
+    """Upsert points to Qdrant, optionally gated by a write semaphore."""
+    if write_semaphore is not None:
+        async with write_semaphore:
+            await asyncio.to_thread(
+                client.upsert,
+                collection_name=settings.collection_name,
+                points=points,
+                timeout=settings.qdrant_timeout * 3,
+            )
+    else:
+        await asyncio.to_thread(
+            client.upsert,
+            collection_name=settings.collection_name,
+            points=points,
+            timeout=settings.qdrant_timeout * 3,
+        )
+
+
 async def upload_to_qdrant(
     chunks: list[Document],
     embeddings,
     client=None,
     *,
+    write_semaphore=None,
     should_cancel: Callable[[], Awaitable[bool]] | None = None,
 ) -> None:
     embed_batch = settings.embed_batch_size
@@ -214,12 +236,7 @@ async def upload_to_qdrant(
 
         # Flush to Qdrant when we have enough for a qdrant_batch or at the end
         while len(pending_points) >= qdrant_batch:
-            await asyncio.to_thread(
-                client.upsert,
-                collection_name=settings.collection_name,
-                points=pending_points[:qdrant_batch],
-                timeout=settings.qdrant_timeout * 3,
-            )
+            await _upsert_with_semaphore(client, pending_points[:qdrant_batch], write_semaphore)
             pending_points = pending_points[qdrant_batch:]
 
         done = batch_end
@@ -236,11 +253,6 @@ async def upload_to_qdrant(
 
     # Flush remaining points
     if pending_points:
-        await asyncio.to_thread(
-            client.upsert,
-            collection_name=settings.collection_name,
-            points=pending_points,
-            timeout=settings.qdrant_timeout * 3,
-        )
+        await _upsert_with_semaphore(client, pending_points, write_semaphore)
 
     log.info("Qdrant upload completed in %.1fs", time.monotonic() - t0)

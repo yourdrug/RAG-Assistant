@@ -198,18 +198,17 @@ class TestChunkSearchAdapter:
 
         adapter = ChunkSearchAdapter(uow_factory=mock_uow_factory)
 
+        user = MagicMock(user_id=1, user_kind="admin", user_role="user", group_ids=[1, 2])
         result = await adapter.search_substring(
             query="test",
-            user={"id": 1, "kind": "admin"},
-            group_ids=[1, 2],
+            user=user,
             limit=10,
             mode="exact",
         )
 
         mock_chunks.search_substring.assert_awaited_once_with(
             query="test",
-            user={"id": 1, "kind": "admin"},
-            group_ids=[1, 2],
+            user=user,
             limit=10,
             mode="exact",
         )

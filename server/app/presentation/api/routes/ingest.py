@@ -158,7 +158,7 @@ async def upload_files(
     file_data = []
     for f in files:
         data = await read_upload_with_limit(f, max_bytes)
-        fc = FileContent(data=data, filename=f.filename or "unnamed")
+        fc = FileContent(data=data, filename=f.filename or "unnamed", check_structural=True)
         file_data.append(type("UploadFileData", (), {"filename": f.filename, "data": fc.data})())
 
     uploaded = await ingestion_port.upload_files(file_data)

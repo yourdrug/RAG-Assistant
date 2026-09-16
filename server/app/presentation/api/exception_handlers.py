@@ -18,6 +18,7 @@ from domain.exceptions import (
     DatabaseError,
     EntityNotFound,
     PermissionDeniedError,
+    SemaphoreTimeoutError,
     ServerException,
     ValidationError,
 )
@@ -38,6 +39,7 @@ _CLIENT_STATUS_MAP: dict[type[ClientException], int] = {
     BusinessRuleViolation: status.HTTP_409_CONFLICT,
     AuthenticationError: status.HTTP_401_UNAUTHORIZED,
     PermissionDeniedError: status.HTTP_403_FORBIDDEN,
+    SemaphoreTimeoutError: status.HTTP_429_TOO_MANY_REQUESTS,
     ClientException: status.HTTP_400_BAD_REQUEST,  # fallback
 }
 

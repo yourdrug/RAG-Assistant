@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.llm_provider import Breadth
 from domain.value_objects.rag_settings import RagSettings
+from domain.value_objects.user_context import UserContext
 
 
 @dataclass
@@ -23,7 +24,7 @@ class RagPipelineState:
     t_pipeline_start: float
     question: str
     ctx: ChatContext
-    user: dict
+    user: UserContext
     access_filter: object
     retrieval_filter: object
     req_id: str = ""

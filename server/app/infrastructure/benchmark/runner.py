@@ -133,6 +133,7 @@ async def run_benchmark_async(
     # benchmark retrieval does not leak CLIENT_PRIVATE documents.
     bench_ctx = ChatContext(user_id=0, user_kind="internal", user_role="admin")
 
+    from domain.services.access_control import get_visibility_conditions
     from domain.value_objects.roles import UserKind, UserRole
     from infrastructure.repositories.vector.acl import build_qdrant_filter
 
@@ -141,7 +142,13 @@ async def run_benchmark_async(
         user=bench_user_dict,
         group_ids=[],
     )
-    visibility_conditions = None  # BM25 pre-filter not needed for admin (no CLIENT_PRIVATE in search scope)
+    visibility_conditions = get_visibility_conditions(
+        user_kind=UserKind.INTERNAL,
+        user_id=0,
+        group_ids=[],
+        for_list=False,
+        user_role=UserRole.ADMIN,
+    )
 
     all_results: list[dict] = []
 

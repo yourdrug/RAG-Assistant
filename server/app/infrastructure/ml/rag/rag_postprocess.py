@@ -116,7 +116,14 @@ def apply_citation_filter(rag: RagSettings, full_answer: str, sources: list[dict
     """Filter sources to only those cited in the LLM answer."""
     if not rag.features.citation_filter_enabled:
         return sources
-    return filter_cited_sources(full_answer, sources)
+    filtered = filter_cited_sources(full_answer, sources)
+    if len(filtered) < len(sources):
+        log.info(
+            "Citation filter: kept %d/%d sources",
+            len(filtered),
+            len(sources),
+        )
+    return filtered
 
 
 async def enrich_with_neighbors(
@@ -124,8 +131,7 @@ async def enrich_with_neighbors(
     enumerate_cases: bool,
     chunk_search,
     max_context_tokens: int = 6000,
-    user: dict | None = None,
-    group_ids: list[int] | None = None,
+    user=None,
 ) -> list[tuple]:
     """Add neighboring chunks from the same document for richer context."""
     if not chunk_search or not enumerate_cases:
@@ -153,7 +159,6 @@ async def enrich_with_neighbors(
                     chunk_index,
                     exclude_hashes=existing_hashes,
                     user=user,
-                    group_ids=group_ids,
                 )
             else:
                 neighbors = await chunk_search.get_neighbors(
@@ -162,7 +167,6 @@ async def enrich_with_neighbors(
                     window=3,
                     exclude_hashes=existing_hashes,
                     user=user,
-                    group_ids=group_ids,
                 )
         except Exception:
             log.warning(

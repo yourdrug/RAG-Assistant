@@ -26,7 +26,7 @@ from qdrant_client.models import (
 
 
 def build_qdrant_filter(
-    user: dict,
+    user,
     group_ids: list[int],
     managed_client_ids: list[int] | None = None,
     managed_internal_ids: list[int] | None = None,
@@ -37,17 +37,20 @@ def build_qdrant_filter(
     Derives conditions from domain.services.access_control.get_visibility_conditions().
 
     Args:
-        user: dict with "id", "kind", and optionally "role" keys
+        user: UserContext or dict with "id", "kind", and optionally "role" keys
         group_ids: pre-fetched group IDs for this user
         managed_client_ids: curator's assigned client user IDs
         managed_internal_ids: curator's assigned internal user IDs
         managed_group_ids: curator's assigned group IDs
 
     """
-    user_role = UserRole(user["role"]) if "role" in user and user["role"] else None
+    user_id = user.user_id if hasattr(user, "user_id") else user["id"]
+    user_kind = user.user_kind if hasattr(user, "user_kind") else user["kind"]
+    user_role_raw = user.user_role if hasattr(user, "user_role") else user.get("role")
+    user_role = UserRole(user_role_raw) if user_role_raw else None
     conditions = get_visibility_conditions(
-        UserKind(user["kind"]),
-        user["id"],
+        UserKind(user_kind),
+        user_id,
         group_ids,
         for_list=False,
         user_role=user_role,

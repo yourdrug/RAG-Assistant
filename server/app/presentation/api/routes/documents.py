@@ -24,6 +24,7 @@ from presentation.api.dependencies import (
 from presentation.api.helpers import upload_and_enqueue
 from presentation.api.schemas import (
     CurrentUser,
+    DeleteDocumentResponse,
     DocumentRenameRequest,
     DocumentResponse,
     FileContent,
@@ -124,7 +125,7 @@ async def get_document_status(
     )
 
 
-@router.delete("/documents/{document_id}")
+@router.delete("/documents/{document_id}", response_model=DeleteDocumentResponse)
 async def delete_document(
     document_id: int,
     current_user: CurrentUser = Depends(require_capability(Capability.DOCUMENTS_MANAGE)),

@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.llm_provider import Breadth
+from domain.value_objects.user_context import UserContext
 from domain.value_objects.search_mode import SearchMode
 from langchain.schema import Document as LCDocument
 
@@ -107,7 +108,7 @@ async def run_retrieval(
 async def apply_exact_search(
     query_for_search: str,
     candidates: list[LCDocument],
-    user: dict,
+    user,
     ctx,
     chunk_search,
 ) -> None:
@@ -118,7 +119,6 @@ async def apply_exact_search(
         exact_results = await chunk_search.search_substring(
             query=query_for_search,
             user=user,
-            group_ids=ctx.user_group_ids,
             limit=5,
             mode=SearchMode.EXACT.value,
         )
@@ -385,8 +385,12 @@ async def rerank_and_enrich(
         enumerate_cases,
         chunk_search,
         max_context_tokens,
-        user={"id": ctx.user_id, "kind": ctx.user_kind, "role": ctx.user_role},
-        group_ids=ctx.user_group_ids,
+        user=UserContext(
+            user_id=ctx.user_id,
+            user_kind=ctx.user_kind,
+            user_role=ctx.user_role,
+            group_ids=ctx.user_group_ids,
+        ),
     )
 
     return docs, [d for d, _ in docs] if docs and isinstance(docs[0], tuple) else docs, avg_sim

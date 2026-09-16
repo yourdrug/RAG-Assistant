@@ -18,6 +18,7 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from config import settings
+from domain.exceptions.domain_errors import SemaphoreTimeoutError
 from domain.value_objects.llm_provider import LLMProvider
 
 if TYPE_CHECKING:
@@ -37,7 +38,10 @@ class TimeoutSemaphore:
         self._timeout = timeout
 
     async def acquire(self) -> bool:
-        await asyncio.wait_for(self._sem.acquire(), timeout=self._timeout)
+        try:
+            await asyncio.wait_for(self._sem.acquire(), timeout=self._timeout)
+        except asyncio.TimeoutError as exc:
+            raise SemaphoreTimeoutError() from exc
         return True
 
     def release(self) -> None:
@@ -77,13 +81,33 @@ class MLClientRegistry:
         self._bm25_loaded: bool = False
         self._bm25_last_reload: float = 0.0
         self._bm25_reload_lock: asyncio.Lock | None = None
-        self._generation_semaphore: TimeoutSemaphore | None = None
-        self._auxiliary_semaphore: TimeoutSemaphore | None = None
-        self._qdrant_search_semaphore: TimeoutSemaphore | None = None
-        self._reranker_semaphore: TimeoutSemaphore | None = None
-        self._bm25_search_semaphore: TimeoutSemaphore | None = None
-        self._embedding_semaphore: TimeoutSemaphore | None = None
         self._instructor: Any = None
+
+        # Eager init semaphores — lightweight objects, no race conditions
+        self.generation_semaphore = TimeoutSemaphore(
+            settings.llm_generation_max_concurrent, timeout=settings.semaphore_acquire_timeout
+        )
+        self.auxiliary_semaphore = TimeoutSemaphore(
+            settings.llm_auxiliary_max_concurrent, timeout=settings.semaphore_acquire_timeout
+        )
+        self.qdrant_search_semaphore = TimeoutSemaphore(
+            settings.qdrant_search_max_concurrent, timeout=settings.semaphore_acquire_timeout
+        )
+        self.reranker_semaphore = TimeoutSemaphore(
+            settings.reranker_max_concurrent, timeout=settings.semaphore_acquire_timeout
+        )
+        self.bm25_search_semaphore = TimeoutSemaphore(
+            settings.bm25_search_max_concurrent, timeout=settings.semaphore_acquire_timeout
+        )
+        self.embedding_semaphore = TimeoutSemaphore(
+            settings.embedding_max_concurrent, timeout=settings.semaphore_acquire_timeout
+        )
+        self.ingestion_semaphore = TimeoutSemaphore(
+            settings.ingestion_max_concurrent, timeout=settings.semaphore_acquire_timeout
+        )
+        self.qdrant_write_semaphore = TimeoutSemaphore(
+            settings.qdrant_write_max_concurrent, timeout=settings.semaphore_acquire_timeout
+        )
 
     # ------------------------------------------------------------------
     # Accessors (lazy init via factories, thread-safe)
@@ -183,60 +207,6 @@ class MLClientRegistry:
                     self._bm25_loaded = True
                     self._bm25_last_reload = now
         return self._bm25_index
-
-    @property
-    def generation_semaphore(self) -> TimeoutSemaphore:
-        """Semaphore for heavy LLM operations (generation, 10-30s)."""
-        if self._generation_semaphore is None:
-            self._generation_semaphore = TimeoutSemaphore(
-                settings.llm_generation_max_concurrent, timeout=settings.semaphore_acquire_timeout
-            )
-        return self._generation_semaphore
-
-    @property
-    def auxiliary_semaphore(self) -> TimeoutSemaphore:
-        """Semaphore for light LLM operations (condense, relevance, 1-3s)."""
-        if self._auxiliary_semaphore is None:
-            self._auxiliary_semaphore = TimeoutSemaphore(
-                settings.llm_auxiliary_max_concurrent, timeout=settings.semaphore_acquire_timeout
-            )
-        return self._auxiliary_semaphore
-
-    @property
-    def qdrant_search_semaphore(self) -> TimeoutSemaphore:
-        """Semaphore for Qdrant search operations (prevents thundering herd on decomposition retries)."""
-        if self._qdrant_search_semaphore is None:
-            self._qdrant_search_semaphore = TimeoutSemaphore(
-                settings.qdrant_search_max_concurrent, timeout=settings.semaphore_acquire_timeout
-            )
-        return self._qdrant_search_semaphore
-
-    @property
-    def reranker_semaphore(self) -> TimeoutSemaphore:
-        """Semaphore for reranker operations."""
-        if self._reranker_semaphore is None:
-            self._reranker_semaphore = TimeoutSemaphore(
-                settings.reranker_max_concurrent, timeout=settings.semaphore_acquire_timeout
-            )
-        return self._reranker_semaphore
-
-    @property
-    def bm25_search_semaphore(self) -> TimeoutSemaphore:
-        """Semaphore for BM25 search operations (prevents data race with ingestion)."""
-        if self._bm25_search_semaphore is None:
-            self._bm25_search_semaphore = TimeoutSemaphore(
-                settings.bm25_search_max_concurrent, timeout=settings.semaphore_acquire_timeout
-            )
-        return self._bm25_search_semaphore
-
-    @property
-    def embedding_semaphore(self) -> TimeoutSemaphore:
-        """Semaphore for embedding operations."""
-        if self._embedding_semaphore is None:
-            self._embedding_semaphore = TimeoutSemaphore(
-                settings.reranker_max_concurrent, timeout=settings.semaphore_acquire_timeout
-            )
-        return self._embedding_semaphore
 
     @property
     def instructor_client(self):

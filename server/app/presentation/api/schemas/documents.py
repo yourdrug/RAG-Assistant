@@ -56,3 +56,10 @@ class ManualDocumentRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=255)
     visibility: DocumentVisibility
     group_id: int | None = None
+
+
+class DeleteDocumentResponse(BaseModel):
+    """Response for DELETE /documents/{id}."""
+
+    status: str
+    document_id: int

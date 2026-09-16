@@ -174,7 +174,7 @@ async def step_retrieve(
         params["effective_dense_weight"],
         params["effective_sparse_weight"],
         visibility_conditions=state.visibility_conditions,
-        user_id=state.user["id"],
+        user_id=state.user.user_id,
         user_group_ids=ctx.user_group_ids,
     )
 
@@ -279,7 +279,7 @@ async def step_self_rag(
                     state.effective_dense_weight,
                     state.effective_sparse_weight,
                     visibility_conditions=state.visibility_conditions,
-                    user_id=state.user["id"],
+        user_id=state.user.user_id,
                     user_group_ids=state.ctx.user_group_ids,
                 )
                 docs, _, _ = await rerank_and_enrich(

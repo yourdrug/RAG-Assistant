@@ -50,9 +50,17 @@ class _CaptureSession:
 
 
 async def _capture(query: str, user: dict, group_ids: list[int], mode: str, document_id: int | None):
+    from domain.value_objects.user_context import UserContext
+
     session = _CaptureSession()
     repo = SQLAlchemyChunkRepository(session)
-    await repo.search_substring(query, user, group_ids, limit=20, mode=mode, document_id=document_id)
+    ctx = UserContext(
+        user_id=user["id"],
+        user_kind=user["kind"],
+        user_role=user.get("role", "user"),
+        group_ids=group_ids,
+    )
+    await repo.search_substring(query, ctx, limit=20, mode=mode, document_id=document_id)
     assert session.captured is not None, "statement was not executed"
     return session.captured
 

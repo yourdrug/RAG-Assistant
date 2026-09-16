@@ -12,6 +12,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
+import pytest  # noqa: E402
+
 from infrastructure.repositories.vector.acl import (  # noqa: E402
     build_qdrant_filter,
     with_domain_filter,
@@ -131,15 +133,13 @@ class TestResolveHashesACLFilter:
         assert scroll_filter.must is not None
         assert temporal_af in scroll_filter.must
 
-    def test_none_filter_means_unfiltered_scroll(self):
+    def test_none_filter_raises_runtime_error(self):
+        """access_filter=None must raise RuntimeError (FINDING-020 security guard)."""
         from infrastructure.ml.rag.rag_retrieval import resolve_hashes_batch
 
         mock_client = MagicMock()
         mock_client.scroll.return_value = ([], None)
 
         ml = _make_ml_clients(qdrant_client=mock_client)
-        asyncio.run(resolve_hashes_batch(["hash1"], None, ml))
-
-        call_kwargs = mock_client.scroll.call_args
-        scroll_filter = call_kwargs.kwargs["scroll_filter"]
-        assert scroll_filter.must is None
+        with pytest.raises(RuntimeError, match="requires access_filter"):
+            asyncio.run(resolve_hashes_batch(["hash1"], None, ml))

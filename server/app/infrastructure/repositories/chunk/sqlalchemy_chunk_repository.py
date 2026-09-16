@@ -63,7 +63,7 @@ def _row_to_search_result(row) -> ChunkSearchResult:
 
 
 def _build_acl_clauses(
-    user: dict,
+    user,
     group_ids: list[int],
     managed_client_ids: list[int] | None = None,
     managed_internal_ids: list[int] | None = None,
@@ -74,12 +74,15 @@ def _build_acl_clauses(
     Each condition is an AND-group of (visibility + owner/group match).
     The full scope is the OR of all conditions.
     """
+    user_id = user.user_id if hasattr(user, "user_id") else user["id"]
+    user_kind = user.user_kind if hasattr(user, "user_kind") else user["kind"]
+    user_role_raw = user.user_role if hasattr(user, "user_role") else user.get("role", "user")
     conditions = get_visibility_conditions(
-        UserKind(user["kind"]),
-        user["id"],
+        UserKind(user_kind),
+        user_id,
         group_ids,
         for_list=False,
-        user_role=UserRole(user.get("role", "user")),
+        user_role=UserRole(user_role_raw),
         managed_client_ids=managed_client_ids,
         managed_internal_ids=managed_internal_ids,
         managed_group_ids=managed_group_ids,
@@ -90,7 +93,7 @@ def _build_acl_clauses(
         parts = [ChunkModel.visibility == cond.visibility.value]
 
         if cond.owner_match == OwnerMatch.SELF.value:
-            parts.append(ChunkModel.owner_id == user["id"])
+            parts.append(ChunkModel.owner_id == user_id)
 
         if cond.owner_match == OwnerMatch.ASSIGNED.value and cond.owner_ids:
             parts.append(ChunkModel.owner_id.in_(cond.owner_ids))
@@ -405,24 +408,20 @@ class SQLAlchemyChunkRepository:
     async def search_substring(
         self,
         query: str,
-        user: dict,
-        group_ids: list[int],
+        user,
         limit: int = 20,
         mode: str = "exact",
         document_id: int | None = None,
-        managed_client_ids: list[int] | None = None,
-        managed_internal_ids: list[int] | None = None,
-        managed_group_ids: list[int] | None = None,
     ) -> list[ChunkSearchResult]:
         if len(query.strip()) < 3:
             return []
 
         acl_clauses = _build_acl_clauses(
             user,
-            group_ids,
-            managed_client_ids,
-            managed_internal_ids,
-            managed_group_ids,
+            user.group_ids,
+            user.managed_client_ids,
+            user.managed_internal_ids,
+            user.managed_group_ids,
         )
 
         if mode == SearchMode.EXACT.value:
@@ -588,8 +587,7 @@ class SQLAlchemyChunkRepository:
         window: int = 1,
         exclude_hashes: set[str] | None = None,
         *,
-        user: dict,
-        group_ids: list[int] | None = None,
+        user,
     ) -> list[ChunkSearchResult]:
         low = center_index - window
         high = center_index + window
@@ -602,7 +600,7 @@ class SQLAlchemyChunkRepository:
             safe_hashes = {h for h in exclude_hashes if h is not None}
             if safe_hashes:
                 conditions.append(~ChunkModel.content_hash.in_(safe_hashes))
-        acl_clauses = _build_acl_clauses(user, group_ids or [])
+        acl_clauses = _build_acl_clauses(user, user.group_ids)
         if acl_clauses:
             conditions.append(or_(*acl_clauses))
         stmt = select(ChunkModel).where(and_(*conditions)).order_by(ChunkModel.chunk_index)
@@ -615,8 +613,7 @@ class SQLAlchemyChunkRepository:
         anchor_index: int,
         exclude_hashes: set[str] | None = None,
         *,
-        user: dict,
-        group_ids: list[int] | None = None,
+        user,
     ) -> list[ChunkSearchResult]:
         """Fetch all consecutive table batches starting from anchor_index."""
         conditions = [
@@ -627,7 +624,7 @@ class SQLAlchemyChunkRepository:
             safe_hashes = {h for h in exclude_hashes if h is not None}
             if safe_hashes:
                 conditions.append(~ChunkModel.content_hash.in_(safe_hashes))
-        acl_clauses = _build_acl_clauses(user, group_ids or [])
+        acl_clauses = _build_acl_clauses(user, user.group_ids)
         if acl_clauses:
             conditions.append(or_(*acl_clauses))
         stmt = select(ChunkModel).where(and_(*conditions)).order_by(ChunkModel.chunk_index)

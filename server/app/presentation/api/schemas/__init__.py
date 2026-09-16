@@ -33,6 +33,7 @@ from presentation.api.schemas.admin_quality import (
     DocumentQualityListResponse,
     DryRunPageResult,
     DryRunResponse,
+    IndexFromPreviewResponse,
     PageDiagnostic,
     PageImageResponse,
     PreviewFile,
@@ -44,6 +45,7 @@ from presentation.api.schemas.auth import (
     CuratorScopeResponse,
     CurrentUser,
     LoginRequest,
+    MeResponse,
     TokenResponse,
     UserListResponse,
     UserResponse,
@@ -90,6 +92,7 @@ from presentation.api.schemas.chunks import (
     ChunkResponse,
 )
 from presentation.api.schemas.documents import (
+    DeleteDocumentResponse,
     DocumentRenameRequest,
     DocumentResponse,
     ManualDocumentRequest,
@@ -138,6 +141,7 @@ __all__ = [
     "DocumentQualityListResponse",
     "DryRunPageResult",
     "DryRunResponse",
+    "IndexFromPreviewResponse",
     "PageDiagnostic",
     "PageImageResponse",
     "PreviewFile",
@@ -151,6 +155,7 @@ __all__ = [
     "CuratorScopeResponse",
     "CurrentUser",
     "LoginRequest",
+    "MeResponse",
     "TokenResponse",
     "UserListResponse",
     "UserResponse",
@@ -193,6 +198,7 @@ __all__ = [
     "ChunkListResponse",
     "ChunkResponse",
     # documents
+    "DeleteDocumentResponse",
     "DocumentRenameRequest",
     "DocumentResponse",
     "ManualDocumentRequest",

@@ -577,7 +577,7 @@ class TestRagServiceCuratorScope:
                     svc._domain_registry = None
                     svc._init_state("test question", [], ctx)
                     mock_filter.assert_called_once_with(
-                        {"id": 1, "kind": "internal", "role": "curator"},
+                        UserContext(user_id=1, user_kind="internal", user_role="curator"),
                         [],
                         managed_client_ids=[100, 200],
                         managed_internal_ids=[300],

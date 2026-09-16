@@ -141,3 +141,17 @@ class LLMUnavailableError(ServerException):
             message=detail,
             errors={"code": "llm_unavailable"},
         )
+
+
+class SemaphoreTimeoutError(ClientException):
+    """Semaphore acquire timed out — server under load (429 Too Many Requests).
+
+    Raised by ``TimeoutSemaphore`` when the concurrency limit is reached
+    and the caller cannot acquire a permit within the configured timeout.
+    """
+
+    def __init__(self, detail: str = "Сервер перегружен, повторите позже") -> None:
+        super().__init__(
+            message=detail,
+            errors={"code": "semaphore_timeout"},
+        )

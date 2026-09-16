@@ -20,7 +20,12 @@ from presentation.api.constants import MAGIC_BYTES
 
 
 def _reject_unsafe_path(v: str) -> str:
-    """Reject paths containing '..' or absolute paths to prevent path traversal."""
+    """Reject paths containing '..' or absolute paths to prevent path traversal.
+
+    This is a first-pass filter at the Pydantic schema level. Downstream
+    services (``_validate_s3_key``, ``resolve_docs_dir``) perform their own
+    checks as defense-in-depth.
+    """
     if ".." in v:
         raise ValueError("Path must not contain '..'")
     if Path(v).is_absolute():
@@ -76,6 +81,9 @@ class FileContent(BaseModel):
 
     @model_validator(mode="after")
     def _validate_content(self) -> FileContent:
+        if not self.data:
+            raise ValueError("File is empty")
+
         ext = Path(self.filename).suffix.lower()
 
         # 1. Extension must be known

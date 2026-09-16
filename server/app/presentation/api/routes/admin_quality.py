@@ -39,6 +39,7 @@ from presentation.api.schemas import (
     DocumentQualityItem,
     DocumentQualityListResponse,
     DryRunResponse,
+    IndexFromPreviewResponse,
     PageDiagnostic,
     PageImageResponse,
     PreviewFile,
@@ -332,7 +333,7 @@ async def get_page_image(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/admin/documents/preview/{preview_id}/index")
+@router.post("/admin/documents/preview/{preview_id}/index", response_model=IndexFromPreviewResponse)
 async def index_from_preview(
     preview_id: str,
     visibility: str = Form("internal_public"),
