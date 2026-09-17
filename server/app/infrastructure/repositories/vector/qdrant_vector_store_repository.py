@@ -50,6 +50,8 @@ class QdrantVectorStoreRepository:
         *,
         should_cancel: Callable[[], Awaitable[bool]] | None = None,
     ) -> None:
+        if self._ml_clients is None:
+            raise ValueError("ml_clients not initialized — cannot upload documents")
         lcdocs = [LCDocument(page_content=c.content, metadata=c.metadata) for c in chunks]
         async with self._ml_clients.ingestion_semaphore:
             await upload_to_qdrant(

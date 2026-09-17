@@ -393,4 +393,5 @@ async def rerank_and_enrich(
         ),
     )
 
-    return docs, [d for d, _ in docs] if docs and isinstance(docs[0], tuple) else docs, avg_sim
+    docs_only: list[LCDocument] = [d for d, _ in docs] if docs and isinstance(docs[0], tuple) else []
+    return docs, docs_only, avg_sim

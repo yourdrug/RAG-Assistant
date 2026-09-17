@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import docx
 
@@ -248,8 +249,8 @@ def _flush_table(state: _DocxSectionState, table) -> None:
 def _process_section_child(
     child,
     state: _DocxSectionState,
-    para_by_element: dict[int, object],
-    tbl_by_element: dict[int, object],
+    para_by_element: dict[int, Any],
+    tbl_by_element: dict[int, Any],
     para_tag: str,
     tbl_tag: str,
 ) -> None:
@@ -313,7 +314,7 @@ def parse_docx(file_path: Path) -> tuple[str, dict]:
 
     doc = docx.Document(str(file_path))
     numberer = _ListNumberer(_get_numbering_formats(doc))
-    parts = []
+    parts: list[str] = []
     page_numbers: list[int] = []
     current_page = 1
     paragraph_count = 0

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from langchain.schema import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -128,7 +128,7 @@ def _extract_first_sentence(text: str) -> str | None:
     return text
 
 
-def _enrich_final_chunks(chunks: list[Document]) -> None:
+def _enrich_final_chunks(chunks: list[Any]) -> None:
     """Enrich final chunks with derived metadata and re-number.
 
     Adds char_count, word_count, sentence_count, has_numbers, has_dates,
@@ -141,7 +141,7 @@ def _enrich_final_chunks(chunks: list[Document]) -> None:
     final chunks — the position that matters for retrieval is the position
     among final chunks, not among pre-split sections.
     """
-    by_source: dict[str, list[Document]] = {}
+    by_source: dict[str, list[Any]] = {}
     for c in chunks:
         by_source.setdefault(c.metadata.get("source", ""), []).append(c)
 

@@ -358,7 +358,7 @@ class SweepEngine:
 
         if self._benchmark_service is None:
             from application.services.benchmark_orchestrator import BenchmarkService
-            from infrastructure.benchmark.runner import AsyncBenchmarkRunner
+            from infrastructure.benchmark.runner_adapter import AsyncBenchmarkRunner
 
             self._benchmark_service = BenchmarkService(
                 rag_service=self._rag_service, runner=AsyncBenchmarkRunner()

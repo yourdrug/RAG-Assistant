@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 
 @runtime_checkable
@@ -17,20 +17,20 @@ class HybridRetrieverPort(Protocol):
         self,
         dense_results: list[tuple[str, float]],
         sparse_results: list[tuple[str, float]],
-        dense_by_hash: dict[str, tuple[float, object]],
+        dense_by_hash: dict[str, tuple[float, Any]],
         fetch_k: int,
         rrf_k: int,
         dense_weight: float,
         sparse_weight: float,
-    ) -> list[object]:
+    ) -> list[Any]:
         """RRF merge of dense and sparse results, deduplicated."""
         ...
 
     def apply_rerank_filters(
         self,
-        ranked: list[tuple[object, float]],
+        ranked: list[tuple[Any, float]],
         min_score: float | None = None,
         score_gap_ratio: float | None = None,
-    ) -> list[tuple[object, float]]:
+    ) -> list[tuple[Any, float]]:
         """Apply min_score and score_gap_ratio filters to ranked results."""
         ...

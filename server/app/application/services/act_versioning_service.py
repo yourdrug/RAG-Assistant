@@ -229,8 +229,9 @@ class ActVersioningService:
         async with self._uow_factory.create() as uow:
             acts = await uow.regulatory_acts.list_all()
         return [
-            ActSummary(id=a.id, act_type=a.act_type, act_number=a.act_number, title=a.title)
+            ActSummary(id=a.id, act_type=a.act_type, act_number=a.act_number or "", title=a.title)
             for a in acts[-limit:]
+            if a.id is not None
         ]
 
     async def get_document_filenames(self, document_ids: list[int]) -> dict[int, str]:

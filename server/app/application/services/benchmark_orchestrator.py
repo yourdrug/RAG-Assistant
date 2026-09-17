@@ -20,7 +20,7 @@ log = logging.getLogger("default")
 
 
 class BenchmarkService:
-    def __init__(self, rag_service=None, runner: BenchmarkRunnerPort = None):
+    def __init__(self, rag_service=None, runner: BenchmarkRunnerPort | None = None):
         self._rag_service = rag_service
         self._runner = runner
 

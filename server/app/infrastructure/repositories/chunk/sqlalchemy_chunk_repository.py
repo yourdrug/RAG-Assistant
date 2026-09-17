@@ -108,15 +108,21 @@ def _build_acl_clauses(
 
 
 def _build_exact_search_stmt(query: str, acl_clauses: list, document_id: int | None, limit: int):
-    """Build SELECT statement for exact word-boundary search."""
+    """Build SELECT statement for word-boundary search using GIN trigram index.
+
+    Uses ILIKE '% word %' which leverages the existing pg_trgm GIN index
+    (unlike the previous regex ~* which did a full seq scan).
+
+    Fallback if >500K chunks and this becomes slow:
+      add tsvector column + GIN index (see migration pattern in docs).
+    """
     escaped_query = re.escape(query)
     stmt = (
         select(*_SEARCH_COLUMNS)
-        .where(text("chunks.content ~* :word_pattern"))
+        .where(ChunkModel.content.ilike(f"% {escaped_query} %"))
         .where(or_(*acl_clauses) if acl_clauses else text("true"))
         .order_by(ChunkModel.id)
         .limit(limit)
-        .params(word_pattern=rf"\y{escaped_query}\y")
     )
     if document_id is not None:
         stmt = stmt.where(ChunkModel.document_id == document_id)

@@ -55,14 +55,13 @@ class IngestionService:
         self._sparse_index_admin = sparse_index_admin
 
         # Collaborators
+        self._registry: IngestionRegistry | None = None
+        self._sync: DocumentSyncService | None = None
         if uow_factory is not None:
             self._registry = IngestionRegistry(uow_factory, file_storage)
             self._sync = DocumentSyncService(
                 uow_factory, act_versioning_service, domain_registry, domain_settings
             )
-        else:
-            self._registry = None
-            self._sync = None
 
         self._loader = S3DocumentLoader(
             file_storage,

@@ -77,5 +77,6 @@ async def list_chat_logs(
             output_tokens=log.output_tokens,
         )
         for log in logs
+        if log.id is not None
     ]
     return ChatLogsResponse(logs=entries, total=total)

@@ -31,14 +31,14 @@ def compute_visibility_scope_hash(
     curator_scope: CuratorScope | None = None,
 ) -> str:
     """Deterministic hash of the user's ACL context."""
-    has_scope = curator_scope is not None and not curator_scope.is_empty()
-    scope_repr = (
-        f"curator:{sorted(curator_scope.managed_client_ids)}:"
-        f"{sorted(curator_scope.managed_internal_ids)}:"
-        f"{sorted(curator_scope.managed_group_ids)}"
-        if has_scope
-        else ""
-    )
+    if curator_scope is not None and not curator_scope.is_empty():
+        scope_repr = (
+            f"curator:{sorted(curator_scope.managed_client_ids)}:"
+            f"{sorted(curator_scope.managed_internal_ids)}:"
+            f"{sorted(curator_scope.managed_group_ids)}"
+        )
+    else:
+        scope_repr = ""
     return content_hash(f"{user_kind}:{user_role}:{user_id}:{sorted(group_ids)}:{scope_repr}")
 
 

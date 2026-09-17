@@ -184,9 +184,12 @@ def create_act_versioning_service(request: Request):
     from application.services.act_versioning_service import ActVersioningService
 
     c = _create_container(request)
+    domain_settings = c.infrastructure.domain_settings
+    if domain_settings is None:
+        raise ValueError("domain_settings not initialized")
     return ActVersioningService(
         uow_factory=c.infrastructure.uow_factory,
-        settings=c.infrastructure.domain_settings,
+        settings=domain_settings,
     )
 
 
@@ -233,30 +236,34 @@ def create_log_buffer(request: Request):
 def create_upload_config(request: Request):
     from application.ports.route_configs import UploadConfig
 
-    s = _create_container(request).infrastructure.domain_settings
-    return UploadConfig(max_upload_size_mb=s.max_upload_size_mb)
+    from config import settings
+
+    return UploadConfig(max_upload_size_mb=settings.max_upload_size_mb)
 
 
 def create_benchmark_config(request: Request):
     from application.ports.route_configs import BenchmarkConfig
 
-    s = _create_container(request).infrastructure.domain_settings
+    from config import settings
+
     return BenchmarkConfig(
-        data_dir=s.data_dir,
-        retriever_top_k=s.retriever_top_k,
-        llm_model=s.llm_model,
+        data_dir=settings.data_dir,
+        retriever_top_k=settings.retriever_top_k,
+        llm_model=settings.llm_model,
     )
 
 
 def create_cache_config(request: Request):
     from application.ports.route_configs import CacheConfig
 
-    s = _create_container(request).infrastructure.domain_settings
-    return CacheConfig(cache_enabled=s.cache_enabled)
+    from config import settings
+
+    return CacheConfig(cache_enabled=settings.cache_enabled)
 
 
 def create_storage_config(request: Request):
     from application.ports.route_configs import StorageConfig
 
-    s = _create_container(request).infrastructure.domain_settings
-    return StorageConfig(file_backend=s.file_backend, redis_url=s.redis_url)
+    from config import settings
+
+    return StorageConfig(file_backend=settings.file_backend, redis_url=settings.redis_url)

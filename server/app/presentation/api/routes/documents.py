@@ -110,7 +110,11 @@ async def list_documents(
     document_service: DocumentService = Depends(create_document_service),
 ):
     return await document_service.list_documents(
-        current_user.id, current_user.kind, current_user.role, limit=limit, offset=offset
+        user_id=current_user.id,
+        user_kind=current_user.kind,
+        user_role=current_user.role,
+        limit=limit,
+        offset=offset,
     )
 
 

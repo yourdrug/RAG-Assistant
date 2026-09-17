@@ -55,6 +55,10 @@ class RagPipelineState:
     usage_report: object | None = None
     ttft_sec: float | None = None
 
+    # ── Internal (set during generation step) ──────────────────────────
+    _last_chunk: object | None = None
+    _grouped_docs: list = field(default_factory=list)
+
     # ── Cache ───────────────────────────────────────────────────────────
     q_hash: str = ""
     vis_hash: str = ""

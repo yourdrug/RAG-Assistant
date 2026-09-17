@@ -234,10 +234,13 @@ async def step_self_rag(
     MAX_SELF_RAG_RETRIES = 1
 
     for attempt in range(MAX_SELF_RAG_RETRIES + 1):
+        if state.breadth is None:
+            raise ValueError("state.breadth must be set before relevance gate")
+        breadth = state.breadth
         is_relevant = await handle_relevance_gate(
             query,
             state.docs,
-            state.breadth,
+            breadth,
             rag,
             ml_clients,
         )
@@ -274,7 +277,7 @@ async def step_self_rag(
                     state.retrieval_filter,
                     rag,
                     ml_clients,
-                    state.breadth,
+                    breadth,
                     state.query_domain,
                     state.effective_dense_weight,
                     state.effective_sparse_weight,
@@ -287,7 +290,7 @@ async def step_self_rag(
                     candidates,
                     rag,
                     ml_clients,
-                    state.breadth,
+                    breadth,
                     state.query_domain,
                     state.rerank_top_n,
                     state.access_filter,
@@ -304,6 +307,8 @@ async def step_self_rag(
     state.avg_sim = avg_sim
 
     async def _rejection_events():
+        if state.breadth is None:
+            raise ValueError("state.breadth must be set before rejection")
         async for event in reject_not_relevant(
             state.breadth,
             state.docs,
@@ -325,6 +330,8 @@ def step_build_context(
     Returns (messages, grouped_docs).
     """
     ctx = state.ctx
+    if state.breadth is None:
+        raise ValueError("state.breadth must be set before building context")
     effective_breadth = Breadth.BROAD if state.enumerate_cases else state.breadth
 
     domain_addendum = domain_prompt_addendum(
@@ -342,7 +349,7 @@ def step_build_context(
 
     history_chars = sum(len(m.content) for m in state.history_messages)
     question_chars = len(state.question)
-    system_text = prompt.messages[0].content if prompt.messages else ""
+    system_text = getattr(prompt.messages[0], "content", "") if prompt.messages else ""
     num_ctx = (
         state.rag.llm_num_ctx_broad if effective_breadth == Breadth.BROAD else state.rag.llm_num_ctx_narrow
     )
@@ -456,7 +463,7 @@ def step_postprocess(state: RagPipelineState) -> RagPipelineState:
         sources = apply_citation_filter(rag, full_answer, sources)
 
     record_rag_answer(
-        breadth=state.breadth.value,
+        breadth=state.breadth.value if state.breadth is not None else "",
         answer=full_answer,
         retrieved_count=len(docs),
         avg_similarity=avg_sim,

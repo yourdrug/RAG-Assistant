@@ -96,8 +96,33 @@ class DocumentService:
     async def _enrich_with_outbox_status(self, uow, dto):
         return await self._query._enrich_with_outbox_status(uow, dto)
 
-    async def upload(self, **kwargs) -> DocumentDTO:
-        return await self._cmd.upload(**kwargs)
+    async def upload(
+        self,
+        filename: str,
+        file_data: bytes,
+        visibility: str,
+        group_id: int | None,
+        user_id: int,
+        user_kind: str,
+        user_role: str,
+        client_id: int | None = None,
+        rename_on_conflict: bool = False,
+        doc_domain: str | None = None,
+        replaces_document_id: int | None = None,
+    ) -> DocumentDTO:
+        return await self._cmd.upload(
+            filename=filename,
+            file_data=file_data,
+            visibility=visibility,
+            group_id=group_id,
+            user_id=user_id,
+            user_kind=user_kind,
+            user_role=user_role,
+            client_id=client_id,
+            rename_on_conflict=rename_on_conflict,
+            doc_domain=doc_domain,
+            replaces_document_id=replaces_document_id,
+        )
 
     async def delete_document(self, document_id: int, user_id: int, user_role: str) -> None:
         return await self._cmd.delete_document(document_id, user_id, user_role)

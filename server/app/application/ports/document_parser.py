@@ -14,9 +14,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from domain.entities.raw_document import RawDocument
+
+if TYPE_CHECKING:
+    from application.ports.domain_settings import DomainSettingsPort
+    from domain.domain_profile.protocol import DomainProfile
 
 
 @dataclass(frozen=True)
@@ -34,8 +38,8 @@ class SplitContext:
     """Domain-dependent splitting parameters (domain types in a port are acceptable)."""
 
     domain: str = "general"
-    profile: object | None = None
-    settings: object | None = None
+    profile: DomainProfile | None = None
+    settings: DomainSettingsPort | None = None
     legal_mode: bool = False
 
 

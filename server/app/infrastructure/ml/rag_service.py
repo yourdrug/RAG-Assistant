@@ -167,6 +167,13 @@ class RagService:
             history_messages=history_messages,
         )
 
+    @staticmethod
+    async def _yield_events(events: AsyncIterator[StreamEvent] | None) -> AsyncIterator[StreamEvent]:
+        """Yield all events from an async iterator if it's not None."""
+        if events is not None:
+            async for e in events:
+                yield e
+
     async def stream(
         self,
         question: str,
@@ -181,14 +188,14 @@ class RagService:
         # ── Step 2: Semantic answer cache ───────────────────────────
         state, events = await step_check_cache(state)
         if state.terminal:
-            async for e in events:
+            async for e in self._yield_events(events):
                 yield e
             return
 
         # ── Step 3: Out-of-domain rejection ─────────────────────────
         state, events = await step_reject_ood(state)
         if state.terminal:
-            async for e in events:
+            async for e in self._yield_events(events):
                 yield e
             return
 
@@ -200,7 +207,7 @@ class RagService:
         # ── Step 5: Self-RAG relevance gate + retry loop ────────────
         state, events = await step_self_rag(state, self._ml, self._chunk_search)
         if state.terminal:
-            async for e in events:
+            async for e in self._yield_events(events):
                 yield e
             return
 
