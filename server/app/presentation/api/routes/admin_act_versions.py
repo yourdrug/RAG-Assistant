@@ -6,9 +6,11 @@ import logging
 
 from fastapi import APIRouter, Depends
 
+from application.ports.rate_limit import RateLimitPolicyName
 from application.services.act_versioning_service import ActVersioningService
 
 from presentation.api.auth_dependencies import require_admin
+from presentation.api.rate_limit import rate_limit
 from presentation.api.dependencies import create_act_versioning_service
 from presentation.api.schemas import (
     ActVersionListResponse,
@@ -59,7 +61,10 @@ async def list_act_versions(
     )
 
 
-@router.patch("/admin/act-versions/{version_id}")
+@router.patch(
+    "/admin/act-versions/{version_id}",
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
+)
 async def update_act_version(
     version_id: int,
     body: ActVersionUpdateRequest,

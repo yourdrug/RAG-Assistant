@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     )
     from infrastructure.metrics.metrics_adapter import PrometheusMetricsCollector
     from infrastructure.metrics.prometheus_adapter import PrometheusMetricsRegistry
+    from infrastructure.rate_limit.limiter import PyrateRateLimiter
     from infrastructure.ml.extraction.summary_adapter import RollingSummaryUpdater
     from infrastructure.repositories.vector.qdrant_vector_store_repository import (
         QdrantVectorStoreRepository,
@@ -295,6 +296,7 @@ class InfrastructureContainer:
     services: ServiceContainer = field(default_factory=ServiceContainer)
     domain_registry: DomainProfileRegistry | None = field(default=None, repr=False)
     domain_settings: DomainSettingsAdapter | None = field(default=None, repr=False)
+    rate_limit: PyrateRateLimiter | None = field(default=None, repr=False)
     _initialized: bool = field(default=False, repr=False)
 
     def init(self, database_manager: DatabaseManager) -> None:
@@ -326,9 +328,36 @@ class InfrastructureContainer:
             event_bus=event_bus,
             domain_settings=self.domain_settings,
         )
+        self._init_rate_limit()
 
         self._initialized = True
         log.info("Infrastructure container initialized")
+
+    def _init_rate_limit(self) -> None:
+        """Build the Redis-backed rate limiter (requires an initialized Redis client)."""
+        from config import settings
+        from infrastructure.rate_limit.limiter import PyrateRateLimiter
+        from infrastructure.rate_limit.policies import build_policies
+
+        if not settings.rate_limit_enabled:
+            log.info("Rate limiting disabled (RATE_LIMIT_ENABLED=false)")
+            return
+
+        from infrastructure.redis.redis_client import redis_client
+
+        # Raises if redis_client.init() has not run yet — lifespan calls it first.
+        self.rate_limit = PyrateRateLimiter(
+            redis_client.async_redis,
+            build_policies(settings),
+            key_prefix=settings.rate_limit_redis_prefix,
+            max_buckets=settings.rate_limit_max_buckets,
+            fail_open=settings.rate_limit_fail_open,
+        )
+        if settings.forwarded_allow_ips.strip() == "127.0.0.1":
+            log.warning(
+                "Rate limiting is enabled but FORWARDED_ALLOW_IPS=127.0.0.1 — behind a reverse "
+                "proxy all clients share the proxy IP bucket (login limit). See server/.env.example."
+            )
 
     def validate(self) -> list[str]:
         """Return list of missing dependency names (empty = all good).
@@ -356,6 +385,9 @@ class InfrastructureContainer:
         """
         if not self._initialized:
             return
+        if self.rate_limit is not None:
+            await self.rate_limit.aclose()
+            self.rate_limit = None
         await self.events.dispose()
         self.ml.dispose()
         self._initialized = False

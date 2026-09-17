@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import logging
 
+from application.ports.rate_limit import RateLimitPolicyName
 from application.services.chunk_service import ChunkService
 from domain.value_objects.capabilities import Capability
 from fastapi import APIRouter, Depends, Query
 
 from presentation.api.auth_dependencies import get_current_user, require_capability
+from presentation.api.rate_limit import rate_limit
 from presentation.api.dependencies import create_action_logger, create_chunk_service
 from presentation.api.schemas import (
     ChunkCreateRequest,
@@ -133,7 +135,11 @@ async def list_chunks_cursor(
     )
 
 
-@router.post("/documents/{document_id}/chunks", response_model=ChunkResponse)
+@router.post(
+    "/documents/{document_id}/chunks",
+    response_model=ChunkResponse,
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
+)
 async def add_chunk(
     document_id: int,
     request: ChunkCreateRequest,
@@ -167,7 +173,11 @@ async def add_chunk(
     )
 
 
-@router.put("/documents/{document_id}/chunks/{chunk_id}", response_model=ChunkResponse)
+@router.put(
+    "/documents/{document_id}/chunks/{chunk_id}",
+    response_model=ChunkResponse,
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
+)
 async def edit_chunk(
     document_id: int,
     chunk_id: int,
@@ -203,7 +213,10 @@ async def edit_chunk(
     )
 
 
-@router.delete("/documents/{document_id}/chunks/{chunk_id}")
+@router.delete(
+    "/documents/{document_id}/chunks/{chunk_id}",
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
+)
 async def delete_chunk(
     document_id: int,
     chunk_id: int,
@@ -228,7 +241,11 @@ async def delete_chunk(
     return {"status": "deleted", "chunk_id": chunk_id}
 
 
-@router.post("/documents/manual", response_model=DocumentResponse)
+@router.post(
+    "/documents/manual",
+    response_model=DocumentResponse,
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
+)
 async def create_manual_document(
     request: ManualDocumentRequest,
     current_user: CurrentUser = Depends(require_capability(Capability.CHUNKS_MANAGE)),

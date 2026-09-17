@@ -2,17 +2,22 @@
 
 from __future__ import annotations
 
+from application.ports.rate_limit import RateLimitPolicyName
 from application.services.assignment_service import AssignmentService
 from fastapi import APIRouter, Depends
 
 from presentation.api.auth_dependencies import require_admin
+from presentation.api.rate_limit import rate_limit
 from presentation.api.dependencies import create_action_logger, create_assignment_service
 from presentation.api.schemas import CuratorScopeResponse, CurrentUser
 
 router = APIRouter(prefix="/admin/curators", tags=["admin", "curators"])
 
 
-@router.post("/{curator_id}/users/{target_user_id}")
+@router.post(
+    "/{curator_id}/users/{target_user_id}",
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
+)
 async def assign_user_to_curator(
     curator_id: int,
     target_user_id: int,
@@ -29,7 +34,10 @@ async def assign_user_to_curator(
     return {"status": "assigned"}
 
 
-@router.delete("/{curator_id}/users/{target_user_id}")
+@router.delete(
+    "/{curator_id}/users/{target_user_id}",
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
+)
 async def unassign_user_from_curator(
     curator_id: int,
     target_user_id: int,
@@ -46,7 +54,10 @@ async def unassign_user_from_curator(
     return {"status": "unassigned"}
 
 
-@router.post("/{curator_id}/groups/{group_id}")
+@router.post(
+    "/{curator_id}/groups/{group_id}",
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
+)
 async def assign_group_to_curator(
     curator_id: int,
     group_id: int,
@@ -63,7 +74,10 @@ async def assign_group_to_curator(
     return {"status": "assigned"}
 
 
-@router.delete("/{curator_id}/groups/{group_id}")
+@router.delete(
+    "/{curator_id}/groups/{group_id}",
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
+)
 async def unassign_group_from_curator(
     curator_id: int,
     group_id: int,

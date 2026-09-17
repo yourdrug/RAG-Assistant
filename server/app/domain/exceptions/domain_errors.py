@@ -155,3 +155,19 @@ class SemaphoreTimeoutError(ClientException):
             message=detail,
             errors={"code": "semaphore_timeout"},
         )
+
+
+class RateLimitExceededError(ClientException):
+    """Request rate limit exceeded (429 Too Many Requests).
+
+    Carries the retry delay and the limit of the tightest policy window so the
+    exception handler can emit ``Retry-After`` / ``X-RateLimit-Limit`` headers.
+    """
+
+    def __init__(self, retry_after_sec: int, limit: int) -> None:
+        super().__init__(
+            message="Слишком много запросов, попробуйте позже",
+            errors={"code": "rate_limit_exceeded"},
+        )
+        self.retry_after_sec = retry_after_sec
+        self.limit = limit

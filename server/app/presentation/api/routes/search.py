@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import logging
 
+from application.ports.rate_limit import RateLimitPolicyName
 from application.services.search_service import SearchService
 from domain.value_objects.user_context import UserContext
 from fastapi import APIRouter, Depends
 
 from presentation.api.auth_dependencies import get_current_user
+from presentation.api.rate_limit import rate_limit
 from presentation.api.dependencies import create_search_service
 from presentation.api.schemas import CurrentUser, ExactSearchRequest, ExactSearchResponse, ExactSearchResult
 
@@ -17,7 +19,11 @@ logger = logging.getLogger("default")
 router = APIRouter(tags=["search"])
 
 
-@router.post("/search/exact", response_model=ExactSearchResponse)
+@router.post(
+    "/search/exact",
+    response_model=ExactSearchResponse,
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.SEARCH))],
+)
 async def exact_search(
     req: ExactSearchRequest,
     current_user: CurrentUser = Depends(get_current_user),

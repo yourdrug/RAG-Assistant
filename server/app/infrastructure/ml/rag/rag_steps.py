@@ -199,12 +199,15 @@ async def step_retrieve(
         breadth,
         query_domain,
         params["rerank_top_n"],
-        state.access_filter,
+        state.retrieval_filter,
         ctx,
         state.history_messages,
         len(state.question),
         chunk_search,
         enumerate_cases,
+        visibility_conditions=state.visibility_conditions,
+        user_id=state.user.user_id,
+        user_group_ids=ctx.user_group_ids,
     )
 
     # ── Write back to state ──────────────────────────────────────────
@@ -282,7 +285,7 @@ async def step_self_rag(
                     state.effective_dense_weight,
                     state.effective_sparse_weight,
                     visibility_conditions=state.visibility_conditions,
-        user_id=state.user.user_id,
+                    user_id=state.user.user_id,
                     user_group_ids=state.ctx.user_group_ids,
                 )
                 docs, _, _ = await rerank_and_enrich(
@@ -293,12 +296,15 @@ async def step_self_rag(
                     breadth,
                     state.query_domain,
                     state.rerank_top_n,
-                    state.access_filter,
+                    state.retrieval_filter,
                     state.ctx,
                     state.history_messages,
                     len(state.question),
                     chunk_search,
                     state.enumerate_cases,
+                    visibility_conditions=state.visibility_conditions,
+                    user_id=state.user.user_id,
+                    user_group_ids=state.ctx.user_group_ids,
                 )
                 state.docs = docs
                 continue
@@ -353,7 +359,12 @@ def step_build_context(
     num_ctx = (
         state.rag.llm_num_ctx_broad if effective_breadth == Breadth.BROAD else state.rag.llm_num_ctx_narrow
     )
-    reserved_chars = len(system_text) + history_chars + question_chars + 1000
+    num_predict = (
+        state.rag.llm_num_predict_broad
+        if effective_breadth == Breadth.BROAD
+        else state.rag.llm_num_predict_narrow
+    )
+    reserved_chars = len(system_text) + history_chars + question_chars + num_predict * CHARS_PER_TOKEN
     reserved_for_system_and_history = max(reserved_chars // CHARS_PER_TOKEN, 1500)
     max_context_tokens = max(num_ctx - reserved_for_system_and_history, 1000)
 

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from application.dto.auth_dto import ChangeRoleCommand, CreateUserCommand, LoginCommand
+from application.ports.rate_limit import RateLimitPolicyName
 from application.services.auth_service import AuthService
 from domain.value_objects.roles import UserKind, UserRole
 from fastapi import APIRouter, Depends, Query
 
 from presentation.api.auth_dependencies import get_current_user, require_admin
+from presentation.api.rate_limit import rate_limit
 from presentation.api.dependencies import create_action_logger, create_auth_service
 from presentation.api.schemas import (
     ChangeRoleRequest,
@@ -26,6 +28,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @router.post(
     "/login",
     response_model=TokenResponse,
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.LOGIN))],
 )
 async def login(
     req: LoginRequest,
@@ -42,7 +45,11 @@ async def get_me(current_user: CurrentUser = Depends(get_current_user)):
     return current_user
 
 
-@router.post("/users", response_model=UserResponse)
+@router.post(
+    "/users",
+    response_model=UserResponse,
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
+)
 async def add_user(
     req: CreateUserRequest,
     admin: CurrentUser = Depends(require_admin),
@@ -78,7 +85,10 @@ async def list_all_users(
     return UserListResponse(total=total, limit=limit, offset=offset, users=response_users)
 
 
-@router.patch("/users/{user_id}")
+@router.patch(
+    "/users/{user_id}",
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
+)
 async def toggle_user_active(
     user_id: int,
     is_active: bool,
@@ -91,7 +101,11 @@ async def toggle_user_active(
     return {"id": result.id, "is_active": result.is_active}
 
 
-@router.patch("/users/{user_id}/role", response_model=UserResponse)
+@router.patch(
+    "/users/{user_id}/role",
+    response_model=UserResponse,
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
+)
 async def change_user_role(
     user_id: int,
     body: ChangeRoleRequest,

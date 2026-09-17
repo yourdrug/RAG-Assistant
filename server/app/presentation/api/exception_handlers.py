@@ -18,6 +18,7 @@ from domain.exceptions import (
     DatabaseError,
     EntityNotFound,
     PermissionDeniedError,
+    RateLimitExceededError,
     SemaphoreTimeoutError,
     ServerException,
     ValidationError,
@@ -40,6 +41,7 @@ _CLIENT_STATUS_MAP: dict[type[ClientException], int] = {
     AuthenticationError: status.HTTP_401_UNAUTHORIZED,
     PermissionDeniedError: status.HTTP_403_FORBIDDEN,
     SemaphoreTimeoutError: status.HTTP_429_TOO_MANY_REQUESTS,
+    RateLimitExceededError: status.HTTP_429_TOO_MANY_REQUESTS,
     ClientException: status.HTTP_400_BAD_REQUEST,  # fallback
 }
 
@@ -58,8 +60,8 @@ _SERVER_STATUS_MAP: dict[type[ServerException], int] = {
 # ---------------------------------------------------------------------------
 
 
-def _json(data: dict, status_code: int) -> JSONResponse:
-    return JSONResponse(content=data, status_code=status_code)
+def _json(data: dict, status_code: int, headers: dict[str, str] | None = None) -> JSONResponse:
+    return JSONResponse(content=data, status_code=status_code, headers=headers)
 
 
 def _error(message: str, errors: dict | None = None) -> dict:
@@ -85,7 +87,14 @@ async def handle_client_exception(request: Request, exc: Exception) -> JSONRespo
             status_code = code
             break
 
-    return _json(exc.as_dict(), status_code)
+    headers: dict[str, str] | None = None
+    if isinstance(exc, RateLimitExceededError):
+        headers = {
+            "Retry-After": str(exc.retry_after_sec),
+            "X-RateLimit-Limit": str(exc.limit),
+        }
+
+    return _json(exc.as_dict(), status_code, headers)
 
 
 # ---------------------------------------------------------------------------

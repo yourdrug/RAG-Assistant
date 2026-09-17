@@ -10,6 +10,7 @@ from domain.exceptions.domain_errors import (
     EntityNotFound,
     LLMUnavailableError,
     PermissionDeniedError,
+    RateLimitExceededError,
     SemaphoreTimeoutError,
     ServerException,
     UniqueConstraintViolation,
@@ -30,4 +31,5 @@ __all__ = [
     "PermissionDeniedError",
     "LLMUnavailableError",
     "SemaphoreTimeoutError",
+    "RateLimitExceededError",
 ]

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class ActVersionReviewItem(BaseModel):
@@ -33,6 +33,8 @@ class ActVersionListResponse(BaseModel):
 
 
 class ActVersionUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     effective_from: date | None = None
     effective_to: date | None = None
     act_id: int | None = None

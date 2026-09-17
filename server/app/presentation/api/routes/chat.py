@@ -6,6 +6,7 @@ import json
 import logging
 import uuid
 
+from application.ports.rate_limit import RateLimitPolicyName
 from application.services.chat_service import ChatService
 from domain.exceptions import LLMUnavailableError, SemaphoreTimeoutError
 from domain.value_objects.stream_events import MetaEvent, StatusEvent, TextChunk
@@ -14,6 +15,7 @@ from fastapi.responses import StreamingResponse
 from shared import request_id_ctx
 
 from presentation.api.auth_dependencies import get_current_user
+from presentation.api.rate_limit import rate_limit
 from presentation.api.constants import (
     CONFIDENCE_KEY,
     QUESTION_LOG_MAX_CHARS,
@@ -54,7 +56,7 @@ def _format_sse_event(event, req_id: str) -> str | None:
     return None
 
 
-@router.post("/chat")
+@router.post("/chat", dependencies=[Depends(rate_limit(RateLimitPolicyName.CHAT))])
 async def chat_stream(
     req: ChatRequest,
     request: Request,
@@ -117,7 +119,11 @@ async def chat_stream(
     )
 
 
-@router.post("/chat/sync", response_model=ChatResponse)
+@router.post(
+    "/chat/sync",
+    response_model=ChatResponse,
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.CHAT))],
+)
 async def chat_sync(
     req: ChatRequest,
     current_user: CurrentUser = Depends(get_current_user),

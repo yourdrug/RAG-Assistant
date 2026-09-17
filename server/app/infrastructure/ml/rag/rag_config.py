@@ -57,5 +57,7 @@ def build_rag_settings(port: RagSettingsPort | None = None) -> RagSettings:
         exact_ref_sparse_boost=port.exact_ref_sparse_boost,
         llm_num_ctx_narrow=port.llm_num_ctx_narrow,
         llm_num_ctx_broad=port.llm_num_ctx_broad,
+        llm_num_predict_narrow=port.llm_num_predict_narrow,
+        llm_num_predict_broad=port.llm_num_predict_broad,
         pii_redaction_enabled=port.pii_redaction_enabled,
     )

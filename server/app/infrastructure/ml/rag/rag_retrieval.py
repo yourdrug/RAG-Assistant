@@ -90,12 +90,14 @@ async def qdrant_dense_search(
 
     Wrapped with ``qdrant_search_semaphore`` to cap concurrent Qdrant requests.
     """
+    if access_filter is None:
+        raise RuntimeError("qdrant_dense_search() requires access_filter for ACL enforcement.")
+
     client = ml_clients.qdrant_client()
     embeddings = ml_clients.embeddings()
 
     async with ml_clients.embedding_semaphore:
         query_vector = await embeddings.embed_query(query)
-    qdrant_filter = access_filter if access_filter is not None else None
 
     async with ml_clients.qdrant_search_semaphore:
         results = await asyncio.to_thread(
@@ -103,7 +105,7 @@ async def qdrant_dense_search(
             collection_name=settings.collection_name,
             query_vector=query_vector,
             limit=k,
-            query_filter=qdrant_filter,
+            query_filter=access_filter,
             timeout=settings.qdrant_timeout,
         )
 
@@ -126,15 +128,19 @@ async def run_hybrid_search(
     ml_clients: "MLClientRegistry",
     dense_weight: float | None = None,
     sparse_weight: float | None = None,
-    visibility_conditions: list | None = None,
-    user_id: int | None = None,
-    user_group_ids: list[int] | None = None,
+    *,
+    visibility_conditions: list,
+    user_id: int,
+    user_group_ids: list[int],
 ) -> list[LCDocument]:
-    """Run hybrid dense+BM25 search and return deduplicated candidates.
+    """Run ACL-filtered hybrid dense+BM25 search and return deduplicated candidates."""
+    if access_filter is None:
+        raise RuntimeError("run_hybrid_search() requires access_filter for ACL enforcement.")
+    if visibility_conditions is None or user_id is None or user_group_ids is None:
+        raise RuntimeError("run_hybrid_search() requires visibility_conditions, user_id and user_group_ids.")
+    if not visibility_conditions:
+        return []
 
-    When visibility_conditions is provided, BM25 pre-filters candidates
-    by ACL before scoring (defense-in-depth: Qdrant resolve still applies).
-    """
     bm25_index = await ml_clients._ensure_bm25_loaded()
 
     if rag.hybrid_search.enabled and bm25_index is not None:
@@ -150,7 +156,7 @@ async def run_hybrid_search(
                         fetch_k,
                         visibility_conditions=visibility_conditions,
                         user_id=user_id,
-                        user_group_ids=user_group_ids or [],
+                        user_group_ids=user_group_ids,
                     ),
                     timeout=5,
                 )

@@ -897,6 +897,28 @@ class FakeTimeoutSemaphore:
         self.release()
 
 
+class FakeRateLimiterPort:
+    """In-memory RateLimiterPort: records checks, denies after a fixed quota."""
+
+    def __init__(self, allow: int | None = None) -> None:
+        self._remaining = allow
+        self.calls: list[tuple[str, str]] = []
+        self.closed = False
+
+    async def check(self, policy, principal: str):
+        from application.ports.rate_limit import RateLimitDecision
+
+        self.calls.append((policy.value, principal))
+        if self._remaining is not None:
+            if self._remaining <= 0:
+                return RateLimitDecision(allowed=False, retry_after_sec=60, limit=1)
+            self._remaining -= 1
+        return RateLimitDecision(allowed=True, limit=10)
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
 class FakeMLClientRegistry:
     """Lightweight substitute for MLClientRegistry in unit tests."""
 

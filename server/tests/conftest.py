@@ -40,6 +40,7 @@ _TEST_DEFAULTS = {
     "REDIS_PASSWORD": "test-redis-password",
     "S3_ACCESS_KEY": "test-access-key",
     "S3_SECRET_KEY": "test-secret-key-value",
+    "RATE_LIMIT_ENABLED": "false",
 }
 for _key, _val in _TEST_DEFAULTS.items():
     os.environ.setdefault(_key, _val)

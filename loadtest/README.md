@@ -65,12 +65,26 @@ loadtest/
 
 ## Rate Limits
 
-Per-user rate limits в коде:
-- `chat_rate_limit`: 20 запросов / 60с
-- `upload_rate_limit`: 10 запросов / 60с
-- `ingest_rate_limit`: 10 запросов / 60с
+Сервер лимитирует запросы per-user (Redis sorted sets, `RATE_LIMIT_*` в `server/.env`):
 
-Поэтому тесты используют пул из N пользователей (по умолчанию 50), чтобы не упираться в per-user лимиты при 500 VU.
+| Policy | Scope | Default | Endpoints |
+|---|---|---|---|
+| `login` | IP | 5/мин | `POST /auth/login` |
+| `chat` | user | 10/мин + 100/день | `POST /chat`, `POST /chat/sync` |
+| `upload` | user | 20/час | `POST /documents`, `/ingest`, `/ingest/file`, `/upload` |
+| `search` | user | 60/мин | `POST /search/exact` |
+| `write` | user | 60/мин | мутации (documents/chunks/groups/curators/api-keys/admin) |
+| `benchmark` | user | 3/час | `POST /benchmark`, benchmark sweep/import/apply |
+
+**Перед нагрузочными тестами обязательно выключи лимиты** — иначе 500 VU упрутся в 429:
+
+```bash
+# в server/.env
+RATE_LIMIT_ENABLED=false
+task restart -- server
+```
+
+Либо подними лимиты (`RATE_LIMIT_CHAT_PER_MINUTE=10000` и т.д.). После тестов верни `true`.
 
 ## Результаты
 

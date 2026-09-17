@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from application.ports.rate_limit import RateLimitPolicyName
 from application.services.group_service import GroupService
 from fastapi import APIRouter, Depends
 
 from presentation.api.auth_dependencies import get_current_user, require_admin
+from presentation.api.rate_limit import rate_limit
 from presentation.api.dependencies import create_action_logger, create_group_service
 from presentation.api.schemas import (
     CreateGroupRequest,
@@ -18,7 +20,11 @@ from presentation.api.schemas import (
 router = APIRouter(prefix="/groups", tags=["groups"])
 
 
-@router.post("", response_model=GroupResponse)
+@router.post(
+    "",
+    response_model=GroupResponse,
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
+)
 async def create_group_endpoint(
     req: CreateGroupRequest,
     admin: CurrentUser = Depends(require_admin),
@@ -49,7 +55,10 @@ async def get_group_members(
     return [GroupMemberResponse(id=r.id, email=r.email) for r in rows]
 
 
-@router.post("/{group_id}/members")
+@router.post(
+    "/{group_id}/members",
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
+)
 async def add_group_member(
     group_id: int,
     req: GroupMemberRequest,
@@ -62,7 +71,10 @@ async def add_group_member(
     return {"group_id": group_id, "user_id": req.user_id}
 
 
-@router.delete("/{group_id}/members/{user_id}")
+@router.delete(
+    "/{group_id}/members/{user_id}",
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
+)
 async def remove_group_member(
     group_id: int,
     user_id: int,

@@ -5,12 +5,14 @@ from __future__ import annotations
 import logging
 
 from application.ports.ingestion_port import IngestionPort
+from application.ports.rate_limit import RateLimitPolicyName
 from application.services.ingest_service import IngestAppService
 from application.services.job_service import JobService
 from domain.value_objects.visibility import DocumentVisibility
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from presentation.api.auth_dependencies import require_admin
+from presentation.api.rate_limit import rate_limit
 from presentation.api.constants import JobType
 from presentation.api.dependencies import (
     create_action_logger,
@@ -38,7 +40,11 @@ router = APIRouter(tags=["ingest"])
 MAX_UPLOAD_FILES = 20
 
 
-@router.post("/ingest", response_model=IngestStatusResponse)
+@router.post(
+    "/ingest",
+    response_model=IngestStatusResponse,
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.UPLOAD))],
+)
 async def ingest_documents(
     docs_dir: SafeRelativePath = "docs/",
     reset: bool = False,
@@ -78,7 +84,11 @@ async def ingest_documents(
     return IngestStatusResponse(status="started", mode=mode, docs_dir=resolved)
 
 
-@router.post("/ingest/file", response_model=IngestStatusResponse)
+@router.post(
+    "/ingest/file",
+    response_model=IngestStatusResponse,
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.UPLOAD))],
+)
 async def ingest_single_file(
     file_path: SafeRelativePath,
     force: bool = False,
@@ -141,7 +151,11 @@ async def get_ingest_registry(
     )
 
 
-@router.post("/upload", response_model=UploadResponse)
+@router.post(
+    "/upload",
+    response_model=UploadResponse,
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.UPLOAD))],
+)
 async def upload_files(
     files: list[UploadFile] = File(...),
     admin: CurrentUser = Depends(require_admin),

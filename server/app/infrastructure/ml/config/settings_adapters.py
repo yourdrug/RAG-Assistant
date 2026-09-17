@@ -96,6 +96,14 @@ class LiveRagSettings:
         return settings.llm_num_ctx_broad
 
     @property
+    def llm_num_predict_narrow(self) -> int:
+        return settings.llm_num_predict_narrow
+
+    @property
+    def llm_num_predict_broad(self) -> int:
+        return settings.llm_num_predict_broad
+
+    @property
     def pii_redaction_enabled(self) -> bool:
         return settings.pii_redaction_enabled
 

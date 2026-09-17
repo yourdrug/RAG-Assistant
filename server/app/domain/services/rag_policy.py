@@ -424,6 +424,8 @@ def compute_context_budget(
     chars_per_token: int = 4,
     reserved_overhead: int = 3000,
     min_context_tokens: int = 1000,
+    num_predict_narrow: int = 400,
+    num_predict_broad: int = 2048,
 ) -> int:
     """Compute maximum context tokens available for retrieved documents.
 
@@ -431,9 +433,10 @@ def compute_context_budget(
     """
     effective_breadth = Breadth.BROAD if enumerate_cases else breadth
     num_ctx = num_ctx_broad if effective_breadth == Breadth.BROAD else num_ctx_narrow
+    num_predict = num_predict_broad if effective_breadth == Breadth.BROAD else num_predict_narrow
     reserved_chars = history_chars + question_chars + reserved_overhead
     reserved_for_system_and_history = max(reserved_chars // chars_per_token, 1500)
-    return max(num_ctx - reserved_for_system_and_history, min_context_tokens)
+    return max(num_ctx - num_predict - reserved_for_system_and_history, min_context_tokens)
 
 
 def select_final_top_k(

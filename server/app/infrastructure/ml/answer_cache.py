@@ -3,6 +3,11 @@
 Cache key is based on approximate embedding similarity (not exact text match)
 combined with a visibility scope hash to prevent cross-tenant data leakage.
 Uses Redis for fast in-memory lookups with TTL-based expiration.
+
+Invalidation uses a reverse index (rag:doc:{doc_id} → Set[cache_key]) for
+O(1) lookup instead of O(N) SCAN.  Legacy entries created before the reverse
+index are handled via graceful fallback: if the set is empty, we scan only
+the keys matching that specific document.
 """
 
 from __future__ import annotations
@@ -21,6 +26,8 @@ log = logging.getLogger("default")
 
 CACHE_TTL_SECONDS = 7 * 24 * 3600  # 7 days
 CACHE_PREFIX = "rag:cache:v3:"
+DOC_INDEX_PREFIX = "rag:doc:"
+DOC_INDEX_TTL = CACHE_TTL_SECONDS
 
 
 def compute_visibility_scope_hash(
@@ -50,6 +57,11 @@ def compute_question_hash(question_text: str) -> str:
 def _cache_key(question_hash: str, visibility_scope_hash: str) -> str:
     """Build Redis key for cache entry."""
     return f"{CACHE_PREFIX}{question_hash}:{visibility_scope_hash}"
+
+
+def _doc_index_key(doc_id: int) -> str:
+    """Build Redis key for reverse index set."""
+    return f"{DOC_INDEX_PREFIX}{doc_id}"
 
 
 async def find_cached_answer(
@@ -107,9 +119,66 @@ async def store_cached_answer(
             "created_at": time.time(),
         }
         await r.set(key, gzip.compress(json.dumps(entry).encode()), ex=CACHE_TTL_SECONDS)
+
+        if document_ids:
+            pipe = r.pipeline()
+            for doc_id in document_ids:
+                pipe.sadd(_doc_index_key(doc_id), key)
+                pipe.expire(_doc_index_key(doc_id), DOC_INDEX_TTL)
+            await pipe.execute()
+
         log.info("Cached answer for question hash=%s (ttl=%ds)", question_hash[:12], CACHE_TTL_SECONDS)
     except Exception:
         log.exception("Failed to store cached answer")
+
+
+async def _delete_cache_entries(keys: list[str]) -> int:
+    """Delete cache entries and clean up their reverse index links atomically."""
+    if not keys:
+        return 0
+    r = redis_client.async_redis
+    pipe = r.pipeline()
+    for key in keys:
+        pipe.get(key)
+    raw_results = await pipe.execute()
+
+    pipe2 = r.pipeline()
+    for key, raw in zip(keys, raw_results, strict=True):
+        if raw is not None:
+            try:
+                entry = json.loads(gzip.decompress(raw))
+                for doc_id in entry.get("document_ids", []):
+                    pipe2.srem(_doc_index_key(doc_id), key)
+            except Exception:
+                log.debug("Failed to clean reverse index for %s", key)
+        pipe2.delete(key)
+    await pipe2.execute()
+    return sum(1 for raw in raw_results if raw is not None)
+
+
+async def _legacy_scan_for_doc_ids(document_ids: list[int], skip_keys: set[str]) -> set[str]:
+    """Fallback: scan all cache keys to find entries matching document_ids.
+
+    Used only when reverse index sets are missing (legacy entries).
+    """
+    r = redis_client.async_redis
+    found: set[str] = set()
+    doc_id_set = set(document_ids)
+    pattern = f"{CACHE_PREFIX}*"
+    async for key in r.scan_iter(match=pattern, count=100):
+        if key in skip_keys:
+            continue
+        raw = await r.get(key)
+        if raw is None:
+            continue
+        try:
+            entry = json.loads(gzip.decompress(raw))
+        except Exception:
+            log.debug("Skipping corrupted cache entry %s", key)
+            continue
+        if any(did in doc_id_set for did in entry.get("document_ids", [])):
+            found.add(key)
+    return found
 
 
 async def invalidate_by_document_ids(
@@ -123,26 +192,22 @@ async def invalidate_by_document_ids(
     if not cache_enabled or not document_ids:
         return 0
 
-    doc_id_set = set(document_ids)
-    invalidated = 0
-
     try:
         r = redis_client.async_redis
-        pattern = f"{CACHE_PREFIX}*"
+        keys_to_delete: set[str] = set()
+        legacy_scan_needed = False
 
-        async for key in r.scan_iter(match=pattern, count=100):
-            raw = await r.get(key)
-            if raw is None:
-                continue
-            try:
-                entry = json.loads(gzip.decompress(raw))
-            except Exception:
-                log.debug("Skipping corrupted cache entry %s", key)
-                continue
-            cached_doc_ids = entry.get("document_ids", [])
-            if any(did in doc_id_set for did in cached_doc_ids):
-                await r.delete(key)
-                invalidated += 1
+        for doc_id in document_ids:
+            members = await r.smembers(_doc_index_key(doc_id))
+            if members:
+                keys_to_delete.update(m for m in members)
+            else:
+                legacy_scan_needed = True
+
+        if legacy_scan_needed:
+            keys_to_delete |= await _legacy_scan_for_doc_ids(document_ids, keys_to_delete)
+
+        invalidated = await _delete_cache_entries(list(keys_to_delete))
 
         if invalidated:
             log.info("Invalidated %d cache entries for document_ids=%s", invalidated, document_ids)

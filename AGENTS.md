@@ -85,6 +85,15 @@ Both `.env.example` files exist as templates. Taskfile reads both via `dotenv:`.
 Root-level `QDRANT_API_KEY` and `VITE_API_URL` for docker-compose interpolation are resolved from these files via Task's
 `dotenv:` loading into shell environment.
 
+## Rate Limiting
+
+- Redis-backed (`pyrate-limiter==4.5.0`, per-principal sorted sets, prefix `rag:ratelimit:v1:`); `fastapi-limiter` намеренно не используется
+- Политики: `login` (IP), `chat`, `upload`, `search`, `write`, `benchmark` — каталог в `infrastructure/rate_limit/policies.py`, числа в `RATE_LIMIT_*` (`config.py`)
+- Маршруты включают лимит одной строкой: `dependencies=[Depends(rate_limit(RateLimitPolicyName.X))]`
+- Fail-open при недоступном Redis (`RATE_LIMIT_FAIL_OPEN=true`) + метрики `rate_limit_exceeded_total` / `rate_limit_backend_errors_total`
+- 429 отдаётся единым конвертом `{message, errors:{code}}` + `Retry-After` / `X-RateLimit-Limit`
+- Перед `task loadtest:*` выключить: `RATE_LIMIT_ENABLED=false` + `task restart -- server` (см. `loadtest/README.md`)
+
 ## Logging
 
 - **`infrastructure/logging/logging_config.py`**: dict-based config with `default`, `detailed`, `uvicorn` loggers
@@ -475,6 +484,6 @@ UserContext.build()          → managed_*_ids from DB (CURATOR only)
 | Фаза 1: Security | ✅ DONE | CuratorScope, BM25 pre-filter, neighbors ACL, answer cache v3, dead code removal |
 | Фаза 2: Resilience | ❌ NOT STARTED | Circuit breaker, async client, separate semaphores, Qdrant timeout/retry |
 | Фаза 3: Decoupling | ❌ NOT STARTED | 15+ infrastructure imports в application, uow._session, LangChain |
-| Фаза 4: API | 🟡 PARTIAL | extra="forbid" ✅, cache invalidation ✅, email validation ✅; schemas split ❌, rate limiting ❌ |
+| Фаза 4: API | 🟡 PARTIAL | extra="forbid" ✅, cache invalidation ✅, email validation ✅; schemas split ❌, rate limiting ✅ |
 | Фаза 5: God-Files | ✅ DONE | rag_service stream → rag_steps, ingestion → parsers, benchmark → modules |
 | Фаза 6: Performance | ✅ DONE | BM25 thread safety, reverse index, gzip, batch rebuild, metrics |

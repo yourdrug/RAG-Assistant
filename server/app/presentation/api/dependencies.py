@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from application.services.pdf_diagnostic_service import PDFDiagnosticService
     from application.services.quality_service import QualityService
     from application.services.search_service import SearchService
+    from application.ports.rate_limit import RateLimiterPort
     from composition.container import Container
     from infrastructure.auth.api_key_provider import ApiKeyProvider
     from application.services.ingestion_orchestrator import IngestionService
@@ -172,6 +173,11 @@ def create_chat_log_service(request: Request) -> ChatLogService:
 
 def create_api_key_provider(request: Request) -> ApiKeyProvider:
     return _get_or_raise(_create_container(request).infrastructure.api_key_provider, "ApiKeyProvider")
+
+
+def create_rate_limiter(request: Request) -> RateLimiterPort | None:
+    """Rate limiter port; None when rate limiting is disabled by settings."""
+    return _create_container(request).infrastructure.rate_limit
 
 
 def create_benchmark_history_port():

@@ -54,4 +54,6 @@ class RagSettings:
     exact_ref_sparse_boost: float = 1.0
     llm_num_ctx_narrow: int = 4096
     llm_num_ctx_broad: int = 8192
+    llm_num_predict_narrow: int = 400
+    llm_num_predict_broad: int = 2048
     pii_redaction_enabled: bool = False

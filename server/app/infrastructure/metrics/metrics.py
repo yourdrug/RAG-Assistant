@@ -256,6 +256,22 @@ CACHE_COMPRESSION_RATIO = Gauge(
 )
 
 # ---------------------------------------------------------------------------
+# Rate limiting
+# ---------------------------------------------------------------------------
+
+RATE_LIMIT_EXCEEDED_TOTAL = Counter(
+    "rate_limit_exceeded_total",
+    "Requests rejected by the rate limiter (429)",
+    ["policy"],
+)
+
+RATE_LIMIT_BACKEND_ERRORS_TOTAL = Counter(
+    "rate_limit_backend_errors_total",
+    "Rate limiter backend failures (fail-open pass-through)",
+    ["policy"],
+)
+
+# ---------------------------------------------------------------------------
 # GenAI observability (OTel semantic conventions)
 # ---------------------------------------------------------------------------
 

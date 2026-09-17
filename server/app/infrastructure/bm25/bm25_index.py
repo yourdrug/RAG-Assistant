@@ -100,7 +100,7 @@ class BM25Index:
         """Check if doc at doc_idx matches any VisibilityCondition."""
         vis = self.doc_visibility[doc_idx]
         if vis is None:
-            return True
+            return False
 
         owner = self.doc_owner_id[doc_idx]
         group = self.doc_group_id[doc_idx]
@@ -143,15 +143,18 @@ class BM25Index:
         self,
         query: str,
         k: int = 25,
-        visibility_conditions: list | None = None,
-        user_id: int | None = None,
-        user_group_ids: list[int] | None = None,
+        *,
+        visibility_conditions: list,
+        user_id: int,
+        user_group_ids: list[int],
     ) -> list[tuple[str, float]]:
-        """Return (content_hash, score) pairs sorted by descending score.
+        """Return ACL-filtered (content_hash, score) pairs sorted by descending score."""
+        if visibility_conditions is None or user_id is None or user_group_ids is None:
+            raise RuntimeError(
+                "search_with_hashes() requires visibility_conditions, user_id and user_group_ids."
+            )
 
-        When visibility_conditions is provided, candidates are pre-filtered
-        by ACL before scoring (defense-in-depth: Qdrant resolve still applies).
-        """
+        self.last_survival_ratio = None
         q_tokens = tokenize(query)
         if not q_tokens:
             return []
@@ -162,18 +165,14 @@ class BM25Index:
             if posting:
                 candidate_indices.update(posting)
 
-        if visibility_conditions is not None and user_id is not None and user_group_ids is not None:
-            before_count = len(candidate_indices)
-            candidate_indices = {
-                i
-                for i in candidate_indices
-                if self._doc_matches_acl(i, visibility_conditions, user_id, user_group_ids)
-            }
-            after_count = len(candidate_indices)
-            if before_count > 0:
-                self.last_survival_ratio = after_count / before_count
-            else:
-                self.last_survival_ratio = None
+        before_count = len(candidate_indices)
+        candidate_indices = {
+            i
+            for i in candidate_indices
+            if self._doc_matches_acl(i, visibility_conditions, user_id, user_group_ids)
+        }
+        if before_count > 0:
+            self.last_survival_ratio = len(candidate_indices) / before_count
 
         if not candidate_indices:
             return []

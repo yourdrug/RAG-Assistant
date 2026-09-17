@@ -6,19 +6,39 @@ Security-critical validators: path traversal prevention, file content validation
 from __future__ import annotations
 
 import sys
+from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 import pytest
 from pydantic import ValidationError
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
+from domain.exceptions import ClientException
+from domain.value_objects.visibility import DocumentVisibility
+from presentation.api.auth_dependencies import get_current_user
+from presentation.api.exception_handlers import handle_client_exception
+from presentation.api.routes import admin_act_versions, documents
+from presentation.api.schemas.admin_act_versions import ActVersionUpdateRequest
+from presentation.api.schemas.auth import CurrentUser
 from presentation.api.schemas.validators import FileContent, _reject_unsafe_path
 
 
 # ---------------------------------------------------------------------------
 # SafeRelativePath
 # ---------------------------------------------------------------------------
+
+
+def test_act_version_update_rejects_unknown_fields():
+    with pytest.raises(ValidationError) as exc_info:
+        ActVersionUpdateRequest.model_validate({"effective_from": "2026-01-01", "unexpected": True})
+
+    assert exc_info.value.errors()[0]["type"] == "extra_forbidden"
+    assert exc_info.value.errors()[0]["loc"] == ("unexpected",)
 
 
 class TestSafeRelativePathRejectsDotdot:

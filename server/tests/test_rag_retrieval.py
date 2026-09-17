@@ -15,6 +15,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 import pytest
 from qdrant_client.models import FieldCondition, Filter, MatchValue
 
+from domain.services.access_control import VisibilityCondition
+from domain.value_objects.visibility import DocumentVisibility
+from infrastructure.repositories.vector.acl import build_qdrant_filter
+
 
 # ---------------------------------------------------------------------------
 # resolve_hashes_batch
@@ -116,7 +120,9 @@ async def test_qdrant_dense_search_returns_hash_score_doc_tuples(mock_settings):
     ml_clients.qdrant_client.return_value = mock_client
     ml_clients.embeddings.return_value = mock_embeddings
 
-    results = await qdrant_dense_search("test query", 5, None, ml_clients)
+    results = await qdrant_dense_search(
+        "test query", 5, build_qdrant_filter({"id": 10, "kind": "internal", "role": "user"}, []), ml_clients
+    )
 
     assert len(results) == 1
     h, score, doc = results[0]
@@ -151,7 +157,9 @@ async def test_qdrant_dense_search_generates_hash_when_missing(mock_settings):
     ml_clients.qdrant_client.return_value = mock_client
     ml_clients.embeddings.return_value = mock_embeddings
 
-    results = await qdrant_dense_search("query", 3, None, ml_clients)
+    results = await qdrant_dense_search(
+        "query", 3, build_qdrant_filter({"id": 10, "kind": "internal", "role": "user"}, []), ml_clients
+    )
 
     h, score, doc = results[0]
     assert h is not None  # hash was generated from content
@@ -216,10 +224,135 @@ async def test_hybrid_search_fallback_to_dense_when_bm25_disabled(mock_settings,
 
     _acl_filter = Filter(must=[FieldCondition(key="id", match=MatchValue(value=0))])
 
-    results = await run_hybrid_search("test", 10, _acl_filter, rag, ml_clients)
+    results = await run_hybrid_search(
+        "test",
+        10,
+        _acl_filter,
+        rag,
+        ml_clients,
+        visibility_conditions=[VisibilityCondition(visibility=DocumentVisibility.INTERNAL_PUBLIC)],
+        user_id=10,
+        user_group_ids=[],
+    )
 
     assert len(results) >= 1
     assert results[0].page_content == "result"
+
+
+@pytest.mark.asyncio
+@patch("infrastructure.ml.rag.rag_retrieval.RAG_STAGE_DURATION")
+@patch("infrastructure.ml.rag.rag_retrieval.settings")
+async def test_run_hybrid_search_acl_defaults_are_mandatory(mock_settings, mock_metrics):
+    from domain.value_objects.rag_settings import (
+        FeatureToggles,
+        HybridSearchConfig,
+        RagSettings,
+        RerankConfig,
+        RetrieverConfig,
+    )
+    from infrastructure.ml.rag.rag_retrieval import run_hybrid_search
+
+    rag = RagSettings(
+        retriever=RetrieverConfig(fetch_k=20, top_k=5, fetch_k_broad=40, top_k_broad=10),
+        hybrid_search=HybridSearchConfig(
+            enabled=True, bm25_fetch_k=20, rrf_k=60, dense_weight=1.0, sparse_weight=1.0
+        ),
+        rerank=RerankConfig(min_score=None, score_gap_ratio=None),
+        features=FeatureToggles(
+            citation_filter_enabled=False,
+            relevance_gate_enabled=False,
+            condense_enabled=False,
+            decomposition_enabled=False,
+            rolling_summary_enabled=False,
+            cache_enabled=False,
+        ),
+        source_min_score=0.0,
+    )
+
+    ml_clients = MagicMock()
+    ml_clients._ensure_bm25_loaded = AsyncMock(return_value=None)
+
+    with pytest.raises(RuntimeError, match="requires access_filter"):
+        await run_hybrid_search(
+            "test",
+            10,
+            None,
+            rag,
+            ml_clients,
+            visibility_conditions=[],
+            user_id=10,
+            user_group_ids=[],
+        )
+
+    for missing in ("visibility_conditions", "user_id", "user_group_ids"):
+        acl = {"visibility_conditions": [], "user_id": 10, "user_group_ids": []}
+        acl[missing] = None
+        with pytest.raises(RuntimeError, match="requires"):
+            await run_hybrid_search("test", 10, Filter(must=[]), rag, ml_clients, **acl)
+
+    ml_clients._ensure_bm25_loaded.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@patch("infrastructure.ml.rag.rag_retrieval.RAG_STAGE_DURATION")
+@patch("infrastructure.ml.rag.rag_retrieval.settings")
+async def test_run_hybrid_search_empty_conditions_fail_closed(mock_settings, mock_metrics):
+    from domain.value_objects.rag_settings import (
+        FeatureToggles,
+        HybridSearchConfig,
+        RagSettings,
+        RerankConfig,
+        RetrieverConfig,
+    )
+    from infrastructure.ml.rag.rag_retrieval import run_hybrid_search
+
+    mock_settings.collection_name = "test_col"
+    mock_settings.qdrant_timeout = 10
+
+    rag = RagSettings(
+        retriever=RetrieverConfig(fetch_k=20, top_k=5, fetch_k_broad=40, top_k_broad=10),
+        hybrid_search=HybridSearchConfig(
+            enabled=True, bm25_fetch_k=20, rrf_k=60, dense_weight=1.0, sparse_weight=1.0
+        ),
+        rerank=RerankConfig(min_score=None, score_gap_ratio=None),
+        features=FeatureToggles(
+            citation_filter_enabled=False,
+            relevance_gate_enabled=False,
+            condense_enabled=False,
+            decomposition_enabled=False,
+            rolling_summary_enabled=False,
+            cache_enabled=False,
+        ),
+        source_min_score=0.0,
+    )
+
+    mock_client = MagicMock()
+    mock_client.search.return_value = []
+
+    mock_embeddings = MagicMock()
+    mock_embeddings.embed_query = AsyncMock(return_value=[0.1] * 384)
+
+    ml_clients = MagicMock()
+    ml_clients.qdrant_client.return_value = mock_client
+    ml_clients.embeddings.return_value = mock_embeddings
+    ml_clients._ensure_bm25_loaded = AsyncMock(return_value=MagicMock())
+
+    results = await run_hybrid_search(
+        "test",
+        10,
+        Filter(must=[FieldCondition(key="id", match=MatchValue(value=0))]),
+        rag,
+        ml_clients,
+        visibility_conditions=[],
+        user_id=10,
+        user_group_ids=[],
+    )
+
+    assert results == []
+    mock_client.search.assert_not_called()
+    ml_clients.embeddings.assert_not_called()
+    ml_clients.embeddings.return_value.embed_query.assert_not_awaited()
+    ml_clients._ensure_bm25_loaded.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -282,7 +415,25 @@ async def test_hybrid_search_uses_rrf_when_bm25_available(mock_settings, mock_me
     ml_clients._ensure_bm25_loaded = AsyncMock(return_value=mock_bm25)
 
     _acl_filter = Filter(must=[FieldCondition(key="id", match=MatchValue(value=0))])
-    results = await run_hybrid_search("test", 10, _acl_filter, rag, ml_clients)
+    conditions = [VisibilityCondition(visibility=DocumentVisibility.INTERNAL_PUBLIC)]
+    results = await run_hybrid_search(
+        "test",
+        10,
+        _acl_filter,
+        rag,
+        ml_clients,
+        visibility_conditions=conditions,
+        user_id=10,
+        user_group_ids=[],
+    )
 
+    mock_bm25.search_with_hashes.assert_called_once_with(
+        "test",
+        10,
+        visibility_conditions=conditions,
+        user_id=10,
+        user_group_ids=[],
+    )
+    assert _acl_filter in mock_client.scroll.call_args.kwargs["scroll_filter"].must
     mock_rrf.assert_called_once()
     assert len(results) >= 1

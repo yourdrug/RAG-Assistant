@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 
+from application.ports.rate_limit import RateLimitPolicyName
 from application.services.benchmark_services import (
     BenchmarkQuestionService,
     BenchmarkRunService,
@@ -20,6 +21,7 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 
 from presentation.api.auth_dependencies import require_admin
+from presentation.api.rate_limit import rate_limit
 from presentation.api.constants import (
     JobType,
     SSE_HEADERS,
@@ -97,7 +99,11 @@ async def list_questions(
     )
 
 
-@router.post("/admin/benchmark/questions", response_model=BenchmarkQuestionResponse)
+@router.post(
+    "/admin/benchmark/questions",
+    response_model=BenchmarkQuestionResponse,
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
+)
 async def create_question(
     body: BenchmarkQuestionCreate,
     admin: CurrentUser = Depends(require_admin),
@@ -107,7 +113,11 @@ async def create_question(
     return question_to_response(created)
 
 
-@router.put("/admin/benchmark/questions/{question_id}", response_model=BenchmarkQuestionResponse)
+@router.put(
+    "/admin/benchmark/questions/{question_id}",
+    response_model=BenchmarkQuestionResponse,
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
+)
 async def update_question(
     question_id: int,
     body: BenchmarkQuestionUpdate,
@@ -119,7 +129,10 @@ async def update_question(
     return question_to_response(updated)
 
 
-@router.delete("/admin/benchmark/questions/{question_id}")
+@router.delete(
+    "/admin/benchmark/questions/{question_id}",
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
+)
 async def delete_question(
     question_id: int,
     admin: CurrentUser = Depends(require_admin),
@@ -129,7 +142,11 @@ async def delete_question(
     return {"deleted": True}
 
 
-@router.post("/admin/benchmark/questions/import", response_model=BenchmarkQuestionsImportResponse)
+@router.post(
+    "/admin/benchmark/questions/import",
+    response_model=BenchmarkQuestionsImportResponse,
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.BENCHMARK))],
+)
 async def import_questions(
     body: BenchmarkQuestionsImportRequest,
     admin: CurrentUser = Depends(require_admin),
@@ -177,7 +194,11 @@ async def list_source_files(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/admin/benchmark/sweep", response_model=SweepResponse)
+@router.post(
+    "/admin/benchmark/sweep",
+    response_model=SweepResponse,
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.BENCHMARK))],
+)
 async def create_sweep(
     body: SweepCreateRequest,
     admin: CurrentUser = Depends(require_admin),
@@ -273,7 +294,10 @@ async def sweep_progress_stream(
     )
 
 
-@router.post("/admin/benchmark/sweep/{sweep_id}/cancel")
+@router.post(
+    "/admin/benchmark/sweep/{sweep_id}/cancel",
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
+)
 async def cancel_sweep(
     sweep_id: int,
     admin: CurrentUser = Depends(require_admin),
@@ -323,7 +347,11 @@ async def get_run(
     return run_to_response(run)
 
 
-@router.post("/admin/benchmark/runs/{run_id}/apply", response_model=RunApplyResponse)
+@router.post(
+    "/admin/benchmark/runs/{run_id}/apply",
+    response_model=RunApplyResponse,
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.BENCHMARK))],
+)
 async def apply_run_config(
     run_id: int,
     admin: CurrentUser = Depends(require_admin),

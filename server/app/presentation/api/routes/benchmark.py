@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from application.ports.rate_limit import RateLimitPolicyName
 from application.services.benchmark_result_service import BenchmarkResultService
 from application.services.job_service import JobService
 from fastapi import APIRouter, Depends, HTTPException
 
 from presentation.api.auth_dependencies import require_admin
+from presentation.api.rate_limit import rate_limit
 from presentation.api.constants import JobType
 from presentation.api.dependencies import (
     create_benchmark_config,
@@ -28,7 +30,11 @@ from presentation.api.schemas import (
 router = APIRouter(tags=["benchmark"])
 
 
-@router.post("/benchmark", response_model=BenchmarkResponse)
+@router.post(
+    "/benchmark",
+    response_model=BenchmarkResponse,
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.BENCHMARK))],
+)
 async def run_benchmark(
     req: BenchmarkRequest,
     admin: CurrentUser = Depends(require_admin),

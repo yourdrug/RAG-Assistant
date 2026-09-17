@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import logging
 
+from application.ports.rate_limit import RateLimitPolicyName
 from application.services.document_service import DocumentService
 from application.services.job_service import JobService
 from domain.value_objects.capabilities import Capability
 from domain.value_objects.doc_domain import DocDomain
+from domain.value_objects.visibility import DocumentVisibility
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 
 from presentation.api.auth_dependencies import get_current_user, require_capability
+from presentation.api.rate_limit import rate_limit
 from presentation.api.constants import FILE_TOO_LARGE_STATUS
 from presentation.api.dependencies import (
     create_action_logger,
@@ -47,11 +50,15 @@ async def list_uploadable_clients(
     )
 
 
-@router.post("/documents", response_model=UploadStatusResponse)
+@router.post(
+    "/documents",
+    response_model=UploadStatusResponse,
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.UPLOAD))],
+)
 async def upload_document(
     current_user: CurrentUser = Depends(require_capability(Capability.DOCUMENTS_MANAGE)),
     file: UploadFile = File(...),
-    visibility: str = Form(...),
+    visibility: DocumentVisibility = Form(...),
     group_id: int | None = Form(None),
     client_id: int | None = Form(None),
     rename_on_conflict: bool = Form(False),
@@ -83,7 +90,7 @@ async def upload_document(
     result = await upload_and_enqueue(
         file_data=data,
         filename=filename,
-        visibility=visibility,
+        visibility=visibility.value,
         group_id=group_id,
         client_id=client_id,
         user_id=current_user.id,
@@ -129,7 +136,11 @@ async def get_document_status(
     )
 
 
-@router.delete("/documents/{document_id}", response_model=DeleteDocumentResponse)
+@router.delete(
+    "/documents/{document_id}",
+    response_model=DeleteDocumentResponse,
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
+)
 async def delete_document(
     document_id: int,
     current_user: CurrentUser = Depends(require_capability(Capability.DOCUMENTS_MANAGE)),
@@ -144,7 +155,11 @@ async def delete_document(
     return {"status": "deleted", "document_id": document_id}
 
 
-@router.patch("/documents/{document_id}/rename", response_model=DocumentResponse)
+@router.patch(
+    "/documents/{document_id}/rename",
+    response_model=DocumentResponse,
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
+)
 async def rename_document(
     document_id: int,
     body: DocumentRenameRequest,

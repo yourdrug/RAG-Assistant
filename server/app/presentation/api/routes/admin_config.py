@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import logging
 
+from application.ports.rate_limit import RateLimitPolicyName
 from application.services.config_admin_service import ConfigAdminService
 from application.services.config_service import ConfigService
 from fastapi import APIRouter, Depends, HTTPException
 
 from presentation.api.auth_dependencies import require_admin
+from presentation.api.rate_limit import rate_limit
 from presentation.api.constants import QUESTION_LOG_MAX_CHARS, STATIC_CONFIG_KEYS
 from presentation.api.dependencies import (
     create_action_logger,
@@ -55,7 +57,11 @@ async def list_config(
     ]
 
 
-@router.put("/admin/config/{key}", response_model=ConfigParamResponse)
+@router.put(
+    "/admin/config/{key}",
+    response_model=ConfigParamResponse,
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
+)
 async def update_config(
     key: str,
     body: ConfigParamUpdateRequest,

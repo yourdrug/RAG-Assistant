@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from application.ports.rate_limit import RateLimitPolicyName
 from application.services.auth_service import AuthService
 from domain.value_objects.roles import UserKind, UserRole
 from fastapi import APIRouter, Depends, HTTPException
 
 from presentation.api.auth_dependencies import get_current_user, require_admin
+from presentation.api.rate_limit import rate_limit
 from presentation.api.dependencies import create_action_logger, create_auth_service
 from presentation.api.schemas import ApiKeyCreateRequest, ApiKeyCreateResponse, ApiKeyResponse, CurrentUser
 
@@ -22,7 +24,11 @@ def _check_client_access(current_user: CurrentUser, client_user_id: int) -> None
     raise HTTPException(status_code=403, detail="Forbidden")
 
 
-@router.post("/{client_user_id}/api-keys", response_model=ApiKeyCreateResponse)
+@router.post(
+    "/{client_user_id}/api-keys",
+    response_model=ApiKeyCreateResponse,
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
+)
 async def issue_api_key(
     client_user_id: int,
     req: ApiKeyCreateRequest,
@@ -57,7 +63,10 @@ async def list_api_keys(
     ]
 
 
-@router.delete("/{client_user_id}/api-keys/{api_key_id}")
+@router.delete(
+    "/{client_user_id}/api-keys/{api_key_id}",
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
+)
 async def revoke_api_key(
     client_user_id: int,
     api_key_id: int,

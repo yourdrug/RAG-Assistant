@@ -9,6 +9,9 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from unittest.mock import patch
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
 
@@ -117,12 +120,22 @@ class TestBM25SearchWithACL:
         )
         return idx
 
-    def test_no_conditions_returns_all(self):
+    def test_acl_arguments_are_mandatory_keywords(self):
         idx = self._make_index_with_acl()
-        results = idx.search_with_hashes("document", k=10)
-        hashes = [h for h, _ in results]
-        assert content_hash("public document") in hashes
-        assert content_hash("private document") in hashes
+        with pytest.raises(TypeError):
+            idx.search_with_hashes("document", k=10)
+        with pytest.raises(TypeError):
+            idx.search_with_hashes("document", 10, [], 10, [])
+
+    @pytest.mark.parametrize("missing", ["visibility_conditions", "user_id", "user_group_ids"])
+    @pytest.mark.parametrize("query", ["document", ""])
+    def test_none_acl_rejected_before_scoring(self, missing, query):
+        idx = self._make_index_with_acl()
+        acl = {"visibility_conditions": [], "user_id": 10, "user_group_ids": []}
+        acl[missing] = None
+        with patch.object(idx, "score") as score, pytest.raises(RuntimeError, match="requires"):
+            idx.search_with_hashes(query, **acl)
+        score.assert_not_called()
 
     def test_user_sees_public_and_own_private(self):
         idx = self._make_index_with_acl()
@@ -228,9 +241,9 @@ class TestBM25SearchWithACL:
 
 
 class TestBM25ACLBackwardCompat:
-    def test_old_index_no_acl_passes_all(self):
-        """Index with all None ACL → all docs pass pre-filter."""
-        idx = BM25Index(texts=["public doc", "private doc"])
+    @pytest.mark.parametrize("empty_conditions", [False, True])
+    def test_old_index_no_acl_fails_closed(self, empty_conditions):
+        idx = BM25Index.from_dict({"texts": ["public doc", "private doc"]})
         assert idx.doc_visibility == [None, None]
         conditions = [
             VisibilityCondition(visibility=DocumentVisibility.INTERNAL_PRIVATE, owner_match=OwnerMatch.SELF),
@@ -238,13 +251,13 @@ class TestBM25ACLBackwardCompat:
         results = idx.search_with_hashes(
             "doc",
             k=10,
-            visibility_conditions=conditions,
+            visibility_conditions=[] if empty_conditions else conditions,
             user_id=999,
             user_group_ids=[],
         )
-        hashes = [h for h, _ in results]
-        assert content_hash("public doc") in hashes
-        assert content_hash("private doc") in hashes
+        assert results == []
+        assert idx.last_survival_ratio == 0.0
+        assert len(idx.search("doc", k=10)) == 2
 
     def test_to_dict_with_acl(self):
         idx = BM25Index(
@@ -289,7 +302,13 @@ class TestBM25ACLBackwardCompat:
         idx2 = BM25Index.from_dict(d)
         assert idx2.doc_visibility == ["internal_public", "client_private"]
         assert idx2.doc_owner_id == [None, 100]
-        results = idx2.search_with_hashes("hello", k=5)
+        results = idx2.search_with_hashes(
+            "hello",
+            k=5,
+            visibility_conditions=[VisibilityCondition(visibility=DocumentVisibility.INTERNAL_PUBLIC)],
+            user_id=10,
+            user_group_ids=[],
+        )
         assert len(results) > 0
 
 
@@ -437,8 +456,7 @@ class TestBM25PredicateInvariant:
             managed_client_ids=[100],
         )
 
-    def test_acl_none_in_index_passes_all(self):
-        """Docs with ACL=None in index pass pre-filter (fail-open, defense-in-depth)."""
+    def test_acl_none_in_index_denied(self):
         idx = BM25Index(texts=["pub", "priv"], doc_visibility=[None, None])
         from domain.services.access_control import VisibilityCondition
         from domain.value_objects.owner_match import OwnerMatch
@@ -447,6 +465,5 @@ class TestBM25PredicateInvariant:
         conditions = [
             VisibilityCondition(visibility=DocumentVisibility.INTERNAL_PRIVATE, owner_match=OwnerMatch.SELF),
         ]
-        # Both pass because vis=None → _doc_matches_acl returns True
-        assert idx._doc_matches_acl(0, conditions, user_id=1, user_group_ids=[])
-        assert idx._doc_matches_acl(1, conditions, user_id=1, user_group_ids=[])
+        assert not idx._doc_matches_acl(0, conditions, user_id=1, user_group_ids=[])
+        assert not idx._doc_matches_acl(1, conditions, user_id=1, user_group_ids=[])

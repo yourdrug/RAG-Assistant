@@ -56,9 +56,10 @@ async def run_retrieval(
     query_domain: str,
     effective_dense_weight: float,
     effective_sparse_weight: float,
-    visibility_conditions: list | None = None,
-    user_id: int | None = None,
-    user_group_ids: list[int] | None = None,
+    *,
+    visibility_conditions: list,
+    user_id: int,
+    user_group_ids: list[int],
 ) -> list[LCDocument]:
     """Run hybrid search with legal-domain fallback."""
     if query_domain == DocDomain.LEGAL.value:
@@ -149,13 +150,24 @@ async def apply_legal_rerank_fallback(
     top_k: int,
     docs: list,
     ml_clients,
+    *,
+    visibility_conditions: list,
+    user_id: int,
+    user_group_ids: list[int],
 ) -> list:
     """Fallback: rerank entire corpus for legal queries that got no docs."""
     if docs:
         return docs
     log.info("Legal query got no docs after rerank — fallback on entire corpus with rerank")
     fallback_candidates = await run_hybrid_search(
-        query_for_search, rag.retriever.fetch_k, access_filter, rag, ml_clients=ml_clients
+        query_for_search,
+        rag.retriever.fetch_k,
+        access_filter,
+        rag,
+        ml_clients=ml_clients,
+        visibility_conditions=visibility_conditions,
+        user_id=user_id,
+        user_group_ids=user_group_ids,
     )
     async with ml_clients.reranker_semaphore:
         return await rerank_documents(
@@ -236,9 +248,10 @@ async def retrieve_with_decomposition(
     query_domain: str,
     effective_dense_weight: float,
     effective_sparse_weight: float,
-    visibility_conditions: list | None = None,
-    user_id: int | None = None,
-    user_group_ids: list[int] | None = None,
+    *,
+    visibility_conditions: list,
+    user_id: int,
+    user_group_ids: list[int],
 ) -> tuple[list[LCDocument], list[str]]:
     """Run hybrid retrieval with optional multi-query decomposition.
 
@@ -336,6 +349,10 @@ async def rerank_and_enrich(
     question_chars: int,
     chunk_search,
     enumerate_cases: bool,
+    *,
+    visibility_conditions: list,
+    user_id: int,
+    user_group_ids: list[int],
 ) -> tuple[list[tuple[LCDocument, float]], list[LCDocument], float]:
     """Rerank candidates, apply temporal/legal fixes, trim, enrich with neighbors.
 
@@ -364,6 +381,9 @@ async def rerank_and_enrich(
             rerank_top_n,
             docs,
             ml_clients,
+            visibility_conditions=visibility_conditions,
+            user_id=user_id,
+            user_group_ids=user_group_ids,
         )
 
     from domain.services.rag_policy import select_final_top_k, compute_context_budget
@@ -379,6 +399,8 @@ async def rerank_and_enrich(
         question_chars=question_chars,
         num_ctx_narrow=rag.llm_num_ctx_narrow,
         num_ctx_broad=rag.llm_num_ctx_broad,
+        num_predict_narrow=rag.llm_num_predict_narrow,
+        num_predict_broad=rag.llm_num_predict_broad,
     )
     docs = await enrich_with_neighbors(
         docs,

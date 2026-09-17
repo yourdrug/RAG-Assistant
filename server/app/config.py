@@ -248,6 +248,19 @@ class Settings(BaseSettings):
     stuck_job_timeout_minutes: int = 30
     stale_pending_timeout_minutes: int = 30
 
+    # ── Rate limiting ───────────────────────────────────────────────────────
+    rate_limit_enabled: bool = True
+    rate_limit_fail_open: bool = True  # Redis unavailable → allow traffic (with metric)
+    rate_limit_redis_prefix: str = "rag:ratelimit:v1:"
+    rate_limit_login_per_minute: int = 5
+    rate_limit_chat_per_minute: int = 10
+    rate_limit_chat_per_day: int = 100
+    rate_limit_upload_per_hour: int = 20
+    rate_limit_search_per_minute: int = 60
+    rate_limit_write_per_minute: int = 60
+    rate_limit_benchmark_per_hour: int = 3
+    rate_limit_max_buckets: int = 10000  # LRU cap for per-principal buckets
+
     # ── Cost rate limiting ──────────────────────────────────────────────────
     cost_rate_limit_enabled: bool = False
     cost_hourly_limit: float = 1.0

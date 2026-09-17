@@ -49,7 +49,12 @@ dependencies = [
     "boto3>=1.34.0",
     # --- Queue / Redis ---
     "arq>=0.26.0",
+    # NOTE: arq caps redis<6, so redis 5.x stays. pyrate-limiter is installed
+    # without the [redis] extra (which would force redis>=6.2); its RedisBucket
+    # only uses redis-py APIs present in 5.x.
     "redis>=5.0.0",
+    # --- Rate limiting ---
+    "pyrate-limiter==4.5.0",
     # --- Utilities ---
     "httpx==0.27.0",
     "python-json-logger>=3.2.1",
@@ -85,6 +90,7 @@ gpu = [
 testing = [
     "pytest==8.3.3",
     "pytest-asyncio==0.24.0",
+    "fakeredis[lua]>=2.26.0",
 ]
 
 development = [

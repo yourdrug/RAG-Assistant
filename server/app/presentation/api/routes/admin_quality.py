@@ -10,11 +10,13 @@ from pathlib import Path
 from domain.value_objects.file_backend import FileBackend
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
+from application.ports.rate_limit import RateLimitPolicyName
 from application.services.pdf_diagnostic_service import PDFDiagnosticService
 from application.services.quality_service import QualityService
 from infrastructure.ml.preview.factory import PreviewStrategyFactory
 
 from presentation.api.auth_dependencies import require_admin
+from presentation.api.rate_limit import rate_limit
 from presentation.api.constants import FILE_TOO_LARGE_STATUS, PAGE_IMAGE_DPI
 from presentation.api.dependencies import (
     create_action_logger,
@@ -80,7 +82,11 @@ async def list_quality_documents(
     )
 
 
-@router.post("/admin/documents/{document_id}/diagnose", response_model=DocumentDiagnoseResponse)
+@router.post(
+    "/admin/documents/{document_id}/diagnose",
+    response_model=DocumentDiagnoseResponse,
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
+)
 async def diagnose_document(
     document_id: int,
     admin: CurrentUser = Depends(require_admin),
@@ -111,7 +117,11 @@ async def diagnose_document(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/admin/documents/preview", response_model=DryRunResponse)
+@router.post(
+    "/admin/documents/preview",
+    response_model=DryRunResponse,
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
+)
 async def dry_run_preview(
     file: UploadFile = File(...),
     admin: CurrentUser = Depends(require_admin),
@@ -174,7 +184,11 @@ async def dry_run_preview(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/admin/documents/preview-ocr", response_model=DryRunResponse)
+@router.post(
+    "/admin/documents/preview-ocr",
+    response_model=DryRunResponse,
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
+)
 async def dry_run_ocr_phase2(
     file: UploadFile = File(None),
     preview_id: str = Form(""),
@@ -297,7 +311,11 @@ def _render_page_image_sync(diag_service: PDFDiagnosticService, tmp_path: Path, 
         diag_service._pdf.close(doc)
 
 
-@router.post("/admin/documents/preview/page-image", response_model=PageImageResponse)
+@router.post(
+    "/admin/documents/preview/page-image",
+    response_model=PageImageResponse,
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
+)
 async def get_page_image(
     preview_id: str = Form(...),
     page: int = Form(...),
@@ -333,7 +351,11 @@ async def get_page_image(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/admin/documents/preview/{preview_id}/index", response_model=IndexFromPreviewResponse)
+@router.post(
+    "/admin/documents/preview/{preview_id}/index",
+    response_model=IndexFromPreviewResponse,
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
+)
 async def index_from_preview(
     preview_id: str,
     visibility: str = Form("internal_public"),

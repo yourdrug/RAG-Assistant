@@ -95,8 +95,17 @@ class TestBM25Index:
 
     def test_search_with_hashes(self):
         texts = ["маркировка товаров", "штрафы за нарушение"]
-        idx = hybrid.BM25Index(texts)
-        results = idx.search_with_hashes("маркировка", k=1)
+        from domain.services.access_control import VisibilityCondition
+        from domain.value_objects.visibility import DocumentVisibility
+
+        idx = hybrid.BM25Index(texts, doc_visibility=["internal_public"] * len(texts))
+        results = idx.search_with_hashes(
+            "маркировка",
+            k=1,
+            visibility_conditions=[VisibilityCondition(visibility=DocumentVisibility.INTERNAL_PUBLIC)],
+            user_id=10,
+            user_group_ids=[],
+        )
         assert len(results) == 1
         h, score = results[0]
         assert isinstance(h, str)
