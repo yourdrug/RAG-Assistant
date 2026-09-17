@@ -80,14 +80,7 @@ class LLMCircuitBreaker:
 
     @property
     def state(self) -> str:
-        """Current breaker state as string: 'closed', 'open', or 'half_open'.
-
-        Transitions OPEN → HALF_OPEN if timeout expired (lazy transition,
-        same as check_open).
-        """
-        if self._state == _CBState.OPEN:
-            if time.monotonic() - self._opened_at >= self._timeout_duration:
-                self._state = _CBState.HALF_OPEN
+        """Current breaker state as string: 'closed', 'open', or 'half_open'."""
         return self._state.value
 
     # -- State check (short lock) --------------------------------------------
@@ -95,16 +88,11 @@ class LLMCircuitBreaker:
     def check_open(self) -> None:
         """Check if breaker is OPEN. Raises CircuitBreakerError if OPEN.
 
-        Uses ``_lock`` only to read state (short hold).
-        Transitions OPEN → HALF_OPEN if timeout expired.
+        If timeout has expired, allows the probe (returns without error).
+        Transition to HALF_OPEN will happen in report_success/failure under lock.
         """
         if self._state == _CBState.OPEN:
             if time.monotonic() - self._opened_at >= self._timeout_duration:
-                self._state = _CBState.HALF_OPEN
-                log.info(
-                    "Circuit breaker '%s' transitioned to HALF_OPEN (probe allowed)",
-                    self._operation_name,
-                )
                 return
             CB_FAILURES.labels(operation=self._operation_name).inc()
             self._update_metrics()
@@ -128,6 +116,7 @@ class LLMCircuitBreaker:
     async def report_success(self) -> None:
         """Report a successful call. Under lock, check and transition if needed."""
         async with self._lock:
+            self._transition_to_half_open_if_needed()
             if self._state == _CBState.HALF_OPEN:
                 self._state = _CBState.CLOSED
                 self._failure_count = 0
@@ -142,6 +131,7 @@ class LLMCircuitBreaker:
     async def report_failure(self) -> None:
         """Report a failed call. Under lock, increment counter and potentially open."""
         async with self._lock:
+            self._transition_to_half_open_if_needed()
             if self._state == _CBState.HALF_OPEN:
                 # Any failure during half-open probe reopens immediately
                 self._state = _CBState.OPEN

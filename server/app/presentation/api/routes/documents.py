@@ -20,9 +20,11 @@ from presentation.api.dependencies import (
     create_cache_invalidator,
     create_cache_config,
     create_document_service,
+    create_idempotency_store,
     create_job_enqueuer,
     create_job_service,
     create_upload_config,
+    get_idempotency_key,
 )
 from presentation.api.helpers import upload_and_enqueue
 from presentation.api.schemas import (
@@ -69,7 +71,15 @@ async def upload_document(
     job_enqueuer=Depends(create_job_enqueuer),
     log=Depends(create_action_logger),
     upload_cfg=Depends(create_upload_config),
+    idempotency_key: str | None = Depends(get_idempotency_key),
+    idempotency_store=Depends(create_idempotency_store),
 ):
+    # Idempotency: return cached result if key already executed
+    if idempotency_key:
+        cached = await idempotency_store.get(idempotency_key, current_user.id)
+        if cached:
+            return UploadStatusResponse(**cached)
+
     filename = file.filename or "unnamed"
 
     if doc_domain is not None and doc_domain not in [d.value for d in DocDomain]:
@@ -106,7 +116,15 @@ async def upload_document(
         log_fn=log,
     )
 
-    return UploadStatusResponse(status=result["status"], document_id=result["document_id"], filename=filename)
+    response = UploadStatusResponse(
+        status=result["status"], document_id=result["document_id"], filename=filename
+    )
+
+    # Idempotency: store result for future duplicate requests
+    if idempotency_key:
+        await idempotency_store.store(idempotency_key, current_user.id, response.model_dump())
+
+    return response
 
 
 @router.get("/documents", response_model=list[DocumentResponse])
@@ -149,10 +167,10 @@ async def delete_document(
     cache_inv=Depends(create_cache_invalidator),
     cache_cfg=Depends(create_cache_config),
 ):
-    await document_service.delete_document(document_id, current_user.id, current_user.role)
+    await document_service.delete_document(document_id, current_user.id, current_user.role, current_user.kind)
     await cache_inv.invalidate_by_document_ids([document_id], cache_enabled=cache_cfg.cache_enabled)
     log("document.delete", user_id=current_user.id, details={"document_id": document_id})
-    return {"status": "deleted", "document_id": document_id}
+    return DeleteDocumentResponse(status="deleted", document_id=document_id)
 
 
 @router.patch(
@@ -172,6 +190,7 @@ async def rename_document(
         new_filename=body.filename,
         user_id=current_user.id,
         user_role=current_user.role,
+        user_kind=current_user.kind,
     )
     log(
         "document.rename",

@@ -15,8 +15,10 @@ from presentation.api.constants import JobType
 from presentation.api.dependencies import (
     create_benchmark_config,
     create_benchmark_result_service,
+    create_idempotency_store,
     create_job_enqueuer,
     create_job_service,
+    get_idempotency_key,
 )
 from presentation.api.helpers import summary_to_response, validate_data_path_within_dir
 from presentation.api.schemas import (
@@ -41,7 +43,15 @@ async def run_benchmark(
     job_service: JobService = Depends(create_job_service),
     job_enqueuer=Depends(create_job_enqueuer),
     bench_cfg=Depends(create_benchmark_config),
+    idempotency_key: str | None = Depends(get_idempotency_key),
+    idempotency_store=Depends(create_idempotency_store),
 ):
+    # Idempotency: return cached result if key already executed
+    if idempotency_key:
+        cached = await idempotency_store.get(idempotency_key, admin.id)
+        if cached:
+            return BenchmarkResponse(**cached)
+
     job_id = await job_service.create_job(JobType.BENCHMARK)
 
     q_path = req.questions_path or str(Path(bench_cfg.data_dir) / "test_questions.json")
@@ -58,7 +68,14 @@ async def run_benchmark(
         judge_model=judge,
         job_id=job_id,
     )
-    return BenchmarkResponse(status="started")
+
+    response = BenchmarkResponse(status="started")
+
+    # Idempotency: store result for future duplicate requests
+    if idempotency_key:
+        await idempotency_store.store(idempotency_key, admin.id, response.model_dump())
+
+    return response
 
 
 @router.get("/benchmark/results", response_model=BenchmarkResultsListResponse)

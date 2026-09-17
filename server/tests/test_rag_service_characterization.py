@@ -226,14 +226,12 @@ class TestExtractSources:
     def test_min_score_filter_keeps_best_source(self):
         docs = [_scored_doc("a", 0.1, source="a.pdf")]
         sources = rag.extract_sources(docs, min_score=0.5)
-        # Safety net: best source is always kept even below min_score
-        assert len(sources) == 1
+        assert len(sources) == 0
 
     def test_always_keeps_best_source(self):
         docs = [_scored_doc("a", 0.01, source="a.pdf")]
         sources = rag.extract_sources(docs, min_score=0.5)
-        # Best source is always kept even below min_score
-        assert len(sources) == 1
+        assert len(sources) == 0
 
 
 # ---------------------------------------------------------------------------

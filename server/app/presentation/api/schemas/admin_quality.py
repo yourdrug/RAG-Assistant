@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from presentation.api.constants import DRY_RUN_EXTENSIONS
 
@@ -97,6 +97,8 @@ class PreviewFile(BaseModel):
 
 class IndexFromPreviewResponse(BaseModel):
     """Response for POST /admin/quality/index-from-preview."""
+
+    model_config = ConfigDict(extra="forbid")
 
     document_id: int
     filename: str

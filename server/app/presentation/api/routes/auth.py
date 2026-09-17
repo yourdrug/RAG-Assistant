@@ -20,6 +20,7 @@ from presentation.api.schemas import (
     TokenResponse,
     UserListResponse,
     UserResponse,
+    UserToggleResponse,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -87,6 +88,7 @@ async def list_all_users(
 
 @router.patch(
     "/users/{user_id}",
+    response_model=UserToggleResponse,
     dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
 )
 async def toggle_user_active(
@@ -98,7 +100,7 @@ async def toggle_user_active(
 ):
     result = await auth_service.toggle_active(user_id, is_active, admin.id)
     log("user.toggle_active", user_id=admin.id, details={"target_user": user_id, "is_active": is_active})
-    return {"id": result.id, "is_active": result.is_active}
+    return UserToggleResponse(id=result.id, is_active=result.is_active)
 
 
 @router.patch(

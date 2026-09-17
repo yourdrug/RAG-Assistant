@@ -606,7 +606,13 @@ class SQLAlchemyChunkRepository:
             safe_hashes = {h for h in exclude_hashes if h is not None}
             if safe_hashes:
                 conditions.append(~ChunkModel.content_hash.in_(safe_hashes))
-        acl_clauses = _build_acl_clauses(user, user.group_ids)
+        acl_clauses = _build_acl_clauses(
+            user,
+            user.group_ids,
+            managed_client_ids=getattr(user, "managed_client_ids", None),
+            managed_internal_ids=getattr(user, "managed_internal_ids", None),
+            managed_group_ids=getattr(user, "managed_group_ids", None),
+        )
         if acl_clauses:
             conditions.append(or_(*acl_clauses))
         stmt = select(ChunkModel).where(and_(*conditions)).order_by(ChunkModel.chunk_index)
@@ -630,7 +636,13 @@ class SQLAlchemyChunkRepository:
             safe_hashes = {h for h in exclude_hashes if h is not None}
             if safe_hashes:
                 conditions.append(~ChunkModel.content_hash.in_(safe_hashes))
-        acl_clauses = _build_acl_clauses(user, user.group_ids)
+        acl_clauses = _build_acl_clauses(
+            user,
+            user.group_ids,
+            managed_client_ids=getattr(user, "managed_client_ids", None),
+            managed_internal_ids=getattr(user, "managed_internal_ids", None),
+            managed_group_ids=getattr(user, "managed_group_ids", None),
+        )
         if acl_clauses:
             conditions.append(or_(*acl_clauses))
         stmt = select(ChunkModel).where(and_(*conditions)).order_by(ChunkModel.chunk_index)

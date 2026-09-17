@@ -79,3 +79,10 @@ class CuratorScopeResponse(BaseModel):
     managed_client_ids: list[int]
     managed_internal_ids: list[int]
     managed_group_ids: list[int]
+
+
+class UserToggleResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: int
+    is_active: bool

@@ -58,13 +58,13 @@ class DocumentQueryService:
                 docs = await uow.documents.list_visible(
                     user_kind=user_kind,
                     user_id=user_id,
-                    group_ids=ctx.group_ids or [],
+                    group_ids=list(ctx.group_ids) or [],
                     user_role=user_role,
                     limit=limit,
                     offset=offset,
-                    managed_client_ids=ctx.managed_client_ids,
-                    managed_internal_ids=ctx.managed_internal_ids,
-                    managed_group_ids=ctx.managed_group_ids,
+                    managed_client_ids=list(ctx.managed_client_ids),
+                    managed_internal_ids=list(ctx.managed_internal_ids),
+                    managed_group_ids=list(ctx.managed_group_ids),
                 )
                 dtos = [DocumentDTO.from_entity(d) for d in docs]
             elif ctx.is_client:
@@ -81,7 +81,7 @@ class DocumentQueryService:
                 docs = await uow.documents.list_visible(
                     user_kind=user_kind,
                     user_id=user_id,
-                    group_ids=ctx.group_ids or [],
+                    group_ids=list(ctx.group_ids) or [],
                     user_role=user_role,
                     limit=limit,
                     offset=offset,

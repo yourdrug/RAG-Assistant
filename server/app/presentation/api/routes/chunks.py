@@ -15,6 +15,7 @@ from presentation.api.dependencies import create_action_logger, create_chunk_ser
 from presentation.api.schemas import (
     ChunkCreateRequest,
     ChunkCursorListResponse,
+    ChunkDeleteResponse,
     ChunkEditRequest,
     ChunkListResponse,
     ChunkResponse,
@@ -215,6 +216,7 @@ async def edit_chunk(
 
 @router.delete(
     "/documents/{document_id}/chunks/{chunk_id}",
+    response_model=ChunkDeleteResponse,
     dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
 )
 async def delete_chunk(
@@ -238,7 +240,7 @@ async def delete_chunk(
         details={"document_id": document_id, "chunk_id": chunk_id},
     )
 
-    return {"status": "deleted", "chunk_id": chunk_id}
+    return ChunkDeleteResponse(status="deleted", chunk_id=chunk_id)
 
 
 @router.post(

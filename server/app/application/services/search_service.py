@@ -29,9 +29,7 @@ class SearchService:
         document_id: int | None = None,
     ) -> list[ChunkSearchResult]:
         async with self._uow_factory.create() as uow:
-            full_ctx = await self._user_ctx_factory.build(
-                uow, user.user_id, user.user_kind, user.user_role
-            )
+            full_ctx = await self._user_ctx_factory.build(uow, user.user_id, user.user_kind, user.user_role)
             return await uow.chunks.search_substring(
                 query=query,
                 user=full_ctx,

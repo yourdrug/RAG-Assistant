@@ -28,7 +28,7 @@ class GroupService:
                 all_group_ids = list(set(ctx.group_ids) | set(ctx.managed_group_ids))
                 return await uow.groups.list_by_ids(all_group_ids) if all_group_ids else []
             else:
-                return await uow.groups.list_by_ids(ctx.group_ids) if ctx.group_ids else []
+                return await uow.groups.list_by_ids(list(ctx.group_ids)) if ctx.group_ids else []
 
     async def create(self, name: str):
         async with self._uow_factory.create(master=True) as uow:

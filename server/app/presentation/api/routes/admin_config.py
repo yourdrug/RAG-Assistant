@@ -134,7 +134,7 @@ async def vectordb_info(
     admin: CurrentUser = Depends(require_admin),
     admin_service: ConfigAdminService = Depends(create_config_admin_service),
 ):
-    info = admin_service.get_vectordb_info()
+    info = await admin_service.get_vectordb_info()
     return VectorDBInfoResponse(
         collections=[
             VectorDBCollectionInfo(

@@ -71,6 +71,7 @@ class Settings(BaseSettings):
     qdrant_timeout: int = 10
     qdrant_search_max_concurrent: int = 16  # caps concurrent Qdrant searches (prevents thundering herd)
     qdrant_write_max_concurrent: int = 8  # caps concurrent Qdrant upserts (prevents write contention)
+    rag_retrieval_score_threshold: float = 0.0  # minimum cosine similarity for dense search results
 
     # ── Ollama ──────────────────────────────────────────────────────────────
     ollama_base_url: str = "http://localhost:11434"
@@ -87,6 +88,7 @@ class Settings(BaseSettings):
     llm_max_concurrent: int = 16
     llm_generation_max_concurrent: int = 12
     llm_auxiliary_max_concurrent: int = 4
+    llm_request_timeout: int = 120
     llm_auxiliary_timeout: int = 30  # seconds, caps semaphore hold time for auxiliary LLM calls
     embedding_max_concurrent: int = 16
     ingestion_max_concurrent: int = 8

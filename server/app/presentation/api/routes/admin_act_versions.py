@@ -16,6 +16,7 @@ from presentation.api.schemas import (
     ActVersionListResponse,
     ActVersionReviewItem,
     ActVersionUpdateRequest,
+    ActVersionUpdateResponse,
     CurrentUser,
 )
 
@@ -63,6 +64,7 @@ async def list_act_versions(
 
 @router.patch(
     "/admin/act-versions/{version_id}",
+    response_model=ActVersionUpdateResponse,
     dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
 )
 async def update_act_version(
@@ -79,4 +81,4 @@ async def update_act_version(
         act_id=body.act_id,
         verified_by=admin.id,
     )
-    return {"status": "updated", "version_id": version_id}
+    return ActVersionUpdateResponse(status="updated", version_id=version_id)

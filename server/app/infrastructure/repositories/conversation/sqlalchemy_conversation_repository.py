@@ -66,7 +66,7 @@ class SQLAlchemyConversationRepository:
     async def get_or_create(self, conversation_id: int | None, user_id: int) -> Conversation:
         if conversation_id:
             conv = await self.get_by_id(conversation_id)
-            if conv and conv.user_id == user_id:
+            if conv and conv.is_owned_by(user_id):
                 return conv
         return await self.create(user_id)
 

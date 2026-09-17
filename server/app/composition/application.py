@@ -6,7 +6,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from composition.utils import _require
+from composition.utils import _missing_fields, _require
 from composition.service_providers import create_ingestion_service
 from config import settings
 from infrastructure.adapters.chunk_search_adapter import ChunkSearchAdapter
@@ -237,6 +237,10 @@ class ApplicationContainer:
         # Wire rag_service into benchmark_service for full-pipeline benchmarking
         if infra.benchmark_service is not None:
             infra.benchmark_service.set_rag_service(self.rag_service)
+
+    def validate(self) -> list[str]:
+        """Return names of fields that are still ``None`` after init()."""
+        return _missing_fields(self)
 
     async def dispose(self) -> None:
         """Shutdown all application services that have explicit shutdown methods.

@@ -95,7 +95,7 @@ class ChatService:
             user_id=user_id,
             user_kind=user_kind,
             user_role=user_role,
-            user_group_ids=user_ctx.group_ids,
+            user_group_ids=list(user_ctx.group_ids),
             curator_scope=(
                 CuratorScope(
                     managed_client_ids=tuple(user_ctx.managed_client_ids),

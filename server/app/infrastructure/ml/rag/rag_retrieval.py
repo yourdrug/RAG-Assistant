@@ -84,7 +84,11 @@ async def resolve_hashes_batch(
 
 @retry_on_transient
 async def qdrant_dense_search(
-    query: str, k: int, access_filter, ml_clients: "MLClientRegistry"
+    query: str,
+    k: int,
+    access_filter,
+    ml_clients: "MLClientRegistry",
+    score_threshold: float | None = None,
 ) -> list[tuple[str, float, LCDocument]]:
     """Search Qdrant directly, returning (content_hash, score, Document) tuples.
 
@@ -99,6 +103,13 @@ async def qdrant_dense_search(
     async with ml_clients.embedding_semaphore:
         query_vector = await embeddings.embed_query(query)
 
+    raw_threshold = (
+        score_threshold
+        if score_threshold is not None
+        else getattr(settings, "rag_retrieval_score_threshold", 0.0)
+    )
+    threshold = raw_threshold if isinstance(raw_threshold, (int, float)) else 0.0
+
     async with ml_clients.qdrant_search_semaphore:
         results = await asyncio.to_thread(
             client.search,
@@ -106,6 +117,7 @@ async def qdrant_dense_search(
             query_vector=query_vector,
             limit=k,
             query_filter=access_filter,
+            score_threshold=threshold if threshold > 0 else None,
             timeout=settings.qdrant_timeout,
         )
 

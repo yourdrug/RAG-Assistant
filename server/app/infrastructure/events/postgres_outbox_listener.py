@@ -23,16 +23,16 @@ _RECONNECT_DELAY_SEC = 5.0
 class PostgresOutboxListener:
     """LISTEN/NOTIFY listener that triggers the outbox dispatcher on new entries."""
 
-    def __init__(self, dispatcher, db_config: dict) -> None:
+    def __init__(self, dispatcher, dsn: str) -> None:
         """Initialize the outbox listener.
 
         Args:
             dispatcher: OutboxDispatcher instance to trigger on notifications.
-            db_config: Dict with db_host, db_port, db_user, db_password, db_name.
+            dsn: PostgreSQL connection DSN string (e.g. postgresql://user:pass@host/db).
 
         """
         self._dispatcher = dispatcher
-        self._db_config = db_config
+        self._dsn = dsn
         self._conn: asyncpg.Connection | None = None
         self._stopped = False
         self._supervisor_task: asyncio.Task | None = None
@@ -67,13 +67,7 @@ class PostgresOutboxListener:
                 await asyncio.sleep(_RECONNECT_DELAY_SEC)
 
     async def _connect_and_listen(self) -> None:
-        self._conn = await asyncpg.connect(
-            host=self._db_config["db_host"],
-            port=int(self._db_config["db_port"]),
-            user=self._db_config["db_user"],
-            password=self._db_config["db_password"],
-            database=self._db_config["db_name"],
-        )
+        self._conn = await asyncpg.connect(dsn=self._dsn)
         await self._conn.add_listener(_CHANNEL, self._on_notify)
         log.info("Outbox LISTEN '%s' established", _CHANNEL)
 

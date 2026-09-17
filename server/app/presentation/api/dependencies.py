@@ -37,9 +37,9 @@ if TYPE_CHECKING:
     from application.services.pdf_diagnostic_service import PDFDiagnosticService
     from application.services.quality_service import QualityService
     from application.services.search_service import SearchService
+    from application.ports.api_key_provider import ApiKeyProviderPort
     from application.ports.rate_limit import RateLimiterPort
     from composition.container import Container
-    from infrastructure.auth.api_key_provider import ApiKeyProvider
     from application.services.ingestion_orchestrator import IngestionService
 
 log = logging.getLogger("default")
@@ -171,7 +171,7 @@ def create_chat_log_service(request: Request) -> ChatLogService:
     return _get_or_raise(_create_container(request).application.chat_log_service, "ChatLogService")
 
 
-def create_api_key_provider(request: Request) -> ApiKeyProvider:
+def create_api_key_provider(request: Request) -> ApiKeyProviderPort:
     return _get_or_raise(_create_container(request).infrastructure.api_key_provider, "ApiKeyProvider")
 
 
@@ -180,10 +180,18 @@ def create_rate_limiter(request: Request) -> RateLimiterPort | None:
     return _create_container(request).infrastructure.rate_limit
 
 
-def create_benchmark_history_port():
-    from infrastructure.benchmark.benchmark_history_adapter import BenchmarkHistoryAdapter
+def get_idempotency_key(request: Request) -> str | None:
+    """Extract Idempotency-Key header. None when not provided."""
+    return request.headers.get("Idempotency-Key")
 
-    return BenchmarkHistoryAdapter()
+
+def create_idempotency_store(request: Request):
+    """Create IdempotencyStore backed by Redis."""
+    return _get_or_raise(_create_container(request).infrastructure.idempotency_store, "IdempotencyStore")
+
+
+def create_benchmark_history_port(request: Request):
+    return _get_or_raise(_create_container(request).infrastructure.benchmark_history, "BenchmarkHistoryPort")
 
 
 def create_act_versioning_service(request: Request):
@@ -220,6 +228,12 @@ def create_action_logger(request: Request):
 
 def create_cache_invalidator(request: Request):
     return _create_container(request).infrastructure.cache_invalidator
+
+
+def create_preview_strategy_factory(request: Request):
+    return _get_or_raise(
+        _create_container(request).infrastructure.preview_strategy_factory, "PreviewStrategyFactory"
+    )
 
 
 def create_job_enqueuer(request: Request):

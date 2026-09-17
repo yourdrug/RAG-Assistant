@@ -198,7 +198,7 @@ async def invalidate_by_document_ids(
         legacy_scan_needed = False
 
         for doc_id in document_ids:
-            members = await r.smembers(_doc_index_key(doc_id))
+            members = await r.smembers(_doc_index_key(doc_id))  # type: ignore[misc]
             if members:
                 keys_to_delete.update(m for m in members)
             else:

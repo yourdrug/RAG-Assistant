@@ -35,7 +35,7 @@ class HealthService:
         self._settings = health_settings
 
     async def check(self) -> HealthResponse:
-        qdrant = self._probe.check_qdrant()
+        qdrant = await self._probe.check_qdrant()
         postgres = await self._probe.check_postgres()
         redis = await self._probe.check_redis()
         active_jobs = await self._count_active_jobs()

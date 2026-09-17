@@ -62,11 +62,19 @@ class ChunkCursorListResponse(BaseModel):
     document_id: int
 
 
+class ChunkDeleteResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: str
+    chunk_id: int
+
+
 __all__ = [
     "ChunkResponse",
     "ChunkCreateRequest",
     "ChunkEditRequest",
     "ChunkListResponse",
     "ChunkCursorListResponse",
+    "ChunkDeleteResponse",
     "DocumentResponse",
 ]

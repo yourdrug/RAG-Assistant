@@ -72,6 +72,13 @@ class Container:
                 raise RuntimeError(msg)
             log.warning(msg)
 
+        app_issues = self.application.validate()
+        if app_issues:
+            msg = "Application validation issues: %s" % app_issues
+            if settings.stage == AppStage.PROD:
+                raise RuntimeError(msg)
+            log.warning(msg)
+
         log.info(
             "Container initialized: %d infrastructure + %d application objects",
             len(dataclasses.fields(self.infrastructure)),

@@ -36,21 +36,19 @@ class PyrateRateLimiter:
     """Distributed rate limiter backed by per-principal Redis sorted sets."""
 
     def __init__(
-            self,
-            redis: Redis,
-            policies: dict[RateLimitPolicyName, RateLimitPolicy],
-            *,
-            key_prefix: str,
-            max_buckets: int,
-            fail_open: bool = True,
+        self,
+        redis: Redis,
+        policies: dict[RateLimitPolicyName, RateLimitPolicy],
+        *,
+        key_prefix: str,
+        max_buckets: int,
+        fail_open: bool = True,
     ) -> None:
         if not policies:
             raise ValueError("policies must not be empty")
         self._policies = policies
         self._fail_open = fail_open
-        self._factory = RedisBucketFactory(
-            redis, policies, key_prefix=key_prefix, max_buckets=max_buckets
-        )
+        self._factory = RedisBucketFactory(redis, policies, key_prefix=key_prefix, max_buckets=max_buckets)
         self._limiter = Limiter(self._factory)
         self._tightest_limit = {
             name: min(policy.rates, key=lambda spec: spec.interval_ms).limit
@@ -69,7 +67,9 @@ class PyrateRateLimiter:
             RATE_LIMIT_BACKEND_ERRORS_TOTAL.labels(policy=policy_name.value).inc()
             logger.warning(
                 "Rate limit backend error (policy=%s): [%s] %s",
-                policy_name.value, type(exc).__name__, exc,
+                policy_name.value,
+                type(exc).__name__,
+                exc,
             )
             if self._fail_open:
                 return RateLimitDecision(allowed=True, degraded=True)
@@ -107,10 +107,10 @@ class PyrateRateLimiter:
             logger.debug("Rate limit TTL refresh failed for %s: %s", item_name, exc)
 
     async def _resolve_violation(
-            self,
-            item_name: str,
-            policy: RateLimitPolicy,
-            policy_name: RateLimitPolicyName,
+        self,
+        item_name: str,
+        policy: RateLimitPolicy,
+        policy_name: RateLimitPolicyName,
     ) -> tuple[int, int]:
         """Best-effort: identify which window was actually violated.
 

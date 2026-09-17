@@ -159,7 +159,7 @@ def _filter_sources_by_min_score(
         filtered = [s for s in sources if s.get("max_score", 0.0) >= min_score]
         if filtered:
             return filtered
-        return [sources[0]]
+        return []
     return sources
 
 

@@ -74,13 +74,14 @@ class TestResolveViolation:
     @pytest.mark.asyncio
     async def test_multi_window_violation_returns_correct_rate(self):
         """When the minute window is exceeded, _resolve_violation returns the
-        minute rate (limit=10, retry=60), NOT the daily rate (100/day)."""
+        minute rate (limit=10, retry=60), NOT the daily rate (100/day).
+        """
         chat_policy = {
             RateLimitPolicyName.CHAT: RateLimitPolicy(
                 name=RateLimitPolicyName.CHAT,
                 rates=(
-                    RateSpec(10, 60_000),       # 10/мин
-                    RateSpec(100, 86_400_000),   # 100/день
+                    RateSpec(10, 60_000),  # 10/мин
+                    RateSpec(100, 86_400_000),  # 100/день
                 ),
                 retry_after_sec=60,
             )
@@ -176,9 +177,7 @@ class TestPyrateRateLimiter:
     @pytest.mark.asyncio
     async def test_sets_key_ttl_for_widest_window(self):
         redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-        limiter = PyrateRateLimiter(
-            redis, _policies(), key_prefix=_KEY_PREFIX, max_buckets=10
-        )
+        limiter = PyrateRateLimiter(redis, _policies(), key_prefix=_KEY_PREFIX, max_buckets=10)
 
         await limiter.check(RateLimitPolicyName.LOGIN, "ip:1")
 
@@ -238,15 +237,11 @@ class TestPyrateRateLimiter:
 
     def test_empty_policies_rejected(self):
         with pytest.raises(ValueError, match="policies must not be empty"):
-            PyrateRateLimiter(
-                _BrokenRedis(), {}, key_prefix=_KEY_PREFIX, max_buckets=10
-            )
+            PyrateRateLimiter(_BrokenRedis(), {}, key_prefix=_KEY_PREFIX, max_buckets=10)
 
     def test_invalid_max_buckets_rejected(self):
         with pytest.raises(ValueError, match="max_buckets"):
-            PyrateRateLimiter(
-                _BrokenRedis(), _policies(), key_prefix=_KEY_PREFIX, max_buckets=0
-            )
+            PyrateRateLimiter(_BrokenRedis(), _policies(), key_prefix=_KEY_PREFIX, max_buckets=0)
 
 
 class _ExpireFailRedis:
@@ -313,9 +308,7 @@ class TestDoubleCheckedLock:
     @pytest.mark.asyncio
     async def test_cached_bucket_returned_inside_lock(self):
         redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-        factory = RedisBucketFactory(
-            redis, _policies(), key_prefix=_KEY_PREFIX, max_buckets=10
-        )
+        factory = RedisBucketFactory(redis, _policies(), key_prefix=_KEY_PREFIX, max_buckets=10)
 
         item = RateItem("login:ip:1", 1000, 1)
 
@@ -336,9 +329,7 @@ class TestLruEviction:
     @pytest.mark.asyncio
     async def test_evicts_oldest_when_max_buckets_reached(self):
         redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-        factory = RedisBucketFactory(
-            redis, _policies(), key_prefix=_KEY_PREFIX, max_buckets=2
-        )
+        factory = RedisBucketFactory(redis, _policies(), key_prefix=_KEY_PREFIX, max_buckets=2)
 
         # Create 3 buckets → 3rd should evict the 1st
         for i in range(3):
@@ -358,9 +349,7 @@ class TestResolvePolicyError:
     @pytest.mark.asyncio
     async def test_unknown_policy_in_item_name_raises(self):
         redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-        factory = RedisBucketFactory(
-            redis, _policies(), key_prefix=_KEY_PREFIX, max_buckets=10
-        )
+        factory = RedisBucketFactory(redis, _policies(), key_prefix=_KEY_PREFIX, max_buckets=10)
 
         item = RateItem("unknown_policy:ip:1", 1000, 1)
 

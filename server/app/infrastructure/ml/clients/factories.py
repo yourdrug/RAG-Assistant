@@ -127,6 +127,7 @@ def _create_ollama_llm(
         temperature=temperature if temperature is not None else settings.llm_temperature,
         top_p=top_p if top_p is not None else settings.llm_top_p,
         num_ctx=num_ctx if num_ctx is not None else settings.llm_num_ctx_narrow,
+        client_kwargs={"timeout": settings.llm_request_timeout},
     )
 
 
@@ -166,6 +167,7 @@ def _create_ollama_llm_for_breadth(
         top_p=top_p if top_p is not None else settings.llm_top_p,
         num_predict=num_predict,
         num_ctx=num_ctx,
+        client_kwargs={"timeout": settings.llm_request_timeout},
     )
 
 

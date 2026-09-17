@@ -213,3 +213,21 @@ class BenchmarkHistoryPoint(BaseModel):
 class BenchmarkHistoryResponse(BaseModel):
     points: list[BenchmarkHistoryPoint]
     total: int
+
+
+class BenchmarkDeleteResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    deleted: bool
+
+
+class BenchmarkCancelResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    cancelled: bool
+
+
+class SourceFilesResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    files: list[str]

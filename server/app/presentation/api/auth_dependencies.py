@@ -48,9 +48,7 @@ async def _authenticate_via_jwt(token: str, auth_service: AuthService) -> Curren
     )
 
 
-async def _authenticate_via_api_key(
-    raw_key: str, auth_service: AuthService, api_key_provider
-) -> CurrentUser:
+async def _authenticate_via_api_key(raw_key: str, auth_service: AuthService, api_key_provider) -> CurrentUser:
     key_hash = api_key_provider.hash_key(raw_key)
     cached = await api_key_provider.get_cached(key_hash)
 

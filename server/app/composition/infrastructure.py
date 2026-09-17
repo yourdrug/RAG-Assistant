@@ -16,8 +16,12 @@ from typing import TYPE_CHECKING, Any
 from composition.utils import _missing_fields, _require
 
 if TYPE_CHECKING:
+    from application.ports.api_key_provider import ApiKeyProviderPort
+    from application.ports.benchmark_history import BenchmarkHistoryPort
+    from application.ports.http_metrics import HttpMetricsPort
+    from application.ports.idempotency_store import IdempotencyStorePort
+    from application.ports.preview_strategy_factory import PreviewStrategyFactoryPort
     from application.services.preview_cache import PreviewCache
-    from infrastructure.auth.api_key_provider import ApiKeyProvider
     from infrastructure.database.database import DatabaseManager
     from domain.domain_profile.registry import DomainProfileRegistry
     from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
@@ -206,13 +210,8 @@ class EventContainer:
         )
         self.outbox_listener = PostgresOutboxListener(
             dispatcher=self.outbox_dispatcher,
-            db_config={
-                "db_host": app_settings.db_host,
-                "db_port": app_settings.db_port,
-                "db_user": app_settings.db_user,
-                "db_password": app_settings.db_password,
-                "db_name": app_settings.db_name,
-            },
+            dsn=f"postgresql://{app_settings.db_user}:{app_settings.db_password}"
+            f"@{app_settings.db_host}:{app_settings.db_port}/{app_settings.db_name}",
         )
 
     async def dispose(self) -> None:
@@ -223,6 +222,30 @@ class EventContainer:
             await self.outbox_listener.stop()
 
 
+class _PreviewStrategyFactoryAdapter:
+    """Instance adapter for PreviewStrategyFactory (static methods)."""
+
+    def for_extension(self, extension: str, **kwargs):
+        from infrastructure.ml.preview.factory import PreviewStrategyFactory
+
+        return PreviewStrategyFactory.for_extension(extension, **kwargs)
+
+    def supported_extensions(self) -> set[str]:
+        from infrastructure.ml.preview.factory import PreviewStrategyFactory
+
+        return PreviewStrategyFactory.supported_extensions()
+
+
+class _HttpMetricsAdapter:
+    """Adapter wrapping a prometheus_client Counter behind HttpMetricsPort."""
+
+    def __init__(self, counter) -> None:
+        self._counter = counter
+
+    def inc_requests(self, *, handler: str, method: str, status: str) -> None:
+        self._counter.labels(handler=handler, method=method, status=status).inc()
+
+
 @dataclass
 class ServiceContainer:
     """Auxiliary infrastructure services: health, admin, auth, presentation adapters."""
@@ -230,12 +253,16 @@ class ServiceContainer:
     health_probe: SystemHealthProbe | None = field(default=None)
     ollama_probe: OllamaProbe | None = field(default=None)
     qdrant_info: QdrantInfo | None = field(default=None)
-    api_key_provider: ApiKeyProvider | None = field(default=None)
+    api_key_provider: ApiKeyProviderPort | None = field(default=None)
     action_logger: Any = field(default=None)
     cache_invalidator: Any = field(default=None)
     job_enqueuer: Any = field(default=None)
     config_masker: Any = field(default=None)
     log_buffer: Any = field(default=None)
+    preview_strategy_factory: PreviewStrategyFactoryPort | None = field(default=None)
+    benchmark_history: BenchmarkHistoryPort | None = field(default=None)
+    idempotency_store: IdempotencyStorePort | None = field(default=None)
+    http_metrics: HttpMetricsPort | None = field(default=None)
 
     def init(self) -> None:
         from infrastructure.auth.api_key_provider import api_key_provider
@@ -245,6 +272,9 @@ class ServiceContainer:
         from infrastructure.adapters.job_enqueuer_adapter import JobEnqueuerAdapter
         from infrastructure.adapters.config_masker_adapter import ConfigMaskerAdapter
         from infrastructure.adapters.log_buffer_adapter import LogBufferAdapter
+        from infrastructure.benchmark.benchmark_history_adapter import BenchmarkHistoryAdapter
+        from infrastructure.rate_limit.idempotency import IdempotencyStore
+        from infrastructure.redis.redis_client import redis_client
 
         self.health_probe = SystemHealthProbe()
         self.ollama_probe = OllamaProbe(health_probe=self.health_probe)
@@ -255,6 +285,13 @@ class ServiceContainer:
         self.job_enqueuer = JobEnqueuerAdapter()
         self.config_masker = ConfigMaskerAdapter()
         self.log_buffer = LogBufferAdapter()
+        self.preview_strategy_factory = _PreviewStrategyFactoryAdapter()
+        self.benchmark_history = BenchmarkHistoryAdapter()
+        self.idempotency_store = IdempotencyStore(redis=redis_client.async_redis)
+
+        from infrastructure.metrics.metrics import HTTP_REQUESTS_TOTAL
+
+        self.http_metrics = _HttpMetricsAdapter(HTTP_REQUESTS_TOTAL)
 
     @property
     def health(self) -> SystemHealthProbe:
@@ -269,7 +306,7 @@ class ServiceContainer:
         return _require(self.qdrant_info, "qdrant_info")
 
     @property
-    def api_keys(self) -> ApiKeyProvider:
+    def api_keys(self) -> ApiKeyProviderPort:
         return _require(self.api_key_provider, "api_key_provider")
 
 
@@ -462,7 +499,7 @@ class InfrastructureContainer:
         return _require(self.ml.summary_updater, "summary_updater")
 
     @property
-    def api_key_provider(self) -> ApiKeyProvider:
+    def api_key_provider(self) -> ApiKeyProviderPort:
         return _require(self.services.api_key_provider, "api_key_provider")
 
     @property
@@ -508,3 +545,19 @@ class InfrastructureContainer:
     @property
     def log_buffer(self):
         return _require(self.services.log_buffer, "log_buffer")
+
+    @property
+    def preview_strategy_factory(self) -> PreviewStrategyFactoryPort:
+        return _require(self.services.preview_strategy_factory, "preview_strategy_factory")
+
+    @property
+    def benchmark_history(self) -> BenchmarkHistoryPort:
+        return _require(self.services.benchmark_history, "benchmark_history")
+
+    @property
+    def idempotency_store(self) -> IdempotencyStorePort:
+        return _require(self.services.idempotency_store, "idempotency_store")
+
+    @property
+    def http_metrics(self) -> HttpMetricsPort:
+        return _require(self.services.http_metrics, "http_metrics")

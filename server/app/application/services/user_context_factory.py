@@ -22,16 +22,18 @@ class UserContextFactory:
         user_kind: str,
         user_role: str = "user",
     ) -> UserContext:
-        group_ids = await uow.groups.get_user_group_ids(user_id) if user_kind == UserKind.INTERNAL else []
-        managed_client_ids: list[int] = []
-        managed_internal_ids: list[int] = []
-        managed_group_ids: list[int] = []
+        group_ids = (
+            tuple(await uow.groups.get_user_group_ids(user_id)) if user_kind == UserKind.INTERNAL else ()
+        )
+        managed_client_ids: tuple[int, ...] = ()
+        managed_internal_ids: tuple[int, ...] = ()
+        managed_group_ids: tuple[int, ...] = ()
 
         if user_role == UserRole.CURATOR:
             scope = uow.assignments
-            managed_client_ids = await scope.get_managed_client_ids(user_id)
-            managed_internal_ids = await scope.get_managed_internal_ids(user_id)
-            managed_group_ids = await scope.get_managed_group_ids(user_id)
+            managed_client_ids = tuple(await scope.get_managed_client_ids(user_id))
+            managed_internal_ids = tuple(await scope.get_managed_internal_ids(user_id))
+            managed_group_ids = tuple(await scope.get_managed_group_ids(user_id))
 
         return UserContext(
             user_id=user_id,

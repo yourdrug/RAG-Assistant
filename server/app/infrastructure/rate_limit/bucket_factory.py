@@ -30,12 +30,12 @@ class RedisBucketFactory(BucketFactory):
     """Creates and caches one RedisBucket per ``{policy}:{principal}`` item name."""
 
     def __init__(
-            self,
-            redis: Redis,
-            policies: dict[RateLimitPolicyName, RateLimitPolicy],
-            *,
-            key_prefix: str,
-            max_buckets: int,
+        self,
+        redis: Redis,
+        policies: dict[RateLimitPolicyName, RateLimitPolicy],
+        *,
+        key_prefix: str,
+        max_buckets: int,
     ) -> None:
         if max_buckets < 1:
             raise ValueError(f"max_buckets must be >= 1, got {max_buckets}")

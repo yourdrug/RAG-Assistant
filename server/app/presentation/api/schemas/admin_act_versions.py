@@ -32,6 +32,13 @@ class ActVersionListResponse(BaseModel):
     acts: list[ActSummary] = []
 
 
+class ActVersionUpdateResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: str
+    version_id: int
+
+
 class ActVersionUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

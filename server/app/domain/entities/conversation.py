@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from domain.entities.message import Message
+from domain.value_objects.roles import UserRole
 
 
 @dataclass
@@ -19,3 +20,11 @@ class Conversation:
     creation_date: datetime = field(default_factory=lambda: datetime.now(UTC))
     messages: list[Message] = field(default_factory=list)
     summary: str | None = None
+
+    def is_owned_by(self, user_id: int) -> bool:
+        return self.user_id == user_id
+
+    def can_be_viewed_by(self, user_id: int, user_role: str) -> bool:
+        if user_role == UserRole.ADMIN:
+            return True
+        return self.user_id == user_id

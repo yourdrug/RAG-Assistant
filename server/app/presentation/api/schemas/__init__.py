@@ -18,6 +18,7 @@ from presentation.api.schemas.admin_act_versions import (
     ActVersionListResponse,
     ActVersionReviewItem,
     ActVersionUpdateRequest,
+    ActVersionUpdateResponse,
 )
 from presentation.api.schemas.admin_jobs import JobResponse, JobsListResponse, JobsStatsResponse
 from presentation.api.schemas.admin_logs import (
@@ -38,7 +39,12 @@ from presentation.api.schemas.admin_quality import (
     PageImageResponse,
     PreviewFile,
 )
-from presentation.api.schemas.api_keys import ApiKeyCreateRequest, ApiKeyCreateResponse, ApiKeyResponse
+from presentation.api.schemas.api_keys import (
+    ApiKeyCreateRequest,
+    ApiKeyCreateResponse,
+    ApiKeyRevokeResponse,
+    ApiKeyResponse,
+)
 from presentation.api.schemas.auth import (
     ChangeRoleRequest,
     CreateUserRequest,
@@ -49,8 +55,11 @@ from presentation.api.schemas.auth import (
     TokenResponse,
     UserListResponse,
     UserResponse,
+    UserToggleResponse,
 )
 from presentation.api.schemas.benchmark import (
+    BenchmarkCancelResponse,
+    BenchmarkDeleteResponse,
     BenchmarkHistoryPoint,
     BenchmarkHistoryResponse,
     BenchmarkQuestionCreate,
@@ -71,6 +80,7 @@ from presentation.api.schemas.benchmark import (
     RunApplyFailed,
     RunApplyResponse,
     RunCompareResponse,
+    SourceFilesResponse,
     SweepCreateRequest,
     SweepResponse,
     SweepsListResponse,
@@ -87,6 +97,7 @@ from presentation.api.schemas.chat import (
 from presentation.api.schemas.chunks import (
     ChunkCreateRequest,
     ChunkCursorListResponse,
+    ChunkDeleteResponse,
     ChunkEditRequest,
     ChunkListResponse,
     ChunkResponse,
@@ -99,8 +110,10 @@ from presentation.api.schemas.documents import (
     UploadResponse,
     UploadStatusResponse,
 )
+from presentation.api.schemas.curators import CuratorAssignmentResponse
 from presentation.api.schemas.groups import (
     CreateGroupRequest,
+    GroupAssignResponse,
     GroupMemberRequest,
     GroupMemberResponse,
     GroupResponse,
@@ -116,6 +129,7 @@ __all__ = [
     "ActVersionListResponse",
     "ActVersionReviewItem",
     "ActVersionUpdateRequest",
+    "ActVersionUpdateResponse",
     # admin_config
     "ConfigParamResponse",
     "ConfigParamUpdateRequest",
@@ -148,6 +162,7 @@ __all__ = [
     # api_keys
     "ApiKeyCreateRequest",
     "ApiKeyCreateResponse",
+    "ApiKeyRevokeResponse",
     "ApiKeyResponse",
     # auth
     "ChangeRoleRequest",
@@ -159,7 +174,10 @@ __all__ = [
     "TokenResponse",
     "UserListResponse",
     "UserResponse",
+    "UserToggleResponse",
     # benchmark
+    "BenchmarkCancelResponse",
+    "BenchmarkDeleteResponse",
     "BenchmarkHistoryPoint",
     "BenchmarkHistoryResponse",
     "BenchmarkQuestionCreate",
@@ -180,6 +198,7 @@ __all__ = [
     "RunApplyFailed",
     "RunApplyResponse",
     "RunCompareResponse",
+    "SourceFilesResponse",
     "SweepCreateRequest",
     "SweepResponse",
     "SweepsListResponse",
@@ -194,9 +213,12 @@ __all__ = [
     # chunks
     "ChunkCreateRequest",
     "ChunkCursorListResponse",
+    "ChunkDeleteResponse",
     "ChunkEditRequest",
     "ChunkListResponse",
     "ChunkResponse",
+    # curators
+    "CuratorAssignmentResponse",
     # documents
     "DeleteDocumentResponse",
     "DocumentRenameRequest",
@@ -206,6 +228,7 @@ __all__ = [
     "UploadStatusResponse",
     # groups
     "CreateGroupRequest",
+    "GroupAssignResponse",
     "GroupMemberRequest",
     "GroupMemberResponse",
     "GroupResponse",

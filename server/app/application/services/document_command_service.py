@@ -222,12 +222,14 @@ class DocumentCommandService:
                 log.warning("Failed to delete replaced document object %s from storage — orphaned", old_key)
         return dto
 
-    async def delete_document(self, document_id: int, user_id: int, user_role: str) -> None:
+    async def delete_document(
+        self, document_id: int, user_id: int, user_role: str, user_kind: str = UserKind.INTERNAL
+    ) -> None:
         async with self._uow_factory.create(master=True) as uow:
             doc = await uow.documents.get_by_id(document_id)
             if doc is None:
                 raise EntityNotFound("Document", document_id)
-            ctx = await self._user_ctx_factory.build(uow, user_id, UserKind.INTERNAL, user_role)
+            ctx = await self._user_ctx_factory.build(uow, user_id, user_kind, user_role)
             check_ownership(doc, ctx, "delete")
             await uow.vector_outbox.enqueue(
                 VectorOutboxEntry(
@@ -250,7 +252,12 @@ class DocumentCommandService:
                 )
 
     async def rename_document(
-        self, document_id: int, new_filename: str, user_id: int, user_role: str
+        self,
+        document_id: int,
+        new_filename: str,
+        user_id: int,
+        user_role: str,
+        user_kind: str = UserKind.INTERNAL,
     ) -> DocumentDTO:
         ext = Path(new_filename).suffix.lower()
         if ext not in self._file_storage.supported_extensions:
@@ -259,7 +266,7 @@ class DocumentCommandService:
         try:
             async with self._uow_factory.create(master=True) as uow:
                 dto, old_source_path = await self._rename_in_transaction(
-                    uow, document_id, new_filename, user_id, user_role, copied_paths
+                    uow, document_id, new_filename, user_id, user_role, user_kind, copied_paths
                 )
         except BaseException:
             if copied_paths:
@@ -281,11 +288,13 @@ class DocumentCommandService:
                 )
         return dto
 
-    async def _rename_in_transaction(self, uow, document_id, new_filename, user_id, user_role, copied_paths):
+    async def _rename_in_transaction(
+        self, uow, document_id, new_filename, user_id, user_role, user_kind, copied_paths
+    ):
         doc = await uow.documents.get_by_id(document_id)
         if doc is None:
             raise EntityNotFound("Document", document_id)
-        ctx = await self._user_ctx_factory.build(uow, user_id, UserKind.INTERNAL, user_role)
+        ctx = await self._user_ctx_factory.build(uow, user_id, user_kind, user_role)
         check_ownership(doc, ctx, "rename")
         owner_id, effective_group_id = doc.owner_id, doc.group_id
         existing = await uow.documents.find_active_slot(

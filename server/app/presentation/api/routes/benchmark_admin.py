@@ -17,7 +17,7 @@ from application.services.benchmark_result_service import BenchmarkResultService
 from application.services.config_service import ConfigService
 from application.services.document_service import DocumentService
 from application.services.job_service import JobService
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from presentation.api.auth_dependencies import require_admin
@@ -48,6 +48,8 @@ from presentation.api.helpers import (
     sweep_to_response,
 )
 from presentation.api.schemas import (
+    BenchmarkCancelResponse,
+    BenchmarkDeleteResponse,
     BenchmarkHistoryPoint,
     BenchmarkHistoryResponse,
     BenchmarkQuestionCreate,
@@ -64,6 +66,7 @@ from presentation.api.schemas import (
     RunApplyFailed,
     RunApplyResponse,
     RunCompareResponse,
+    SourceFilesResponse,
     SweepCreateRequest,
     SweepResponse,
     SweepsListResponse,
@@ -131,6 +134,7 @@ async def update_question(
 
 @router.delete(
     "/admin/benchmark/questions/{question_id}",
+    response_model=BenchmarkDeleteResponse,
     dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
 )
 async def delete_question(
@@ -139,7 +143,7 @@ async def delete_question(
     service: BenchmarkQuestionService = Depends(create_benchmark_question_service),
 ):
     await service.delete(question_id)
-    return {"deleted": True}
+    return BenchmarkDeleteResponse(deleted=True)
 
 
 @router.post(
@@ -178,7 +182,7 @@ async def export_questions(
     return data
 
 
-@router.get("/admin/benchmark/source-files")
+@router.get("/admin/benchmark/source-files", response_model=SourceFilesResponse)
 async def list_source_files(
     search: str | None = None,
     admin: CurrentUser = Depends(require_admin),
@@ -186,7 +190,7 @@ async def list_source_files(
 ):
     """Return distinct indexed document filenames for source_hint picker."""
     filenames = await document_service.list_source_files(search=search)
-    return {"files": filenames}
+    return SourceFilesResponse(files=filenames)
 
 
 # ---------------------------------------------------------------------------
@@ -296,6 +300,7 @@ async def sweep_progress_stream(
 
 @router.post(
     "/admin/benchmark/sweep/{sweep_id}/cancel",
+    response_model=BenchmarkCancelResponse,
     dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
 )
 async def cancel_sweep(
@@ -304,7 +309,7 @@ async def cancel_sweep(
     service: BenchmarkSweepService = Depends(create_benchmark_sweep_service),
 ):
     await service.cancel(sweep_id)
-    return {"cancelled": True}
+    return BenchmarkCancelResponse(cancelled=True)
 
 
 # ---------------------------------------------------------------------------
@@ -374,7 +379,14 @@ async def compare_runs(
     service: BenchmarkRunService = Depends(create_benchmark_run_service),
 ):
     """Compare multiple benchmark runs side by side."""
-    id_list = [int(x.strip()) for x in ids.split(",") if x.strip()]
+    try:
+        id_list = [int(x.strip()) for x in ids.split(",") if x.strip()]
+    except ValueError as err:
+        raise HTTPException(
+            status_code=422, detail="Invalid run IDs: must be comma-separated integers"
+        ) from err
+    if not id_list:
+        raise HTTPException(status_code=422, detail="At least one run ID required")
 
     runs, diff = await service.compare(id_list)
 

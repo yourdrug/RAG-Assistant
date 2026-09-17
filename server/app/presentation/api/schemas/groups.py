@@ -26,6 +26,13 @@ class CreateGroupRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
 
 
+class GroupAssignResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    group_id: int
+    user_id: int
+
+
 class GroupMemberRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

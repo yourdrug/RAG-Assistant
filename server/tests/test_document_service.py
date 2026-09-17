@@ -420,7 +420,7 @@ async def test_delete_document_happy_path():
     assert outbox_entries[0].payload == {"document_id": 1}
 
     # 2. BM25 index: remove called for the chunk's content_hash
-    svc._bm25_index.remove.assert_called_once_with("hash_abc")
+    svc._cmd._bm25_index.remove.assert_called_once_with("hash_abc")
 
     # 3. Summaries cleared (all in the fake)
     for conv in uow.conversations._convs.values():

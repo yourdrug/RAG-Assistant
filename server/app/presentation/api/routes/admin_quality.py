@@ -7,13 +7,13 @@ import base64
 import logging
 from pathlib import Path
 
+from domain.exceptions import ServerException
 from domain.value_objects.file_backend import FileBackend
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from application.ports.rate_limit import RateLimitPolicyName
 from application.services.pdf_diagnostic_service import PDFDiagnosticService
 from application.services.quality_service import QualityService
-from infrastructure.ml.preview.factory import PreviewStrategyFactory
 
 from presentation.api.auth_dependencies import require_admin
 from presentation.api.rate_limit import rate_limit
@@ -27,6 +27,7 @@ from presentation.api.dependencies import (
     create_job_service,
     create_pdf_diagnostic_service,
     create_preview_cache,
+    create_preview_strategy_factory,
     create_quality_service,
     create_storage_config,
 )
@@ -98,7 +99,7 @@ async def diagnose_document(
 
     result = await diag_service.diagnose_document(document_id, source_path)
     if result is None:
-        raise HTTPException(status_code=500, detail="Failed to diagnose document")
+        raise ServerException(message="Failed to diagnose document")
 
     return DocumentDiagnoseResponse(
         document_id=result.document_id,
@@ -127,6 +128,7 @@ async def dry_run_preview(
     admin: CurrentUser = Depends(require_admin),
     diag_service: PDFDiagnosticService = Depends(create_pdf_diagnostic_service),
     preview_cache=Depends(create_preview_cache),
+    preview_factory=Depends(create_preview_strategy_factory),
     domain_registry=Depends(create_domain_registry),
     domain_settings=Depends(create_domain_settings),
     storage_cfg=Depends(create_storage_config),
@@ -148,7 +150,7 @@ async def dry_run_preview(
     ext = Path(filename).suffix.lower()
 
     try:
-        strategy = PreviewStrategyFactory.for_extension(
+        strategy = preview_factory.for_extension(
             ext,
             diag_service=diag_service,
             domain_registry=domain_registry,
@@ -196,6 +198,7 @@ async def dry_run_ocr_phase2(
     admin: CurrentUser = Depends(require_admin),
     diag_service: PDFDiagnosticService = Depends(create_pdf_diagnostic_service),
     preview_cache=Depends(create_preview_cache),
+    preview_factory=Depends(create_preview_strategy_factory),
     domain_registry=Depends(create_domain_registry),
     domain_settings=Depends(create_domain_settings),
     storage_cfg=Depends(create_storage_config),
@@ -216,7 +219,7 @@ async def dry_run_ocr_phase2(
     async def _run_ocr(tmp_path: Path, effective_preview_id: str, fname: str) -> DryRunResponse:
         ext = Path(fname).suffix.lower()
         try:
-            strategy = PreviewStrategyFactory.for_extension(
+            strategy = preview_factory.for_extension(
                 ext,
                 diag_service=diag_service,
                 domain_registry=domain_registry,
@@ -400,4 +403,6 @@ async def index_from_preview(
         log_fn=log,
     )
 
-    return {"document_id": result["document_id"], "filename": filename, "status": result["status"]}
+    return IndexFromPreviewResponse(
+        document_id=result["document_id"], filename=filename, status=result["status"]
+    )

@@ -12,6 +12,7 @@ from presentation.api.dependencies import create_action_logger, create_group_ser
 from presentation.api.schemas import (
     CreateGroupRequest,
     CurrentUser,
+    GroupAssignResponse,
     GroupMemberRequest,
     GroupMemberResponse,
     GroupResponse,
@@ -57,6 +58,7 @@ async def get_group_members(
 
 @router.post(
     "/{group_id}/members",
+    response_model=GroupAssignResponse,
     dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
 )
 async def add_group_member(
@@ -68,11 +70,12 @@ async def add_group_member(
 ):
     await service.add_member(group_id, req.user_id)
     log("group.add_member", user_id=admin.id, details={"group_id": group_id, "user_id": req.user_id})
-    return {"group_id": group_id, "user_id": req.user_id}
+    return GroupAssignResponse(group_id=group_id, user_id=req.user_id)
 
 
 @router.delete(
     "/{group_id}/members/{user_id}",
+    response_model=GroupAssignResponse,
     dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
 )
 async def remove_group_member(
@@ -84,4 +87,4 @@ async def remove_group_member(
 ):
     await service.remove_member(group_id, user_id)
     log("group.remove_member", user_id=admin.id, details={"group_id": group_id, "user_id": user_id})
-    return {"group_id": group_id, "user_id": user_id}
+    return GroupAssignResponse(group_id=group_id, user_id=user_id)

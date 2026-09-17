@@ -6,25 +6,14 @@ Security-critical validators: path traversal prevention, file content validation
 from __future__ import annotations
 
 import sys
-from datetime import date
 from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 import pytest
 from pydantic import ValidationError
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
 
-from domain.exceptions import ClientException
-from domain.value_objects.visibility import DocumentVisibility
-from presentation.api.auth_dependencies import get_current_user
-from presentation.api.exception_handlers import handle_client_exception
-from presentation.api.routes import admin_act_versions, documents
 from presentation.api.schemas.admin_act_versions import ActVersionUpdateRequest
-from presentation.api.schemas.auth import CurrentUser
 from presentation.api.schemas.validators import FileContent, _reject_unsafe_path
 
 
@@ -153,21 +142,15 @@ class TestFileContentStructural:
             FileContent(data=b"%PDF-1.4 noeof", filename="doc.pdf", check_structural=True)
 
     def test_pdf_valid_with_structural(self):
-        fc = FileContent(
-            data=b"%PDF-1.4 content %%EOF", filename="doc.pdf", check_structural=True
-        )
+        fc = FileContent(data=b"%PDF-1.4 content %%EOF", filename="doc.pdf", check_structural=True)
         assert fc.filename == "doc.pdf"
 
     def test_docx_not_zip(self):
         with pytest.raises(ValidationError, match="not a valid ZIP-archive"):
-            FileContent(
-                data=b"PK\x03\x04not-zip", filename="doc.docx", check_structural=True
-            )
+            FileContent(data=b"PK\x03\x04not-zip", filename="doc.docx", check_structural=True)
 
     def test_structural_disabled_passes(self):
-        fc = FileContent(
-            data=b"%PDF-1.4 noeof", filename="doc.pdf", check_structural=False
-        )
+        fc = FileContent(data=b"%PDF-1.4 noeof", filename="doc.pdf", check_structural=False)
         assert fc.filename == "doc.pdf"
 
 

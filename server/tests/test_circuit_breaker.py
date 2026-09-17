@@ -191,14 +191,14 @@ class TestLLMCircuitBreakerSplitAPI:
         with pytest.raises(CircuitBreakerError):
             cb.check_open()
 
-    def test_check_open_open_timeout_transitions_to_half_open(self):
+    def test_check_open_open_timeout_allows_probe(self):
         cb = LLMCircuitBreaker(fail_max=2, timeout_duration=1, operation_name="split_test")
         cb._state = _CBState.OPEN
         cb._opened_at = 0.0
         cb._failure_count = 2
 
         cb.check_open()
-        assert cb.state == "half_open"
+        assert cb._state == _CBState.OPEN
 
     @pytest.mark.asyncio
     async def test_report_success_closes_half_open(self):

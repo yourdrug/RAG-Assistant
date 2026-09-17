@@ -19,6 +19,12 @@ class ApiKeyCreateResponse(BaseModel):
     name: str | None
 
 
+class ApiKeyRevokeResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: str
+
+
 class ApiKeyResponse(BaseModel):
     id: int
     key_prefix: str

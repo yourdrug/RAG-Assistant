@@ -12,10 +12,16 @@ class UserContext:
     user_id: int
     user_kind: str
     user_role: str
-    group_ids: list[int] = field(default_factory=list)
-    managed_client_ids: list[int] = field(default_factory=list)
-    managed_internal_ids: list[int] = field(default_factory=list)
-    managed_group_ids: list[int] = field(default_factory=list)
+    group_ids: tuple[int, ...] = field(default_factory=tuple)
+    managed_client_ids: tuple[int, ...] = field(default_factory=tuple)
+    managed_internal_ids: tuple[int, ...] = field(default_factory=tuple)
+    managed_group_ids: tuple[int, ...] = field(default_factory=tuple)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "group_ids", tuple(self.group_ids))
+        object.__setattr__(self, "managed_client_ids", tuple(self.managed_client_ids))
+        object.__setattr__(self, "managed_internal_ids", tuple(self.managed_internal_ids))
+        object.__setattr__(self, "managed_group_ids", tuple(self.managed_group_ids))
 
     @property
     def is_client(self) -> bool:

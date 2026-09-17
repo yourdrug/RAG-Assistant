@@ -34,8 +34,8 @@ _CRON_TIMEOUT = 60 * 10  # maintenance cron jobs: 10 min
 
 
 def worker(
-        max_jobs: int | None = None,
-        health_check_interval: int = 10,
+    max_jobs: int | None = None,
+    health_check_interval: int = 10,
 ) -> None:
     """Запустить Arq worker для обработки фоновых задач.
 
@@ -82,8 +82,7 @@ def worker(
         )
 
         logger.info(
-            "Arq worker starting — queue: %s "
-            "cron: cleanup/recover/reconcile/bm25 max_jobs=%d redis=%s",
+            "Arq worker starting — queue: %s " "cron: cleanup/recover/reconcile/bm25 max_jobs=%d redis=%s",
             QUEUE_NAME,
             max_jobs,
             settings.redis_host,

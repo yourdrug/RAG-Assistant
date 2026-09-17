@@ -10,7 +10,6 @@ from application.ports.chat_settings import ChatSettingsPort
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
 from domain.exceptions import EntityNotFound, PermissionDeniedError
 from domain.value_objects.message_role import MessageRole
-from domain.value_objects.roles import UserRole
 
 if TYPE_CHECKING:
     from application.ports.chat_support import RollingSummaryUpdaterPort
@@ -58,10 +57,10 @@ class ConversationService:
 
     async def get_history(self, conversation_id: int, user_id: int, user_role: str):
         async with self._uow_factory.create() as uow:
-            owner_id = await uow.conversations.get_owner_id(conversation_id)
-            if owner_id is None:
+            conv = await uow.conversations.get_by_id(conversation_id)
+            if conv is None:
                 raise EntityNotFound("Conversation", conversation_id)
-            if owner_id != user_id and user_role != UserRole.ADMIN:
+            if not conv.can_be_viewed_by(user_id, user_role):
                 raise PermissionDeniedError()
             messages = await uow.messages.get_history(conversation_id, window=100)
             return messages

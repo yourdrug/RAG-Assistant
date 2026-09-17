@@ -42,34 +42,6 @@ class DocumentService:
             user_ctx_factory=user_ctx_factory,
         )
 
-    @property
-    def _uow_factory(self):
-        return self._cmd._uow_factory
-
-    @property
-    def _vector_store(self):
-        return self._cmd._vector_store
-
-    @property
-    def _file_storage(self):
-        return self._cmd._file_storage
-
-    @property
-    def _bm25_index(self):
-        return self._cmd._bm25_index
-
-    @property
-    def _domain_registry(self):
-        return self._cmd._domain_registry
-
-    @property
-    def _act_versioning_service(self):
-        return self._cmd._act_versioning_service
-
-    @property
-    def _user_ctx_factory(self):
-        return self._cmd._user_ctx_factory
-
     def _get_domain_profile(self, doc_domain: str):
         return self._cmd._get_domain_profile(doc_domain)
 
@@ -124,12 +96,23 @@ class DocumentService:
             replaces_document_id=replaces_document_id,
         )
 
-    async def delete_document(self, document_id: int, user_id: int, user_role: str) -> None:
+    async def delete_document(
+        self, document_id: int, user_id: int, user_role: str, user_kind: str | None = None
+    ) -> None:
+        if user_kind is not None:
+            return await self._cmd.delete_document(document_id, user_id, user_role, user_kind)
         return await self._cmd.delete_document(document_id, user_id, user_role)
 
     async def rename_document(
-        self, document_id: int, new_filename: str, user_id: int, user_role: str
+        self,
+        document_id: int,
+        new_filename: str,
+        user_id: int,
+        user_role: str,
+        user_kind: str | None = None,
     ) -> DocumentDTO:
+        if user_kind is not None:
+            return await self._cmd.rename_document(document_id, new_filename, user_id, user_role, user_kind)
         return await self._cmd.rename_document(document_id, new_filename, user_id, user_role)
 
     async def list_documents(self, **kwargs) -> list[DocumentDTO]:

@@ -10,7 +10,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from presentation.api.auth_dependencies import get_current_user, require_admin
 from presentation.api.rate_limit import rate_limit
 from presentation.api.dependencies import create_action_logger, create_auth_service
-from presentation.api.schemas import ApiKeyCreateRequest, ApiKeyCreateResponse, ApiKeyResponse, CurrentUser
+from presentation.api.schemas import (
+    ApiKeyCreateRequest,
+    ApiKeyCreateResponse,
+    ApiKeyRevokeResponse,
+    ApiKeyResponse,
+    CurrentUser,
+)
 
 router = APIRouter(prefix="/clients", tags=["api-keys"])
 
@@ -65,6 +71,7 @@ async def list_api_keys(
 
 @router.delete(
     "/{client_user_id}/api-keys/{api_key_id}",
+    response_model=ApiKeyRevokeResponse,
     dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
 )
 async def revoke_api_key(
@@ -77,4 +84,4 @@ async def revoke_api_key(
     _check_client_access(current_user, client_user_id)
     await auth_service.revoke_api_key(api_key_id, client_user_id=client_user_id)
     log("api_key.revoke", user_id=current_user.id, details={"api_key_id": api_key_id})
-    return {"status": "revoked"}
+    return ApiKeyRevokeResponse(status="revoked")

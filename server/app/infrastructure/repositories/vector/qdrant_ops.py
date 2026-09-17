@@ -137,9 +137,7 @@ def _ensure_payload_indexes(client) -> None:
                 log.warning("Failed to create payload index %s: %s", field_name, e)
 
 
-async def _upsert_with_semaphore(
-    client, points: list, write_semaphore=None
-) -> None:
+async def _upsert_with_semaphore(client, points: list, write_semaphore=None) -> None:
     """Upsert points to Qdrant, optionally gated by a write semaphore."""
     if write_semaphore is not None:
         async with write_semaphore:

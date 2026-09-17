@@ -93,9 +93,11 @@ class ConfigAdminService:
             ml_provider=self._settings.ml_provider,
         )
 
-    def get_vectordb_info(self) -> VectorDBInfo:
-        qdrant_status = self._vectordb.get_status()
-        collections_raw = self._vectordb.get_collections() if qdrant_status == HealthStatus.OK.value else []
+    async def get_vectordb_info(self) -> VectorDBInfo:
+        qdrant_status = await self._vectordb.get_status()
+        collections_raw = (
+            await self._vectordb.get_collections() if qdrant_status == HealthStatus.OK.value else []
+        )
 
         collections = [
             VectorDBCollectionInfo(

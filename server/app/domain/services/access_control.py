@@ -225,12 +225,12 @@ def can_view_document(doc: Document, ctx: UserContext) -> bool:
     conditions = get_visibility_conditions(
         UserKind(ctx.user_kind),
         ctx.user_id,
-        ctx.group_ids,
+        list(ctx.group_ids),
         for_list=True,
         user_role=UserRole(ctx.user_role),
-        managed_client_ids=ctx.managed_client_ids,
-        managed_internal_ids=ctx.managed_internal_ids,
-        managed_group_ids=ctx.managed_group_ids,
+        managed_client_ids=list(ctx.managed_client_ids),
+        managed_internal_ids=list(ctx.managed_internal_ids),
+        managed_group_ids=list(ctx.managed_group_ids),
     )
     return _matches_any_condition(doc, ctx, conditions)
 
@@ -247,12 +247,12 @@ def is_in_search_scope(doc: Document, ctx: UserContext) -> bool:
     conditions = get_visibility_conditions(
         UserKind(ctx.user_kind),
         ctx.user_id,
-        ctx.group_ids,
+        list(ctx.group_ids),
         for_list=False,
         user_role=UserRole(ctx.user_role),
-        managed_client_ids=ctx.managed_client_ids,
-        managed_internal_ids=ctx.managed_internal_ids,
-        managed_group_ids=ctx.managed_group_ids,
+        managed_client_ids=list(ctx.managed_client_ids),
+        managed_internal_ids=list(ctx.managed_internal_ids),
+        managed_group_ids=list(ctx.managed_group_ids),
     )
     return _matches_any_condition(doc, ctx, conditions)
 
@@ -286,9 +286,9 @@ def check_ownership(doc: Document, ctx: UserContext, action: str = "modify") -> 
     if not doc.can_be_deleted_by(
         ctx.user_id,
         UserRole(ctx.user_role),
-        ctx.group_ids,
-        managed_client_ids=ctx.managed_client_ids,
-        managed_internal_ids=ctx.managed_internal_ids,
-        managed_group_ids=ctx.managed_group_ids,
+        list(ctx.group_ids),
+        managed_client_ids=list(ctx.managed_client_ids),
+        managed_internal_ids=list(ctx.managed_internal_ids),
+        managed_group_ids=list(ctx.managed_group_ids),
     ):
         raise BusinessRuleViolation(f"Can only {action} your own documents")

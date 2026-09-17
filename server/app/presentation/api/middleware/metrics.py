@@ -7,7 +7,6 @@ registry without bound (label-value cardinality bomb).
 
 from __future__ import annotations
 
-from infrastructure.metrics.metrics import HTTP_REQUESTS_TOTAL
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import Response
@@ -19,10 +18,11 @@ class MetricsMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         response = await call_next(request)
         route = request.scope.get("route")
-        # path_format is the templated path ("/documents/{document_id}");
-        # requests that matched no route collapse into a single bounded label.
         handler = getattr(route, "path_format", None) or getattr(route, "path", None) or _UNMATCHED
         method = request.method
         status = str(response.status_code)
-        HTTP_REQUESTS_TOTAL.labels(handler=handler, method=method, status=status).inc()
+        container = getattr(request.app.state, "container", None)
+        http_metrics = getattr(getattr(container, "infrastructure", None), "http_metrics", None)
+        if http_metrics is not None:
+            http_metrics.inc_requests(handler=handler, method=method, status=status)
         return response
