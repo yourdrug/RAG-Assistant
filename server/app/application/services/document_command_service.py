@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from application.dto.document_dto import DocumentDTO
 from application.ports.bm25_index import BM25IndexPort
@@ -21,11 +22,16 @@ from domain.exceptions import (
     UniqueConstraintViolation,
     ValidationError,
 )
+from domain.repositories.vector_store_repository import VectorStoreRepository
 from domain.services import check_ownership, compute_owner_and_group, validate_document_visibility
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.document_status import DocumentStatus
 from domain.value_objects.roles import UserKind, UserRole
 from domain.value_objects.visibility import DocumentVisibility
+
+if TYPE_CHECKING:
+    from application.services.act_versioning_service import ActVersioningService
+    from domain.domain_profile.registry import DomainProfileRegistry
 
 log = logging.getLogger(__name__)
 
@@ -36,11 +42,11 @@ class DocumentCommandService:
     def __init__(
         self,
         uow_factory: UnitOfWorkFactory,
-        vector_store_repo,
+        vector_store_repo: VectorStoreRepository,
         file_storage: FileStorage,
         bm25_index: BM25IndexPort,
-        domain_registry=None,
-        act_versioning_service=None,
+        domain_registry: "DomainProfileRegistry | None" = None,
+        act_versioning_service: "ActVersioningService | None" = None,
         user_ctx_factory: UserContextFactory | None = None,
     ) -> None:
         self._uow_factory = uow_factory

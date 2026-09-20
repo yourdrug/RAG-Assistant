@@ -43,19 +43,16 @@ async def handle_cache_hit(
     q_hash: str,
     t_pipeline_start: float,
     rag: RagSettings | None = None,
+    pii_redactor=None,
 ) -> AsyncIterator[StreamEvent]:
     """Yield events for a cache hit (answer text + sources)."""
     RAG_CACHE_HITS_TOTAL.inc()
     log.info("Cache hit for question hash=%s", q_hash[:12])
     answer_text = cached["answer"]
 
-    if rag is not None and rag.pii_redaction_enabled:
-        from infrastructure.ml.guardrails.guardrails import get_pii_detector
-
-        detector = get_pii_detector()
-        pii_found = detector.scan(answer_text)
+    if rag is not None and rag.pii_redaction_enabled and pii_redactor is not None:
+        answer_text, pii_found = pii_redactor.scan_and_redact(answer_text)
         if pii_found:
-            answer_text, _ = detector.scan_and_redact(answer_text)
             log.warning("PII detected in cached answer: types=%s", pii_found)
 
     yield TextChunk(text=answer_text)

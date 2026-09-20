@@ -21,3 +21,12 @@ class PIIRedactorAdapter:
             return text
         redacted, _ = detector.scan_and_redact(text)
         return redacted
+
+    def scan_and_redact(self, text: str) -> tuple[str, list[str]]:
+        if not self._enabled:
+            return text, []
+
+        from infrastructure.ml.guardrails.guardrails import get_pii_detector
+
+        detector = get_pii_detector()
+        return detector.scan_and_redact(text)

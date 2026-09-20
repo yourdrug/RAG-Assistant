@@ -10,18 +10,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 import httpx
+from application.ports.ml_clients import MLClientPort
 from config import settings
 from domain.value_objects.not_found_patterns import NOT_FOUND_PATTERNS
 from prometheus_client import Counter, Gauge, Histogram
 from sqlalchemy.pool import QueuePool
 
 from infrastructure.database.database import database
-
-if TYPE_CHECKING:
-    from infrastructure.ml.clients.client_registry import MLClientRegistry
 
 log = logging.getLogger("default")
 
@@ -360,7 +358,7 @@ async def _collect_db_pool_metrics() -> None:
     DB_POOL_OVERFLOW.set(pool.overflow())
 
 
-async def _collect_qdrant_metrics(ml_clients: MLClientRegistry | None) -> None:
+async def _collect_qdrant_metrics(ml_clients: MLClientPort | None) -> None:
     if ml_clients is not None:
         client = ml_clients.qdrant_client()
     else:
@@ -372,7 +370,7 @@ async def _collect_qdrant_metrics(ml_clients: MLClientRegistry | None) -> None:
     QDRANT_POINTS.set(info.points_count or 0)
 
 
-async def _collect_bm25_metrics(ml_clients: MLClientRegistry | None) -> None:
+async def _collect_bm25_metrics(ml_clients: MLClientPort | None) -> None:
     if ml_clients is not None:
         # First access loads the whole index from S3 (sync boto3) and may
         # tokenize the full corpus (CPU) — keep both off the event loop.
@@ -397,7 +395,7 @@ async def _collect_ollama_metrics() -> None:
                 OLLAMA_GPU_MEMORY_BYTES.labels(model=model_name).set(vram)
 
 
-async def collect_infra_metrics(ml_clients: MLClientRegistry | None = None) -> None:
+async def collect_infra_metrics(ml_clients: MLClientPort | None = None) -> None:
     """Update infrastructure gauges. Called periodically from lifespan."""
     try:
         await _collect_db_pool_metrics()

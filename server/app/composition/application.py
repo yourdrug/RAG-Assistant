@@ -143,10 +143,12 @@ class ApplicationContainer:
         ml = _require(infra.ml_clients, "ml_clients")
 
         chunk_search = ChunkSearchAdapter(uow_factory=uow)
+        pii_redactor = PIIRedactorAdapter(pii_redaction_enabled=settings.pii_redaction_enabled)
         self.rag_service = RagService(
             ml_clients=ml,
             chunk_search=chunk_search,
             domain_registry=infra.domain_registry,
+            pii_redactor=pii_redactor,
         )
 
         self.ingestion_service = _require(
@@ -175,7 +177,7 @@ class ApplicationContainer:
             chat_settings=LiveChatSettings(),
             chat_log_service=self.chat_log_service,
             conversation_service=self.conversation_service,
-            pii_redactor=PIIRedactorAdapter(pii_redaction_enabled=settings.pii_redaction_enabled),
+            pii_redactor=pii_redactor,
         )
         self.auth_service = AuthService(
             uow_factory=uow,

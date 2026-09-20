@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING
 
+from application.ports.ml_clients import MLClientPort
 from config import settings
 from domain.entities.chunk import Chunk
 from langchain.schema import Document as LCDocument
@@ -15,16 +15,13 @@ from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
 from infrastructure.repositories.vector.qdrant_ops import ensure_collection, upload_to_qdrant
 from infrastructure.resilience.retry import retry_on_transient
 
-if TYPE_CHECKING:
-    from infrastructure.ml.clients.client_registry import MLClientRegistry
-
 log = logging.getLogger("default")
 
 _BATCH_SIZE = 100
 
 
 class QdrantVectorStoreRepository:
-    def __init__(self, ml_clients: MLClientRegistry | None = None) -> None:
+    def __init__(self, ml_clients: MLClientPort | None = None) -> None:
         self._ml_clients = ml_clients
 
     def _get_qdrant_client(self):

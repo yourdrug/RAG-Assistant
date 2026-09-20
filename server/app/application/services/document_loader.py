@@ -18,8 +18,11 @@ from domain.services.document_domain_classifier import classify_document_domain
 from domain.value_objects.doc_domain import DocDomain
 
 if TYPE_CHECKING:
+    from application.ports.domain_settings import DomainSettingsPort
     from application.ports.file_storage import FileItem, FileStorage
     from application.ports.ingestion_settings import IngestionSettingsPort
+    from application.services.ingestion_registry import IngestionRegistry
+    from domain.domain_profile.registry import DomainProfileRegistry
 
 log = logging.getLogger("default")
 
@@ -33,9 +36,9 @@ class S3DocumentLoader:
         parser: DocumentParserPort,
         splitter: DocumentSplitterPort,
         ingestion_settings: "IngestionSettingsPort",
-        domain_registry=None,
-        domain_settings=None,
-        registry=None,
+        domain_registry: "DomainProfileRegistry | None" = None,
+        domain_settings: "DomainSettingsPort | None" = None,
+        registry: "IngestionRegistry | None" = None,
     ) -> None:
         self._file_storage = file_storage
         self._parser = parser

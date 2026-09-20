@@ -9,8 +9,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 from infrastructure.ml.ingestion.rtf import (  # noqa: E402
-    _Paragraph,
-    _Table,
+    Paragraph,
+    Table,
     _walk_paragraphs,
     extract_doc_title,
     extract_rtf_tables,
@@ -29,13 +29,13 @@ def _rtf(text: str) -> str:
     return r"{\rtf1\ansi " + text + "}"
 
 
-def _paragraphs(rtf: str) -> list[_Paragraph]:
-    """Extract only _Paragraph segments from _walk_paragraphs output."""
+def _paragraphs(rtf: str) -> list[Paragraph]:
+    """Extract only Paragraph segments from _walk_paragraphs output."""
     return [s.paragraph for s in _walk_paragraphs(rtf) if s.paragraph is not None]
 
 
-def _tables(rtf: str) -> list[_Table]:
-    """Extract only _Table segments from _walk_paragraphs output."""
+def _tables(rtf: str) -> list[Table]:
+    """Extract only Table segments from _walk_paragraphs output."""
     return [s.table for s in _walk_paragraphs(rtf) if s.table is not None]
 
 

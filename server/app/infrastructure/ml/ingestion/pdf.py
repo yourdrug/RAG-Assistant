@@ -38,7 +38,7 @@ _DIGITS_RE = re.compile(r"\d+")
 
 
 @dataclass
-class _PageResult:
+class PageResult:
     """Return type for _process_page: collects per-page outputs."""
 
     text_doc: Document | None = None
@@ -302,7 +302,7 @@ def _process_page(
     file_path: Path,
     ocr_enabled: bool,
     min_chars: int,
-) -> _PageResult:
+) -> PageResult:
     """Process a single page: extract text, tables, decide if OCR is needed."""
     page = doc.load_page(page_num - 1)
     header, body, footer = classified[page_num - 1]
@@ -324,7 +324,7 @@ def _process_page(
     text = "\n".join(header_lines + body_lines + footer_lines)
 
     if _should_ocr(text, min_chars, ocr_enabled):
-        return _PageResult(
+        return PageResult(
             ocr_needed=True,
             text_for_comparison=text,
             meta=page_meta,
@@ -334,7 +334,7 @@ def _process_page(
     text_doc = _process_page_text(text, bool(table_docs), page_num, file_path)
     if text_doc:
         text_doc.metadata.update(page_meta)
-    return _PageResult(text_doc=text_doc, meta=page_meta, table_docs=table_docs)
+    return PageResult(text_doc=text_doc, meta=page_meta, table_docs=table_docs)
 
 
 def _process_ocr_batch(

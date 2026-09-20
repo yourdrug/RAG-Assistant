@@ -7,7 +7,7 @@ API's sparse (hybrid) search until the API restarts.
 
 Contract: whenever a process persists a new BM25 index to S3, it publishes
 ``bm25:invalidate``; every other process that holds an in-memory copy
-subscribes and reloads it lazily on next access (``MLClientRegistry.invalidate_bm25``).
+subscribes and reloads it lazily on next access via the ML client registry.
 """
 
 from __future__ import annotations

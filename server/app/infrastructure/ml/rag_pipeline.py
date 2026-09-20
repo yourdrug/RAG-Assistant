@@ -8,11 +8,15 @@ container instead of passing 20+ local variables.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.llm_provider import Breadth
 from domain.value_objects.rag_settings import RagSettings
 from domain.value_objects.user_context import UserContext
+
+if TYPE_CHECKING:
+    from application.ports.pii_redactor import PIIRedactorPort
 
 
 @dataclass
@@ -58,6 +62,9 @@ class RagPipelineState:
     # ── Internal (set during generation step) ──────────────────────────
     _last_chunk: object | None = None
     _grouped_docs: list = field(default_factory=list)
+
+    # ── PII ─────────────────────────────────────────────────────────────
+    pii_redactor: "PIIRedactorPort | None" = None
 
     # ── Cache ───────────────────────────────────────────────────────────
     q_hash: str = ""

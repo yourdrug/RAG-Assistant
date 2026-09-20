@@ -1,7 +1,7 @@
 """Incremental BM25 index updates outside the full ingestion pipeline.
 
 Provides thin wrappers around BM25Index.add_text / replace_text / remove_text
-that operate on the process-wide index via MLClientRegistry.  Used by
+that operate on the process-wide index via the ML client port. Used by
 ChunkService and DocumentProcessor to keep the sparse index in sync after
 manual edits.
 
@@ -14,12 +14,8 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from typing import TYPE_CHECKING
-
+from application.ports.ml_clients import MLClientPort
 from infrastructure.metrics.metrics import BM25_UPDATE_DURATION
-
-if TYPE_CHECKING:
-    from infrastructure.ml.clients.client_registry import MLClientRegistry
 
 log = logging.getLogger("default")
 
@@ -32,7 +28,7 @@ def _find_index_by_hash(idx, old_hash: str) -> int | None:
 
 
 def bm25_add(
-    registry: MLClientRegistry,
+    registry: MLClientPort,
     text: str,
     text_hash: str | None = None,
     visibility: str | None = None,
@@ -61,7 +57,7 @@ def bm25_add(
 
 
 def bm25_replace(
-    registry: MLClientRegistry,
+    registry: MLClientPort,
     old_hash: str,
     new_text: str,
     new_hash: str | None = None,
@@ -106,7 +102,7 @@ def bm25_replace(
         BM25_UPDATE_DURATION.labels(operation="replace").observe(time.perf_counter() - start)
 
 
-def bm25_remove(registry: MLClientRegistry, old_hash: str) -> None:
+def bm25_remove(registry: MLClientPort, old_hash: str) -> None:
     """Remove text identified by *old_hash* from the BM25 index.
 
     If the hash is not found (already removed or after rebuild), this is
@@ -131,9 +127,9 @@ def bm25_remove(registry: MLClientRegistry, old_hash: str) -> None:
 
 
 class BM25IndexAdapter:
-    """Implements BM25IndexPort using MLClientRegistry."""
+    """Implements BM25IndexPort using the ML client port."""
 
-    def __init__(self, registry: MLClientRegistry) -> None:
+    def __init__(self, registry: MLClientPort) -> None:
         self._registry = registry
 
     def remove(self, content_hash: str) -> None:

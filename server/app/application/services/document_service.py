@@ -6,6 +6,8 @@ actual logic lives in the focused sub-services.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from application.dto.document_dto import ClientInfo, DocumentDTO
 from application.ports.bm25_index import BM25IndexPort
 from application.ports.file_storage import FileStorage
@@ -13,6 +15,11 @@ from application.ports.unit_of_work_factory import UnitOfWorkFactory
 from application.services.document_command_service import DocumentCommandService
 from application.services.document_query_service import DocumentQueryService
 from application.services.user_context_factory import UserContextFactory
+from domain.repositories.vector_store_repository import VectorStoreRepository
+
+if TYPE_CHECKING:
+    from application.services.act_versioning_service import ActVersioningService
+    from domain.domain_profile.registry import DomainProfileRegistry
 
 
 class DocumentService:
@@ -21,11 +28,11 @@ class DocumentService:
     def __init__(
         self,
         uow_factory: UnitOfWorkFactory,
-        vector_store_repo,
+        vector_store_repo: VectorStoreRepository,
         file_storage: FileStorage,
         bm25_index: BM25IndexPort,
-        domain_registry=None,
-        act_versioning_service=None,
+        domain_registry: "DomainProfileRegistry | None" = None,
+        act_versioning_service: "ActVersioningService | None" = None,
         user_ctx_factory: UserContextFactory | None = None,
     ) -> None:
         self._cmd = DocumentCommandService(

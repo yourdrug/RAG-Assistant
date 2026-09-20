@@ -17,6 +17,7 @@ import threading
 import time
 from typing import TYPE_CHECKING, Any
 
+from application.ports.ml_clients import AsyncSemaphorePort, MLClientPort
 from config import settings
 from domain.exceptions.domain_errors import SemaphoreTimeoutError
 from domain.value_objects.llm_provider import LLMProvider
@@ -27,7 +28,7 @@ if TYPE_CHECKING:
 log = logging.getLogger("default")
 
 
-class TimeoutSemaphore:
+class TimeoutSemaphore(AsyncSemaphorePort):
     """asyncio.Semaphore wrapper that raises TimeoutError if acquire exceeds timeout.
 
     Prevents indefinite queuing when downstream services are degraded.
@@ -55,7 +56,7 @@ class TimeoutSemaphore:
         self.release()
 
 
-class MLClientRegistry:
+class MLClientRegistry(MLClientPort):
     """Process-wide cache for ML clients and infrastructure singletons.
 
     Lifecycle:

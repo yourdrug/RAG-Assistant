@@ -82,7 +82,7 @@ def worker(
         )
 
         logger.info(
-            "Arq worker starting — queue: %s " "cron: cleanup/recover/reconcile/bm25 max_jobs=%d redis=%s",
+            "Arq worker starting — queue: %s cron: cleanup/recover/reconcile/bm25 max_jobs=%d redis=%s",
             QUEUE_NAME,
             max_jobs,
             settings.redis_host,

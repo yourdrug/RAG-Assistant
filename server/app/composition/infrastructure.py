@@ -16,10 +16,16 @@ from typing import TYPE_CHECKING, Any
 from composition.utils import _missing_fields, _require
 
 if TYPE_CHECKING:
+    from application.ports.action_logger import ActionLoggerPort
     from application.ports.api_key_provider import ApiKeyProviderPort
     from application.ports.benchmark_history import BenchmarkHistoryPort
+    from application.ports.cache_invalidator import CacheInvalidatorPort
+    from application.ports.config_masker import ConfigMaskerPort
+    from application.ports.event_bus import EventBus
     from application.ports.http_metrics import HttpMetricsPort
     from application.ports.idempotency_store import IdempotencyStorePort
+    from application.ports.job_enqueuer import JobEnqueuerPort
+    from application.ports.log_buffer import LogBufferPort
     from application.ports.preview_strategy_factory import PreviewStrategyFactoryPort
     from application.services.preview_cache import PreviewCache
     from infrastructure.database.database import DatabaseManager
@@ -107,8 +113,8 @@ class MLContainer:
     def init(
         self,
         uow_factory: UnitOfWorkFactory,
-        domain_registry=None,
-        domain_settings=None,
+        domain_registry: DomainProfileRegistry | None = None,
+        domain_settings: DomainSettingsAdapter | None = None,
     ) -> None:
         from infrastructure.ml.clients.client_registry import MLClientRegistry
         from infrastructure.ml.extraction.extraction_adapter import MLContentExtractor, MLPDFQualityAssessor
@@ -191,8 +197,8 @@ class EventContainer:
         self,
         uow_factory: UnitOfWorkFactory,
         vector_store_repo: QdrantVectorStoreRepository,
-        event_bus,
-        domain_settings=None,
+        event_bus: EventBus,
+        domain_settings: DomainSettingsAdapter | None = None,
     ) -> None:
         from infrastructure.events.postgres_config_listener import PostgresConfigListener
         from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
@@ -222,7 +228,7 @@ class EventContainer:
             await self.outbox_listener.stop()
 
 
-class _PreviewStrategyFactoryAdapter:
+class PreviewStrategyFactoryAdapter:
     """Instance adapter for PreviewStrategyFactory (static methods)."""
 
     def for_extension(self, extension: str, **kwargs):
@@ -236,10 +242,10 @@ class _PreviewStrategyFactoryAdapter:
         return PreviewStrategyFactory.supported_extensions()
 
 
-class _HttpMetricsAdapter:
+class HttpMetricsAdapter:
     """Adapter wrapping a prometheus_client Counter behind HttpMetricsPort."""
 
-    def __init__(self, counter) -> None:
+    def __init__(self, counter: Any) -> None:
         self._counter = counter
 
     def inc_requests(self, *, handler: str, method: str, status: str) -> None:
@@ -254,11 +260,11 @@ class ServiceContainer:
     ollama_probe: OllamaProbe | None = field(default=None)
     qdrant_info: QdrantInfo | None = field(default=None)
     api_key_provider: ApiKeyProviderPort | None = field(default=None)
-    action_logger: Any = field(default=None)
-    cache_invalidator: Any = field(default=None)
-    job_enqueuer: Any = field(default=None)
-    config_masker: Any = field(default=None)
-    log_buffer: Any = field(default=None)
+    action_logger: ActionLoggerPort | None = field(default=None)
+    cache_invalidator: CacheInvalidatorPort | None = field(default=None)
+    job_enqueuer: JobEnqueuerPort | None = field(default=None)
+    config_masker: ConfigMaskerPort | None = field(default=None)
+    log_buffer: LogBufferPort | None = field(default=None)
     preview_strategy_factory: PreviewStrategyFactoryPort | None = field(default=None)
     benchmark_history: BenchmarkHistoryPort | None = field(default=None)
     idempotency_store: IdempotencyStorePort | None = field(default=None)
@@ -285,13 +291,13 @@ class ServiceContainer:
         self.job_enqueuer = JobEnqueuerAdapter()
         self.config_masker = ConfigMaskerAdapter()
         self.log_buffer = LogBufferAdapter()
-        self.preview_strategy_factory = _PreviewStrategyFactoryAdapter()
+        self.preview_strategy_factory = PreviewStrategyFactoryAdapter()
         self.benchmark_history = BenchmarkHistoryAdapter()
         self.idempotency_store = IdempotencyStore(redis=redis_client.async_redis)
 
         from infrastructure.metrics.metrics import HTTP_REQUESTS_TOTAL
 
-        self.http_metrics = _HttpMetricsAdapter(HTTP_REQUESTS_TOTAL)
+        self.http_metrics = HttpMetricsAdapter(HTTP_REQUESTS_TOTAL)
 
     @property
     def health(self) -> SystemHealthProbe:
@@ -527,23 +533,23 @@ class InfrastructureContainer:
         return _require(self.events.outbox_listener, "outbox_listener")
 
     @property
-    def action_logger(self):
+    def action_logger(self) -> ActionLoggerPort:
         return _require(self.services.action_logger, "action_logger")
 
     @property
-    def cache_invalidator(self):
+    def cache_invalidator(self) -> CacheInvalidatorPort:
         return _require(self.services.cache_invalidator, "cache_invalidator")
 
     @property
-    def job_enqueuer(self):
+    def job_enqueuer(self) -> JobEnqueuerPort:
         return _require(self.services.job_enqueuer, "job_enqueuer")
 
     @property
-    def config_masker(self):
+    def config_masker(self) -> ConfigMaskerPort:
         return _require(self.services.config_masker, "config_masker")
 
     @property
-    def log_buffer(self):
+    def log_buffer(self) -> LogBufferPort:
         return _require(self.services.log_buffer, "log_buffer")
 
     @property

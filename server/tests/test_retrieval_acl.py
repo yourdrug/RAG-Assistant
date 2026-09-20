@@ -75,7 +75,7 @@ class TestDenseSearchACLFilter:
         call_kwargs = mock_client.search.call_args
         applied_filter = call_kwargs.kwargs["query_filter"]
         assert applied_filter is not None, (
-            "Must-style filter from with_temporal_filter was dropped — " "dense search ran without ACL!"
+            "Must-style filter from with_temporal_filter was dropped — dense search ran without ACL!"
         )
         assert applied_filter is temporal_af
 

@@ -575,6 +575,7 @@ class TestRagServiceCuratorScope:
                     svc._ml = None
                     svc._chunk_search = None
                     svc._domain_registry = None
+                    svc._pii_redactor = None
                     svc._init_state("test question", [], ctx)
                     mock_filter.assert_called_once_with(
                         UserContext(user_id=1, user_kind="internal", user_role="curator"),

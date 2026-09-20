@@ -237,7 +237,7 @@ class S3Storage:
         """Download an entire object as bytes synchronously.
 
         Used by BM25 index loading which runs synchronously from
-        ``MLClientRegistry.bm25_index()``.
+        the ML client's ``bm25_index()`` capability.
         """
         resp = self.client.get_object(Bucket=self.bucket, Key=key)
         return resp["Body"].read()

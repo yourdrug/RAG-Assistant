@@ -20,6 +20,10 @@ from presentation.api.constants import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+    from application.dto.document_dto import DocumentDTO
+    from application.ports.action_logger import ActionLoggerPort
     from fastapi import UploadFile
 
 logger = logging.getLogger("default")
@@ -45,7 +49,7 @@ def filter_sources(sources: list | None, *, exclude_keys: frozenset[str]) -> lis
 
 
 @runtime_checkable
-class _UploadableService(Protocol):
+class UploadableService(Protocol):
     async def upload(
         self,
         filename: str,
@@ -59,11 +63,11 @@ class _UploadableService(Protocol):
         rename_on_conflict: bool = ...,
         doc_domain: str | None = ...,
         replaces_document_id: int | None = ...,
-    ) -> Any: ...
+    ) -> "DocumentDTO": ...
 
 
 @runtime_checkable
-class _JobService(Protocol):
+class JobServiceProtocol(Protocol):
     async def create_job(self, job_type: str, *, related_id: int | None = None) -> int: ...
 
 
@@ -80,12 +84,12 @@ async def upload_and_enqueue(
     rename_on_conflict: bool,
     doc_domain: str | None,
     replaces_document_id: int | None = None,
-    document_service: _UploadableService,
-    job_service: _JobService,
-    enqueue_fn: Any,
+    document_service: UploadableService,
+    job_service: JobServiceProtocol,
+    enqueue_fn: "Callable[..., Awaitable[None]]",
     action_name: str,
-    log_fn: Any = None,
-) -> dict[str, Any]:
+    log_fn: "ActionLoggerPort | None" = None,
+) -> dict[str, int | str]:
     """Shared upload → job-create → enqueue logic used by multiple routes.
 
     Returns a dict with ``document_id``, ``filename``, and ``status``.

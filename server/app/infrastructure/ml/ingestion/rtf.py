@@ -10,9 +10,9 @@ from striprtf.striprtf import rtf_to_text
 
 # Re-export walker internals for backward compatibility (tests import these)
 from infrastructure.ml.ingestion.rtf_walker import (  # noqa: F401
-    _Paragraph,
-    _Segment,
-    _Table,
+    Paragraph,
+    Segment,
+    Table,
     _walk_paragraphs,
 )
 
@@ -100,14 +100,14 @@ _NUMBERED_HEADING_RE = re.compile(
 _MAX_HEADING_WORDS = 12
 
 
-def _most_common_size(segments: list[_Segment]) -> float | None:
+def _most_common_size(segments: list[Segment]) -> float | None:
     sizes = [s.paragraph.font_size for s in segments if s.paragraph and s.paragraph.font_size]
     if not sizes:
         return None
     return Counter(sizes).most_common(1)[0][0]
 
 
-def _table_to_markdown(table: _Table) -> str:
+def _table_to_markdown(table: Table) -> str:
     rows = table.rows
     if not rows:
         return ""
@@ -133,7 +133,7 @@ def extract_rtf_tables(rtf_raw: str) -> list[str]:
     return tables
 
 
-def _is_heading(seg: _Segment, baseline: float | None) -> bool:
+def _is_heading(seg: Segment, baseline: float | None) -> bool:
     """Return True if *seg* looks like a document heading."""
     p = seg.paragraph
     if p is None:
@@ -146,7 +146,7 @@ def _is_heading(seg: _Segment, baseline: float | None) -> bool:
     return bool(baseline is not None and p.bold and p.font_size and p.font_size > baseline)
 
 
-def _build_heading_index(segments: list[_Segment], baseline: float | None) -> tuple[dict[float, int], int]:
+def _build_heading_index(segments: list[Segment], baseline: float | None) -> tuple[dict[float, int], int]:
     """Map font sizes to heading levels; returns (size_to_level, fallback_level)."""
     heading_sizes = sorted(
         {
@@ -162,7 +162,7 @@ def _build_heading_index(segments: list[_Segment], baseline: float | None) -> tu
 
 
 def _split_by_headings(
-    segments: list[_Segment],
+    segments: list[Segment],
     baseline: float | None,
     size_to_level: dict[float, int],
     fallback_level: int,
@@ -201,7 +201,7 @@ def _split_by_headings(
     return sections
 
 
-def _fallback_flat_text(segments: list[_Segment]) -> str:
+def _fallback_flat_text(segments: list[Segment]) -> str:
     """Collect all paragraph text and table markdown into a single string."""
     all_text: list[str] = []
     for seg in segments:

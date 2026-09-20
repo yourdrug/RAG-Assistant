@@ -18,7 +18,7 @@ from infrastructure.ml.ingestion.docx import (  # noqa: E402
     _extract_notes,
     _get_numbering_formats,
     _has_page_break,
-    _ListNumberer,
+    ListNumberer,
     _paragraph_full_text,
     _paragraph_list_info,
     _to_roman,
@@ -146,54 +146,54 @@ class TestToRoman:
 
 
 # ---------------------------------------------------------------------------
-# _ListNumberer
+# ListNumberer
 # ---------------------------------------------------------------------------
 
 
 class TestListNumberer:
     def test_bullet_prefix(self):
-        numberer = _ListNumberer({})
+        numberer = ListNumberer({})
         assert numberer.prefix("1", 0) == "- "
 
     def test_bullet_with_indent(self):
-        numberer = _ListNumberer({})
+        numberer = ListNumberer({})
         assert numberer.prefix("1", 2) == "    - "
 
     def test_decimal(self):
-        numberer = _ListNumberer({("1", 0): "decimal"})
+        numberer = ListNumberer({("1", 0): "decimal"})
         assert numberer.prefix("1", 0) == "1. "
         assert numberer.prefix("1", 0) == "2. "
         assert numberer.prefix("1", 0) == "3. "
 
     def test_lower_letter(self):
-        numberer = _ListNumberer({("1", 0): "lowerLetter"})
+        numberer = ListNumberer({("1", 0): "lowerLetter"})
         assert numberer.prefix("1", 0) == "a. "
         assert numberer.prefix("1", 0) == "b. "
 
     def test_upper_letter(self):
-        numberer = _ListNumberer({("1", 0): "upperLetter"})
+        numberer = ListNumberer({("1", 0): "upperLetter"})
         assert numberer.prefix("1", 0) == "A. "
         assert numberer.prefix("1", 0) == "B. "
 
     def test_lower_roman(self):
-        numberer = _ListNumberer({("1", 0): "lowerRoman"})
+        numberer = ListNumberer({("1", 0): "lowerRoman"})
         assert numberer.prefix("1", 0) == "i. "
         assert numberer.prefix("1", 0) == "ii. "
         assert numberer.prefix("1", 0) == "iii. "
 
     def test_upper_roman(self):
-        numberer = _ListNumberer({("1", 0): "upperRoman"})
+        numberer = ListNumberer({("1", 0): "upperRoman"})
         assert numberer.prefix("1", 0) == "I. "
         assert numberer.prefix("1", 0) == "II. "
 
     def test_different_num_ids_independent(self):
-        numberer = _ListNumberer({("1", 0): "decimal", ("2", 0): "decimal"})
+        numberer = ListNumberer({("1", 0): "decimal", ("2", 0): "decimal"})
         assert numberer.prefix("1", 0) == "1. "
         assert numberer.prefix("2", 0) == "1. "
         assert numberer.prefix("1", 0) == "2. "
 
     def test_deeper_level_resets_parent_counters(self):
-        numberer = _ListNumberer({("1", 0): "decimal", ("1", 1): "decimal"})
+        numberer = ListNumberer({("1", 0): "decimal", ("1", 1): "decimal"})
         # Going to a deeper level resets deeper (child) counters.
         assert numberer.prefix("1", 0) == "1. "
         assert numberer.prefix("1", 1) == "  1. "
@@ -204,7 +204,7 @@ class TestListNumberer:
         assert numberer.prefix("1", 1) == "  1. "
 
     def test_letter_wraps_at_26(self):
-        numberer = _ListNumberer({("1", 0): "lowerLetter"})
+        numberer = ListNumberer({("1", 0): "lowerLetter"})
         for _ in range(25):
             numberer.prefix("1", 0)
         assert numberer.prefix("1", 0) == "z. "

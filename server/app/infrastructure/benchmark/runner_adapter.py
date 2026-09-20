@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from application.ports.chat_rag_port import ChatRAGPort
 
 
 class AsyncBenchmarkRunner:
@@ -17,7 +20,7 @@ class AsyncBenchmarkRunner:
         max_concurrent: int = 4,
         seed: int | None = None,
         n_runs: int = 1,
-        rag_service: Any | None = None,
+        rag_service: "ChatRAGPort | None" = None,
     ) -> None:
         from infrastructure.benchmark.runner import run_benchmark_async
 

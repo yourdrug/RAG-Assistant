@@ -15,16 +15,17 @@ from domain.utils import percentile as _percentile
 
 if TYPE_CHECKING:
     from application.ports.benchmark_runner import BenchmarkRunnerPort
+    from application.ports.chat_rag_port import ChatRAGPort
 
 log = logging.getLogger("default")
 
 
 class BenchmarkService:
-    def __init__(self, rag_service=None, runner: BenchmarkRunnerPort | None = None):
+    def __init__(self, rag_service: "ChatRAGPort | None" = None, runner: BenchmarkRunnerPort | None = None):
         self._rag_service = rag_service
         self._runner = runner
 
-    def set_rag_service(self, rag_service) -> None:
+    def set_rag_service(self, rag_service: "ChatRAGPort") -> None:
         """Wire rag_service for full-pipeline benchmarking."""
         self._rag_service = rag_service
 

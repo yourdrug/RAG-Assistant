@@ -1,6 +1,6 @@
 """RTF walker — tokenizer and structural parser for RTF documents.
 
-Converts raw RTF into a list of ``_Segment`` objects (paragraphs and tables),
+Converts raw RTF into a list of ``Segment`` objects (paragraphs and tables),
 preserving document order and formatting metadata (bold, font size, centering).
 
 Extracted from ``rtf.py`` to reduce its size and isolate the walker concern.
@@ -46,7 +46,7 @@ _HEX_ESCAPE_RE = re.compile(r"\\'([0-9a-fA-F]{2})")
 
 
 @dataclass
-class _Paragraph:
+class Paragraph:
     text: str
     font_size: float | None
     bold: bool
@@ -54,17 +54,17 @@ class _Paragraph:
 
 
 @dataclass
-class _Table:
+class Table:
     rows: list[list[str]]
 
 
 @dataclass
-class _Segment:
-    paragraph: _Paragraph | None = None
-    table: _Table | None = None
+class Segment:
+    paragraph: Paragraph | None = None
+    table: Table | None = None
 
 
-class _GroupState:
+class GroupState:
     __slots__ = ("bold", "font_size", "centered", "skip")
 
     def __init__(self, bold=False, font_size=None, centered=False, skip=False):
@@ -73,15 +73,15 @@ class _GroupState:
         self.centered = centered
         self.skip = skip
 
-    def copy(self) -> "_GroupState":
-        return _GroupState(self.bold, self.font_size, self.centered, self.skip)
+    def copy(self) -> "GroupState":
+        return GroupState(self.bold, self.font_size, self.centered, self.skip)
 
 
 @dataclass
-class _WalkerState:
+class WalkerState:
     """Mutable state shared across helper functions during _walk_paragraphs."""
 
-    stack: list[_GroupState] = field(default_factory=lambda: [_GroupState()])
+    stack: list[GroupState] = field(default_factory=lambda: [GroupState()])
     cur_chars: list[str] = field(default_factory=list)
     cur_any_text: bool = False
     cur_all_bold: bool = True
@@ -93,14 +93,14 @@ class _WalkerState:
     table_rows: list[list[str]] = field(default_factory=list)
     current_row: list[str] = field(default_factory=list)
     current_cell_chars: list[str] = field(default_factory=list)
-    segments: list[_Segment] = field(default_factory=list)
+    segments: list[Segment] = field(default_factory=list)
     codepage: str = "cp1251"
 
 
 # --- Walker helpers --------------------------------------------------------
 
 
-def _flush_hex(ws: _WalkerState) -> None:
+def _flush_hex(ws: WalkerState) -> None:
     """Decode accumulated hex bytes and append to current buffer."""
     if ws.hex_buffer:
         if not ws.stack[-1].skip:
@@ -116,7 +116,7 @@ def _flush_hex(ws: _WalkerState) -> None:
         ws.hex_run_bold = True
 
 
-def _flush_cell(ws: _WalkerState) -> None:
+def _flush_cell(ws: WalkerState) -> None:
     """Finalize current table cell and append to current row."""
     if ws.current_cell_chars:
         cell_text = re.sub(r"[ \t]+", " ", "".join(ws.current_cell_chars)).strip()
@@ -124,14 +124,14 @@ def _flush_cell(ws: _WalkerState) -> None:
         ws.current_cell_chars = []
 
 
-def _flush_paragraph(ws: _WalkerState) -> None:
-    """Finalize current paragraph text and append as a _Segment."""
+def _flush_paragraph(ws: WalkerState) -> None:
+    """Finalize current paragraph text and append as a Segment."""
     _flush_hex(ws)
     text = re.sub(r"[ \t]+", " ", "".join(ws.cur_chars)).strip()
     if text:
         ws.segments.append(
-            _Segment(
-                paragraph=_Paragraph(
+            Segment(
+                paragraph=Paragraph(
                     text=text,
                     font_size=ws.cur_max_size,
                     bold=ws.cur_all_bold and ws.cur_any_text,
@@ -143,56 +143,56 @@ def _flush_paragraph(ws: _WalkerState) -> None:
     ws.cur_max_size, ws.cur_centered = None, False
 
 
-def _flush_table(ws: _WalkerState) -> None:
-    """Finalize current table and append as a _Segment."""
+def _flush_table(ws: WalkerState) -> None:
+    """Finalize current table and append as a Segment."""
     _flush_cell(ws)
     if ws.current_row:
         ws.table_rows.append(ws.current_row)
         ws.current_row = []
     if ws.table_rows:
-        ws.segments.append(_Segment(table=_Table(rows=ws.table_rows)))
+        ws.segments.append(Segment(table=Table(rows=ws.table_rows)))
         ws.table_rows = []
     ws.in_table = False
 
 
-def _get_target(ws: _WalkerState) -> list[str]:
+def _get_target(ws: WalkerState) -> list[str]:
     """Return the active character buffer (table cell or paragraph)."""
     return ws.current_cell_chars if ws.in_table else ws.cur_chars
 
 
-def _handle_pard(ws: _WalkerState, top: _GroupState, argval: int | None) -> None:
+def _handle_pard(ws: WalkerState, top: GroupState, argval: int | None) -> None:
     top.bold, top.font_size, top.centered = False, None, False
 
 
-def _handle_skip_dest(ws: _WalkerState, top: _GroupState, argval: int | None) -> None:
+def _handle_skip_dest(ws: WalkerState, top: GroupState, argval: int | None) -> None:
     top.skip = True
 
 
-def _handle_bold(ws: _WalkerState, top: _GroupState, argval: int | None) -> None:
+def _handle_bold(ws: WalkerState, top: GroupState, argval: int | None) -> None:
     top.bold = argval != 0 if argval is not None else True
 
 
-def _handle_font_size(ws: _WalkerState, top: _GroupState, argval: int | None) -> None:
+def _handle_font_size(ws: WalkerState, top: GroupState, argval: int | None) -> None:
     if argval is not None:
         top.font_size = argval / 2.0
 
 
-def _handle_tab(ws: _WalkerState, top: _GroupState, argval: int | None) -> None:
+def _handle_tab(ws: WalkerState, top: GroupState, argval: int | None) -> None:
     if not top.skip:
         _get_target(ws).append("\t")
 
 
-def _handle_dash(ws: _WalkerState, top: _GroupState, argval: int | None) -> None:
+def _handle_dash(ws: WalkerState, top: GroupState, argval: int | None) -> None:
     if not top.skip:
         _get_target(ws).append("-")
 
 
-def _handle_intbl(ws: _WalkerState, top: _GroupState, argval: int | None) -> None:
+def _handle_intbl(ws: WalkerState, top: GroupState, argval: int | None) -> None:
     if not ws.in_table:
         ws.in_table = True
 
 
-def _handle_cell(ws: _WalkerState, top: _GroupState, argval: int | None) -> None:
+def _handle_cell(ws: WalkerState, top: GroupState, argval: int | None) -> None:
     if ws.in_table:
         _flush_cell(ws)
 
@@ -211,7 +211,7 @@ _CONTROL_HANDLERS: dict[str, Callable[..., None]] = {
 }
 
 
-def _update_cur_metrics(ws: _WalkerState, top: _GroupState) -> None:
+def _update_cur_metrics(ws: WalkerState, top: GroupState) -> None:
     """Propagate font-size and centering from the current group state."""
     if not top.skip:
         if top.font_size is not None:
@@ -222,7 +222,7 @@ def _update_cur_metrics(ws: _WalkerState, top: _GroupState) -> None:
             ws.cur_centered = True
 
 
-def _handle_row(ws: _WalkerState, m: re.Match, rtf: str, n: int) -> None:
+def _handle_row(ws: WalkerState, m: re.Match, rtf: str, n: int) -> None:
     r"""Handle \\row control word with peek-ahead for table finalization."""
     if not ws.in_table:
         return
@@ -240,7 +240,7 @@ def _handle_row(ws: _WalkerState, m: re.Match, rtf: str, n: int) -> None:
 
 
 def _process_control_word(
-    ws: _WalkerState, word: str, argval: int | None, m: re.Match, rtf: str, n: int
+    ws: WalkerState, word: str, argval: int | None, m: re.Match, rtf: str, n: int
 ) -> bool:
     """Process an RTF control word. Returns True if word was handled."""
     top = ws.stack[-1]
@@ -277,7 +277,7 @@ def _process_control_word(
     return True
 
 
-def _process_hex_escape(ws: _WalkerState, rtf: str, pos: int) -> int:
+def _process_hex_escape(ws: WalkerState, rtf: str, pos: int) -> int:
     r"""Process \\'xx hex escape. Returns new position."""
     hexm = _HEX_ESCAPE_RE.match(rtf, pos)
     if hexm:
@@ -289,7 +289,7 @@ def _process_hex_escape(ws: _WalkerState, rtf: str, pos: int) -> int:
     return pos + 1
 
 
-def _process_special_symbol(ws: _WalkerState, nxt: str) -> None:
+def _process_special_symbol(ws: WalkerState, nxt: str) -> None:
     r"""Process non-letter control symbols (\\\\, \\{, \\}, \\~, \\_)."""
     top = ws.stack[-1]
     if top.skip:
@@ -304,7 +304,7 @@ def _process_special_symbol(ws: _WalkerState, nxt: str) -> None:
         target.append("-")
 
 
-def _process_backslash(ws: _WalkerState, rtf: str, pos: int, n: int) -> int:
+def _process_backslash(ws: WalkerState, rtf: str, pos: int, n: int) -> int:
     r"""Process a backslash escape at *pos*. Returns new position."""
     new_pos = _process_hex_escape(ws, rtf, pos)
     if new_pos != pos + 1:
@@ -325,14 +325,14 @@ def _process_backslash(ws: _WalkerState, rtf: str, pos: int, n: int) -> int:
     return pos + 2
 
 
-def _finalize_walker(ws: _WalkerState) -> list[_Segment]:
+def _finalize_walker(ws: WalkerState) -> list[Segment]:
     """Flush any remaining content and return the segment list."""
     if ws.in_table:
         _flush_cell(ws)
         if ws.current_row:
             ws.table_rows.append(ws.current_row)
         if ws.table_rows:
-            ws.segments.append(_Segment(table=_Table(rows=ws.table_rows)))
+            ws.segments.append(Segment(table=Table(rows=ws.table_rows)))
     else:
         _flush_paragraph(ws)
     return ws.segments
@@ -341,9 +341,9 @@ def _finalize_walker(ws: _WalkerState) -> list[_Segment]:
 # --- Main walker -----------------------------------------------------------
 
 
-def _walk_paragraphs(rtf: str, codepage: str = "cp1251") -> list[_Segment]:
+def _walk_paragraphs(rtf: str, codepage: str = "cp1251") -> list[Segment]:
     r"""Tokenize RTF into paragraphs and tables, preserving document order."""
-    ws = _WalkerState(codepage=codepage)
+    ws = WalkerState(codepage=codepage)
     pos, n = 0, len(rtf)
 
     while pos < n:

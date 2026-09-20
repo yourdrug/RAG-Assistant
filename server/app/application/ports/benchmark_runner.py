@@ -6,7 +6,9 @@ infrastructure, following the same pattern as other ports in this package.
 
 from __future__ import annotations
 
-from typing import Any, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
+
+from application.ports.chat_rag_port import ChatRAGPort
 
 
 @runtime_checkable
@@ -22,5 +24,5 @@ class BenchmarkRunnerPort(Protocol):
         max_concurrent: int = 4,
         seed: int | None = None,
         n_runs: int = 1,
-        rag_service: Any | None = None,
+        rag_service: ChatRAGPort | None = None,
     ) -> None: ...

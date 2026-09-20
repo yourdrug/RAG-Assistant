@@ -110,7 +110,9 @@ async def step_check_cache(
     if cached is not None:
 
         async def _cache_events():
-            async for event in handle_cache_hit(cached, state.q_hash, state.t_pipeline_start, rag=state.rag):
+            async for event in handle_cache_hit(
+                cached, state.q_hash, state.t_pipeline_start, rag=state.rag, pii_redactor=state.pii_redactor
+            ):
                 yield event
 
         state.terminal = True
@@ -431,11 +433,8 @@ def step_postprocess(state: RagPipelineState) -> RagPipelineState:
     docs = getattr(state, "_grouped_docs", state.docs)
 
     # ── PII guardrail ────────────────────────────────────────────────
-    if state.rag.pii_redaction_enabled:
-        from infrastructure.ml.guardrails.guardrails import get_pii_detector
-
-        detector = get_pii_detector()
-        full_answer, pii_found = detector.scan_and_redact(full_answer)
+    if state.rag.pii_redaction_enabled and state.pii_redactor is not None:
+        full_answer, pii_found = state.pii_redactor.scan_and_redact(full_answer)
         if pii_found:
             log.warning(
                 "PII detected in LLM output [request_id=%s]: types=%s",

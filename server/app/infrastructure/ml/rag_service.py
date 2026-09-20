@@ -13,8 +13,10 @@ import uuid
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING
 
-from domain.value_objects.rag_result import RagResult
+from application.ports.ml_clients import MLClientPort
+
 from config import settings
+from domain.value_objects.rag_result import RagResult
 from domain.utils import compute_reranker_score
 from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.doc_domain import DocDomain
@@ -28,9 +30,6 @@ from domain.value_objects.stream_events import (
     TextChunk,
     UsageReport,
 )
-
-if TYPE_CHECKING:
-    from infrastructure.ml.clients.client_registry import MLClientRegistry
 
 from infrastructure.ml.rag.rag_cache import store_answer_cache
 from infrastructure.ml.rag.rag_config import build_rag_settings
@@ -49,6 +48,11 @@ from infrastructure.ml.rag_pipeline import RagPipelineState
 from infrastructure.repositories.vector.acl import build_qdrant_filter, with_temporal_filter
 from shared import request_id_ctx
 
+if TYPE_CHECKING:
+    from application.ports.pii_redactor import PIIRedactorPort
+    from domain.domain_profile.registry import DomainProfileRegistry
+    from infrastructure.adapters.chunk_search_adapter import ChunkSearchAdapter
+
 # Backward-compat re-exports (used by test_rag_pipeline.py, test_rag_service_characterization.py)
 from infrastructure.ml.rag.rag_config import build_rag_settings as _build_rag_settings  # noqa: F401
 from infrastructure.ml.rag.rag_postprocess import is_not_found_answer as _is_not_found_answer  # noqa: F401
@@ -57,10 +61,17 @@ log = logging.getLogger("default")
 
 
 class RagService:
-    def __init__(self, ml_clients: MLClientRegistry, chunk_search=None, domain_registry=None) -> None:
+    def __init__(
+        self,
+        ml_clients: MLClientPort,
+        chunk_search: ChunkSearchAdapter | None = None,
+        domain_registry: DomainProfileRegistry | None = None,
+        pii_redactor: PIIRedactorPort | None = None,
+    ) -> None:
         self._ml = ml_clients
         self._chunk_search = chunk_search
         self._domain_registry = domain_registry
+        self._pii_redactor = pii_redactor
 
     @staticmethod
     def _prepare_history_dicts(history: list) -> list[dict]:
@@ -165,6 +176,7 @@ class RagService:
             visibility_conditions=visibility_conditions,
             req_id=req_id,
             history_messages=history_messages,
+            pii_redactor=self._pii_redactor,
         )
 
     @staticmethod

@@ -15,7 +15,7 @@ import pytest
 from infrastructure.resilience.circuit_breaker import (
     CircuitBreakerError,
     LLMCircuitBreaker,
-    _CBState,
+    CBState,
 )
 
 
@@ -184,7 +184,7 @@ class TestLLMCircuitBreakerSplitAPI:
 
     def test_check_open_open_raises_circuit_breaker_error(self):
         cb = LLMCircuitBreaker(fail_max=2, timeout_duration=60, operation_name="split_test")
-        cb._state = _CBState.OPEN
+        cb._state = CBState.OPEN
         cb._opened_at = time.monotonic()  # Freshly opened, timeout not expired
         cb._failure_count = 2
 
@@ -193,17 +193,17 @@ class TestLLMCircuitBreakerSplitAPI:
 
     def test_check_open_open_timeout_allows_probe(self):
         cb = LLMCircuitBreaker(fail_max=2, timeout_duration=1, operation_name="split_test")
-        cb._state = _CBState.OPEN
+        cb._state = CBState.OPEN
         cb._opened_at = 0.0
         cb._failure_count = 2
 
         cb.check_open()
-        assert cb._state == _CBState.OPEN
+        assert cb._state == CBState.OPEN
 
     @pytest.mark.asyncio
     async def test_report_success_closes_half_open(self):
         cb = LLMCircuitBreaker(fail_max=2, timeout_duration=1, operation_name="split_test")
-        cb._state = _CBState.HALF_OPEN
+        cb._state = CBState.HALF_OPEN
         cb._failure_count = 2
 
         await cb.report_success()
@@ -233,7 +233,7 @@ class TestLLMCircuitBreakerSplitAPI:
     @pytest.mark.asyncio
     async def test_report_failure_reopens_half_open_immediately(self):
         cb = LLMCircuitBreaker(fail_max=5, timeout_duration=60, operation_name="split_test")
-        cb._state = _CBState.HALF_OPEN
+        cb._state = CBState.HALF_OPEN
 
         await cb.report_failure()
         assert cb.state == "open"
@@ -241,7 +241,7 @@ class TestLLMCircuitBreakerSplitAPI:
     @pytest.mark.asyncio
     async def test_concurrent_report_success_and_failure(self):
         cb = LLMCircuitBreaker(fail_max=5, timeout_duration=60, operation_name="split_concurrent")
-        cb._state = _CBState.HALF_OPEN
+        cb._state = CBState.HALF_OPEN
 
         await asyncio.gather(cb.report_success(), cb.report_success())
         assert cb.state == "closed"

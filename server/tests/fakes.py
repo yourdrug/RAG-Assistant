@@ -956,6 +956,9 @@ class FakeMLClientRegistry:
     def bm25_index(self):
         return None
 
+    async def _ensure_bm25_loaded(self):
+        return None
+
     def vector_store(self):
         return self
 

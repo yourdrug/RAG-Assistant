@@ -100,7 +100,7 @@ def _to_roman(n: int) -> str:
     return "".join(result)
 
 
-class _ListNumberer:
+class ListNumberer:
     """Assigns sequential numbers to ordered-list items, per (numId, level)."""
 
     def __init__(self, numbering_formats: dict[tuple[str, int], str]) -> None:

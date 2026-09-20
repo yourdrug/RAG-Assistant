@@ -2,18 +2,14 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
+from application.ports.ml_clients import MLClientPort
 from infrastructure.ml.rag import update_rolling_summary
-
-if TYPE_CHECKING:
-    from infrastructure.ml.clients.client_registry import MLClientRegistry
 
 
 class RollingSummaryUpdater:
     """Adapts the infrastructure rolling summary function behind the port."""
 
-    def __init__(self, ml_clients: MLClientRegistry) -> None:
+    def __init__(self, ml_clients: MLClientPort) -> None:
         self._ml_clients = ml_clients
 
     async def update(self, existing_summary: str | None, recent_turns: list[dict]) -> str:

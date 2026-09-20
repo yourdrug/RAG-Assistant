@@ -39,7 +39,7 @@ CB_FAILURES = Counter(
 )
 
 
-class _CBState(enum.Enum):
+class CBState(enum.Enum):
     CLOSED = "closed"
     OPEN = "open"
     HALF_OPEN = "half_open"
@@ -73,7 +73,7 @@ class LLMCircuitBreaker:
         self._fail_max = fail_max
         self._timeout_duration = timeout_duration
         self._operation_name = operation_name
-        self._state = _CBState.CLOSED
+        self._state = CBState.CLOSED
         self._failure_count = 0
         self._opened_at: float = 0.0
         self._lock = asyncio.Lock()
@@ -91,21 +91,20 @@ class LLMCircuitBreaker:
         If timeout has expired, allows the probe (returns without error).
         Transition to HALF_OPEN will happen in report_success/failure under lock.
         """
-        if self._state == _CBState.OPEN:
+        if self._state == CBState.OPEN:
             if time.monotonic() - self._opened_at >= self._timeout_duration:
                 return
             CB_FAILURES.labels(operation=self._operation_name).inc()
             self._update_metrics()
             raise CircuitBreakerError(
-                f"Circuit breaker '{self._operation_name}' is OPEN. "
-                f"Retry after {self._timeout_duration}s."
+                f"Circuit breaker '{self._operation_name}' is OPEN. Retry after {self._timeout_duration}s."
             )
 
     def _transition_to_half_open_if_needed(self) -> None:
         """Transition from OPEN to HALF_OPEN if the timeout has expired (called under lock)."""
-        if self._state == _CBState.OPEN:
+        if self._state == CBState.OPEN:
             if time.monotonic() - self._opened_at >= self._timeout_duration:
-                self._state = _CBState.HALF_OPEN
+                self._state = CBState.HALF_OPEN
                 log.info(
                     "Circuit breaker '%s' transitioned to HALF_OPEN (probe allowed)",
                     self._operation_name,
@@ -117,14 +116,14 @@ class LLMCircuitBreaker:
         """Report a successful call. Under lock, check and transition if needed."""
         async with self._lock:
             self._transition_to_half_open_if_needed()
-            if self._state == _CBState.HALF_OPEN:
-                self._state = _CBState.CLOSED
+            if self._state == CBState.HALF_OPEN:
+                self._state = CBState.CLOSED
                 self._failure_count = 0
                 log.info(
                     "Circuit breaker '%s' closed (half-open probe succeeded)",
                     self._operation_name,
                 )
-            elif self._state == _CBState.CLOSED:
+            elif self._state == CBState.CLOSED:
                 self._failure_count = 0
             self._update_metrics()
 
@@ -132,9 +131,9 @@ class LLMCircuitBreaker:
         """Report a failed call. Under lock, increment counter and potentially open."""
         async with self._lock:
             self._transition_to_half_open_if_needed()
-            if self._state == _CBState.HALF_OPEN:
+            if self._state == CBState.HALF_OPEN:
                 # Any failure during half-open probe reopens immediately
-                self._state = _CBState.OPEN
+                self._state = CBState.OPEN
                 self._opened_at = time.monotonic()
                 log.warning(
                     "Circuit breaker '%s' reopened (half-open probe failed)",
@@ -143,7 +142,7 @@ class LLMCircuitBreaker:
             else:
                 self._failure_count += 1
                 if self._failure_count >= self._fail_max:
-                    self._state = _CBState.OPEN
+                    self._state = CBState.OPEN
                     self._opened_at = time.monotonic()
                     log.warning(
                         "Circuit breaker '%s' opened after %d consecutive failures",

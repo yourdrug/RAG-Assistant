@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from application.dto.versioning_dto import VersioningResult
 from application.ports.document_processing import (
@@ -32,8 +32,12 @@ from domain.services.document_parser import DocumentParser, DocumentSplitter
 from domain.value_objects.document_status import DocumentStatus
 
 if TYPE_CHECKING:
+    from datetime import date
+
     from application.ports.domain_settings import DomainSettingsPort
+    from application.services.act_versioning_service import ActVersioningService
     from domain.domain_profile.registry import DomainProfileRegistry
+    from domain.entities.raw_document import RawDocument
 
 log = logging.getLogger("default")
 
@@ -53,7 +57,7 @@ class DocumentProcessor:
         domain_marker_threshold: float = 1.0,
         domain_registry: DomainProfileRegistry | None = None,
         domain_settings: "DomainSettingsPort | None" = None,
-        act_versioning_service=None,
+        act_versioning_service: "ActVersioningService | None" = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._vector_store = vector_store_repo
@@ -141,7 +145,7 @@ class DocumentProcessor:
         return None, warning_message
 
     @staticmethod
-    def _enrich_chunk_with_section(rc: Any, doc_domain: str) -> None:
+    def _enrich_chunk_with_section(rc: "RawDocument", doc_domain: str) -> None:
         section = rc.metadata.get("section")
         if section:
             rc.page_content = f"[Раздел: {section}]\n{rc.page_content}"
@@ -274,10 +278,10 @@ class DocumentProcessor:
         owner_id: int | None,
         group_id: int | None,
         doc_domain: str,
-        domain_metadata: Any,
-        act_version_id: Any,
-        act_id: Any,
-        effective_from: Any,
+        domain_metadata: dict | None,
+        act_version_id: int | None,
+        act_id: int | None,
+        effective_from: "date | str | None",
         replace_id: int | None,
         warning_message: str | None,
         quality: PDFQualityReport | None,

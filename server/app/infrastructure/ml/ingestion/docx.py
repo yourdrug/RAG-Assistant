@@ -43,7 +43,7 @@ def _paragraph_full_text(paragraph) -> str:
 
 from infrastructure.ml.ingestion.docx_numbering import (  # noqa: E402, F401
     _get_numbering_formats,
-    _ListNumberer,
+    ListNumberer,
     _paragraph_list_info,
     _to_roman,
 )
@@ -163,7 +163,7 @@ def docx_table_to_markdown(table) -> str:
 
 def _process_docx_paragraph(
     p,
-    numberer: _ListNumberer,
+    numberer: ListNumberer,
     parts: list[str],
     page_numbers: list[int],
     current_page: int,
@@ -201,14 +201,14 @@ def _count_images(body, qn) -> int:
 
 
 @dataclass
-class _DocxSectionState:
+class DocxSectionState:
     """Mutable state for _process_section_child."""
 
     sections: list[tuple[str | None, str]]
     heading_stack: list[tuple[int, str]]
     current_heading: str | None = None
     current_lines: list[str] = field(default_factory=list)
-    numberer: _ListNumberer = field(default_factory=lambda: _ListNumberer({}))
+    numberer: ListNumberer = field(default_factory=lambda: ListNumberer({}))
     table_map: dict = field(default_factory=dict)
 
 
@@ -223,7 +223,7 @@ def _detect_heading_level(p) -> int | None:
     return None
 
 
-def _apply_heading(state: _DocxSectionState, heading_level: int, text: str) -> None:
+def _apply_heading(state: DocxSectionState, heading_level: int, text: str) -> None:
     """Flush current content and update heading stack."""
     content = "\n".join(state.current_lines).strip()
     if content:
@@ -235,7 +235,7 @@ def _apply_heading(state: _DocxSectionState, heading_level: int, text: str) -> N
     state.current_lines = []
 
 
-def _flush_table(state: _DocxSectionState, table) -> None:
+def _flush_table(state: DocxSectionState, table) -> None:
     """Convert table to markdown and append as a section."""
     md_table = docx_table_to_markdown(table)
     if md_table:
@@ -248,7 +248,7 @@ def _flush_table(state: _DocxSectionState, table) -> None:
 
 def _process_section_child(
     child,
-    state: _DocxSectionState,
+    state: DocxSectionState,
     para_by_element: dict[int, Any],
     tbl_by_element: dict[int, Any],
     para_tag: str,
@@ -313,7 +313,7 @@ def parse_docx(file_path: Path) -> tuple[str, dict]:
     from docx.oxml.ns import qn
 
     doc = docx.Document(str(file_path))
-    numberer = _ListNumberer(_get_numbering_formats(doc))
+    numberer = ListNumberer(_get_numbering_formats(doc))
     parts: list[str] = []
     page_numbers: list[int] = []
     current_page = 1
@@ -372,12 +372,12 @@ def parse_docx_sections(file_path: Path) -> list[tuple[str | None, str]]:
     para_by_element = {id(p._element): p for p in doc.paragraphs}
     tbl_by_element = {id(t._element): t for t in doc.tables}
 
-    state = _DocxSectionState(
+    state = DocxSectionState(
         sections=[],
         heading_stack=[],
         current_heading=None,
         current_lines=[],
-        numberer=_ListNumberer(_get_numbering_formats(doc)),
+        numberer=ListNumberer(_get_numbering_formats(doc)),
         table_map=tbl_by_element,
     )
 

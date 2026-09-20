@@ -9,7 +9,7 @@ Extracted from IngestionService to isolate the Postgres sync concern.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from application.dto.versioning_dto import VersioningResult
 from application.services.document_pipeline import enrich_chunks_metadata, process_chunks
@@ -20,7 +20,10 @@ from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.visibility import DocumentVisibility
 
 if TYPE_CHECKING:
+    from application.ports.domain_settings import DomainSettingsPort
     from application.ports.unit_of_work_factory import UnitOfWorkFactory
+    from application.services.act_versioning_service import ActVersioningService
+    from domain.domain_profile.registry import DomainProfileRegistry
 
 log = logging.getLogger("default")
 
@@ -31,9 +34,9 @@ class DocumentSyncService:
     def __init__(
         self,
         uow_factory: "UnitOfWorkFactory",
-        act_versioning_service: Any | None = None,
-        domain_registry: Any | None = None,
-        domain_settings: Any | None = None,
+        act_versioning_service: "ActVersioningService | None" = None,
+        domain_registry: "DomainProfileRegistry | None" = None,
+        domain_settings: "DomainSettingsPort | None" = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._act_versioning_service = act_versioning_service

@@ -7,8 +7,8 @@ rag_service.py to reduce its size and isolate the retrieval I/O layer.
 import asyncio
 import logging
 import time
-from typing import TYPE_CHECKING
 
+from application.ports.ml_clients import MLClientPort
 from application.services.retrieval import HybridRetriever
 from config import settings
 from domain.value_objects.rag_settings import RagSettings
@@ -19,9 +19,6 @@ from infrastructure.resilience.retry import retry_on_transient
 from langchain.schema import Document as LCDocument
 from qdrant_client.models import FieldCondition, Filter, MatchValue
 
-if TYPE_CHECKING:
-    from infrastructure.ml.clients.client_registry import MLClientRegistry
-
 log = logging.getLogger("default")
 
 _retriever = HybridRetriever()
@@ -31,7 +28,7 @@ _retriever = HybridRetriever()
 async def resolve_hashes_batch(
     hashes: list[str],
     access_filter,
-    ml_clients: "MLClientRegistry",
+    ml_clients: MLClientPort,
 ) -> dict[str, LCDocument]:
     """Batch-resolve multiple content_hashes from Qdrant in a single scroll call.
 
@@ -87,7 +84,7 @@ async def qdrant_dense_search(
     query: str,
     k: int,
     access_filter,
-    ml_clients: "MLClientRegistry",
+    ml_clients: MLClientPort,
     score_threshold: float | None = None,
 ) -> list[tuple[str, float, LCDocument]]:
     """Search Qdrant directly, returning (content_hash, score, Document) tuples.
@@ -137,7 +134,7 @@ async def run_hybrid_search(
     fetch_k: int,
     access_filter,
     rag: RagSettings,
-    ml_clients: "MLClientRegistry",
+    ml_clients: MLClientPort,
     dense_weight: float | None = None,
     sparse_weight: float | None = None,
     *,

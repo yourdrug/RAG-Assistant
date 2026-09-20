@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
 
 from application.ports.document_parser import DocumentParserPort, DocumentSplitterPort
 from application.ports.file_storage import FileStorage
@@ -23,6 +23,11 @@ from application.services.ingestion_sync import DocumentSyncService
 from domain.repositories.vector_store_repository import VectorStoreRepository
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.visibility import DocumentVisibility
+
+if TYPE_CHECKING:
+    from application.ports.domain_settings import DomainSettingsPort
+    from application.services.act_versioning_service import ActVersioningService
+    from domain.domain_profile.registry import DomainProfileRegistry
 
 log = logging.getLogger("default")
 
@@ -40,9 +45,9 @@ class IngestionService:
         splitter: DocumentSplitterPort,
         ingestion_settings: IngestionSettingsPort,
         uow_factory: UnitOfWorkFactory | None = None,
-        domain_registry: Any | None = None,
-        domain_settings: Any | None = None,
-        act_versioning_service: Any | None = None,
+        domain_registry: "DomainProfileRegistry | None" = None,
+        domain_settings: "DomainSettingsPort | None" = None,
+        act_versioning_service: "ActVersioningService | None" = None,
         sparse_index_admin: SparseIndexAdminPort | None = None,
     ) -> None:
         self._vector_store = vector_store_repo
