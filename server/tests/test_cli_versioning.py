@@ -12,9 +12,16 @@ import pytest
 from langchain.schema import Document
 
 from application.services.act_versioning_service import ActVersioningService
+from application.services.batch_ingestion import BatchIngestionWorkflow
+from application.services.document_loader import S3DocumentLoader
 from domain.domain_profile.profiles.decree import DecreeDomainProfile
 from fakes import FakeUnitOfWorkFactory
 from application.services.ingestion_orchestrator import IngestionService
+from application.services.ingestion_registry import IngestionRegistry
+from application.services.ingestion_sync import DocumentSyncService
+from application.services.ingestion_targets import S3IngestionTargets, S3UploadService
+from application.services.single_file_ingestion import SingleFileIngestionWorkflow
+from application.services.sparse_index_builder import SparseIndexBuilder
 
 
 class FakeSettings:
@@ -45,16 +52,33 @@ def _make_service():
     registry = DomainProfileRegistry()
     registry.register(DecreeDomainProfile(settings=FakeSettings()))
 
-    service = IngestionService(
-        vector_store_repo=vector_store,
-        file_storage=MagicMock(),
-        parser=MagicMock(),
-        splitter=MagicMock(),
-        ingestion_settings=MagicMock(s3_bucket="test-bucket"),
-        uow_factory=factory,
+    file_storage = MagicMock()
+    settings = MagicMock(s3_bucket="test-bucket")
+    ingestion_registry = IngestionRegistry(factory, file_storage)
+    sync = DocumentSyncService(factory, versioning, registry, FakeSettings())
+    loader = S3DocumentLoader(
+        file_storage,
+        MagicMock(),
+        MagicMock(),
+        settings,
         domain_registry=registry,
         domain_settings=FakeSettings(),
-        act_versioning_service=versioning,
+        registry=ingestion_registry,
+    )
+    targets = S3IngestionTargets()
+    service = IngestionService(
+        batch_workflow=BatchIngestionWorkflow(
+            vector_store,
+            settings,
+            loader,
+            ingestion_registry,
+            sync,
+            SparseIndexBuilder(settings, None),
+        ),
+        single_file_workflow=SingleFileIngestionWorkflow(file_storage, loader, ingestion_registry, sync),
+        registry=ingestion_registry,
+        targets=targets,
+        uploads=S3UploadService(file_storage, targets),
     )
     return service, factory, versioning
 
@@ -74,7 +98,7 @@ async def test_cli_sync_creates_act_version_for_versioned_domain():
     ]
     registry = {"ukaz.rtf": {"source": "s3://b/docs/ukaz.rtf"}}
 
-    await service._sync_documents_to_db(
+    await service._batch._sync.sync_documents_to_db(
         registry, {"s3://b/docs/ukaz.rtf": 200}, chunks, {"s3://b/docs/ukaz.rtf": _DECREE_TEXT}
     )
 
@@ -103,7 +127,7 @@ async def test_cli_sync_skips_versioning_for_general_domain():
     ]
     registry = {"doc.md": {"source": "s3://b/docs/doc.md"}}
 
-    await service._sync_documents_to_db(
+    await service._batch._sync.sync_documents_to_db(
         registry, {"s3://b/docs/doc.md": 20}, chunks, {"s3://b/docs/doc.md": "Обычный текст."}
     )
 
@@ -119,5 +143,5 @@ async def test_cli_auto_classification_uses_registry():
         "1. Пункт первый достаточно длинный для классификации текста документа целиком.\n"
         "2. Пункт второй с контролем за исполнением настоящего указа.\n"
     )
-    domain = service._classify_text_domain(text, "auto")
+    domain = service._batch._loader.classify_text_domain(text, "auto")
     assert domain == "decree"

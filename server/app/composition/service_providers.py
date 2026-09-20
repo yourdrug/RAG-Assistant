@@ -26,11 +26,19 @@ def create_ingestion_service(
 ):
     """Create an IngestionService using infrastructure singletons.
 
-    When *uow_factory* is ``None`` falls back to ``infra.uow_factory``.
-    This is useful for CLI commands that don't need a database connection.
+    When *uow_factory* is ``None``, use the initialized application UoW.
+    Ingestion always requires a UoW because database sync and registry writes
+    are part of its correctness contract.
     """
     from application.services.act_versioning_service import ActVersioningService
+    from application.services.batch_ingestion import BatchIngestionWorkflow
+    from application.services.document_loader import S3DocumentLoader
     from application.services.ingestion_orchestrator import IngestionService
+    from application.services.ingestion_registry import IngestionRegistry
+    from application.services.ingestion_sync import DocumentSyncService
+    from application.services.ingestion_targets import S3IngestionTargets, S3UploadService
+    from application.services.single_file_ingestion import SingleFileIngestionWorkflow
+    from application.services.sparse_index_builder import SparseIndexBuilder
     from infrastructure.bm25.sparse_index_admin import S3SparseIndexAdmin
     from infrastructure.ingestion.document_parser_adapter import (
         IngestionDocumentParser,
@@ -51,17 +59,35 @@ def create_ingestion_service(
 
     file_storage = _require(infra.file_storage, "file_storage")
 
-    return IngestionService(
-        vector_store_repo=_require(infra.vector_store_repo, "vector_store_repo"),
-        file_storage=file_storage,
-        parser=IngestionDocumentParser(),
-        splitter=IngestionDocumentSplitter(),
-        ingestion_settings=LiveIngestionSettings(),
-        uow_factory=uow,
+    registry = IngestionRegistry(uow, file_storage)
+    sync = DocumentSyncService(uow, act_versioning, infra.domain_registry, infra.domain_settings)
+    ingestion_settings = LiveIngestionSettings()
+    loader = S3DocumentLoader(
+        file_storage,
+        IngestionDocumentParser(),
+        IngestionDocumentSplitter(),
+        ingestion_settings,
         domain_registry=infra.domain_registry,
         domain_settings=infra.domain_settings,
-        act_versioning_service=act_versioning,
-        sparse_index_admin=S3SparseIndexAdmin(file_storage=file_storage),
+        registry=registry,
+    )
+    targets = S3IngestionTargets()
+    return IngestionService(
+        batch_workflow=BatchIngestionWorkflow(
+            _require(infra.vector_store_repo, "vector_store_repo"),
+            ingestion_settings,
+            loader,
+            registry,
+            sync,
+            SparseIndexBuilder(
+                ingestion_settings,
+                S3SparseIndexAdmin(file_storage=file_storage),
+            ),
+        ),
+        single_file_workflow=SingleFileIngestionWorkflow(file_storage, loader, registry, sync),
+        registry=registry,
+        targets=targets,
+        uploads=S3UploadService(file_storage, targets),
     )
 
 

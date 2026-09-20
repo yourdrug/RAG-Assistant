@@ -11,20 +11,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 import pytest  # noqa: E402
 from application.services.ingestion_orchestrator import IngestionService  # noqa: E402
+from application.services.ingestion_targets import S3IngestionTargets, S3UploadService  # noqa: E402
 
 
 @pytest.fixture
 def service():
     from unittest.mock import MagicMock
 
-    settings = MagicMock()
-    settings.s3_bucket = "test-bucket"
+    targets = S3IngestionTargets()
     return IngestionService(
-        vector_store_repo=MagicMock(),
-        file_storage=MagicMock(),
-        parser=MagicMock(),
-        splitter=MagicMock(),
-        ingestion_settings=settings,
+        batch_workflow=MagicMock(),
+        single_file_workflow=MagicMock(),
+        registry=MagicMock(),
+        targets=targets,
+        uploads=S3UploadService(MagicMock(), targets),
     )
 
 
@@ -46,6 +46,16 @@ def test_s3_key_with_slash_prefix_is_rejected(service):
 def test_s3_key_with_dotdot_is_rejected(service):
     with pytest.raises(ValueError):
         service.resolve_ingest_target("docs/../etc/passwd")
+
+
+def test_docs_dir_with_dotdot_is_rejected(service):
+    with pytest.raises(ValueError):
+        service.resolve_docs_dir("docs/../other/")
+
+
+def test_docs_dir_with_slash_prefix_is_rejected(service):
+    with pytest.raises(ValueError):
+        service.resolve_docs_dir("/docs/")
 
 
 def test_resolve_docs_dir_passes_prefix(service):

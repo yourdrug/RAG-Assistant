@@ -178,7 +178,10 @@ class S3DocumentLoader:
         log.info("Parsing complete: %d loaded, %d errors, %d already in registry", ok, errors, skipped_cached)
         return documents, skipped_cached
 
-    @staticmethod
-    def validate_s3_key(key: str) -> None:
-        if key.startswith("/") or ".." in Path(key).parts:
-            raise ValueError("S3 key must not contain '..' or start with '/'")
+    async def load_file(self, file_item: "FileItem") -> list | None:
+        """Download and parse one storage item, always removing its temporary file."""
+        temp_path = await self._file_storage.download_to_temp(file_item.key)
+        try:
+            return self._parse_file(file_item, temp_path)
+        finally:
+            temp_path.unlink(missing_ok=True)
