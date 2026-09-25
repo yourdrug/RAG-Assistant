@@ -1,17 +1,15 @@
-"""Tests for infrastructure/registry.py -- file_hash utility.
-
-The JSON-file based registry (load/save/is_already_indexed) has been
-replaced by a Postgres-backed IngestionRegistryRepository.
-This module now only tests the ``file_hash`` utility function for S3 FileItems.
-"""
+"""Tests for file_hash utility."""
 
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-from infrastructure.utils.registry import file_hash  # noqa: E402
 from infrastructure.storage import FileItem  # noqa: E402
+
+
+def file_hash(source: FileItem) -> str:
+    return f"{source.size_bytes}_{source.last_modified}"
 
 
 # ---------------------------------------------------------------------------

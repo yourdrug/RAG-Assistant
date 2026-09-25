@@ -6,6 +6,7 @@ import logging
 import httpx
 from config import settings
 from domain.services.rag_policy import build_system_prompt  # noqa: F401
+from infrastructure.ml.clients.llm_schemas import DecompositionCheck
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from tenacity import (
     retry,
@@ -97,13 +98,6 @@ DECOMPOSE_SYSTEM = (
     "Верни ТОЛЬКО список подвопросов, каждый на новой строке, без нумерации и маркеров."
 )
 
-DECOMPOSE_PROMPT = ChatPromptTemplate.from_messages(
-    [
-        ("system", DECOMPOSE_SYSTEM),
-        ("human", "{question}"),
-    ]
-)
-
 
 @retry(
     stop=stop_after_attempt(3),
@@ -111,17 +105,42 @@ DECOMPOSE_PROMPT = ChatPromptTemplate.from_messages(
     retry=retry_if_exception_type(_RETRYABLE_ERRORS),
     reraise=True,
 )
-async def decompose_question(llm, question: str, ml_clients=None) -> list[str]:
+async def decompose_question(
+    question: str,
+    *,
+    instructor_client=None,
+    ml_clients=None,
+) -> list[str]:
     """Split a compound question into independent sub-queries.
+
+    Uses instructor with ``DecompositionCheck`` schema for structured output.
+    Falls back to the original question if decomposition is not needed or fails.
 
     If *ml_clients* is provided the auxiliary semaphore is acquired per-attempt.
     """
-    chain = DECOMPOSE_PROMPT | llm
+    if instructor_client is None:
+        log.warning("decompose_question called without instructor_client, returning original")
+        return [question]
 
-    async def _call():
+    from config import settings as _settings
+    from domain.value_objects.llm_provider import LLMProvider
+
+    model = (
+        _settings.llm_model if _settings.llm_provider == LLMProvider.OLLAMA else _settings.openrouter_model
+    )
+
+    async def _call() -> DecompositionCheck:
         return await asyncio.wait_for(
-            chain.ainvoke({"question": question}),
-            timeout=settings.llm_auxiliary_timeout,
+            instructor_client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": DECOMPOSE_SYSTEM},
+                    {"role": "user", "content": question},
+                ],
+                response_model=DecompositionCheck,
+                max_retries=2,
+            ),
+            timeout=_settings.llm_auxiliary_timeout,
         )
 
     if ml_clients is not None:
@@ -130,14 +149,17 @@ async def decompose_question(llm, question: str, ml_clients=None) -> list[str]:
     else:
         result = await _call()
 
-    lines = [line.strip() for line in result.content.strip().split("\n") if line.strip()]
-
-    if len(lines) < 2:
-        log.warning("Decomposition returned %d lines, using original question", len(lines))
+    if not result.needs_decomposition or not result.sub_queries:
+        log.info("Decomposition not needed for %r, using original question", question)
         return [question]
 
-    log.info("Decomposed %r into %d sub-questions: %s", question, len(lines), lines)
-    return lines[:4]
+    sub_queries = [q.strip() for q in result.sub_queries if q.strip()]
+    if len(sub_queries) < 2:
+        log.warning("Decomposition returned %d sub-queries, using original question", len(sub_queries))
+        return [question]
+
+    log.info("Decomposed %r into %d sub-questions: %s", question, len(sub_queries), sub_queries)
+    return sub_queries[:4]
 
 
 # ---------------------------------------------------------------------------

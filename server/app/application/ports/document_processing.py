@@ -9,8 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-# Re-export from domain for backward compatibility.
-from domain.value_objects.pdf_quality_report import PDFQualityReport  # noqa: F401
+from domain.value_objects.pdf_quality_report import PDFQualityReport
 
 
 @runtime_checkable

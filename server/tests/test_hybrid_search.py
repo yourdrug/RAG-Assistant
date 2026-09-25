@@ -1,4 +1,4 @@
-"""Tests for infrastructure/ml/hybrid.py -- BM25, tokenizer, RRF merge, persistence.
+"""Tests for BM25, tokenizer, RRF merge, persistence.
 
 All pure functions, no Qdrant/Ollama needed.
 """
@@ -9,7 +9,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-import infrastructure.bm25.hybrid as hybrid  # noqa: E402
+from domain.utils import content_hash, rrf_merge  # noqa: E402
+from infrastructure.bm25.bm25_index import BM25Index  # noqa: E402
+from infrastructure.bm25.persistence import load_bm25_index, save_bm25_index  # noqa: E402
+from infrastructure.bm25.tokenizer import tokenize, tokenize_raw  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Tokenizer
@@ -18,10 +21,10 @@ import infrastructure.bm25.hybrid as hybrid  # noqa: E402
 
 class TestTokenize:
     def test_basic_english(self):
-        assert hybrid.tokenize("Hello World") == ["hello", "world"]
+        assert tokenize("Hello World") == ["hello", "world"]
 
     def test_russian_text(self):
-        tokens = hybrid.tokenize_raw("Постановление от 14.04.2026 года")
+        tokens = tokenize_raw("Постановление от 14.04.2026 года")
         assert "постановление" in tokens
         assert "14" in tokens
         assert "04" in tokens
@@ -30,22 +33,22 @@ class TestTokenize:
 
     def test_short_tokens_filtered(self):
         # Single char tokens "a", "x" are filtered (< 2 chars)
-        tokens = hybrid.tokenize("a x")
+        tokens = tokenize("a x")
         assert tokens == []
 
     def test_punctuation_removed(self):
-        tokens = hybrid.tokenize_raw("маркировка: код, номер!")
+        tokens = tokenize_raw("маркировка: код, номер!")
         assert "маркировка" in tokens
         assert "код" in tokens
         assert "номер" in tokens
 
     def test_numbers_preserved(self):
-        tokens = hybrid.tokenize("статья 14 пункт 32")
+        tokens = tokenize("статья 14 пункт 32")
         assert "14" in tokens
         assert "32" in tokens
 
     def test_empty_string(self):
-        assert hybrid.tokenize("") == []
+        assert tokenize("") == []
 
 
 # ---------------------------------------------------------------------------
@@ -60,7 +63,7 @@ class TestBM25Index:
             "штрафы за нарушение маркировки",
             "порядок получения кода",
         ]
-        idx = hybrid.BM25Index(texts)
+        idx = BM25Index(texts)
         results = idx.search("маркировка", k=2)
         assert len(results) == 2
         # Both docs about маркировка should rank higher
@@ -74,22 +77,22 @@ class TestBM25Index:
             "постановление от 01.01.2020",
             "статья 14 пункт 3",
         ]
-        idx = hybrid.BM25Index(texts)
+        idx = BM25Index(texts)
         results = idx.search("14.04.2026", k=3)
         # Exact date should rank first
         assert texts[results[0][0]] == "постановление от 14.04.2026"
 
     def test_empty_query(self):
-        idx = hybrid.BM25Index(["text one", "text two"])
+        idx = BM25Index(["text one", "text two"])
         assert idx.search("", k=5) == []
 
     def test_single_doc(self):
-        idx = hybrid.BM25Index(["only document"])
+        idx = BM25Index(["only document"])
         results = idx.search("only", k=5)
         assert len(results) == 1
 
     def test_k_larger_than_docs(self):
-        idx = hybrid.BM25Index(["alpha", "bravo"])
+        idx = BM25Index(["alpha", "bravo"])
         results = idx.search("alpha bravo", k=10)
         assert len(results) == 2
 
@@ -98,7 +101,7 @@ class TestBM25Index:
         from domain.services.access_control import VisibilityCondition
         from domain.value_objects.visibility import DocumentVisibility
 
-        idx = hybrid.BM25Index(texts, doc_visibility=["internal_public"] * len(texts))
+        idx = BM25Index(texts, doc_visibility=["internal_public"] * len(texts))
         results = idx.search_with_hashes(
             "маркировка",
             k=1,
@@ -114,9 +117,9 @@ class TestBM25Index:
 
     def test_serialization_roundtrip(self):
         texts = ["постановление 14.04.2026", "маркировка кодов", "штрафы"]
-        idx = hybrid.BM25Index(texts)
+        idx = BM25Index(texts)
         data = idx.to_dict()
-        idx2 = hybrid.BM25Index.from_dict(data)
+        idx2 = BM25Index.from_dict(data)
         assert idx2.texts == texts
         assert idx2.n_docs == 3
         # Search results should be identical
@@ -134,7 +137,7 @@ class TestRRFMerge:
     def test_basic_merge(self):
         dense = [("a", 0.9), ("b", 0.8), ("c", 0.7)]
         sparse = [("b", 5.0), ("a", 3.0), ("d", 2.0)]
-        merged = hybrid.rrf_merge(dense, sparse)
+        merged = rrf_merge(dense, sparse)
         # "a" and "b" appear in both, should rank highest
         assert merged[0] in ("a", "b")
         assert merged[1] in ("a", "b")
@@ -145,29 +148,29 @@ class TestRRFMerge:
     def test_deduplication(self):
         dense = [("a", 0.9), ("a", 0.8)]  # duplicate
         sparse = [("a", 5.0)]
-        merged = hybrid.rrf_merge(dense, sparse)
+        merged = rrf_merge(dense, sparse)
         assert merged.count("a") == 1
 
     def test_empty_dense(self):
         sparse = [("a", 5.0), ("b", 3.0)]
-        merged = hybrid.rrf_merge([], sparse)
+        merged = rrf_merge([], sparse)
         assert merged == ["a", "b"]
 
     def test_empty_sparse(self):
         dense = [("a", 0.9), ("b", 0.8)]
-        merged = hybrid.rrf_merge(dense, [])
+        merged = rrf_merge(dense, [])
         assert merged == ["a", "b"]
 
     def test_both_empty(self):
-        assert hybrid.rrf_merge([], []) == []
+        assert rrf_merge([], []) == []
 
     def test_weight_affects_ranking(self):
         dense = [("a", 0.9), ("b", 0.8)]
         sparse = [("b", 5.0), ("a", 3.0)]
         # Default weights: equal
-        merged_default = hybrid.rrf_merge(dense, sparse)
+        merged_default = rrf_merge(dense, sparse)
         # High sparse weight: sparse results dominate
-        merged_sparse_heavy = hybrid.rrf_merge(dense, sparse, sparse_weight=10.0)
+        merged_sparse_heavy = rrf_merge(dense, sparse, sparse_weight=10.0)
         # "b" is #1 in sparse, should rank higher with heavy sparse weight
         assert merged_sparse_heavy.index("b") <= merged_default.index("b")
 
@@ -179,17 +182,17 @@ class TestRRFMerge:
 
 class TestContentHash:
     def test_deterministic(self):
-        h1 = hybrid.content_hash("hello world")
-        h2 = hybrid.content_hash("hello world")
+        h1 = content_hash("hello world")
+        h2 = content_hash("hello world")
         assert h1 == h2
 
     def test_different_inputs_different_hashes(self):
-        h1 = hybrid.content_hash("hello")
-        h2 = hybrid.content_hash("world")
+        h1 = content_hash("hello")
+        h2 = content_hash("world")
         assert h1 != h2
 
     def test_length(self):
-        h = hybrid.content_hash("test")
+        h = content_hash("test")
         assert len(h) == 16
 
 
@@ -201,11 +204,11 @@ class TestContentHash:
 class TestPersistence:
     def test_save_and_load_bm25(self):
         texts = ["маркировка", "штрафы", "постановление"]
-        idx = hybrid.BM25Index(texts)
+        idx = BM25Index(texts)
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "bm25.json"
-            hybrid.save_bm25_index(idx, path)
-            loaded = hybrid.load_bm25_index(path)
+            save_bm25_index(idx, path)
+            loaded = load_bm25_index(path)
             assert loaded is not None
             assert loaded.n_docs == 3
             r1 = idx.search("маркировка", k=1)
@@ -213,11 +216,11 @@ class TestPersistence:
             assert r1[0][0] == r2[0][0]
 
     def test_load_nonexistent_returns_none(self):
-        assert hybrid.load_bm25_index(Path("/tmp/nonexistent_bm25.json")) is None
+        assert load_bm25_index(Path("/tmp/nonexistent_bm25.json")) is None
 
     def test_save_creates_parent_dirs(self):
-        idx = hybrid.BM25Index(["test"])
+        idx = BM25Index(["test"])
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "subdir" / "bm25.json"
-            hybrid.save_bm25_index(idx, path)
+            save_bm25_index(idx, path)
             assert path.exists()

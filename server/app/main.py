@@ -69,7 +69,7 @@ async def _seed_domain_config_defaults(container) -> None:
     from infrastructure.initialization import seed_domain_config_defaults
 
     await seed_domain_config_defaults(
-        container.infrastructure.uow_factory,
+        container.infrastructure.db.uow_factory,
         container.infrastructure.domain_registry,
     )
 
@@ -87,7 +87,7 @@ async def _shutdown(container, scheduler, database, redis_client) -> None:
     # container.dispose() handles: config_listener.stop(), outbox_listener.stop(),
     # ML client cache cleanup.  Do NOT duplicate those calls here.
     await _safe(container.dispose(), "dispose container")
-    await _safe(container.infrastructure.ml_clients.close(), "close ml_clients")
+    await _safe(container.infrastructure.ml.ml_clients.close(), "close ml_clients")
     await _safe(scheduler.shutdown(), "shutdown scheduler")
 
     from infrastructure.worker.queue import close_arq_pool
@@ -110,18 +110,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     container.init(database)
     app.state.container = container
 
-    if container.infrastructure.uow_factory is None:
+    if container.infrastructure.db.uow_factory is None:
         raise RuntimeError("UnitOfWorkFactory failed to initialize")
-    await initialize_app(container.infrastructure.uow_factory)
+    await initialize_app(container.infrastructure.db.uow_factory)
     await _seed_domain_config_defaults(container)
 
-    if container.infrastructure.config_listener is None:
+    if container.infrastructure.events.config_listener is None:
         raise RuntimeError("ConfigListener failed to initialize")
-    if container.infrastructure.api_key_provider is None:
+    if container.infrastructure.services.api_key_provider is None:
         raise RuntimeError("ApiKeyProvider failed to initialize")
-    await container.infrastructure.config_listener.start()
-    if container.infrastructure.outbox_listener is not None:
-        await container.infrastructure.outbox_listener.start()
+    await container.infrastructure.events.config_listener.start()
+    if container.infrastructure.events.outbox_listener is not None:
+        await container.infrastructure.events.outbox_listener.start()
 
     # --- Circuit breakers ---
     from infrastructure.resilience.circuit_breaker import init_breakers
@@ -132,9 +132,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     )
 
     # Ensure Qdrant collection exists
-    if container.infrastructure.vector_store_repo is not None:
+    if container.infrastructure.ml.vector_store_repo is not None:
         try:
-            await container.infrastructure.vector_store_repo.ensure_collection(
+            await container.infrastructure.ml.vector_store_repo.ensure_collection(
                 vector_size=settings.embed_dim,
                 reset=False,
             )
@@ -143,18 +143,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
             logger.warning("Failed to ensure Qdrant collection: %s", e)
 
     await scheduler.startup(
-        uow_factory=container.infrastructure.uow_factory,
-        config_listener=container.infrastructure.config_listener,
-        ml_clients=container.infrastructure.ml_clients,
-        outbox_dispatcher=container.infrastructure.outbox_dispatcher,
+        uow_factory=container.infrastructure.db.uow_factory,
+        config_listener=container.infrastructure.events.config_listener,
+        ml_clients=container.infrastructure.ml.ml_clients,
+        outbox_dispatcher=container.infrastructure.events.outbox_dispatcher,
     )
-    await collect_infra_metrics(ml_clients=container.infrastructure.ml_clients)
+    await collect_infra_metrics(ml_clients=container.infrastructure.ml.ml_clients)
 
     # reload the in-memory BM25 index after the worker rebuilds/persists it
     from infrastructure.bm25.bm25_invalidation import listen_for_bm25_invalidation
 
     bm25_listener_task = asyncio.create_task(
-        listen_for_bm25_invalidation(container.infrastructure.ml_clients),
+        listen_for_bm25_invalidation(container.infrastructure.ml.ml_clients),
         name="bm25-invalidation-listener",
     )
 

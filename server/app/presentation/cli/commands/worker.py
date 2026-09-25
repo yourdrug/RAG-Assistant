@@ -20,8 +20,8 @@ from infrastructure.worker.tasks import (
     run_benchmark,
     run_full_ingest,
     run_single_ingest,
-    run_sweep,
 )
+from infrastructure.worker.sweep import run_sweep_task as run_sweep
 
 logger = logging.getLogger("cli")
 
@@ -119,10 +119,10 @@ async def _on_startup(ctx: dict) -> None:
     # deployment) — without this, legal/general profiles KeyError on their
     # config parameters (e.g. fingerprint_min_articles) during first ingestion.
     domain_registry = container.infrastructure.domain_registry
-    if domain_registry is not None and container.infrastructure.uow_factory is not None:
-        await seed_domain_config_defaults(container.infrastructure.uow_factory, domain_registry)
+    if domain_registry is not None and container.infrastructure.db.uow_factory is not None:
+        await seed_domain_config_defaults(container.infrastructure.db.uow_factory, domain_registry)
 
-    listener = container.infrastructure.config_listener
+    listener = container.infrastructure.events.config_listener
     if listener is None:
         raise RuntimeError("Config listener failed to initialize in worker")
 

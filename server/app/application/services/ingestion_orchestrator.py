@@ -9,15 +9,11 @@ from __future__ import annotations
 from typing import Any
 
 from application.services.batch_ingestion import BatchIngestionWorkflow
-from application.services.ingestion_registry import IngestionRegistry, s3_file_hash
+from application.services.ingestion_registry import IngestionRegistry
 from application.services.ingestion_scope import IngestionScope
 from application.services.ingestion_targets import S3IngestionTargets, S3UploadService
 from application.services.single_file_ingestion import SingleFileIngestionWorkflow
 from domain.value_objects.visibility import DocumentVisibility
-
-# Kept as an import-compatible alias for callers that used the old helper.
-# TODO remove
-_s3_file_hash = s3_file_hash
 
 
 class IngestionService:

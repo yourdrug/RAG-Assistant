@@ -1,8 +1,4 @@
-"""Benchmarking — RAG quality benchmark, history tracking, and parameter sweep.
-
-Re-exports from focused sub-modules for backward compatibility.
-All ``from infrastructure.benchmark.benchmark import X`` continue to work.
-"""
+"""Benchmarking — RAG quality benchmark, history tracking, and parameter sweep."""
 
 # History & sweep (unchanged)
 from infrastructure.benchmark.benchmark_history import (  # noqa: F401

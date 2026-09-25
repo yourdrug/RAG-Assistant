@@ -28,7 +28,8 @@ if TYPE_CHECKING:
     from application.services.config_service import ConfigService
     from application.services.conversation_service import ConversationService
     from application.services.assignment_service import AssignmentService
-    from application.services.document_service import DocumentService
+    from application.services.document_command_service import DocumentCommandService
+    from application.services.document_query_service import DocumentQueryService
     from application.services.group_service import GroupService
     from application.services.health_service import HealthService
     from application.services.ingest_service import IngestAppService
@@ -70,7 +71,7 @@ def create_ingestion_port(request: Request) -> IngestionService:
 
 
 def create_preview_cache(request: Request):
-    return _get_or_raise(_create_container(request).infrastructure.preview_cache, "PreviewCache")
+    return _get_or_raise(_create_container(request).infrastructure.ml.preview_cache, "PreviewCache")
 
 
 # ---------------------------------------------------------------------------
@@ -86,8 +87,16 @@ def create_auth_service(request: Request) -> AuthService:
     return _get_or_raise(_create_container(request).application.auth_service, "AuthService")
 
 
-def create_document_service(request: Request) -> DocumentService:
-    return _get_or_raise(_create_container(request).application.document_service, "DocumentService")
+def create_document_command_service(request: Request) -> DocumentCommandService:
+    return _get_or_raise(
+        _create_container(request).application.document_command_service, "DocumentCommandService"
+    )
+
+
+def create_document_query_service(request: Request) -> DocumentQueryService:
+    return _get_or_raise(
+        _create_container(request).application.document_query_service, "DocumentQueryService"
+    )
 
 
 def create_chunk_service(request: Request) -> ChunkService:
@@ -172,7 +181,9 @@ def create_chat_log_service(request: Request) -> ChatLogService:
 
 
 def create_api_key_provider(request: Request) -> ApiKeyProviderPort:
-    return _get_or_raise(_create_container(request).infrastructure.api_key_provider, "ApiKeyProvider")
+    return _get_or_raise(
+        _create_container(request).infrastructure.services.api_key_provider, "ApiKeyProvider"
+    )
 
 
 def create_rate_limiter(request: Request) -> RateLimiterPort | None:
@@ -187,11 +198,15 @@ def get_idempotency_key(request: Request) -> str | None:
 
 def create_idempotency_store(request: Request):
     """Create IdempotencyStore backed by Redis."""
-    return _get_or_raise(_create_container(request).infrastructure.idempotency_store, "IdempotencyStore")
+    return _get_or_raise(
+        _create_container(request).infrastructure.services.idempotency_store, "IdempotencyStore"
+    )
 
 
 def create_benchmark_history_port(request: Request):
-    return _get_or_raise(_create_container(request).infrastructure.benchmark_history, "BenchmarkHistoryPort")
+    return _get_or_raise(
+        _create_container(request).infrastructure.services.benchmark_history, "BenchmarkHistoryPort"
+    )
 
 
 def create_act_versioning_service(request: Request):
@@ -202,7 +217,7 @@ def create_act_versioning_service(request: Request):
     if domain_settings is None:
         raise ValueError("domain_settings not initialized")
     return ActVersioningService(
-        uow_factory=c.infrastructure.uow_factory,
+        uow_factory=_get_or_raise(c.infrastructure.db.uow_factory, "uow_factory"),
         settings=domain_settings,
     )
 
@@ -223,29 +238,29 @@ def create_domain_settings(request: Request):
 
 
 def create_action_logger(request: Request):
-    return _create_container(request).infrastructure.action_logger
+    return _create_container(request).infrastructure.services.action_logger
 
 
 def create_cache_invalidator(request: Request):
-    return _create_container(request).infrastructure.cache_invalidator
+    return _create_container(request).infrastructure.services.cache_invalidator
 
 
 def create_preview_strategy_factory(request: Request):
     return _get_or_raise(
-        _create_container(request).infrastructure.preview_strategy_factory, "PreviewStrategyFactory"
+        _create_container(request).infrastructure.services.preview_strategy_factory, "PreviewStrategyFactory"
     )
 
 
 def create_job_enqueuer(request: Request):
-    return _create_container(request).infrastructure.job_enqueuer
+    return _create_container(request).infrastructure.services.job_enqueuer
 
 
 def create_config_masker(request: Request):
-    return _create_container(request).infrastructure.config_masker
+    return _create_container(request).infrastructure.services.config_masker
 
 
 def create_log_buffer(request: Request):
-    return _create_container(request).infrastructure.log_buffer
+    return _create_container(request).infrastructure.services.log_buffer
 
 
 # ---------------------------------------------------------------------------

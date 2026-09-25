@@ -23,7 +23,7 @@ from domain.exceptions.domain_errors import SemaphoreTimeoutError
 from domain.value_objects.llm_provider import LLMProvider
 
 if TYPE_CHECKING:
-    from infrastructure.bm25.hybrid import BM25Index
+    from infrastructure.bm25.bm25_index import BM25Index
 
 log = logging.getLogger("default")
 

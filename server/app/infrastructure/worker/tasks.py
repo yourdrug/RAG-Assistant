@@ -25,7 +25,7 @@ from composition.service_providers import (
     create_ingest_app_service,
 )
 from domain.value_objects.visibility import DocumentVisibility
-from infrastructure.benchmark.benchmark import run_benchmark_async
+from infrastructure.benchmark.runner import run_benchmark_async
 
 # Re-export cron tasks for backward compatibility (Arq worker config imports from here)
 from infrastructure.worker.cron import (  # noqa: F401
@@ -34,9 +34,6 @@ from infrastructure.worker.cron import (  # noqa: F401
     cron_recover_orphaned_jobs,
     cron_recover_stuck_processing,
 )
-
-# Re-export sweep task for backward compatibility
-from infrastructure.worker.sweep import run_sweep_task as run_sweep  # noqa: F401
 
 logger = logging.getLogger("default")
 
@@ -131,7 +128,7 @@ async def process_document(
 ) -> None:
     """Process an uploaded document (parse → split → vectorize → store)."""
     infra = ctx["container"].infrastructure
-    uow_factory = infra.uow_factory
+    uow_factory = infra.db.uow_factory
     processor = create_document_processor(infra, uow_factory=uow_factory)
 
     async def _action() -> None:
@@ -183,7 +180,7 @@ async def run_full_ingest(
 ) -> None:
     """Full document ingestion from a directory."""
     infra = ctx["container"].infrastructure
-    uow_factory = infra.uow_factory
+    uow_factory = infra.db.uow_factory
 
     service = create_ingest_app_service(infra, uow_factory=uow_factory)
 
@@ -209,7 +206,7 @@ async def run_single_ingest(
 ) -> None:
     """Ingest a single file."""
     infra = ctx["container"].infrastructure
-    uow_factory = infra.uow_factory
+    uow_factory = infra.db.uow_factory
 
     service = create_ingest_app_service(infra, uow_factory=uow_factory)
 
@@ -233,7 +230,7 @@ async def run_benchmark(
     job_id: int,
 ) -> None:
     """Run RAG quality benchmark (non-blocking async version)."""
-    uow_factory = ctx["container"].infrastructure.uow_factory
+    uow_factory = ctx["container"].infrastructure.db.uow_factory
 
     async def _action() -> None:
         await run_benchmark_async(

@@ -14,7 +14,7 @@ from domain.domain_profile.profiles.general import GeneralDomainProfile
 from domain.domain_profile.profiles.legal import LegalDomainProfile
 
 if TYPE_CHECKING:
-    from application.ports.domain_settings import DomainSettingsPort
+    from domain.domain_profile.settings_port import DomainSettingsPort
     from domain.domain_profile.registry import DomainProfileRegistry
 
 log = logging.getLogger("default")

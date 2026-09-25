@@ -20,7 +20,7 @@ from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.visibility import DocumentVisibility
 
 if TYPE_CHECKING:
-    from application.ports.domain_settings import DomainSettingsPort
+    from domain.domain_profile.settings_port import DomainSettingsPort
     from application.ports.unit_of_work_factory import UnitOfWorkFactory
     from application.services.act_versioning_service import ActVersioningService
     from domain.domain_profile.registry import DomainProfileRegistry

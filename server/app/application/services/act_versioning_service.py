@@ -11,7 +11,7 @@ import logging
 from datetime import date, datetime
 
 from application.dto.versioning_dto import VersioningResult
-from application.ports.domain_settings import DomainSettingsPort
+from domain.domain_profile.settings_port import DomainSettingsPort
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
 from domain.domain_profile.protocol import DomainProfile, ReferenceMatch, refs_to_metadata
 from domain.entities.act_version import ActVersion

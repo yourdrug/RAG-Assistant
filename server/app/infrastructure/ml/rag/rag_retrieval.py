@@ -12,7 +12,7 @@ from application.ports.ml_clients import MLClientPort
 from application.services.retrieval import HybridRetriever
 from config import settings
 from domain.value_objects.rag_settings import RagSettings
-from infrastructure.bm25.hybrid import content_hash
+from domain.utils import content_hash
 from infrastructure.metrics.metrics import RAG_STAGE_DURATION
 from infrastructure.ml.rag.rag_reranking import deduplicate_docs
 from infrastructure.resilience.retry import retry_on_transient

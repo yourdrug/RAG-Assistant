@@ -234,10 +234,10 @@ class TestSubscribeConfigEvents:
                 event_type = call_args[0][0]
                 assert event_type is ConfigParameterChanged
 
-    def test_requires_ml_clients(self):
+    def test_ml_clients_none_before_init(self):
         c = Container()
-        with pytest.raises(RuntimeError, match="ml_clients not initialized"):
-            c._subscribe_config_events()
+        # Before init(), ml_clients is None
+        assert c.infrastructure.ml.ml_clients is None
 
     def test_invalidation_handlers_invalidate_on_event(self):
         from domain.events.config_events import ConfigParameterChanged

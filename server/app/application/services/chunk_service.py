@@ -155,6 +155,3 @@ class ChunkService:
             user_role=user_role,
             group_id=group_id,
         )
-
-    def _validate_chunk_content(self, content: str, *, is_manual: bool = False) -> None:
-        self._mutation._validate_chunk_content(content, is_manual=is_manual)

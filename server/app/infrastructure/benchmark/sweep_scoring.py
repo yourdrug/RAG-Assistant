@@ -12,7 +12,7 @@ import logging
 from langchain.schema import Document as LCDocument
 
 from config import settings
-from infrastructure.bm25.hybrid import content_hash, rrf_merge
+from domain.utils import content_hash, rrf_merge
 
 logger = logging.getLogger("default")
 

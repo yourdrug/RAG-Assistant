@@ -39,44 +39,6 @@ def _extract_images_without_alt(docx_path: Path) -> list[bytes]:
     return images
 
 
-class DocxDocumentWrapper:
-    """Thin wrapper around python-docx Document for reuse."""
-
-    def __init__(self, path: Path) -> None:
-        import docx
-
-        self._doc = docx.Document(str(path))
-        self._path = path
-
-    @property
-    def paragraphs(self):
-        return self._doc.paragraphs
-
-    @property
-    def tables(self):
-        return self._doc.tables
-
-    @property
-    def part(self):
-        return self._doc.part
-
-
-def _extract_first_image_from_paragraph(paragraph, doc_wrapper: DocxDocumentWrapper) -> bytes | None:
-    """Extract image bytes from the first <w:drawing> in a paragraph."""
-    from docx.oxml.ns import qn
-
-    for drawing in paragraph._element.findall(f".//{qn('w:drawing')}"):
-        for blip in drawing.findall(f".//{qn('a:blip')}"):
-            r_id = blip.get(qn("r:embed"))
-            if r_id and r_id in doc_wrapper.part.rels:
-                rel = doc_wrapper.part.rels[r_id]
-                try:
-                    return rel.target_part.blob
-                except Exception:  # noqa: S112
-                    continue
-    return None
-
-
 class DocxPreviewStrategy:
     def supports(self, extension: str) -> bool:
         return extension in _DRY_RUN_EXTENSIONS

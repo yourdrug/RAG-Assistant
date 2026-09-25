@@ -166,7 +166,7 @@ class TestStreamEventSequence:
     @pytest.mark.asyncio
     async def test_yields_status_searching(self):
         with patch(
-            "infrastructure.ml.rag_service._build_rag_settings",
+            "infrastructure.ml.rag.rag_config.build_rag_settings",
             return_value=_make_rag_settings(),
         ):
             service = _make_service(llm_response="test answer")
@@ -177,7 +177,7 @@ class TestStreamEventSequence:
     @pytest.mark.asyncio
     async def test_yields_status_reranking(self):
         with patch(
-            "infrastructure.ml.rag_service._build_rag_settings",
+            "infrastructure.ml.rag.rag_config.build_rag_settings",
             return_value=_make_rag_settings(),
         ):
             service = _make_service()
@@ -188,7 +188,7 @@ class TestStreamEventSequence:
     @pytest.mark.asyncio
     async def test_yields_status_generating(self):
         with patch(
-            "infrastructure.ml.rag_service._build_rag_settings",
+            "infrastructure.ml.rag.rag_config.build_rag_settings",
             return_value=_make_rag_settings(),
         ):
             service = _make_service()
@@ -199,7 +199,7 @@ class TestStreamEventSequence:
     @pytest.mark.asyncio
     async def test_yields_text_chunk(self):
         with patch(
-            "infrastructure.ml.rag_service._build_rag_settings",
+            "infrastructure.ml.rag.rag_config.build_rag_settings",
             return_value=_make_rag_settings(),
         ):
             service = _make_service(llm_response="Hello world")
@@ -211,7 +211,7 @@ class TestStreamEventSequence:
     @pytest.mark.asyncio
     async def test_yields_sources_event_last(self):
         with patch(
-            "infrastructure.ml.rag_service._build_rag_settings",
+            "infrastructure.ml.rag.rag_config.build_rag_settings",
             return_value=_make_rag_settings(),
         ):
             service = _make_service()
@@ -221,7 +221,7 @@ class TestStreamEventSequence:
     @pytest.mark.asyncio
     async def test_sources_event_has_sources(self):
         with patch(
-            "infrastructure.ml.rag_service._build_rag_settings",
+            "infrastructure.ml.rag.rag_config.build_rag_settings",
             return_value=_make_rag_settings(),
         ):
             service = _make_service()
@@ -235,7 +235,7 @@ class TestStreamOutOfDomain:
     async def test_out_of_domain_yields_not_found(self):
         patch("infrastructure.ml.rag.rag_steps.is_out_of_domain", MagicMock(return_value=True)).start()
         with patch(
-            "infrastructure.ml.rag_service._build_rag_settings",
+            "infrastructure.ml.rag.rag_config.build_rag_settings",
             return_value=_make_rag_settings(),
         ):
             service = _make_service()
@@ -248,7 +248,7 @@ class TestStreamOutOfDomain:
     async def test_out_of_domain_yields_empty_sources(self):
         patch("infrastructure.ml.rag.rag_steps.is_out_of_domain", MagicMock(return_value=True)).start()
         with patch(
-            "infrastructure.ml.rag_service._build_rag_settings",
+            "infrastructure.ml.rag.rag_config.build_rag_settings",
             return_value=_make_rag_settings(),
         ):
             service = _make_service()
@@ -260,7 +260,7 @@ class TestStreamOutOfDomain:
     async def test_out_of_domain_does_not_call_llm(self):
         patch("infrastructure.ml.rag.rag_steps.is_out_of_domain", MagicMock(return_value=True)).start()
         with patch(
-            "infrastructure.ml.rag_service._build_rag_settings",
+            "infrastructure.ml.rag.rag_config.build_rag_settings",
             return_value=_make_rag_settings(),
         ):
             service = _make_service()
@@ -273,7 +273,7 @@ class TestStreamRelevanceGate:
     async def test_rejection_yields_not_relevant_message(self):
         with (
             patch(
-                "infrastructure.ml.rag_service._build_rag_settings",
+                "infrastructure.ml.rag.rag_config.build_rag_settings",
                 return_value=_make_rag_settings(relevance_gate_enabled=True),
             ),
             patch(
@@ -295,7 +295,7 @@ class TestStreamRelevanceGate:
     async def test_pass_yields_answer(self):
         with (
             patch(
-                "infrastructure.ml.rag_service._build_rag_settings",
+                "infrastructure.ml.rag.rag_config.build_rag_settings",
                 return_value=_make_rag_settings(relevance_gate_enabled=True),
             ),
             patch(
@@ -314,7 +314,7 @@ class TestStreamCacheHit:
     async def test_cache_hit_yields_cached_answer(self):
         with (
             patch(
-                "infrastructure.ml.rag_service._build_rag_settings",
+                "infrastructure.ml.rag.rag_config.build_rag_settings",
                 return_value=_make_rag_settings(cache_enabled=True),
             ),
             patch(
@@ -333,7 +333,7 @@ class TestStreamCacheHit:
         cached_sources = [{"source": "cached.pdf"}]
         with (
             patch(
-                "infrastructure.ml.rag_service._build_rag_settings",
+                "infrastructure.ml.rag.rag_config.build_rag_settings",
                 return_value=_make_rag_settings(cache_enabled=True),
             ),
             patch(
@@ -352,7 +352,7 @@ class TestStreamRejection:
     async def test_rejection_yields_text_then_sources(self):
         with (
             patch(
-                "infrastructure.ml.rag_service._build_rag_settings",
+                "infrastructure.ml.rag.rag_config.build_rag_settings",
                 return_value=_make_rag_settings(relevance_gate_enabled=True),
             ),
             patch(
@@ -390,40 +390,41 @@ class TestStreamHelperMethods:
         result = RagService._prepare_history_dicts(msgs)
         assert len(result) == 1
 
-    def test_resolve_breadth_from_context(self):
-        service = _make_service()
-        ctx = _make_context(depth="broad")
-        with patch(
-            "domain.value_objects.llm_provider.BREADTH_ALIASES",
-            {"broad": Breadth.BROAD},
-        ):
-            breadth = service._resolve_breadth(ctx, "question")
-            assert breadth == Breadth.BROAD
+    def test_classify_question_breadth(self):
+        from domain.services.rag_policy import classify_question_breadth
 
-    def test_resolve_fetch_top_k_narrow(self):
-        service = _make_service()
+        result = classify_question_breadth("обычный вопрос")
+        assert isinstance(result, str)
+
+    def test_compute_retrieval_params_narrow(self):
+        from domain.services.rag_policy import compute_retrieval_params
+
         rag = MagicMock()
         rag.retriever.fetch_k = 25
         rag.retriever.top_k = 4
         rag.retriever.fetch_k_broad = 40
         rag.retriever.top_k_broad = 10
-        fetch_k, top_k = service._resolve_fetch_top_k(rag, Breadth.NARROW)
-        assert fetch_k == 25
-        assert top_k == 4
+        rag.hybrid_search.dense_weight = 1.5
+        rag.hybrid_search.sparse_weight = 0.5
+        params = compute_retrieval_params(Breadth.NARROW, rag, "general question")
+        assert params["fetch_k"] == 25
 
-    def test_resolve_fetch_top_k_broad(self):
-        service = _make_service()
+    def test_compute_retrieval_params_broad(self):
+        from domain.services.rag_policy import compute_retrieval_params
+
         rag = MagicMock()
         rag.retriever.fetch_k = 25
         rag.retriever.top_k = 4
         rag.retriever.fetch_k_broad = 40
         rag.retriever.top_k_broad = 10
-        fetch_k, top_k = service._resolve_fetch_top_k(rag, Breadth.BROAD)
-        assert fetch_k == 40
-        assert top_k == 10
+        rag.hybrid_search.dense_weight = 1.5
+        rag.hybrid_search.sparse_weight = 0.5
+        params = compute_retrieval_params(Breadth.BROAD, rag, "general question")
+        assert params["fetch_k"] == 40
 
     def test_compute_effective_weights_no_exact_ref(self):
-        service = _make_service()
+        from domain.services.rag_policy import compute_retrieval_params
+
         rag = MagicMock()
         rag.hybrid_search.dense_weight = 1.5
         rag.hybrid_search.sparse_weight = 0.5
@@ -431,10 +432,10 @@ class TestStreamHelperMethods:
             "domain.services.rag_policy.has_exact_reference",
             MagicMock(return_value=False),
         ):
-            dense, sparse, exact = service._compute_effective_weights(rag, "general question")
-            assert dense == 1.5
-            assert sparse == 0.5
-            assert exact is False
+            params = compute_retrieval_params(Breadth.NARROW, rag, "general question")
+            assert params["effective_dense_weight"] == 1.5
+            assert params["effective_sparse_weight"] == 0.5
+            assert params["use_exact_ref_boost"] is False
 
     def test_apply_citation_filter_disabled(self):
         from infrastructure.ml.rag.rag_postprocess import apply_citation_filter

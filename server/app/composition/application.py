@@ -27,7 +27,8 @@ if TYPE_CHECKING:
     from application.services.config_service import ConfigService
     from application.services.conversation_service import ConversationService
     from application.services.assignment_service import AssignmentService
-    from application.services.document_service import DocumentService
+    from application.services.document_command_service import DocumentCommandService
+    from application.services.document_query_service import DocumentQueryService
     from application.services.group_service import GroupService
     from application.services.health_service import HealthService
     from application.services.ingest_service import IngestAppService
@@ -51,15 +52,6 @@ def _get_openrouter_fetcher():
     return fetch_openrouter_models
 
 
-def _make_act_versioning(infra: "InfrastructureContainer", uow_factory):
-    """Create ActVersioningService if domain registry and settings are available."""
-    if infra.domain_registry is None or infra.domain_settings is None:
-        return None
-    from application.services.act_versioning_service import ActVersioningService
-
-    return ActVersioningService(uow_factory=uow_factory, settings=infra.domain_settings)
-
-
 @dataclass
 class ApplicationContainer:
     """Application-layer services — all wired via constructor injection.
@@ -70,7 +62,8 @@ class ApplicationContainer:
     rag_service: RagService | None = field(default=None)
     chat_service: ChatService | None = field(default=None)
     auth_service: AuthService | None = field(default=None)
-    document_service: DocumentService | None = field(default=None)
+    document_command_service: "DocumentCommandService | None" = field(default=None)
+    document_query_service: "DocumentQueryService | None" = field(default=None)
     chunk_service: ChunkService | None = field(default=None)
     ingest_app_service: IngestAppService | None = field(default=None)
     config_service: ConfigService | None = field(default=None)
@@ -110,7 +103,8 @@ class ApplicationContainer:
         from application.services.config_service import ConfigService
         from application.services.conversation_service import ConversationService
         from application.services.assignment_service import AssignmentService
-        from application.services.document_service import DocumentService
+        from application.services.document_command_service import DocumentCommandService
+        from application.services.document_query_service import DocumentQueryService
         from application.services.group_service import GroupService
         from application.services.health_service import HealthService
         from application.services.ingest_service import IngestAppService
@@ -137,10 +131,10 @@ class ApplicationContainer:
         )
         from infrastructure.ml.rag_service import RagService
 
-        uow = _require(infra.uow_factory, "uow_factory")
-        vsr = _require(infra.vector_store_repo, "vector_store_repo")
-        fs = _require(infra.file_storage, "file_storage")
-        ml = _require(infra.ml_clients, "ml_clients")
+        uow = _require(infra.db.uow_factory, "uow_factory")
+        vsr = _require(infra.ml.vector_store_repo, "vector_store_repo")
+        fs = _require(infra.ml.file_storage, "file_storage")
+        ml = _require(infra.ml.ml_clients, "ml_clients")
 
         chunk_search = ChunkSearchAdapter(uow_factory=uow)
         pii_redactor = PIIRedactorAdapter(pii_redaction_enabled=settings.pii_redaction_enabled)
@@ -156,13 +150,13 @@ class ApplicationContainer:
             "ingestion_service",
         )
 
-        summary_updater = _require(infra.summary_updater, "summary_updater")
-        api_key_provider = _require(infra.api_key_provider, "api_key_provider")
-        health_probe = _require(infra.health_probe, "health_probe")
-        config_listener = _require(infra.config_listener, "config_listener")
-        metrics_registry = _require(infra.metrics_registry, "metrics_registry")
-        ollama_probe = _require(infra.ollama_probe, "ollama_probe")
-        qdrant_info = _require(infra.qdrant_info, "qdrant_info")
+        summary_updater = _require(infra.ml.summary_updater, "summary_updater")
+        api_key_provider = _require(infra.services.api_key_provider, "api_key_provider")
+        health_probe = _require(infra.services.health_probe, "health_probe")
+        config_listener = _require(infra.events.config_listener, "config_listener")
+        metrics_registry = _require(infra.ml.metrics_registry, "metrics_registry")
+        ollama_probe = _require(infra.services.ollama_probe, "ollama_probe")
+        qdrant_info = _require(infra.services.qdrant_info, "qdrant_info")
 
         self.chat_log_service = ChatLogService(uow_factory=uow)
         self.conversation_service = ConversationService(
@@ -185,13 +179,15 @@ class ApplicationContainer:
             token_provider=JWTProvider(),
             api_key_provider=api_key_provider,
         )
-        self.document_service = DocumentService(
+        self.document_command_service = DocumentCommandService(
             uow_factory=uow,
             vector_store_repo=vsr,
             file_storage=fs,
             bm25_index=BM25IndexAdapter(ml),
             domain_registry=infra.domain_registry,
-            act_versioning_service=_make_act_versioning(infra, uow),
+        )
+        self.document_query_service = DocumentQueryService(
+            uow_factory=uow,
         )
         self.chunk_service = ChunkService(
             uow_factory=uow,
@@ -223,7 +219,7 @@ class ApplicationContainer:
             ocr=MLOcrRunner(),
             pdf_doc=FitzPDFDocument(),
             storage=fs,
-            preview_cache=infra.preview_cache,
+            preview_cache=infra.ml.preview_cache,
         )
 
         self.search_service = SearchService(uow_factory=uow)
@@ -237,8 +233,8 @@ class ApplicationContainer:
         self.job_service = JobService(uow_factory=uow)
 
         # Wire rag_service into benchmark_service for full-pipeline benchmarking
-        if infra.benchmark_service is not None:
-            infra.benchmark_service.set_rag_service(self.rag_service)
+        if infra.ml.benchmark_service is not None:
+            infra.ml.benchmark_service.set_rag_service(self.rag_service)
 
     def validate(self) -> list[str]:
         """Return names of fields that are still ``None`` after init()."""

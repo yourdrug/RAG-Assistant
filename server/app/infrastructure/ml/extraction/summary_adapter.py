@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from application.ports.ml_clients import MLClientPort
-from infrastructure.ml.rag import update_rolling_summary
+from infrastructure.ml.rag.rag_prompts import update_rolling_summary
 
 
 class RollingSummaryUpdater:

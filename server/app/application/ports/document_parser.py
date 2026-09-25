@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 from domain.entities.raw_document import RawDocument
 
 if TYPE_CHECKING:
-    from application.ports.domain_settings import DomainSettingsPort
+    from domain.domain_profile.settings_port import DomainSettingsPort
     from domain.domain_profile.protocol import DomainProfile
 
 

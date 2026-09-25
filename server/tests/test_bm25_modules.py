@@ -1,6 +1,6 @@
 """Tests for split BM25 modules — unique tests not covered by test_hybrid_search.py.
 
-Focuses on: stemmer, backward-compat shim, and incremental operations (add/remove).
+Focuses on: stemmer and incremental operations (add/remove).
 Core BM25/tokenizer/RRF tests live in test_hybrid_search.py.
 """
 
@@ -70,35 +70,3 @@ class TestBM25Incremental:
 # ---------------------------------------------------------------------------
 # Backward compatibility — hybrid.py shim (unique to this file)
 # ---------------------------------------------------------------------------
-
-
-class TestHybridBackwardCompat:
-    """Verify that the hybrid.py shim re-exports everything correctly."""
-
-    def test_imports_from_shim(self):
-        from infrastructure.bm25.hybrid import (
-            BM25Index as ShimBM25,
-            content_hash as ShimHash,
-            rrf_merge as ShimRRF,
-            tokenize as ShimTokenize,
-        )
-
-        assert ShimBM25 is BM25Index
-        assert ShimRRF is not None
-        assert ShimTokenize is not None
-        assert ShimHash is not None
-
-    def test_shim_produces_same_results(self):
-        from infrastructure.bm25.hybrid import BM25Index as ShimBM25, rrf_merge as ShimRRF
-
-        texts = ["маркировка", "штрафы"]
-        idx_direct = BM25Index(texts)
-        idx_shim = ShimBM25(texts)
-
-        r1 = idx_direct.search("маркировка", k=1)
-        r2 = idx_shim.search("маркировка", k=1)
-        assert r1[0][0] == r2[0][0]
-
-        dense = [("a", 0.9)]
-        sparse = [("a", 5.0)]
-        assert ShimRRF(dense, sparse) == ShimRRF(dense, sparse)

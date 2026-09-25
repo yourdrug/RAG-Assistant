@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, TypedDict, runtime_checkable
 
 from domain.value_objects.document_status import DocumentStatus
 from fastapi import HTTPException
@@ -29,6 +29,14 @@ if TYPE_CHECKING:
 logger = logging.getLogger("default")
 
 CHUNK_READ_SIZE = 64 * 1024  # 64 KB per read iteration
+
+
+class UploadResult(TypedDict):
+    """Typed result of upload_and_enqueue — keeps route responses type-safe."""
+
+    document_id: int
+    filename: str
+    status: str
 
 
 # ---------------------------------------------------------------------------
@@ -89,7 +97,7 @@ async def upload_and_enqueue(
     enqueue_fn: "Callable[..., Awaitable[None]]",
     action_name: str,
     log_fn: "ActionLoggerPort | None" = None,
-) -> dict[str, int | str]:
+) -> UploadResult:
     """Shared upload → job-create → enqueue logic used by multiple routes.
 
     Returns a dict with ``document_id``, ``filename``, and ``status``.

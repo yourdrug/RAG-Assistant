@@ -1,11 +1,12 @@
-"""Document endpoints — thin wrappers around DocumentService."""
+"""Document endpoints — thin wrappers around DocumentCommandService/QueryService."""
 
 from __future__ import annotations
 
 import logging
 
 from application.ports.rate_limit import RateLimitPolicyName
-from application.services.document_service import DocumentService
+from application.services.document_command_service import DocumentCommandService
+from application.services.document_query_service import DocumentQueryService
 from application.services.job_service import JobService
 from domain.value_objects.capabilities import Capability
 from domain.value_objects.doc_domain import DocDomain
@@ -19,7 +20,8 @@ from presentation.api.dependencies import (
     create_action_logger,
     create_cache_invalidator,
     create_cache_config,
-    create_document_service,
+    create_document_command_service,
+    create_document_query_service,
     create_idempotency_store,
     create_job_enqueuer,
     create_job_service,
@@ -44,12 +46,10 @@ router = APIRouter(tags=["documents"])
 @router.get("/documents/clients")
 async def list_uploadable_clients(
     current_user: CurrentUser = Depends(get_current_user),
-    document_service: DocumentService = Depends(create_document_service),
+    query: DocumentQueryService = Depends(create_document_query_service),
 ):
     """List clients available for client_private upload (assigned clients for internal, self for client)."""
-    return await document_service.list_uploadable_clients(
-        current_user.id, current_user.kind, current_user.role
-    )
+    return await query.list_uploadable_clients(current_user.id, current_user.kind, current_user.role)
 
 
 @router.post(
@@ -66,7 +66,7 @@ async def upload_document(
     rename_on_conflict: bool = Form(False),
     doc_domain: str | None = Form(None),
     replaces_document_id: int | None = Form(None),
-    document_service: DocumentService = Depends(create_document_service),
+    cmd: DocumentCommandService = Depends(create_document_command_service),
     job_service: JobService = Depends(create_job_service),
     job_enqueuer=Depends(create_job_enqueuer),
     log=Depends(create_action_logger),
@@ -109,7 +109,7 @@ async def upload_document(
         rename_on_conflict=rename_on_conflict,
         doc_domain=doc_domain,
         replaces_document_id=replaces_document_id,
-        document_service=document_service,
+        document_service=cmd,
         job_service=job_service,
         enqueue_fn=job_enqueuer.enqueue_document_processing,
         action_name="document.upload",
@@ -132,9 +132,9 @@ async def list_documents(
     limit: int = Query(200, ge=1, le=1000, description="Page size (M-6: unbounded lists are forbidden)"),
     offset: int = Query(0, ge=0),
     current_user: CurrentUser = Depends(require_capability(Capability.DOCUMENTS_VIEW)),
-    document_service: DocumentService = Depends(create_document_service),
+    query: DocumentQueryService = Depends(create_document_query_service),
 ):
-    return await document_service.list_documents(
+    return await query.list_documents(
         user_id=current_user.id,
         user_kind=current_user.kind,
         user_role=current_user.role,
@@ -147,11 +147,9 @@ async def list_documents(
 async def get_document_status(
     document_id: int,
     current_user: CurrentUser = Depends(require_capability(Capability.DOCUMENTS_VIEW)),
-    document_service: DocumentService = Depends(create_document_service),
+    query: DocumentQueryService = Depends(create_document_query_service),
 ):
-    return await document_service.get_document(
-        document_id, current_user.id, current_user.kind, current_user.role
-    )
+    return await query.get_document(document_id, current_user.id, current_user.kind, current_user.role)
 
 
 @router.delete(
@@ -162,12 +160,12 @@ async def get_document_status(
 async def delete_document(
     document_id: int,
     current_user: CurrentUser = Depends(require_capability(Capability.DOCUMENTS_MANAGE)),
-    document_service: DocumentService = Depends(create_document_service),
+    cmd: DocumentCommandService = Depends(create_document_command_service),
     log=Depends(create_action_logger),
     cache_inv=Depends(create_cache_invalidator),
     cache_cfg=Depends(create_cache_config),
 ):
-    await document_service.delete_document(document_id, current_user.id, current_user.role, current_user.kind)
+    await cmd.delete_document(document_id, current_user.id, current_user.role, current_user.kind)
     await cache_inv.invalidate_by_document_ids([document_id], cache_enabled=cache_cfg.cache_enabled)
     log("document.delete", user_id=current_user.id, details={"document_id": document_id})
     return DeleteDocumentResponse(status="deleted", document_id=document_id)
@@ -182,10 +180,10 @@ async def rename_document(
     document_id: int,
     body: DocumentRenameRequest,
     current_user: CurrentUser = Depends(require_capability(Capability.DOCUMENTS_MANAGE)),
-    document_service: DocumentService = Depends(create_document_service),
+    cmd: DocumentCommandService = Depends(create_document_command_service),
     log=Depends(create_action_logger),
 ):
-    result = await document_service.rename_document(
+    result = await cmd.rename_document(
         document_id=document_id,
         new_filename=body.filename,
         user_id=current_user.id,

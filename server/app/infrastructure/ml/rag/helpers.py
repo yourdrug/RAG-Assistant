@@ -17,7 +17,7 @@ from domain.value_objects.user_context import UserContext
 from domain.value_objects.search_mode import SearchMode
 from langchain.schema import Document as LCDocument
 
-from infrastructure.bm25.hybrid import content_hash
+from domain.utils import content_hash
 from infrastructure.ml.clients.llm_schemas import SufficiencyAssessment
 from infrastructure.ml.rag.rag_formatting import format_docs
 from infrastructure.ml.rag.rag_reranking import deduplicate_docs, rerank_documents
@@ -260,7 +260,9 @@ async def retrieve_with_decomposition(
     if rag.features.decomposition_enabled:
         t0 = time.monotonic()
         try:
-            sub_queries = await decompose_question(ml_clients.fast_llm(), query, ml_clients=ml_clients)
+            sub_queries = await decompose_question(
+                query, instructor_client=ml_clients.instructor_client, ml_clients=ml_clients
+            )
         except Exception as e:
             log.warning("Decomposition failed, falling back to single query: %s", e)
             sub_queries = [query]

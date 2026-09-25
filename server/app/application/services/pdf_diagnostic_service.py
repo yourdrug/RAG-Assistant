@@ -7,7 +7,7 @@ import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from application.dto.pdf_dto import DryRunPageResult, DryRunResult  # noqa: F401 -- re-export
+from domain.value_objects.pdf_dto import DryRunPageResult
 from application.ports.pdf_diagnostics import (
     PDFDocumentPort,
     PDFOcrPort,

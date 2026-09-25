@@ -17,7 +17,7 @@ import json
 import logging
 import time
 
-from infrastructure.bm25.hybrid import content_hash
+from domain.utils import content_hash
 from infrastructure.redis.redis_client import redis_client
 from domain.value_objects.curator_scope import CuratorScope
 from domain.value_objects.roles import UserRole

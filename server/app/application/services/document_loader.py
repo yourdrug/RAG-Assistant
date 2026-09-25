@@ -18,7 +18,7 @@ from domain.services.document_domain_classifier import classify_document_domain
 from domain.value_objects.doc_domain import DocDomain
 
 if TYPE_CHECKING:
-    from application.ports.domain_settings import DomainSettingsPort
+    from domain.domain_profile.settings_port import DomainSettingsPort
     from application.ports.file_storage import FileItem, FileStorage
     from application.ports.ingestion_settings import IngestionSettingsPort
     from application.services.ingestion_registry import IngestionRegistry

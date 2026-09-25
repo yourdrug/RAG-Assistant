@@ -10,7 +10,7 @@ from application.dto.document_dto import DocumentDTO
 from application.ports.bm25_index import BM25IndexPort
 from application.ports.file_storage import FileStorage
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
-from application.services.document_pipeline import build_outbox_metadata
+from application.services.document_pipeline import build_outbox_metadata, enqueue_delete_by_document
 from application.services.document_conflict_resolver import resolve_conflict
 from application.services.document_utils import generate_storage_key, resolve_unique_filename
 from application.services.user_context_factory import UserContextFactory
@@ -30,7 +30,6 @@ from domain.value_objects.roles import UserKind, UserRole
 from domain.value_objects.visibility import DocumentVisibility
 
 if TYPE_CHECKING:
-    from application.services.act_versioning_service import ActVersioningService
     from domain.domain_profile.registry import DomainProfileRegistry
 
 log = logging.getLogger(__name__)
@@ -46,7 +45,6 @@ class DocumentCommandService:
         file_storage: FileStorage,
         bm25_index: BM25IndexPort,
         domain_registry: "DomainProfileRegistry | None" = None,
-        act_versioning_service: "ActVersioningService | None" = None,
         user_ctx_factory: UserContextFactory | None = None,
     ) -> None:
         self._uow_factory = uow_factory
@@ -54,7 +52,6 @@ class DocumentCommandService:
         self._file_storage = file_storage
         self._bm25_index = bm25_index
         self._domain_registry = domain_registry
-        self._act_versioning_service = act_versioning_service
         self._user_ctx_factory = user_ctx_factory or UserContextFactory()
 
     def _get_domain_profile(self, doc_domain: str):
@@ -148,7 +145,6 @@ class DocumentCommandService:
             doc,
             existing,
             profile,
-            act_versioning_service=self._act_versioning_service,
         )
         if old_source_path:
             storage_deletes.append(old_source_path)
@@ -237,14 +233,7 @@ class DocumentCommandService:
                 raise EntityNotFound("Document", document_id)
             ctx = await self._user_ctx_factory.build(uow, user_id, user_kind, user_role)
             check_ownership(doc, ctx, "delete")
-            await uow.vector_outbox.enqueue(
-                VectorOutboxEntry(
-                    operation=OutboxOperation.DELETE_BY_DOCUMENT,
-                    aggregate_type="document",
-                    aggregate_id=document_id,
-                    payload={"document_id": document_id},
-                )
-            )
+            await enqueue_delete_by_document(uow, document_id)
             await self._remove_document_from_bm25(uow, document_id)
             source_path = doc.source_path
             await uow.conversations.clear_summaries_referencing(document_id)

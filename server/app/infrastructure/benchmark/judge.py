@@ -2,26 +2,29 @@
 
 import asyncio
 import logging
+import threading
 import time
+from typing import Any
 
 from config import settings
 from domain.services.rag_policy import build_system_prompt
 from domain.value_objects.llm_provider import Breadth, LLMProvider
 from langchain.schema import Document
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
 
 from infrastructure.ml.clients.llm_schemas import JudgeScore
-from infrastructure.ml.rag import format_docs
+from infrastructure.ml.rag.rag_formatting import format_docs
 
 logger = logging.getLogger("default")
 
 JUDGE_MAX_RETRIES = 3
 JUDGE_RETRY_DELAY = 5.0
+
+# ---------------------------------------------------------------------------
+# Cached judge client (one connection pool per model, not per call)
+# ---------------------------------------------------------------------------
+
+_judge_client_cache: dict[str, Any] = {}
+_judge_client_lock = threading.Lock()
 
 # ---------------------------------------------------------------------------
 # Prompt templates
@@ -141,11 +144,23 @@ def _get_judge_model() -> str:
 
 
 def _get_judge_client(model: str):
-    """Create an instructor-wrapped client for the judge model."""
-    from infrastructure.ml.clients.instructor_client import create_llm_instructor_client
+    """Get or create a cached instructor client for the judge model.
 
-    client, _resolved = create_llm_instructor_client(model=model)
-    return client
+    Thread-safe: first call creates the client, subsequent calls return the cached
+    instance.  This avoids creating a new httpx connection pool per benchmark question.
+    """
+    cached = _judge_client_cache.get(model)
+    if cached is not None:
+        return cached
+    with _judge_client_lock:
+        cached = _judge_client_cache.get(model)
+        if cached is not None:
+            return cached
+        from infrastructure.ml.clients.instructor_client import create_llm_instructor_client
+
+        client, _resolved = create_llm_instructor_client(model=model)
+        _judge_client_cache[model] = client
+        return client
 
 
 def _judge_with_structured_output(
@@ -153,24 +168,18 @@ def _judge_with_structured_output(
     prompt: str,
     model: str,
 ) -> JudgeScore:
-    """Call judge LLM with structured output + tenacity retry."""
-    max_retries = JUDGE_MAX_RETRIES
+    """Call judge LLM with structured output via instructor.
 
-    @retry(
-        stop=stop_after_attempt(max_retries),
-        wait=wait_exponential(multiplier=1, min=1, max=10),
-        retry=retry_if_exception_type((Exception,)),
-        reraise=True,
+    Uses instructor's ``max_retries=2`` for automatic validation retries.
+    No outer tenacity/retry layer — this matches the single-layer pattern
+    used in ``rag_relevance.py`` and ``helpers.py``.
+    """
+    return client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+        response_model=JudgeScore,
+        max_retries=2,
     )
-    def _call() -> JudgeScore:
-        return client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            response_model=JudgeScore,
-            max_retries=3,
-        )
-
-    return _call()
 
 
 # ---------------------------------------------------------------------------
@@ -234,7 +243,7 @@ def judge_answer(
     expected_answer: str | None = None,
     judge_llm=None,
 ) -> dict:
-    """Run judge LLM synchronously with structured output (instructor + tenacity)."""
+    """Run judge LLM synchronously with structured output (instructor only)."""
     model = _get_judge_model()
     client = _get_judge_client(model if settings.llm_provider == LLMProvider.OLLAMA else "")
 
@@ -271,7 +280,7 @@ async def judge_answer_async(
     expected_answer: str | None = None,
     judge_llm=None,
 ) -> dict:
-    """Judge answer quality with structured output (instructor + tenacity)."""
+    """Judge answer quality with structured output (instructor + timeout)."""
     model = _get_judge_model()
     client = _get_judge_client(model if settings.llm_provider == LLMProvider.OLLAMA else "")
 
@@ -285,33 +294,18 @@ async def judge_answer_async(
         )
 
     async def _judge_one(prompt: str) -> JudgeScore:
-        import asyncio as _asyncio
-
         def _call() -> JudgeScore:
             return client.chat.completions.create(
                 model=model,
                 messages=[{"role": "user", "content": prompt}],
                 response_model=JudgeScore,
-                max_retries=3,
+                max_retries=2,
             )
 
-        for attempt in range(1, JUDGE_MAX_RETRIES + 1):
-            try:
-                result = await _asyncio.to_thread(_call)
-                return result
-            except Exception as exc:
-                if attempt == JUDGE_MAX_RETRIES:
-                    raise
-                delay = JUDGE_RETRY_DELAY * attempt
-                logger.warning(
-                    "Async judge invoke failed (attempt %d/%d): %s — retrying in %.1fs",
-                    attempt,
-                    JUDGE_MAX_RETRIES,
-                    exc,
-                    delay,
-                )
-                await _asyncio.sleep(delay)
-        raise RuntimeError("Unreachable")
+        return await asyncio.wait_for(
+            asyncio.to_thread(_call),
+            timeout=settings.llm_auxiliary_timeout,
+        )
 
     keys = list(prompts.keys())
     raw_results = await asyncio.gather(*[_judge_one(prompts[k]) for k in keys])

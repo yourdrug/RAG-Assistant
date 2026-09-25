@@ -13,8 +13,12 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-import infrastructure.ml.rag as rag  # noqa: E402
-from infrastructure.ml.rag import classify_question_breadth  # noqa: E402
+import infrastructure.ml.rag.rag_formatting as rag_fmt  # noqa: E402
+import infrastructure.ml.rag.rag_reranking as rag_rr  # noqa: E402
+import infrastructure.ml.rag.rag_relevance as rag_rel  # noqa: E402
+import infrastructure.ml.rag.rag_sources as rag_src  # noqa: E402
+from domain.services.rag_policy import classify_question_breadth  # noqa: E402
+from infrastructure.ml.rag.rag_prompts import decompose_question  # noqa: E402
 from langchain_core.language_models import FakeListChatModel  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -37,49 +41,49 @@ def _doc(content: str, source: str = "a.pdf", page: int | None = 1):
 class TestFormatDocs:
     def test_single_doc_with_page(self):
         docs = [_doc("hello", "report.pdf", page=3)]
-        result = rag.format_docs(docs)
+        result = rag_fmt.format_docs(docs)
         assert "[1] report.pdf (стр. 3)" in result
         assert "hello" in result
 
     def test_single_doc_without_page(self):
         docs = [_doc("content", "readme.md", page=None)]
-        result = rag.format_docs(docs)
+        result = rag_fmt.format_docs(docs)
         assert "[1] readme.md" in result
         assert "(стр." not in result
 
     def test_multiple_docs_separated_by_separator(self):
         docs = [_doc("first", "a.pdf"), _doc("second", "b.pdf")]
-        result = rag.format_docs(docs)
+        result = rag_fmt.format_docs(docs)
         # Separator is "\n\n---\n\n"
         assert "\n\n---\n\n" in result
         assert "[1]" in result
         assert "[2]" in result
 
     def test_empty_list_returns_empty_string(self):
-        assert rag.format_docs([]) == ""
+        assert rag_fmt.format_docs([]) == ""
 
     def test_doc_with_unknown_source(self):
         doc = SimpleNamespace(page_content="text", metadata={})
-        result = rag.format_docs([doc])
+        result = rag_fmt.format_docs([doc])
         assert "[1] unknown" in result
 
     def test_docs_numbering_starts_at_one(self):
         docs = [_doc("a"), _doc("b"), _doc("c")]
-        result = rag.format_docs(docs)
+        result = rag_fmt.format_docs(docs)
         assert "[1]" in result
         assert "[2]" in result
         assert "[3]" in result
 
     def test_metadata_keys_preserved_in_output(self):
         doc = SimpleNamespace(page_content="data", metadata={"source": "x.pdf", "page": 7})
-        result = rag.format_docs([doc])
+        result = rag_fmt.format_docs([doc])
         assert "x.pdf" in result
         assert "7" in result
 
     def test_accepts_scored_pairs(self):
         docs = [_doc("текст 1", "a.pdf"), _doc("текст 2", "b.pdf")]
         scored = [(docs[0], 0.9), (docs[1], 0.3)]
-        result = rag.format_docs(scored)
+        result = rag_fmt.format_docs(scored)
         assert "[1] a.pdf" in result
         assert "[2] b.pdf" in result
         assert "текст 1" in result
@@ -93,46 +97,46 @@ class TestFormatDocs:
 class TestExtractSources:
     def test_single_source_single_page(self):
         docs = [_doc("t", "a.pdf", page=1)]
-        sources = rag.extract_sources(docs)
+        sources = rag_src.extract_sources(docs)
         assert len(sources) == 1
         assert sources[0]["source"] == "a.pdf"
         assert sources[0]["pages"] == [1]
 
     def test_same_source_multiple_pages_deduplicated(self):
         docs = [_doc("t1", "a.pdf", 1), _doc("t2", "a.pdf", 3), _doc("t3", "a.pdf", 1)]
-        sources = rag.extract_sources(docs)
+        sources = rag_src.extract_sources(docs)
         assert len(sources) == 1
         assert sorted(sources[0]["pages"]) == [1, 3]
 
     def test_multiple_sources(self):
         docs = [_doc("t1", "a.pdf", 1), _doc("t2", "b.pdf", 2)]
-        sources = rag.extract_sources(docs)
+        sources = rag_src.extract_sources(docs)
         assert len(sources) == 2
         src_names = {s["source"] for s in sources}
         assert src_names == {"a.pdf", "b.pdf"}
 
     def test_empty_docs_returns_empty_list(self):
-        assert rag.extract_sources([]) == []
+        assert rag_src.extract_sources([]) == []
 
     def test_doc_without_page_metadata(self):
         doc = SimpleNamespace(page_content="t", metadata={"source": "x.pdf"})
-        sources = rag.extract_sources([doc])
+        sources = rag_src.extract_sources([doc])
         assert sources[0]["pages"] == []
 
     def test_doc_without_source_metadata_defaults_to_unknown(self):
         doc = SimpleNamespace(page_content="t", metadata={})
-        sources = rag.extract_sources([doc])
+        sources = rag_src.extract_sources([doc])
         assert sources[0]["source"] == "unknown"
 
     def test_pages_are_sorted(self):
         docs = [_doc("t", "a.pdf", 5), _doc("t", "a.pdf", 2), _doc("t", "a.pdf", 8)]
-        sources = rag.extract_sources(docs)
+        sources = rag_src.extract_sources(docs)
         assert sources[0]["pages"] == [2, 5, 8]
 
     def test_with_scored_pairs_adds_max_score(self):
         docs = [_doc("t1", "a.pdf", 1), _doc("t2", "a.pdf", 3), _doc("t3", "b.pdf", 1)]
         scored = [(docs[0], 0.5), (docs[1], 0.9), (docs[2], 0.3)]
-        sources = rag.extract_sources(scored)
+        sources = rag_src.extract_sources(scored)
         by_name = {s["source"]: s for s in sources}
         assert by_name["a.pdf"]["max_score"] == 0.9
         assert by_name["b.pdf"]["max_score"] == 0.3
@@ -140,13 +144,13 @@ class TestExtractSources:
     def test_with_scored_pairs_sorted_by_max_score(self):
         docs = [_doc("t1", "low.pdf", 1), _doc("t2", "high.pdf", 1)]
         scored = [(docs[0], 0.2), (docs[1], 0.95)]
-        sources = rag.extract_sources(scored)
+        sources = rag_src.extract_sources(scored)
         assert sources[0]["source"] == "high.pdf"
         assert sources[1]["source"] == "low.pdf"
 
     def test_without_scores_no_max_score_key(self):
         docs = [_doc("t", "a.pdf", 1)]
-        sources = rag.extract_sources(docs)
+        sources = rag_src.extract_sources(docs)
         assert "max_score" not in sources[0]
 
 
@@ -163,28 +167,28 @@ class TestFilterCitedSources:
             {"source": "c.pdf", "pages": [3]},
         ]
         answer = "Согласно [1], нужно X. Также [3] указывает на Y."
-        result = rag.filter_cited_sources(answer, sources)
+        result = rag_rel.filter_cited_sources(answer, sources)
         assert [s["source"] for s in result] == ["a.pdf", "c.pdf"]
 
     def test_no_citations_returns_all(self):
         sources = [{"source": "a.pdf", "pages": [1]}, {"source": "b.pdf", "pages": [2]}]
         answer = "Ответ без ссылок."
-        result = rag.filter_cited_sources(answer, sources)
+        result = rag_rel.filter_cited_sources(answer, sources)
         assert len(result) == 2
 
     def test_empty_sources(self):
-        assert rag.filter_cited_sources("answer [1]", []) == []
+        assert rag_rel.filter_cited_sources("answer [1]", []) == []
 
     def test_citation_out_of_range_returns_all_as_fallback(self):
         sources = [{"source": "a.pdf", "pages": [1]}]
         answer = "См. [5] для деталей."
-        result = rag.filter_cited_sources(answer, sources)
+        result = rag_rel.filter_cited_sources(answer, sources)
         assert len(result) == 1
 
     def test_multiple_citations_same_source(self):
         sources = [{"source": "a.pdf", "pages": [1]}, {"source": "b.pdf", "pages": [2]}]
         answer = "[1] и [1] оба указывают на a.pdf"
-        result = rag.filter_cited_sources(answer, sources)
+        result = rag_rel.filter_cited_sources(answer, sources)
         assert len(result) == 1
         assert result[0]["source"] == "a.pdf"
 
@@ -201,7 +205,7 @@ class TestHistoryToMessages:
             {"role": "assistant", "content": "a1"},
             {"role": "user", "content": "q2"},
         ]
-        messages = rag.history_to_messages(history)
+        messages = rag_fmt.history_to_messages(history)
         assert len(messages) == 3
         from langchain_core.messages import AIMessage, HumanMessage
 
@@ -210,23 +214,23 @@ class TestHistoryToMessages:
         assert isinstance(messages[2], HumanMessage)
 
     def test_empty_history(self):
-        assert rag.history_to_messages([]) == []
+        assert rag_fmt.history_to_messages([]) == []
 
     def test_only_user_messages(self):
         history = [{"role": "user", "content": "q1"}]
-        messages = rag.history_to_messages(history)
+        messages = rag_fmt.history_to_messages(history)
         assert len(messages) == 1
         assert messages[0].content == "q1"
 
     def test_only_assistant_messages(self):
         history = [{"role": "assistant", "content": "a1"}]
-        messages = rag.history_to_messages(history)
+        messages = rag_fmt.history_to_messages(history)
         assert len(messages) == 1
         assert messages[0].content == "a1"
 
     def test_content_preserved_exactly(self):
         history = [{"role": "user", "content": "Special chars: <>&\"'}"}]
-        messages = rag.history_to_messages(history)
+        messages = rag_fmt.history_to_messages(history)
         assert messages[0].content == "Special chars: <>&\"'}"
 
 
@@ -242,7 +246,7 @@ class TestRerankDocuments:
     def test_top_n_less_than_docs(self):
         docs = [_doc("a"), _doc("b"), _doc("c")]
         reranker = self._fake_reranker([0.1, 0.9, 0.5])
-        result = asyncio.run(rag.rerank_documents("q", docs, top_n=2, reranker=reranker))
+        result = asyncio.run(rag_rr.rerank_documents("q", docs, top_n=2, reranker=reranker))
         assert len(result) == 2
         assert isinstance(result[0], tuple)
         assert result[0][0].page_content == "b"
@@ -251,48 +255,50 @@ class TestRerankDocuments:
     def test_top_n_greater_than_docs_returns_all(self):
         docs = [_doc("a"), _doc("b")]
         reranker = self._fake_reranker([0.5, 0.3])
-        result = asyncio.run(rag.rerank_documents("q", docs, top_n=10, reranker=reranker))
+        result = asyncio.run(rag_rr.rerank_documents("q", docs, top_n=10, reranker=reranker))
         assert len(result) == 2
 
     def test_equal_scores_preserve_original_order(self):
         docs = [_doc("first"), _doc("second")]
         reranker = self._fake_reranker([0.5, 0.5])
-        result = asyncio.run(rag.rerank_documents("q", docs, top_n=2, reranker=reranker))
+        result = asyncio.run(rag_rr.rerank_documents("q", docs, top_n=2, reranker=reranker))
         assert [d.page_content for d, _ in result] == ["first", "second"]
 
     def test_negative_scores_handled(self):
         docs = [_doc("bad"), _doc("worse")]
         reranker = self._fake_reranker([-0.8, -0.2])
-        result = asyncio.run(rag.rerank_documents("q", docs, top_n=1, reranker=reranker))
+        result = asyncio.run(rag_rr.rerank_documents("q", docs, top_n=1, reranker=reranker))
         assert result[0][0].page_content == "worse"
 
     def test_empty_docs_returns_empty(self):
         reranker = self._fake_reranker([])
-        assert asyncio.run(rag.rerank_documents("q", [], top_n=5, reranker=reranker)) == []
+        assert asyncio.run(rag_rr.rerank_documents("q", [], top_n=5, reranker=reranker)) == []
 
     def test_single_doc_returns_single(self):
         docs = [_doc("only")]
         reranker = self._fake_reranker([0.7])
-        result = asyncio.run(rag.rerank_documents("q", docs, top_n=5, reranker=reranker))
+        result = asyncio.run(rag_rr.rerank_documents("q", docs, top_n=5, reranker=reranker))
         assert len(result) == 1
 
     def test_top_n_zero_returns_empty(self):
         docs = [_doc("a"), _doc("b")]
         reranker = self._fake_reranker([0.9, 0.1])
-        result = asyncio.run(rag.rerank_documents("q", docs, top_n=0, reranker=reranker))
+        result = asyncio.run(rag_rr.rerank_documents("q", docs, top_n=0, reranker=reranker))
         assert result == []
 
     def test_min_score_filters_low_scores(self):
         docs = [_doc("a"), _doc("b"), _doc("c")]
         reranker = self._fake_reranker([0.9, 0.3, 0.1])
-        result = asyncio.run(rag.rerank_documents("q", docs, top_n=3, reranker=reranker, min_score=0.5))
+        result = asyncio.run(rag_rr.rerank_documents("q", docs, top_n=3, reranker=reranker, min_score=0.5))
         assert len(result) == 1
         assert result[0][0].page_content == "a"
 
     def test_score_gap_ratio_filters_far_from_top(self):
         docs = [_doc("a"), _doc("b"), _doc("c")]
         reranker = self._fake_reranker([1.0, 0.05, 0.01])
-        result = asyncio.run(rag.rerank_documents("q", docs, top_n=3, reranker=reranker, score_gap_ratio=0.1))
+        result = asyncio.run(
+            rag_rr.rerank_documents("q", docs, top_n=3, reranker=reranker, score_gap_ratio=0.1)
+        )
         assert len(result) == 1
         assert result[0][0].page_content == "a"
 
@@ -300,7 +306,7 @@ class TestRerankDocuments:
         docs = [_doc("a"), _doc("b"), _doc("c")]
         reranker = self._fake_reranker([1.0, 0.8, 0.01])
         result = asyncio.run(
-            rag.rerank_documents("q", docs, top_n=3, reranker=reranker, min_score=0.5, score_gap_ratio=0.5)
+            rag_rr.rerank_documents("q", docs, top_n=3, reranker=reranker, min_score=0.5, score_gap_ratio=0.5)
         )
         # gap_ratio cutoff = 1.0 * 0.5 = 0.5; min_score = 0.5
         # a: 1.0 >= 0.5 and >= 0.5 → keep
@@ -491,7 +497,7 @@ class TestShouldEnumerateCases:
 
 class TestCheckRelevance:
     def test_empty_docs_returns_false(self):
-        result = asyncio.run(rag.check_relevance(None, "question", []))
+        result = asyncio.run(rag_rel.check_relevance(None, "question", []))
         assert result == (False, "Нет документов для проверки")
 
     def test_relevant_answer_detected(self):
@@ -512,7 +518,9 @@ class TestCheckRelevance:
                 mock_settings.llm_provider = MagicMock(value="ollama")
                 mock_settings.llm_model = "test-model"
                 mock_settings.llm_auxiliary_timeout = 30
-                result = asyncio.run(rag.check_relevance(mock_ml_clients, "question", [_doc("some context")]))
+                result = asyncio.run(
+                    rag_rel.check_relevance(mock_ml_clients, "question", [_doc("some context")])
+                )
                 assert result[0] is True
 
     def test_irrelevant_answer_detected(self):
@@ -533,7 +541,9 @@ class TestCheckRelevance:
                 mock_settings.llm_provider = MagicMock(value="ollama")
                 mock_settings.llm_model = "test-model"
                 mock_settings.llm_auxiliary_timeout = 30
-                result = asyncio.run(rag.check_relevance(mock_ml_clients, "question", [_doc("some context")]))
+                result = asyncio.run(
+                    rag_rel.check_relevance(mock_ml_clients, "question", [_doc("some context")])
+                )
                 assert result[0] is False
 
 
@@ -706,14 +716,16 @@ class TestHandleRelevanceGate:
 class TestDecomposeQuestion:
     def test_single_line_returns_original(self):
         llm = FakeListChatModel(responses=["Один подвопрос"])
-        result = asyncio.run(rag.decompose_question(llm, "complex question"))
+        ml_clients = SimpleNamespace(fast_llm=lambda: llm, auxiliary_semaphore=AsyncMock())
+        result = asyncio.run(decompose_question("complex question", ml_clients=ml_clients))
         assert result == ["complex question"]
 
-    def test_multi_line_returns_list(self):
+    def test_multi_line_returns_original_without_instructor(self):
+        """Without instructor_client, decompose_question returns the original question."""
         llm = FakeListChatModel(responses=["Подвопрос 1\nПодвопрос 2\nПодвопрос 3"])
-        result = asyncio.run(rag.decompose_question(llm, "complex question"))
-        assert len(result) == 3
-        assert "Подвопрос 1" in result
+        ml_clients = SimpleNamespace(fast_llm=lambda: llm, auxiliary_semaphore=AsyncMock())
+        result = asyncio.run(decompose_question("complex question", ml_clients=ml_clients))
+        assert result == ["complex question"]
 
 
 # ---------------------------------------------------------------------------
@@ -901,7 +913,7 @@ class TestGroupBySection:
             (self._doc_with_section("silver rule", heading="21.2"), 0.9),
             (self._doc_with_section("gold rule cont", heading="21.1"), 0.7),
         ]
-        result = rag.group_by_section(docs)
+        result = rag_rr.group_by_section(docs)
         headings = [d.metadata.get("heading") for d, _ in result]
         assert headings == ["21.2", "21.1", "21.1"]
 
@@ -911,19 +923,19 @@ class TestGroupBySection:
             (self._doc_with_section("b", heading="21.1"), 0.9),
             (self._doc_with_section("c", heading="21.1"), 0.7),
         ]
-        result = rag.group_by_section(docs)
+        result = rag_rr.group_by_section(docs)
         scores = [s for _, s in result]
         assert scores == [0.9, 0.7, 0.5]
 
     def test_empty_input(self):
-        assert rag.group_by_section([]) == []
+        assert rag_rr.group_by_section([]) == []
 
     def test_single_group(self):
         docs = [
             (self._doc_with_section("a", heading="21.1"), 0.5),
             (self._doc_with_section("b", heading="21.1"), 0.9),
         ]
-        result = rag.group_by_section(docs)
+        result = rag_rr.group_by_section(docs)
         assert len(result) == 2
         assert result[0][1] == 0.9
 
@@ -932,7 +944,7 @@ class TestGroupBySection:
             (SimpleNamespace(page_content="x", metadata={"source": "a.pdf"}), 0.8),
             (SimpleNamespace(page_content="y", metadata={"source": "a.pdf"}), 0.9),
         ]
-        result = rag.group_by_section(docs)
+        result = rag_rr.group_by_section(docs)
         assert len(result) == 2
 
     def test_groups_sorted_by_max_score_descending(self):
@@ -941,7 +953,7 @@ class TestGroupBySection:
             (self._doc_with_section("high", heading="section_a"), 0.9),
             (self._doc_with_section("mid", heading="section_b"), 0.6),
         ]
-        result = rag.group_by_section(docs)
+        result = rag_rr.group_by_section(docs)
         assert result[0][0].metadata["heading"] == "section_a"
         assert result[1][0].metadata["heading"] == "section_b"
         assert result[2][0].metadata["heading"] == "section_b"
@@ -977,7 +989,7 @@ class TestRerankSectionPrefix:
             return [0.5, 0.5]
 
         reranker = SimpleNamespace(predict=capture_predict)
-        asyncio.run(rag.rerank_documents("query", docs, top_n=2, reranker=reranker))
+        asyncio.run(rag_rr.rerank_documents("query", docs, top_n=2, reranker=reranker))
 
         assert len(captured_pairs) == 2
         assert "(21.1)" in captured_pairs[0][1]
@@ -996,7 +1008,7 @@ class TestRerankSectionPrefix:
             return [0.5]
 
         reranker = SimpleNamespace(predict=capture_predict)
-        asyncio.run(rag.rerank_documents("q", docs, top_n=1, reranker=reranker))
+        asyncio.run(rag_rr.rerank_documents("q", docs, top_n=1, reranker=reranker))
         assert "(decree.pdf)" not in captured_pairs[0][1]
 
 

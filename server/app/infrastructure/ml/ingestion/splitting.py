@@ -15,7 +15,7 @@ from domain.value_objects.page_content_type import PageContentType
 
 if TYPE_CHECKING:
     from application.ports.chunk_settings import ChunkSettingsPort
-    from application.ports.domain_settings import DomainSettingsPort
+    from domain.domain_profile.settings_port import DomainSettingsPort
     from domain.domain_profile.protocol import DomainProfile
 
 log = logging.getLogger("detailed")

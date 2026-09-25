@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-from application.dto.pdf_dto import DryRunPageResult
+from domain.value_objects.pdf_dto import DryRunPageResult
 
 
 @runtime_checkable

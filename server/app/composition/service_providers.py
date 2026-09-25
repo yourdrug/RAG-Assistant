@@ -47,7 +47,7 @@ def create_ingestion_service(
     from infrastructure.ml.config.settings_adapters import LiveIngestionSettings
 
     uow = _require(
-        uow_factory if uow_factory is not None else infra.uow_factory,
+        uow_factory if uow_factory is not None else infra.db.uow_factory,
         "uow_factory",
     )
 
@@ -57,7 +57,7 @@ def create_ingestion_service(
         # the API upload path does (TZ section 8.4)
         act_versioning = ActVersioningService(uow_factory=uow, settings=infra.domain_settings)
 
-    file_storage = _require(infra.file_storage, "file_storage")
+    file_storage = _require(infra.ml.file_storage, "file_storage")
 
     registry = IngestionRegistry(uow, file_storage)
     sync = DocumentSyncService(uow, act_versioning, infra.domain_registry, infra.domain_settings)
@@ -74,7 +74,7 @@ def create_ingestion_service(
     targets = S3IngestionTargets()
     return IngestionService(
         batch_workflow=BatchIngestionWorkflow(
-            _require(infra.vector_store_repo, "vector_store_repo"),
+            _require(infra.ml.vector_store_repo, "vector_store_repo"),
             ingestion_settings,
             loader,
             registry,
@@ -102,7 +102,7 @@ def create_document_processor(
     from infrastructure.ml.guardrails.text_quality_adapter import TextQualityAssessorAdapter
 
     uow = _require(
-        uow_factory if uow_factory is not None else infra.uow_factory,
+        uow_factory if uow_factory is not None else infra.db.uow_factory,
         "uow_factory",
     )
 
@@ -115,14 +115,14 @@ def create_document_processor(
 
     return DocumentProcessor(
         uow_factory=uow,
-        vector_store_repo=_require(infra.vector_store_repo, "vector_store_repo"),
-        file_storage=_require(infra.file_storage, "file_storage"),
-        document_parser=_require(infra.document_parser, "document_parser"),
-        document_splitter=_require(infra.document_splitter, "document_splitter"),
-        content_extractor=_require(infra.content_extractor, "content_extractor"),
-        pdf_quality_assessor=_require(infra.pdf_quality_assessor, "pdf_quality_assessor"),
+        vector_store_repo=_require(infra.ml.vector_store_repo, "vector_store_repo"),
+        file_storage=_require(infra.ml.file_storage, "file_storage"),
+        document_parser=_require(infra.ml.document_parser, "document_parser"),
+        document_splitter=_require(infra.ml.document_splitter, "document_splitter"),
+        content_extractor=_require(infra.ml.content_extractor, "content_extractor"),
+        pdf_quality_assessor=_require(infra.ml.pdf_quality_assessor, "pdf_quality_assessor"),
         text_quality_assessor=TextQualityAssessorAdapter(),
-        metrics=_require(infra.metrics_collector, "metrics_collector"),
+        metrics=_require(infra.ml.metrics_collector, "metrics_collector"),
         domain_marker_threshold=settings.document_domain_marker_threshold,
         domain_registry=infra.domain_registry,
         domain_settings=infra.domain_settings,
@@ -144,7 +144,7 @@ def create_ingest_app_service(
     from application.services.ingest_service import IngestAppService
 
     uow = _require(
-        uow_factory if uow_factory is not None else infra.uow_factory,
+        uow_factory if uow_factory is not None else infra.db.uow_factory,
         "uow_factory",
     )
     ingestion_svc = create_ingestion_service(infra, uow_factory=uow)

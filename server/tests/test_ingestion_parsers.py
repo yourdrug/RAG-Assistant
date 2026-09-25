@@ -9,7 +9,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 from infrastructure.ml.ingestion import clean_pdf_text  # noqa: E402
-from infrastructure.utils.registry import file_hash  # noqa: E402
+
+
+def file_hash(source):  # noqa: E402
+    return f"{source.size_bytes}_{source.last_modified}"
 
 
 def test_clean_pdf_text_dehyphenates_line_breaks():

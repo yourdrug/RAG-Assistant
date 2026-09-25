@@ -20,7 +20,7 @@ from presentation.api.rate_limit import rate_limit
 from presentation.api.constants import FILE_TOO_LARGE_STATUS, PAGE_IMAGE_DPI
 from presentation.api.dependencies import (
     create_action_logger,
-    create_document_service,
+    create_document_command_service,
     create_domain_registry,
     create_domain_settings,
     create_job_enqueuer,
@@ -367,7 +367,7 @@ async def index_from_preview(
     doc_domain: str | None = Form(None),
     admin: CurrentUser = Depends(require_admin),
     preview_cache=Depends(create_preview_cache),
-    document_service=Depends(create_document_service),
+    cmd=Depends(create_document_command_service),
     job_service=Depends(create_job_service),
     job_enqueuer=Depends(create_job_enqueuer),
     log=Depends(create_action_logger),
@@ -396,7 +396,7 @@ async def index_from_preview(
         user_role=admin.role,
         rename_on_conflict=False,
         doc_domain=doc_domain,
-        document_service=document_service,
+        document_service=cmd,
         job_service=job_service,
         enqueue_fn=job_enqueuer.enqueue_document_processing,
         action_name="document.upload_from_preview",

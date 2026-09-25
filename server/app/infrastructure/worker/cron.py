@@ -13,7 +13,7 @@ logger = logging.getLogger("default")
 
 async def cron_job_cleanup(ctx: dict[str, Any]) -> None:
     """Delete old background job records (runs every hour)."""
-    uow_factory = ctx["container"].infrastructure.uow_factory
+    uow_factory = ctx["container"].infrastructure.db.uow_factory
     async with uow_factory.create(master=True) as uow:
         deleted = await uow.background_jobs.delete_old(days=settings.job_cleanup_days)
         if deleted:
@@ -22,7 +22,7 @@ async def cron_job_cleanup(ctx: dict[str, Any]) -> None:
 
 async def cron_recover_orphaned_jobs(ctx: dict[str, Any]) -> None:
     """Fail jobs whose heartbeat expired and pending jobs never picked up (every 15 min)."""
-    uow_factory = ctx["container"].infrastructure.uow_factory
+    uow_factory = ctx["container"].infrastructure.db.uow_factory
     async with uow_factory.create(master=True) as uow:
         orphaned_ids = await uow.background_jobs.recover_orphaned(
             timeout_minutes=settings.stuck_job_timeout_minutes
@@ -58,7 +58,7 @@ async def _fail_documents_of_dead_jobs(uow_factory, dead_jobs) -> None:
 
 async def cron_recover_stuck_processing(ctx: dict[str, Any]) -> None:
     """Fail documents stuck in 'processing' with no active background job (every 15 min)."""
-    uow_factory = ctx["container"].infrastructure.uow_factory
+    uow_factory = ctx["container"].infrastructure.db.uow_factory
     async with uow_factory.create(master=True) as uow:
         stuck_ids = await uow.documents.mark_stuck_processing_failed()
     for doc_id in stuck_ids:
@@ -76,11 +76,12 @@ async def cron_bm25_rebuild(ctx: dict[str, Any]) -> None:
         return
 
     from infrastructure.bm25.bm25_invalidation import publish_bm25_invalidation
-    from infrastructure.bm25.hybrid import BM25Index, save_bm25_index_to_s3
+    from infrastructure.bm25.bm25_index import BM25Index
+    from infrastructure.bm25.persistence import save_bm25_index_to_s3
     from infrastructure.metrics.metrics import BM25_REBUILD_MEMORY
     from infrastructure.storage import get_storage
 
-    uow_factory = ctx["container"].infrastructure.uow_factory
+    uow_factory = ctx["container"].infrastructure.db.uow_factory
     t0 = time.monotonic()
 
     all_texts: list[str] = []

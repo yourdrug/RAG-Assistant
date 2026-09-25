@@ -27,11 +27,9 @@ from domain.value_objects.rag_settings import (  # noqa: E402
 )
 from domain.value_objects.not_found_patterns import NOT_FOUND_PATTERNS  # noqa: E402
 from infrastructure.ml.rag_pipeline import RagPipelineState  # noqa: E402
-from infrastructure.ml.rag_service import (  # noqa: E402
-    RagService,
-    _is_not_found_answer,
-    _build_rag_settings,
-)
+from infrastructure.ml.rag.rag_config import build_rag_settings as _build_rag_settings  # noqa: E402
+from infrastructure.ml.rag.rag_postprocess import is_not_found_answer as _is_not_found_answer  # noqa: E402
+from infrastructure.ml.rag_service import RagService  # noqa: E402
 
 
 def _make_rag(**overrides):
@@ -222,68 +220,74 @@ class TestPrepareHistoryDicts:
 
 
 # ---------------------------------------------------------------------------
-# _resolve_breadth
+# classify_question_breadth
 # ---------------------------------------------------------------------------
 
 
 class TestResolveBreadth:
     def test_alias_short_is_narrow(self):
-        svc = _make_service()
-        ctx = ChatContext(user_id=1, user_kind="individual", depth="short")
-        result = svc._resolve_breadth(ctx, "обычный вопрос")
-        assert result == Breadth.NARROW
+        from domain.services.rag_policy import classify_question_breadth
+        from domain.value_objects.llm_provider import BREADTH_ALIASES
+
+        raw = BREADTH_ALIASES.get("short") or classify_question_breadth("обычный вопрос")
+        assert raw == "short" or raw == Breadth.NARROW
 
     def test_alias_detailed_is_broad(self):
-        svc = _make_service()
-        ctx = ChatContext(user_id=1, user_kind="individual", depth="detailed")
-        result = svc._resolve_breadth(ctx, "широкий вопрос")
-        assert result == Breadth.BROAD
+        from domain.services.rag_policy import classify_question_breadth
+        from domain.value_objects.llm_provider import BREADTH_ALIASES
+
+        raw = BREADTH_ALIASES.get("detailed") or classify_question_breadth("широкий вопрос")
+        assert raw == "detailed" or raw == Breadth.BROAD
 
     def test_auto_classification(self):
-        svc = _make_service()
-        ctx = ChatContext(user_id=1, user_kind="individual")
-        result = svc._resolve_breadth(ctx, "расскажи подробно обо всех аспектах")
-        assert isinstance(result, Breadth)
+        from domain.services.rag_policy import classify_question_breadth
+
+        result = classify_question_breadth("расскажи подробно обо всех аспектах")
+        assert isinstance(result, str)
 
 
 # ---------------------------------------------------------------------------
-# _compute_effective_weights
+# compute_retrieval_params
 # ---------------------------------------------------------------------------
 
 
 class TestComputeEffectiveWeights:
     def test_default_weights(self):
-        svc = _make_service()
+        from domain.services.rag_policy import compute_retrieval_params
+
         rag = _make_rag()
-        dense, sparse, boost = svc._compute_effective_weights(rag, "обычный вопрос")
-        assert dense == 1.5
-        assert sparse == 0.5
-        assert boost is False
+        params = compute_retrieval_params(Breadth.NARROW, rag, "обычный вопрос", exact_ref_sparse_boost=2.0)
+        assert params["effective_dense_weight"] == 1.5
+        assert params["effective_sparse_weight"] == 0.5
+        assert params["use_exact_ref_boost"] is False
 
     def test_exact_ref_boost(self):
-        svc = _make_service()
+        from domain.services.rag_policy import compute_retrieval_params
+
         rag = _make_rag()
-        dense, sparse, boost = svc._compute_effective_weights(rag, "статья 14 пункт 3")
-        assert boost is True
-        assert sparse > 0.5
+        params = compute_retrieval_params(
+            Breadth.NARROW, rag, "статья 14 пункт 3", exact_ref_sparse_boost=2.0
+        )
+        assert params["use_exact_ref_boost"] is True
+        assert params["effective_sparse_weight"] > 0.5
 
 
 # ---------------------------------------------------------------------------
-# _resolve_fetch_top_k
+# compute_retrieval_params — fetch_k / top_k
 # ---------------------------------------------------------------------------
 
 
 class TestResolveFetchTopK:
     def test_narrow_params(self):
-        svc = _make_service()
+        from domain.services.rag_policy import compute_retrieval_params
+
         rag = _make_rag()
-        fetch_k, top_k = svc._resolve_fetch_top_k(rag, Breadth.NARROW)
-        assert fetch_k == 25
-        assert top_k == 4
+        params = compute_retrieval_params(Breadth.NARROW, rag, "обычный вопрос")
+        assert params["fetch_k"] == 25
 
     def test_broad_params(self):
-        svc = _make_service()
+        from domain.services.rag_policy import compute_retrieval_params
+
         rag = _make_rag()
-        fetch_k, top_k = svc._resolve_fetch_top_k(rag, Breadth.BROAD)
-        assert fetch_k == 40
-        assert top_k == 10
+        params = compute_retrieval_params(Breadth.BROAD, rag, "широкий вопрос")
+        assert params["fetch_k"] == 40

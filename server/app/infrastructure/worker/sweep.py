@@ -77,7 +77,7 @@ async def run_sweep_task(
     """Run a parameter sweep as a background job (cooperatively cancellable)."""
     from infrastructure.worker.tasks import _run_tracked_job
 
-    uow_factory = ctx["container"].infrastructure.uow_factory
+    uow_factory = ctx["container"].infrastructure.db.uow_factory
 
     async def _is_cancelled() -> bool:
         async with uow_factory.create() as uow:
@@ -98,8 +98,8 @@ async def run_sweep_task(
 
         engine = SweepEngine(
             uow_factory=uow_factory,
-            benchmark_service=ctx["container"].infrastructure.benchmark_service,
-            ml_clients=ctx["container"].infrastructure.ml_clients,
+            benchmark_service=ctx["container"].infrastructure.ml.benchmark_service,
+            ml_clients=ctx["container"].infrastructure.ml.ml_clients,
             rag_service=ctx["container"].application.rag_service,
         )
 

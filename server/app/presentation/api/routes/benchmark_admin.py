@@ -15,7 +15,7 @@ from application.services.benchmark_services import (
 )
 from application.services.benchmark_result_service import BenchmarkResultService
 from application.services.config_service import ConfigService
-from application.services.document_service import DocumentService
+from application.services.document_query_service import DocumentQueryService
 from application.services.job_service import JobService
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -35,7 +35,7 @@ from presentation.api.dependencies import (
     create_benchmark_run_service,
     create_benchmark_sweep_service,
     create_config_service,
-    create_document_service,
+    create_document_query_service,
     create_job_enqueuer,
     create_job_service,
     create_storage_config,
@@ -186,10 +186,10 @@ async def export_questions(
 async def list_source_files(
     search: str | None = None,
     admin: CurrentUser = Depends(require_admin),
-    document_service: DocumentService = Depends(create_document_service),
+    query: DocumentQueryService = Depends(create_document_query_service),
 ):
     """Return distinct indexed document filenames for source_hint picker."""
-    filenames = await document_service.list_source_files(search=search)
+    filenames = await query.list_source_files(search=search)
     return SourceFilesResponse(files=filenames)
 
 

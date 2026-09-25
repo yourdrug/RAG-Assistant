@@ -237,7 +237,7 @@ def create_qdrant_client() -> QdrantClient:
 
 def load_bm25_index():
     """Load BM25 index from S3. Returns None if not found."""
-    from infrastructure.bm25.hybrid import load_bm25_index_from_s3_sync
+    from infrastructure.bm25.persistence import load_bm25_index_from_s3_sync
     from infrastructure.storage import get_storage
 
     storage = get_storage()

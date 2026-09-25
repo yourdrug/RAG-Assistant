@@ -109,7 +109,7 @@ class Container:
             invalidate_storage_cache,
         )
 
-        ml = self.infrastructure.ml_clients  # raises ContainerNotInitializedError if not init'd
+        ml = self.infrastructure.ml.clients  # raises ContainerNotInitializedError if not init'd
 
         bus = event_bus
         bus.subscribe(ConfigParameterChanged, apply_to_settings)

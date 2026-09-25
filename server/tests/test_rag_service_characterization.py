@@ -11,14 +11,14 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-import infrastructure.ml.rag as rag  # noqa: E402
+import infrastructure.ml.rag.rag_reranking as rag_rr  # noqa: E402
+import infrastructure.ml.rag.rag_sources as rag_src  # noqa: E402
+from domain.services.rag_policy import classify_question_breadth  # noqa: E402
 from domain.services.rag_policy import build_system_prompt  # noqa: E402
 from domain.value_objects.llm_provider import Breadth  # noqa: E402
-from infrastructure.ml.rag import format_docs  # noqa: E402
-from infrastructure.ml.rag_service import (  # noqa: E402
-    _build_rag_settings,
-    _is_not_found_answer,
-)
+from infrastructure.ml.rag.rag_formatting import format_docs  # noqa: E402
+from infrastructure.ml.rag.rag_config import build_rag_settings as _build_rag_settings  # noqa: E402
+from infrastructure.ml.rag.rag_postprocess import is_not_found_answer as _is_not_found_answer  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -150,7 +150,7 @@ class TestRerankDocuments:
     def test_ordering_by_score(self):
         docs = [_doc("low"), _doc("mid"), _doc("high")]
         reranker = self._fake_reranker([0.1, 0.5, 0.9])
-        result = asyncio.run(rag.rerank_documents("q", docs, top_n=3, reranker=reranker))
+        result = asyncio.run(rag_rr.rerank_documents("q", docs, top_n=3, reranker=reranker))
         assert result[0][0].page_content == "high"
         assert result[1][0].page_content == "mid"
         assert result[2][0].page_content == "low"
@@ -158,32 +158,34 @@ class TestRerankDocuments:
     def test_top_n_limits_output(self):
         docs = [_doc("a"), _doc("b"), _doc("c")]
         reranker = self._fake_reranker([0.9, 0.8, 0.7])
-        result = asyncio.run(rag.rerank_documents("q", docs, top_n=2, reranker=reranker))
+        result = asyncio.run(rag_rr.rerank_documents("q", docs, top_n=2, reranker=reranker))
         assert len(result) == 2
 
     def test_equal_scores_stable_order(self):
         docs = [_doc("first"), _doc("second")]
         reranker = self._fake_reranker([0.5, 0.5])
-        result = asyncio.run(rag.rerank_documents("q", docs, top_n=2, reranker=reranker))
+        result = asyncio.run(rag_rr.rerank_documents("q", docs, top_n=2, reranker=reranker))
         assert len(result) == 2
 
     def test_negative_scores(self):
         docs = [_doc("a"), _doc("b")]
         reranker = self._fake_reranker([-0.5, 0.1])
-        result = asyncio.run(rag.rerank_documents("q", docs, top_n=2, reranker=reranker))
+        result = asyncio.run(rag_rr.rerank_documents("q", docs, top_n=2, reranker=reranker))
         assert result[0][0].page_content == "b"
 
     def test_min_score_filter(self):
         docs = [_doc("a"), _doc("b")]
         reranker = self._fake_reranker([0.9, 0.1])
-        result = asyncio.run(rag.rerank_documents("q", docs, top_n=2, reranker=reranker, min_score=0.5))
+        result = asyncio.run(rag_rr.rerank_documents("q", docs, top_n=2, reranker=reranker, min_score=0.5))
         assert len(result) == 1
         assert result[0][0].page_content == "a"
 
     def test_gap_ratio_filter(self):
         docs = [_doc("a"), _doc("b"), _doc("c")]
         reranker = self._fake_reranker([1.0, 0.05, 0.01])
-        result = asyncio.run(rag.rerank_documents("q", docs, top_n=3, reranker=reranker, score_gap_ratio=0.1))
+        result = asyncio.run(
+            rag_rr.rerank_documents("q", docs, top_n=3, reranker=reranker, score_gap_ratio=0.1)
+        )
         assert len(result) == 1
         assert result[0][0].page_content == "a"
 
@@ -199,7 +201,7 @@ class TestExtractSources:
             _scored_doc("part1", 0.9, source="report.pdf", metadata_extra={"page": 1}),
             _scored_doc("part2", 0.8, source="report.pdf", metadata_extra={"page": 2}),
         ]
-        sources = rag.extract_sources(docs, min_score=0.0)
+        sources = rag_src.extract_sources(docs, min_score=0.0)
         assert len(sources) == 1
         assert sources[0]["source"] == "report.pdf"
 
@@ -208,7 +210,7 @@ class TestExtractSources:
             _scored_doc("a", 0.9, source="a.pdf"),
             _scored_doc("b", 0.8, source="b.pdf"),
         ]
-        sources = rag.extract_sources(docs, min_score=0.0)
+        sources = rag_src.extract_sources(docs, min_score=0.0)
         assert len(sources) == 2
 
     def test_max_score_per_source(self):
@@ -216,21 +218,21 @@ class TestExtractSources:
             _scored_doc("low", 0.3, source="a.pdf"),
             _scored_doc("high", 0.9, source="a.pdf"),
         ]
-        sources = rag.extract_sources(docs, min_score=0.0)
+        sources = rag_src.extract_sources(docs, min_score=0.0)
         assert sources[0]["max_score"] == 0.9
 
     def test_empty_docs(self):
-        sources = rag.extract_sources([], min_score=0.0)
+        sources = rag_src.extract_sources([], min_score=0.0)
         assert sources == []
 
     def test_min_score_filter_keeps_best_source(self):
         docs = [_scored_doc("a", 0.1, source="a.pdf")]
-        sources = rag.extract_sources(docs, min_score=0.5)
+        sources = rag_src.extract_sources(docs, min_score=0.5)
         assert len(sources) == 0
 
     def test_always_keeps_best_source(self):
         docs = [_scored_doc("a", 0.01, source="a.pdf")]
-        sources = rag.extract_sources(docs, min_score=0.5)
+        sources = rag_src.extract_sources(docs, min_score=0.5)
         assert len(sources) == 0
 
 
@@ -288,21 +290,21 @@ class TestBuildSystemPrompt:
 class TestClassifyBreadthRegression:
     def test_gold_question_is_narrow(self):
         q = "Сколько необходимо опробовать изделий из драгоценных металлов, если партия более 1000 штук?"
-        result = rag.classify_question_breadth(q)
+        result = classify_question_breadth(q)
         # Classification may vary — lock down current behavior
         assert result in ("narrow", "broad")
 
     def test_simple_factual_is_narrow(self):
-        assert rag.classify_question_breadth("Какой пароль?") == "narrow"
+        assert classify_question_breadth("Какой пароль?") == "narrow"
 
     def test_how_to_check_is_narrow(self):
-        assert rag.classify_question_breadth("Как проверить статус?") == "narrow"
+        assert classify_question_breadth("Как проверить статус?") == "narrow"
 
     def test_what_is_broad(self):
-        assert rag.classify_question_breadth("Расскажи подробно про систему") == "broad"
+        assert classify_question_breadth("Расскажи подробно про систему") == "broad"
 
     def test_list_questions_broad(self):
-        assert rag.classify_question_breadth("Какие требования к маркировке?") == "broad"
+        assert classify_question_breadth("Какие требования к маркировке?") == "broad"
 
 
 # ---------------------------------------------------------------------------

@@ -128,7 +128,7 @@ def ingest_list() -> None:
     """Show list of indexed files."""
     try:
         service = _create_service()
-        registry = asyncio.run(service._registry_list_all())
+        registry = asyncio.run(service.get_registry())
 
         if not registry:
             logger.info("Registry empty — no files indexed.")

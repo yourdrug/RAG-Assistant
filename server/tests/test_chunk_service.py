@@ -108,36 +108,36 @@ def _make_service(uow, *, chunk_settings=None, bm25_index=None):
 
 
 class TestChunkServiceValidation:
-    """Tests for ChunkService validation helpers."""
+    """Tests for ChunkMutationService validation helpers (via ChunkService._mutation)."""
 
     def test_validate_chunk_content_empty(self):
         svc = _make_service(AsyncMock())
         with pytest.raises(ValidationError, match="cannot be empty"):
-            svc._validate_chunk_content("")
+            svc._mutation._validate_chunk_content("")
         with pytest.raises(ValidationError, match="cannot be empty"):
-            svc._validate_chunk_content("   ")
+            svc._mutation._validate_chunk_content("   ")
 
     def test_validate_chunk_content_too_short(self):
         svc = _make_service(AsyncMock())
         with pytest.raises(ValidationError, match="too short"):
-            svc._validate_chunk_content("ab")
+            svc._mutation._validate_chunk_content("ab")
 
     def test_validate_chunk_content_too_long(self):
         svc = _make_service(AsyncMock())
         with pytest.raises(ValidationError, match="too long"):
-            svc._validate_chunk_content("x" * 2000)
+            svc._mutation._validate_chunk_content("x" * 2000)
 
     def test_validate_chunk_content_valid(self):
         svc = _make_service(AsyncMock())
         valid = "This is a valid chunk content with enough text. " * 5
-        svc._validate_chunk_content(valid)
+        svc._mutation._validate_chunk_content(valid)
 
     def test_validate_chunk_content_manual_relaxed(self):
         svc = _make_service(AsyncMock())
         short_manual = "a" * 27
-        svc._validate_chunk_content(short_manual, is_manual=True)
+        svc._mutation._validate_chunk_content(short_manual, is_manual=True)
         with pytest.raises(ValidationError, match="too short"):
-            svc._validate_chunk_content("ab", is_manual=True)
+            svc._mutation._validate_chunk_content("ab", is_manual=True)
 
 
 class TestComputeOwnerAndGroup:

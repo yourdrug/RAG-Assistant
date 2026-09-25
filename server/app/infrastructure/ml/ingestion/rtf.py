@@ -8,13 +8,7 @@ from pathlib import Path
 
 from striprtf.striprtf import rtf_to_text
 
-# Re-export walker internals for backward compatibility (tests import these)
-from infrastructure.ml.ingestion.rtf_walker import (  # noqa: F401
-    Paragraph,
-    Segment,
-    Table,
-    _walk_paragraphs,
-)
+from infrastructure.ml.ingestion.rtf_walker import Segment, Table, _walk_paragraphs
 
 
 # --- Raw byte -> text decoding ---------------------------------------------

@@ -19,8 +19,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 from domain.value_objects.visibility import DocumentVisibility  # noqa: E402
 from application.services.ingestion_orchestrator import (  # noqa: E402
     IngestionService,
-    _s3_file_hash,
 )
+from application.services.ingestion_registry import s3_file_hash as _s3_file_hash  # noqa: E402
 from application.services.batch_ingestion import BatchIngestionWorkflow  # noqa: E402
 from application.services.document_pipeline import tag_chunks as _tag_chunks, tag_domain as _tag_domain  # noqa: E402
 from application.services.document_loader import S3DocumentLoader  # noqa: E402

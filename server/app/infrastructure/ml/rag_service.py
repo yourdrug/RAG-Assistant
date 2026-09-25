@@ -53,10 +53,6 @@ if TYPE_CHECKING:
     from domain.domain_profile.registry import DomainProfileRegistry
     from infrastructure.adapters.chunk_search_adapter import ChunkSearchAdapter
 
-# Backward-compat re-exports (used by test_rag_pipeline.py, test_rag_service_characterization.py)
-from infrastructure.ml.rag.rag_config import build_rag_settings as _build_rag_settings  # noqa: F401
-from infrastructure.ml.rag.rag_postprocess import is_not_found_answer as _is_not_found_answer  # noqa: F401
-
 log = logging.getLogger("default")
 
 
@@ -91,33 +87,6 @@ class RagService:
                 if len(msg.get("content", "").strip()) >= 3:
                     history_dicts.append(msg)
         return history_dicts
-
-    # ── Backward-compat thin wrappers (used by characterization tests) ───
-
-    def _resolve_breadth(self, ctx: ChatContext, query_for_search: str):
-        from domain.value_objects.llm_provider import BREADTH_ALIASES
-        from domain.services.rag_policy import classify_question_breadth
-        from infrastructure.metrics.metrics import RAG_BREADTH_TOTAL
-
-        raw = ctx.depth if ctx.depth in BREADTH_ALIASES else classify_question_breadth(query_for_search)
-        breadth = BREADTH_ALIASES.get(raw) or Breadth(raw)
-        RAG_BREADTH_TOTAL.labels(breadth=breadth).inc()
-        return breadth
-
-    def _compute_effective_weights(self, rag, query_for_search: str):
-        from domain.services.rag_policy import has_exact_reference
-
-        use_exact_ref_boost = has_exact_reference(query_for_search)
-        effective_dense_weight = rag.hybrid_search.dense_weight
-        effective_sparse_weight = rag.hybrid_search.sparse_weight
-        if use_exact_ref_boost:
-            effective_sparse_weight = rag.hybrid_search.sparse_weight * settings.exact_ref_sparse_boost
-        return effective_dense_weight, effective_sparse_weight, use_exact_ref_boost
-
-    def _resolve_fetch_top_k(self, rag, breadth: Breadth):
-        fetch_k = rag.retriever.fetch_k_broad if breadth == Breadth.BROAD else rag.retriever.fetch_k
-        top_k = rag.retriever.top_k_broad if breadth == Breadth.BROAD else rag.retriever.top_k
-        return fetch_k, top_k
 
     def _init_state(
         self,

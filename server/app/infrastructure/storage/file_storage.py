@@ -4,9 +4,6 @@ Defines the ``FileStorage`` protocol and concrete implementations
 (``LocalStorage``, ``S3Storage``).  ``LazyStorage`` defers backend
 initialisation until first use.  ``get_storage`` returns the configured
 backend based on ``settings.file_backend``.
-
-The ``FileStorage`` protocol and ``FileItem`` dataclass are re-exported
-from ``application.ports.file_storage`` for backward compatibility.
 """
 
 from __future__ import annotations
@@ -22,8 +19,7 @@ from pathlib import Path
 import boto3
 from botocore.config import Config as BotoConfig
 
-# Re-export from application layer for backward compatibility
-from application.ports.file_storage import FileItem, FileStorage  # noqa: F401, E402
+from application.ports.file_storage import FileItem, FileStorage
 from config import settings
 
 log = logging.getLogger("default")

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from domain.entities.user import User
 from domain.value_objects.roles import UserKind, UserRole
-from sqlalchemy import func, insert, select
+from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.database.models import UserModel

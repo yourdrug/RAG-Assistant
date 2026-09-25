@@ -21,7 +21,7 @@ from domain.domain_profile.profiles.decree import (
 )
 
 if TYPE_CHECKING:
-    from application.ports.domain_settings import DomainSettingsPort
+    from domain.domain_profile.settings_port import DomainSettingsPort
     from domain.domain_profile.profiles.decree import DecreeDomainProfile
 
 _HEADER_ZONE_CHARS = 1500  # decree requisites are always at the top of the document

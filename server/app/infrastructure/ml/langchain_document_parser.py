@@ -30,7 +30,7 @@ from infrastructure.ml.ingestion.splitting import _enrich_final_chunks
 from infrastructure.ml.rtf_decree_parser import parse_decree_rtf
 
 if TYPE_CHECKING:
-    from application.ports.domain_settings import DomainSettingsPort
+    from domain.domain_profile.settings_port import DomainSettingsPort
     from domain.domain_profile.profiles.decree import DecreeDomainProfile
     from domain.domain_profile.registry import DomainProfileRegistry
 

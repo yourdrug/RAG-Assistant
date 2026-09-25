@@ -10,6 +10,7 @@ import logging
 from datetime import date, datetime
 from typing import TYPE_CHECKING, Any
 
+from application.services.domain_classification import classify_document_text
 from domain.entities.vector_outbox_entry import OutboxOperation, VectorOutboxEntry
 from domain.utils import content_hash
 from domain.value_objects.document_status import DocumentStatus
@@ -59,14 +60,18 @@ def classify_domain(
 ) -> str:
     """Shared domain classification with registry → legacy fallback.
 
-    Used by both IngestionService (CLI) and DocumentProcessor (API).
+    Used by both IngestionService (CLI) and DocumentProcessor (API) -- the
+    decision logic lives in domain_classification.classify_document_text so
+    API and CLI can never drift apart.  CLI discards the ambiguity warning
+    (it has no warning_message channel on this path).
     """
-    if domain_registry is not None and domain_settings is not None:
-        return domain_registry.classify(text, settings=domain_settings).domain_key
-    if legacy_classifier is not None:
-        return legacy_classifier(text, threshold=fallback_threshold)
-    log.warning("DomainRegistry unavailable -- no fallback classifier provided")
-    return "general"
+    return classify_document_text(
+        text,
+        domain_registry=domain_registry,
+        domain_settings=domain_settings,
+        fallback_threshold=fallback_threshold,
+        legacy_classifier=legacy_classifier,
+    ).domain_key
 
 
 def build_outbox_metadata(
@@ -147,6 +152,22 @@ def enrich_chunks_metadata(
                 effective_to.isoformat() if hasattr(effective_to, "isoformat") else effective_to
             )
         rc.metadata.update(meta)
+
+
+async def enqueue_delete_by_document(uow, document_id: int) -> None:
+    """Enqueue a DELETE_BY_DOCUMENT outbox entry.
+
+    Shared by the sync conflict path (document_conflict_resolver) and the
+    async persist path -- both must remove the replaced document from Qdrant.
+    """
+    await uow.vector_outbox.enqueue(
+        VectorOutboxEntry(
+            operation=OutboxOperation.DELETE_BY_DOCUMENT,
+            aggregate_type="document",
+            aggregate_id=document_id,
+            payload={"document_id": document_id},
+        )
+    )
 
 
 async def process_chunks(

@@ -11,7 +11,7 @@ from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
 from application.services.retrieval import HybridRetriever
-from infrastructure.bm25.hybrid import content_hash
+from domain.utils import content_hash
 from infrastructure.ml.clients.factories import (
     create_embeddings,
     create_qdrant_client,

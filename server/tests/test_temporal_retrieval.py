@@ -12,7 +12,7 @@ from langchain.schema import Document
 from qdrant_client.models import FieldCondition, Filter, MatchValue
 
 from infrastructure.repositories.vector.acl import with_temporal_filter
-from infrastructure.ml.rag import extract_sources
+from infrastructure.ml.rag.rag_sources import extract_sources
 
 
 def _acl_filter() -> Filter:

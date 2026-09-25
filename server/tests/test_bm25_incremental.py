@@ -1,7 +1,8 @@
 """Tests for BM25 incremental methods (add_text, replace_text, remove_text)."""
 
 import pytest
-from infrastructure.bm25.hybrid import BM25Index, content_hash
+from infrastructure.bm25.bm25_index import BM25Index
+from domain.utils import content_hash
 
 
 class TestBM25Incremental:

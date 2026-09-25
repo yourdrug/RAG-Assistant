@@ -381,6 +381,11 @@ class FakeDocumentRepository:
     async def reconcile_indexing_documents(self) -> list[int]:
         return []
 
+    async def set_domain(self, document_id: int, doc_domain: str) -> None:
+        doc = self._documents.get(document_id)
+        if doc is not None:
+            doc.doc_domain = doc_domain
+
     async def set_source_path(self, document_id: int, source_path: str) -> None:
         doc = self._documents.get(document_id)
         if doc is not None:
