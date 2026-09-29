@@ -305,12 +305,10 @@ class TestBuildSystemPrompt:
     def test_narrow_prompt(self):
         prompt = build_system_prompt(Breadth.NARROW)
         assert "КРАТКО" in prompt
-        assert "{context}" in prompt
 
     def test_broad_prompt(self):
         prompt = build_system_prompt(Breadth.BROAD)
         assert "РАЗВЁРНУТО" in prompt
-        assert "{context}" in prompt
 
     def test_default_is_narrow(self):
         prompt = build_system_prompt()

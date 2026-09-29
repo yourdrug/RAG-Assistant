@@ -46,6 +46,8 @@ from infrastructure.metrics.metrics import (
     record_rag_answer,
 )
 from infrastructure.ml.answer_cache import compute_question_hash, compute_visibility_scope_hash
+from infrastructure.ml.guardrails.input_scanner import InputScanner
+from infrastructure.ml.guardrails.output_scanner import OutputScanner
 from infrastructure.ml.rag.rag_cache import check_cache, handle_cache_hit
 from infrastructure.ml.rag.rag_formatting import CHARS_PER_TOKEN, format_docs
 from infrastructure.ml.rag.rag_reranking import (  # noqa: F401 — re-exported for test patches
@@ -92,6 +94,46 @@ async def step_condense(state: RagPipelineState, ml_clients) -> RagPipelineState
         state.query_for_search = state.question
     RAG_STAGE_DURATION.labels("condense").observe(time.monotonic() - t0)
     return state
+
+
+async def step_scan_input(
+    state: RagPipelineState,
+) -> tuple[RagPipelineState, AsyncIterator[StreamEvent] | None]:
+    """Step 1.5: Input injection scanning. Returns terminal events if blocked."""
+    scanner = InputScanner()
+    verdict = scanner.scan(state.question)
+
+    # Also scan history for injection
+    for msg in state.history_messages:
+        if not isinstance(msg.content, str):
+            continue
+        hist_verdict = scanner.scan(msg.content)
+        if hist_verdict.blocked:
+            log.warning("Injection detected in history message: %s", hist_verdict.reason)
+            verdict = hist_verdict
+            break
+
+    if verdict.blocked:
+        log.warning("Input injection blocked [request_id=%s]: %s", state.req_id, verdict.reason)
+
+        async def _injection_events():
+            yield TextChunk(text="Информация не найдена в документах.")
+            record_rag_answer(
+                breadth=Breadth.NARROW.value,
+                answer="",
+                retrieved_count=0,
+                avg_similarity=0.0,
+            )
+            RAG_STAGE_DURATION.labels("total").observe(time.monotonic() - state.t_pipeline_start)
+            yield SourcesEvent(sources=[], confidence=None)
+
+        state.terminal = True
+        return state, _injection_events()
+
+    if verdict.flagged:
+        log.info("Input injection flagged (allowed) [request_id=%s]: %s", state.req_id, verdict.reason)
+
+    return state, None
 
 
 async def step_check_cache(
@@ -388,6 +430,9 @@ async def step_generate(
 ) -> AsyncIterator[StreamEvent]:
     """Stream LLM generation, yield TextChunk events.
 
+    Each chunk is PII-scanned before yielding so that the streamed output
+    the user reads is redacted (not just the persisted/cached copy).
+
     Caller must invoke ``step_build_context`` first and pass the resulting
     ``messages`` and ``grouped_docs``.
     """
@@ -403,6 +448,8 @@ async def step_generate(
     breaker = get_breaker("llm_generate")
     breaker.check_open()
 
+    pii_enabled = state.rag.pii_redaction_enabled and state.pii_redactor is not None
+
     async with ml_clients.generation_semaphore:
         try:
             async for chunk in ml_clients.llm_for_breadth(effective_breadth).astream(messages):
@@ -412,6 +459,15 @@ async def step_generate(
                     if first_token_time is None:
                         first_token_time = time.monotonic()
                     answer_parts.append(text)
+                    # PII scan BEFORE yielding so streamed output is redacted
+                    if pii_enabled:
+                        text, pii_found = state.pii_redactor.scan_and_redact(text)
+                        if pii_found:
+                            log.warning(
+                                "PII in streamed chunk [request_id=%s]: types=%s",
+                                request_id_ctx.get(""),
+                                pii_found,
+                            )
                     yield TextChunk(text=text)
         except Exception:
             await breaker.report_failure()
@@ -426,13 +482,24 @@ async def step_generate(
 
 
 def step_postprocess(state: RagPipelineState) -> RagPipelineState:
-    """Step 8: PII guardrail, usage extraction, source extraction, metrics."""
+    """Step 8: PII guardrail, output security scan, usage extraction, source extraction, metrics."""
     rag = state.rag
     full_answer = state.full_answer
     last_chunk = getattr(state, "_last_chunk", None)
     docs = getattr(state, "_grouped_docs", state.docs)
 
-    # ── PII guardrail ────────────────────────────────────────────────
+    # ── Output security scan (system prompt leak, injection echo) ──
+    output_scanner = OutputScanner()
+    output_verdict = output_scanner.scan(full_answer)
+    if not output_verdict.safe:
+        log.warning(
+            "Output security issue [request_id=%s]: %s",
+            request_id_ctx.get(""),
+            output_verdict.reason,
+        )
+        full_answer = output_scanner.clean_output(full_answer)
+
+    # ── PII guardrail (full answer scan — catches cross-chunk PII) ──
     if state.rag.pii_redaction_enabled and state.pii_redactor is not None:
         full_answer, pii_found = state.pii_redactor.scan_and_redact(full_answer)
         if pii_found:

@@ -274,8 +274,10 @@ class TestBuildSystemPrompt:
         assert "domain_specific_rules" in prompt
 
     def test_context_placeholder_present(self):
-        prompt = build_system_prompt(breadth=Breadth.NARROW)
-        assert "{context}" in prompt
+        from domain.services.rag_policy import build_context_message
+
+        context_msg = build_context_message()
+        assert "{context}" in context_msg
 
     def test_rule13_out_of_domain(self):
         prompt = build_system_prompt(breadth=Breadth.NARROW)

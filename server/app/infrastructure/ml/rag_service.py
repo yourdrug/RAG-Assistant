@@ -42,6 +42,7 @@ from infrastructure.ml.rag.rag_steps import (
     step_postprocess,
     step_reject_ood,
     step_retrieve,
+    step_scan_input,
     step_self_rag,
 )
 from infrastructure.ml.rag_pipeline import RagPipelineState
@@ -155,7 +156,17 @@ class RagService:
             async for e in events:
                 yield e
 
-    async def stream(
+    async def _drain_if_terminal(
+        self,
+        state: RagPipelineState,
+        events: AsyncIterator[StreamEvent] | None,
+    ) -> list[StreamEvent]:
+        """Return terminal events as a list, or empty list if not terminal."""
+        if not state.terminal:
+            return []
+        return [e async for e in self._yield_events(events)]
+
+    async def stream(  # noqa: C901 — pipeline orchestrator, inherent complexity
         self,
         question: str,
         history: list,
@@ -166,18 +177,25 @@ class RagService:
         # ── Step 1: Query condensation ──────────────────────────────
         state = await step_condense(state, self._ml)
 
+        # ── Step 1.5: Input injection scanning ──────────────────────
+        state, events = await step_scan_input(state)
+        for e in await self._drain_if_terminal(state, events):
+            yield e
+        if state.terminal:
+            return
+
         # ── Step 2: Semantic answer cache ───────────────────────────
         state, events = await step_check_cache(state)
+        for e in await self._drain_if_terminal(state, events):
+            yield e
         if state.terminal:
-            async for e in self._yield_events(events):
-                yield e
             return
 
         # ── Step 3: Out-of-domain rejection ─────────────────────────
         state, events = await step_reject_ood(state)
+        for e in await self._drain_if_terminal(state, events):
+            yield e
         if state.terminal:
-            async for e in self._yield_events(events):
-                yield e
             return
 
         # ── Step 4: Retrieval pipeline ──────────────────────────────
@@ -187,9 +205,9 @@ class RagService:
 
         # ── Step 5: Self-RAG relevance gate + retry loop ────────────
         state, events = await step_self_rag(state, self._ml, self._chunk_search)
+        for e in await self._drain_if_terminal(state, events):
+            yield e
         if state.terminal:
-            async for e in self._yield_events(events):
-                yield e
             return
 
         # ── Step 6: Prompt building + LLM generation ────────────────

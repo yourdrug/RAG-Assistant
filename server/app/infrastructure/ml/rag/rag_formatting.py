@@ -15,23 +15,27 @@ CHARS_PER_TOKEN = 4
 
 
 def _build_header(doc, index: int) -> str:
-    """Build a formatted header line for a document chunk."""
+    """Build a formatted header line for a document chunk.
+
+    All metadata fields are sanitized via ``sanitize_for_prompt`` to prevent
+    injection through attacker-controlled filenames, titles, or section names.
+    """
     source = doc.metadata.get("source", "unknown")
-    source_name = _clean_source_name(source)
+    source_name = sanitize_for_prompt(_clean_source_name(source))
     parts = [f"[{index}] {source_name}"]
 
     doc_title = doc.metadata.get("doc_title")
     if doc_title and doc_title != source_name:
-        parts.append(doc_title)
+        parts.append(sanitize_for_prompt(doc_title))
 
     doc_type = doc.metadata.get("doc_type")
     if doc_type:
-        parts.append(f"[{doc_type}]")
+        parts.append(f"[{sanitize_for_prompt(doc_type)}]")
 
     section = doc.metadata.get("section")
     if section:
         truncated = section if len(section) <= 80 else section[:77] + "..."
-        parts.append(truncated)
+        parts.append(sanitize_for_prompt(truncated))
 
     content_type = doc.metadata.get("content_type")
     if content_type == PageContentType.TABLE.value:
@@ -39,7 +43,7 @@ def _build_header(doc, index: int) -> str:
 
     doc_date = doc.metadata.get("doc_date")
     if doc_date:
-        parts.append(f"от {doc_date}")
+        parts.append(f"от {sanitize_for_prompt(str(doc_date))}")
 
     page = doc.metadata.get("page")
     page_start = doc.metadata.get("page_start")
@@ -89,11 +93,16 @@ def format_docs(docs, max_context_tokens: int = 6000) -> str:
 
 
 def history_to_messages(history: list[dict]):
-    """Конвертирует историю из БД в LangChain-сообщения."""
+    """Convert history from DB to LangChain messages.
+
+    All message content is sanitized via ``sanitize_for_prompt`` to prevent
+    multi-turn injection through stored conversation history.
+    """
     messages: list[HumanMessage | AIMessage] = []
     for msg in history:
+        content = sanitize_for_prompt(msg["content"])
         if msg["role"] == MessageRole.USER.value:
-            messages.append(HumanMessage(content=msg["content"]))
+            messages.append(HumanMessage(content=content))
         else:
-            messages.append(AIMessage(content=msg["content"]))
+            messages.append(AIMessage(content=content))
     return messages
