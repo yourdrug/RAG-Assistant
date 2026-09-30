@@ -70,7 +70,7 @@ def build_qdrant_filter(
         ]
 
         if cond.owner_match == "self":
-            must.append(FieldCondition(key="metadata.owner_id", match=MatchValue(value=user["id"])))
+            must.append(FieldCondition(key="metadata.owner_id", match=MatchValue(value=user_id)))
 
         if cond.owner_match == "assigned" and cond.owner_ids:
             must.append(FieldCondition(key="metadata.owner_id", match=MatchAny(any=cond.owner_ids)))

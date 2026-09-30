@@ -241,6 +241,40 @@ class TestBuildQdrantFilter:
         # for_list=False: client_private NOT included, but group IS included
         assert len(f.should) == 3  # public + private + group
 
+    def test_user_context_client_gets_owner_filter(self):
+        ctx = UserContext(user_id=42, user_kind=UserKind.CLIENT, user_role=UserRole.USER)
+        f = build_qdrant_filter(ctx, [])
+        assert f.should is not None
+        assert len(f.should) == 1
+        inner = f.should[0]
+        assert inner.must is not None
+        assert len(inner.must) == 2
+        owner = inner.must[1]
+        assert owner.match.value == 42
+
+    def test_user_context_and_dict_produce_identical_filter(self):
+        ctx = UserContext(
+            user_id=7,
+            user_kind=UserKind.INTERNAL,
+            user_role=UserRole.USER,
+            group_ids=[10, 20],
+        )
+        f_obj = build_qdrant_filter(ctx, [10, 20])
+        f_dict = build_qdrant_filter({"id": 7, "kind": "internal", "role": "user"}, [10, 20])
+        assert f_obj.model_dump() == f_dict.model_dump()
+
+    def test_user_context_with_role_builds_same_conditions(self):
+        ctx = UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.CURATOR)
+        f = build_qdrant_filter(
+            ctx,
+            [],
+            managed_client_ids=[100],
+            managed_internal_ids=[200],
+            managed_group_ids=[300],
+        )
+        assert f.should is not None
+        assert len(f.should) > 0
+
 
 # ---------------------------------------------------------------------------
 # A5: Invariant — is_in_search_scope == build_qdrant_filter conditions

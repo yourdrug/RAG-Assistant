@@ -145,14 +145,12 @@ async def _upsert_with_semaphore(client, points: list, write_semaphore=None) -> 
                 client.upsert,
                 collection_name=settings.collection_name,
                 points=points,
-                timeout=settings.qdrant_timeout * 3,
             )
     else:
         await asyncio.to_thread(
             client.upsert,
             collection_name=settings.collection_name,
             points=points,
-            timeout=settings.qdrant_timeout * 3,
         )
 
 
