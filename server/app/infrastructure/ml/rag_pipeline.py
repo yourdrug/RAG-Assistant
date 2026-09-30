@@ -54,6 +54,7 @@ class RagPipelineState:
 
     # ── Output ──────────────────────────────────────────────────────────
     full_answer: str = ""
+    output_sanitized: bool = False
     sources: list[dict] = field(default_factory=list)
     confidence: float = 0.0
     usage_report: object | None = None

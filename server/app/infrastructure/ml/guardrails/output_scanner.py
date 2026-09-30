@@ -17,15 +17,18 @@ log = logging.getLogger("default")
 # Phrases that indicate system prompt leakage
 _LEAK_PATTERNS = [
     re.compile(
-        r"(?:мой|my)\s+(?:системный\s+промпт|system\s+prompt)\s*[:=]", re.IGNORECASE,
+        r"(?:мой|my)\s+(?:системный\s+промпт|system\s+prompt)\s*[:=]",
+        re.IGNORECASE,
     ),
     re.compile(
         r"(?:вот|here\s+is|below\s+is)\s+(?:мой|my)\s+"
-        r"(?:системный|system)\s+(?:промпт|prompt|instructions?)", re.IGNORECASE,
+        r"(?:системный|system)\s+(?:промпт|prompt|instructions?)",
+        re.IGNORECASE,
     ),
     re.compile(
         r"(?:я\s+получил|I\s+(?:was\s+)?(?:given|received))\s+"
-        r"(?:следующие|the\s+following)\s+(?:инструкции|instructions?)", re.IGNORECASE,
+        r"(?:следующие|the\s+following)\s+(?:инструкции|instructions?)",
+        re.IGNORECASE,
     ),
     re.compile(r"<critical_rules>|<scope>|<untrusted_context_handling>", re.IGNORECASE),
     re.compile(r"твои?\s+инструкции\s+таковы", re.IGNORECASE),
@@ -34,21 +37,22 @@ _LEAK_PATTERNS = [
 # Phrases that indicate the LLM is echoing injected instructions
 _ECHO_PATTERNS = [
     re.compile(
-        r"(?:игнорирую|ignoring)\s+(?:все\s+)?"
-        r"(?:предыдущие|previous)\s+(?:инструкции|instructions?)", re.IGNORECASE,
+        r"(?:игнорирую|ignoring)\s+(?:все\s+)?" r"(?:предыдущие|previous)\s+(?:инструкции|instructions?)",
+        re.IGNORECASE,
     ),
     re.compile(
         r"(?:я\s+теперь|I\s+am\s+now)\s+(?:DAN|unrestricted|без\s+ограничений)",
         re.IGNORECASE,
     ),
     re.compile(
-        r"(?:режим\s+разработчика|developer\s+mode)\s+"
-        r"(?:активирован|activated|enabled)", re.IGNORECASE,
+        r"(?:режим\s+разработчика|developer\s+mode)\s+" r"(?:активирован|activated|enabled)",
+        re.IGNORECASE,
     ),
 ]
 
 # Fake context markers in output (attacker trying to inject markers via LLM)
 _MARKER_FORGERY_RE = re.compile(r"<<(?:END_)?DOCUMENT_CONTEXT>>")
+BLOCKED_OUTPUT_MESSAGE = "Информация не найдена в документах."
 
 
 @dataclass(frozen=True)
@@ -102,7 +106,7 @@ class OutputScanner:
         safe = not leak_detected and not echo_detected and not marker_forgery
 
         if not safe:
-            log.warning("OutputScanner issue: %s text=%.200r", matches, text)
+            log.warning("OutputScanner issue: matches=%s text_chars=%d", matches, len(text))
 
         return OutputVerdict(
             safe=safe,
@@ -115,3 +119,10 @@ class OutputScanner:
     def clean_output(self, text: str) -> str:
         """Remove marker forgery from output (defense-in-depth)."""
         return _MARKER_FORGERY_RE.sub("", text)
+
+    def sanitize_output(self, text: str) -> tuple[str, OutputVerdict]:
+        """Return an answer safe to publish after scanning the complete text."""
+        verdict = self.scan(text)
+        if verdict.leak_detected or verdict.echo_detected:
+            return BLOCKED_OUTPUT_MESSAGE, verdict
+        return self.clean_output(text), verdict

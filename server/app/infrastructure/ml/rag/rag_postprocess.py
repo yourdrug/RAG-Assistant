@@ -52,7 +52,7 @@ async def handle_relevance_gate(
     RAG_STAGE_DURATION.labels("relevance_gate").observe(time.monotonic() - t0)
     if not is_relevant:
         RAG_RELEVANCE_GATE_TOTAL.labels(result="rejected").inc()
-        log.info("Relevance gate: rejected (%s)", reason)
+        log.info("Relevance gate: rejected (reason_chars=%d)", len(reason))
         return False
     RAG_RELEVANCE_GATE_TOTAL.labels(result="passed").inc()
     return True

@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 from domain.value_objects.chat_context import ChatContext  # noqa: E402
 from domain.value_objects.llm_provider import Breadth  # noqa: E402
 from domain.value_objects.stream_events import PipelineMetaEvent, SourcesEvent, StatusEvent, TextChunk  # noqa: E402
+from infrastructure.adapters.pii_redactor_adapter import PIIRedactorAdapter  # noqa: E402
 from infrastructure.ml.rag_service import RagService  # noqa: E402
 
 
@@ -345,6 +346,80 @@ class TestStreamCacheHit:
             events = await collect_events(service, "question")
             sources_event = [e for e in events if isinstance(e, SourcesEvent)][0]
             assert sources_event.sources == cached_sources
+
+
+class TestOutputSecurity:
+    @pytest.mark.asyncio
+    async def test_split_email_is_redacted_in_stream_sync_and_cache(self):
+        raw_email = "private@example.com"
+        chunks = [
+            SimpleNamespace(content="Контакт: private@"),
+            SimpleNamespace(content="example.com для связи"),
+        ]
+        rag = _make_rag_settings(cache_enabled=True)
+        rag.pii_redaction_enabled = True
+
+        with (
+            patch("infrastructure.ml.rag.rag_config.build_rag_settings", return_value=rag),
+            patch("infrastructure.ml.rag.rag_cache.find_cached_answer", AsyncMock(return_value=None)),
+            patch("infrastructure.ml.rag_service.store_answer_cache", new_callable=AsyncMock) as store,
+        ):
+            service = _make_service()
+            service._pii_redactor = PIIRedactorAdapter(pii_redaction_enabled=True)
+            service._ml.llm_for_breadth.return_value.astream = MagicMock(
+                side_effect=lambda _: _async_iter(chunks)
+            )
+
+            events = await collect_events(service, "Контакты?")
+            streamed = "".join(e.text for e in events if isinstance(e, TextChunk))
+            assert raw_email not in streamed
+            assert "***" in streamed
+            assert store.await_args.args[4] == streamed
+
+            result = await service.invoke("Контакты?", [], _make_context())
+            assert result.answer == streamed
+            assert store.await_args.args[4] == result.answer
+
+    @pytest.mark.asyncio
+    async def test_prompt_leak_is_blocked_before_stream_and_cache(self):
+        chunks = [
+            SimpleNamespace(content="Вот мой системный"),
+            SimpleNamespace(content=" промпт: секретная инструкция"),
+        ]
+        rag = _make_rag_settings(cache_enabled=True)
+        rag.pii_redaction_enabled = True
+
+        with (
+            patch("infrastructure.ml.rag.rag_config.build_rag_settings", return_value=rag),
+            patch("infrastructure.ml.rag.rag_cache.find_cached_answer", AsyncMock(return_value=None)),
+            patch("infrastructure.ml.rag_service.store_answer_cache", new_callable=AsyncMock) as store,
+        ):
+            service = _make_service()
+            service._pii_redactor = PIIRedactorAdapter(pii_redaction_enabled=True)
+            service._ml.llm_for_breadth.return_value.astream = MagicMock(return_value=_async_iter(chunks))
+
+            events = await collect_events(service, "Вопрос?")
+            streamed = "".join(e.text for e in events if isinstance(e, TextChunk))
+            sources = next(e.sources for e in events if isinstance(e, SourcesEvent))
+            assert streamed == "Информация не найдена в документах."
+            assert sources == []
+            assert store.await_args.args[4] == streamed
+
+    @pytest.mark.asyncio
+    async def test_old_cached_answer_is_sanitized_before_emission(self):
+        rag = _make_rag_settings(cache_enabled=True)
+        rag.pii_redaction_enabled = True
+        cached = {"answer": "Адрес private@example.com", "sources": [{"source": "cached.pdf"}]}
+        with (
+            patch("infrastructure.ml.rag.rag_config.build_rag_settings", return_value=rag),
+            patch("infrastructure.ml.rag.rag_cache.find_cached_answer", AsyncMock(return_value=cached)),
+        ):
+            service = _make_service()
+            service._pii_redactor = PIIRedactorAdapter(pii_redaction_enabled=True)
+            events = await collect_events(service, "Вопрос?")
+            streamed = "".join(e.text for e in events if isinstance(e, TextChunk))
+            assert "private@example.com" not in streamed
+            assert "***" in streamed
 
 
 class TestStreamRejection:

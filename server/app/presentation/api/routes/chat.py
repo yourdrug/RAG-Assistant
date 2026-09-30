@@ -18,7 +18,6 @@ from presentation.api.auth_dependencies import get_current_user
 from presentation.api.rate_limit import rate_limit
 from presentation.api.constants import (
     CONFIDENCE_KEY,
-    QUESTION_LOG_MAX_CHARS,
     SSE_HEARTBEAT,
     SSE_HEADERS,
     SSE_MEDIA_TYPE,
@@ -73,7 +72,7 @@ async def chat_stream(
         "chat",
         user_id=current_user.id,
         details={
-            "question": req.question[:QUESTION_LOG_MAX_CHARS],
+            "question_chars": len(req.question),
             "request_id": req_id,
         },
     )
@@ -140,7 +139,7 @@ async def chat_sync(
             "chat.sync",
             user_id=current_user.id,
             details={
-                "question": req.question[:QUESTION_LOG_MAX_CHARS],
+                "question_chars": len(req.question),
                 "request_id": req_id,
             },
         )

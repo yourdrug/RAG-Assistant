@@ -63,9 +63,9 @@ class InputScanner:
         safe = not blocked and not flagged
 
         if blocked:
-            log.warning("InputScanner BLOCKED: matches=%s text=%.200r", matches, text)
+            log.warning("InputScanner BLOCKED: matches=%s text_chars=%d", matches, len(text))
         elif flagged:
-            log.info("InputScanner FLAGGED: matches=%s text=%.200r", matches, text)
+            log.info("InputScanner FLAGGED: matches=%s text_chars=%d", matches, len(text))
 
         return InputVerdict(safe=safe, blocked=blocked, flagged=flagged, matches=matches)
 

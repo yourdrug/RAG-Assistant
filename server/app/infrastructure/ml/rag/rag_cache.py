@@ -11,6 +11,7 @@ from domain.value_objects.llm_provider import Breadth
 from domain.value_objects.rag_settings import RagSettings
 from domain.value_objects.stream_events import PipelineMetaEvent, SourcesEvent, StreamEvent, TextChunk
 from infrastructure.ml.answer_cache import find_cached_answer, store_cached_answer
+from infrastructure.ml.guardrails.output_scanner import OutputScanner
 from infrastructure.metrics.metrics import (
     RAG_CACHE_HITS_TOTAL,
     RAG_CACHE_MISSES_TOTAL,
@@ -48,7 +49,9 @@ async def handle_cache_hit(
     """Yield events for a cache hit (answer text + sources)."""
     RAG_CACHE_HITS_TOTAL.inc()
     log.info("Cache hit for question hash=%s", q_hash[:12])
-    answer_text = cached["answer"]
+    answer_text, output_verdict = OutputScanner().sanitize_output(cached["answer"])
+    if not output_verdict.safe:
+        log.warning("Cached output security issue: %s", output_verdict.reason)
 
     if rag is not None and rag.pii_redaction_enabled and pii_redactor is not None:
         answer_text, pii_found = pii_redactor.scan_and_redact(answer_text)
@@ -58,7 +61,8 @@ async def handle_cache_hit(
     yield TextChunk(text=answer_text)
     record_rag_answer(breadth=Breadth.NARROW.value, answer=answer_text, retrieved_count=0, avg_similarity=0.0)
     RAG_STAGE_DURATION.labels("total").observe(time.monotonic() - t_pipeline_start)
-    yield SourcesEvent(sources=cached["sources"], confidence=None)
+    sources = [] if output_verdict.leak_detected or output_verdict.echo_detected else cached["sources"]
+    yield SourcesEvent(sources=sources, confidence=None)
     yield PipelineMetaEvent(breadth=None, domain="", ttft_sec=0.0)
 
 

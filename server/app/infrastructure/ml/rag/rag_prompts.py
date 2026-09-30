@@ -78,13 +78,18 @@ async def condense_question(llm, question: str, history_messages: list, ml_clien
     len_ratio = len(condensed) / len(question) if len(question) > 0 else 1.0
     if len_ratio < 0.3 or len_ratio > 5.0:
         log.warning(
-            "Condensation suspicious: len ratio %.2f, original=%r, condensed=%r",
+            "Condensation suspicious: len ratio %.2f, original_chars=%d, condensed_chars=%d",
             len_ratio,
-            question,
-            condensed,
+            len(question),
+            len(condensed),
         )
 
-    log.info("Condensed query: %r -> %r (ratio=%.2f)", question, condensed, len_ratio)
+    log.info(
+        "Condensed query: original_chars=%d condensed_chars=%d ratio=%.2f",
+        len(question),
+        len(condensed),
+        len_ratio,
+    )
     return condensed
 
 
@@ -150,7 +155,7 @@ async def decompose_question(
         result = await _call()
 
     if not result.needs_decomposition or not result.sub_queries:
-        log.info("Decomposition not needed for %r, using original question", question)
+        log.info("Decomposition not needed; question_chars=%d", len(question))
         return [question]
 
     sub_queries = [q.strip() for q in result.sub_queries if q.strip()]
@@ -158,7 +163,7 @@ async def decompose_question(
         log.warning("Decomposition returned %d sub-queries, using original question", len(sub_queries))
         return [question]
 
-    log.info("Decomposed %r into %d sub-questions: %s", question, len(sub_queries), sub_queries)
+    log.info("Decomposed question_chars=%d into %d sub-questions", len(question), len(sub_queries))
     return sub_queries[:4]
 
 

@@ -167,7 +167,7 @@ async def step_reject_ood(
 ) -> tuple[RagPipelineState, AsyncIterator[StreamEvent] | None]:
     """Step 3: Out-of-domain rejection. Returns terminal events if OOD."""
     if is_out_of_domain(state.query_for_search):
-        log.info("Out-of-domain question rejected: %s", state.query_for_search[:100])
+        log.info("Out-of-domain question rejected: query_chars=%d", len(state.query_for_search))
         RAG_RELEVANCE_GATE_TOTAL.labels(result="out_of_domain").inc()
 
         async def _ood_events():
@@ -309,10 +309,10 @@ async def step_self_rag(
 
             if assessment.suggested_refinement:
                 log.info(
-                    "Self-RAG: retrying with refined query (attempt %d/%d): %r",
+                    "Self-RAG: retrying with refined query (attempt %d/%d, query_chars=%d)",
                     attempt + 1,
                     MAX_SELF_RAG_RETRIES,
-                    assessment.suggested_refinement,
+                    len(assessment.suggested_refinement),
                 )
                 RAG_SELF_RAG_RETRIES.inc()
                 query = assessment.suggested_refinement
@@ -428,10 +428,9 @@ async def step_generate(
     messages: list,
     grouped_docs: list,
 ) -> AsyncIterator[StreamEvent]:
-    """Stream LLM generation, yield TextChunk events.
+    """Generate the complete answer, sanitize it, then yield a TextChunk.
 
-    Each chunk is PII-scanned before yielding so that the streamed output
-    the user reads is redacted (not just the persisted/cached copy).
+    Full-answer checks must finish before any response text reaches a client.
 
     Caller must invoke ``step_build_context`` first and pass the resulting
     ``messages`` and ``grouped_docs``.
@@ -441,14 +440,11 @@ async def step_generate(
     t0 = time.monotonic()
     answer_parts: list[str] = []
     last_chunk = None
-    first_token_time: float | None = None
 
     from infrastructure.resilience.circuit_breaker import get_breaker
 
     breaker = get_breaker("llm_generate")
     breaker.check_open()
-
-    pii_enabled = state.rag.pii_redaction_enabled and state.pii_redactor is not None
 
     async with ml_clients.generation_semaphore:
         try:
@@ -456,50 +452,21 @@ async def step_generate(
                 last_chunk = chunk
                 text = chunk.content
                 if text:
-                    if first_token_time is None:
-                        first_token_time = time.monotonic()
                     answer_parts.append(text)
-                    # PII scan BEFORE yielding so streamed output is redacted
-                    if pii_enabled:
-                        text, pii_found = state.pii_redactor.scan_and_redact(text)
-                        if pii_found:
-                            log.warning(
-                                "PII in streamed chunk [request_id=%s]: types=%s",
-                                request_id_ctx.get(""),
-                                pii_found,
-                            )
-                    yield TextChunk(text=text)
         except Exception:
             await breaker.report_failure()
             raise
         await breaker.report_success()
     RAG_STAGE_DURATION.labels("generate").observe(time.monotonic() - t0)
 
-    state.full_answer = "".join(answer_parts)
-    state.ttft_sec = round(first_token_time - t0, 4) if first_token_time is not None else None
-    state._last_chunk = last_chunk
-    state._grouped_docs = grouped_docs
-
-
-def step_postprocess(state: RagPipelineState) -> RagPipelineState:
-    """Step 8: PII guardrail, output security scan, usage extraction, source extraction, metrics."""
-    rag = state.rag
-    full_answer = state.full_answer
-    last_chunk = getattr(state, "_last_chunk", None)
-    docs = getattr(state, "_grouped_docs", state.docs)
-
-    # ── Output security scan (system prompt leak, injection echo) ──
-    output_scanner = OutputScanner()
-    output_verdict = output_scanner.scan(full_answer)
+    full_answer, output_verdict = OutputScanner().sanitize_output("".join(answer_parts))
     if not output_verdict.safe:
         log.warning(
             "Output security issue [request_id=%s]: %s",
             request_id_ctx.get(""),
             output_verdict.reason,
         )
-        full_answer = output_scanner.clean_output(full_answer)
 
-    # ── PII guardrail (full answer scan — catches cross-chunk PII) ──
     if state.rag.pii_redaction_enabled and state.pii_redactor is not None:
         full_answer, pii_found = state.pii_redactor.scan_and_redact(full_answer)
         if pii_found:
@@ -508,6 +475,24 @@ def step_postprocess(state: RagPipelineState) -> RagPipelineState:
                 request_id_ctx.get(""),
                 pii_found,
             )
+
+    state.full_answer = full_answer
+    state.output_sanitized = True
+    state.ttft_sec = round(time.monotonic() - t0, 4) if full_answer else None
+    state._last_chunk = last_chunk
+    state._grouped_docs = grouped_docs
+    if full_answer:
+        yield TextChunk(text=full_answer)
+
+
+def step_postprocess(state: RagPipelineState) -> RagPipelineState:
+    """Step 8: Usage, sources, and metrics for the already sanitized answer."""
+    rag = state.rag
+    if not state.output_sanitized:
+        raise RuntimeError("Generation output must be sanitized before postprocessing")
+    full_answer = state.full_answer
+    last_chunk = getattr(state, "_last_chunk", None)
+    docs = getattr(state, "_grouped_docs", state.docs)
 
     # ── Token usage extraction ───────────────────────────────────────
     usage_report = None
