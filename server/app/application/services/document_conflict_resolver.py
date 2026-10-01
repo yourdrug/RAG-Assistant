@@ -11,16 +11,67 @@ import logging
 from typing import TYPE_CHECKING
 
 from application.services.document_pipeline import enqueue_delete_by_document
+from domain.exceptions import EntityNotFound
 from domain.services.document_versioning import decide_resolution_strategy
+from domain.value_objects.document_status import DocumentStatus
 
 if TYPE_CHECKING:
     from application.dto.document_processing_context import ProcessingContext
     from application.ports.unit_of_work_factory import UnitOfWorkFactory
+    from application.uow import UnitOfWork
     from domain.domain_profile.protocol import DomainProfile
     from domain.domain_profile.registry import DomainProfileRegistry
     from domain.entities.document import Document
 
 log = logging.getLogger(__name__)
+
+
+async def resolve_upload_version_group(
+    uow: UnitOfWork,
+    existing: Document | None,
+    replaces_document_id: int | None,
+    pending_replace_id: int | None,
+) -> tuple[int | None, int | None, Document | None]:
+    """Keep an explicit or implicit replacement attached to its original anchor."""
+    if replaces_document_id is not None:
+        replaces_doc = await uow.documents.get_by_id(replaces_document_id)
+        if replaces_doc is None:
+            raise EntityNotFound("Document", replaces_document_id)
+        version_group_id = replaces_doc.version_group_id or replaces_doc.id
+        return version_group_id, pending_replace_id, replaces_doc
+    if existing and existing.status in (DocumentStatus.DONE, DocumentStatus.FAILED):
+        version_group_id = existing.version_group_id or existing.id
+        return version_group_id, existing.id, existing
+    return None, pending_replace_id, existing
+
+
+async def resolve_upload_conflict(
+    doc: Document,
+    existing: Document | None,
+    pending_replace_id: int | None,
+    doc_domain: str | None,
+    uow: UnitOfWork,
+    storage_deletes: list[str],
+    *,
+    domain_registry: DomainProfileRegistry | None,
+) -> int | None:
+    """Resolve a known domain in the upload transaction; defer unknown domains.
+
+    Storage keys are returned to the upload command for cleanup after commit.
+    An unavailable profile retains the legacy replacement behavior.
+    """
+    if doc_domain is None or existing is None or pending_replace_id is None:
+        return pending_replace_id
+    profile = None
+    if domain_registry is not None:
+        try:
+            profile = domain_registry.get(doc_domain)
+        except KeyError:
+            profile = None
+    old_source_path = await resolve_conflict_in_uow(uow, doc, existing, profile)
+    if old_source_path:
+        storage_deletes.append(old_source_path)
+    return None
 
 
 async def resolve_processing_conflict(

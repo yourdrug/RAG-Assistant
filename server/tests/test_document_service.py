@@ -4,6 +4,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from application.services.document_command_service import DocumentCommandService
+from application.services.document_conflict_resolver import (
+    resolve_upload_conflict,
+    resolve_upload_version_group,
+)
 from application.services.document_query_service import DocumentQueryService
 from application.services.user_context_factory import UserContextFactory
 from domain.entities.document import Document
@@ -98,7 +102,7 @@ async def test_resolve_version_group_explicit_replaces():
     saved = await uow.documents.save(replaces_doc)
     assert saved.id == 1
 
-    vgid, pending, existing = await cmd._resolve_version_group(
+    vgid, pending, existing = await resolve_upload_version_group(
         uow, existing=None, replaces_document_id=1, pending_replace_id=None
     )
     assert vgid == 10
@@ -113,7 +117,7 @@ async def test_resolve_version_group_explicit_replaces_no_version_group():
     replaces_doc = _make_doc(doc_id=7, version_group_id=None)
     saved = await uow.documents.save(replaces_doc)
 
-    vgid, _, _ = await cmd._resolve_version_group(
+    vgid, _, _ = await resolve_upload_version_group(
         uow, existing=None, replaces_document_id=saved.id, pending_replace_id=None
     )
     assert vgid == saved.id
@@ -124,7 +128,7 @@ async def test_resolve_version_group_explicit_not_found():
     """replaces_document_id points to nonexistent doc → EntityNotFound."""
     cmd, query, uow, _ = _service()
     with pytest.raises(EntityNotFound):
-        await cmd._resolve_version_group(
+        await resolve_upload_version_group(
             uow, existing=None, replaces_document_id=999, pending_replace_id=None
         )
 
@@ -136,7 +140,7 @@ async def test_resolve_version_group_implicit_conflict():
     existing = _make_doc(doc_id=5, version_group_id=3, status=DocumentStatus.DONE)
     saved = await uow.documents.save(existing)
 
-    vgid, pending, returned = await cmd._resolve_version_group(
+    vgid, pending, returned = await resolve_upload_version_group(
         uow, existing=saved, replaces_document_id=None, pending_replace_id=None
     )
     assert vgid == 3
@@ -151,7 +155,7 @@ async def test_resolve_version_group_implicit_no_version_group():
     existing = _make_doc(doc_id=9, version_group_id=None, status=DocumentStatus.DONE)
     saved = await uow.documents.save(existing)
 
-    vgid, pending, _ = await cmd._resolve_version_group(
+    vgid, pending, _ = await resolve_upload_version_group(
         uow, existing=saved, replaces_document_id=None, pending_replace_id=None
     )
     assert vgid == saved.id
@@ -162,7 +166,7 @@ async def test_resolve_version_group_implicit_no_version_group():
 async def test_resolve_version_group_no_conflict():
     """No replaces_document_id and no existing → all None."""
     cmd, query, uow, _ = _service()
-    vgid, pending, returned = await cmd._resolve_version_group(
+    vgid, pending, returned = await resolve_upload_version_group(
         uow, existing=None, replaces_document_id=None, pending_replace_id=None
     )
     assert vgid is None
@@ -177,7 +181,7 @@ async def test_resolve_version_group_existing_pending():
     existing = _make_doc(doc_id=3, status=DocumentStatus.PENDING)
     await uow.documents.save(existing)
 
-    vgid, pending, _ = await cmd._resolve_version_group(
+    vgid, pending, _ = await resolve_upload_version_group(
         uow, existing=existing, replaces_document_id=None, pending_replace_id=None
     )
     assert vgid is None
@@ -195,7 +199,7 @@ async def test_persist_upload_success():
     cmd, query, uow, fs = _service()
     doc = _make_doc()
 
-    saved_doc, key = await cmd._persist_upload(
+    saved_doc, key = await cmd._upload._persist_upload(
         uow, doc, b"file-bytes", owner_id=1, effective_group_id=None, filename="test.pdf"
     )
     assert saved_doc.id is not None
@@ -212,7 +216,9 @@ async def test_persist_upload_s3_failure_compensates():
 
     doc = _make_doc()
     with pytest.raises(RuntimeError, match="S3 down"):
-        await cmd._persist_upload(uow, doc, b"data", owner_id=1, effective_group_id=None, filename="test.pdf")
+        await cmd._upload._persist_upload(
+            uow, doc, b"data", owner_id=1, effective_group_id=None, filename="test.pdf"
+        )
     fs.delete_file.assert_awaited_once()
 
 
@@ -225,7 +231,9 @@ async def test_persist_upload_s3_failure_delete_also_fails():
 
     doc = _make_doc()
     with pytest.raises(RuntimeError, match="S3 down"):
-        await cmd._persist_upload(uow, doc, b"data", owner_id=1, effective_group_id=None, filename="test.pdf")
+        await cmd._upload._persist_upload(
+            uow, doc, b"data", owner_id=1, effective_group_id=None, filename="test.pdf"
+        )
     fs.delete_file.assert_awaited_once()
 
 
@@ -239,13 +247,14 @@ async def test_maybe_resolve_conflict_sync_no_domain():
     """doc_domain is None → no conflict resolution."""
     cmd, query, uow, _ = _service()
     storage_deletes = []
-    result = await cmd._maybe_resolve_conflict_sync(
+    result = await resolve_upload_conflict(
         doc=MagicMock(),
         existing=MagicMock(),
         pending_replace_id=5,
         doc_domain=None,
         uow=uow,
         storage_deletes=storage_deletes,
+        domain_registry=None,
     )
     assert result == 5
     assert storage_deletes == []
@@ -255,13 +264,14 @@ async def test_maybe_resolve_conflict_sync_no_domain():
 async def test_maybe_resolve_conflict_sync_no_existing():
     """existing is None → no conflict resolution."""
     cmd, query, uow, _ = _service()
-    result = await cmd._maybe_resolve_conflict_sync(
+    result = await resolve_upload_conflict(
         doc=MagicMock(),
         existing=None,
         pending_replace_id=5,
         doc_domain="general",
         uow=uow,
         storage_deletes=[],
+        domain_registry=None,
     )
     assert result == 5
 
@@ -270,13 +280,14 @@ async def test_maybe_resolve_conflict_sync_no_existing():
 async def test_maybe_resolve_conflict_sync_no_pending():
     """pending_replace_id is None → no conflict resolution."""
     cmd, query, uow, _ = _service()
-    result = await cmd._maybe_resolve_conflict_sync(
+    result = await resolve_upload_conflict(
         doc=MagicMock(),
         existing=MagicMock(),
         pending_replace_id=None,
         doc_domain="general",
         uow=uow,
         storage_deletes=[],
+        domain_registry=None,
     )
     assert result is None
 
@@ -419,7 +430,7 @@ async def test_delete_document_happy_path():
     assert outbox_entries[0].payload == {"document_id": 1}
 
     # 2. BM25 index: remove called for the chunk's content_hash
-    cmd._bm25_index.remove.assert_called_once_with("hash_abc")
+    cmd._delete._bm25_index.remove.assert_called_once_with("hash_abc")
 
     # 3. Summaries cleared (all in the fake)
     for conv in uow.conversations._convs.values():
