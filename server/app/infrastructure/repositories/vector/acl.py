@@ -17,7 +17,6 @@ from qdrant_client.models import (
     Filter,
     HasIdCondition,
     IsEmptyCondition,
-    IsNullCondition,
     MatchAny,
     MatchValue,
     NestedCondition,
@@ -59,9 +58,7 @@ def build_qdrant_filter(
         managed_group_ids=managed_group_ids,
     )
 
-    ConditionType = (
-        FieldCondition | IsEmptyCondition | IsNullCondition | HasIdCondition | NestedCondition | Filter
-    )
+    ConditionType = FieldCondition | IsEmptyCondition | HasIdCondition | NestedCondition | Filter
     should: list[ConditionType] = []
 
     for cond in conditions:
@@ -102,49 +99,48 @@ def with_domain_filter(access_filter: Filter, doc_domain: str) -> Filter:
 def with_temporal_filter(access_filter: Filter, as_of_date: date | None) -> Filter:
     """Add temporal filtering for versioned documents.
 
-    When as_of_date is None: require is_current=True (current state).
-    When as_of_date is set: require effective_from <= date AND effective_to > date,
-    but chunks WITHOUT dates (NULL) are NEVER excluded — they pass through.
+    Current queries use today's date; historical queries use the requested date.
+    Intervals are half-open: effective_from <= date < effective_to. Current
+    undated chunks pass, including payloads with omitted date keys.
 
     Args:
         access_filter: existing ACL filter (may be empty)
         as_of_date: date to filter by, or None for current state
 
     """
-    ConditionType = (
-        FieldCondition | IsEmptyCondition | IsNullCondition | HasIdCondition | NestedCondition | Filter
+    # Use the same interval logic for current and historical queries. A future
+    # edition must become current on its effective date without an ingestion job.
+    # IsEmptyCondition matches both absent and explicit-null payload keys.
+    effective_date = as_of_date or date.today()
+    temporal_condition = Filter(
+        must=[
+            Filter(
+                should=[
+                    IsEmptyCondition(is_empty=PayloadField(key="metadata.effective_from")),
+                    FieldCondition(
+                        key="metadata.effective_from",
+                        range=DatetimeRange(lte=effective_date),
+                    ),
+                ]
+            ),
+            Filter(
+                should=[
+                    IsEmptyCondition(is_empty=PayloadField(key="metadata.effective_to")),
+                    FieldCondition(
+                        key="metadata.effective_to",
+                        range=DatetimeRange(gt=effective_date),
+                    ),
+                ]
+            ),
+            Filter(
+                should=[
+                    FieldCondition(key="metadata.is_current", match=MatchValue(value=True)),
+                    Filter(must_not=[IsEmptyCondition(is_empty=PayloadField(key="metadata.effective_from"))]),
+                    Filter(must_not=[IsEmptyCondition(is_empty=PayloadField(key="metadata.effective_to"))]),
+                ]
+            ),
+        ]
     )
-
-    if as_of_date is None:
-        temporal_condition: ConditionType = FieldCondition(
-            key="metadata.is_current",
-            match=MatchValue(value=True),
-        )
-    else:
-        # Chunks with NULL dates always pass (non-versioned content or
-        # dates not yet trusted — see TZ section 9.2/11.2).
-        temporal_condition = Filter(
-            must=[
-                Filter(
-                    should=[
-                        IsNullCondition(is_null=PayloadField(key="metadata.effective_from")),
-                        FieldCondition(
-                            key="metadata.effective_from",
-                            range=DatetimeRange(lte=as_of_date),
-                        ),
-                    ]
-                ),
-                Filter(
-                    should=[
-                        IsNullCondition(is_null=PayloadField(key="metadata.effective_to")),
-                        FieldCondition(
-                            key="metadata.effective_to",
-                            range=DatetimeRange(gt=as_of_date),
-                        ),
-                    ]
-                ),
-            ]
-        )
 
     if access_filter is not None:
         return Filter(must=[access_filter, temporal_condition])

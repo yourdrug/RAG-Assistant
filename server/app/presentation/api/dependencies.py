@@ -225,6 +225,7 @@ def create_act_versioning_service(request: Request):
     return ActVersioningService(
         uow_factory=_get_or_raise(c.infrastructure.db.uow_factory, "uow_factory"),
         settings=domain_settings,
+        cache_invalidator=c.infrastructure.services.cache_invalidator,
     )
 
 

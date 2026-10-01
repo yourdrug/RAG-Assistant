@@ -115,6 +115,8 @@ async def test_cli_sync_creates_act_version_for_versioned_domain():
     assert stored, "chunks must be persisted"
     assert all(c["act_version_id"] == version.id for c in stored)
     assert all(c["domain_metadata"]["decree_number"] == "15" for c in stored)
+    assert version.effective_from is None
+    assert all(c["effective_from"] is None for c in stored)
 
 
 @pytest.mark.asyncio

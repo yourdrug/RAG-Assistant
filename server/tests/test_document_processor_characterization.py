@@ -202,6 +202,8 @@ class VanishingDocumentRepository(RecordingDocumentRepository):
 class FakeActVersioningService:
     def __init__(self, result: VersioningResult | None = None) -> None:
         self.calls: list[dict] = []
+        self.invalidated_acts: list[int] = []
+        self.invalidated_documents: list[int] = []
         self._result = result or VersioningResult(
             domain_metadata=None, act_version_id=None, act_id=None, effective_from=None, warning=None
         )
@@ -211,6 +213,12 @@ class FakeActVersioningService:
     ) -> VersioningResult:
         self.calls.append({"profile": profile, "document_id": document_id, "full_text": full_text})
         return self._result
+
+    async def invalidate_act_answers(self, act_id: int) -> None:
+        self.invalidated_acts.append(act_id)
+
+    async def invalidate_document_answers(self, document_id: int) -> None:
+        self.invalidated_documents.append(document_id)
 
 
 class FakeDomainRegistry:

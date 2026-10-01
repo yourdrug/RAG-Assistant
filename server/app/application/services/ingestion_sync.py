@@ -192,15 +192,17 @@ class DocumentSyncService:
                     profile,
                     doc_id,
                     versioning_plan.extracted_refs,
-                    versioning_plan.effective_date,
+                    versioning_plan.effective_from,
                     versioning_plan.date_confidence,
                 )
                 versioning = VersioningResult(
                     versioning_plan.domain_metadata,
                     act_version.id,
                     act_version.act_id,
-                    versioning_plan.effective_from,
+                    act_version.effective_from,
                     None,
+                    effective_to=act_version.effective_to,
+                    is_current=act_version.is_current,
                 )
 
             enrich_chunks_metadata(
@@ -214,6 +216,8 @@ class DocumentSyncService:
                 act_version_id=versioning.act_version_id,
                 act_id=versioning.act_id,
                 effective_from=versioning.effective_from,
+                effective_to=versioning.effective_to,
+                is_current=versioning.is_current,
             )
 
             if versioning.warning:
@@ -244,6 +248,11 @@ class DocumentSyncService:
                     payload={"source": src, "document_id": doc_id},
                 )
             )
+        if act_versioning_service is not None:
+            if versioning.act_id is not None:
+                await act_versioning_service.invalidate_act_answers(versioning.act_id)
+            else:
+                await act_versioning_service.invalidate_document_answers(doc_id)
 
     async def delete_internal_documents(self) -> None:
         """Delete all internal documents (owner_id=NULL, non-manual) from DB.

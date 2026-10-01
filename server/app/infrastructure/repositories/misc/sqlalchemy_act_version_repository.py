@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from domain.entities.act_version import ActVersion
-from infrastructure.database.models import ActVersionModel
+from infrastructure.database.models import ActVersionModel, DocumentModel
 
 
 def _as_date(value) -> date | None:
@@ -59,8 +59,23 @@ class SQLAlchemyActVersionRepository:
         m = await self._session.get(ActVersionModel, version_id)
         return self._to_entity(m) if m else None
 
-    async def get_by_document_id(self, document_id: int) -> ActVersion | None:
-        stmt = select(ActVersionModel).where(ActVersionModel.document_id == document_id)
+    async def get_by_document_id(self, document_id: int, *, for_update: bool = False) -> ActVersion | None:
+        if for_update:
+            # Lock the document even before its first version exists, so two
+            # workers reindexing it cannot both create a new version.
+            await self._session.execute(
+                select(DocumentModel.id).where(DocumentModel.id == document_id).with_for_update()
+            )
+        stmt = (
+            select(ActVersionModel)
+            .where(ActVersionModel.document_id == document_id)
+            .order_by(
+                (ActVersionModel.date_source == "manual").desc(),
+                ActVersionModel.verified_at.desc().nullslast(),
+                ActVersionModel.id.desc(),
+            )
+            .limit(1)
+        )
         result = await self._session.execute(stmt)
         m = result.scalar_one_or_none()
         return self._to_entity(m) if m else None
@@ -86,6 +101,12 @@ class SQLAlchemyActVersionRepository:
         )
         result = await self._session.execute(stmt)
         return [self._to_entity(m) for m in result.scalars()]
+
+    async def list_page(self, limit: int, offset: int) -> tuple[list[ActVersion], int]:
+        total = await self._session.scalar(select(func.count()).select_from(ActVersionModel))
+        stmt = select(ActVersionModel).order_by(ActVersionModel.id).offset(offset).limit(limit)
+        result = await self._session.execute(stmt)
+        return [self._to_entity(m) for m in result.scalars()], int(total or 0)
 
     async def update(self, version: ActVersion) -> None:
         m = await self._session.get(ActVersionModel, version.id)

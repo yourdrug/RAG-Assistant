@@ -11,6 +11,7 @@ import logging
 import socket
 import uuid
 
+from application.ports.cache_invalidator import CacheInvalidatorPort
 from config import settings
 from domain.entities.chunk import Chunk
 from domain.entities.vector_outbox_entry import OutboxOperation, VectorOutboxEntry
@@ -31,9 +32,15 @@ class OutboxDispatcher:
     delivery (retries after mid-flight failure) is safe.
     """
 
-    def __init__(self, uow_factory, vector_store: VectorStoreRepository) -> None:
+    def __init__(
+        self,
+        uow_factory,
+        vector_store: VectorStoreRepository,
+        cache_invalidator: CacheInvalidatorPort | None = None,
+    ) -> None:
         self._uow_factory = uow_factory
         self._vector_store = vector_store
+        self._cache_invalidator = cache_invalidator
         self._worker_id = f"{socket.gethostname()}-{uuid.uuid4().hex[:8]}"
         self._semaphore = asyncio.Semaphore(_OUTBOX_CONCURRENCY)
 
@@ -132,7 +139,7 @@ class OutboxDispatcher:
         elif entry.operation == OutboxOperation.DELETE_CHUNKS:
             await self._vector_store.delete_by_ids(entry.payload["chunk_ids"])
         elif entry.operation == OutboxOperation.UPDATE_METADATA:
-            await self._vector_store.update_metadata_by_act_version(
+            await self._apply_version_metadata(
                 entry.payload["act_version_id"],
                 {k: v for k, v in entry.payload.items() if k != "act_version_id"},
             )
@@ -148,6 +155,26 @@ class OutboxDispatcher:
         async with self._uow_factory.create() as uow:
             doc = await uow.documents.get_by_id(document_id)
             return doc is not None
+
+    async def _apply_version_metadata(self, version_id: int, fallback: dict) -> None:
+        """Apply committed state, even when an old outbox entry is retried late."""
+        metadata = fallback
+        document_ids: list[int] = []
+        async with self._uow_factory.create(master=True) as uow:
+            version = await uow.act_versions.get_by_id(version_id)
+            if version is not None:
+                metadata = {
+                    "act_id": version.act_id,
+                    "is_current": version.is_current,
+                    "effective_from": version.effective_from.isoformat() if version.effective_from else None,
+                    "effective_to": version.effective_to.isoformat() if version.effective_to else None,
+                }
+                versions = await uow.act_versions.list_by_act(version.act_id) if version.act_id else [version]
+                document_ids = list({item.document_id for item in versions})
+        if metadata:
+            await self._vector_store.update_metadata_by_act_version(version_id, metadata)
+        if self._cache_invalidator is not None and document_ids:
+            await self._cache_invalidator.invalidate_by_document_ids(document_ids)
 
     async def _apply_upsert(self, payload: dict, document_id: int = 0) -> None:
         points = payload["points"]
@@ -166,6 +193,11 @@ class OutboxDispatcher:
         if chunks:
             await self._vector_store.ensure_collection(settings.embed_dim, reset=False)
         await self._vector_store.upload_documents(chunks, should_cancel=_doc_cancelled)
+        # Another ingestion/review may have changed the edition while embedding
+        # was running. Do not leave the snapshot in this upsert as the final state.
+        version_ids = {chunk.metadata.get("act_version_id") for chunk in chunks}
+        for version_id in version_ids - {None}:
+            await self._apply_version_metadata(version_id, {})
 
     async def reconcile_stuck_documents(self) -> int:
         """Find documents stuck in 'indexing' with no pending outbox entries and mark them done.

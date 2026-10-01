@@ -199,6 +199,7 @@ class EventContainer:
         vector_store_repo: QdrantVectorStoreRepository,
         event_bus: EventBus,
         domain_settings: DomainSettingsAdapter | None = None,
+        cache_invalidator: CacheInvalidatorPort | None = None,
     ) -> None:
         from infrastructure.events.postgres_config_listener import PostgresConfigListener
         from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
@@ -213,6 +214,7 @@ class EventContainer:
         self.outbox_dispatcher = OutboxDispatcher(
             uow_factory=uow_factory,
             vector_store=vector_store_repo,
+            cache_invalidator=cache_invalidator,
         )
         self.outbox_listener = PostgresOutboxListener(
             dispatcher=self.outbox_dispatcher,
@@ -370,6 +372,7 @@ class InfrastructureContainer:
             vector_store_repo=self.ml.vector_store,
             event_bus=event_bus,
             domain_settings=self.domain_settings,
+            cache_invalidator=self.services.cache_invalidator,
         )
         self._init_rate_limit()
 

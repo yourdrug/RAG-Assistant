@@ -237,13 +237,24 @@ class RegulatoryActModel(BaseModel):
     __tablename__ = "regulatory_acts"
     __table_args__ = (
         # Backstop for the READ→CHECK→WRITE race in find_or_create_act
-        Index("ux_regulatory_acts_type_number", "act_type", "act_number", unique=True),
+        Index(
+            "ux_regulatory_acts_identity",
+            "act_type",
+            "act_number",
+            "visibility_scope",
+            text("COALESCE(act_date, DATE '0001-01-01')"),
+            unique=True,
+        ),
     )
 
     act_type: Mapped[str] = mapped_column(String(32), nullable=False)
     act_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
     title: Mapped[str] = mapped_column(Text, nullable=False)
     issuing_authority: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    act_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    visibility_scope: Mapped[str] = mapped_column(
+        String(100), nullable=False, server_default="internal_public"
+    )
 
 
 class ActVersionModel(BaseModel):

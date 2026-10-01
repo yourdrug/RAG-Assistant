@@ -41,6 +41,11 @@ class ChunkSearchResult:
     content_type: str | None = None
     doc_title: str | None = None
     doc_type: str | None = None
+    act_version_id: int | None = None
+    act_id: int | None = None
+    effective_from: date | None = None
+    effective_to: date | None = None
+    is_current: bool = True
 
 
 @dataclass(frozen=True)
@@ -173,6 +178,7 @@ class ChunkSearchRepository(Protocol):
         limit: int = 20,
         mode: str = SearchMode.EXACT.value,
         document_id: int | None = None,
+        as_of_date: date | None = None,
     ) -> list[ChunkSearchResult]: ...
 
 
@@ -181,8 +187,6 @@ class ChunkVersioningRepository(Protocol):
     """Temporal versioning operations for act-versioned chunks."""
 
     async def set_current_by_act_version_ids(self, act_version_ids: list[int], is_current: bool) -> int: ...
-
-    async def update_act_id_by_act_version_id(self, act_version_id: int, act_id: int) -> int: ...
 
     async def update_temporal_by_act_version_id(
         self,

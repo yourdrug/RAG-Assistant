@@ -13,6 +13,7 @@ import pytest
 from application.services.act_versioning_service import ActVersioningService
 from domain.domain_profile.protocol import ReferenceMatch
 from domain.entities.act_version import ActVersion
+from domain.entities.document import Document
 from domain.entities.regulatory_act import RegulatoryAct
 from domain.entities.vector_outbox_entry import OutboxOperation
 from domain.exceptions import EntityNotFound
@@ -52,7 +53,9 @@ async def test_handle_versioned_upload_matches_existing_act_by_number():
     service, factory = _service()
     uow = factory._uow
     existing = await uow.regulatory_acts.save(
-        RegulatoryAct(id=None, act_type="decree", act_number="123", title="Указ №123")
+        RegulatoryAct(
+            id=None, act_type="decree", act_number="123", title="Указ №123", act_date=date(2026, 1, 1)
+        )
     )
 
     version = await service.handle_versioned_upload(
@@ -95,8 +98,10 @@ async def test_handle_versioned_upload_without_number_pends_linkage():
 async def test_handle_versioned_upload_unsets_previous_current_and_syncs_chunks():
     service, factory = _service()
     uow = factory._uow
+    for document_id in (10, 11):
+        uow.documents._documents[document_id] = Document(id=document_id)
     act = await uow.regulatory_acts.save(
-        RegulatoryAct(id=None, act_type="decree", act_number="5", title="Указ №5")
+        RegulatoryAct(id=None, act_type="decree", act_number="5", title="Указ №5", act_date=date(2026, 1, 1))
     )
     old_version = await uow.act_versions.create(
         ActVersion(id=None, act_id=act.id, document_id=10, is_current=True, date_source="manual")
@@ -106,7 +111,10 @@ async def test_handle_versioned_upload_unsets_previous_current_and_syncs_chunks(
     )
 
     new_version = await service.handle_versioned_upload(
-        profile=_decree_profile(), document_id=11, extracted_refs=_refs("5")
+        profile=_decree_profile(),
+        document_id=11,
+        extracted_refs=_refs("5"),
+        effective_date=date(2024, 1, 1),
     )
 
     assert new_version.act_id == act.id

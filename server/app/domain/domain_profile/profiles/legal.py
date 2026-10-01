@@ -31,14 +31,20 @@ _SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
 _ARTICLE_REF_RE = re.compile(r"ст(?:ать[июяе]|\.)\s*(\d+[\.\d]*)", re.IGNORECASE)
 _CHAPTER_REF_RE = re.compile(r"глав(?:[ауы]|ой)\s*(\d+[\.\d]*)", re.IGNORECASE)
 _LAW_NAME_RE = re.compile(
-    r"(?:Федеральный закон|ГК РФ|НК РФ|КоАП|УК РФ|ТК РФ)\s*(?:от\s+[\d.]+\s*)?(?:№\s*\d+[\-\d]*)?",
+    r"(?:Федеральный закон|Федеральный конституционный закон|ГК РФ|НК РФ|КоАП|УК РФ|ТК РФ)"
+    r"\s*(?:от\s+[\d.]+\s*)?(?:№\s*[\d]+(?:-[\dА-ЯЁ]+)*)?",
     re.IGNORECASE,
+)
+_LAW_NUMBER_RE = re.compile(
+    r"^\s*(?:Федеральный закон|Федеральный конституционный закон)"
+    r"\s*(?:от\s+(?P<date>[^№N\n]+?)\s*)?(?:№|N)\s*(?P<number>[\d]+(?:-[\dА-ЯЁ]+)*)",
+    re.IGNORECASE | re.MULTILINE,
 )
 
 _EFFECTIVE_PATTERNS = [
-    (re.compile(r"вступает в силу\s+(?:со дня|с)\s+([^\n,.]+)", re.IGNORECASE), 0.9),
-    (re.compile(r"вступлени[ея]\s+в\s+силу\s+([^\n,.]+)", re.IGNORECASE), 0.7),
-    (re.compile(r"с\s+даты\s+([^\n,.]+)", re.IGNORECASE), 0.5),
+    (re.compile(r"вступает в силу\s+(?:со дня|с)\s+([^\n,]+)", re.IGNORECASE), 0.9),
+    (re.compile(r"вступлени[ея]\s+в\s+силу\s+([^\n,]+)", re.IGNORECASE), 0.7),
+    (re.compile(r"с\s+даты\s+([^\n,]+)", re.IGNORECASE), 0.5),
 ]
 
 _SIGNING_DATE_RE = re.compile(r"(\d{1,2}\s+\S+\s+\d{4}\s*г?\.?)")
@@ -118,6 +124,10 @@ class LegalDomainProfile(SettingsBackedProfile):
             refs.append(ReferenceMatch("chapter", m.group(1)))
         for m in _LAW_NAME_RE.finditer(text):
             refs.append(ReferenceMatch("law_name", m.group(0).strip()))
+        if m := _LAW_NUMBER_RE.search(text[:1500]):
+            refs.append(ReferenceMatch("act_number", m.group("number").upper()))
+            if m.group("date"):
+                refs.append(ReferenceMatch("act_date", m.group("date").strip()))
         return refs
 
     def extract_effective_date(self, text: str) -> EffectiveDateCandidate | None:

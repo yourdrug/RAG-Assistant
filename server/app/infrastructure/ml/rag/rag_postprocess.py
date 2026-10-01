@@ -80,7 +80,7 @@ async def reject_not_relevant(
 
 
 def resolve_temporal_conflicts(docs: list) -> list:
-    """Resolve temporal version conflicts by keeping only the latest version per act."""
+    """Keep all retrieved chunks from the newest eligible version of each act."""
     versions_by_act: dict[int, list[tuple]] = {}
     non_versioned: list[tuple] = []
 
@@ -91,6 +91,11 @@ def resolve_temporal_conflicts(docs: list) -> list:
             non_versioned.append((doc, score))
             continue
         effective_from = doc.metadata.get("effective_from") or _date.min
+        if isinstance(effective_from, str):
+            try:
+                effective_from = _date.fromisoformat(effective_from)
+            except ValueError:
+                effective_from = _date.min
         versions_by_act.setdefault(act_id, []).append((doc, score, effective_from))
 
     resolved = list(non_versioned)
@@ -98,14 +103,24 @@ def resolve_temporal_conflicts(docs: list) -> list:
         if len(versions) == 1:
             resolved.append(versions[0][:2])
             continue
-        best = max(versions, key=lambda x: x[2])
-        resolved.append(best[:2])
-        dropped = len(versions) - 1
+        versions_by_id: dict[int, list[tuple]] = {}
+        for item in versions:
+            version_id = item[0].metadata["act_version_id"]
+            versions_by_id.setdefault(version_id, []).append(item)
+        if len(versions_by_id) == 1:
+            resolved.extend((doc, score) for doc, score, _ in versions)
+            continue
+        best_version = max(
+            versions_by_id.values(),
+            key=lambda chunks: (chunks[0][2], chunks[0][0].metadata["act_version_id"]),
+        )
+        resolved.extend((doc, score) for doc, score, _ in best_version)
+        dropped = len(versions) - len(best_version)
         RAG_TEMPORAL_VERSION_CONFLICT_TOTAL.inc()
         log.warning(
             "Temporal conflict act_id=%d: kept version with effective_from=%s, dropped %d older versions",
             act_id,
-            best[2],
+            best_version[0][2],
             dropped,
         )
 

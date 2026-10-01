@@ -669,11 +669,21 @@ class FakeRegulatoryActRepository:
         self._acts: dict[int, object] = {}
         self._next_id = 1
 
-    async def find_by_type_and_number(self, act_type: str, act_number: str):
+    async def find_by_type_and_number(
+        self, act_type: str, act_number: str, act_date=None, visibility_scope="internal_public"
+    ):
         for act in self._acts.values():
-            if act.act_type == act_type and act.act_number == act_number:
+            if (
+                act.act_type == act_type
+                and act.act_number == act_number
+                and act.act_date == act_date
+                and act.visibility_scope == visibility_scope
+            ):
                 return act
         return None
+
+    async def update_act_date(self, act_id: int, act_date) -> None:
+        self._acts[act_id].act_date = act_date
 
     async def get_by_id(self, act_id: int):
         return self._acts.get(act_id)
@@ -702,7 +712,7 @@ class FakeActVersionRepository:
     async def get_by_id(self, version_id: int):
         return self._versions.get(version_id)
 
-    async def get_by_document_id(self, document_id: int):
+    async def get_by_document_id(self, document_id: int, *, for_update: bool = False):
         for v in self._versions.values():
             if v.document_id == document_id:
                 return v
@@ -718,6 +728,10 @@ class FakeActVersionRepository:
 
     async def list_pending_review(self):
         return [v for v in self._versions.values() if v.date_source == "extracted" or v.act_id is None]
+
+    async def list_page(self, limit: int, offset: int):
+        versions = sorted(self._versions.values(), key=lambda item: item.id or 0)
+        return versions[offset : offset + limit], len(versions)
 
     async def update(self, version) -> None:
         if version.id in self._versions:

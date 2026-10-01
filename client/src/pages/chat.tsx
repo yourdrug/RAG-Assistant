@@ -8,6 +8,7 @@ import { queryKeys } from "@/shared/api/query-keys";
 import type { ConversationHistoryResponse, Source } from "@/shared/api/types";
 import type { PipelineStage } from "@/shared/lib/sse";
 import { streamChat } from "@/shared/lib/sse";
+import { readTemporalDate, validIsoDate, writeTemporalDate } from "@/shared/lib/temporal-date";
 import { useAuthStore } from "@/stores/auth-store";
 import { ChatInput, type DepthOption } from "@/widgets/chat/chat-input";
 import { MessageBubble } from "@/widgets/chat/message-bubble";
@@ -39,8 +40,9 @@ export function ChatPage() {
   const historyRequestRef = useRef<AbortController | null>(null);
   const [selectedSources, setSelectedSources] = useState<Source[]>([]);
   const [depth, setDepth] = useState<DepthOption>(null);
-  // Temporal retrieval: explicit user-chosen date, never inferred (TZ 11.1)
-  const [asOfDate, setAsOfDate] = useState<string | null>(null);
+  const [temporalDate, setTemporalDate] = useState(() => readTemporalDate(searchParams));
+  const asOfDate = temporalDate.date;
+  const calendarDate = temporalDate.source === "calendar" ? asOfDate : null;
   const [pipelineStage, setPipelineStage] = useState<PipelineStage | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
@@ -67,6 +69,17 @@ export function ChatPage() {
       setConversationId(newId);
     }
   }, [searchParams]);
+
+  useEffect(() => {
+    setTemporalDate(readTemporalDate(searchParams));
+  }, [searchParams]);
+
+  const handleAsOfDateChange = (value: string | null) => {
+    const next = validIsoDate(value);
+    const selection = { date: next, source: "calendar" as const };
+    setTemporalDate(selection);
+    setSearchParams(writeTemporalDate(searchParams, selection));
+  };
 
   // Load conversation history when conversationId changes
   useEffect(() => {
@@ -155,7 +168,7 @@ export function ChatPage() {
       conversationId,
       token,
       depth,
-      asOfDate,
+      asOfDate: calendarDate,
       onChunk: (text) => {
         hadChunksRef.current = true;
         streamingContentRef.current += text;
@@ -175,7 +188,15 @@ export function ChatPage() {
           },
         ]);
         setConversationId(data.conversation_id);
-        setSearchParams({ id: String(data.conversation_id) });
+        const resolvedAsOfDate = validIsoDate(data.as_of_date ?? calendarDate);
+        const selection = {
+          date: resolvedAsOfDate,
+          source: calendarDate ? ("calendar" as const) : ("question" as const),
+        };
+        setTemporalDate(selection);
+        setSearchParams(
+          writeTemporalDate(new URLSearchParams({ id: String(data.conversation_id) }), selection),
+        );
         setStreamingMsg(null);
         setIsStreaming(false);
         setPipelineStage(null);
@@ -210,7 +231,7 @@ export function ChatPage() {
     setIsStreaming(false);
     setConversationId(null);
     setSelectedSources([]);
-    setAsOfDate(null);
+    setTemporalDate({ date: null, source: "calendar" });
     setSearchParams({});
   };
 
@@ -228,6 +249,7 @@ export function ChatPage() {
               >
                 <CalendarDays className="h-3 w-3" />
                 по состоянию на {formatRuDate(asOfDate)}
+                {temporalDate.source === "question" ? " (из вопроса)" : ""}
               </span>
             )}
           </div>
@@ -293,8 +315,8 @@ export function ChatPage() {
           disabled={isStreaming}
           depth={depth}
           onDepthChange={setDepth}
-          asOfDate={asOfDate}
-          onAsOfDateChange={setAsOfDate}
+          asOfDate={calendarDate}
+          onAsOfDateChange={handleAsOfDateChange}
         />
       </div>
       {selectedSources.length > 0 && (

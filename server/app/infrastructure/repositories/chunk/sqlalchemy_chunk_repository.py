@@ -17,7 +17,7 @@ from domain.value_objects.search_mode import SearchMode
 from sqlalchemy import and_, delete, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from infrastructure.database.models import ChunkModel
+from infrastructure.database.models import ActVersionModel, ChunkModel
 
 log = logging.getLogger("default")
 
@@ -37,11 +37,18 @@ _SEARCH_COLUMNS = (
     ChunkModel.edited_by,
     ChunkModel.manual,
     ChunkModel.creation_date,
+    ChunkModel.act_version_id,
+    ActVersionModel.act_id,
+    ChunkModel.effective_from,
+    ChunkModel.effective_to,
+    ChunkModel.is_current,
 )
 
 
 def _row_to_search_result(row) -> ChunkSearchResult:
     """Convert a search query row tuple to ChunkSearchResult."""
+    effective_from = row[15]
+    effective_to = row[16]
     return ChunkSearchResult(
         chunk_id=row[0],
         document_id=row[1],
@@ -56,6 +63,11 @@ def _row_to_search_result(row) -> ChunkSearchResult:
         edited_by=row[10],
         manual=row[11],
         creation_date=row[12],
+        act_version_id=row[13],
+        act_id=row[14],
+        effective_from=effective_from,
+        effective_to=effective_to,
+        is_current=row[17],
     )
 
 
@@ -143,6 +155,19 @@ def _build_fuzzy_search_stmt(query: str, acl_clauses: list, document_id: int | N
     return stmt
 
 
+def _build_temporal_clause(as_of_date: date | None):
+    effective_date = as_of_date or date.today()
+    return and_(
+        or_(ChunkModel.effective_from.is_(None), ChunkModel.effective_from <= effective_date),
+        or_(ChunkModel.effective_to.is_(None), ChunkModel.effective_to > effective_date),
+        or_(
+            ChunkModel.is_current.is_(True),
+            ChunkModel.effective_from.is_not(None),
+            ChunkModel.effective_to.is_not(None),
+        ),
+    )
+
+
 # --- Cursor pagination helpers (extracted from list_for_document_cursor) -----
 
 
@@ -182,7 +207,6 @@ def _paginate_forward(
     prev_cur = (
         encode_cursor(page_rows[0].chunk_index, page_rows[0].id) if page_rows and cursor is not None else None
     )
-    items = [_row_to_search_result(r) if not isinstance(r, ChunkSearchResult) else r for r in page_rows]
     # Handle both ORM objects and raw tuples
     items = []
     for r in page_rows:
@@ -418,6 +442,7 @@ class SQLAlchemyChunkRepository:
         limit: int = 20,
         mode: str = "exact",
         document_id: int | None = None,
+        as_of_date: date | None = None,
     ) -> list[ChunkSearchResult]:
         if len(query.strip()) < 3:
             return []
@@ -434,6 +459,10 @@ class SQLAlchemyChunkRepository:
             stmt = _build_exact_search_stmt(query, acl_clauses, document_id, limit)
         else:
             stmt = _build_fuzzy_search_stmt(query, acl_clauses, document_id, limit)
+
+        stmt = stmt.outerjoin(ActVersionModel, ChunkModel.act_version_id == ActVersionModel.id).where(
+            _build_temporal_clause(as_of_date)
+        )
 
         result = await self._session.execute(stmt)
         return [_row_to_search_result(row) for row in result.all()]
@@ -677,13 +706,6 @@ class SQLAlchemyChunkRepository:
             update(ChunkModel)
             .where(ChunkModel.act_version_id.in_(act_version_ids))
             .values(is_current=is_current)
-        )
-        await self._session.flush()
-        return result.rowcount or 0
-
-    async def update_act_id_by_act_version_id(self, act_version_id: int, act_id: int) -> int:
-        result = await self._session.execute(
-            update(ChunkModel).where(ChunkModel.act_version_id == act_version_id).values(act_id=act_id)
         )
         await self._session.flush()
         return result.rowcount or 0

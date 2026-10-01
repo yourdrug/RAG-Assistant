@@ -20,16 +20,21 @@ class ActVersionReviewItem(BaseModel):
 
 
 class ActSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     act_type: str
     act_number: str | None
     title: str
+    act_date: date | None = None
+    visibility_scope: str = "internal_public"
 
 
 class ActVersionListResponse(BaseModel):
     versions: list[ActVersionReviewItem]
     total: int
     acts: list[ActSummary] = []
+    next_offset: int | None = None
 
 
 class ActVersionUpdateResponse(BaseModel):

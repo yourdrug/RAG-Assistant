@@ -3,7 +3,7 @@ import { type ColumnDef } from "@tanstack/react-table";
 import { Pencil } from "lucide-react";
 import { useState } from "react";
 import toast from "react-hot-toast";
-import { usePendingActVersions, useUpdateActVersion } from "@/shared/api/hooks";
+import { useActVersions, useUpdateActVersion } from "@/shared/api/hooks";
 import type { ActSummary, ActVersionReviewItem } from "@/shared/api/types";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
@@ -37,7 +37,8 @@ const sourceBadgeVariant = (source: string) => {
 const formatConfidence = (v: number | null) => (v != null ? `${Math.round(v * 100)}%` : "—");
 
 export function AdminActVersionsPage() {
-  const { data } = usePendingActVersions();
+  const [offset, setOffset] = useState(0);
+  const { data } = useActVersions(offset);
   const updateMut = useUpdateActVersion();
   const [editing, setEditing] = useState<ActVersionReviewItem | null>(null);
   const [form, setForm] = useState({ effective_from: "", effective_to: "", act_id: "" });
@@ -53,6 +54,10 @@ export function AdminActVersionsPage() {
 
   const handleSave = async () => {
     if (!editing) return;
+    if (form.effective_from && form.effective_to && form.effective_to <= form.effective_from) {
+      toast.error("Effective To must be later than Effective From");
+      return;
+    }
     try {
       await updateMut.mutateAsync({
         versionId: editing.id,
@@ -138,7 +143,7 @@ export function AdminActVersionsPage() {
         <div>
           <h1 className="text-2xl font-bold">Act Versions</h1>
           <p className="text-muted-foreground">
-            Pending review
+            All versions
             {data != null && (
               <Badge variant="warning" className="ml-2">
                 {data.total}
@@ -152,6 +157,14 @@ export function AdminActVersionsPage() {
           <DataTable
             columns={columns}
             data={data?.versions || []}
+            serverPagination={{
+              canPreviousPage: offset > 0,
+              canNextPage: data?.next_offset != null,
+              onPreviousPage: () => setOffset((value) => Math.max(0, value - 100)),
+              onNextPage: () => {
+                if (data?.next_offset != null) setOffset(data.next_offset);
+              },
+            }}
             searchKey="date_source"
             searchPlaceholder="Search by source..."
           />
@@ -178,7 +191,7 @@ export function AdminActVersionsPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label>Effective To</Label>
+              <Label>Effective To (exclusive)</Label>
               <Input
                 type="date"
                 value={form.effective_to}
@@ -200,6 +213,7 @@ export function AdminActVersionsPage() {
                     <SelectItem key={a.id} value={String(a.id)}>
                       {a.act_number ? `${a.act_number} — ` : ""}
                       {a.title}
+                      {a.visibility_scope ? ` (${a.visibility_scope})` : ""}
                     </SelectItem>
                   ))}
                 </SelectContent>

@@ -250,7 +250,12 @@ class ChatService:
             usage=usage,
         )
 
-        yield MetaEvent(conversation_id=setup.conv.id, sources=sources, confidence=confidence)
+        yield MetaEvent(
+            conversation_id=setup.conv.id,
+            sources=sources,
+            confidence=confidence,
+            as_of_date=setup.ctx.as_of_date,
+        )
 
     # ------------------------------------------------------------------
     # Synchronous chat

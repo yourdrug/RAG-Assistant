@@ -78,6 +78,7 @@ export const queryKeys = {
   actVersions: {
     all: ["actVersions"] as const,
     pending: () => [...queryKeys.actVersions.all, "pending"] as const,
+    page: (offset: number) => [...queryKeys.actVersions.all, "page", offset] as const,
     acts: () => [...queryKeys.actVersions.all, "acts"] as const,
   },
 } as const;

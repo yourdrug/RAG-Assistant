@@ -24,6 +24,8 @@ from sqlalchemy.sql.elements import (  # noqa: E402
     BinaryExpression,
     Grouping,
     TextClause,
+    Null,
+    True_,
 )
 
 from infrastructure.repositories.chunk.sqlalchemy_chunk_repository import (  # noqa: E402
@@ -49,7 +51,9 @@ class _CaptureSession:
         return _EmptyResult()
 
 
-async def _capture(query: str, user: dict, group_ids: list[int], mode: str, document_id: int | None):
+async def _capture(
+    query: str, user: dict, group_ids: list[int], mode: str, document_id: int | None, as_of_date=None
+):
     from domain.value_objects.user_context import UserContext
 
     session = _CaptureSession()
@@ -60,7 +64,9 @@ async def _capture(query: str, user: dict, group_ids: list[int], mode: str, docu
         user_role=user.get("role", "user"),
         group_ids=group_ids,
     )
-    await repo.search_substring(query, ctx, limit=20, mode=mode, document_id=document_id)
+    await repo.search_substring(
+        query, ctx, limit=20, mode=mode, document_id=document_id, as_of_date=as_of_date
+    )
     assert session.captured is not None, "statement was not executed"
     return session.captured
 
@@ -82,19 +88,34 @@ def _to_tree(clause):
             raise AssertionError(f"Unexpected boolean operator: {clause.operator}")
         return (op, [_to_tree(c) for c in clause.clauses])
     if isinstance(clause, BinaryExpression):
-        col = clause.left.name
-        right = clause.right
-        value = right.value if isinstance(right, BindParameter) else right
-        if clause.operator is sa_ops.in_op:
-            return ("cmp", col, "in", list(value))
-        if clause.operator is sa_ops.ilike_op:
-            return ("cmp", col, "ilike", str(value).strip("%"))
-        if clause.operator is operator.eq:
-            return ("cmp", col, "eq", value)
-        raise AssertionError(f"Unexpected comparison operator: {clause.operator}")
+        return _comparison_tree(clause)
     if isinstance(clause, TextClause):
         return ("regex",)
     raise AssertionError(f"Unexpected clause type: {type(clause)}")
+
+
+def _comparison_tree(clause):
+    col = clause.left.name
+    right = clause.right
+    value = right.value if isinstance(right, BindParameter) else right
+    if isinstance(right, Null):
+        value = None
+    elif isinstance(right, True_):
+        value = True
+    comparisons = {
+        sa_ops.is_: "is",
+        sa_ops.is_not: "is_not",
+        operator.le: "le",
+        operator.gt: "gt",
+        operator.eq: "eq",
+    }
+    if clause.operator in comparisons:
+        return ("cmp", col, comparisons[clause.operator], value)
+    if clause.operator is sa_ops.in_op:
+        return ("cmp", col, "in", list(value))
+    if clause.operator is sa_ops.ilike_op:
+        return ("cmp", col, "ilike", str(value).strip("%"))
+    raise AssertionError(f"Unexpected comparison operator: {clause.operator}")
 
 
 def _eval(node, row: dict, pattern: str | None) -> bool:
@@ -108,6 +129,15 @@ def _eval(node, row: dict, pattern: str | None) -> bool:
         py_pattern = pattern.replace(r"\y", r"\b")
         return re.search(py_pattern, row["content"], re.IGNORECASE) is not None
     _, col, op, value = node
+    actual = row.get(col, True if col == "is_current" else None)
+    temporal_operations = {
+        "is": lambda a, b: a is b,
+        "is_not": lambda a, b: a is not b,
+        "le": lambda a, b: a is not None and a <= b,
+        "gt": lambda a, b: a is not None and a > b,
+    }
+    if op in temporal_operations:
+        return temporal_operations[op](actual, value)
     if op == "eq":
         return row.get(col) == value
     if op == "in":

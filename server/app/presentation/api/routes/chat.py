@@ -44,6 +44,7 @@ def _format_sse_event(event, req_id: str) -> str | None:
             "conversation_id": event.conversation_id,
             "sources": sources,
             "confidence": event.confidence,
+            "as_of_date": event.as_of_date.isoformat() if event.as_of_date else None,
             "request_id": req_id,
         }
         return f"event: done\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"

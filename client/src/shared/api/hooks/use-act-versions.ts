@@ -15,6 +15,18 @@ export function usePendingActVersions() {
   });
 }
 
+export function useActVersions(offset: number) {
+  return useQuery({
+    queryKey: [...queryKeys.actVersions.all, "page", offset],
+    queryFn: async () =>
+      (
+        await apiClient.get<ActVersionListResponse>("/admin/act-versions", {
+          params: { review: "all", limit: 100, offset },
+        })
+      ).data,
+  });
+}
+
 export function useUpdateActVersion() {
   const qc = useQueryClient();
   return useMutation({

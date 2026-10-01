@@ -7,6 +7,7 @@ convention with a proper typed union (``TextChunk | SourcesEvent``).
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 
 from domain.value_objects.llm_provider import Breadth
 
@@ -52,6 +53,7 @@ class MetaEvent:
     sources: list[dict]
     confidence: float | None = None
     usage: UsageReport | None = None
+    as_of_date: date | None = None
 
 
 @dataclass(frozen=True, slots=True)

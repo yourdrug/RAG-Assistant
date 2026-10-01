@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from datetime import date
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -184,7 +185,8 @@ class TestContainer:
 
 class TestChunkSearchAdapter:
     @pytest.mark.asyncio
-    async def test_delegates_to_uow_factory(self):
+    @pytest.mark.parametrize("as_of_date", [None, date(2024, 1, 1)])
+    async def test_delegates_to_uow_factory(self, as_of_date):
         mock_uow_factory = MagicMock()
         mock_chunks = AsyncMock()
         mock_chunks.search_substring.return_value = ["result"]
@@ -204,6 +206,7 @@ class TestChunkSearchAdapter:
             user=user,
             limit=10,
             mode="exact",
+            as_of_date=as_of_date,
         )
 
         mock_chunks.search_substring.assert_awaited_once_with(
@@ -211,6 +214,7 @@ class TestChunkSearchAdapter:
             user=user,
             limit=10,
             mode="exact",
+            as_of_date=as_of_date,
         )
         assert result == ["result"]
 

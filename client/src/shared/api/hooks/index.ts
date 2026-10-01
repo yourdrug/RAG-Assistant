@@ -1,4 +1,4 @@
-export { usePendingActVersions, useUpdateActVersion } from "./use-act-versions";
+export { useActVersions, usePendingActVersions, useUpdateActVersion } from "./use-act-versions";
 export {
   useAdminConfig,
   useAdminModels,

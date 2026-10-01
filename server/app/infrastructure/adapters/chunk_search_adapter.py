@@ -19,13 +19,14 @@ class ChunkSearchAdapter:
     def __init__(self, uow_factory: UnitOfWorkFactory) -> None:
         self._uow_factory = uow_factory
 
-    async def search_substring(self, query, user, limit=20, mode="exact"):
+    async def search_substring(self, query, user, limit=20, mode="exact", as_of_date=None):
         async with self._uow_factory.create() as uow:
             return await uow.chunks.search_substring(
                 query=query,
                 user=user,
                 limit=limit,
                 mode=mode,
+                as_of_date=as_of_date,
             )
 
     async def get_neighbors(self, document_id, center_index, window=1, exclude_hashes=None, *, user):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 
 
 @dataclass
@@ -12,3 +13,5 @@ class RegulatoryAct:
     act_number: str | None
     title: str
     issuing_authority: str | None = None
+    act_date: date | None = None
+    visibility_scope: str = "internal_public"

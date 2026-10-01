@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import AsyncIterator
+from datetime import date
 from typing import TYPE_CHECKING
 
 
@@ -151,7 +152,7 @@ async def step_check_cache(
     state.q_hash = compute_question_hash(
         state.query_for_search,
         context={
-            "as_of_date": state.ctx.as_of_date.isoformat() if state.ctx.as_of_date else None,
+            "as_of_date": (state.ctx.as_of_date or date.today()).isoformat(),
             "depth": state.ctx.depth,
             "summary": state.ctx.summary,
         },

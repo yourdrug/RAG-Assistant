@@ -4,6 +4,7 @@ export interface SSEDone {
   conversation_id: number;
   sources: Source[];
   confidence?: number | null;
+  as_of_date?: string | null;
 }
 
 export type PipelineStage = "searching" | "reranking" | "generating";

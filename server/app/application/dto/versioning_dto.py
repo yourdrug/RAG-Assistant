@@ -17,6 +17,8 @@ class VersioningResult:
     act_id: int | None
     effective_from: date | None
     warning: str | None
+    effective_to: date | None = None
+    is_current: bool = True
 
 
 @dataclass(frozen=True)

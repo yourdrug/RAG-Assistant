@@ -653,12 +653,15 @@ export interface ActSummary {
   act_type: string;
   act_number: string | null;
   title: string;
+  act_date?: string | null;
+  visibility_scope?: string;
 }
 
 export interface ActVersionListResponse {
   versions: ActVersionReviewItem[];
   total: number;
   acts: ActSummary[];
+  next_offset?: number | null;
 }
 
 export interface ActVersionUpdateRequest {

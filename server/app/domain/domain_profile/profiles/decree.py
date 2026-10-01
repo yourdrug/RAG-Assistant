@@ -25,7 +25,10 @@ from domain.domain_profile.protocol import (
 _DECREE_TITLE_RE = re.compile(r"^\s*УКАЗ\b", re.MULTILINE)
 _POSTANOVLYAYU_RE = re.compile(r"ПОСТАНОВЛЯ[ЮЕ]\s*:?", re.IGNORECASE)
 _DECREE_NUMBER_RE = re.compile(r"№\s*(\d+)")
-_DECREE_DATE_RE = re.compile(r"(\d{1,2}\s+\S+\s+\d{4}\s*г?\.?)")
+_DECREE_DATE_RE = re.compile(
+    r"((?:\d{1,2}\s+[а-яё]+\s+\d{4}\s*г?\.?|\d{1,2}[./]\d{1,2}[./]\d{4}|\d{4}-\d{2}-\d{2}))",
+    re.IGNORECASE,
+)
 _POINT_RE = re.compile(r"^\s*(\d+)\.\s+", re.MULTILINE)
 _SUBPOINT_RE = re.compile(r"^\s*([а-я])\)\s+", re.MULTILINE)
 _SUBPOINT_NUM_RE = re.compile(r"^\s*(\d+\.\d+(?:\.\d+)*)\.\s+", re.MULTILINE)
@@ -36,8 +39,14 @@ _SUBPOINT_NUM_RE = re.compile(r"^\s*(\d+\.\d+(?:\.\d+)*)\.\s+", re.MULTILINE)
 _SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
 
 _EFFECTIVE_PATTERNS = [
-    (re.compile(r"вступает в силу\s+(?:со дня|с)\s+([^\n,.]+)", re.IGNORECASE), 0.9),
-    (re.compile(r"с\s+даты\s+([^\n,.]+)", re.IGNORECASE), 0.5),
+    (
+        re.compile(
+            r"вступает в силу\s+(?:со дня|с)\s+([^\n,]+)",
+            re.IGNORECASE,
+        ),
+        0.9,
+    ),
+    (re.compile(r"с\s+даты\s+([^\n,]+)", re.IGNORECASE), 0.5),
 ]
 
 _DECREE_PROMPT_RULES = (

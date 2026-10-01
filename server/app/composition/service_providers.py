@@ -55,7 +55,11 @@ def create_ingestion_service(
     if infra.domain_registry is not None and infra.domain_settings is not None:
         # Unified versioning: CLI ingestion creates act versions the same way
         # the API upload path does (TZ section 8.4)
-        act_versioning = ActVersioningService(uow_factory=uow, settings=infra.domain_settings)
+        act_versioning = ActVersioningService(
+            uow_factory=uow,
+            settings=infra.domain_settings,
+            cache_invalidator=infra.services.cache_invalidator,
+        )
 
     file_storage = _require(infra.ml.file_storage, "file_storage")
 
@@ -111,6 +115,7 @@ def create_document_processor(
         act_versioning = ActVersioningService(
             uow_factory=uow,
             settings=infra.domain_settings,  # type: ignore[arg-type]
+            cache_invalidator=infra.services.cache_invalidator,
         )
 
     return DocumentProcessor(

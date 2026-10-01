@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 from langchain.schema import Document
-from qdrant_client.models import FieldCondition, Filter, MatchValue
+from qdrant_client.models import FieldCondition, Filter, IsEmptyCondition, MatchValue
 
 from infrastructure.repositories.vector.acl import with_temporal_filter
 from infrastructure.ml.rag.rag_sources import extract_sources
@@ -22,24 +22,29 @@ def _acl_filter() -> Filter:
 
 
 class TestWithTemporalFilter:
-    def test_as_of_none_requires_current(self):
+    def test_current_query_uses_today_interval_and_current_fallback(self):
         result = with_temporal_filter(_acl_filter(), None)
-        # ACL filter + temporal condition both in must
         assert len(result.must) == 2
         temporal = result.must[1]
-        assert temporal.key == "metadata.is_current"
-        assert temporal.match.value is True
+        assert len(temporal.must) == 3
+        start_range = temporal.must[0].should[1].range
+        end_range = temporal.must[1].should[1].range
+        assert start_range.lte == date.today()
+        assert end_range.gt == date.today()
+        eligibility = temporal.must[2]
+        assert eligibility.should[0].key == "metadata.is_current"
+        assert eligibility.should[0].match.value is True
 
     def test_as_of_date_combines_with_acl_filter(self):
         result = with_temporal_filter(_acl_filter(), date(2026, 1, 1))
         # ACL conditions + temporal condition both in must
         assert len(result.must) == 2
         temporal = result.must[1]
-        # Two should-groups: effective_from <= date, effective_to > date
-        assert len(temporal.must) == 2
-        for group in temporal.must:
-            # NULL dates always pass — IsNullCondition must be an alternative
+        assert len(temporal.must) == 3
+        for group in temporal.must[:2]:
             assert len(group.should) == 2
+            assert isinstance(group.should[0], IsEmptyCondition)
+        assert temporal.must[2].should[0].match.value is True
 
     def test_as_of_date_without_acl(self):
         result = with_temporal_filter(_acl_filter(), date(2026, 6, 1))
@@ -48,6 +53,13 @@ class TestWithTemporalFilter:
         group = temporal.must[0]
         ranges = [c for c in group.should if hasattr(c, "range")]
         assert ranges, "range condition for effective_from must be present"
+
+    def test_dated_noncurrent_versions_are_eligible_with_missing_date_fields_handled(self):
+        result = with_temporal_filter(_acl_filter(), date(2024, 6, 1))
+        temporal = result.must[1]
+        eligibility = temporal.must[2]
+        dated_alternatives = eligibility.should[1:]
+        assert all(isinstance(item, Filter) and item.must_not for item in dated_alternatives)
 
 
 class TestSourceActInfo:
