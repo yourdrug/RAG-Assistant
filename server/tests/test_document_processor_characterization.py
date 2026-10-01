@@ -18,13 +18,16 @@ deliberately -- never delete the test.
 
 from __future__ import annotations
 
+import asyncio
+import threading
+from contextlib import asynccontextmanager
 from datetime import date
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from application.dto.versioning_dto import VersioningResult
+from application.dto.versioning_dto import VersioningPlan, VersioningResult
 from application.services.document_processor import DocumentProcessor
 from domain.domain_profile.registry import ClassificationResult
 from domain.entities.document import Document
@@ -689,3 +692,154 @@ async def test_section_prefix_added_to_chunks(tmp_path):
     # _attach_metadata_to_docs runs before split -> source lands on every chunk
     assert points[0]["metadata"]["source"] == "report.pdf"
     assert points[0]["metadata"]["doc_date"] == "2026-01-15"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("warning", [None, "Дата требует ручной проверки"])
+async def test_prepared_version_commits_with_chunks_before_cache_invalidation(tmp_path, warning):
+    profile = make_profile("legal", versioned=True)
+    plan = VersioningPlan([], {"act_number": "42"}, None, date(2026, 1, 1), 0.9, warning)
+    service = FakeActVersioningService()
+    service.prepare_document_versioning = AsyncMock(return_value=plan)
+    events = []
+    active_uows = []
+
+    async def create_version(uow, *args):
+        assert active_uows == [uow]
+        assert uow.chunks._chunks == []
+        events.append("version")
+        return SimpleNamespace(
+            id=7,
+            act_id=3,
+            effective_from=date(2026, 1, 1),
+            effective_to=date(2027, 1, 1),
+            is_current=False,
+        )
+
+    async def invalidate(*args):
+        assert active_uows == []
+        assert h.uow._committed
+        assert len(upsert_points(h.uow)) == 2
+        events.append("invalidate")
+
+    service.create_version_in_uow = AsyncMock(side_effect=create_version)
+    service.invalidate_act_answers = AsyncMock(side_effect=invalidate)
+    service.invalidate_document_answers = AsyncMock(side_effect=invalidate)
+    h = build_harness(
+        tmp_path, registry=FakeDomainRegistry(profiles={"legal": profile}), act_versioning=service
+    )
+    original_create = h.uow_factory.create
+
+    @asynccontextmanager
+    async def track_transaction(master=False):
+        async with original_create(master=master) as uow:
+            active_uows.append(uow)
+            try:
+                yield uow
+            finally:
+                active_uows.pop()
+
+    h.uow_factory.create = track_transaction
+    doc = await seed_document(h.repo)
+    await run(h, doc, doc_domain="legal")
+
+    service.prepare_document_versioning.assert_awaited_once_with(
+        profile, "\n".join(d.page_content for d in _default_docs())
+    )
+    assert service.calls == []  # The legacy versioning path must not run as well.
+    points = upsert_points(h.uow)
+    assert all(p["metadata"]["domain_metadata"] == {"act_number": "42"} for p in points)
+    if warning:
+        service.create_version_in_uow.assert_not_awaited()
+        service.invalidate_document_answers.assert_awaited_once_with(doc.id)
+        assert events == ["invalidate"]
+        assert h.repo.status_calls[-1]["warning"] == warning
+        assert all("act_version_id" not in p["metadata"] for p in points)
+    else:
+        assert events == ["version", "invalidate"]
+        service.invalidate_act_answers.assert_awaited_once_with(3)
+        assert all(p["metadata"]["act_version_id"] == 7 for p in points)
+        assert all(p["metadata"]["effective_to"] == "2027-01-01" for p in points)
+        assert all(p["metadata"]["is_current"] is False for p in points)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("registered,prepared", [(False, False), (True, False), (True, True)])
+async def test_versioning_without_profile_or_plan_still_indexes(tmp_path, registered, prepared):
+    service = FakeActVersioningService()
+    if prepared:
+        service.prepare_document_versioning = AsyncMock(return_value=None)
+    registry = FakeDomainRegistry(profiles={"general": make_profile()} if registered else {})
+    h = build_harness(tmp_path, registry=registry, act_versioning=service)
+    doc = await seed_document(h.repo)
+    await run(h, doc)
+    assert h.metrics.has("inc_documents", "indexing")
+    assert all("act_version_id" not in p["metadata"] for p in upsert_points(h.uow))
+    assert len(service.calls) == int(registered and not prepared)
+    if prepared:
+        service.prepare_document_versioning.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_versioning_cleans_temp_without_marking_failed(tmp_path):
+    service = FakeActVersioningService()
+    service.prepare_document_versioning = AsyncMock(side_effect=asyncio.CancelledError)
+    h = build_harness(
+        tmp_path, registry=FakeDomainRegistry(profiles={"general": make_profile()}), act_versioning=service
+    )
+    doc = await seed_document(h.repo)
+    with pytest.raises(asyncio.CancelledError):
+        await run(h, doc)
+    assert [c["status"] for c in h.repo.status_calls] == ["processing"]
+    assert outbox_ops(h.uow) == []
+    assert h.metrics.has("inc_documents", "failed")
+    assert h.metrics.has("inc_chunks", 2)
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.asyncio
+async def test_concurrent_processing_bounds_parser_and_keeps_run_state_separate(tmp_path):
+    h = build_harness(tmp_path)
+    first = await seed_document(h.repo, filename="first.pdf")
+    second = await seed_document(h.repo, filename="second.pdf")
+    loop = asyncio.get_running_loop()
+    entered = asyncio.Event()
+    downloaded_second = asyncio.Event()
+    release = threading.Event()
+    original_parse = h.parser.parse
+    thread_ids = []
+
+    def blocking_parse(path):
+        thread_ids.append(threading.get_ident())
+        if len(thread_ids) == 1:
+            loop.call_soon_threadsafe(entered.set)
+            if not release.wait(timeout=5):
+                raise RuntimeError("Parser was not released")
+        return original_parse(path)
+
+    original_download = h.storage.download_to_temp
+
+    async def download(key):
+        path = await original_download(key)
+        if key == "second":
+            downloaded_second.set()
+        return path
+
+    h.parser.parse = blocking_parse
+    h.storage.download_to_temp = download
+    tasks = [asyncio.create_task(run(h, first, storage_key="first"))]
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=5)
+        tasks.append(asyncio.create_task(run(h, second, storage_key="second")))
+        await asyncio.wait_for(downloaded_second.wait(), timeout=5)
+        # Second download reached the parsing step while the first parser is blocked.
+        assert len(thread_ids) == 1
+    finally:
+        release.set()
+        await asyncio.gather(*tasks)
+    assert len(thread_ids) == 2
+    assert all(tid != threading.get_ident() for tid in thread_ids)
+    assert h.metrics.count("inc_documents") == 2
+    sources = {p["metadata"]["source"] for p in upsert_points(h.uow)}
+    assert sources == {"first.pdf", "second.pdf"}
+    assert list(tmp_path.iterdir()) == []

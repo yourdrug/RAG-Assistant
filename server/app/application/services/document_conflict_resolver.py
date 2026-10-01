@@ -14,11 +14,36 @@ from application.services.document_pipeline import enqueue_delete_by_document
 from domain.services.document_versioning import decide_resolution_strategy
 
 if TYPE_CHECKING:
+    from application.dto.document_processing_context import ProcessingContext
     from application.ports.unit_of_work_factory import UnitOfWorkFactory
     from domain.domain_profile.protocol import DomainProfile
+    from domain.domain_profile.registry import DomainProfileRegistry
     from domain.entities.document import Document
 
 log = logging.getLogger(__name__)
+
+
+async def resolve_processing_conflict(
+    uow_factory: UnitOfWorkFactory,
+    ctx: ProcessingContext,
+    domain_registry: DomainProfileRegistry | None,
+) -> None:
+    """Resolve an upload's replacement after classification, before splitting.
+
+    Keep the separate document reads and replacement transaction used by the
+    upload flow. Queue object-storage cleanup only after replacement commits.
+    """
+    if ctx.replace_id is None:
+        return
+    async with uow_factory.create() as uow:
+        new_doc = await uow.documents.get_by_id(ctx.document_id)
+    async with uow_factory.create() as uow:
+        old_doc = await uow.documents.get_by_id(ctx.replace_id)
+    if new_doc and old_doc:
+        profile = domain_registry.get(ctx.doc_domain) if domain_registry else None
+        old_source_path = await resolve_conflict(uow_factory, new_doc, old_doc, profile)
+        if old_source_path:
+            ctx.storage_deletes.append(old_source_path)
 
 
 async def resolve_conflict(

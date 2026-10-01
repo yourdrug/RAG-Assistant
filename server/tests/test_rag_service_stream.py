@@ -506,14 +506,10 @@ class TestStreamHelperMethods:
         rag = MagicMock()
         rag.hybrid_search.dense_weight = 1.5
         rag.hybrid_search.sparse_weight = 0.5
-        with patch(
-            "domain.services.rag_policy.has_exact_reference",
-            MagicMock(return_value=False),
-        ):
-            params = compute_retrieval_params(Breadth.NARROW, rag, "general question")
-            assert params["effective_dense_weight"] == 1.5
-            assert params["effective_sparse_weight"] == 0.5
-            assert params["use_exact_ref_boost"] is False
+        params = compute_retrieval_params(Breadth.NARROW, rag, "general question")
+        assert params["effective_dense_weight"] == 1.5
+        assert params["effective_sparse_weight"] == 0.5
+        assert params["use_exact_ref_boost"] is False
 
     def test_apply_citation_filter_disabled(self):
         from infrastructure.ml.rag.rag_postprocess import apply_citation_filter
