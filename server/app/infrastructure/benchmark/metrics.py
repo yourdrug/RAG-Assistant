@@ -58,6 +58,8 @@ def compute_context_precision_recall(
     docs_with_scores: list[tuple[Document, float]] | list[dict] | None = None,
     judge_llm=None,
     context_override: str | None = None,
+    *,
+    judge_model: str | None = None,
 ) -> dict:
     """Compute context_precision and context_recall via LLM judge.
 
@@ -68,6 +70,7 @@ def compute_context_precision_recall(
         judge_llm: Optional pre-configured judge LLM.
         context_override: If provided, use this as the context string directly
             instead of extracting from docs_with_scores.
+        judge_model: Explicit judge model; falls back to the configured model when omitted.
 
     """
     from config import settings
@@ -89,7 +92,7 @@ def compute_context_precision_recall(
             "context_recall_reason": "No documents retrieved",
         }
 
-    model = _get_judge_model()
+    model = judge_model or _get_judge_model()
     client = _get_judge_client(model if settings.llm_provider == LLMProvider.OLLAMA else "")
 
     if context_override:

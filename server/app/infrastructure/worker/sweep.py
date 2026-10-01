@@ -10,7 +10,8 @@ from typing import Any
 from config import settings
 from domain.entities.benchmark_run import BenchmarkRun
 from domain.value_objects.sweep_status import BenchmarkSweepStatus
-from infrastructure.benchmark.sweep_engine import SweepEngine, SweepCancelled
+from composition.service_providers import create_sweep_engine
+from infrastructure.benchmark.sweep_engine import SweepCancelled
 
 logger = logging.getLogger("default")
 
@@ -96,12 +97,7 @@ async def run_sweep_task(
             message = {"evaluated": ev, "total": tot, "latest": res}
             asyncio.create_task(_publish_sweep_event(sweep_id, message))
 
-        engine = SweepEngine(
-            uow_factory=uow_factory,
-            benchmark_service=ctx["container"].infrastructure.ml.benchmark_service,
-            ml_clients=ctx["container"].infrastructure.ml.ml_clients,
-            rag_service=ctx["container"].application.rag_service,
-        )
+        engine = create_sweep_engine(ctx["container"].infrastructure)
 
         try:
             results = await engine.run_sweep(

@@ -8,8 +8,11 @@ from domain.repositories.benchmark_run_repository import BenchmarkRunRepository
 from domain.repositories.benchmark_sweep_repository import BenchmarkSweepRepository
 from domain.repositories.chat_log_repository import ChatLogRepository
 from domain.repositories.chunk_repository import (
+    ChunkContextRepository,
+    ChunkCorpusRepository,
     ChunkCrudRepository,
     ChunkRepository,
+    ChunkRetrievalRepository,
     ChunkSearchRepository,
     ChunkSearchResult,
     ChunkStats,
@@ -43,8 +46,11 @@ __all__ = [
     "BenchmarkRunRepository",
     "BenchmarkSweepRepository",
     "ChatLogRepository",
+    "ChunkContextRepository",
+    "ChunkCorpusRepository",
     "ChunkCrudRepository",
     "ChunkRepository",
+    "ChunkRetrievalRepository",
     "ChunkSearchRepository",
     "ChunkSearchResult",
     "ChunkStats",

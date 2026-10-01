@@ -90,6 +90,7 @@ async def cron_bm25_rebuild(ctx: dict[str, Any]) -> None:
     from infrastructure.bm25.persistence import save_bm25_index_to_s3
     from infrastructure.metrics.metrics import BM25_REBUILD_MEMORY
     from infrastructure.storage import get_storage
+    from domain.repositories.chunk_repository import ChunkCorpusRepository
 
     uow_factory = ctx["container"].infrastructure.db.uow_factory
     t0 = time.monotonic()
@@ -98,7 +99,8 @@ async def cron_bm25_rebuild(ctx: dict[str, Any]) -> None:
     pending_rows = []
     total_text_bytes = 0
     async with uow_factory.create(master=True) as uow:
-        async for row in uow.chunks.iter_all_contents_with_acl(batch_size=1000):
+        corpus: ChunkCorpusRepository = uow.chunks
+        async for row in corpus.iter_all_contents_with_acl(batch_size=1000):
             pending_rows.append(row)
             if len(pending_rows) >= 250:
                 total_text_bytes += await asyncio.to_thread(_add_bm25_batch, bm25_index, pending_rows)

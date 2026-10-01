@@ -279,9 +279,11 @@ async def judge_answer_async(
     context: str,
     expected_answer: str | None = None,
     judge_llm=None,
+    *,
+    judge_model: str | None = None,
 ) -> dict:
     """Judge answer quality with structured output (instructor + timeout)."""
-    model = _get_judge_model()
+    model = judge_model or _get_judge_model()
     client = _get_judge_client(model if settings.llm_provider == LLMProvider.OLLAMA else "")
 
     prompts = {

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from domain.repositories.chunk_repository import ChunkRetrievalRepository
+
 if TYPE_CHECKING:
     from infrastructure.uow_factory import UnitOfWorkFactory
 
@@ -21,7 +23,8 @@ class ChunkSearchAdapter:
 
     async def search_substring(self, query, user, limit=20, mode="exact", as_of_date=None):
         async with self._uow_factory.create() as uow:
-            return await uow.chunks.search_substring(
+            repository: ChunkRetrievalRepository = uow.chunks
+            return await repository.search_substring(
                 query=query,
                 user=user,
                 limit=limit,
@@ -31,7 +34,8 @@ class ChunkSearchAdapter:
 
     async def get_neighbors(self, document_id, center_index, window=1, exclude_hashes=None, *, user):
         async with self._uow_factory.create() as uow:
-            return await uow.chunks.get_neighbors(
+            repository: ChunkRetrievalRepository = uow.chunks
+            return await repository.get_neighbors(
                 document_id=document_id,
                 center_index=center_index,
                 window=window,
@@ -41,7 +45,8 @@ class ChunkSearchAdapter:
 
     async def get_table_batches(self, document_id, anchor_index, exclude_hashes=None, *, user):
         async with self._uow_factory.create() as uow:
-            return await uow.chunks.get_table_batches(
+            repository: ChunkRetrievalRepository = uow.chunks
+            return await repository.get_table_batches(
                 document_id=document_id,
                 anchor_index=anchor_index,
                 exclude_hashes=exclude_hashes,

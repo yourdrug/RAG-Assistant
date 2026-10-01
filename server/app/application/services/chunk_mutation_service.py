@@ -11,6 +11,7 @@ from application.services.chunk_access import load_doc_for_add, load_doc_for_edi
 from application.services.document_pipeline import build_outbox_metadata
 from domain.entities.vector_outbox_entry import OutboxOperation, VectorOutboxEntry
 from domain.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
+from domain.repositories.chunk_repository import ChunkCrudRepository
 from domain.utils import content_hash
 from domain.value_objects.source_type import SourceType
 
@@ -69,8 +70,9 @@ class ChunkMutationService:
         document_id: int,
         exclude_chunk_id: int | None = None,
     ) -> str | None:
+        chunks: ChunkCrudRepository = uow.chunks
         new_hash = content_hash(content)
-        duplicate = await uow.chunks.find_duplicate_by_hash(
+        duplicate = await chunks.find_duplicate_by_hash(
             document_id=document_id,
             content_hash=new_hash,
             exclude_chunk_id=exclude_chunk_id,
@@ -80,7 +82,8 @@ class ChunkMutationService:
         return None
 
     async def _update_document_stats(self, uow, document_id: int) -> None:
-        stats = await uow.chunks.get_document_stats(document_id)
+        chunks: ChunkCrudRepository = uow.chunks
+        stats = await chunks.get_document_stats(document_id)
         await uow.documents.update_chunk_stats(document_id, stats.total_chunks, stats.total_chars)
 
     async def edit_chunk(
@@ -92,9 +95,10 @@ class ChunkMutationService:
         user_role: str,
     ) -> EditChunkResult:
         async with self._uow_factory.create(master=True) as uow:
+            chunks: ChunkCrudRepository = uow.chunks
             doc, ctx = await load_doc_for_edit(uow, document_id, user_id, user_role)
 
-            chunk = await uow.chunks.get_by_id(chunk_id)
+            chunk = await chunks.get_by_id(chunk_id)
             if chunk is None:
                 raise EntityNotFound("Chunk", chunk_id)
 
@@ -108,7 +112,7 @@ class ChunkMutationService:
             new_hash = content_hash(content)
             now = datetime.now(UTC)
 
-            await uow.chunks.update_content(
+            await chunks.update_content(
                 chunk_id=chunk_id,
                 content=content,
                 edited_at=now,
@@ -187,18 +191,19 @@ class ChunkMutationService:
         section: str | None = None,
     ) -> AddChunkResult:
         async with self._uow_factory.create(master=True) as uow:
+            chunks: ChunkCrudRepository = uow.chunks
             doc, ctx = await load_doc_for_add(uow, document_id, user_id, user_role)
 
             self._validate_chunk_content(content, is_manual=(doc.source_type == SourceType.MANUAL.value))
 
             warning = await self._check_duplicate_content(uow, content, document_id)
 
-            max_index = await uow.chunks.get_max_chunk_index(document_id)
+            max_index = await chunks.get_max_chunk_index(document_id)
             next_index = max_index + 1
 
             new_hash = content_hash(content)
 
-            chunk_id = await uow.chunks.insert_one(
+            chunk_id = await chunks.insert_one(
                 document_id=document_id,
                 chunk_index=next_index,
                 content=content,
@@ -280,16 +285,17 @@ class ChunkMutationService:
         user_role: str,
     ) -> None:
         async with self._uow_factory.create(master=True) as uow:
+            chunks: ChunkCrudRepository = uow.chunks
             doc, ctx = await load_doc_for_edit(uow, document_id, user_id, user_role)
 
-            chunk = await uow.chunks.get_by_id(chunk_id)
+            chunk = await chunks.get_by_id(chunk_id)
             if chunk is None:
                 raise EntityNotFound("Chunk", chunk_id)
 
             if chunk.document_id != document_id:
                 raise BusinessRuleViolation("Chunk does not belong to this document")
 
-            await uow.chunks.delete_one(chunk_id)
+            await chunks.delete_one(chunk_id)
 
             await uow.vector_outbox.enqueue(
                 VectorOutboxEntry(

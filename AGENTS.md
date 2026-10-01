@@ -176,6 +176,16 @@ When analyzing or modifying code:
 
 ## Production code hygiene
 
+### Use existing enums and constants instead of magic values
+
+Always use an existing enum member or named constant when one represents the required value. Before adding a literal, look for its canonical definition. This applies to application code and tests, including document visibility, roles, statuses, types, and policy names.
+
+For example, use `DocumentVisibility.INTERNAL_PRIVATE` instead of `"internal_private"`. Use `DocumentVisibility.INTERNAL_PRIVATE.value` when an external interface explicitly requires its string value.
+
+Do not duplicate canonical values in new local constants. Preserve layer boundaries when importing them: domain code must not import constants from application, infrastructure, presentation, or config.
+
+If no definition exists, introduce a meaningful enum or constant in the appropriate layer for repeated or business-significant values. Ordinary prose and diagnostic messages do not need constants solely because they are strings.
+
 ### No `assert` in production code
 
 `assert` statements are stripped when Python runs with `-O` (optimized mode). They provide zero safety in production and create a false sense of correctness.

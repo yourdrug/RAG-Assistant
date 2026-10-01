@@ -20,6 +20,19 @@ if TYPE_CHECKING:
 log = logging.getLogger("default")
 
 
+def create_sweep_engine(infra: InfrastructureContainer):
+    """Bind sweep execution to the already initialized benchmark and ML services."""
+    from infrastructure.benchmark.sweep_engine import SweepEngine
+    from infrastructure.benchmark.sweep_settings import LiveSweepSettings
+
+    return SweepEngine(
+        uow_factory=_require(infra.db.uow_factory, "uow_factory"),
+        benchmark_service=_require(infra.ml.benchmark_service, "benchmark_service"),
+        ml_clients=_require(infra.ml.ml_clients, "ml_clients"),
+        runtime=LiveSweepSettings(),
+    )
+
+
 def create_ingestion_service(
     infra: InfrastructureContainer,
     uow_factory: UnitOfWorkFactory | None = None,

@@ -1,41 +1,30 @@
-"""SweepEngine — multi-strategy parameter sweep for RAG benchmarking.
-
-Generalizes the grid-search logic from CLI into a reusable service supporting:
-- grid: cartesian product (for ≤4 parameters)
-- random: N random points (for 5+ parameters)
-- successive_halving: evaluate all on subset, keep top 50%, repeat
-
-Phase A (cheap): in-memory retrieval-only scoring using cached candidates.
-Phase B (expensive): full LLM-judge evaluation on top-N configs.
-"""
+"""Coordinate dataset preparation, retrieval search strategies and full evaluation."""
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Awaitable, Callable
-from pathlib import Path
+from collections.abc import Callable
+from typing import Protocol
 
-from config import _settings_overrides, settings
+from application.ports.unit_of_work_factory import UnitOfWorkFactory
 from domain.entities.benchmark_sweep import BenchmarkSweep
-from domain.value_objects.benchmark_strategy import BenchmarkStrategy
 
-from infrastructure.benchmark.sweep_scoring import (
-    cache_candidates,
-    compute_composite_score,
-    generate_grid_points,
-    generate_random_points,
-    score_config_cheap,
+from infrastructure.benchmark.sweep_data import SweepDataSource
+from infrastructure.benchmark.sweep_full_evaluation import SweepFullEvaluator
+from infrastructure.benchmark.sweep_scoring import score_config_cheap
+from infrastructure.benchmark.sweep_settings import LiveSweepSettings, SweepSettingsPort
+from infrastructure.benchmark.sweep_strategies import (
+    ProgressCallback,
+    ShouldCancel,
+    SweepSearchStrategy,
+    check_cancelled,
+    default_strategy_factories,
 )
-from infrastructure.benchmark.runner import load_questions
+from infrastructure.benchmark.sweep_strategies import (
+    SweepCancelled as SweepCancelled,
+)
 
 logger = logging.getLogger("default")
-
-
-class SweepCancelled(Exception):
-    """Raised between sweep configs when a cooperative cancel is detected (M-14)."""
-
-
-# Parameters that can be sweeped in Phase A (retrieval-time, no reindexing)
 CHEAP_PARAMS = frozenset(
     {
         "top_k",
@@ -47,281 +36,76 @@ CHEAP_PARAMS = frozenset(
         "rerank_score_gap_ratio",
     }
 )
+EXPENSIVE_PARAMS = frozenset({"chunk_size", "chunk_overlap"})
 
-# Parameters that require reindexing (expensive, skip Phase A)
-EXPENSIVE_PARAMS = frozenset(
-    {
-        "chunk_size",
-        "chunk_overlap",
-    }
-)
+
+class SweepBenchmarkPort(Protocol):
+    async def run(self, questions_path: str, out_dir: str, top_k: int, judge_model: str) -> dict: ...
 
 
 class SweepEngine:
-    """Multi-strategy parameter sweep engine."""
-
     def __init__(
         self,
-        uow_factory,
-        benchmark_service=None,
-        config_service=None,
+        uow_factory: UnitOfWorkFactory,
+        benchmark_service: SweepBenchmarkPort | None = None,
         ml_clients=None,
-        rag_service=None,
-    ):
-        self._uow_factory = uow_factory
+        *,
+        runtime: SweepSettingsPort | None = None,
+        strategies: dict[str, Callable[[dict], SweepSearchStrategy]] | None = None,
+    ) -> None:
+        self._runtime = runtime if runtime is not None else LiveSweepSettings()
         self._benchmark_service = benchmark_service
-        self._config_service = config_service
-        self._ml_clients = ml_clients
-        self._rag_service = rag_service
+        self._data = SweepDataSource(uow_factory, ml_clients, self._runtime)
+        self._full = SweepFullEvaluator(self._runtime)
+        self._strategies = strategies if strategies is not None else default_strategy_factories()
 
     async def run_sweep(
         self,
         sweep: BenchmarkSweep,
         questions_path: str | None = None,
         judge_model: str | None = None,
-        progress_callback: Callable[[int, int, dict | None], None] | None = None,
-        should_cancel: Callable[[], Awaitable[bool]] | None = None,
+        progress_callback: ProgressCallback | None = None,
+        should_cancel: ShouldCancel | None = None,
     ) -> list[dict]:
-        """Execute a parameter sweep.
-
-        Args:
-            sweep: The sweep configuration entity.
-            questions_path: Path to questions JSON (fallback if DB empty).
-            judge_model: Model for LLM judge.
-            progress_callback: Called with (evaluated, total, latest_result) after each config.
-            should_cancel: Polled between configs; when it returns True the sweep
-                raises :class:`SweepCancelled` (cooperative cancellation, M-14).
-
-        Returns:
-            List of result dicts sorted by composite score (best first).
-
-        Raises:
-            SweepCancelled: when ``should_cancel`` returns True between configs.
-
-        """
-        search_space = sweep.search_space
-        strategy = sweep.strategy
-        weights = sweep.objective_weights
-        dataset = sweep.dataset
-        top_n_llm = sweep.top_n_llm
-
-        # Dispatch to Optuna for successive_halving
-        if strategy == BenchmarkStrategy.SUCCESSIVE_HALVING.value:
-            return await self._run_optuna_sweep(
-                sweep, questions_path, judge_model, progress_callback, should_cancel
-            )
-        search_space = sweep.search_space
-        strategy = sweep.strategy
-        weights = sweep.objective_weights
-        dataset = sweep.dataset
-        top_n_llm = sweep.top_n_llm
-
-        # Load questions
-        questions_data = await self._load_questions(dataset, questions_path)
-        if not questions_data:
-            logger.error("No questions found for dataset '%s'", dataset)
+        try:
+            factory = self._strategies[sweep.strategy]
+        except KeyError as exc:
+            raise ValueError(f"Unknown strategy: {sweep.strategy}") from exc
+        strategy = factory(sweep.search_space)
+        await self._check_cancelled(should_cancel, "before sweep preparation")
+        questions = await self._load_questions(sweep.dataset, questions_path)
+        if not questions:
+            logger.error("No questions found for dataset '%s'", sweep.dataset)
             return []
+        questions = [q for q in questions if q.get("source_hint") is not None]
+        expensive = set(sweep.search_space) & EXPENSIVE_PARAMS
+        if expensive:
+            logger.warning("Expensive params skipped in retrieval scoring: %s", expensive)
+        dense, sparse, candidates = await self._cache_candidates(
+            questions, strategy.max_fetch_k(self._runtime.fetch_k)
+        )
 
-        # Filter to questions with source_hint for retrieval metrics
-        eval_questions = [q for q in questions_data if q.get("source_hint") is not None]
-
-        all_points = self._generate_points(strategy, search_space)
-
-        # Filter out expensive params that can't be tested in Phase A
-        cheap_points = []
-        expensive_in_search = set(search_space.keys()) & EXPENSIVE_PARAMS
-        if expensive_in_search:
-            logger.warning(
-                "Expensive params in search space (skip Phase A for these): %s",
-                expensive_in_search,
+        def score(config: dict) -> dict:
+            cheap = {k: v for k, v in config.items() if k in CHEAP_PARAMS}
+            return self._score_config_cheap(
+                cheap, questions, dense, sparse, candidates, sweep.objective_weights
             )
 
-        for point in all_points:
-            cheap_points.append({k: v for k, v in point.items() if k in CHEAP_PARAMS})
-
-        # Phase 1: Cache dense + sparse candidates
-        max_fetch_k = max(
-            (p.get("fetch_k", settings.retriever_fetch_k) for p in cheap_points),
-            default=settings.retriever_fetch_k,
-        )
-        logger.info(
-            "Sweep Phase 1: Caching candidates (fetch_k=%d) for %d questions...",
-            max_fetch_k,
-            len(eval_questions),
-        )
-        dense_cache, sparse_cache, all_candidates = await self._cache_candidates(eval_questions, max_fetch_k)
-
-        # Phase A: Cheap retrieval-only scoring
-        results = await self._run_phase_a(
-            all_points,
-            eval_questions,
-            dense_cache,
-            sparse_cache,
-            all_candidates,
-            weights,
-            progress_callback,
-            should_cancel,
-        )
-
-        # Phase B: Full LLM-judge on top-N (if judge_model provided)
-        if judge_model and top_n_llm > 0:
+        results = await strategy.evaluate(score, progress_callback, should_cancel)
+        if judge_model and sweep.top_n_llm > 0:
             results = await self._run_phase_b(
-                results, top_n_llm, judge_model, questions_path, weights, should_cancel
-            )
-
-        return results
-
-    def _generate_points(self, strategy: str, search_space: dict) -> list[dict]:
-        if strategy == BenchmarkStrategy.GRID.value:
-            return generate_grid_points(search_space)
-        elif strategy == BenchmarkStrategy.RANDOM.value:
-            n_random = search_space.get("_n_random", 50)
-            return generate_random_points(search_space, n_random)
-        elif strategy == BenchmarkStrategy.SUCCESSIVE_HALVING.value:
-            # Optuna-based successive halving — points generated via Optuna study
-            # Fall through to generate_grid_points for Phase A baseline;
-            # actual Optuna optimization happens in run_sweep via _run_optuna_sweep
-            return generate_grid_points(search_space)
-        else:
-            raise ValueError(f"Unknown strategy: {strategy}")
-
-    async def _run_phase_a(
-        self,
-        all_points: list[dict],
-        eval_questions: list[dict],
-        dense_cache: dict,
-        sparse_cache: dict,
-        all_candidates: dict,
-        weights: dict,
-        progress_callback,
-        should_cancel: Callable[[], Awaitable[bool]] | None = None,
-    ) -> list[dict]:
-        total_configs = len(all_points)
-        logger.info("Sweep Phase A: Retrieval-scoring %d configs...", total_configs)
-        results = []
-
-        for idx, point in enumerate(all_points, 1):
-            await self._check_cancelled(should_cancel, f"phase A config {idx}/{total_configs}")
-            result = self._score_config_cheap(
-                point, eval_questions, dense_cache, sparse_cache, all_candidates, weights
-            )
-            result["config"] = point
-            results.append(result)
-
-            if progress_callback:
-                progress_callback(idx, total_configs, result)
-
-            if idx % 50 == 0:
-                logger.info("  %d/%d configs evaluated", idx, total_configs)
-
-        results.sort(key=lambda x: x.get("composite_score", 0), reverse=True)
-
-        logger.info("Phase A done. Top-5 retrieval scores:")
-        for i, r in enumerate(results[:5], 1):
-            logger.info(
-                "  #%d  config=%s  HR=%.3f  MRR=%.4f  composite=%.4f",
-                i,
-                r["config"],
-                r.get("avg_hit_rate", 0),
-                r.get("avg_mrr", 0),
-                r.get("composite_score", 0),
+                results, sweep.top_n_llm, judge_model, questions_path, sweep.objective_weights, should_cancel
             )
         return results
 
-    async def _check_cancelled(self, should_cancel: Callable[[], Awaitable[bool]] | None, where: str) -> None:
-        """Cooperative cancellation point (M-14): stop when the sweep is cancelled."""
-        if should_cancel is None:
-            return
-        if await should_cancel():
-            logger.info("Sweep cancelled at %s", where)
-            raise SweepCancelled(where)
-
-    async def _run_phase_b(
-        self,
-        results: list[dict],
-        top_n_llm: int,
-        judge_model: str,
-        questions_path: str | None,
-        weights: dict,
-        should_cancel: Callable[[], Awaitable[bool]] | None = None,
-    ) -> list[dict]:
-        logger.info("Sweep Phase B: LLM-judge on top-%d configs...", top_n_llm)
-        top_configs = results[:top_n_llm]
-
-        for cfg_idx, cfg in enumerate(top_configs, 1):
-            logger.info(
-                "  LLM evaluation #%d/%d: %s",
-                cfg_idx,
-                top_n_llm,
-                cfg["config"],
-            )
-            await self._check_cancelled(should_cancel, f"phase B config {cfg_idx}/{top_n_llm}")
-
-            overrides = self._build_overrides(cfg["config"])
-            token = _settings_overrides.set(overrides)
-            try:
-                full_result = await self._run_full_benchmark(
-                    questions_path or str(Path(settings.data_dir) / "test_questions.json"),
-                    judge_model,
-                )
-                cfg["full_metrics"] = full_result
-                cfg["llm_evaluated"] = True
-                cfg["composite_score"] = compute_composite_score(
-                    {
-                        "hit_rate": cfg.get("avg_hit_rate", 0),
-                        "mrr": cfg.get("avg_mrr", 0),
-                        "faithfulness": full_result.get("avg_faithfulness", 0),
-                        "relevancy": full_result.get("avg_relevancy", 0),
-                        "correctness": full_result.get("avg_correctness"),
-                    },
-                    weights,
-                )
-            finally:
-                _settings_overrides.reset(token)
-
-        results.sort(key=lambda x: x.get("composite_score", 0), reverse=True)
-        return results
+    async def _check_cancelled(self, should_cancel: ShouldCancel | None, where: str) -> None:
+        await check_cancelled(should_cancel, where)
 
     async def _load_questions(self, dataset: str, questions_path: str | None) -> list[dict]:
-        """Load questions from DB, falling back to file."""
-        try:
-            async with self._uow_factory.create() as uow:
-                questions = await uow.benchmark_questions.list_items(
-                    dataset=dataset, is_active=True, limit=1000
-                )
-            if questions:
-                return [
-                    {
-                        "question": q.question,
-                        "expected_answer": q.expected_answer,
-                        "source_hint": q.source_hint,
-                        "tags": q.tags or [],
-                    }
-                    for q in questions
-                ]
-        except Exception as e:
-            logger.warning("Failed to load questions from DB: %s", e)
-
-        # Fallback to file
-        path = questions_path or str(Path(settings.data_dir) / "test_questions.json")
-        return load_questions(path)
+        return await self._data.load_questions(dataset, questions_path)
 
     async def _cache_candidates(self, questions: list[dict], max_fetch_k: int) -> tuple[dict, dict, dict]:
-        """Phase 1: Cache dense + sparse candidates at max fetch_k.
-
-        Uses admin-level ACL filter to respect document visibility.
-        """
-        from domain.value_objects.roles import UserKind, UserRole
-        from infrastructure.repositories.vector.acl import build_qdrant_filter
-
-        bench_user = {"id": 0, "kind": UserKind.INTERNAL, "role": UserRole.ADMIN}
-        access_filter = build_qdrant_filter(user=bench_user, group_ids=[])
-        return await cache_candidates(
-            questions,
-            max_fetch_k,
-            ml_clients=self._ml_clients,
-            access_filter=access_filter,
-        )
+        return await self._data.cache_candidates(questions, max_fetch_k)
 
     def _score_config_cheap(
         self,
@@ -332,151 +116,27 @@ class SweepEngine:
         all_candidates: dict,
         weights: dict,
     ) -> dict:
-        """Phase A: Score a config using cached candidates (no LLM/Qdrant calls)."""
         return score_config_cheap(config, questions, dense_cache, sparse_cache, all_candidates, weights)
 
-    def _build_overrides(self, config: dict) -> dict[str, object]:
-        """Build a settings override dict from a sweep config point."""
-        overrides: dict[str, object] = {}
-        _map = {
-            "top_k": "retriever_top_k",
-            "fetch_k": "retriever_fetch_k",
-            "dense_weight": "dense_weight",
-            "sparse_weight": "sparse_weight",
-            "rrf_k": "rrf_k",
-            "rerank_min_score": "rerank_min_score",
-            "rerank_score_gap_ratio": "rerank_score_gap_ratio",
-        }
-        for sweep_key, setting_key in _map.items():
-            if sweep_key in config:
-                overrides[setting_key] = config[sweep_key]
-        return overrides
+    async def _run_phase_b(
+        self,
+        results: list[dict],
+        top_n_llm: int,
+        judge_model: str,
+        questions_path: str | None,
+        weights: dict,
+        should_cancel: ShouldCancel | None = None,
+    ) -> list[dict]:
+        return await self._full.evaluate(
+            results, top_n_llm, judge_model, questions_path, weights, should_cancel, self._run_full_benchmark
+        )
 
     async def _run_full_benchmark(self, questions_path: str, judge_model: str) -> dict:
-        """Run a full benchmark with LLM judge (async)."""
-        from config import get_setting
-
         if self._benchmark_service is None:
-            from application.services.benchmark_orchestrator import BenchmarkService
-            from infrastructure.benchmark.runner_adapter import AsyncBenchmarkRunner
-
-            self._benchmark_service = BenchmarkService(
-                rag_service=self._rag_service, runner=AsyncBenchmarkRunner()
-            )
-        elif self._rag_service is not None:
-            self._benchmark_service.set_rag_service(self._rag_service)
-
-        out_dir = str(Path(settings.data_dir) / "benchmark_results")
-        result = await self._benchmark_service.run(
+            raise RuntimeError("A benchmark service must be injected for full sweep evaluation")
+        return await self._benchmark_service.run(
             questions_path=questions_path,
-            out_dir=out_dir,
-            top_k=get_setting("retriever_top_k"),
+            out_dir=self._runtime.results_path,
+            top_k=self._runtime.top_k,
             judge_model=judge_model,
         )
-        return result
-
-    async def _run_optuna_sweep(
-        self,
-        sweep: BenchmarkSweep,
-        questions_path: str | None,
-        judge_model: str | None,
-        progress_callback: Callable[[int, int, dict | None], None] | None,
-        should_cancel: Callable[[], Awaitable[bool]] | None,
-    ) -> list[dict]:
-        """Run parameter sweep using Optuna with TPE sampler + MedianPruner.
-
-        Replaces the manual successive_halving with a principled Bayesian
-        optimization approach that naturally handles early stopping.
-        """
-        import optuna
-
-        search_space = sweep.search_space
-        weights = sweep.objective_weights
-        dataset = sweep.dataset
-        n_trials = search_space.get("_n_trials", 50)
-
-        # Load questions
-        questions_data = await self._load_questions(dataset, questions_path)
-        if not questions_data:
-            logger.error("No questions found for dataset '%s'", dataset)
-            return []
-
-        eval_questions = [q for q in questions_data if q.get("source_hint") is not None]
-
-        # Cache candidates once
-        max_fetch_k = max(
-            (search_space.get("fetch_k", {}).get("max", settings.retriever_fetch_k)),
-            default=settings.retriever_fetch_k,
-        )
-        logger.info(
-            "Optuna sweep: caching candidates (fetch_k=%d) for %d questions...",
-            max_fetch_k,
-            len(eval_questions),
-        )
-        dense_cache, sparse_cache, all_candidates = await self._cache_candidates(eval_questions, max_fetch_k)
-
-        results: list[dict] = []
-        evaluated = 0
-
-        def objective(trial: optuna.Trial) -> float:
-            nonlocal evaluated
-            config = {}
-            for param, spec in search_space.items():
-                if param.startswith("_"):
-                    continue
-                if "values" in spec:
-                    config[param] = trial.suggest_categorical(param, spec["values"])
-                elif "min" in spec and "max" in spec:
-                    step = spec.get("step")
-                    if (
-                        isinstance(spec.get("min"), float)
-                        or isinstance(spec.get("max"), float)
-                        or (step and isinstance(step, float))
-                    ):
-                        config[param] = trial.suggest_float(param, spec["min"], spec["max"], step=step)
-                    else:
-                        config[param] = trial.suggest_int(
-                            param, int(spec["min"]), int(spec["max"]), step=step
-                        )
-                else:
-                    config[param] = spec.get("default", 0)
-
-            cheap_config = {k: v for k, v in config.items() if k in CHEAP_PARAMS}
-            result = self._score_config_cheap(
-                cheap_config, eval_questions, dense_cache, sparse_cache, all_candidates, weights
-            )
-            result["config"] = config
-            results.append(result)
-            evaluated += 1
-
-            if progress_callback:
-                progress_callback(evaluated, n_trials, result)
-
-            return result.get("composite_score", 0.0)
-
-        optuna.logging.set_verbosity(optuna.logging.WARNING)
-        study = optuna.create_study(
-            direction="maximize",
-            sampler=optuna.samplers.TPESampler(seed=42),
-            pruner=optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=2),
-        )
-
-        logger.info("Running Optuna sweep: %d trials with TPE + MedianPruner", n_trials)
-        study.optimize(objective, n_trials=n_trials)
-
-        # Sort by composite score (best first)
-        results.sort(key=lambda x: x.get("composite_score", 0), reverse=True)
-
-        logger.info(
-            "Optuna sweep complete. Best trial: #%d, score=%.4f",
-            study.best_trial.number,
-            study.best_trial.value,
-        )
-
-        # Phase B: Full LLM-judge on top-N (if judge_model provided)
-        if judge_model and sweep.top_n_llm > 0:
-            results = await self._run_phase_b(
-                results, sweep.top_n_llm, judge_model, questions_path, weights, should_cancel
-            )
-
-        return results
