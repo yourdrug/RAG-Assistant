@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from datetime import date, datetime
 
-from application.dto.versioning_dto import VersioningResult
+from application.dto.versioning_dto import VersioningPlan, VersioningResult
 from domain.domain_profile.settings_port import DomainSettingsPort
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
 from domain.domain_profile.protocol import DomainProfile, ReferenceMatch, refs_to_metadata
@@ -96,40 +96,59 @@ class ActVersioningService:
         Single transaction: act lookup/create, unsetting the previous current
         version, denormalized chunks sync, new version insert.
         """
+        async with self._uow_factory.create(master=True) as uow:
+            return await self.create_version_in_uow(
+                uow, profile, document_id, extracted_refs, effective_date, date_confidence
+            )
+
+    async def create_version_in_uow(
+        self,
+        uow,
+        profile: DomainProfile,
+        document_id: int,
+        extracted_refs: list[ReferenceMatch],
+        effective_date: date | None = None,
+        date_confidence: float | None = None,
+    ) -> ActVersion:
+        """Create a version using the caller's transaction."""
         act_number = _extract_act_number(extracted_refs)
         date_source = self._resolve_date_source(profile.key, effective_date, date_confidence)
+        act: RegulatoryAct | None = None
+        if act_number:
+            act = await self._find_or_create_act_in_uow(uow, profile.key, act_number, extracted_refs)
 
-        async with self._uow_factory.create(master=True) as uow:
-            act: RegulatoryAct | None = None
-            if act_number:
-                act = await self._find_or_create_act_in_uow(uow, profile.key, act_number, extracted_refs)
+        if act is not None and act.id is not None:
+            previous = await uow.act_versions.list_by_act(act.id)
+            previous_ids = [v.id for v in previous if v.is_current and v.id is not None]
+            await uow.act_versions.unset_current(act.id)
+            if previous_ids:
+                await uow.chunks.set_current_by_act_version_ids(previous_ids, False)
+                for previous_id in previous_ids:
+                    await uow.vector_outbox.enqueue(
+                        VectorOutboxEntry(
+                            operation=OutboxOperation.UPDATE_METADATA,
+                            aggregate_type="act_version",
+                            aggregate_id=previous_id,
+                            payload={"act_version_id": previous_id, "is_current": False},
+                        )
+                    )
 
-            if act is not None and act.id is not None:
-                previous = await uow.act_versions.list_by_act(act.id)
-                previous_ids = [v.id for v in previous if v.is_current and v.id is not None]
-                await uow.act_versions.unset_current(act.id)
-
-                # Denormalized chunks of superseded versions stop being "current"
-                if previous_ids:
-                    await uow.chunks.set_current_by_act_version_ids(previous_ids, False)
-
-            version = ActVersion(
-                id=None,
-                act_id=act.id if act is not None else None,
-                document_id=document_id,
-                effective_from=effective_date,
-                is_current=True,
-                date_source=date_source,
-                date_confidence=date_confidence,
+        version = ActVersion(
+            id=None,
+            act_id=act.id if act is not None else None,
+            document_id=document_id,
+            effective_from=effective_date,
+            is_current=True,
+            date_source=date_source,
+            date_confidence=date_confidence,
+        )
+        created = await uow.act_versions.create(version)
+        if act is None:
+            log.info(
+                "Act version %d created without act link (no reliable number) — pending manual linkage",
+                created.id,
             )
-            created = await uow.act_versions.create(version)
-
-            if act is None:
-                log.info(
-                    "Act version %d created without act link (no reliable number) — pending manual linkage",
-                    created.id,
-                )
-            return created
+        return created
 
     def _resolve_date_source(
         self,
@@ -168,47 +187,65 @@ class ActVersioningService:
             effective_from=None,
             warning=None,
         )
-        if not profile.is_versioned:
+        plan = await self.prepare_document_versioning(profile, full_text)
+        if plan is None:
             return empty
+        if plan.warning:
+            return VersioningResult(
+                domain_metadata=plan.domain_metadata,
+                act_version_id=None,
+                act_id=None,
+                effective_from=plan.effective_from,
+                warning=plan.warning,
+            )
         try:
-            refs = profile.extract_references(full_text)
-            domain_metadata = refs_to_metadata(refs) if refs else None
+            version = await self.handle_versioned_upload(
+                profile,
+                document_id,
+                plan.extracted_refs,
+                plan.effective_date,
+                plan.date_confidence,
+            )
+            return VersioningResult(
+                domain_metadata=plan.domain_metadata,
+                act_version_id=version.id,
+                act_id=version.act_id,
+                effective_from=plan.effective_from,
+                warning=None,
+            )
+        except Exception as e:
+            log.warning("Versioning failed for doc %d: %s", document_id, e)
+            return VersioningResult(None, None, None, None, f"Версионирование не выполнено: {e}")
 
+    async def prepare_document_versioning(
+        self, profile: DomainProfile, full_text: str
+    ) -> VersioningPlan | None:
+        """Extract version metadata without committing a version row."""
+        if not profile.is_versioned:
+            return None
+        try:
+            refs = profile.extract_references(full_text) or []
             date_candidate = profile.extract_effective_date(full_text)
             raw_effective_date = (
                 date_candidate.effective_from if date_candidate and date_candidate.effective_from else None
             )
             effective_from = None
-            if raw_effective_date is not None:
+            if raw_effective_date is not None and date_candidate is not None:
                 threshold = float(
                     self._settings.get("effective_date_auto_trust_threshold", domain_key=profile.key)
                 )
-                if date_candidate is not None and date_candidate.confidence >= threshold:
+                if date_candidate.confidence >= threshold:
                     effective_from = raw_effective_date
-
-            version = await self.handle_versioned_upload(
-                profile=profile,
-                document_id=document_id,
-                extracted_refs=refs or [],
+            return VersioningPlan(
+                extracted_refs=refs,
+                domain_metadata=refs_to_metadata(refs) if refs else None,
                 effective_date=raw_effective_date,
+                effective_from=effective_from,
                 date_confidence=date_candidate.confidence if date_candidate else None,
             )
-            return VersioningResult(
-                domain_metadata=domain_metadata,
-                act_version_id=version.id,
-                act_id=version.act_id,
-                effective_from=effective_from,
-                warning=None,
-            )
         except Exception as e:
-            log.warning("Versioning failed for doc %d: %s", document_id, e)
-            return VersioningResult(
-                domain_metadata=None,
-                act_version_id=None,
-                act_id=None,
-                effective_from=None,
-                warning=f"Версионирование не выполнено: {e}",
-            )
+            log.warning("Versioning extraction failed for domain %s: %s", profile.key, e)
+            return VersioningPlan([], None, None, None, None, f"Версионирование не выполнено: {e}")
 
     async def list_pending_review(self) -> list[ActVersion]:
         """List versions needing manual review (not trusted, not linked)."""
@@ -263,6 +300,32 @@ class ActVersioningService:
             if version is None:
                 raise EntityNotFound("ActVersion", version_id)
 
+            old_act_id = version.act_id
+            if act_id is not None and act_id != old_act_id:
+                target_act = await uow.regulatory_acts.get_by_id(act_id)
+                if target_act is None:
+                    raise EntityNotFound("RegulatoryAct", act_id)
+                if version.is_current:
+                    target_versions = await uow.act_versions.list_by_act(act_id)
+                    replaced_current_ids = [
+                        item.id
+                        for item in target_versions
+                        if item.is_current and item.id is not None and item.id != version_id
+                    ]
+                    await uow.act_versions.unset_current(act_id)
+                    if replaced_current_ids:
+                        await uow.chunks.set_current_by_act_version_ids(replaced_current_ids, False)
+                        for replaced_id in replaced_current_ids:
+                            await uow.vector_outbox.enqueue(
+                                VectorOutboxEntry(
+                                    operation=OutboxOperation.UPDATE_METADATA,
+                                    aggregate_type="act_version",
+                                    aggregate_id=replaced_id,
+                                    payload={"act_version_id": replaced_id, "is_current": False},
+                                )
+                            )
+                await uow.chunks.update_act_id_by_act_version_id(version_id, act_id)
+
             if effective_from is not None:
                 version.effective_from = effective_from
             if effective_to is not None:
@@ -288,6 +351,8 @@ class ActVersioningService:
                     aggregate_id=version_id,
                     payload={
                         "act_version_id": version_id,
+                        "act_id": version.act_id,
+                        "is_current": version.is_current,
                         "effective_from": (
                             version.effective_from.isoformat() if version.effective_from else None
                         ),

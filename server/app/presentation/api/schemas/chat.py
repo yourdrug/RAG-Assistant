@@ -41,6 +41,7 @@ class NewConversationResponse(BaseModel):
 class ConversationHistoryResponse(BaseModel):
     conversation_id: int
     messages: list[MessageResponse]
+    next_cursor: int | None = None
 
 
 class ConversationListItem(BaseModel):

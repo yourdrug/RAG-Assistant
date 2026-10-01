@@ -33,16 +33,24 @@ def create_embeddings():
         from infrastructure.ml.clients.deepinfra_clients import DeepInfraEmbeddingsClient
 
         log.info("Creating DeepInfra embeddings client (model=%s) ...", settings.deepinfra_embed_model)
-        return DeepInfraEmbeddingsClient(
+        client = DeepInfraEmbeddingsClient(
             api_key=settings.deepinfra_api_key,
             base_url=f"{settings.deepinfra_base_url}/openai",
             model=settings.deepinfra_embed_model,
             pool_limits=pool_limits,
         )
+        from infrastructure.repositories.vector.embedding_identity import configured_embedding_identity
+
+        client.embedding_identity = configured_embedding_identity()
+        return client
     from infrastructure.ml.clients.tei_clients import TEIEmbeddingsClient
 
     log.info("Creating TEI embeddings client (%s) ...", settings.tei_embed_url)
-    return TEIEmbeddingsClient(settings.tei_embed_url, pool_limits=pool_limits)
+    from infrastructure.repositories.vector.embedding_identity import configured_embedding_identity
+
+    tei_client = TEIEmbeddingsClient(settings.tei_embed_url, pool_limits=pool_limits)
+    tei_client.embedding_identity = configured_embedding_identity()
+    return tei_client
 
 
 # ---------------------------------------------------------------------------

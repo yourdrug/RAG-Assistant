@@ -18,6 +18,8 @@ Usage::
 
 from __future__ import annotations
 
+from copy import deepcopy
+
 import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -51,7 +53,10 @@ class FakeConversationRepository:
         return None
 
     async def get_by_id(self, conv_id: int):
-        return await self.get(conv_id)
+        from domain.entities.conversation import Conversation
+
+        data = self._convs.get(conv_id)
+        return Conversation(**data) if data else None
 
     async def get_for_update(self, conv_id: int):
         return await self.get(conv_id)
@@ -111,6 +116,14 @@ class FakeMessageRepository:
 
     async def get_history(self, conversation_id: int, window: int = 100) -> list[Message]:
         return [m for m in self._messages if m.conversation_id == conversation_id][-window:]
+
+    async def list_page(self, conversation_id: int, limit: int, before_id: int | None = None):
+        messages = [
+            m
+            for m in self._messages
+            if m.conversation_id == conversation_id and (before_id is None or m.id < before_id)
+        ]
+        return sorted(messages, key=lambda m: m.id)[-limit:]
 
 
 class FakeGroupRepository:
@@ -817,6 +830,11 @@ class FakeUnitOfWork:
             await handler(event)
 
     async def __aenter__(self):
+        self._snapshots = {
+            name: deepcopy({k: v for k, v in repo.__dict__.items() if not callable(v)})
+            for name, repo in self.__dict__.items()
+            if not name.startswith("_") and hasattr(repo, "__dict__")
+        }
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -824,6 +842,12 @@ class FakeUnitOfWork:
             self._committed = True
         else:
             self._rolled_back = True
+            for name, snapshot in self._snapshots.items():
+                repo = getattr(self, name)
+                for key in list(repo.__dict__):
+                    if not callable(repo.__dict__[key]):
+                        del repo.__dict__[key]
+                repo.__dict__.update(snapshot)
 
 
 class FakeUnitOfWorkFactory:
@@ -834,7 +858,19 @@ class FakeUnitOfWorkFactory:
 
     @asynccontextmanager
     async def create(self, master: bool = False) -> AsyncGenerator[FakeUnitOfWork, None]:
-        yield self._uow
+        # A new transaction wrapper shares the committed in-memory repositories.
+        # This double models serial transactions; concurrency tests use PostgreSQL.
+        uow = FakeUnitOfWork()
+        for name, repository in self._uow.__dict__.items():
+            if not name.startswith("_"):
+                setattr(uow, name, repository)
+        uow._event_handlers = list(self._uow._event_handlers)
+        try:
+            async with uow:
+                yield uow
+        finally:
+            self._uow._committed = uow._committed
+            self._uow._rolled_back = uow._rolled_back
 
 
 # ---------------------------------------------------------------------------

@@ -55,15 +55,21 @@ class ConversationService:
         async with self._uow_factory.create(master=True) as uow:
             return await uow.conversations.create(user_id)
 
-    async def get_history(self, conversation_id: int, user_id: int, user_role: str):
+    async def get_history(
+        self,
+        conversation_id: int,
+        user_id: int,
+        user_role: str,
+        limit: int = 100,
+        before_id: int | None = None,
+    ):
         async with self._uow_factory.create() as uow:
             conv = await uow.conversations.get_by_id(conversation_id)
             if conv is None:
                 raise EntityNotFound("Conversation", conversation_id)
             if not conv.can_be_viewed_by(user_id, user_role):
                 raise PermissionDeniedError()
-            messages = await uow.messages.get_history(conversation_id, window=100)
-            return messages
+            return await uow.messages.list_page(conversation_id, limit=limit, before_id=before_id)
 
     # ------------------------------------------------------------------
     # Rolling summary

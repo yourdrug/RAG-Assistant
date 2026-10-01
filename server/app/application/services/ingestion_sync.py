@@ -143,7 +143,7 @@ class DocumentSyncService:
         file_chunks: list,
         full_text: str,
     ) -> None:
-        """Phase 2: versioning (own tx) + chunk persist + outbox, one document."""
+        """Persist version state, chunks and outbox together for one document."""
         first_chunk = file_chunks[0]
         vis = first_chunk.metadata.get("visibility", "internal_public")
         owner = first_chunk.metadata.get("owner_id")
@@ -158,10 +158,24 @@ class DocumentSyncService:
             warning=None,
         )
         profile = self._get_profile(chunk_domain)
-        if self._act_versioning_service is not None and profile is not None:
-            versioning = await self._act_versioning_service.process_document_versioning(
-                profile, doc_id, full_text
-            )
+        versioning_plan = None
+        act_versioning_service = self._act_versioning_service
+        if act_versioning_service is not None and profile is not None:
+            prepare = getattr(act_versioning_service, "prepare_document_versioning", None)
+            if prepare is not None:
+                versioning_plan = await prepare(profile, full_text)
+                if versioning_plan is not None:
+                    versioning = VersioningResult(
+                        versioning_plan.domain_metadata,
+                        None,
+                        None,
+                        versioning_plan.effective_from,
+                        versioning_plan.warning,
+                    )
+            else:
+                versioning = await act_versioning_service.process_document_versioning(
+                    profile, doc_id, full_text
+                )
             if versioning.warning:
                 log.warning("Versioning warning for %s: %s", fname, versioning.warning)
 
@@ -170,6 +184,25 @@ class DocumentSyncService:
         ]
 
         async with self._uow_factory.create(master=True) as uow:
+            if versioning_plan is not None and versioning_plan.warning is None:
+                if act_versioning_service is None:
+                    raise RuntimeError("Versioning plan exists without an act versioning service")
+                act_version = await act_versioning_service.create_version_in_uow(
+                    uow,
+                    profile,
+                    doc_id,
+                    versioning_plan.extracted_refs,
+                    versioning_plan.effective_date,
+                    versioning_plan.date_confidence,
+                )
+                versioning = VersioningResult(
+                    versioning_plan.domain_metadata,
+                    act_version.id,
+                    act_version.act_id,
+                    versioning_plan.effective_from,
+                    None,
+                )
+
             enrich_chunks_metadata(
                 raw_chunks,
                 doc_id,

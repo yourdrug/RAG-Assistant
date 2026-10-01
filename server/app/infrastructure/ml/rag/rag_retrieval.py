@@ -16,6 +16,7 @@ from domain.utils import content_hash
 from infrastructure.metrics.metrics import RAG_STAGE_DURATION
 from infrastructure.ml.rag.rag_reranking import deduplicate_docs
 from infrastructure.resilience.retry import retry_on_transient
+from infrastructure.repositories.vector.embedding_identity import ensure_embedding_identity
 from langchain.schema import Document as LCDocument
 from qdrant_client.models import FieldCondition, Filter, MatchValue
 
@@ -96,6 +97,9 @@ async def qdrant_dense_search(
 
     client = ml_clients.qdrant_client()
     embeddings = ml_clients.embeddings()
+    await asyncio.to_thread(
+        ensure_embedding_identity, client, getattr(embeddings, "embedding_identity", None)
+    )
 
     async with ml_clients.embedding_semaphore:
         query_vector = await embeddings.embed_query(query)
@@ -178,8 +182,14 @@ async def run_hybrid_search(
         effective_dense = dense_weight if dense_weight is not None else rag.hybrid_search.dense_weight
         effective_sparse = sparse_weight if sparse_weight is not None else rag.hybrid_search.sparse_weight
 
+        # Resolve sparse-only candidates with the same ACL filter before RRF.
+        missing_hashes = [h for h, _ in sparse_results if h not in dense_by_hash]
+        if missing_hashes:
+            resolved = await resolve_hashes_batch(missing_hashes, access_filter, ml_clients)
+            dense_by_hash.update({h: (0.0, doc) for h, doc in resolved.items()})
+
         candidates = _retriever.merge_and_dedup(
-            dense_results=[(h, s) for h, s, _ in dense_results],
+            dense_results=[(h, score) for h, score, _ in dense_results],
             sparse_results=sparse_results,
             dense_by_hash=dense_by_hash,
             fetch_k=fetch_k,
@@ -187,15 +197,6 @@ async def run_hybrid_search(
             dense_weight=effective_dense,
             sparse_weight=effective_sparse,
         )
-
-        # Resolve any hashes that weren't in dense_by_hash (sparse-only results)
-        seen_hashes = {content_hash(doc.page_content) for doc in candidates}
-        missing_hashes = [h for h, _ in sparse_results if h not in seen_hashes]
-        if missing_hashes:
-            resolved = await resolve_hashes_batch(missing_hashes, access_filter, ml_clients)
-            for h in missing_hashes:
-                if h in resolved:
-                    candidates.append(resolved[h])
 
         log.info(
             "Hybrid: dense=%d, sparse=%d, merged=%d candidates",

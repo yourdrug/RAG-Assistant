@@ -11,6 +11,7 @@ from __future__ import annotations
 import dataclasses
 import logging
 from dataclasses import dataclass, field
+from functools import partial
 from typing import TYPE_CHECKING
 
 from composition.application import ApplicationContainer
@@ -90,8 +91,6 @@ class Container:
 
         Safe to call even if init() was never called.
         """
-        if not self._initialized:
-            return
         await self.application.dispose()
         await self.infrastructure.dispose()
         self._unsubscribe_config_events()
@@ -114,7 +113,8 @@ class Container:
         bus = event_bus
         bus.subscribe(ConfigParameterChanged, apply_to_settings)
         bus.subscribe(ConfigParameterChanged, invalidate_paddle_ocr_cache)
-        bus.subscribe(ConfigParameterChanged, invalidate_storage_cache)
+        storage = self.infrastructure.ml.file_storage
+        bus.subscribe(ConfigParameterChanged, partial(invalidate_storage_cache, storage=storage))
         bus.subscribe(ConfigParameterChanged, invalidate_pii_detector_cache)
         bus.subscribe(ConfigParameterChanged, audit_log_config_change)
 
@@ -146,8 +146,15 @@ class Container:
             if event.key == "hybrid_enabled":
                 ml.invalidate_bm25()
 
+        def _invalidate_embedding_clients(event: ConfigParameterChanged) -> None:
+            if event.key in {"ml_provider", "deepinfra_embed_model"}:
+                ml.invalidate_embeddings()
+            if event.key in {"ml_provider", "deepinfra_rerank_model"}:
+                ml.invalidate_reranker()
+
         bus.subscribe(ConfigParameterChanged, _invalidate_llm)
         bus.subscribe(ConfigParameterChanged, _invalidate_bm25)
+        bus.subscribe(ConfigParameterChanged, _invalidate_embedding_clients)
 
     def _unsubscribe_config_events(self) -> None:
         """Remove all config-change handlers from the event bus."""

@@ -342,7 +342,7 @@ async def list_runs(
     )
 
 
-@router.get("/admin/benchmark/runs/{run_id}", response_model=BenchmarkRunResponse)
+@router.get("/admin/benchmark/runs/{run_id:int}", response_model=BenchmarkRunResponse)
 async def get_run(
     run_id: int,
     admin: CurrentUser = Depends(require_admin),

@@ -56,3 +56,12 @@ def filter_cited_sources(answer: str, sources: list[dict]) -> list[dict]:
         return sources
     filtered = [src for i, src in enumerate(sources, 1) if i in cited]
     return filtered if filtered else sources
+
+
+def filter_cited_documents(answer: str, docs: list) -> list:
+    """Select prompt chunks by their original [N] labels before source aggregation."""
+    cited = {int(m) for m in re.findall(r"\[(\d+)\]", answer)}
+    if not cited:
+        return docs
+    selected = [item for index, item in enumerate(docs, 1) if index in cited]
+    return selected if selected else docs

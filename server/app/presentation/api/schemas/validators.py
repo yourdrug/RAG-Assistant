@@ -9,7 +9,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Annotated
 
-from pydantic import AfterValidator, BaseModel, model_validator
+from pydantic import AfterValidator, BaseModel, ValidationError, model_validator
+from fastapi.exceptions import RequestValidationError
 
 from presentation.api.constants import MAGIC_BYTES
 
@@ -105,3 +106,15 @@ class FileContent(BaseModel):
                 raise ValueError("File content is not a valid OLE2 compound document (.doc)")
 
         return self
+
+
+def validate_uploaded_file(data: bytes, filename: str) -> FileContent:
+    """Translate user file validation failures into the public 422 contract."""
+    try:
+        return FileContent(data=data, filename=filename, check_structural=True)
+    except ValidationError as exc:
+        errors = [
+            {"loc": ("body", "file"), "msg": e["msg"], "type": e["type"]}
+            for e in exc.errors(include_input=False)
+        ]
+        raise RequestValidationError(errors) from exc

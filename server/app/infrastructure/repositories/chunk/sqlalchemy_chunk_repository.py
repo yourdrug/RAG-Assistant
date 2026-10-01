@@ -552,6 +552,25 @@ class SQLAlchemyChunkRepository:
             offset += batch_size
         return batches
 
+    async def iter_all_contents_with_acl(self, batch_size: int = 1000):
+        """Stream chunk content and ACL metadata without retaining earlier rows."""
+        stmt = (
+            select(
+                ChunkModel.content,
+                ChunkModel.visibility,
+                ChunkModel.owner_id,
+                ChunkModel.group_id,
+            )
+            .order_by(ChunkModel.document_id, ChunkModel.chunk_index)
+            .execution_options(yield_per=batch_size)
+        )
+        result = await self._session.stream(stmt)
+        try:
+            async for row in result:
+                yield row[0], row[1], row[2], row[3]
+        finally:
+            await result.close()
+
     async def get_all_contents_batches_with_acl(
         self, batch_size: int = 5000
     ) -> list[list[tuple[str, str, int | None, int | None]]]:
@@ -658,6 +677,13 @@ class SQLAlchemyChunkRepository:
             update(ChunkModel)
             .where(ChunkModel.act_version_id.in_(act_version_ids))
             .values(is_current=is_current)
+        )
+        await self._session.flush()
+        return result.rowcount or 0
+
+    async def update_act_id_by_act_version_id(self, act_version_id: int, act_id: int) -> int:
+        result = await self._session.execute(
+            update(ChunkModel).where(ChunkModel.act_version_id == act_version_id).values(act_id=act_id)
         )
         await self._session.flush()
         return result.rowcount or 0

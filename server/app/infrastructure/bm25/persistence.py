@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -34,7 +35,7 @@ def load_bm25_index(path: Path) -> BM25Index | None:
 
 async def save_bm25_index_to_s3(index: BM25Index, storage) -> None:
     """Save BM25 index to S3 under the system prefix."""
-    data = json.dumps(index.to_dict(), ensure_ascii=False).encode()
+    data = await asyncio.to_thread(lambda: json.dumps(index.to_dict(), ensure_ascii=False).encode())
     await storage.upload_file(BM25_S3_KEY, data)
     log.info("BM25 index saved to S3: %d docs -> s3://%s", index.n_docs, BM25_S3_KEY)
 

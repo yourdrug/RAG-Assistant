@@ -11,7 +11,8 @@
     "format": "biome format --write src/",
     "typecheck": "tsc -b --noEmit",
     "check": "biome check src/ && tsc -b --noEmit",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test tests/*.test.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",

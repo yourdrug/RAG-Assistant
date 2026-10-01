@@ -7,7 +7,7 @@ from pathlib import Path
 from application.ports.rate_limit import RateLimitPolicyName
 from application.services.benchmark_result_service import BenchmarkResultService
 from application.services.job_service import JobService
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from presentation.api.auth_dependencies import require_admin
 from presentation.api.rate_limit import rate_limit
@@ -20,6 +20,7 @@ from presentation.api.dependencies import (
     create_job_service,
     get_idempotency_key,
 )
+from presentation.api.idempotency import complete_idempotency, reserve_idempotency
 from presentation.api.helpers import summary_to_response, validate_data_path_within_dir
 from presentation.api.schemas import (
     BenchmarkRequest,
@@ -38,6 +39,7 @@ router = APIRouter(tags=["benchmark"])
     dependencies=[Depends(rate_limit(RateLimitPolicyName.BENCHMARK))],
 )
 async def run_benchmark(
+    request: Request,
     req: BenchmarkRequest,
     admin: CurrentUser = Depends(require_admin),
     job_service: JobService = Depends(create_job_service),
@@ -46,20 +48,24 @@ async def run_benchmark(
     idempotency_key: str | None = Depends(get_idempotency_key),
     idempotency_store=Depends(create_idempotency_store),
 ):
-    # Idempotency: return cached result if key already executed
-    if idempotency_key:
-        cached = await idempotency_store.get(idempotency_key, admin.id)
-        if cached:
-            return BenchmarkResponse(**cached)
-
-    job_id = await job_service.create_job(JobType.BENCHMARK)
-
     q_path = req.questions_path or str(Path(bench_cfg.data_dir) / "test_questions.json")
     o_dir = req.out_dir or str(Path(bench_cfg.data_dir) / "benchmark_results")
     q_path = validate_data_path_within_dir(q_path, bench_cfg.data_dir)
     o_dir = validate_data_path_within_dir(o_dir, bench_cfg.data_dir)
     k = req.top_k or bench_cfg.retriever_top_k
     judge = req.judge_model or bench_cfg.llm_model
+
+    cached, reservation = await reserve_idempotency(
+        idempotency_store,
+        idempotency_key,
+        f"{admin.kind}:{admin.role}:{admin.id}",
+        f"{request.method}:{request.url.path}",
+        req.model_dump(mode="json"),
+    )
+    if cached is not None:
+        return BenchmarkResponse(**cached)
+
+    job_id = await job_service.create_job(JobType.BENCHMARK)
 
     await job_enqueuer.enqueue_benchmark(
         questions_path=q_path,
@@ -71,9 +77,7 @@ async def run_benchmark(
 
     response = BenchmarkResponse(status="started")
 
-    # Idempotency: store result for future duplicate requests
-    if idempotency_key:
-        await idempotency_store.store(idempotency_key, admin.id, response.model_dump())
+    await complete_idempotency(idempotency_store, reservation, response.model_dump(mode="json"))
 
     return response
 

@@ -437,3 +437,10 @@ async def test_hybrid_search_uses_rrf_when_bm25_available(mock_settings, mock_me
     assert _acl_filter in mock_client.scroll.call_args.kwargs["scroll_filter"].must
     mock_rrf.assert_called_once()
     assert len(results) >= 1
+
+
+@pytest.fixture(autouse=True)
+def mock_embedding_binding(monkeypatch):
+    monkeypatch.setattr(
+        "infrastructure.ml.rag.rag_retrieval.ensure_embedding_identity", lambda *args: "test:model:v1"
+    )

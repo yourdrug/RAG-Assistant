@@ -20,6 +20,7 @@ class JobEnqueuerPort(Protocol):
         replace_id: int | None,
         job_id: int,
         doc_domain: str | None = None,
+        principal_id: int | None = None,
     ) -> None: ...
 
     async def enqueue_ingest(

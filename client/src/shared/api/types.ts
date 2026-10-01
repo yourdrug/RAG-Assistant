@@ -89,6 +89,7 @@ export interface MessageResponse {
 export interface ConversationHistoryResponse {
   conversation_id: number;
   messages: MessageResponse[];
+  next_cursor: number | null;
 }
 
 export interface ConversationListItem {

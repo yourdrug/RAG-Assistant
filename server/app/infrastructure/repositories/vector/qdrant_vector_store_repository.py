@@ -84,6 +84,12 @@ class QdrantVectorStoreRepository:
         client = self._get_qdrant_client()
 
         def _upsert() -> None:
+            from infrastructure.repositories.vector.embedding_identity import ensure_embedding_identity
+
+            identity = payload.get("metadata", {}).get("embedding_model")
+            if not isinstance(identity, str) or not identity:
+                raise ValueError("Vector payload must declare its originating embedding_model")
+            ensure_embedding_identity(client, identity)
             point = PointStruct(id=point_id, vector=vector, payload=payload)
             client.upsert(collection_name=settings.collection_name, points=[point])
 

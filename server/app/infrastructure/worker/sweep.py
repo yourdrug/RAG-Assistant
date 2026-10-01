@@ -114,8 +114,9 @@ async def run_sweep_task(
             await _handle_sweep_cancelled(uow_factory, sweep_id)
             return
         except Exception:
-            async with uow_factory.create(master=True) as uow:
-                await uow.benchmark_sweeps.update_status(sweep_id, BenchmarkSweepStatus.FAILED.value)
+            if ctx.get("job_try", 1) >= 3:
+                async with uow_factory.create(master=True) as uow:
+                    await uow.benchmark_sweeps.update_status(sweep_id, BenchmarkSweepStatus.FAILED.value)
             raise
 
         best_run_id = await _save_sweep_results(uow_factory, sweep, sweep_id, results)
@@ -125,4 +126,10 @@ async def run_sweep_task(
         )
         logger.info("Sweep %d completed: %d results, best_run_id=%s", sweep_id, len(results), best_run_id)
 
-    await _run_tracked_job(uow_factory, job_id, _action, description=f"sweep {sweep_id}")
+    await _run_tracked_job(
+        uow_factory,
+        job_id,
+        _action,
+        description=f"sweep {sweep_id}",
+        job_try=ctx.get("job_try", 1),
+    )

@@ -20,12 +20,14 @@ from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any
 
+from arq import Retry
 from composition.service_providers import (
     create_document_processor,
     create_ingest_app_service,
 )
 from domain.value_objects.visibility import DocumentVisibility
 from infrastructure.benchmark.runner import run_benchmark_async
+from infrastructure.worker.admission import one_document_per_principal
 
 # Re-export cron tasks for backward compatibility (Arq worker config imports from here)
 from infrastructure.worker.cron import (  # noqa: F401
@@ -38,6 +40,7 @@ from infrastructure.worker.cron import (  # noqa: F401
 logger = logging.getLogger("default")
 
 _HEARTBEAT_INTERVAL_SEC = 60
+_MAX_JOB_TRIES = 3
 
 
 # ---------------------------------------------------------------------------
@@ -85,6 +88,8 @@ async def _run_tracked_job(
     action: Callable[[], Awaitable[None]],
     *,
     description: str,
+    job_try: int = 1,
+    max_tries: int = _MAX_JOB_TRIES,
 ) -> None:
     """Run a job body with full job-state bookkeeping (C-4)."""
     async with _job_heartbeat(uow_factory, job_id, interval_sec=_HEARTBEAT_INTERVAL_SEC):
@@ -102,6 +107,16 @@ async def _run_tracked_job(
             raise
         except Exception as e:
             logger.exception("Worker: job %d failed (%s)", job_id, description)
+            if job_try < max_tries:
+                defer_seconds = min(60, 5 * (2 ** (job_try - 1)))
+                logger.warning(
+                    "Worker: retrying job %d (attempt %d/%d) in %ds",
+                    job_id,
+                    job_try,
+                    max_tries,
+                    defer_seconds,
+                )
+                raise Retry(defer=defer_seconds) from e
             await _mark_job_failed_safe(uow_factory, job_id, str(e))
         else:
             async with uow_factory.create(master=True) as uow:
@@ -113,6 +128,7 @@ async def _run_tracked_job(
 # ---------------------------------------------------------------------------
 
 
+@one_document_per_principal
 async def process_document(
     ctx: dict[str, Any],
     *,
@@ -125,6 +141,7 @@ async def process_document(
     replace_id: int | None,
     job_id: int,
     doc_domain: str | None = None,
+    principal_id: int | None = None,
 ) -> None:
     """Process an uploaded document (parse → split → vectorize → store)."""
     infra = ctx["container"].infrastructure
@@ -164,7 +181,13 @@ async def process_document(
             job_id,
         )
 
-    await _run_tracked_job(uow_factory, job_id, _action, description=f"process document {document_id}")
+    await _run_tracked_job(
+        uow_factory,
+        job_id,
+        _action,
+        description=f"process document {document_id}",
+        job_try=ctx.get("job_try", 1),
+    )
 
 
 async def run_full_ingest(
@@ -191,7 +214,13 @@ async def run_full_ingest(
             resolved_dir, reset, domain=domain, visibility=vis, group_id=group_id, client_id=client_id
         )
 
-    await _run_tracked_job(uow_factory, job_id, _action, description=f"full ingest {resolved_dir}")
+    await _run_tracked_job(
+        uow_factory,
+        job_id,
+        _action,
+        description=f"full ingest {resolved_dir}",
+        job_try=ctx.get("job_try", 1),
+    )
 
 
 async def run_single_ingest(
@@ -217,7 +246,13 @@ async def run_single_ingest(
             resolved, domain=domain, visibility=vis, group_id=group_id, client_id=client_id
         )
 
-    await _run_tracked_job(uow_factory, job_id, _action, description=f"single ingest {resolved}")
+    await _run_tracked_job(
+        uow_factory,
+        job_id,
+        _action,
+        description=f"single ingest {resolved}",
+        job_try=ctx.get("job_try", 1),
+    )
 
 
 async def run_benchmark(
@@ -240,4 +275,10 @@ async def run_benchmark(
             judge_model=judge_model,
         )
 
-    await _run_tracked_job(uow_factory, job_id, _action, description="benchmark run")
+    await _run_tracked_job(
+        uow_factory,
+        job_id,
+        _action,
+        description="benchmark run",
+        job_try=ctx.get("job_try", 1),
+    )

@@ -22,7 +22,7 @@ interface StreamChatParams {
   signal?: AbortSignal;
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || "/api";
+const API_BASE_URL = import.meta.env?.VITE_API_URL || "/api";
 
 export async function streamChat({
   question,
@@ -61,6 +61,7 @@ export async function streamChat({
 
   const decoder = new TextDecoder();
   let buffer = "";
+  let currentEvent = "";
 
   try {
     while (true) {
@@ -69,8 +70,8 @@ export async function streamChat({
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
       buffer = lines.pop() || "";
-      let currentEvent = "";
-      for (const line of lines) {
+      for (const rawLine of lines) {
+        const line = rawLine.replace(/\r$/, "");
         if (line.startsWith("event: ")) {
           currentEvent = line.slice(7).trim();
         } else if (line.startsWith("data: ")) {

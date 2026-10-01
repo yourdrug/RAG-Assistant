@@ -146,17 +146,6 @@ class ChunkMutationService:
                 )
             )
 
-            if chunk.content_hash is not None:
-                vis = doc.visibility.value if hasattr(doc.visibility, "value") else doc.visibility
-                self._bm25_index.replace(
-                    chunk.content_hash,
-                    content,
-                    new_hash=new_hash,
-                    visibility=vis,
-                    owner_id=doc.owner_id,
-                    group_id=doc.group_id,
-                )
-
             log.info(
                 "Chunk %d edited by user %d in document %d",
                 chunk_id,
@@ -164,7 +153,7 @@ class ChunkMutationService:
                 document_id,
             )
 
-            return EditChunkResult(
+            result = EditChunkResult(
                 id=chunk_id,
                 document_id=document_id,
                 chunk_index=chunk.chunk_index,
@@ -174,6 +163,19 @@ class ChunkMutationService:
                 manual=chunk.manual,
                 warning=warning,
             )
+
+        if chunk.content_hash is not None:
+            vis = doc.visibility.value if hasattr(doc.visibility, "value") else doc.visibility
+            self._bm25_index.replace(
+                chunk.content_hash,
+                content,
+                new_hash=new_hash,
+                visibility=vis,
+                owner_id=doc.owner_id,
+                group_id=doc.group_id,
+            )
+
+        return result
 
     async def add_chunk(
         self,
@@ -240,15 +242,6 @@ class ChunkMutationService:
                 )
             )
 
-            vis = doc.visibility.value if hasattr(doc.visibility, "value") else doc.visibility
-            self._bm25_index.add(
-                content,
-                text_hash=new_hash,
-                visibility=vis,
-                owner_id=doc.owner_id,
-                group_id=doc.group_id,
-            )
-
             await uow.documents.set_has_manual_edits(document_id, True)
             await self._update_document_stats(uow, document_id)
 
@@ -259,7 +252,7 @@ class ChunkMutationService:
                 user_id,
             )
 
-            return AddChunkResult(
+            result = AddChunkResult(
                 id=chunk_id,
                 document_id=document_id,
                 chunk_index=next_index,
@@ -267,6 +260,17 @@ class ChunkMutationService:
                 manual=True,
                 warning=warning,
             )
+
+        vis = doc.visibility.value if hasattr(doc.visibility, "value") else doc.visibility
+        self._bm25_index.add(
+            content,
+            text_hash=new_hash,
+            visibility=vis,
+            owner_id=doc.owner_id,
+            group_id=doc.group_id,
+        )
+
+        return result
 
     async def delete_chunk(
         self,
@@ -296,9 +300,6 @@ class ChunkMutationService:
                 )
             )
 
-            if chunk.content_hash is not None:
-                self._bm25_index.remove(chunk.content_hash)
-
             await self._update_document_stats(uow, document_id)
 
             log.info(
@@ -307,3 +308,6 @@ class ChunkMutationService:
                 document_id,
                 user_id,
             )
+
+        if chunk.content_hash is not None:
+            self._bm25_index.remove(chunk.content_hash)

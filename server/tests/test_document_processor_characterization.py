@@ -349,7 +349,8 @@ async def test_empty_parse_marks_failed(tmp_path):
     h = build_harness(tmp_path, docs=[])
     doc = await seed_document(h.repo)
 
-    await run(h, doc)
+    with pytest.raises(RuntimeError, match="Текст не извлечён"):
+        await run(h, doc)
 
     expected_error = "Текст не извлечён — документ похож на скан, и OCR не смог распознать содержимое."
     assert len(h.repo.status_calls) == 2
@@ -366,7 +367,8 @@ async def test_parse_failure_marks_failed_and_cleans_temp(tmp_path):
     h = build_harness(tmp_path, parse_error=RuntimeError("boom"))
     doc = await seed_document(h.repo)
 
-    await run(h, doc)
+    with pytest.raises(RuntimeError, match="boom"):
+        await run(h, doc)
 
     assert h.repo.status_calls[-1]["status"] == "failed"
     assert h.repo.status_calls[-1]["error"] == "boom"
@@ -375,13 +377,14 @@ async def test_parse_failure_marks_failed_and_cleans_temp(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_status_write_failure_does_not_raise(tmp_path):
-    """Nested try in _handle_processing_failure swallows the secondary error."""
+async def test_status_write_failure_does_not_mask_processing_error(tmp_path):
+    """The secondary status-write error is logged while the processing error propagates."""
     h = build_harness(tmp_path, parse_error=RuntimeError("boom"))
     h.repo.fail_failed_status = True
     doc = await seed_document(h.repo)
 
-    await run(h, doc)  # must not raise
+    with pytest.raises(RuntimeError, match="boom"):
+        await run(h, doc)
 
     assert h.metrics.has("inc_documents", "failed")
     assert list(tmp_path.iterdir()) == []

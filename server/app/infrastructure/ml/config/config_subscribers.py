@@ -80,7 +80,7 @@ def _coerce_and_set(attr: str, expected_type: type | None, new_value: str) -> No
 
 def apply_to_settings(event: ConfigParameterChanged) -> None:
     """Применить новое значение к in-memory settings."""
-    if event.key in SENSITIVE_KEYS:
+    if event.key in SENSITIVE_KEYS and event.key not in {"s3_access_key", "s3_secret_key"}:
         return
     # Domain-specific params don't touch global settings — they live in DomainSettingsPort
     if getattr(event, "domain_key", None) is not None:
@@ -97,9 +97,15 @@ def apply_to_settings(event: ConfigParameterChanged) -> None:
         return
     try:
         _coerce_and_set(attr, expected_type, event.new_value)
-        log.info("Config applied: %s = %s (was %s)", event.key, event.new_value, event.old_value)
+        if event.key in SENSITIVE_KEYS:
+            log.info("Sensitive config applied: %s", event.key)
+        else:
+            log.info("Config applied: %s = %s (was %s)", event.key, event.new_value, event.old_value)
     except (ValueError, TypeError) as e:
-        log.warning("Failed to apply config %s=%r: %s", event.key, event.new_value, e)
+        if event.key in SENSITIVE_KEYS:
+            log.warning("Failed to apply sensitive config %s: %s", event.key, e)
+        else:
+            log.warning("Failed to apply config %s=%r: %s", event.key, event.new_value, e)
 
 
 # ---------------------------------------------------------------------------
@@ -116,13 +122,15 @@ def invalidate_paddle_ocr_cache(event: ConfigParameterChanged) -> None:
     log.info("PaddleOCR cache invalidated (ocr_lang_paddle -> %s)", event.new_value)
 
 
-def invalidate_storage_cache(event: ConfigParameterChanged) -> None:
+def invalidate_storage_cache(event: ConfigParameterChanged, storage=None) -> None:
     """Сбросить кэш хранилища при изменении backend или S3-параметров."""
     storage_keys = {"file_backend", "s3_endpoint", "s3_bucket", "s3_access_key", "s3_secret_key", "s3_region"}
     if event.key not in storage_keys:
         return
 
     get_storage.cache_clear()
+    if storage is not None:
+        storage.invalidate()
     if event.key in SENSITIVE_KEYS:
         log.info("Storage cache invalidated (%s -> %s)", event.key, _mask_value(event.new_value))
     else:

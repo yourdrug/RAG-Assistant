@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, TypeVar
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 
 if TYPE_CHECKING:
     from application.services.auth_service import AuthService
@@ -193,7 +193,13 @@ def create_rate_limiter(request: Request) -> RateLimiterPort | None:
 
 def get_idempotency_key(request: Request) -> str | None:
     """Extract Idempotency-Key header. None when not provided."""
-    return request.headers.get("Idempotency-Key")
+    key = request.headers.get("Idempotency-Key")
+    if key is None:
+        return None
+    key = key.strip()
+    if not key or len(key) > 200:
+        raise HTTPException(status_code=400, detail="Idempotency-Key must contain 1 to 200 characters")
+    return key
 
 
 def create_idempotency_store(request: Request):

@@ -63,6 +63,7 @@ class RagPipelineState:
     # ── Internal (set during generation step) ──────────────────────────
     _last_chunk: object | None = None
     _grouped_docs: list = field(default_factory=list)
+    _prompt_docs: list = field(default_factory=list)
 
     # ── PII ─────────────────────────────────────────────────────────────
     pii_redactor: "PIIRedactorPort | None" = None

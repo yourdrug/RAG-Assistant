@@ -37,6 +37,9 @@ def _search_dense(
     """
     client = create_qdrant_client()
     embeddings = create_embeddings()
+    from infrastructure.repositories.vector.embedding_identity import ensure_embedding_identity
+
+    ensure_embedding_identity(client, embeddings.embedding_identity)
     query_vector = embeddings.embed_query_sync(question)
     dense_results = client.search(
         collection_name=settings.collection_name,

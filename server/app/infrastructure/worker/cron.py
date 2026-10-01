@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import Any
@@ -9,6 +10,15 @@ from typing import Any
 from config import settings
 
 logger = logging.getLogger("default")
+
+
+def _add_bm25_batch(index, rows) -> int:
+    """Tokenize one bounded chunk batch into the private rebuild index."""
+    text_bytes = 0
+    for content, visibility, owner_id, group_id in rows:
+        index.add_text(content, visibility=visibility, owner_id=owner_id, group_id=group_id)
+        text_bytes += len(content.encode("utf-8"))
+    return text_bytes
 
 
 async def cron_job_cleanup(ctx: dict[str, Any]) -> None:
@@ -68,7 +78,7 @@ async def cron_recover_stuck_processing(ctx: dict[str, Any]) -> None:
 async def cron_bm25_rebuild(ctx: dict[str, Any]) -> None:
     """Rebuild BM25 index from scratch (runs daily at 3:00 AM UTC).
 
-    Loads chunks in batches of 5000 to avoid 100MB+ memory spikes on large corpora.
+    Streams chunk rows and tokenizes bounded batches off the event loop.
     Includes ACL metadata (visibility, owner_id, group_id) for pre-filtering.
     """
     if not settings.hybrid_enabled:
@@ -84,34 +94,23 @@ async def cron_bm25_rebuild(ctx: dict[str, Any]) -> None:
     uow_factory = ctx["container"].infrastructure.db.uow_factory
     t0 = time.monotonic()
 
-    all_texts: list[str] = []
-    all_visibilities: list[str | None] = []
-    all_owner_ids: list[int | None] = []
-    all_group_ids: list[int | None] = []
-
+    bm25_index = BM25Index([])
+    pending_rows = []
+    total_text_bytes = 0
     async with uow_factory.create(master=True) as uow:
-        batches = await uow.chunks.get_all_contents_batches_with_acl(batch_size=5000)
-        for batch in batches:
-            for content, visibility, owner_id, group_id in batch:
-                all_texts.append(content)
-                all_visibilities.append(visibility)
-                all_owner_ids.append(owner_id)
-                all_group_ids.append(group_id)
+        async for row in uow.chunks.iter_all_contents_with_acl(batch_size=1000):
+            pending_rows.append(row)
+            if len(pending_rows) >= 250:
+                total_text_bytes += await asyncio.to_thread(_add_bm25_batch, bm25_index, pending_rows)
+                pending_rows.clear()
+        if pending_rows:
+            total_text_bytes += await asyncio.to_thread(_add_bm25_batch, bm25_index, pending_rows)
 
-    if not all_texts:
+    if bm25_index.n_docs == 0:
         logger.info("Cron: BM25 rebuild — no chunks found, skipping")
         return
 
-    bm25_index = BM25Index(
-        all_texts,
-        doc_visibility=all_visibilities,
-        doc_owner_id=all_owner_ids,
-        doc_group_id=all_group_ids,
-    )
-
-    import sys
-
-    BM25_REBUILD_MEMORY.set(sys.getsizeof(all_texts) + sys.getsizeof(bm25_index.hashes))
+    BM25_REBUILD_MEMORY.set(total_text_bytes)
 
     storage = get_storage()
     await save_bm25_index_to_s3(bm25_index, storage)
@@ -120,6 +119,6 @@ async def cron_bm25_rebuild(ctx: dict[str, Any]) -> None:
     elapsed = time.monotonic() - t0
     logger.info(
         "Cron: BM25 rebuild completed — %d chunks indexed in %.1fs (batched loading, ACL metadata)",
-        len(all_texts),
+        bm25_index.n_docs,
         elapsed,
     )

@@ -45,3 +45,22 @@ class SQLAlchemyMessageRepository:
                 )
             )
         return messages
+
+    async def list_page(
+        self, conversation_id: int, limit: int, before_id: int | None = None
+    ) -> list[Message]:
+        query = select(MessageModel).where(MessageModel.conversation_id == conversation_id)
+        if before_id is not None:
+            query = query.where(MessageModel.id < before_id)
+        result = await self._db.execute(query.order_by(MessageModel.id.desc()).limit(limit))
+        return [
+            Message(
+                id=orm.id,
+                conversation_id=conversation_id,
+                role=MessageRole(orm.role),
+                content=orm.content,
+                sources=orm.sources or [],
+                creation_date=orm.creation_date,
+            )
+            for orm in reversed(result.scalars().all())
+        ]

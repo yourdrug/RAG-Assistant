@@ -31,6 +31,7 @@ _FULL_INGEST_TIMEOUT = 60 * 120  # whole corpus ingest: 2 h
 _BENCHMARK_TIMEOUT = 60 * 60  # benchmark run: 1 h
 _SWEEP_TIMEOUT = 60 * 60 * 6  # parameter sweep with LLM judge: 6 h
 _CRON_TIMEOUT = 60 * 10  # maintenance cron jobs: 10 min
+_MAX_JOB_TRIES = 3
 
 
 def worker(
@@ -49,11 +50,16 @@ def worker(
         redis_settings = RedisSettings.from_dsn(settings.redis_url)
 
         functions: Sequence[Function] = [
-            arq_func(process_document, timeout=_PROCESS_TIMEOUT, keep_result=0),
-            arq_func(run_full_ingest, timeout=_FULL_INGEST_TIMEOUT, keep_result=0),
-            arq_func(run_single_ingest, timeout=_SINGLE_INGEST_TIMEOUT, keep_result=0),
-            arq_func(run_benchmark, timeout=_BENCHMARK_TIMEOUT, keep_result=0),
-            arq_func(run_sweep, timeout=_SWEEP_TIMEOUT, keep_result=0),
+            arq_func(process_document, timeout=_PROCESS_TIMEOUT, keep_result=0, max_tries=10000),
+            arq_func(run_full_ingest, timeout=_FULL_INGEST_TIMEOUT, keep_result=0, max_tries=_MAX_JOB_TRIES),
+            arq_func(
+                run_single_ingest,
+                timeout=_SINGLE_INGEST_TIMEOUT,
+                keep_result=0,
+                max_tries=_MAX_JOB_TRIES,
+            ),
+            arq_func(run_benchmark, timeout=_BENCHMARK_TIMEOUT, keep_result=0, max_tries=_MAX_JOB_TRIES),
+            arq_func(run_sweep, timeout=_SWEEP_TIMEOUT, keep_result=0, max_tries=_MAX_JOB_TRIES),
             arq_func(cron_job_cleanup, timeout=_CRON_TIMEOUT, keep_result=0),
             arq_func(cron_recover_orphaned_jobs, timeout=_CRON_TIMEOUT, keep_result=0),
             arq_func(cron_recover_stuck_processing, timeout=_CRON_TIMEOUT, keep_result=0),

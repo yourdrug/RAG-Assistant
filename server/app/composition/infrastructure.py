@@ -426,12 +426,12 @@ class InfrastructureContainer:
         via init()), so we do not close it here. If ownership changes in
         the future, add ``self.db.dispose()`` here.
         """
-        if not self._initialized:
-            return
         if self.rate_limit is not None:
             await self.rate_limit.aclose()
             self.rate_limit = None
         await self.events.dispose()
+        if self.ml.file_storage is not None:
+            await self.ml.file_storage.aclose()
         self.ml.dispose()
         self._initialized = False
         log.info("Infrastructure container disposed")

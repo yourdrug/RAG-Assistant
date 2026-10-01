@@ -23,6 +23,8 @@ TEI_TIMEOUT = 60.0
 class TEIEmbeddingsClient:
     """Embedding client that calls a TEI /embed endpoint over HTTP."""
 
+    embedding_identity: str
+
     def __init__(self, base_url: str, pool_limits: httpx.Limits | None = None) -> None:
         self._base_url = base_url.rstrip("/")
         limits = pool_limits or httpx.Limits(max_connections=20, max_keepalive_connections=10)

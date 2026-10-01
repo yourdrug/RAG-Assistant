@@ -11,7 +11,7 @@ from application.ports.bm25_index import BM25IndexPort
 from application.ports.file_storage import FileStorage
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
 from application.services.document_pipeline import build_outbox_metadata, enqueue_delete_by_document
-from application.services.document_conflict_resolver import resolve_conflict
+from application.services.document_conflict_resolver import resolve_conflict_in_uow
 from application.services.document_utils import generate_storage_key, resolve_unique_filename
 from application.services.user_context_factory import UserContextFactory
 from domain.entities.document import Document
@@ -140,8 +140,8 @@ class DocumentCommandService:
         if doc_domain is None or existing is None or pending_replace_id is None:
             return pending_replace_id
         profile = self._get_domain_profile(doc_domain)
-        old_source_path = await resolve_conflict(
-            self._uow_factory,
+        old_source_path = await resolve_conflict_in_uow(
+            uow,
             doc,
             existing,
             profile,

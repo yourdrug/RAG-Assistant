@@ -115,7 +115,10 @@ async def handle_server_exception(request: Request, exc: Exception) -> JSONRespo
             status_code = code
             break
 
-    return _json(exc.as_dict(), status_code)
+    # ServerException details can contain driver messages, SQL, parameters or
+    # schema names. Keep the full exception in server logs and return only a
+    # stable public error envelope.
+    return _json(_error("Внутренняя ошибка сервера"), status_code)
 
 
 # ---------------------------------------------------------------------------
@@ -134,11 +137,11 @@ async def handle_http_exception(request: Request, exc: Exception) -> JSONRespons
     }
 
     if isinstance(exc.detail, dict):
-        content = _error(str(exc.detail))
+        content = _error(exc.detail.get("message", "Ошибка запроса"), exc.detail.get("errors", exc.detail))
     else:
         content = _error(_AUTH_MESSAGES.get(exc.detail, exc.detail))
 
-    return _json(content, exc.status_code)
+    return _json(content, exc.status_code, exc.headers)
 
 
 async def handle_validation_exception(request: Request, exc: Exception) -> JSONResponse:

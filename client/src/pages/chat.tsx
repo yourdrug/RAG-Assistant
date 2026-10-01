@@ -34,6 +34,9 @@ export function ChatPage() {
   });
   const [isStreaming, setIsStreaming] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [historyCursor, setHistoryCursor] = useState<number | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const historyRequestRef = useRef<AbortController | null>(null);
   const [selectedSources, setSelectedSources] = useState<Source[]>([]);
   const [depth, setDepth] = useState<DepthOption>(null);
   // Temporal retrieval: explicit user-chosen date, never inferred (TZ 11.1)
@@ -41,6 +44,7 @@ export function ChatPage() {
   const [pipelineStage, setPipelineStage] = useState<PipelineStage | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  const suppressScrollRef = useRef(false);
   const token = useAuthStore((s) => s.token);
   const streamingContentRef = useRef("");
   const hadChunksRef = useRef(false);
@@ -48,6 +52,10 @@ export function ChatPage() {
 
   const scroll = useCallback(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), []);
   useEffect(() => {
+    if (suppressScrollRef.current) {
+      suppressScrollRef.current = false;
+      return;
+    }
     scroll();
   }, [messages, streamingMsg, scroll]);
 
@@ -64,6 +72,9 @@ export function ChatPage() {
   useEffect(() => {
     if (!conversationId || !token) {
       if (!conversationId) {
+        setHistoryCursor(null);
+        setHistoryError(null);
+        setIsLoadingHistory(false);
         setMessages([]);
         setSelectedSources([]);
       }
@@ -71,6 +82,10 @@ export function ChatPage() {
     }
 
     const controller = new AbortController();
+    historyRequestRef.current?.abort();
+    historyRequestRef.current = controller;
+    setHistoryCursor(null);
+    setHistoryError(null);
     setIsLoadingHistory(true);
 
     apiClient
@@ -84,16 +99,47 @@ export function ChatPage() {
           sources: m.sources,
         }));
         setMessages(loaded);
+        setHistoryCursor(res.data.next_cursor);
       })
       .catch((err) => {
         if (err?.code === "ERR_CANCELED") return;
         setSearchParams({});
         setConversationId(null);
       })
-      .finally(() => setIsLoadingHistory(false));
+      .finally(() => {
+        if (!controller.signal.aborted) setIsLoadingHistory(false);
+      });
 
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      historyRequestRef.current?.abort();
+    };
   }, [conversationId, token]);
+
+  const loadOlderMessages = async () => {
+    if (!conversationId || historyCursor === null || isLoadingHistory) return;
+    const controller = new AbortController();
+    historyRequestRef.current = controller;
+    setIsLoadingHistory(true);
+    setHistoryError(null);
+    try {
+      const res = await apiClient.get<ConversationHistoryResponse>(
+        `/conversations/${conversationId}`,
+        {
+          params: { before_id: historyCursor },
+          signal: controller.signal,
+        },
+      );
+      if (controller.signal.aborted) return;
+      suppressScrollRef.current = true;
+      setMessages((current) => [...res.data.messages, ...current]);
+      setHistoryCursor(res.data.next_cursor);
+    } catch (err) {
+      if (!controller.signal.aborted) setHistoryError("Не удалось загрузить историю");
+    } finally {
+      if (!controller.signal.aborted) setIsLoadingHistory(false);
+    }
+  };
 
   const handleSend = async (question: string) => {
     if (!question.trim() || isStreaming || !token) return;
@@ -194,6 +240,17 @@ export function ChatPage() {
         </div>
 
         <div className="flex-1 overflow-auto p-4 space-y-4">
+          {historyCursor !== null && (
+            <button
+              type="button"
+              disabled={isLoadingHistory || isStreaming}
+              onClick={loadOlderMessages}
+              className="text-sm text-muted-foreground hover:text-foreground"
+            >
+              Загрузить предыдущие сообщения
+            </button>
+          )}
+          {historyError && <p role="alert">{historyError}</p>}
           {messages.length === 0 && !streamingMsg && !isLoadingHistory && (
             <div className="flex h-full items-center justify-center">
               <div className="text-center space-y-2">

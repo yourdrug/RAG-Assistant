@@ -59,13 +59,10 @@ def _build_header(doc, index: int) -> str:
     return " | ".join(parts)
 
 
-def format_docs(docs, max_context_tokens: int = 6000) -> str:
-    """Форматирует найденные чанки в строку для промпта.
-
-    Принимает list[Document] или list[tuple[Document, float]] (после rerank_documents).
-    Respects context budget: truncates docs list if total estimated tokens exceed limit.
-    """
+def format_docs_with_selection(docs, max_context_tokens: int = 6000) -> tuple[str, list]:
+    """Format documents and return precisely the chunks included in the prompt."""
     parts: list[str] = []
+    selected: list = []
     total_chars = 0
     max_chars = max_context_tokens * CHARS_PER_TOKEN
 
@@ -88,8 +85,15 @@ def format_docs(docs, max_context_tokens: int = 6000) -> str:
 
         total_chars += part_chars + (separator_len if parts else 0)
         parts.append(part_text)
+        selected.append(item)
 
-    return "\n\n---\n\n".join(parts)
+    return "\n\n---\n\n".join(parts), selected
+
+
+def format_docs(docs, max_context_tokens: int = 6000) -> str:
+    """Format retrieved documents into prompt context within the token budget."""
+    formatted, _ = format_docs_with_selection(docs, max_context_tokens)
+    return formatted
 
 
 def history_to_messages(history: list[dict]):

@@ -74,8 +74,8 @@ class _Factory:
 # ---------------------------------------------------------------------------
 
 
-def _run_tracked(repo, body):
-    asyncio.run(worker_tasks._run_tracked_job(_Factory(repo), 1, body, description="test"))
+def _run_tracked(repo, body, **kwargs):
+    asyncio.run(worker_tasks._run_tracked_job(_Factory(repo), 1, body, description="test", **kwargs))
 
 
 class TestRunTrackedJob:
@@ -89,14 +89,26 @@ class TestRunTrackedJob:
         assert repo.status == "done"
         assert repo.started and repo.finished
 
-    def test_exception_marks_failed_without_raising(self):
+    def test_exception_schedules_retry(self):
         repo = _StatefulJobRepo()
 
         async def body():
             raise RuntimeError("boom")
 
-        # Ordinary exceptions must NOT propagate out of the task body
-        _run_tracked(repo, body)
+        with pytest.raises(worker_tasks.Retry) as raised:
+            _run_tracked(repo, body)
+
+        assert raised.value.defer_score == 5000
+        assert repo.status == "running"
+        assert repo.started and not repo.finished
+
+    def test_terminal_exception_marks_failed_without_raising(self):
+        repo = _StatefulJobRepo()
+
+        async def body():
+            raise RuntimeError("boom")
+
+        _run_tracked(repo, body, job_try=3, max_tries=3)
         assert repo.status == "failed"
         assert repo.error == "boom"
 

@@ -57,6 +57,15 @@ class FakeEmbeddings:
         return [[float(len(t)), 0.0, 1.0] for t in texts]
 
 
+@pytest.fixture(autouse=True)
+def match_fake_embedding_dimension(monkeypatch):
+    monkeypatch.setattr(settings, "embed_dim", 3)
+    monkeypatch.setattr(
+        "infrastructure.repositories.vector.qdrant_ops.ensure_embedding_identity",
+        lambda *args: "test:embedding:v1",
+    )
+
+
 def _chunks(n: int) -> list[Document]:
     return [
         Document(page_content=f"chunk content {i}", metadata={"chunk_id": i, "source": "doc"})

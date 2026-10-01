@@ -54,10 +54,17 @@ async def new_conversation(
 @router.get("/{conversation_id}", response_model=ConversationHistoryResponse)
 async def get_conversation_history(
     conversation_id: int,
+    limit: int = Query(default=100, ge=1, le=100),
+    before_id: int | None = Query(default=None, ge=1),
     current_user: CurrentUser = Depends(get_current_user),
     service: ConversationService = Depends(create_conversation_service),
 ):
-    messages = await service.get_history(conversation_id, current_user.id, current_user.role)
+    messages = await service.get_history(
+        conversation_id, current_user.id, current_user.role, limit=limit + 1, before_id=before_id
+    )
+    has_more = len(messages) > limit
+    messages = messages[-limit:]
+    next_cursor = messages[0].id if has_more else None
     msg_responses = [
         MessageResponse(
             id=m.id,
@@ -68,4 +75,6 @@ async def get_conversation_history(
         )
         for m in messages
     ]
-    return ConversationHistoryResponse(conversation_id=conversation_id, messages=msg_responses)
+    return ConversationHistoryResponse(
+        conversation_id=conversation_id, messages=msg_responses, next_cursor=next_cursor
+    )

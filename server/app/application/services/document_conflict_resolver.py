@@ -49,7 +49,24 @@ async def resolve_conflict(
         _resolve_as_version(new_doc, old_doc, domain_profile)
         return None
     else:
-        return await _resolve_as_replace(uow_factory, new_doc, old_doc)
+        async with uow_factory.create(master=True) as uow:
+            return await resolve_conflict_in_uow(uow, new_doc, old_doc, domain_profile)
+
+
+async def resolve_conflict_in_uow(
+    uow,
+    new_doc: Document,
+    old_doc: Document,
+    domain_profile: DomainProfile | None,
+) -> str | None:
+    """Resolve a conflict inside the caller's transaction."""
+    is_versioned = domain_profile is not None and domain_profile.is_versioned
+    if is_versioned:
+        if domain_profile is None:
+            raise RuntimeError("domain_profile is None for versioned resolution")
+        _resolve_as_version(new_doc, old_doc, domain_profile)
+        return None
+    return await _resolve_as_replace(uow, new_doc, old_doc)
 
 
 def _resolve_as_version(
@@ -71,7 +88,7 @@ def _resolve_as_version(
 
 
 async def _resolve_as_replace(
-    uow_factory: UnitOfWorkFactory,
+    uow,
     new_doc: Document,
     old_doc: Document,
 ) -> str | None:
@@ -85,11 +102,10 @@ async def _resolve_as_replace(
         old_doc.id,
     )
     old_source_path = old_doc.source_path or None
-    async with uow_factory.create(master=True) as uow:
-        if old_doc.id is None:
-            raise RuntimeError("old_doc id is None")
-        await enqueue_delete_by_document(uow, old_doc.id)
-        await uow.documents.delete(old_doc.id)
+    if old_doc.id is None:
+        raise RuntimeError("old_doc id is None")
+    await enqueue_delete_by_document(uow, old_doc.id)
+    await uow.documents.delete(old_doc.id)
     return old_source_path
 
 

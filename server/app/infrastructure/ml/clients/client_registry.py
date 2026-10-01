@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 from application.ports.ml_clients import AsyncSemaphorePort, MLClientPort
 from config import settings
+from infrastructure.ml.clients.managed_llm import ManagedLLM, ManagedInstructor
 from domain.exceptions.domain_errors import SemaphoreTimeoutError
 from domain.value_objects.llm_provider import LLMProvider
 
@@ -73,6 +74,7 @@ class MLClientRegistry(MLClientPort):
     def __init__(self) -> None:
         self._init_lock = threading.Lock()
         self._embeddings: Any = None
+        self._retired_clients: list[Any] = []
         self._llm: Any = None
         self._llm_breadth_cache: dict[str, Any] = {}
         self._fast_llm: Any = None
@@ -129,7 +131,7 @@ class MLClientRegistry(MLClientPort):
                 if self._llm is None:
                     from infrastructure.ml.clients.factories import create_llm
 
-                    self._llm = create_llm()
+                    self._llm = ManagedLLM(create_llm())
         return self._llm
 
     def llm_for_breadth(self, breadth: str) -> Any:
@@ -138,7 +140,7 @@ class MLClientRegistry(MLClientPort):
                 if breadth not in self._llm_breadth_cache:
                     from infrastructure.ml.clients.factories import create_llm_for_breadth
 
-                    self._llm_breadth_cache[breadth] = create_llm_for_breadth(breadth)
+                    self._llm_breadth_cache[breadth] = ManagedLLM(create_llm_for_breadth(breadth))
         return self._llm_breadth_cache[breadth]
 
     def fast_llm(self) -> Any:
@@ -148,7 +150,7 @@ class MLClientRegistry(MLClientPort):
                 if self._fast_llm is None:
                     from infrastructure.ml.clients.factories import create_fast_llm_for_auxiliary
 
-                    self._fast_llm = create_fast_llm_for_auxiliary()
+                    self._fast_llm = ManagedLLM(create_fast_llm_for_auxiliary())
         return self._fast_llm
 
     def reranker(self) -> Any:
@@ -229,6 +231,7 @@ class MLClientRegistry(MLClientPort):
                             base_url=f"{settings.ollama_base_url}/v1",
                             api_key="ollama",
                         )
+                    self._instructor = ManagedInstructor(self._instructor)
         return self._instructor
 
     # ------------------------------------------------------------------
@@ -240,11 +243,33 @@ class MLClientRegistry(MLClientPort):
 
         Cascades: clears all breadth-specific LLM caches and instructor client.
         """
-        self._llm = None
-        self._llm_breadth_cache.clear()
-        self._fast_llm = None
-        self._instructor = None
+        with self._init_lock:
+            clients = [self._llm, self._fast_llm, self._instructor, *self._llm_breadth_cache.values()]
+            for client in clients:
+                if client is not None:
+                    client.retire()
+                    self._retired_clients.append(client)
+            self._llm = None
+            self._llm_breadth_cache.clear()
+            self._fast_llm = None
+            self._instructor = None
         log.info("MLClientRegistry: LLM cache invalidated")
+
+    def invalidate_embeddings(self) -> None:
+        """Replace the embedding adapter on the next access."""
+        with self._init_lock:
+            if self._embeddings is not None:
+                self._retired_clients.append(self._embeddings)
+                self._embeddings = None
+        log.info("MLClientRegistry: embedding client cache invalidated")
+
+    def invalidate_reranker(self) -> None:
+        """Replace the reranker adapter on the next access."""
+        with self._init_lock:
+            if self._reranker is not None:
+                self._retired_clients.append(self._reranker)
+                self._reranker = None
+        log.info("MLClientRegistry: reranker client cache invalidated")
 
     def invalidate_bm25(self) -> None:
         """Clear cached BM25 index (reload from disk on next access)."""
@@ -265,6 +290,7 @@ class MLClientRegistry(MLClientPort):
             self._llm,
             self._fast_llm,
         ]
+        clients_to_close.extend(self._retired_clients)
         clients_to_close.extend(self._llm_breadth_cache.values())
         for client in clients_to_close:
             if client is not None and hasattr(client, "close"):
@@ -284,4 +310,5 @@ class MLClientRegistry(MLClientPort):
         self._llm = None
         self._fast_llm = None
         self._llm_breadth_cache.clear()
+        self._retired_clients.clear()
         log.info("MLClientRegistry: connection pools closed")

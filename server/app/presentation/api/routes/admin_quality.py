@@ -17,7 +17,7 @@ from application.services.quality_service import QualityService
 
 from presentation.api.auth_dependencies import require_admin
 from presentation.api.rate_limit import rate_limit
-from presentation.api.constants import FILE_TOO_LARGE_STATUS, PAGE_IMAGE_DPI
+from presentation.api.constants import PAGE_IMAGE_DPI
 from presentation.api.dependencies import (
     create_action_logger,
     create_document_command_service,
@@ -34,6 +34,7 @@ from presentation.api.dependencies import (
 from presentation.api.helpers import (
     build_dry_run_response,
     compute_quality_warning,
+    read_upload_with_limit,
     upload_and_enqueue,
 )
 from presentation.api.schemas import (
@@ -140,12 +141,7 @@ async def dry_run_preview(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
-    data = await file.read()
-    if len(data) > diag_service._max_bytes:
-        raise HTTPException(
-            status_code=FILE_TOO_LARGE_STATUS,
-            detail="File too large for dry-run (max 50 MB)",
-        )
+    data = await read_upload_with_limit(file, diag_service._max_bytes)
 
     ext = Path(filename).suffix.lower()
 
@@ -278,12 +274,7 @@ async def _run_ocr_from_upload(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
-    data = await file.read()
-    if len(data) > diag_service._max_bytes:
-        raise HTTPException(
-            status_code=FILE_TOO_LARGE_STATUS,
-            detail="File too large for dry-run (max 50 MB)",
-        )
+    data = await read_upload_with_limit(file, diag_service._max_bytes)
 
     ext = Path(fname).suffix.lower()
     new_preview_id = await preview_cache.store(data, suffix=ext, original_filename=fname)

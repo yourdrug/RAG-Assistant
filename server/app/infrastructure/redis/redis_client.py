@@ -49,7 +49,7 @@ class RedisClient:
         if self._redis is not None:
             return
 
-        self._redis = aioredis.from_url(
+        client = aioredis.from_url(
             settings.redis_url,
             decode_responses=True,
             socket_connect_timeout=3,
@@ -57,7 +57,12 @@ class RedisClient:
             max_connections=settings.redis_max_connections,
             health_check_interval=30,
         )
-        await self._redis.ping()
+        try:
+            await client.ping()
+        except BaseException:
+            await client.aclose()
+            raise
+        self._redis = client
         logger.info("RedisClient: connection established to %s:%s", settings.redis_host, settings.redis_port)
 
     async def aclose(self) -> None:

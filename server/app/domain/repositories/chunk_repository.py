@@ -182,6 +182,8 @@ class ChunkVersioningRepository(Protocol):
 
     async def set_current_by_act_version_ids(self, act_version_ids: list[int], is_current: bool) -> int: ...
 
+    async def update_act_id_by_act_version_id(self, act_version_id: int, act_id: int) -> int: ...
+
     async def update_temporal_by_act_version_id(
         self,
         act_version_id: int,

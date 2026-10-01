@@ -89,6 +89,7 @@ async def enqueue_document_processing(
     replace_id: int | None,
     job_id: int,
     doc_domain: str | None = None,
+    principal_id: int | None = None,
 ) -> None:
     """Enqueue document processing via Arq."""
     await _enqueue_arq(
@@ -104,6 +105,7 @@ async def enqueue_document_processing(
         replace_id=replace_id,
         job_id=job_id,
         doc_domain=doc_domain,
+        principal_id=principal_id,
     )
 
 

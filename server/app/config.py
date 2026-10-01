@@ -106,6 +106,8 @@ class Settings(BaseSettings):
     # ── Embedding / Reranking provider ──────────────────────────────────────
     ml_provider: str  # tei | deepinfra
     tei_embed_url: str = ""
+    tei_embed_model: str = "BAAI/bge-m3"
+    embedding_revision: str = "v1"
     tei_rerank_url: str = ""
     deepinfra_api_key: str = ""
     deepinfra_base_url: str = "https://api.deepinfra.com/v1"

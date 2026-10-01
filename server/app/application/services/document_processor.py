@@ -12,13 +12,14 @@ together and owns the per-run state (ProcessingContext).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from application.dto.versioning_dto import VersioningResult
+from application.dto.versioning_dto import VersioningPlan, VersioningResult
 from application.ports.document_processing import (
     ContentExtractorPort,
     MetricsCollectorPort,
@@ -41,6 +42,7 @@ if TYPE_CHECKING:
     from domain.domain_profile.settings_port import DomainSettingsPort
     from application.services.act_versioning_service import ActVersioningService
     from domain.domain_profile.registry import DomainProfileRegistry
+    from domain.domain_profile.protocol import DomainProfile
     from domain.entities.raw_document import RawDocument
 
 log = logging.getLogger("default")
@@ -77,6 +79,8 @@ class ProcessingContext:
     storage_deletes: list[str] = field(default_factory=list)
     status: str = DocumentStatus.FAILED.value
     versioning: VersioningResult = field(default_factory=lambda: _EMPTY_VERSIONING)
+    versioning_plan: VersioningPlan | None = None
+    versioning_profile: "DomainProfile | None" = None
 
     @property
     def warning_message(self) -> str | None:
@@ -114,6 +118,33 @@ class DocumentProcessor:
         self._domain_registry = domain_registry
         self._domain_settings = domain_settings
         self._act_versioning_service = act_versioning_service
+        self._blocking_semaphore = asyncio.Semaphore(1)
+
+    async def _offload_blocking(self, function, *args):
+        """Run document parsing/splitting in a bounded worker thread."""
+        async with self._blocking_semaphore:
+            return await asyncio.to_thread(function, *args)
+
+    def _parse_document(self, temp_path: Path) -> list:
+        return self._parser.parse(temp_path)
+
+    def _assess_quality(self, temp_path: Path, filename: str, document_id: int, docs: list):
+        return assess_document_quality(
+            temp_path,
+            filename,
+            document_id,
+            docs,
+            pdf_assessor=self._pdf_assessor,
+            text_quality_assessor=self._text_quality_assessor,
+            metrics=self._metrics,
+        )
+
+    def _attach_metadata_and_split(self, docs: list, filename: str, domain: str):
+        self._attach_metadata_to_docs(docs, filename, self._extractor)
+        chunks = self._splitter.split(docs, domain=domain)
+        for chunk in chunks:
+            self._enrich_chunk_with_section(chunk, domain)
+        return chunks
 
     @staticmethod
     def _enrich_chunk_with_section(rc: "RawDocument", doc_domain: str) -> None:
@@ -152,9 +183,22 @@ class DocumentProcessor:
             except KeyError:
                 profile = None
             if profile is not None:
-                result = await self._act_versioning_service.process_document_versioning(
-                    profile, ctx.document_id, full_text
-                )
+                prepare = getattr(self._act_versioning_service, "prepare_document_versioning", None)
+                if prepare is not None:
+                    ctx.versioning_plan = await prepare(profile, full_text)
+                    if ctx.versioning_plan is not None:
+                        ctx.versioning_profile = profile
+                        result = VersioningResult(
+                            domain_metadata=ctx.versioning_plan.domain_metadata,
+                            act_version_id=None,
+                            act_id=None,
+                            effective_from=ctx.versioning_plan.effective_from,
+                            warning=ctx.versioning_plan.warning,
+                        )
+                else:
+                    result = await self._act_versioning_service.process_document_versioning(
+                        profile, ctx.document_id, full_text
+                    )
         ctx.versioning = result
         if result.warning:
             ctx.warnings.append(result.warning)
@@ -243,22 +287,17 @@ class DocumentProcessor:
                 await uow.documents.update_status(document_id, DocumentStatus.PROCESSING.value)
 
             ctx.temp_path = await self._file_storage.download_to_temp(storage_key)
-            ctx.docs = self._parser.parse(ctx.temp_path)
+            ctx.docs = await self._offload_blocking(self._parse_document, ctx.temp_path)
 
             if not ctx.docs:
                 raise RuntimeError(
                     "Текст не извлечён — документ похож на скан, и OCR не смог распознать содержимое."
                 )
 
-            outcome = assess_document_quality(
-                ctx.temp_path,
-                original_filename,
-                document_id,
-                ctx.docs,
-                pdf_assessor=self._pdf_assessor,
-                text_quality_assessor=self._text_quality_assessor,
-                metrics=self._metrics,
+            outcome = await self._offload_blocking(
+                self._assess_quality, ctx.temp_path, original_filename, document_id, ctx.docs
             )
+
             ctx.quality = outcome.report
             if outcome.warning:
                 ctx.warnings.append(outcome.warning)
@@ -270,11 +309,10 @@ class DocumentProcessor:
             if doc_domain is None:
                 raise RuntimeError(f"domain classification produced no domain for doc {document_id}")
 
-            self._attach_metadata_to_docs(ctx.docs, original_filename, self._extractor)
-
-            ctx.raw_chunks = self._splitter.split(ctx.docs, domain=doc_domain)
-            for rc in ctx.raw_chunks:
-                self._enrich_chunk_with_section(rc, doc_domain)
+            raw_chunks = await self._offload_blocking(
+                self._attach_metadata_and_split, ctx.docs, original_filename, doc_domain
+            )
+            ctx.raw_chunks = raw_chunks
 
             await self._handle_versioning(ctx, full_text)
 
@@ -283,32 +321,34 @@ class DocumentProcessor:
                 log.info("Document %d was deleted during processing — aborting", document_id)
                 return
 
-            persisted = await persist_document_result(
+            persisted_versioning = await persist_document_result(
                 self._uow_factory,
                 document_id=document_id,
                 original_filename=original_filename,
-                raw_chunks=ctx.raw_chunks,
+                raw_chunks=raw_chunks,
                 visibility=visibility,
                 owner_id=owner_id,
                 group_id=group_id,
                 doc_domain=doc_domain,
-                domain_metadata=ctx.versioning.domain_metadata,
-                act_version_id=ctx.versioning.act_version_id,
-                act_id=ctx.versioning.act_id,
-                effective_from=ctx.versioning.effective_from,
                 replace_id=replace_id,
                 warning_message=ctx.warning_message,
                 quality=ctx.quality,
                 storage_deletes=ctx.storage_deletes,
                 domain_registry=self._domain_registry,
+                versioning=ctx.versioning,
+                versioning_plan=ctx.versioning_plan,
+                versioning_profile=ctx.versioning_profile,
+                act_versioning_service=self._act_versioning_service,
             )
-            if not persisted:
+            if persisted_versioning is None:
                 return
+            ctx.versioning = persisted_versioning
 
             ctx.status = DocumentStatus.INDEXING.value
 
         except Exception as e:
             await self._handle_processing_failure(document_id, e)
+            raise
         finally:
             self._finalize_processing(ctx, t_start)
             # Runs on EVERY exit path (incl. early abort returns): otherwise a

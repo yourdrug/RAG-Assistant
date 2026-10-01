@@ -17,16 +17,40 @@ logger = logging.getLogger("cli")
 ingest_app = typer.Typer(help="Document indexing in Qdrant (S3 storage)")
 
 
-def _create_service() -> IngestionService:
+def _create_service(infra) -> IngestionService:
     """Create IngestionService with proper dependencies via composition."""
     from composition.service_providers import create_ingestion_service
 
-    from infrastructure.database.database import database
+    return create_ingestion_service(infra)
+
+
+async def _run_with_infrastructure(action):
+    """Start and release the Redis/DB resources required by composition."""
     from composition.infrastructure import InfrastructureContainer
+    from infrastructure.database.database import database
+    from infrastructure.redis.redis_client import redis_client
 
     infra = InfrastructureContainer()
-    infra.init(database)
-    return create_ingestion_service(infra)
+    redis_started = False
+    database_started = False
+    try:
+        await redis_client.init()
+        redis_started = True
+        await database.connect()
+        database_started = True
+        infra.init(database)
+        return await action(infra)
+    finally:
+        try:
+            if infra._initialized:
+                await infra.dispose()
+        finally:
+            try:
+                if database_started:
+                    await database.disconnect()
+            finally:
+                if redis_started:
+                    await redis_client.aclose()
 
 
 @ingest_app.command("run")
@@ -48,9 +72,9 @@ def ingest_run(
     """Full indexing of documents from S3 bucket."""
     vis = DocumentVisibility.validate(visibility)
     try:
-        service = _create_service()
-        asyncio.run(
-            service.run_full_ingestion(
+
+        async def _run(infra) -> None:
+            await _create_service(infra).run_full_ingestion(
                 docs_dir=docs_dir,
                 reset=reset,
                 domain=domain,
@@ -58,7 +82,8 @@ def ingest_run(
                 group_id=group_id,
                 client_id=client_id,
             )
-        )
+
+        asyncio.run(_run_with_infrastructure(_run))
     except Exception as exc:
         logger.error("Indexing error", exc_info=exc)
         sys.exit(1)
@@ -83,16 +108,16 @@ def ingest_file(
     """Add a single file from S3 to existing collection."""
     vis = DocumentVisibility.validate(visibility)
     try:
-        service = _create_service()
 
-        async def _run():
+        async def _run(infra):
+            service = _create_service(infra)
             if force:
                 await service.force_reindex(file_path.split("/")[-1])
             await service.run_single_file(
                 file_path, domain=domain, visibility=vis, group_id=group_id, client_id=client_id
             )
 
-        asyncio.run(_run())
+        asyncio.run(_run_with_infrastructure(_run))
     except Exception as exc:
         logger.error("File indexing error", exc_info=exc)
         sys.exit(1)
@@ -127,8 +152,11 @@ def ingest_upload(
 def ingest_list() -> None:
     """Show list of indexed files."""
     try:
-        service = _create_service()
-        registry = asyncio.run(service.get_registry())
+
+        async def _run(infra):
+            return await _create_service(infra).get_registry()
+
+        registry = asyncio.run(_run_with_infrastructure(_run))
 
         if not registry:
             logger.info("Registry empty — no files indexed.")

@@ -150,7 +150,7 @@ class SQLAlchemyBackgroundJobRepository:
         result = await self._db.execute(
             select(BackgroundJobModel).where(
                 BackgroundJobModel.status == BackgroundJobStatus.PENDING.value,
-                BackgroundJobModel.creation_date < cutoff,
+                func.coalesce(BackgroundJobModel.heartbeat_at, BackgroundJobModel.creation_date) < cutoff,
             )
         )
         orms = result.scalars().all()

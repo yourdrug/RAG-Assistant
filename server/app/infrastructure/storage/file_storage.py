@@ -238,6 +238,10 @@ class S3Storage:
         resp = self.client.get_object(Bucket=self.bucket, Key=key)
         return resp["Body"].read()
 
+    def close(self) -> None:
+        """Close the underlying boto3 connection pool."""
+        self.client.close()
+
 
 class LazyStorage:
     """Lazy proxy — calls get_storage() on first attribute access.
@@ -248,6 +252,7 @@ class LazyStorage:
 
     def __init__(self):
         self._resolved = None
+        self._retired = []
         self._lock = threading.Lock()
 
     def _ensure(self):
@@ -259,6 +264,26 @@ class LazyStorage:
 
     def __getattr__(self, name):
         return getattr(self._ensure(), name)
+
+    def invalidate(self) -> None:
+        """Rotate the backend; old instances stay alive until container shutdown."""
+        with self._lock:
+            if self._resolved is not None:
+                self._retired.append(self._resolved)
+                self._resolved = None
+
+    async def aclose(self) -> None:
+        """Close retired and current backends after in-flight requests finish."""
+        with self._lock:
+            backends = [*self._retired]
+            if self._resolved is not None:
+                backends.append(self._resolved)
+            self._retired.clear()
+            self._resolved = None
+        for backend in backends:
+            close = getattr(backend, "close", None)
+            if close is not None:
+                await asyncio.to_thread(close)
 
 
 @functools.lru_cache(maxsize=1)

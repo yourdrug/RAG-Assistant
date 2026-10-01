@@ -26,6 +26,7 @@ class JobEnqueuerAdapter:
         replace_id: int | None,
         job_id: int,
         doc_domain: str | None = None,
+        principal_id: int | None = None,
     ) -> None:
         await _enqueue_document_processing(
             document_id=document_id,
@@ -37,6 +38,7 @@ class JobEnqueuerAdapter:
             replace_id=replace_id,
             job_id=job_id,
             doc_domain=doc_domain,
+            principal_id=principal_id,
         )
 
     async def enqueue_ingest(

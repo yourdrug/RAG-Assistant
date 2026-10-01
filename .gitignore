@@ -17,6 +17,11 @@ __pycache__/
 
 # Результаты бенчмарка
 docs/
+!docs/
+docs/*
+!docs/operations/
+docs/operations/*
+!docs/operations/embedding-migration.md
 
 # IDE / OS
 .DS_Store
@@ -30,6 +35,8 @@ docs/
 .opencode/
 opencode.json
 .zvec-grep
+.codex
+.agents
 
 # coverage
 server/.coverage

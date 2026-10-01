@@ -250,3 +250,10 @@ async def test_legal_rerank_fallback_preserves_acl_and_temporal_filter():
         user_id=5,
         user_group_ids=[1, 2],
     )
+
+
+@pytest.fixture(autouse=True)
+def mock_embedding_binding(monkeypatch):
+    monkeypatch.setattr(
+        "infrastructure.ml.rag.rag_retrieval.ensure_embedding_identity", lambda *args: "test:model:v1"
+    )

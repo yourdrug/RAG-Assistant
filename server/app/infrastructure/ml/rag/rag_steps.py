@@ -49,7 +49,7 @@ from infrastructure.ml.answer_cache import compute_question_hash, compute_visibi
 from infrastructure.ml.guardrails.input_scanner import InputScanner
 from infrastructure.ml.guardrails.output_scanner import OutputScanner
 from infrastructure.ml.rag.rag_cache import check_cache, handle_cache_hit
-from infrastructure.ml.rag.rag_formatting import CHARS_PER_TOKEN, format_docs
+from infrastructure.ml.rag.rag_formatting import CHARS_PER_TOKEN, format_docs_with_selection
 from infrastructure.ml.rag.rag_reranking import (  # noqa: F401 — re-exported for test patches
     deduplicate_docs,
     group_by_section,
@@ -69,6 +69,7 @@ from infrastructure.ml.rag.rag_prompts import (  # noqa: F401
     decompose_question,
 )
 from infrastructure.ml.rag.rag_sources import extract_sources
+from infrastructure.ml.rag.rag_relevance import filter_cited_documents
 from shared import request_id_ctx
 
 if TYPE_CHECKING:
@@ -147,7 +148,14 @@ async def step_check_cache(
         user_role=state.ctx.user_role,
         curator_scope=state.ctx.curator_scope,
     )
-    state.q_hash = compute_question_hash(state.query_for_search)
+    state.q_hash = compute_question_hash(
+        state.query_for_search,
+        context={
+            "as_of_date": state.ctx.as_of_date.isoformat() if state.ctx.as_of_date else None,
+            "depth": state.ctx.depth,
+            "summary": state.ctx.summary,
+        },
+    )
     cached = await check_cache(state.rag, state.q_hash, state.vis_hash)
     if cached is not None:
 
@@ -413,7 +421,9 @@ def step_build_context(
     max_context_tokens = max(num_ctx - reserved_for_system_and_history, 1000)
 
     grouped_docs = group_by_section(state.docs)
-    context = format_docs(grouped_docs, max_context_tokens=max_context_tokens)
+    context, state._prompt_docs = format_docs_with_selection(
+        grouped_docs, max_context_tokens=max_context_tokens
+    )
     messages = prompt.format_messages(
         context=context,
         history=state.history_messages,
@@ -521,8 +531,10 @@ def step_postprocess(state: RagPipelineState) -> RagPipelineState:
     if is_not_found_answer(full_answer):
         sources: list[dict] = []
     else:
-        sources = extract_sources(docs, min_score=rag.source_min_score)
-        sources = apply_citation_filter(rag, full_answer, sources)
+        source_docs = state._prompt_docs or docs
+        if rag.features.citation_filter_enabled:
+            source_docs = filter_cited_documents(full_answer, source_docs)
+        sources = extract_sources(source_docs, min_score=rag.source_min_score)
 
     record_rag_answer(
         breadth=state.breadth.value if state.breadth is not None else "",

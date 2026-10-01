@@ -1,17 +1,16 @@
-"""Semantic answer cache — Redis-backed.
+"""Exact-match answer cache — Redis-backed.
 
-Cache key is based on approximate embedding similarity (not exact text match)
-combined with a visibility scope hash to prevent cross-tenant data leakage.
+Cache keys include normalized question text, request context and a visibility
+scope hash to prevent cross-tenant data leakage.
 Uses Redis for fast in-memory lookups with TTL-based expiration.
 
 Invalidation uses a reverse index (rag:doc:{doc_id} → Set[cache_key]) for
-O(1) lookup instead of O(N) SCAN.  Legacy entries created before the reverse
-index are handled via graceful fallback: if the set is empty, we scan only
-the keys matching that specific document.
+O(1) lookup instead of O(N) SCAN. Entries without an index expire by TTL.
 """
 
 from __future__ import annotations
 
+import base64
 import gzip
 import json
 import logging
@@ -49,9 +48,18 @@ def compute_visibility_scope_hash(
     return content_hash(f"{user_kind}:{user_role}:{user_id}:{sorted(group_ids)}:{scope_repr}")
 
 
-def compute_question_hash(question_text: str) -> str:
-    """Hash of the condensed question text for exact-match lookup."""
-    return content_hash(question_text.strip().lower())
+def compute_question_hash(question_text: str, context: dict | None = None) -> str:
+    """Hash question and answer-affecting request context for exact-match lookup."""
+    normalized = question_text.strip().lower()
+    if context:
+        normalized = json.dumps(
+            {"question": normalized, "context": context},
+            ensure_ascii=False,
+            sort_keys=True,
+            default=str,
+            separators=(",", ":"),
+        )
+    return content_hash(normalized)
 
 
 def _cache_key(question_hash: str, visibility_scope_hash: str) -> str:
@@ -62,6 +70,17 @@ def _cache_key(question_hash: str, visibility_scope_hash: str) -> str:
 def _doc_index_key(doc_id: int) -> str:
     """Build Redis key for reverse index set."""
     return f"{DOC_INDEX_PREFIX}{doc_id}"
+
+
+def _encode_entry(entry: dict) -> str:
+    # RedisClient uses decode_responses=True for the shared connection.
+    return base64.b64encode(gzip.compress(json.dumps(entry).encode())).decode("ascii")
+
+
+def _decode_entry(raw) -> dict:
+    if isinstance(raw, bytes) and raw.startswith(b"\x1f\x8b"):
+        return json.loads(gzip.decompress(raw))
+    return json.loads(gzip.decompress(base64.b64decode(raw, validate=True)))
 
 
 async def find_cached_answer(
@@ -83,10 +102,10 @@ async def find_cached_answer(
         if raw is None:
             return None
 
-        entry = json.loads(gzip.decompress(raw))
+        entry = _decode_entry(raw)
         entry["hit_count"] = entry.get("hit_count", 0) + 1
 
-        await r.set(key, gzip.compress(json.dumps(entry).encode()), keepttl=True)
+        await r.set(key, _encode_entry(entry), keepttl=True, xx=True)
 
         return entry
     except Exception:
@@ -118,14 +137,13 @@ async def store_cached_answer(
             "hit_count": 0,
             "created_at": time.time(),
         }
-        await r.set(key, gzip.compress(json.dumps(entry).encode()), ex=CACHE_TTL_SECONDS)
-
+        pipe = r.pipeline(transaction=True)
+        pipe.set(key, _encode_entry(entry), ex=CACHE_TTL_SECONDS)
         if document_ids:
-            pipe = r.pipeline()
             for doc_id in document_ids:
                 pipe.sadd(_doc_index_key(doc_id), key)
                 pipe.expire(_doc_index_key(doc_id), DOC_INDEX_TTL)
-            await pipe.execute()
+        await pipe.execute()
 
         log.info("Cached answer for question hash=%s (ttl=%ds)", question_hash[:12], CACHE_TTL_SECONDS)
     except Exception:
@@ -146,7 +164,7 @@ async def _delete_cache_entries(keys: list[str]) -> int:
     for key, raw in zip(keys, raw_results, strict=True):
         if raw is not None:
             try:
-                entry = json.loads(gzip.decompress(raw))
+                entry = _decode_entry(raw)
                 for doc_id in entry.get("document_ids", []):
                     pipe2.srem(_doc_index_key(doc_id), key)
             except Exception:
@@ -154,31 +172,6 @@ async def _delete_cache_entries(keys: list[str]) -> int:
         pipe2.delete(key)
     await pipe2.execute()
     return sum(1 for raw in raw_results if raw is not None)
-
-
-async def _legacy_scan_for_doc_ids(document_ids: list[int], skip_keys: set[str]) -> set[str]:
-    """Fallback: scan all cache keys to find entries matching document_ids.
-
-    Used only when reverse index sets are missing (legacy entries).
-    """
-    r = redis_client.async_redis
-    found: set[str] = set()
-    doc_id_set = set(document_ids)
-    pattern = f"{CACHE_PREFIX}*"
-    async for key in r.scan_iter(match=pattern, count=100):
-        if key in skip_keys:
-            continue
-        raw = await r.get(key)
-        if raw is None:
-            continue
-        try:
-            entry = json.loads(gzip.decompress(raw))
-        except Exception:
-            log.debug("Skipping corrupted cache entry %s", key)
-            continue
-        if any(did in doc_id_set for did in entry.get("document_ids", [])):
-            found.add(key)
-    return found
 
 
 async def invalidate_by_document_ids(
@@ -195,17 +188,11 @@ async def invalidate_by_document_ids(
     try:
         r = redis_client.async_redis
         keys_to_delete: set[str] = set()
-        legacy_scan_needed = False
 
         for doc_id in document_ids:
             members = await r.smembers(_doc_index_key(doc_id))  # type: ignore[misc]
             if members:
                 keys_to_delete.update(m for m in members)
-            else:
-                legacy_scan_needed = True
-
-        if legacy_scan_needed:
-            keys_to_delete |= await _legacy_scan_for_doc_ids(document_ids, keys_to_delete)
 
         invalidated = await _delete_cache_entries(list(keys_to_delete))
 

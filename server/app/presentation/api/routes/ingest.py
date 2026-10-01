@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import logging
+import hashlib
 
 from application.ports.ingestion_port import IngestionPort
 from application.ports.rate_limit import RateLimitPolicyName
 from application.services.ingest_service import IngestAppService
 from application.services.job_service import JobService
 from domain.value_objects.visibility import DocumentVisibility
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 
 from presentation.api.auth_dependencies import require_admin
 from presentation.api.rate_limit import rate_limit
@@ -18,14 +19,17 @@ from presentation.api.dependencies import (
     create_action_logger,
     create_ingest_service,
     create_ingestion_port,
+    create_idempotency_store,
     create_job_enqueuer,
     create_job_service,
     create_upload_config,
+    get_idempotency_key,
 )
 from presentation.api.helpers import read_upload_with_limit
+from presentation.api.idempotency import complete_idempotency, reserve_idempotency
+from presentation.api.schemas.validators import validate_uploaded_file
 from presentation.api.schemas import (
     CurrentUser,
-    FileContent,
     IngestRegistryItem,
     IngestRegistryResponse,
     IngestStatusResponse,
@@ -46,6 +50,7 @@ MAX_UPLOAD_FILES = 20
     dependencies=[Depends(rate_limit(RateLimitPolicyName.UPLOAD))],
 )
 async def ingest_documents(
+    request: Request,
     docs_dir: SafeRelativePath = "docs/",
     reset: bool = False,
     domain: str = "auto",
@@ -57,11 +62,30 @@ async def ingest_documents(
     job_service: JobService = Depends(create_job_service),
     log=Depends(create_action_logger),
     job_enqueuer=Depends(create_job_enqueuer),
+    idempotency_key: str | None = Depends(get_idempotency_key),
+    idempotency_store=Depends(create_idempotency_store),
 ):
     try:
         resolved = service.resolve_docs_dir(docs_dir)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+    cached, reservation = await reserve_idempotency(
+        idempotency_store,
+        idempotency_key,
+        f"{admin.kind}:{admin.role}:{admin.id}",
+        f"{request.method}:{request.url.path}",
+        {
+            "docs_dir": resolved,
+            "reset": reset,
+            "domain": domain,
+            "visibility": visibility.value,
+            "group_id": group_id,
+            "client_id": client_id,
+        },
+    )
+    if cached is not None:
+        return IngestStatusResponse(**cached)
 
     job_id = await job_service.create_job(JobType.INGEST)
 
@@ -81,7 +105,9 @@ async def ingest_documents(
         client_id=client_id,
     )
     mode = "RESET + full reindex" if reset else "APPEND (new files only)"
-    return IngestStatusResponse(status="started", mode=mode, docs_dir=resolved)
+    response = IngestStatusResponse(status="started", mode=mode, docs_dir=resolved)
+    await complete_idempotency(idempotency_store, reservation, response.model_dump(mode="json"))
+    return response
 
 
 @router.post(
@@ -90,6 +116,7 @@ async def ingest_documents(
     dependencies=[Depends(rate_limit(RateLimitPolicyName.UPLOAD))],
 )
 async def ingest_single_file(
+    request: Request,
     file_path: SafeRelativePath,
     force: bool = False,
     domain: str = "auto",
@@ -101,11 +128,30 @@ async def ingest_single_file(
     job_service: JobService = Depends(create_job_service),
     log=Depends(create_action_logger),
     job_enqueuer=Depends(create_job_enqueuer),
+    idempotency_key: str | None = Depends(get_idempotency_key),
+    idempotency_store=Depends(create_idempotency_store),
 ):
     try:
         resolved = service.resolve_ingest_target(file_path)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+    cached, reservation = await reserve_idempotency(
+        idempotency_store,
+        idempotency_key,
+        f"{admin.kind}:{admin.role}:{admin.id}",
+        f"{request.method}:{request.url.path}",
+        {
+            "file_path": resolved,
+            "force": force,
+            "domain": domain,
+            "visibility": visibility.value,
+            "group_id": group_id,
+            "client_id": client_id,
+        },
+    )
+    if cached is not None:
+        return IngestStatusResponse(**cached)
 
     if force:
         await service.force_reindex(file_path.split("/")[-1])
@@ -126,7 +172,9 @@ async def ingest_single_file(
         group_id=group_id,
         client_id=client_id,
     )
-    return IngestStatusResponse(status="started", file=resolved, force=force)
+    response = IngestStatusResponse(status="started", file=resolved, force=force)
+    await complete_idempotency(idempotency_store, reservation, response.model_dump(mode="json"))
+    return response
 
 
 @router.get("/ingest/registry", response_model=IngestRegistryResponse)
@@ -157,10 +205,13 @@ async def get_ingest_registry(
     dependencies=[Depends(rate_limit(RateLimitPolicyName.UPLOAD))],
 )
 async def upload_files(
+    request: Request,
     files: list[UploadFile] = File(...),
     admin: CurrentUser = Depends(require_admin),
     ingestion_port: IngestionPort = Depends(create_ingestion_port),
     upload_cfg=Depends(create_upload_config),
+    idempotency_key: str | None = Depends(get_idempotency_key),
+    idempotency_store=Depends(create_idempotency_store),
 ):
     if len(files) > MAX_UPLOAD_FILES:
         raise HTTPException(
@@ -170,10 +221,26 @@ async def upload_files(
 
     max_bytes = upload_cfg.max_upload_size_mb * 1024 * 1024
     file_data = []
+    file_fingerprints = []
     for f in files:
         data = await read_upload_with_limit(f, max_bytes)
-        fc = FileContent(data=data, filename=f.filename or "unnamed", check_structural=True)
+        fc = validate_uploaded_file(data, f.filename or "unnamed")
         file_data.append(type("UploadFileData", (), {"filename": f.filename, "data": fc.data})())
+        file_fingerprints.append(
+            {"filename": f.filename or "unnamed", "sha256": hashlib.sha256(fc.data).hexdigest()}
+        )
+
+    cached, reservation = await reserve_idempotency(
+        idempotency_store,
+        idempotency_key,
+        f"{admin.kind}:{admin.role}:{admin.id}",
+        f"{request.method}:{request.url.path}",
+        {"files": file_fingerprints},
+    )
+    if cached is not None:
+        return UploadResponse(**cached)
 
     uploaded = await ingestion_port.upload_files(file_data)
-    return UploadResponse(files=uploaded)
+    response = UploadResponse(files=uploaded)
+    await complete_idempotency(idempotency_store, reservation, response.model_dump(mode="json"))
+    return response

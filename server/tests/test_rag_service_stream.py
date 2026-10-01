@@ -106,6 +106,7 @@ async def collect_events(service, question, history=None, ctx=None):
 # ---------------------------------------------------------------------------
 
 _STREAM_PATCHES = {
+    "infrastructure.ml.rag.rag_retrieval.ensure_embedding_identity": MagicMock(return_value="test:model:v1"),
     "infrastructure.ml.rag_service.build_qdrant_filter": MagicMock(return_value=MagicMock(should=[])),
     "infrastructure.ml.rag_service.with_temporal_filter": MagicMock(return_value=MagicMock(should=[])),
     "infrastructure.ml.rag.rag_steps.handle_relevance_gate": AsyncMock(return_value=True),
@@ -128,7 +129,9 @@ _STREAM_PATCHES = {
             format_messages=lambda **kw: [MagicMock(content="user msg")],
         )
     ),
-    "infrastructure.ml.rag.rag_steps.format_docs": MagicMock(return_value="formatted context"),
+    "infrastructure.ml.rag.rag_steps.format_docs_with_selection": MagicMock(
+        side_effect=lambda docs, **kwargs: ("formatted context", list(docs))
+    ),
     "infrastructure.ml.rag.rag_steps.extract_sources": MagicMock(
         return_value=[{"source": "a.pdf", "score": 0.9}]
     ),

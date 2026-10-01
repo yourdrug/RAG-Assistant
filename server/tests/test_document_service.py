@@ -357,8 +357,8 @@ async def test_upload_active_processing_rejected():
 
 
 @pytest.mark.asyncio
-async def test_upload_concurrent_duplicate_rejected():
-    """Concurrent upload of same filename → BusinessRuleViolation."""
+async def test_upload_unique_constraint_violation_translates_to_conflict():
+    """A database uniqueness violation is translated to an application conflict."""
     cmd, query, uow, fs = _service()
     # Make save raise UniqueConstraintViolation
     from domain.exceptions import UniqueConstraintViolation

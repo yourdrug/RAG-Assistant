@@ -259,9 +259,7 @@ class TestSummaryTemplateInjection:
         prompt = build_prompt(summary=summary)
         messages = prompt.format_messages(context="test", history=[], question="test")
         # Find the summary message and verify braces are literal
-        summary_msg = next(
-            (m for m in messages if hasattr(m, "content") and "Ключ" in str(m.content)), None
-        )
+        summary_msg = next((m for m in messages if hasattr(m, "content") and "Ключ" in str(m.content)), None)
         assert summary_msg is not None
         assert "{token}" in str(summary_msg.content)
 

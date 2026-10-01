@@ -26,8 +26,23 @@ from qdrant_client.models import (
 from config import settings
 from domain.utils import content_hash
 from infrastructure.ml.clients.factories import create_qdrant_client
+from infrastructure.repositories.vector.embedding_identity import ensure_embedding_identity
 
 log = logging.getLogger("default")
+
+
+def _validate_embedding_batch(vectors, expected_count: int, expected_dimension: int) -> None:
+    if len(vectors) != expected_count:
+        raise ValueError(
+            "Embedding provider returned an incomplete batch "
+            f"({len(vectors)} vectors for {expected_count} chunks)"
+        )
+    for vector_index, vector in enumerate(vectors):
+        if len(vector) != expected_dimension:
+            raise ValueError(
+                "Embedding provider returned an invalid vector dimension "
+                f"at batch index {vector_index}: expected {expected_dimension}, got {len(vector)}"
+            )
 
 
 def _delete_internal_points(client) -> int:
@@ -63,6 +78,7 @@ def _delete_internal_points(client) -> int:
 
 
 def ensure_collection(client, vector_size: int, reset: bool = False) -> None:
+    ensure_embedding_identity(client)
     existing = [c.name for c in client.get_collections().collections]
     if settings.collection_name in existing:
         info = client.get_collection(settings.collection_name)
@@ -154,6 +170,12 @@ async def _upsert_with_semaphore(client, points: list, write_semaphore=None) -> 
         )
 
 
+def _tag_embedding_model(chunks, identity):
+    for doc in chunks:
+        doc.metadata["embedding_model"] = identity
+    return chunks
+
+
 async def upload_to_qdrant(
     chunks: list[Document],
     embeddings,
@@ -197,6 +219,11 @@ async def upload_to_qdrant(
     if client is None:
         client = create_qdrant_client()
 
+    identity = await asyncio.to_thread(
+        ensure_embedding_identity, client, getattr(embeddings, "embedding_identity", None)
+    )
+    chunks = _tag_embedding_model(chunks, identity)
+
     # Embed + upsert in sub-batches to limit peak memory and give visible progress
     pending_points: list[PointStruct] = []
     for batch_start in range(0, total, embed_batch):
@@ -217,7 +244,9 @@ async def upload_to_qdrant(
         batch_vectors = await embeddings.embed_documents(batch_texts)
         log.info("  Embedded in %.1fs", time.monotonic() - t_embed)
 
-        for doc, vector in zip(batch_chunks_slice, batch_vectors, strict=False):
+        _validate_embedding_batch(batch_vectors, len(batch_chunks_slice), settings.embed_dim)
+
+        for doc, vector in zip(batch_chunks_slice, batch_vectors, strict=True):
             point_id = doc.metadata["chunk_id"]
             pending_points.append(
                 PointStruct(

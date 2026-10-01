@@ -131,6 +131,7 @@ async def upload_and_enqueue(
         replace_id=result.replace_id,
         doc_domain=doc_domain,
         job_id=job_id,
+        principal_id=user_id,
     )
 
     return {

@@ -22,6 +22,8 @@ DEEPINFRA_TIMEOUT = 60.0
 class DeepInfraEmbeddingsClient:
     """Embedding client using DeepInfra OpenAI-compatible /embeddings endpoint."""
 
+    embedding_identity: str
+
     def __init__(
         self, api_key: str, base_url: str, model: str, pool_limits: httpx.Limits | None = None
     ) -> None:
