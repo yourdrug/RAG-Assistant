@@ -13,8 +13,8 @@ from typing import TYPE_CHECKING
 
 from langchain.schema import Document
 
-from domain.domain_profile.protocol import refs_to_metadata
 from domain.entities.raw_document import RawDocument
+from domain.value_objects.doc_domain import DocDomain
 from infrastructure.ml.ingestion import (
     PARSERS,
     parse_docx,
@@ -26,7 +26,8 @@ from infrastructure.ml.ingestion import split_documents as _split_documents
 from infrastructure.ml.ingestion.markdown import extract_doc_title as _extract_md_title
 from infrastructure.ml.ingestion.rtf import extract_doc_title as _extract_rtf_title
 from infrastructure.ml.ingestion.rtf import parse_rtf, parse_rtf_sections
-from infrastructure.ml.ingestion.splitting import _enrich_final_chunks
+from infrastructure.ml.ingestion.structural_metadata import unit_metadata
+from infrastructure.ml.ingestion.markdown import extract_date_from_filename
 from infrastructure.ml.rtf_decree_parser import parse_decree_rtf
 
 if TYPE_CHECKING:
@@ -50,7 +51,7 @@ def _lc_to_raw(docs) -> list[RawDocument]:
 
 
 def _raw_to_lc(docs: list[RawDocument]):
-    return [Document(page_content=d.page_content, metadata=d.metadata) for d in docs]
+    return [Document(page_content=d.page_content, metadata=dict(d.metadata)) for d in docs]
 
 
 def _populate_heading_metadata(metadata: dict, heading: str | None, ctx: dict) -> None:
@@ -167,7 +168,16 @@ class LangchainDocumentParser:
         self._domain_registry = domain_registry
         self._domain_settings = domain_settings
 
-    def parse(self, file_path: Path) -> list[RawDocument]:
+    def parse(self, file_path: Path, *, filename: str | None = None) -> list[RawDocument]:
+        docs = self._parse(file_path)
+        if filename:
+            for doc in docs:
+                doc.metadata["source"] = filename
+                if doc.metadata.get("_doc_title_fallback"):
+                    doc.metadata["doc_title"] = Path(filename).stem
+        return docs
+
+    def _parse(self, file_path: Path) -> list[RawDocument]:
         ext = file_path.suffix.lower()
 
         if ext == ".pdf":
@@ -230,6 +240,8 @@ class LangchainDocumentParser:
                 doc_title = first_section.split(" > ")[0]
         if not doc_title:
             doc_title = file_path.stem
+            for doc in docs:
+                doc.metadata["_doc_title_fallback"] = True
 
         sample = f"{doc_title}\n{docs[0].page_content[:DOC_TYPE_SAMPLE_CHARS]}"
         doc_type = classify_doc_type(sample)
@@ -305,15 +317,7 @@ class LangchainDocumentParser:
         for unit in units:
             if not unit.content.strip():
                 continue
-            metadata: dict = {"source": file_path.name, "unit_kind": unit.unit_kind}
-            metadata.update(doc_metadata)
-            if unit.heading:
-                metadata["section"] = unit.heading
-            if unit.boundary_value:
-                metadata[f"{unit.unit_kind}_number"] = unit.boundary_value
-            unit_refs = profile.extract_references(unit.content)
-            if unit_refs:
-                metadata["domain_metadata"] = refs_to_metadata(unit_refs)
+            metadata = unit_metadata(unit, profile, {"source": file_path.name, **doc_metadata})
             docs.append(RawDocument(page_content=unit.content, metadata=metadata))
         if not docs or sum(len(d.page_content) for d in docs) < 20:
             raise RuntimeError("Too little text in document")
@@ -367,28 +371,29 @@ class LangchainDocumentSplitter:
         self._domain_registry = domain_registry
         self._domain_settings = domain_settings
 
-    def split(self, documents: list[RawDocument], domain: str = "general") -> list[RawDocument]:
-        profile = self._get_profile(domain)
-        if (
-            profile is not None
-            and profile.content_boundaries()
-            and documents
-            and all("unit_kind" in d.metadata for d in documents)
-        ):
-            # Structural units produced by a domain-aware parser (decree RTF)
-            # are already final chunks — pass through without re-splitting,
-            # but still apply the same universal per-chunk metadata
-            # (char_count/has_numbers/has_dates/chunk_index) every other
-            # domain gets from split_documents.
-            docs = list(documents)
-            _enrich_final_chunks(docs)
-            return docs
+    def split(
+        self,
+        documents: list[RawDocument],
+        domain: str = DocDomain.GENERAL.value,
+        *,
+        profile=None,
+        domain_settings=None,
+    ) -> list[RawDocument]:
+        profile = profile or self._get_profile(domain)
+        docs = _raw_to_lc(documents)
+        for doc in docs:
+            filename = doc.metadata.get("filename") or Path(doc.metadata.get("source", "")).name
+            if doc.metadata.pop("_doc_title_fallback", False):
+                doc.metadata["doc_title"] = Path(filename).stem
+            doc_date = extract_date_from_filename(filename)
+            if doc_date:
+                doc.metadata.setdefault("doc_date", doc_date)
         return _lc_to_raw(
             _split_documents(
-                _raw_to_lc(documents),
+                docs,
                 domain=domain,
                 profile=profile,
-                settings=self._domain_settings,
+                settings=domain_settings if domain_settings is not None else self._domain_settings,
             )
         )
 

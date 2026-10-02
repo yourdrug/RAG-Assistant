@@ -27,4 +27,9 @@ def to_chunk_search_result(orm: ChunkModel) -> ChunkSearchResult:
         content_type=orm.content_type,
         doc_title=orm.doc_title,
         doc_type=orm.doc_type,
+        act_version_id=orm.act_version_id,
+        effective_from=orm.effective_from,
+        effective_to=orm.effective_to,
+        is_current=orm.is_current,
+        context_metadata=orm.context_metadata or {},
     )

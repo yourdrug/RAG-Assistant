@@ -14,6 +14,7 @@ from langchain.schema import Document
 from config import settings
 from domain.value_objects.page_content_type import PageContentType
 from infrastructure.ml.ingestion.ocr import ocr_pdf_pages
+from infrastructure.ml.ingestion.table_formatting import markdown_cell
 from infrastructure.ml.ingestion.utils import clean_pdf_text
 
 log = logging.getLogger("detailed")
@@ -46,6 +47,7 @@ class PageResult:
     text_for_comparison: str = ""
     meta: dict = field(default_factory=dict)
     table_docs: list[Document] = field(default_factory=list)
+    ordered_docs: list[Document] = field(default_factory=list)
 
 
 def pymupdf_table_to_markdown(table) -> str:
@@ -61,7 +63,7 @@ def pymupdf_table_to_markdown(table) -> str:
     max_cols = max(len(row) for row in data)
     rows = []
     for row in data:
-        normalized = [str(cell).strip().replace("|", "\\|") if cell else "" for cell in row]
+        normalized = [markdown_cell(cell) for cell in row]
         while len(normalized) < max_cols:
             normalized.append("")
         rows.append(normalized)
@@ -153,6 +155,7 @@ def _extract_page_tables(page, file_path: Path, page_num: int) -> list[Document]
                                 "page": page_num,
                                 "source": str(file_path),
                                 "content_type": PageContentType.TABLE.value,
+                                "_table_bbox": tuple(table.bbox),
                             },
                         )
                     )
@@ -173,6 +176,74 @@ def _detect_tabular_heuristic(text: str, page_num: int) -> None:
             page_num,
             tabular_lines,
         )
+
+
+def _outside_table_line(line: dict, rectangles: list) -> tuple | None:
+    spans = []
+    for span in line["spans"]:
+        rect = fitz.Rect(span["bbox"])
+        center = (rect.top_left + rect.bottom_right) / 2
+        if not any(center in table_rect for table_rect in rectangles):
+            spans.append(span)
+    text = "".join(span["text"] for span in spans).strip()
+    if not text:
+        return None
+    bbox = fitz.Rect(spans[0]["bbox"])
+    for span in spans[1:]:
+        bbox |= fitz.Rect(span["bbox"])
+    return bbox, text
+
+
+def _outside_table_blocks(page, rectangles: list, boilerplate: set[str]):
+    """Filter individual spans to retain captions sharing a block with a table."""
+    text_flags = fitz.TEXTFLAGS_DICT & ~fitz.TEXT_PRESERVE_IMAGES
+    for block in page.get_text("dict", flags=text_flags)["blocks"]:
+        for line in block.get("lines", []):
+            outside = _outside_table_line(line, rectangles)
+            if outside is None:
+                continue
+            bbox, text = outside
+            in_margin = bbox.y1 <= page.rect.height * _HEADER_ZONE_RATIO or bbox.y0 >= (
+                page.rect.height * (1 - _FOOTER_ZONE_RATIO)
+            )
+            if in_margin and _DIGITS_RE.sub("#", text) in boilerplate:
+                continue
+            yield bbox, text
+
+
+def _mixed_page_documents(page, tables: list[Document], boilerplate: set[str]) -> list[Document]:
+    """Interleave tables and outside text, excluding only the table text spans."""
+    rectangles = [fitz.Rect(doc.metadata["_table_bbox"]) for doc in tables]
+    base = {key: value for key, value in tables[0].metadata.items() if key in ("page", "source")}
+    blocks = sorted(_outside_table_blocks(page, rectangles, boilerplate), key=lambda item: item[0].y0)
+    ordered: list[Document] = []
+    cursor = 0
+
+    def append_text(band: list) -> None:
+        if band:
+            positioned = [(*tuple(bbox), text) for bbox, text in band]
+            lines = _order_blocks_columnwise(positioned, page.rect.width)
+            text = clean_pdf_text("\n".join(lines))
+            if text:
+                ordered.append(Document(page_content=text, metadata=dict(base)))
+
+    # Full-width tables are barriers between text bands. Column ordering
+    # applies within each band, never across a table's explanatory text.
+    for table, bbox in sorted(
+        zip(tables, rectangles, strict=True), key=lambda item: (item[1].y0, item[1].x0)
+    ):
+        start = cursor
+        while cursor < len(blocks) and blocks[cursor][0].y0 < bbox.y0:
+            cursor += 1
+        append_text(blocks[start:cursor])
+        ordered.append(
+            Document(
+                page_content=table.page_content,
+                metadata={key: value for key, value in table.metadata.items() if key != "_table_bbox"},
+            )
+        )
+    append_text(blocks[cursor:])
+    return ordered
 
 
 def _should_ocr(text: str, min_chars: int, ocr_enabled: bool) -> bool:
@@ -331,6 +402,12 @@ def _process_page(
             table_docs=table_docs,
         )
 
+    if table_docs:
+        ordered = _mixed_page_documents(page, table_docs, boilerplate)
+        for item in ordered:
+            item.metadata.update(page_meta)
+        return PageResult(meta=page_meta, ordered_docs=ordered)
+
     text_doc = _process_page_text(text, bool(table_docs), page_num, file_path)
     if text_doc:
         text_doc.metadata.update(page_meta)
@@ -358,8 +435,9 @@ def _process_ocr_batch(
 
 def _apply_document_metadata(pages: list[Document], doc_metadata: dict, is_scanned: bool) -> None:
     """Stamp doc-level metadata and scanned flag onto every page."""
-    if doc_metadata:
-        for p in pages:
+    for p in pages:
+        p.metadata.pop("_table_bbox", None)
+        if doc_metadata:
             p.metadata.update(doc_metadata)
     if is_scanned:
         for p in pages:
@@ -391,7 +469,7 @@ def parse_pdf(file_path: Path) -> list[Document]:
             settings.ocr_enabled,
             settings.ocr_min_chars,
         )
-        pages.extend(result.table_docs)
+        pages.extend(result.ordered_docs or result.table_docs)
         if result.ocr_needed:
             ocr_pages_needed.append(page_num)
             ocr_page_set.add(page_num)

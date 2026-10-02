@@ -20,8 +20,10 @@ from langchain.schema import Document as LCDocument
 from domain.utils import content_hash
 from infrastructure.ml.clients.llm_schemas import SufficiencyAssessment
 from infrastructure.ml.rag.rag_formatting import format_docs
+from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata
 from infrastructure.ml.rag.rag_reranking import deduplicate_docs, rerank_documents
 from infrastructure.ml.rag.rag_retrieval import run_hybrid_search
+from infrastructure.ml.rag.benchmark_evidence import capture_retrieval
 from infrastructure.ml.rag.rag_postprocess import enrich_with_neighbors, resolve_temporal_conflicts
 from infrastructure.ml.rag.rag_prompts import decompose_question
 from infrastructure.metrics.metrics import RAG_STAGE_DURATION
@@ -132,17 +134,7 @@ async def apply_exact_search(
                     candidates.append(
                         LCDocument(
                             page_content=r.content,
-                            metadata={
-                                "source": r.filename,
-                                "document_id": r.document_id,
-                                "act_id": r.act_id,
-                                "act_version_id": r.act_version_id,
-                                "effective_from": (
-                                    r.effective_from.isoformat() if r.effective_from else None
-                                ),
-                                "effective_to": r.effective_to.isoformat() if r.effective_to else None,
-                                "is_current": r.is_current,
-                            },
+                            metadata=chunk_result_metadata(r),
                         )
                     )
                     existing_hashes.add(h)
@@ -400,6 +392,7 @@ async def rerank_and_enrich(
 
     final_top_k = select_final_top_k(breadth, enumerate_cases, rag)
     docs = docs[:final_top_k]
+    capture_retrieval(docs)
     avg_sim = sum(s for _, s in docs) / len(docs) if docs else 0.0
 
     max_context_tokens = compute_context_budget(

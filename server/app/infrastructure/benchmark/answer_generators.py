@@ -10,6 +10,12 @@ from application.ports.chat_rag_port import ChatRAGPort
 from config import _settings_overrides, get_setting, settings
 from domain.value_objects.chat_context import ChatContext
 
+from infrastructure.ml.rag.benchmark_evidence import (
+    BenchmarkEvidence,
+    active_evidence,
+    snapshot_documents,
+)
+
 from infrastructure.benchmark.case_metrics import (
     _compute_retriever_metrics_from_sources,
     _extract_usage_from_response,
@@ -26,6 +32,7 @@ class BenchmarkAnswer:
     ttft_sec: float | None = None
     breadth: str | None = None
     domain: str | None = None
+    evidence: BenchmarkEvidence | None = None
 
 
 class BenchmarkAnswerGenerator(Protocol):
@@ -46,14 +53,17 @@ class RagBenchmarkGenerator:
         }
         if self._fetch_k is not None:
             overrides["retriever_fetch_k"] = self._fetch_k
+        evidence = BenchmarkEvidence()
+        evidence_token = active_evidence.set(evidence)
         token = _settings_overrides.set(overrides)
         try:
             result = await self._rag.invoke(question=question["question"], history=[], ctx=ctx)
         finally:
             _settings_overrides.reset(token)
+            active_evidence.reset(evidence_token)
         context = "\n\n---\n\n".join(s.get("content", "") for s in result.sources if s.get("content"))
-        if not context:
-            context = "\n\n---\n\n".join(s.get("source", "") for s in result.sources)
+        if evidence.context is not None:
+            context = evidence.context
         return BenchmarkAnswer(
             answer=result.answer,
             context=context,
@@ -65,6 +75,7 @@ class RagBenchmarkGenerator:
             ttft_sec=result.ttft_sec,
             breadth=result.breadth,
             domain=result.domain,
+            evidence=evidence,
         )
 
 
@@ -104,11 +115,15 @@ class StandaloneBenchmarkGenerator:
             user_id=ctx.user_id,
             user_group_ids=ctx.user_group_ids,
         )
+        from infrastructure.ml.rag.rag_formatting import format_docs_with_selection
+
+        context, selected = format_docs_with_selection(docs, max_context_tokens=4000)
         answer, response = await asyncio.to_thread(get_rag_answer_with_usage, llm, docs, question["question"])
         input_tokens, output_tokens = _extract_usage_from_response(response)
         return BenchmarkAnswer(
             answer=answer,
-            context="\n\n---\n\n".join(d.page_content for d, _ in docs),
+            context=context,
+            evidence=BenchmarkEvidence(snapshot_documents(docs), snapshot_documents(selected), context),
             retriever_metrics=compute_retriever_metrics(docs, question.get("source_hint")),
             input_tokens=input_tokens,
             output_tokens=output_tokens,

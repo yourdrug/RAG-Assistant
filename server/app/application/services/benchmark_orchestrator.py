@@ -7,6 +7,8 @@ and handles result persistence, history tracking, and regression comparison.
 from __future__ import annotations
 
 import json
+from domain.services.benchmark_evaluation import summarize_evidence
+
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -103,6 +105,7 @@ def compute_summary_from_results(results: list[dict]) -> dict:
     breadths = [r.get("breadth") for r in results if r.get("breadth") is not None]
 
     return {
+        **summarize_evidence(results),
         "total_questions": len(results),
         "total_time_sec": round(sum(latencies), 1),
         "hit_rate": round(sum(hit_rates) / len(hit_rates), 3) if hit_rates else None,
@@ -141,6 +144,9 @@ def compute_summary_from_results(results: list[dict]) -> dict:
                 "avg_similarity": r["retriever_metrics"]["avg_similarity"],
                 "context_precision": r.get("context_metrics", {}).get("context_precision"),
                 "context_recall": r.get("context_metrics", {}).get("context_recall"),
+                "evidence_metrics": r.get("evidence_metrics", {}),
+                "evidence_diagnostics": r.get("evidence_diagnostics", {}),
+                "evidence": r.get("evidence", {}),
                 "latency_sec": r["latency_sec"],
                 "ttft_sec": r.get("ttft_sec"),
                 "breadth": r.get("breadth"),

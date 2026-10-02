@@ -1,5 +1,7 @@
 """Benchmark metrics — retriever metrics, context precision/recall, summary."""
 
+from domain.services.benchmark_evaluation import summarize_evidence
+
 import logging
 from pathlib import Path
 
@@ -187,6 +189,7 @@ def compute_summary_metrics(results: list[dict]) -> dict:
     total_cost = sum(r.get("cost_usd") or 0.0 for r in results)
 
     return {
+        **summarize_evidence(results),
         "total_questions": len(results),
         "pct_with_expected_answer": round(total_with_expected / len(results) * 100, 1) if results else 0,
         "total_time_sec": round(sum(latencies), 1),

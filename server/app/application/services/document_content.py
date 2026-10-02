@@ -68,7 +68,7 @@ class DocumentContentProcessor:
             ctx.warnings.append(outcome.warning)
 
     async def split(self, ctx: ProcessingContext) -> list[RawDocument]:
-        """Attach source/date metadata, split and add section prefixes."""
+        """Attach source/date metadata and delegate final chunk construction."""
         if ctx.doc_domain is None:
             raise RuntimeError(f"domain classification produced no domain for doc {ctx.document_id}")
         ctx.raw_chunks = await self._offload(
@@ -84,9 +84,4 @@ class DocumentContentProcessor:
             doc.metadata["source"] = filename
             if doc_date:
                 doc.metadata["doc_date"] = doc_date
-        chunks = self._splitter.split(docs, domain=domain)
-        for chunk in chunks:
-            section = chunk.metadata.get("section")
-            if section:
-                chunk.page_content = f"[Раздел: {section}]\n{chunk.page_content}"
-        return chunks
+        return self._splitter.split(docs, domain=domain)

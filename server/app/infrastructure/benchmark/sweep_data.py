@@ -34,6 +34,7 @@ class SweepDataSource:
                         "question": q.question,
                         "expected_answer": q.expected_answer,
                         "source_hint": q.source_hint,
+                        "annotations": q.annotations,
                         "tags": q.tags or [],
                     }
                     for q in questions

@@ -95,7 +95,8 @@ async def test_standalone_benchmark_keeps_acl_context_and_usage(benchmark_io, mo
     result = saved.call_args.args[0][0]
     assert result["input_tokens"] == 30 and result["output_tokens"] == 5
     assert result["breadth"] is None
-    assert score.call_args.kwargs["context"] == "context"
+    assert score.call_args.kwargs["context"] == "[1] report.pdf\ncontext"
+    assert result["evidence"]["context"] == score.call_args.kwargs["context"]
 
 
 @pytest.fixture

@@ -60,7 +60,9 @@ class BatchIngestionWorkflow:
                 log.error("No documents loaded. Check S3 prefix and formats.")
             return
 
-        chunks = self._loader.split_docs(docs)
+        full_text_by_source, source_chars = self._source_content(docs)
+        source_domains = self._loader.classify_source_domains(full_text_by_source, scope.domain)
+        chunks = self._loader.split_docs(docs, source_domains=source_domains)
         tag_chunks(
             chunks,
             visibility=scope.visibility,
@@ -68,8 +70,6 @@ class BatchIngestionWorkflow:
             group_id=scope.group_id,
             client_id=scope.client_id,
         )
-        full_text_by_source, source_chars = self._source_content(docs)
-        source_domains = self._loader.classify_source_domains(full_text_by_source, scope.domain)
         for chunk in chunks:
             source = chunk.metadata.get("source", "")
             tag_domain([chunk], source_domains.get(source, DocDomain.GENERAL.value))

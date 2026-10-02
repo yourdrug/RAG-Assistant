@@ -15,6 +15,7 @@ import time
 from collections.abc import AsyncIterator
 from datetime import date
 from typing import TYPE_CHECKING
+from domain.exceptions import ContextBudgetExceededError
 
 
 from domain.services.rag_policy import (
@@ -69,6 +70,7 @@ from infrastructure.ml.rag.rag_prompts import (  # noqa: F401
     condense_question,
     decompose_question,
 )
+from infrastructure.ml.rag.benchmark_evidence import capture_prompt
 from infrastructure.ml.rag.rag_sources import extract_sources
 from infrastructure.ml.rag.rag_relevance import filter_cited_documents
 from shared import request_id_ctx
@@ -425,6 +427,9 @@ def step_build_context(
     context, state._prompt_docs = format_docs_with_selection(
         grouped_docs, max_context_tokens=max_context_tokens
     )
+    capture_prompt(state.docs, state._prompt_docs, context)
+    if grouped_docs and not state._prompt_docs:
+        raise ContextBudgetExceededError()
     messages = prompt.format_messages(
         context=context,
         history=state.history_messages,

@@ -14,6 +14,7 @@ from domain.exceptions import BusinessRuleViolation, EntityNotFound, ValidationE
 from domain.repositories.chunk_repository import ChunkCrudRepository
 from domain.utils import content_hash
 from domain.value_objects.source_type import SourceType
+from domain.value_objects.chunk_context import extract_chunk_context
 
 if TYPE_CHECKING:
     from application.ports.bm25_index import BM25IndexPort
@@ -132,6 +133,12 @@ class ChunkMutationService:
                 content_hash=new_hash,
                 edited=True,
                 edited_at=now.isoformat(),
+                chunk_index=chunk.chunk_index,
+                act_version_id=chunk.act_version_id,
+                effective_from=chunk.effective_from.isoformat() if chunk.effective_from else None,
+                effective_to=chunk.effective_to.isoformat() if chunk.effective_to else None,
+                is_current=chunk.is_current,
+                **extract_chunk_context(chunk.context_metadata),
             )
             await uow.vector_outbox.enqueue(
                 VectorOutboxEntry(
@@ -203,6 +210,12 @@ class ChunkMutationService:
 
             new_hash = content_hash(content)
 
+            context_metadata = {}
+            if page is not None:
+                context_metadata["page"] = page
+            if section is not None:
+                context_metadata["section"] = section
+
             chunk_id = await chunks.insert_one(
                 document_id=document_id,
                 chunk_index=next_index,
@@ -214,6 +227,7 @@ class ChunkMutationService:
                 group_id=doc.group_id,
                 manual=True,
                 content_hash=new_hash,
+                context_metadata=context_metadata,
             )
             metadata = build_outbox_metadata(
                 document_id=document_id,

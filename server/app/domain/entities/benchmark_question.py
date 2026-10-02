@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
+from domain.value_objects.benchmark_annotations import validate_annotations
 from domain.value_objects.benchmark_dataset import BenchmarkDataset
 
 
@@ -13,6 +14,7 @@ class BenchmarkQuestion:
     question: str = ""
     expected_answer: str | None = None
     source_hint: str | None = None
+    annotations: dict | None = None
     tags: list[str] | None = None
     dataset: str = BenchmarkDataset.MAIN.value
     is_active: bool = True
@@ -20,3 +22,6 @@ class BenchmarkQuestion:
     notes: str | None = None
     id: int | None = None
     creation_date: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+    def __post_init__(self) -> None:
+        self.annotations = validate_annotations(self.annotations)

@@ -14,6 +14,7 @@ from application.services.domain_classification import classify_document_text
 from domain.entities.vector_outbox_entry import OutboxOperation, VectorOutboxEntry
 from domain.utils import content_hash
 from domain.value_objects.document_status import DocumentStatus
+from domain.value_objects.chunk_context import extract_chunk_context
 from domain.value_objects.visibility import DocumentVisibility
 
 if TYPE_CHECKING:
@@ -286,6 +287,7 @@ async def _process_chunks_in_uow(
         content_types=[rc.metadata.get("content_type") for rc in chunks],
         doc_titles=[rc.metadata.get("doc_title") for rc in chunks],
         doc_types=[rc.metadata.get("doc_type") for rc in chunks],
+        context_metadata=[extract_chunk_context(rc.metadata) for rc in chunks],
     )
 
     # 2. Enrich metadata с chunk_ids и chunk_index

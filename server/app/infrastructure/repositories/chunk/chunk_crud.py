@@ -7,6 +7,7 @@ from datetime import date, datetime
 from domain.repositories.chunk_repository import ChunkSearchResult, ChunkStats
 from domain.value_objects.cursor_page import CursorPage
 from domain.value_objects.doc_domain import DocDomain
+from domain.value_objects.chunk_context import extract_chunk_context
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -45,8 +46,11 @@ class SQLAlchemyChunkCrudRepository:
         content_types: list[str | None] | None = None,
         doc_titles: list[str | None] | None = None,
         doc_types: list[str | None] | None = None,
+        context_metadata: list[dict] | None = None,
     ) -> list[int]:
         """Insert chunks for a document. Replaces existing chunks. Returns chunk IDs."""
+        if context_metadata is not None and len(context_metadata) != len(chunks):
+            raise ValueError("context_metadata must have one entry per chunk")
         await self._session.execute(delete(ChunkModel).where(ChunkModel.document_id == document_id))
 
         if not chunks:
@@ -74,6 +78,7 @@ class SQLAlchemyChunkCrudRepository:
                 content_type=content_types[i] if content_types and i < len(content_types) else None,
                 doc_title=doc_titles[i] if doc_titles and i < len(doc_titles) else None,
                 doc_type=doc_types[i] if doc_types and i < len(doc_types) else None,
+                context_metadata=extract_chunk_context(context_metadata[i]) if context_metadata else {},
             )
             for i, content in enumerate(chunks)
         ]
@@ -124,6 +129,7 @@ class SQLAlchemyChunkCrudRepository:
         group_id: int | None = None,
         manual: bool = False,
         content_hash: str | None = None,
+        context_metadata: dict | None = None,
     ) -> int:
         orm = ChunkModel(
             document_id=document_id,
@@ -136,6 +142,7 @@ class SQLAlchemyChunkCrudRepository:
             group_id=group_id,
             manual=manual,
             content_hash=content_hash,
+            context_metadata=extract_chunk_context(context_metadata or {}),
         )
         self._session.add(orm)
         await self._session.flush()

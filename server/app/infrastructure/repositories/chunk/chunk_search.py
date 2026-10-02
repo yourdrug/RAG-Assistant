@@ -34,6 +34,14 @@ _SEARCH_COLUMNS = (
     ChunkModel.effective_from,
     ChunkModel.effective_to,
     ChunkModel.is_current,
+    ChunkModel.content_hash,
+    ChunkModel.section,
+    ChunkModel.heading,
+    ChunkModel.heading_level,
+    ChunkModel.content_type,
+    ChunkModel.doc_title,
+    ChunkModel.doc_type,
+    ChunkModel.context_metadata,
 )
 
 
@@ -60,6 +68,14 @@ def _row_to_search_result(row) -> ChunkSearchResult:
         effective_from=effective_from,
         effective_to=effective_to,
         is_current=row[17],
+        content_hash=row[18],
+        section=row[19],
+        heading=row[20],
+        heading_level=row[21],
+        content_type=row[22],
+        doc_title=row[23],
+        doc_type=row[24],
+        context_metadata=row[25] or {},
     )
 
 

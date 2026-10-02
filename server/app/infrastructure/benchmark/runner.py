@@ -47,6 +47,14 @@ def load_questions(path: str) -> list[dict]:
         raise BenchmarkQuestionsNotFound(path)
 
     data = json.loads(p.read_text(encoding="utf-8"))
+    from domain.value_objects.benchmark_annotations import validate_annotations
+
+    if not isinstance(data, list):
+        raise ValueError("benchmark questions must be a JSON array")
+    for question in data:
+        if not isinstance(question, dict) or not isinstance(question.get("question"), str):
+            raise ValueError("each benchmark case requires a question string")
+        validate_annotations(question.get("annotations"))
     logger.info("Загружено вопросов: %d", len(data))
     return data
 

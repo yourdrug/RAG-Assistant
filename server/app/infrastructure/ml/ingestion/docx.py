@@ -8,6 +8,8 @@ from typing import Any
 
 import docx
 
+from infrastructure.ml.ingestion.table_formatting import markdown_cell
+
 
 def _has_page_break(paragraph) -> bool:
     """Check if a paragraph contains a manual page break."""
@@ -77,6 +79,7 @@ def _extract_headers_footers(doc) -> dict:
 def _extract_notes(doc, part_reltype_substring: str, xml_tag: str) -> list[str]:
     """Extract footnote or endnote body text."""
     from docx.oxml.ns import qn
+    from docx.oxml import parse_xml
 
     notes_part = None
     for rel in doc.part.rels.values():
@@ -87,7 +90,10 @@ def _extract_notes(doc, part_reltype_substring: str, xml_tag: str) -> list[str]:
         return []
 
     texts = []
-    for note in notes_part.element.findall(qn(xml_tag)):
+    element = getattr(notes_part, "element", None)
+    if element is None:
+        element = parse_xml(notes_part.blob)
+    for note in element.findall(qn(xml_tag)):
         note_id = note.get(qn("w:id"))
         if note_id in ("-1", "0"):
             continue
@@ -142,7 +148,7 @@ def docx_table_to_markdown(table) -> str:
     """Convert a python-docx table to markdown table format."""
     rows = []
     for row in table.rows:
-        cells = [cell.text.strip().replace("|", "\\|") for cell in row.cells]
+        cells = [markdown_cell(cell.text) for cell in row.cells]
         rows.append(cells)
     if not rows:
         return ""

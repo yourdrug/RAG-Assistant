@@ -15,6 +15,7 @@ from application.dto.benchmark_dto import (
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
 from application.services.config_service import ConfigService
 from domain.entities.benchmark_question import BenchmarkQuestion
+from domain.value_objects.benchmark_annotations import validate_annotations
 from domain.entities.benchmark_run import BenchmarkRun
 from domain.entities.benchmark_sweep import BenchmarkSweep
 from domain.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
@@ -67,6 +68,7 @@ class BenchmarkQuestionService:
             question=body.question,
             expected_answer=body.expected_answer,
             source_hint=body.source_hint,
+            annotations=body.annotations,
             tags=body.tags,
             dataset=body.dataset,
             notes=body.notes,
@@ -76,6 +78,8 @@ class BenchmarkQuestionService:
             return await uow.benchmark_questions.create(entity)
 
     async def update(self, question_id: int, fields: dict) -> BenchmarkQuestion:
+        if "annotations" in fields:
+            fields = {**fields, "annotations": validate_annotations(fields["annotations"])}
         async with self._uow_factory.create(master=True) as uow:
             updated = await uow.benchmark_questions.update(question_id, **fields)
 
@@ -97,6 +101,7 @@ class BenchmarkQuestionService:
                 question=q.question,
                 expected_answer=q.expected_answer,
                 source_hint=q.source_hint,
+                annotations=q.annotations,
                 tags=q.tags,
                 dataset=q.dataset,
                 created_by=created_by,

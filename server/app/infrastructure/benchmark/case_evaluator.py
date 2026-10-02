@@ -7,6 +7,8 @@ import time
 
 from config import settings
 from domain.value_objects.chat_context import ChatContext
+from domain.value_objects.benchmark_annotations import validate_annotations
+from domain.services.benchmark_evaluation import evaluate_evidence
 
 from infrastructure.benchmark.answer_generators import BenchmarkAnswerGenerator
 
@@ -20,6 +22,7 @@ class BenchmarkCaseEvaluator:
         from infrastructure.benchmark.judge import judge_answer_async
         from infrastructure.benchmark.metrics import _estimate_cost_usd, compute_context_precision_recall
 
+        annotations = validate_annotations(question.get("annotations"))
         started = time.monotonic()
         generated = await self._generator.generate(question, ctx)
         generator_metrics = await judge_answer_async(
@@ -40,6 +43,26 @@ class BenchmarkCaseEvaluator:
             if generated.context
             else {"context_precision": None, "context_recall": None}
         )
+        evidence = generated.evidence
+        evidence_metrics, diagnostics = evaluate_evidence(
+            annotations,
+            evidence.retrieved if evidence else None,
+            evidence.selected if evidence else None,
+            evidence.context if evidence else None,
+            generated.answer,
+        )
+        from infrastructure.benchmark.evidence_judge import judge_evidence
+
+        judge_metrics = await asyncio.to_thread(
+            judge_evidence,
+            question["question"],
+            generated.answer,
+            evidence.context if evidence else None,
+            annotations,
+            self._judge_model,
+        )
+        evidence_metrics.update(judge_metrics["scores"])
+        diagnostics["judge"] = judge_metrics["details"]
         cost = _estimate_cost_usd(
             settings.llm_model, generated.input_tokens or 0, generated.output_tokens or 0
         )
@@ -50,6 +73,18 @@ class BenchmarkCaseEvaluator:
             "expected_answer": question.get("expected_answer"),
             "source_hint": question.get("source_hint"),
             "retriever_metrics": generated.retriever_metrics,
+            "annotations": annotations,
+            "evidence_metrics": evidence_metrics,
+            "evidence_diagnostics": diagnostics,
+            "evidence": {
+                "retrieved": evidence.retrieved if evidence else None,
+                "retrieval_k": len(evidence.retrieved)
+                if evidence and evidence.retrieved is not None
+                else None,
+                "selected": evidence.selected if evidence else None,
+                "context": evidence.context if evidence else None,
+                "context_chars": len(evidence.context) if evidence and evidence.context is not None else None,
+            },
             "generator_metrics": generator_metrics,
             "context_metrics": context_metrics,
             "latency_sec": round(time.monotonic() - started, 2),

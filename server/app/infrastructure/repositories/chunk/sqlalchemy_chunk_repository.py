@@ -43,6 +43,7 @@ class SQLAlchemyChunkRepository:
         content_types: list[str | None] | None = None,
         doc_titles: list[str | None] | None = None,
         doc_types: list[str | None] | None = None,
+        context_metadata: list[dict] | None = None,
     ) -> list[int]:
         return await self._crud.bulk_insert(
             document_id=document_id,
@@ -64,6 +65,7 @@ class SQLAlchemyChunkRepository:
             content_types=content_types,
             doc_titles=doc_titles,
             doc_types=doc_types,
+            context_metadata=context_metadata,
         )
 
     async def get_by_id(self, chunk_id: int) -> ChunkSearchResult | None:
@@ -89,6 +91,7 @@ class SQLAlchemyChunkRepository:
         group_id: int | None = None,
         manual: bool = False,
         content_hash: str | None = None,
+        context_metadata: dict | None = None,
     ) -> int:
         return await self._crud.insert_one(
             document_id=document_id,
@@ -101,6 +104,7 @@ class SQLAlchemyChunkRepository:
             group_id=group_id,
             manual=manual,
             content_hash=content_hash,
+            context_metadata=context_metadata,
         )
 
     async def delete_one(self, chunk_id: int) -> None:

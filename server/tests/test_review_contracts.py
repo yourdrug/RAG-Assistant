@@ -10,6 +10,7 @@ from langchain.schema import Document as LCDocument
 
 from application.services.retrieval import HybridRetriever
 from domain.entities.document import Document
+from domain.repositories.chunk_repository import ChunkSearchResult
 from infrastructure.ml import answer_cache
 from infrastructure.ml.clients.managed_llm import ManagedLLM, ManagedInstructor
 from infrastructure.redis.redis_client import RedisClient
@@ -181,7 +182,14 @@ async def test_bm25_mutates_only_after_successful_commit(monkeypatch, operation,
 
     events = []
     document = Document(id=1, filename="test.pdf", status=DocumentStatus.DONE)
-    chunk = SimpleNamespace(document_id=1, content_hash="old", chunk_index=0, manual=False)
+    chunk = ChunkSearchResult(
+        chunk_id=2,
+        document_id=1,
+        filename="test.pdf",
+        content="Original content",
+        content_hash="old",
+        chunk_index=0,
+    )
     uow = SimpleNamespace(
         chunks=SimpleNamespace(
             get_by_id=AsyncMock(return_value=chunk),

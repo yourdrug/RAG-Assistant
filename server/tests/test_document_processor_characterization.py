@@ -270,7 +270,7 @@ def build_harness(tmp_path, *, docs=None, parse_error=None, repo=None, **overrid
         storage=StubFileStorage(tmp_path),
         metrics=RecordingMetrics(),
         parser=StubParser(docs if docs is not None else _default_docs(), error=parse_error),
-        splitter=StubSplitter(),
+        splitter=overrides.pop("splitter", StubSplitter()),
         pdf_assessor=StubPDFQualityAssessor(
             overrides.pop(
                 "pdf_report",
@@ -681,8 +681,10 @@ async def test_versioning_warning_and_metadata_enrichment(tmp_path):
 
 @pytest.mark.asyncio
 async def test_section_prefix_added_to_chunks(tmp_path):
+    from infrastructure.ml.langchain_document_parser import LangchainDocumentSplitter
+
     docs = [RawDocument(page_content="Текст раздела", metadata={"section": "Глава 1"})]
-    h = build_harness(tmp_path, docs=docs)
+    h = build_harness(tmp_path, docs=docs, splitter=LangchainDocumentSplitter())
     doc = await seed_document(h.repo)
 
     await run(h, doc)

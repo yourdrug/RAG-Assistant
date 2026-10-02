@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from domain.value_objects.benchmark_dataset import BenchmarkDataset
+from domain.value_objects.benchmark_annotations import validate_annotations
 from domain.value_objects.benchmark_strategy import BenchmarkStrategy
 
 
@@ -61,6 +62,9 @@ class BenchmarkQuestionCreate(BaseModel):
     question: str = Field(..., min_length=1, max_length=5000)
     expected_answer: str | None = None
     source_hint: str | None = None
+    annotations: dict | None = None
+
+    _validate_annotations = field_validator("annotations")(validate_annotations)
     tags: list[str] | None = None
     dataset: str = BenchmarkDataset.MAIN.value
     notes: str | None = None
@@ -72,6 +76,9 @@ class BenchmarkQuestionUpdate(BaseModel):
     question: str | None = None
     expected_answer: str | None = None
     source_hint: str | None = None
+    annotations: dict | None = None
+
+    _validate_annotations = field_validator("annotations")(validate_annotations)
     tags: list[str] | None = None
     dataset: str | None = None
     is_active: bool | None = None
@@ -83,6 +90,9 @@ class BenchmarkQuestionResponse(BaseModel):
     question: str
     expected_answer: str | None = None
     source_hint: str | None = None
+    annotations: dict | None = None
+
+    _validate_annotations = field_validator("annotations")(validate_annotations)
     tags: list[str] | None = None
     dataset: str
     is_active: bool

@@ -73,13 +73,16 @@ class S3DocumentLoader:
             "size_bytes": source.size_bytes,
         }
 
-    def split_docs(self, docs: list) -> list:
+    def split_docs(self, docs: list, *, source_domains: dict[str, str] | None = None) -> list:
         """Split parsed documents into chunks via splitter port."""
-        context = SplitContext(domain="general")
-        return self._splitter.split(
-            [RawDocument(page_content=d.page_content, metadata=dict(d.metadata)) for d in docs],
-            context,
-        )
+        by_source: dict[str, list[RawDocument]] = {}
+        for doc in docs:
+            by_source.setdefault(doc.metadata.get("source", ""), []).append(doc)
+        chunks = []
+        for source, group in by_source.items():
+            domain = (source_domains or {}).get(source, DocDomain.GENERAL.value)
+            chunks.extend(self.index_docs(group, domain=domain))
+        return chunks
 
     def index_docs(self, docs: list, domain: str = "general") -> list:
         """Parse and split documents into chunks. No direct Qdrant upload."""

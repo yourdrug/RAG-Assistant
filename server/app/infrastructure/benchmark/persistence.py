@@ -1,5 +1,6 @@
 """Benchmark persistence — save results, logging, history."""
 
+import csv
 import json
 import logging
 import re
@@ -7,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 from config import settings
+from domain.services.benchmark_evaluation import EVIDENCE_METRICS
 
 from infrastructure.benchmark.benchmark_history import save_summary_to_history
 from infrastructure.benchmark.metrics import compute_summary_metrics
@@ -31,33 +33,43 @@ def save_results(results: list[dict], out_dir: str, model_name: str = "", run_id
     json_path.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
 
     csv_path = out / f"benchmark_{ts}{model_tag}{run_tag}.csv"
-    csv_header = (
-        "id,question,faithfulness,relevancy,correctness,"
-        "hit_rate,mrr,avg_sim,context_precision,context_recall,latency_sec"
-    )
-    rows = [csv_header]
-    for r in results:
-        gm = r["generator_metrics"]
-        rm = r["retriever_metrics"]
-        cm = r.get("context_metrics", {})
-        rows.append(
-            ",".join(
-                [
-                    str(r["id"]),
-                    f'"{r["question"]}"',
-                    str(gm["faithfulness"]),
-                    str(gm["relevancy"]),
-                    str(gm["correctness"] if gm["correctness"] is not None else ""),
-                    str(rm["hit_rate"] if rm["hit_rate"] is not None else ""),
-                    str(rm["mrr"] if rm["mrr"] is not None else ""),
-                    str(rm["avg_similarity"]),
-                    str(cm.get("context_precision", "") if cm.get("context_precision") is not None else ""),
-                    str(cm.get("context_recall", "") if cm.get("context_recall") is not None else ""),
-                    str(round(r["latency_sec"], 2)),
-                ]
+    fields = [
+        "id",
+        "question",
+        "faithfulness",
+        "relevancy",
+        "correctness",
+        "hit_rate",
+        "mrr",
+        "avg_sim",
+        "context_precision",
+        "context_recall",
+        "latency_sec",
+        *EVIDENCE_METRICS,
+        "context_chars",
+    ]
+    with csv_path.open("w", encoding="utf-8", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=fields)
+        writer.writeheader()
+        for result in results:
+            gm = result["generator_metrics"]
+            rm = result["retriever_metrics"]
+            cm = result.get("context_metrics", {})
+            writer.writerow(
+                {
+                    "id": result["id"],
+                    "question": result["question"],
+                    **{key: gm.get(key) for key in ("faithfulness", "relevancy", "correctness")},
+                    "hit_rate": rm.get("hit_rate"),
+                    "mrr": rm.get("mrr"),
+                    "avg_sim": rm.get("avg_similarity"),
+                    "context_precision": cm.get("context_precision"),
+                    "context_recall": cm.get("context_recall"),
+                    "latency_sec": round(result["latency_sec"], 2),
+                    **{key: result.get("evidence_metrics", {}).get(key) for key in EVIDENCE_METRICS},
+                    "context_chars": result.get("evidence", {}).get("context_chars"),
+                }
             )
-        )
-    csv_path.write_text("\n".join(rows), encoding="utf-8")
 
     logger.info("Результаты сохранены:")
     logger.info("  JSON: %s", json_path)
@@ -109,6 +121,9 @@ def log_question_result(idx: int, total: int, q: dict, result: dict):
     if cr is not None:
         logger.info("  Context Recall:    %.1f/10  — %s", cr, cm.get("context_recall_reason", ""))
 
+    if result.get("evidence_metrics"):
+        logger.info("  Evidence: %s", result["evidence_metrics"])
+
     answer_preview = result["answer"][:200].replace("\n", " ")
     if len(result["answer"]) > 200:
         answer_preview += "..."
@@ -144,6 +159,12 @@ def log_summary(results: list[dict], total_time: float):
         logger.info(
             "  Context Recall:    %.1f/10  (доля нужной информации в контексте)", m["avg_context_recall"]
         )
+
+    for metric in EVIDENCE_METRICS:
+        if m.get(f"avg_{metric}") is not None:
+            logger.info(
+                "  %s: %.4f (evaluated=%d)", metric, m[f"avg_{metric}"], m[f"{metric}_evaluated_count"]
+            )
 
     logger.info("Generator:")
     logger.info(

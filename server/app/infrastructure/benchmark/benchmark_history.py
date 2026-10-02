@@ -43,6 +43,18 @@ def save_summary_to_history(summary: dict, config: dict, data_dir: str) -> None:
         "avg_context_recall": summary.get("avg_context_recall"),
     }
 
+    metrics.update(
+        {
+            k: v
+            for k, v in summary.items()
+            if k.startswith("avg_fragment_")
+            or k.startswith("avg_context_")
+            or k.startswith("avg_answer_")
+            or k in {"avg_refusal_score", "avg_citation_support_score", "avg_requirement_preservation_score"}
+            or k.endswith("_evaluated_count")
+        }
+    )
+
     record = {
         "timestamp": datetime.now().isoformat(timespec="seconds"),
         "config": config,

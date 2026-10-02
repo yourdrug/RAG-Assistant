@@ -8,7 +8,7 @@ import uuid
 
 from application.ports.rate_limit import RateLimitPolicyName
 from application.services.chat_service import ChatService
-from domain.exceptions import LLMUnavailableError, SemaphoreTimeoutError
+from domain.exceptions import ContextBudgetExceededError, LLMUnavailableError, SemaphoreTimeoutError
 from domain.value_objects.stream_events import MetaEvent, StatusEvent, TextChunk
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -34,6 +34,15 @@ logger = logging.getLogger("default")
 def _sse_error_event(code: str, message: str) -> str:
     """Build a uniform SSE error event payload."""
     return f"event: error\ndata: {json.dumps({'error': message, 'code': code}, ensure_ascii=False)}\n\n"
+
+
+def _known_stream_error(exc: Exception) -> str:
+    logger.warning("Chat stream unavailable (%s)", type(exc).__name__)
+    if isinstance(exc, ContextBudgetExceededError):
+        return _sse_error_event(exc.code, exc.message)
+    if isinstance(exc, SemaphoreTimeoutError):
+        return _sse_error_event("server_busy", "Сервер перегружен, повторите позже")
+    return _sse_error_event("llm_unavailable", "LLM временно недоступен, попробуйте позже")
 
 
 def _format_sse_event(event, req_id: str) -> str | None:
@@ -97,12 +106,8 @@ async def chat_stream(
                 sse_data = _format_sse_event(event, req_id)
                 if sse_data is not None:
                     yield sse_data
-        except LLMUnavailableError as exc:
-            logger.warning("LLM unavailable (circuit breaker): %s", exc)
-            yield _sse_error_event("llm_unavailable", "LLM временно недоступен, попробуйте позже")
-        except SemaphoreTimeoutError as exc:
-            logger.warning("Semaphore timeout (backpressure): %s", exc)
-            yield _sse_error_event("server_busy", "Сервер перегружен, повторите позже")
+        except (ContextBudgetExceededError, LLMUnavailableError, SemaphoreTimeoutError) as exc:
+            yield _known_stream_error(exc)
         except TimeoutError:
             logger.warning("LLM auxiliary timeout", exc_info=True)
             yield _sse_error_event("llm_unavailable", "LLM временно недоступен, попробуйте позже")

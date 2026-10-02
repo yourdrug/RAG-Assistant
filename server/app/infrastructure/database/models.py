@@ -301,6 +301,9 @@ class ChunkModel(BaseModel):
         Index("ix_chunks_owner_id", "owner_id"),
         Index("ix_chunks_group_id", "group_id"),
         Index("idx_chunks_content_hash", "content_hash"),
+        CheckConstraint(
+            "jsonb_typeof(context_metadata) = 'object'", name="chk_chunks_context_metadata_object"
+        ),
     )
 
     document_id: Mapped[int] = mapped_column(
@@ -318,6 +321,9 @@ class ChunkModel(BaseModel):
     manual: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     content_hash: Mapped[str | None] = mapped_column(String(16), nullable=True)
     domain_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    context_metadata: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
     act_version_id: Mapped[int | None] = mapped_column(
         ForeignKey("act_versions.id", ondelete="SET NULL"), nullable=True
     )
@@ -364,6 +370,10 @@ class BenchmarkQuestionModel(BaseModel):
 
     __tablename__ = "benchmark_questions"
     __table_args__ = (
+        CheckConstraint(
+            "annotations IS NULL OR jsonb_typeof(annotations) = 'object'",
+            name="chk_benchmark_questions_annotations_object",
+        ),
         Index("idx_benchmark_questions_dataset", "dataset"),
         Index("idx_benchmark_questions_is_active", "is_active"),
     )
@@ -371,6 +381,7 @@ class BenchmarkQuestionModel(BaseModel):
     question: Mapped[str] = mapped_column(Text, nullable=False)
     expected_answer: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_hint: Mapped[str | None] = mapped_column(Text, nullable=True)
+    annotations: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
     tags: Mapped[list | None] = mapped_column(JSON, nullable=True)
     dataset: Mapped[str] = mapped_column(String(100), nullable=False, server_default="main")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")

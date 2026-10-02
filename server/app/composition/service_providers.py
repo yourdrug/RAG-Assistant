@@ -81,8 +81,8 @@ def create_ingestion_service(
     ingestion_settings = LiveIngestionSettings()
     loader = S3DocumentLoader(
         file_storage,
-        IngestionDocumentParser(),
-        IngestionDocumentSplitter(),
+        IngestionDocumentParser(_require(infra.ml.document_parser, "document_parser")),
+        IngestionDocumentSplitter(_require(infra.ml.document_splitter, "document_splitter")),
         ingestion_settings,
         domain_registry=infra.domain_registry,
         domain_settings=infra.domain_settings,

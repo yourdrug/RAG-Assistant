@@ -20,6 +20,7 @@ from infrastructure.metrics.metrics import (
     record_rag_answer,
 )
 from infrastructure.ml.rag.rag_formatting import CHARS_PER_TOKEN
+from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata
 from infrastructure.ml.rag.rag_relevance import check_relevance, filter_cited_sources
 
 log = logging.getLogger("default")
@@ -199,19 +200,7 @@ async def enrich_with_neighbors(
                     break
                 neighbor_doc = LCDocument(
                     page_content=n.content,
-                    metadata={
-                        "source": n.filename,
-                        "document_id": n.document_id,
-                        "content_hash": n.content_hash,
-                        "chunk_index": n.chunk_index,
-                        "chunk_id": n.chunk_id,
-                        "section": n.section,
-                        "heading": n.heading,
-                        "heading_level": n.heading_level,
-                        "content_type": n.content_type,
-                        "doc_title": n.doc_title,
-                        "doc_type": n.doc_type,
-                    },
+                    metadata=chunk_result_metadata(n),
                 )
                 new_docs.append((neighbor_doc, score * 0.9))
                 existing_hashes.add(n.content_hash)

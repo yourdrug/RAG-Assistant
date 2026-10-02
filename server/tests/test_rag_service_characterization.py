@@ -110,8 +110,9 @@ class TestFormatDocsBudget:
         docs = [_doc(long_content), _doc("second")]
         result = format_docs(docs, max_context_tokens=100)
         assert "[1]" in result
-        # Second doc may or may not appear depending on budget, but first always does
-        assert long_content[:20] in result
+        assert long_content[:20] not in result
+        assert "second" in result
+        assert len(result) <= 400
 
     def test_tuple_docs_accepted(self):
         docs = [_scored_doc("content", 0.9)]

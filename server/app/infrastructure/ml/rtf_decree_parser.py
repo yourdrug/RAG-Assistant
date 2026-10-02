@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 from striprtf.striprtf import rtf_to_text
 
-from domain.domain_profile.content_splitter import SplitUnit, split_by_content
+from domain.domain_profile.content_splitter import MIN_STRUCTURAL_CHUNK_CHARS, SplitUnit, split_by_content
 from domain.domain_profile.profiles.decree import (
     _DECREE_DATE_RE,
     _DECREE_NUMBER_RE,
@@ -48,7 +48,9 @@ def parse_decree_rtf(
         # Decree-constatation without a postanovlyayushchaya part — boundaries
         # still apply: the coarsest level finds no matches and hands the text
         # to the next level, down to sentence if needed.
-        return split_by_content(raw, profile.content_boundaries(), max_chars), doc_metadata
+        return split_by_content(
+            raw, profile.content_boundaries(), max_chars, min_chunk_chars=MIN_STRUCTURAL_CHUNK_CHARS
+        ), doc_metadata
 
     preamble = raw[: split_match.start()].strip()
     body = raw[split_match.end() :]
@@ -56,5 +58,9 @@ def parse_decree_rtf(
     units: list[SplitUnit] = []
     if preamble:
         units.append(SplitUnit(None, preamble, "preamble"))
-    units.extend(split_by_content(body, profile.content_boundaries(), max_chars))
+    units.extend(
+        split_by_content(
+            body, profile.content_boundaries(), max_chars, min_chunk_chars=MIN_STRUCTURAL_CHUNK_CHARS
+        )
+    )
     return units, doc_metadata

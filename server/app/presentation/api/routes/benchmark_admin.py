@@ -174,6 +174,7 @@ async def export_questions(
             "question": q.question,
             "expected_answer": q.expected_answer,
             "source_hint": q.source_hint,
+            "annotations": q.annotations,
             "tags": q.tags,
             "dataset": q.dataset,
         }

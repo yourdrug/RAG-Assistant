@@ -12,6 +12,7 @@ log = logging.getLogger("default")
 
 # Approximate tokens per character for Russian text (~4 chars per token)
 CHARS_PER_TOKEN = 4
+CONTEXT_SEPARATOR = "\n\n---\n\n"
 
 
 def _build_header(doc, index: int) -> str:
@@ -59,35 +60,58 @@ def _build_header(doc, index: int) -> str:
     return " | ".join(parts)
 
 
+def _content_with_parent_scope(doc) -> str:
+    """Include full structural conditions that did not fit inside the chunk."""
+    parts = []
+    normalized = " ".join(doc.page_content.split())
+    scopes = [parent.get("content", "") for parent in doc.metadata.get("parent_units", [])]
+    if doc.metadata.get("content_type") == PageContentType.TABLE.value:
+        scopes.extend(doc.metadata.get(key, "") for key in ("table_header", "table_row_key"))
+    for scope_text in scopes:
+        content = scope_text.strip()
+        scope = " ".join(content.split())
+        if scope and scope not in normalized:
+            parts.append(content)
+            normalized += " " + scope
+    parts.append(doc.page_content)
+    return "\n".join(parts)
+
+
 def format_docs_with_selection(docs, max_context_tokens: int = 6000) -> tuple[str, list]:
-    """Format documents and return precisely the chunks included in the prompt."""
+    """Include only complete scoped chunks that fit, with contiguous citations.
+
+    Oversized chunks are skipped, never cut away from their applicability
+    conditions. Callers can detect an empty selection before generation.
+    """
+    if max_context_tokens <= 0:
+        raise ValueError("max_context_tokens must be positive")
     parts: list[str] = []
     selected: list = []
     total_chars = 0
     max_chars = max_context_tokens * CHARS_PER_TOKEN
 
-    for i, item in enumerate(docs, 1):
+    for item in docs:
         doc = item[0] if isinstance(item, tuple) else item
-        header = _build_header(doc, i)
-        content = sanitize_for_prompt(doc.page_content)
+        header = _build_header(doc, len(selected) + 1)
+        content = sanitize_for_prompt(_content_with_parent_scope(doc))
         part_text = f"{header}\n{content}"
         part_chars = len(part_text)
 
-        separator_len = 6  # "\n\n---\n\n"
-        if total_chars + part_chars > max_chars and parts:
+        separator_len = len(CONTEXT_SEPARATOR) if parts else 0
+        if total_chars + separator_len + part_chars > max_chars:
             log.warning(
-                "Context budget reached: %d/%d tokens, stopping at %d docs",
-                total_chars // CHARS_PER_TOKEN,
-                max_context_tokens,
-                len(parts),
+                "Skipping complete chunk exceeding remaining context budget (%d + %d > %d chars)",
+                total_chars,
+                separator_len + part_chars,
+                max_chars,
             )
-            break
+            continue
 
-        total_chars += part_chars + (separator_len if parts else 0)
+        total_chars += part_chars + separator_len
         parts.append(part_text)
         selected.append(item)
 
-    return "\n\n---\n\n".join(parts), selected
+    return CONTEXT_SEPARATOR.join(parts), selected
 
 
 def format_docs(docs, max_context_tokens: int = 6000) -> str:

@@ -7,7 +7,15 @@ import re
 from typing import TYPE_CHECKING, Any
 
 from langchain.schema import Document
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+
+from infrastructure.ml.ingestion.structural_metadata import unit_metadata
+from infrastructure.ml.ingestion.table_chunks import table_document_chunks
+from infrastructure.ml.ingestion.page_joining import join_page_word, page_word_evidence
+from infrastructure.ml.ingestion.text_chunks import (
+    document_slice,
+    pack_step_documents,
+    text_document_chunks,
+)
 
 from config import settings
 from domain.value_objects.doc_domain import DocDomain
@@ -169,57 +177,70 @@ def _enrich_final_chunks(chunks: list[Any]) -> None:
 
 
 def merge_pdf_pages(pages: list[Document]) -> list[Document]:
-    """Merge per-page Documents from the same source into a single Document.
+    """Merge consecutive text pages, keeping tables and sections as barriers.
 
-    Preserves page range in metadata (page_start, page_end, pages list).
-    Prevents the splitter from breaking text at page boundaries.
+    Page offsets survive until final splitting, where each chunk receives its
+    own page range. Sorting within a PDF also restores OCR page order.
     """
-    if len(pages) <= 1:
-        return pages
-
-    # Group by source
     by_source: dict[str, list[Document]] = {}
-    for p in pages:
-        src = p.metadata.get("source", "")
-        by_source.setdefault(src, []).append(p)
+    for doc in pages:
+        by_source.setdefault(doc.metadata.get("source", ""), []).append(doc)
+    result: list[Document] = []
+    for group in by_source.values():
+        if all("page" in doc.metadata for doc in group):
+            group = sorted(group, key=lambda doc: doc.metadata["page"])
+        pending: list[Document] = []
 
-    merged = []
-    for _src, group in by_source.items():
-        merged_text = "\n\n".join(p.page_content for p in group)
-        has_pages = any("page" in p.metadata for p in group)
-        meta = {**group[0].metadata}
-        if has_pages:
-            page_nums = sorted(p.metadata.get("page", i + 1) for i, p in enumerate(group))
-            meta["page_start"] = page_nums[0]
-            meta["page_end"] = page_nums[-1]
-            meta["pages"] = page_nums
-        merged.append(Document(page_content=merged_text, metadata=meta))
-    return merged
+        for doc in group:
+            is_text_page = (
+                "page" in doc.metadata and doc.metadata.get("content_type") != PageContentType.TABLE.value
+            )
+            if not is_text_page:
+                result.extend(_merge_page_run(pending))
+                pending = []
+                result.append(doc)
+            else:
+                if pending and doc.metadata.get("section") != pending[-1].metadata.get("section"):
+                    result.extend(_merge_page_run(pending))
+                    pending = []
+                pending.append(doc)
+        result.extend(_merge_page_run(pending))
+    return result
 
 
-def _split_table_into_batches(table_doc: Document, max_rows: int) -> list[Document]:
-    """Split a large markdown table into batched chunks with repeated headers.
+def _merge_page_run(pages: list[Document]) -> list[Document]:
+    if not pages:
+        return []
+    text = ""
+    spans = []
+    evidence = page_word_evidence([doc.page_content for doc in pages])
+    for doc in pages:
+        content = doc.page_content
+        if text:
+            joined = join_page_word(text, content, evidence)
+            if joined is None:
+                text += _page_separator(text, content)
+            else:
+                text, content = joined
+                low, _, page = spans[-1]
+                spans[-1] = (low, len(text), page)
+        start = len(text)
+        text += content
+        spans.append((start, len(text), doc.metadata["page"]))
+    meta = dict(pages[0].metadata)
+    numbers = sorted({page for _, _, page in spans})
+    meta.update(page_start=numbers[0], page_end=numbers[-1], pages=numbers, _page_spans=spans)
+    return [Document(page_content=text, metadata=meta)]
 
-    Each batch contains at most *max_rows* data rows plus the header and
-    separator line repeated.  Small tables (<= max_rows) are returned as-is.
-    """
-    lines = table_doc.page_content.split("\n")
-    if len(lines) < 3:
-        return [table_doc]
 
-    header_line = lines[0]
-    separator_line = lines[1]
-    data_lines = lines[2:]
-
-    if len(data_lines) <= max_rows:
-        return [table_doc]
-
-    batches: list[Document] = []
-    for i in range(0, len(data_lines), max_rows):
-        batch_rows = data_lines[i : i + max_rows]
-        batch_text = "\n".join([header_line, separator_line] + batch_rows)
-        batches.append(Document(page_content=batch_text, metadata={**table_doc.metadata}))
-    return batches
+def _page_separator(before: str, after: str) -> str:
+    """Preserve sentence continuity across physical page breaks."""
+    structural_start = re.match(
+        r"\s*(?:\d+(?:\.\d+)*[.)]\s|[а-я]\)\s|[-*•]\s|#{1,6}\s|Глава\s|Статья\s|Раздел\s)", after
+    )
+    if structural_start or before.rstrip().endswith((".", "!", "?", ":", ";")):
+        return "\n\n"
+    return " "
 
 
 def split_documents(
@@ -237,23 +258,26 @@ def split_documents(
     safety-net that triggers descent to a finer level — it never defines where
     a boundary is.
 
-    Unstructured domains use RecursiveCharacterTextSplitter with domain-aware
-    separators. Table chunks (content_type=table) are split into row batches
-    (TABLE_BATCH_ROWS per chunk) with header repetition in both paths.
+    Unstructured domains pack complete instruction steps, then use paragraph/
+    sentence splitting for oversized blocks. Table row batches retain their
+    original position and repeat headers in every domain.
     """
-    tables = [d for d in docs if d.metadata.get("content_type") == PageContentType.TABLE.value]
-    text_docs = [d for d in docs if d.metadata.get("content_type") != PageContentType.TABLE.value]
-
-    if profile is not None and profile.content_boundaries() and settings is not None:
-        chunks = _split_structured(text_docs, profile, settings)
-    elif domain == DocDomain.LEGAL.value:
-        chunks = split_documents_legal(text_docs, settings)
-    else:
-        chunks = _split_char_general(text_docs, chunk_settings=chunk_settings)
-
-    # Split large tables into row batches with repeated headers
-    for table_doc in tables:
-        chunks.extend(_split_table_into_batches(table_doc, TABLE_BATCH_ROWS))
+    chunks: list[Document] = []
+    for doc in merge_pdf_pages(docs):
+        if not doc.page_content.strip():
+            continue
+        if doc.metadata.get("content_type") == PageContentType.TABLE.value:
+            chunks.extend(
+                table_document_chunks(
+                    doc, settings_chunk_size(domain, settings, chunk_settings), TABLE_BATCH_ROWS
+                )
+            )
+        elif profile is not None and profile.content_boundaries() and settings is not None:
+            chunks.extend(_split_structured([doc], profile, settings))
+        elif domain == DocDomain.LEGAL.value:
+            chunks.extend(split_documents_legal([doc], settings, chunk_settings))
+        else:
+            chunks.extend(_split_char_general([doc], chunk_settings=chunk_settings))
 
     # Filter out empty/whitespace-only chunks that cause TEI errors
     before = len(chunks)
@@ -277,7 +301,7 @@ def split_documents(
 def _split_structured(
     docs: list[Document],
     profile: "DomainProfile",
-    settings: "DomainSettingsPort",
+    domain_settings: "DomainSettingsPort",
 ) -> list[Document]:
     """Content-based splitting via the profile's structural boundary hierarchy.
 
@@ -286,125 +310,57 @@ def _split_structured(
     are further split using boundary-aware separators from the profile,
     then RecursiveCharacterTextSplitter as final fallback.
     """
-    from domain.domain_profile.content_splitter import split_by_content
-    from domain.domain_profile.protocol import refs_to_metadata
+    from domain.domain_profile.content_splitter import MIN_STRUCTURAL_CHUNK_CHARS, split_by_content
 
-    max_unit_chars = int(settings.get("max_unit_chars", domain_key=profile.key))
-    chunk_size = _get_domain_setting(settings, f"{profile.key}_chunk_size", profile.key, default=1200)
-    chunk_overlap = _get_domain_setting(settings, f"{profile.key}_chunk_overlap", profile.key, default=200)
-
-    # Extract boundary regex patterns from profile for overflow splitting
-    boundary_patterns = [bl.pattern for bl in profile.content_boundaries()]
-
+    max_unit_chars = int(domain_settings.get("max_unit_chars", domain_key=profile.key))
+    chunk_size = settings_chunk_size(profile.key, domain_settings)
+    default_overlap = (
+        settings.legal_chunk_overlap
+        if profile.key == DocDomain.LEGAL.value
+        else settings.decree_chunk_overlap
+    )
+    chunk_overlap = _get_domain_setting(
+        domain_settings, f"{profile.key}_chunk_overlap", profile.key, default_overlap
+    )
+    patterns = [level.pattern for level in profile.content_boundaries()]
     result: list[Document] = []
     for doc in docs:
-        for unit in split_by_content(
-            doc.page_content, profile.content_boundaries(), max_unit_chars, min_chunk_chars=100
-        ):
-            meta = {**doc.metadata, "unit_kind": unit.unit_kind}
-            if unit.heading:
-                meta["section"] = unit.heading
-            if unit.boundary_value:
-                meta[f"{unit.unit_kind}_number"] = unit.boundary_value
-            unit_refs = profile.extract_references(unit.content)
-            if unit_refs:
-                meta["domain_metadata"] = refs_to_metadata(unit_refs)
-
-            if len(unit.content) > chunk_size:
-                overflow_chunks = _split_overflow(unit.content, chunk_size, chunk_overlap, boundary_patterns)
-                if len(overflow_chunks) > 1:
-                    # Extract first meaningful line as context prefix for non-first chunks
-                    first_line = unit.content.split("\n", 1)[0].strip()
-                    if len(first_line) > 10:
-                        prefix = first_line + "\n"
-                        overflow_chunks = [
-                            overflow_chunks[0],
-                            *[prefix + c for c in overflow_chunks[1:]],
-                        ]
-                for overflow_text in overflow_chunks:
-                    result.append(Document(page_content=overflow_text, metadata=dict(meta)))
-            else:
-                result.append(Document(page_content=unit.content, metadata=meta))
-    return result
-
-
-def _split_at_boundaries(text: str, boundary_patterns: list) -> list[str]:
-    """Split text at structural boundary patterns."""
-    fragments = [text]
-    for pattern in boundary_patterns:
-        new_fragments = []
-        for frag in fragments:
-            new_fragments.extend(re.split(pattern, frag))
-        fragments = [f for f in new_fragments if f.strip()]
-    return fragments
-
-
-def _merge_fragments(fragments: list[str], chunk_size: int, chunk_overlap: int) -> list[str]:
-    """Merge fragments respecting chunk_size, with overlap for continuity."""
-    merged: list[str] = []
-    current = ""
-    for frag in fragments:
-        frag = frag.strip()
-        if not frag:
+        if "unit_kind" in doc.metadata:
+            result.extend(text_document_chunks(doc, chunk_size, chunk_overlap, patterns))
             continue
-        if not current:
-            current = frag
-        elif len(current) + len(frag) + 1 <= chunk_size:
-            current = current + "\n" + frag
-        else:
-            merged.append(current)
-            if chunk_overlap > 0 and len(current) > chunk_overlap:
-                current = current[-chunk_overlap:] + "\n" + frag
-            else:
-                current = frag
-    if current.strip():
-        merged.append(current)
-    return merged
+        units = split_by_content(
+            doc.page_content,
+            profile.content_boundaries(),
+            max_unit_chars,
+            min_chunk_chars=MIN_STRUCTURAL_CHUNK_CHARS,
+        )
+        cursor = 0
+        for unit in units:
+            unit_doc = document_slice(doc, unit.content, cursor)
+            unit_doc.metadata.update(unit_metadata(unit, profile, doc.metadata))
+            # The sliced provenance must not be overwritten by document-wide offsets.
+            if "_page_spans" in doc.metadata:
+                sliced = document_slice(doc, unit.content, cursor)
+                unit_doc.metadata["_page_spans"] = sliced.metadata["_page_spans"]
+                from infrastructure.ml.ingestion.text_chunks import locate_span
 
-
-def _fallback_split(chunks: list[str], chunk_size: int, chunk_overlap: int) -> list[str]:
-    """Split any remaining oversized chunks using RecursiveCharacterTextSplitter."""
-    result = []
-    for chunk in chunks:
-        if len(chunk) > chunk_size:
-            splitter = RecursiveCharacterTextSplitter(
-                chunk_size=chunk_size,
-                chunk_overlap=chunk_overlap,
-                length_function=len,
-                separators=["\n\n", "\n", ". ", " ", ""],
-            )
-            result.extend(splitter.split_text(chunk))
-        else:
-            result.append(chunk)
+                located = locate_span(doc.page_content, unit.content, cursor)
+                if located is not None:
+                    cursor = located[1]
+            result.extend(text_document_chunks(unit_doc, chunk_size, chunk_overlap, patterns))
     return result
 
 
-def _split_overflow(
-    text: str,
-    chunk_size: int,
-    chunk_overlap: int,
-    boundary_patterns: list | None = None,
-) -> list[str]:
-    """Split oversized text with overlap as a safety net.
-
-    When boundary_patterns are provided (for structured domains), first split
-    at structural boundaries and merge fragments to respect chunk_size.
-    Falls back to RecursiveCharacterTextSplitter for any remaining
-    oversized fragments.
-    """
-    if boundary_patterns:
-        fragments = _split_at_boundaries(text, boundary_patterns)
-        merged = _merge_fragments(fragments, chunk_size, chunk_overlap)
-        return _fallback_split(merged, chunk_size, chunk_overlap)
-
-    # Fallback: no boundary patterns — use generic splitter
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
-        length_function=len,
-        separators=["\n\n", "\n", ". ", " ", ""],
-    )
-    return splitter.split_text(text)
+def settings_chunk_size(domain: str, domain_settings=None, chunk_settings=None) -> int:
+    """Use the same configured limit in every parser/splitter entry point."""
+    global_settings = chunk_settings or settings
+    if domain == DocDomain.LEGAL.value:
+        default = global_settings.legal_chunk_size
+    elif domain == DocDomain.DECREE.value:
+        default = settings.decree_chunk_size
+    else:
+        return global_settings.chunk_size
+    return _get_domain_setting(domain_settings, f"{domain}_chunk_size", domain, default)
 
 
 def _get_domain_setting(settings, key: str, domain_key: str, default: int) -> int:
@@ -422,20 +378,13 @@ def _split_char_general(
     docs: list[Document],
     chunk_settings: "ChunkSettingsPort | None" = None,
 ) -> list[Document]:
-    """Char-based splitting for unstructured domains (paragraph-aware separators)."""
-    if chunk_settings is not None:
-        chunk_size = chunk_settings.chunk_size
-        chunk_overlap = chunk_settings.chunk_overlap
-    else:
-        chunk_size = settings.chunk_size
-        chunk_overlap = settings.chunk_overlap
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
-        length_function=len,
-        separators=GENERAL_SEPARATORS,
-    )
-    return splitter.split_documents(docs)
+    """Pack complete steps and split oversized text within the final budget."""
+    config = chunk_settings or settings
+    chunks: list[Document] = []
+    for doc in docs:
+        for step in pack_step_documents(doc, config.chunk_size):
+            chunks.extend(text_document_chunks(step, config.chunk_size, config.chunk_overlap))
+    return chunks
 
 
 def split_documents_legal(
@@ -464,13 +413,10 @@ def split_documents_legal(
         except (KeyError, ValueError):
             pass
 
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
-        length_function=len,
-        separators=LEGAL_SEPARATORS,
-    )
-    chunks = splitter.split_documents(docs)
+    patterns = [re.compile(re.escape(separator)) for separator in LEGAL_SEPARATORS if separator]
+    chunks = [
+        chunk for doc in docs for chunk in text_document_chunks(doc, chunk_size, chunk_overlap, patterns)
+    ]
     # Filter out empty/whitespace-only chunks that cause TEI errors
     before = len(chunks)
     chunks = [c for c in chunks if c.page_content.strip()]

@@ -12,6 +12,7 @@ class BenchmarkQuestionCreateDTO:
     question: str
     expected_answer: str | None = None
     source_hint: str | None = None
+    annotations: dict | None = None
     tags: list[str] | None = None
     dataset: str = "main"
     notes: str | None = None

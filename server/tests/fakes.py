@@ -175,6 +175,7 @@ class FakeChunkRepository:
         content_types: list[str | None] | None = None,
         doc_titles: list[str | None] | None = None,
         doc_types: list[str | None] | None = None,
+        context_metadata: list[dict] | None = None,
     ) -> list[int]:
         # Remove existing chunks for this document
         self._chunks = [c for c in self._chunks if c["document_id"] != document_id]
@@ -199,6 +200,7 @@ class FakeChunkRepository:
                     "group_id": group_id,
                     "chunk_index": i,
                     "content_hash": content_hashes[i] if content_hashes and i < len(content_hashes) else None,
+                    "context_metadata": context_metadata[i] if context_metadata else {},
                 }
             )
             ids.append(chunk_id)
@@ -253,6 +255,7 @@ class FakeChunkRepository:
                 owner_id=c.get("owner_id"),
                 group_id=c.get("group_id"),
                 content_hash=c.get("content_hash"),
+                context_metadata=c.get("context_metadata", {}),
             )
             for c in rows
         ]
@@ -317,6 +320,7 @@ class FakeChunkRepository:
                 content=c.get("content", ""),
                 chunk_index=c.get("chunk_index", 0),
                 content_hash=c.get("content_hash"),
+                context_metadata=c.get("context_metadata", {}),
             )
             for c in page
         ]

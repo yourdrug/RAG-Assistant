@@ -18,6 +18,8 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Protocol, runtime_checkable
 
+SENTENCE_UNIT_KIND = "sentence"
+
 
 @dataclass(frozen=True)
 class ConfigDefault:
