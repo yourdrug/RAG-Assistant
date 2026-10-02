@@ -18,19 +18,19 @@ from domain.services.rag_policy import (
 from domain.value_objects.llm_provider import Breadth
 
 
-# Digests captured from the original module: wording, whitespace and block order
-# all affect LLM behavior and must survive this structural refactor unchanged.
+# Digests include the explicit document-level citation instruction.
+# Wording, whitespace and block order remain regression contracts.
 @pytest.mark.parametrize(
     "breadth,enumerate_cases,with_addendum,expected_digest",
     [
-        ("narrow", False, False, "fb2af1488241ad75f11603c8ac46c395714562b23b63734d3cdd9a58bc12c1b7"),
-        ("narrow", False, True, "7259f155104c32edcb97cb4feeb1661bf79dbed86a9dfb0968e52b305b4d8f9b"),
-        ("narrow", True, False, "aa973d6324ad7c935069dfd879ba85ecd7aa4bdf09743da70917f35e701e68bc"),
-        ("narrow", True, True, "1caa6197c8b12dcc89eebaf9bbbd052b94c30c5ef01039aca49242c34c87940e"),
-        ("broad", False, False, "6821d81b1362311ea60957a6889adeae3e8f5cab301a9a36a779227ee02d95ec"),
-        ("broad", False, True, "bdeb19987db755afca15c1282db9c5a1b804a5abe8cdcf91d3407c4d15f75eb7"),
-        ("broad", True, False, "0e0eb39b5f4b66374ccf78b9f137892f832b69fb42f9e6ea8a962c5ac1c286c3"),
-        ("broad", True, True, "814836abecf1bd54f42aebe92f3a8c206c3159bbe4b00fefb176e1af7fbd2288"),
+        ("narrow", False, False, "ca56ff54041f61ac329462f5d57736ed64cd885c1e6159b56cfde6f929403d00"),
+        ("narrow", False, True, "911ec3480ad2020164b796c3ebcf7232d69d5fdf81021d9f9889a9053ce96561"),
+        ("narrow", True, False, "1213302cbb1e07bffaa21af6d06ed671ff048b9dea4eba464c7b2e8b6f2ffaf7"),
+        ("narrow", True, True, "28596e545f259557ea3e8d193b830c5a9bdf2c1785cb8a042bc0290ab3edd9e4"),
+        ("broad", False, False, "4af0b0c11ab06f538d6545e66ce25b7e14e96f97e386e7a5d83809e21e783473"),
+        ("broad", False, True, "ee629b48b9c587751a27db7ad909cae7110861d80f8cbbcb146f4e3220867c02"),
+        ("broad", True, False, "89fe57df12100f14081825983ceb589dbfe47a746affa14d88d84a62393fbad9"),
+        ("broad", True, True, "425d204faf65eac84321fea68afd6f4c4e0ceb04e259bc5a3ba6b3cc6d8b6e14"),
     ],
 )
 def test_system_prompt_text_is_unchanged(breadth, enumerate_cases, with_addendum, expected_digest):

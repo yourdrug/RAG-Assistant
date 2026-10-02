@@ -67,13 +67,12 @@ export function AdminChatLogsPage() {
             {sources.length > 0 && (
               <div className="flex gap-1 flex-wrap mt-1">
                 {sources.map((s, i) => {
-                  const label = `[${i + 1}] ${s.source}`;
+                  const label = `${s.citation_id != null ? `[${s.citation_id}] ` : ""}${s.source}`;
                   if (s.document_id) {
-                    const hashes = s.content_hashes?.join(",") ?? "";
                     return (
                       <a
                         key={i}
-                        href={`/admin/documents?docId=${s.document_id}&highlight=${hashes}`}
+                        href={`/documents/${s.document_id}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-xs px-1.5 py-0.5 rounded bg-muted hover:bg-muted/70"

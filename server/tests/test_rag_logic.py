@@ -68,7 +68,7 @@ class TestFormatDocs:
         assert "[1] unknown" in result
 
     def test_docs_numbering_starts_at_one(self):
-        docs = [_doc("a"), _doc("b"), _doc("c")]
+        docs = [_doc("a", "a.pdf"), _doc("b", "b.pdf"), _doc("c", "c.pdf")]
         result = rag_fmt.format_docs(docs)
         assert "[1]" in result
         assert "[2]" in result
@@ -141,12 +141,13 @@ class TestExtractSources:
         assert by_name["a.pdf"]["max_score"] == 0.9
         assert by_name["b.pdf"]["max_score"] == 0.3
 
-    def test_with_scored_pairs_sorted_by_max_score(self):
+    def test_with_scored_pairs_preserve_document_citation_order(self):
         docs = [_doc("t1", "low.pdf", 1), _doc("t2", "high.pdf", 1)]
         scored = [(docs[0], 0.2), (docs[1], 0.95)]
         sources = rag_src.extract_sources(scored)
-        assert sources[0]["source"] == "high.pdf"
-        assert sources[1]["source"] == "low.pdf"
+        assert sources[0]["source"] == "low.pdf"
+        assert sources[1]["source"] == "high.pdf"
+        assert [source["citation_id"] for source in sources] == [1, 2]
 
     def test_without_scores_no_max_score_key(self):
         docs = [_doc("t", "a.pdf", 1)]
@@ -179,11 +180,11 @@ class TestFilterCitedSources:
     def test_empty_sources(self):
         assert rag_rel.filter_cited_sources("answer [1]", []) == []
 
-    def test_citation_out_of_range_returns_all_as_fallback(self):
+    def test_citation_out_of_range_does_not_claim_support(self):
         sources = [{"source": "a.pdf", "pages": [1]}]
         answer = "См. [5] для деталей."
         result = rag_rel.filter_cited_sources(answer, sources)
-        assert len(result) == 1
+        assert result == []
 
     def test_multiple_citations_same_source(self):
         sources = [{"source": "a.pdf", "pages": [1]}, {"source": "b.pdf", "pages": [2]}]

@@ -13,4 +13,5 @@ class CacheInvalidatorPort(Protocol):
         document_ids: list[int],
         *,
         cache_enabled: bool = True,
+        raise_on_error: bool = False,
     ) -> int: ...

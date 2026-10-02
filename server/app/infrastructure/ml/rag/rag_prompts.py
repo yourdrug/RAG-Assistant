@@ -2,10 +2,14 @@
 
 import asyncio
 import logging
+import re
 
 import httpx
 from config import settings
 from domain.services.rag_policy import build_context_message, build_system_prompt  # noqa: F401
+from domain.value_objects.message_role import MessageRole
+from domain.exceptions import ContextBudgetExceededError
+from infrastructure.ml.rag.prompt_budget import estimate_message_tokens
 from infrastructure.ml.clients.llm_schemas import DecompositionCheck
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from tenacity import (
@@ -188,16 +192,44 @@ SUMMARY_PROMPT = ChatPromptTemplate.from_messages(
 async def update_rolling_summary(llm, existing_summary: str | None, new_turns: list[dict]) -> str:
     """Produce an updated rolling summary from existing summary + new dialog turns."""
     turns_text = "\n".join(
-        f"{'Пользователь' if t['role'] == 'user' else 'Ассистент'}: {t['content'][:200]}" for t in new_turns
+        f"{'Пользователь' if t['role'] == MessageRole.USER else 'Ассистент'}: {t['content']}"
+        for t in new_turns
     )
-    if existing_summary:
-        prompt = f"Предыдущее резюме:\n{existing_summary}\n\nНовые сообщения:\n{turns_text}"
-    else:
-        prompt = f"Сообщения диалога:\n{turns_text}"
-
     chain = SUMMARY_PROMPT | llm
-    result = await chain.ainvoke({"prompt": prompt})
-    summary = result.content.strip()
+    summary = existing_summary or ""
+    remaining = turns_text
+    input_budget = settings.llm_num_ctx_narrow - settings.llm_num_predict_narrow
+
+    def prompt_for(text: str) -> str:
+        if summary:
+            return f"Предыдущее резюме:\n{summary}\n\nНовые сообщения:\n{text}"
+        return f"Сообщения диалога:\n{text}"
+
+    while remaining:
+        # Summarize every part of long turns instead of dropping their tails.
+        low, high, accepted = 1, len(remaining), 0
+        while low <= high:
+            midpoint = (low + high) // 2
+            messages = SUMMARY_PROMPT.format_messages(prompt=prompt_for(remaining[:midpoint]))
+            if estimate_message_tokens(messages) <= input_budget:
+                accepted = midpoint
+                low = midpoint + 1
+            else:
+                high = midpoint - 1
+        if not accepted:
+            raise ContextBudgetExceededError()
+        if accepted < len(remaining):
+            boundaries = list(re.finditer(r"[.!?]\s+|\n", remaining[:accepted]))
+            if boundaries:
+                accepted = boundaries[-1].end()
+        result = await asyncio.wait_for(
+            chain.ainvoke({"prompt": prompt_for(remaining[:accepted])}),
+            timeout=settings.llm_auxiliary_timeout,
+        )
+        if not isinstance(result.content, str) or not result.content.strip():
+            raise ValueError("Summary model returned empty or non-text content")
+        summary = result.content.strip()
+        remaining = remaining[accepted:]
     log.info("Rolling summary updated (%d chars)", len(summary))
     return summary
 

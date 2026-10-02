@@ -13,5 +13,6 @@ class CacheInvalidatorAdapter:
         document_ids: list[int],
         *,
         cache_enabled: bool = True,
+        raise_on_error: bool = False,
     ) -> int:
-        return await _invalidate(document_ids, cache_enabled=cache_enabled)
+        return await _invalidate(document_ids, cache_enabled=cache_enabled, raise_on_error=raise_on_error)

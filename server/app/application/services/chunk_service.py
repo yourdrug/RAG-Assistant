@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from application.ports.bm25_index import BM25IndexPort
     from application.ports.chunk_settings import ChunkSettingsPort
     from application.ports.unit_of_work_factory import UnitOfWorkFactory
+    from application.ports.cache_invalidator import CacheInvalidatorPort
     from domain.repositories.vector_store_repository import VectorStoreRepository
 
 log = logging.getLogger(__name__)
@@ -34,6 +35,7 @@ class ChunkService:
         bm25_index: "BM25IndexPort",
         chunk_min_len_ratio: float = 0.3,
         chunk_max_len_ratio: float = 2.0,
+        cache_invalidator: CacheInvalidatorPort | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._vector_store = vector_store_repo
@@ -45,6 +47,7 @@ class ChunkService:
             bm25_index,
             chunk_min_len_ratio=chunk_min_len_ratio,
             chunk_max_len_ratio=chunk_max_len_ratio,
+            cache_invalidator=cache_invalidator,
         )
         self._manual_doc = ManualDocumentService(uow_factory)
 

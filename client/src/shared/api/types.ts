@@ -59,6 +59,7 @@ export interface ChatResponse {
 }
 
 export interface Source {
+  citation_id?: number;
   source: string;
   pages: number[];
   articles?: string[];
@@ -168,6 +169,8 @@ export interface ChunkResponse {
   creation_date?: string | null;
   content_hash?: string | null;
   warning?: string | null;
+  section?: string | null;
+  heading?: string | null;
 }
 
 export interface ChunkCreateRequest {

@@ -578,7 +578,13 @@ class TestRagServiceCuratorScope:
                     svc._pii_redactor = None
                     svc._init_state("test question", [], ctx)
                     mock_filter.assert_called_once_with(
-                        UserContext(user_id=1, user_kind="internal", user_role="curator"),
+                        UserContext(
+                            user_id=1,
+                            user_kind=UserKind.INTERNAL,
+                            user_role=UserRole.CURATOR,
+                            managed_client_ids=(100, 200),
+                            managed_internal_ids=(300,),
+                        ),
                         [],
                         managed_client_ids=[100, 200],
                         managed_internal_ids=[300],

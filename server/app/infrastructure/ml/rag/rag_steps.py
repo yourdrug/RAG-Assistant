@@ -14,6 +14,7 @@ import logging
 import time
 from collections.abc import AsyncIterator
 from datetime import date
+from dataclasses import asdict
 from typing import TYPE_CHECKING
 from domain.exceptions import ContextBudgetExceededError
 
@@ -25,6 +26,7 @@ from domain.services.rag_policy import (
     has_exact_reference,  # noqa: F401 — re-exported for test patches
     is_out_of_domain,
     should_enumerate_cases,
+    build_system_prompt,
 )
 from domain.value_objects.llm_provider import BREADTH_ALIASES, Breadth, LLMProvider
 from domain.value_objects.stream_events import SourcesEvent, StreamEvent, TextChunk
@@ -39,6 +41,7 @@ from infrastructure.ml.rag.helpers import (
 )
 from infrastructure.metrics.metrics import (
     RAG_BREADTH_TOTAL,
+    RAG_CACHE_MISSES_TOTAL,
     RAG_RELEVANCE_GATE_TOTAL,
     RAG_SELF_RAG_RETRIES,
     RAG_SPARSE_SURVIVAL_RATIO,
@@ -47,11 +50,15 @@ from infrastructure.metrics.metrics import (
     record_llm_usage,
     record_rag_answer,
 )
-from infrastructure.ml.answer_cache import compute_question_hash, compute_visibility_scope_hash
+from infrastructure.ml.answer_cache import (
+    compute_question_hash,
+    compute_visibility_scope_hash,
+    get_corpus_revision,
+)
 from infrastructure.ml.guardrails.input_scanner import InputScanner
 from infrastructure.ml.guardrails.output_scanner import OutputScanner
 from infrastructure.ml.rag.rag_cache import check_cache, handle_cache_hit
-from infrastructure.ml.rag.rag_formatting import CHARS_PER_TOKEN, format_docs_with_selection
+from infrastructure.ml.rag.rag_formatting import format_docs_with_selection
 from infrastructure.ml.rag.rag_reranking import (  # noqa: F401 — re-exported for test patches
     deduplicate_docs,
     group_by_section,
@@ -73,6 +80,7 @@ from infrastructure.ml.rag.rag_prompts import (  # noqa: F401
 from infrastructure.ml.rag.benchmark_evidence import capture_prompt
 from infrastructure.ml.rag.rag_sources import extract_sources
 from infrastructure.ml.rag.rag_relevance import filter_cited_documents
+from infrastructure.ml.rag.prompt_budget import estimate_message_tokens
 from shared import request_id_ctx
 
 if TYPE_CHECKING:
@@ -142,8 +150,15 @@ async def step_scan_input(
 
 async def step_check_cache(
     state: RagPipelineState,
+    domain_registry=None,
+    document_access=None,
 ) -> tuple[RagPipelineState, AsyncIterator[StreamEvent] | None]:
     """Step 2: Semantic answer cache lookup. Returns terminal events on hit."""
+    if not state.rag.features.cache_enabled:
+        return state, None
+    state.cache_revision = await get_corpus_revision()
+    if state.cache_revision is None:
+        return state, None
     state.vis_hash = compute_visibility_scope_hash(
         state.ctx.user_kind,
         state.ctx.user_id,
@@ -157,10 +172,45 @@ async def step_check_cache(
             "as_of_date": (state.ctx.as_of_date or date.today()).isoformat(),
             "depth": state.ctx.depth,
             "summary": state.ctx.summary,
+            "question": state.question,
+            "history": [
+                {"role": message.type, "content": str(message.content)} for message in state.history_messages
+            ],
+            "rag_settings": asdict(state.rag),
+            "corpus_revision": state.cache_revision,
+            "llm_provider": settings.llm_provider,
+            "llm_model": settings.llm_model,
+            "openrouter_model": settings.openrouter_model,
+            "ml_provider": settings.ml_provider,
+            "llm_temperature": settings.llm_temperature,
+            "llm_top_p": settings.llm_top_p,
+            "embedding_revision": settings.embedding_revision,
+            "tei_embed_model": settings.tei_embed_model,
+            "deepinfra_embed_model": settings.deepinfra_embed_model,
+            "deepinfra_rerank_model": settings.deepinfra_rerank_model,
+            "retrieval_score_threshold": settings.rag_retrieval_score_threshold,
+            "domain_prompts": {
+                profile.key: [
+                    profile.prompt_addendum(Breadth.NARROW, state.ctx.as_of_date),
+                    profile.prompt_addendum(Breadth.BROAD, state.ctx.as_of_date),
+                ]
+                for profile in domain_registry.all()
+            }
+            if domain_registry is not None
+            else {},
+            "system_prompts": [
+                build_system_prompt(Breadth.NARROW),
+                build_system_prompt(Breadth.BROAD, enumerate_cases=True),
+            ],
         },
     )
-    cached = await check_cache(state.rag, state.q_hash, state.vis_hash)
+    cached = await check_cache(state.rag, state.q_hash, state.vis_hash, state.cache_revision)
     if cached is not None:
+        from infrastructure.ml.rag.document_access import cache_is_accessible
+
+        if document_access is None or not await cache_is_accessible(cached, document_access, state.user):
+            RAG_CACHE_MISSES_TOTAL.inc()
+            return state, None
 
         async def _cache_events():
             async for event in handle_cache_hit(
@@ -177,7 +227,7 @@ async def step_reject_ood(
     state: RagPipelineState,
 ) -> tuple[RagPipelineState, AsyncIterator[StreamEvent] | None]:
     """Step 3: Out-of-domain rejection. Returns terminal events if OOD."""
-    if is_out_of_domain(state.query_for_search):
+    if not state.docs and is_out_of_domain(state.query_for_search):
         log.info("Out-of-domain question rejected: query_chars=%d", len(state.query_for_search))
         RAG_RELEVANCE_GATE_TOTAL.labels(result="out_of_domain").inc()
 
@@ -203,6 +253,7 @@ async def step_retrieve(
     state: RagPipelineState,
     ml_clients,
     chunk_search,
+    document_access,
 ) -> RagPipelineState:
     """Step 4: Hybrid retrieval with decomposition, exact search, reranking, enrichment."""
     ctx = state.ctx
@@ -242,6 +293,10 @@ async def step_retrieve(
     if params["use_exact_ref_boost"]:
         await apply_exact_search(query, candidates, state.user, ctx, chunk_search)
 
+    from infrastructure.ml.rag.document_access import filter_documents
+
+    candidates = await filter_documents(candidates, document_access, state.user)
+
     # ── Detect conditional rules on FULL candidate set ───────────────
     enumerate_cases = should_enumerate_cases(query, [doc.page_content for doc in candidates])
 
@@ -263,6 +318,7 @@ async def step_retrieve(
         visibility_conditions=state.visibility_conditions,
         user_id=state.user.user_id,
         user_group_ids=ctx.user_group_ids,
+        document_access=document_access,
     )
 
     # ── Write back to state ──────────────────────────────────────────
@@ -285,6 +341,7 @@ async def step_self_rag(
     state: RagPipelineState,
     ml_clients,
     chunk_search,
+    document_access,
 ) -> tuple[RagPipelineState, AsyncIterator[StreamEvent] | None]:
     """Step 5: Self-RAG relevance gate with retry loop."""
     rag = state.rag
@@ -360,6 +417,7 @@ async def step_self_rag(
                     visibility_conditions=state.visibility_conditions,
                     user_id=state.user.user_id,
                     user_group_ids=state.ctx.user_group_ids,
+                    document_access=document_access,
                 )
                 state.docs = docs
                 continue
@@ -385,6 +443,7 @@ async def step_self_rag(
 def step_build_context(
     state: RagPipelineState,
     domain_registry,
+    token_counter=None,
 ) -> tuple[list, list]:
     """Build prompt and format messages for LLM generation.
 
@@ -408,9 +467,6 @@ def step_build_context(
         enumerate_cases=state.enumerate_cases,
     )
 
-    history_chars = sum(len(m.content) for m in state.history_messages)
-    question_chars = len(state.question)
-    system_text = getattr(prompt.messages[0], "content", "") if prompt.messages else ""
     num_ctx = (
         state.rag.llm_num_ctx_broad if effective_breadth == Breadth.BROAD else state.rag.llm_num_ctx_narrow
     )
@@ -419,22 +475,36 @@ def step_build_context(
         if effective_breadth == Breadth.BROAD
         else state.rag.llm_num_predict_narrow
     )
-    reserved_chars = len(system_text) + history_chars + question_chars + num_predict * CHARS_PER_TOKEN
-    reserved_for_system_and_history = max(reserved_chars // CHARS_PER_TOKEN, 1500)
-    max_context_tokens = max(num_ctx - reserved_for_system_and_history, 1000)
-
+    count_tokens = token_counter or estimate_message_tokens
+    history = list(state.history_messages)
+    while True:
+        base_messages = prompt.format_messages(context="", history=history, question=state.question)
+        max_context_tokens = num_ctx - num_predict - count_tokens(base_messages)
+        if max_context_tokens > 0:
+            break
+        if not history:
+            raise ContextBudgetExceededError()
+        # Drop oldest complete user/assistant turns, preserving recent context.
+        history = history[2:]
     grouped_docs = group_by_section(state.docs)
-    context, state._prompt_docs = format_docs_with_selection(
-        grouped_docs, max_context_tokens=max_context_tokens
-    )
+    candidates = grouped_docs
+    while True:
+        context, selected = format_docs_with_selection(candidates, max_context_tokens=max_context_tokens)
+        if grouped_docs and not selected:
+            if history:
+                history = history[2:]
+                base_messages = prompt.format_messages(context="", history=history, question=state.question)
+                max_context_tokens = num_ctx - num_predict - count_tokens(base_messages)
+                candidates = grouped_docs
+                continue
+            raise ContextBudgetExceededError()
+        messages = prompt.format_messages(context=context, history=history, question=state.question)
+        if count_tokens(messages) + num_predict <= num_ctx:
+            state._prompt_docs = selected
+            break
+        candidates = selected[:-1]
+    state.history_messages = history
     capture_prompt(state.docs, state._prompt_docs, context)
-    if grouped_docs and not state._prompt_docs:
-        raise ContextBudgetExceededError()
-    messages = prompt.format_messages(
-        context=context,
-        history=state.history_messages,
-        question=state.question,
-    )
     return messages, grouped_docs
 
 
@@ -540,7 +610,9 @@ def step_postprocess(state: RagPipelineState) -> RagPipelineState:
         source_docs = state._prompt_docs or docs
         if rag.features.citation_filter_enabled:
             source_docs = filter_cited_documents(full_answer, source_docs)
-        sources = extract_sources(source_docs, min_score=rag.source_min_score)
+        # Selected prompt documents must remain resolvable, even when cited
+        # after score filtering would otherwise hide them.
+        sources = extract_sources(source_docs)
 
     record_rag_answer(
         breadth=state.breadth.value if state.breadth is not None else "",

@@ -8,7 +8,6 @@ rather than being silently dropped.
 import asyncio
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
@@ -201,15 +200,17 @@ async def test_decomposition_and_legal_fallback_preserve_acl(decomposition, sub_
 async def test_legal_rerank_fallback_preserves_acl_and_temporal_filter():
     from domain.services.access_control import get_visibility_conditions
     from domain.value_objects.llm_provider import Breadth
+    from domain.value_objects.chat_context import ChatContext
+    from domain.value_objects.roles import UserKind, UserRole
     from infrastructure.ml.rag.helpers import rerank_and_enrich
 
     af = with_temporal_filter(build_qdrant_filter(_user(), [1, 2]), None)
     conditions = get_visibility_conditions("internal", 5, [1, 2], for_list=False)
-    ctx = SimpleNamespace(
+    ctx = ChatContext(
         as_of_date=None,
         user_id=5,
-        user_kind="internal",
-        user_role="user",
+        user_kind=UserKind.INTERNAL,
+        user_role=UserRole.USER,
         user_group_ids=[1, 2],
     )
     rag = MagicMock()

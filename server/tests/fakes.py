@@ -335,6 +335,9 @@ class FakeDocumentRepository:
     async def get_by_id(self, doc_id: int):
         return self._documents.get(doc_id)
 
+    async def get_by_ids(self, document_ids: list[int]):
+        return [self._documents[doc_id] for doc_id in set(document_ids) if doc_id in self._documents]
+
     async def list_all(self, limit: int = 200, offset: int = 0):
         return list(self._documents.values())[offset : offset + limit]
 

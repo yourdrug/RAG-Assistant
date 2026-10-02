@@ -26,12 +26,15 @@ async def check_cache(
     rag: RagSettings,
     q_hash: str,
     vis_hash: str,
+    expected_revision: str | None = None,
 ) -> dict | None:
     """Look up cached answer. Returns cache entry or None on miss."""
     if not rag.features.cache_enabled:
         return None
     t0 = time.monotonic()
-    cached = await find_cached_answer(q_hash, vis_hash, cache_enabled=rag.features.cache_enabled)
+    cached = await find_cached_answer(
+        q_hash, vis_hash, cache_enabled=rag.features.cache_enabled, expected_revision=expected_revision
+    )
     RAG_STAGE_DURATION.labels("cache_lookup").observe(time.monotonic() - t0)
     if cached is None:
         RAG_CACHE_MISSES_TOTAL.inc()
@@ -74,6 +77,7 @@ async def store_answer_cache(
     full_answer: str,
     sources: list[dict],
     cache_enabled: bool = True,
+    expected_revision: str | None = None,
 ) -> None:
     """Persist answer to cache for future lookups."""
     doc_ids = []
@@ -89,4 +93,5 @@ async def store_answer_cache(
         visibility_scope_hash=vis_hash,
         document_ids=doc_ids,
         cache_enabled=cache_enabled,
+        expected_revision=expected_revision,
     )

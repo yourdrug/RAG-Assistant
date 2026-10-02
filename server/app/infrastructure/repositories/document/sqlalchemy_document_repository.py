@@ -61,6 +61,12 @@ class SQLAlchemyDocumentRepository:
             await self._db.delete(orm)
             await self._db.flush()
 
+    async def get_by_ids(self, document_ids: list[int]) -> list[Document]:
+        if not document_ids:
+            return []
+        result = await self._db.execute(select(DocumentModel).where(DocumentModel.id.in_(document_ids)))
+        return [self._to_entity(orm) for orm in result.scalars().all()]
+
     async def update_status(
         self,
         document_id: int,

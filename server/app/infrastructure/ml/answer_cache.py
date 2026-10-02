@@ -24,9 +24,31 @@ from domain.value_objects.roles import UserRole
 log = logging.getLogger("default")
 
 CACHE_TTL_SECONDS = 7 * 24 * 3600  # 7 days
-CACHE_PREFIX = "rag:cache:v3:"
+CACHE_PREFIX = "rag:cache:v4:"
+CORPUS_REVISION_KEY = "rag:corpus:revision"
 DOC_INDEX_PREFIX = "rag:doc:"
 DOC_INDEX_TTL = CACHE_TTL_SECONDS
+
+# The revision check and write must be one Redis operation: a generation
+# started before a mutation must not repopulate an invalidated answer.
+_STORE_IF_CURRENT = """
+if (redis.call('GET', KEYS[1]) or '0') ~= ARGV[1] then return 0 end
+redis.call('SET', KEYS[2], ARGV[2], 'EX', ARGV[3])
+for i = 3, #KEYS do
+    redis.call('SADD', KEYS[i], KEYS[2])
+    redis.call('EXPIRE', KEYS[i], ARGV[3])
+end
+return 1
+"""
+
+
+async def get_corpus_revision() -> str | None:
+    """Disable cache for this request if its consistency fence is unavailable."""
+    try:
+        return str(await redis_client.async_redis.get(CORPUS_REVISION_KEY) or "0")
+    except Exception:
+        log.exception("Cache revision lookup failed")
+        return None
 
 
 def compute_visibility_scope_hash(
@@ -87,6 +109,7 @@ async def find_cached_answer(
     question_hash: str,
     visibility_scope_hash: str,
     cache_enabled: bool = True,
+    expected_revision: str | None = None,
 ) -> dict | None:
     """Look up a cached answer by question hash + visibility scope.
 
@@ -103,6 +126,8 @@ async def find_cached_answer(
             return None
 
         entry = _decode_entry(raw)
+        if expected_revision is not None and await get_corpus_revision() != expected_revision:
+            return None
         entry["hit_count"] = entry.get("hit_count", 0) + 1
 
         await r.set(key, _encode_entry(entry), keepttl=True, xx=True)
@@ -121,6 +146,7 @@ async def store_cached_answer(
     visibility_scope_hash: str,
     document_ids: list[int] | None = None,
     cache_enabled: bool = True,
+    expected_revision: str | None = None,
 ) -> None:
     """Store a question-answer pair in the cache."""
     if not cache_enabled:
@@ -137,6 +163,19 @@ async def store_cached_answer(
             "hit_count": 0,
             "created_at": time.time(),
         }
+        if expected_revision is not None:
+            indexes = [_doc_index_key(doc_id) for doc_id in set(document_ids or [])]
+            await r.eval(
+                _STORE_IF_CURRENT,
+                2 + len(indexes),
+                CORPUS_REVISION_KEY,
+                key,
+                *indexes,
+                expected_revision,
+                _encode_entry(entry),
+                CACHE_TTL_SECONDS,
+            )
+            return
         pipe = r.pipeline(transaction=True)
         pipe.set(key, _encode_entry(entry), ex=CACHE_TTL_SECONDS)
         if document_ids:
@@ -177,16 +216,21 @@ async def _delete_cache_entries(keys: list[str]) -> int:
 async def invalidate_by_document_ids(
     document_ids: list[int],
     cache_enabled: bool = True,
+    raise_on_error: bool = False,
 ) -> int:
     """Invalidate all cache entries containing any of the given document_ids.
 
-    Returns count of invalidated entries.
+    Returns count of invalidated entries. Durable outbox callers set
+    ``raise_on_error`` to retry failures; already committed HTTP mutations
+    use best-effort immediate invalidation and leave retries to the outbox.
     """
-    if not cache_enabled or not document_ids:
+    # Mutations must invalidate old entries even while cache reads are disabled.
+    if not document_ids:
         return 0
 
     try:
         r = redis_client.async_redis
+        await r.incr(CORPUS_REVISION_KEY)
         keys_to_delete: set[str] = set()
 
         for doc_id in document_ids:
@@ -201,4 +245,6 @@ async def invalidate_by_document_ids(
         return invalidated
     except Exception:
         log.exception("Cache invalidation failed")
+        if raise_on_error:
+            raise
         return 0

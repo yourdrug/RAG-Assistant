@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from infrastructure.ml.rag.utils import clean_source_name as _clean_source_name
+from infrastructure.ml.rag.document_sources import document_identity
 
 
 def _merge_list(target: list, source: list) -> None:
@@ -165,20 +166,23 @@ def _filter_sources_by_min_score(
 
 def extract_sources(docs, min_score: float | None = None) -> list[dict]:
     """Извлекает метаданные источников для сохранения в БД."""
-    accumulators: dict[str, SourceAccumulator] = {}
+    accumulators: dict[tuple, tuple[str, int, SourceAccumulator]] = {}
 
     for item in docs:
         doc = item[0] if isinstance(item, tuple) else item
         score = item[1] if isinstance(item, tuple) else None
         clean_name, acc = _collect_source_metadata(doc, score)
-        if clean_name in accumulators:
-            accumulators[clean_name].merge(acc)
+        identity = document_identity(doc)
+        if identity in accumulators:
+            accumulators[identity][2].merge(acc)
         else:
-            accumulators[clean_name] = acc
+            citation_id = doc.metadata.get("citation_id", len(accumulators) + 1)
+            accumulators[identity] = (clean_name, citation_id, acc)
 
-    sources = [_build_source_entry(src, acc) for src, acc in accumulators.items()]
-
-    if accumulators:
-        sources.sort(key=lambda s: s.get("max_score", 0.0), reverse=True)
+    sources = [
+        {**_build_source_entry(src, acc), "citation_id": citation_id}
+        for src, citation_id, acc in accumulators.values()
+    ]
+    sources.sort(key=lambda source: source["citation_id"])
 
     return _filter_sources_by_min_score(sources, min_score)

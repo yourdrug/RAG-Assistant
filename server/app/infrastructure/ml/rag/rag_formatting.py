@@ -1,11 +1,13 @@
 """RAG formatting — document formatting for prompts and history conversion."""
 
 import logging
+from copy import copy
 
 from domain.services.rag_policy import sanitize_for_prompt
 from domain.value_objects.message_role import MessageRole
 from domain.value_objects.page_content_type import PageContentType
 from infrastructure.ml.rag.utils import clean_source_name as _clean_source_name
+from infrastructure.ml.rag.document_sources import group_by_document
 from langchain_core.messages import AIMessage, HumanMessage
 
 log = logging.getLogger("default")
@@ -90,26 +92,30 @@ def format_docs_with_selection(docs, max_context_tokens: int = 6000) -> tuple[st
     total_chars = 0
     max_chars = max_context_tokens * CHARS_PER_TOKEN
 
-    for item in docs:
-        doc = item[0] if isinstance(item, tuple) else item
-        header = _build_header(doc, len(selected) + 1)
-        content = sanitize_for_prompt(_content_with_parent_scope(doc))
-        part_text = f"{header}\n{content}"
-        part_chars = len(part_text)
-
-        separator_len = len(CONTEXT_SEPARATOR) if parts else 0
-        if total_chars + separator_len + part_chars > max_chars:
-            log.warning(
-                "Skipping complete chunk exceeding remaining context budget (%d + %d > %d chars)",
-                total_chars,
-                separator_len + part_chars,
-                max_chars,
-            )
-            continue
-
-        total_chars += part_chars + separator_len
-        parts.append(part_text)
-        selected.append(item)
+    citation_id = 0
+    for group in group_by_document(docs):
+        group_parts = []
+        for item in group:
+            doc = item[0] if isinstance(item, tuple) else item
+            header = _build_header(doc, citation_id + 1)
+            content = sanitize_for_prompt(_content_with_parent_scope(doc))
+            # One source label for the document; fragment metadata stays local.
+            if group_parts:
+                header = header.split("] ", 1)[1]
+            part_text = f"{header}\n{content}"
+            separator_len = len(CONTEXT_SEPARATOR) if parts or group_parts else 0
+            part_chars = len(part_text) + separator_len
+            if total_chars + part_chars > max_chars:
+                log.debug("Skipping complete chunk exceeding remaining context budget")
+                continue
+            total_chars += part_chars
+            group_parts.append(part_text)
+            selected_doc = copy(doc)
+            selected_doc.metadata = {**doc.metadata, "citation_id": citation_id + 1}
+            selected.append((selected_doc, item[1]) if isinstance(item, tuple) else selected_doc)
+        if group_parts:
+            citation_id += 1
+            parts.extend(group_parts)
 
     return CONTEXT_SEPARATOR.join(parts), selected
 

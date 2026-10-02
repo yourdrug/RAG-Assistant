@@ -2,8 +2,10 @@
 import { Check, Copy, ExternalLink, ThumbsDown, ThumbsUp } from "lucide-react";
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
+import { Link } from "react-router-dom";
 import remarkGfm from "remark-gfm";
 import type { Source } from "@/shared/api/types";
+import { remarkDocumentCitations } from "@/shared/lib/document-citations";
 import type { PipelineStage } from "@/shared/lib/sse";
 import { cn } from "@/shared/lib/utils";
 import { Avatar, AvatarFallback } from "@/shared/ui/avatar";
@@ -84,7 +86,30 @@ export function MessageBubble({ role, content, sources, streaming, stage, onSour
                   "[&>*:last-child]:after:ml-1.5 [&>*:last-child]:after:inline-block [&>*:last-child]:after:h-4 [&>*:last-child]:after:w-2 [&>*:last-child]:after:translate-y-0.5 [&>*:last-child]:after:animate-pulse [&>*:last-child]:after:bg-foreground/70 [&>*:last-child]:after:content-['']",
               )}
             >
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm, remarkDocumentCitations(sources ?? [])]}
+                components={{
+                  a: ({ href, children, title }) =>
+                    href?.match(/^\/documents\/\d+$/) ? (
+                      <Link
+                        to={href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title={title ? `Открыть документ: ${title}` : "Открыть документ"}
+                        aria-label={title ? `Открыть документ: ${title}` : "Открыть документ"}
+                        className="rounded px-0.5 text-primary font-medium no-underline hover:underline focus-visible:outline-2"
+                      >
+                        {children}
+                      </Link>
+                    ) : (
+                      <a href={href} title={title} target="_blank" rel="noopener noreferrer">
+                        {children}
+                      </a>
+                    ),
+                }}
+              >
+                {content}
+              </ReactMarkdown>
             </div>
           )}
         </div>
@@ -94,7 +119,7 @@ export function MessageBubble({ role, content, sources, streaming, stage, onSour
             className="inline-flex items-center gap-1 rounded-md bg-muted/50 px-2 py-1 text-xs text-muted-foreground hover:bg-muted transition-colors"
           >
             <ExternalLink className="h-3 w-3" />
-            {sources.length} source{sources.length > 1 ? "s" : ""}
+            Источники · {sources.length}
           </button>
         )}
         {!isUser && !streaming && content && (

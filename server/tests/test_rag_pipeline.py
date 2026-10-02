@@ -64,7 +64,7 @@ def _make_rag(**overrides):
 
 def _make_service():
     mock_ml = MagicMock()
-    return RagService(ml_clients=mock_ml)
+    return RagService(ml_clients=mock_ml, document_access=MagicMock())
 
 
 # ---------------------------------------------------------------------------

@@ -97,11 +97,12 @@ _EXACT_REF_RE = re.compile(r"(статья|пункт|раздел|глава|п
 
 _OUT_OF_DOMAIN_PATTERNS = [
     # Competitive programming / algorithms
-    r"(codeforces|leetcode|hackerrank|algorithm|алгоритм|задач[ауи]\s+по\s+олимпиад)",
+    r"(codeforces|leetcode|hackerrank|задач[ауи]\s+по\s+олимпиад)",
+    r"алгоритм\s+(быстрой\s+сортировки|сортировки|двоичного\s+поиска)",
     r"(решени[ея]\s+задач[иу]\s+codeforces|codeforces\s+\d+[a-zA-Z])",
     r"(time\s+complexity|пространственн\w+\s+сложност|big\s*o|O\(n\))",
     # Math / physics / chemistry (non-corporate)
-    r"(доказатель\w*\s+теорем|формул[аы]\s+вычислени|интеграл|производн)",
+    r"(доказатель\w*\s+теорем|вычисли\w*\s+(интеграл|производн))",
     r"(закон[ауи]\s+Ньютона|квантов\w+\s+механик|периодическ\w+\s+систем)",
     # Programming tutorials (non-corporate)
     r"(как\s+написать\s+(скрипт|программ|функци)|tutorial|туториал)",

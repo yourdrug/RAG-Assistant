@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from application.ports.bm25_index import BM25IndexPort
     from application.ports.chunk_settings import ChunkSettingsPort
     from application.ports.unit_of_work_factory import UnitOfWorkFactory
+    from application.ports.cache_invalidator import CacheInvalidatorPort
 
 log = logging.getLogger(__name__)
 
@@ -34,12 +35,18 @@ class ChunkMutationService:
         bm25_index: "BM25IndexPort",
         chunk_min_len_ratio: float = 0.3,
         chunk_max_len_ratio: float = 2.0,
+        cache_invalidator: CacheInvalidatorPort | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._settings = chunk_settings
         self._bm25_index = bm25_index
         self._chunk_min_len_ratio = chunk_min_len_ratio
         self._chunk_max_len_ratio = chunk_max_len_ratio
+        self._cache_invalidator = cache_invalidator
+
+    async def _invalidate_answers(self, document_id: int) -> None:
+        if self._cache_invalidator is not None:
+            await self._cache_invalidator.invalidate_by_document_ids([document_id])
 
     def _validate_chunk_content(self, content: str, *, is_manual: bool = False) -> None:
         if not content or not content.strip():
@@ -186,6 +193,7 @@ class ChunkMutationService:
                 group_id=doc.group_id,
             )
 
+        await self._invalidate_answers(document_id)
         return result
 
     async def add_chunk(
@@ -289,6 +297,7 @@ class ChunkMutationService:
             group_id=doc.group_id,
         )
 
+        await self._invalidate_answers(document_id)
         return result
 
     async def delete_chunk(
@@ -331,3 +340,4 @@ class ChunkMutationService:
 
         if chunk.content_hash is not None:
             self._bm25_index.remove(chunk.content_hash)
+        await self._invalidate_answers(document_id)

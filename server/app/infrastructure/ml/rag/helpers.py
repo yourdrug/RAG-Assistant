@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING
 
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.llm_provider import Breadth
-from domain.value_objects.user_context import UserContext
 from domain.value_objects.search_mode import SearchMode
 from langchain.schema import Document as LCDocument
 
@@ -154,6 +153,8 @@ async def apply_legal_rerank_fallback(
     visibility_conditions: list,
     user_id: int,
     user_group_ids: list[int],
+    document_access=None,
+    user=None,
 ) -> list:
     """Fallback: rerank entire corpus for legal queries that got no docs."""
     if docs:
@@ -169,6 +170,10 @@ async def apply_legal_rerank_fallback(
         user_id=user_id,
         user_group_ids=user_group_ids,
     )
+    if document_access is not None:
+        from infrastructure.ml.rag.document_access import filter_documents
+
+        fallback_candidates = await filter_documents(fallback_candidates, document_access, user)
     async with ml_clients.reranker_semaphore:
         return await rerank_documents(
             query_for_search,
@@ -355,11 +360,16 @@ async def rerank_and_enrich(
     visibility_conditions: list,
     user_id: int,
     user_group_ids: list[int],
+    document_access=None,
 ) -> tuple[list[tuple[LCDocument, float]], list[LCDocument], float]:
     """Rerank candidates, apply temporal/legal fixes, trim, enrich with neighbors.
 
     Returns (docs_with_scores, final_docs, avg_sim).
     """
+    if document_access is not None:
+        from infrastructure.ml.rag.document_access import filter_documents
+
+        candidates = await filter_documents(candidates, document_access, ctx.to_user_context())
     t0 = time.monotonic()
     async with ml_clients.reranker_semaphore:
         docs = await rerank_documents(
@@ -386,6 +396,8 @@ async def rerank_and_enrich(
             visibility_conditions=visibility_conditions,
             user_id=user_id,
             user_group_ids=user_group_ids,
+            document_access=document_access,
+            user=ctx.to_user_context(),
         )
 
     from domain.services.rag_policy import select_final_top_k, compute_context_budget
@@ -410,13 +422,13 @@ async def rerank_and_enrich(
         enumerate_cases,
         chunk_search,
         max_context_tokens,
-        user=UserContext(
-            user_id=ctx.user_id,
-            user_kind=ctx.user_kind,
-            user_role=ctx.user_role,
-            group_ids=ctx.user_group_ids,
-        ),
+        user=ctx.to_user_context(),
     )
 
+    if document_access is not None:
+        from infrastructure.ml.rag.document_access import filter_scored_documents
+
+        docs = await filter_scored_documents(docs, document_access, ctx.to_user_context())
+        avg_sim = sum(score for _, score in docs) / len(docs) if docs else 0.0
     docs_only: list[LCDocument] = [d for d, _ in docs] if docs and isinstance(docs[0], tuple) else []
     return docs, docs_only, avg_sim

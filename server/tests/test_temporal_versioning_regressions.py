@@ -350,6 +350,8 @@ async def test_exact_candidates_include_temporal_metadata_and_request_date():
 @pytest.mark.asyncio
 async def test_cache_key_changes_each_day_for_current_state_but_not_for_explicit_date(monkeypatch):
     from infrastructure.ml.rag import rag_steps
+    from dataclasses import replace
+    from test_rag_pipeline import _make_rag
 
     class Clock(date):
         current = date(2024, 1, 1)
@@ -360,6 +362,7 @@ async def test_cache_key_changes_each_day_for_current_state_but_not_for_explicit
 
     monkeypatch.setattr(rag_steps, "date", Clock)
     monkeypatch.setattr(rag_steps, "check_cache", AsyncMock(return_value=None))
+    monkeypatch.setattr(rag_steps, "get_corpus_revision", AsyncMock(return_value="0"))
     ctx = SimpleNamespace(
         user_kind="internal",
         user_id=1,
@@ -370,7 +373,9 @@ async def test_cache_key_changes_each_day_for_current_state_but_not_for_explicit
         depth=None,
         summary=None,
     )
-    state = SimpleNamespace(ctx=ctx, query_for_search="rules", rag=None)
+    rag = _make_rag()
+    rag = replace(rag, features=replace(rag.features, cache_enabled=True))
+    state = SimpleNamespace(ctx=ctx, query_for_search="rules", question="rules", history_messages=[], rag=rag)
     await rag_steps.step_check_cache(state)
     first_hash = state.q_hash
     Clock.current = date(2024, 1, 2)

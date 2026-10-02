@@ -4,6 +4,7 @@ import { CloudUpload, FileText, Pencil, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import toast from "react-hot-toast";
+import { Link } from "react-router-dom";
 import {
   useDeleteDocument,
   useDocuments,
@@ -190,7 +191,12 @@ export function DocumentsPage() {
       cell: ({ row }) => (
         <div className="flex items-start gap-2">
           <FileText className="h-4 w-4 shrink-0 text-muted-foreground mt-0.5" />
-          <span className="font-medium break-words">{row.original.filename}</span>
+          <Link
+            to={`/documents/${row.original.id}`}
+            className="font-medium break-words text-primary hover:underline"
+          >
+            {row.original.filename}
+          </Link>
         </div>
       ),
     },

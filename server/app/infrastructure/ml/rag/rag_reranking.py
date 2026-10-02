@@ -33,7 +33,7 @@ async def rerank_documents(
     if hasattr(scores, "__await__"):
         scores = await scores
 
-    ranked = sorted(zip(docs, scores, strict=False), key=lambda x: x[1], reverse=True)[:top_n]
+    ranked = sorted(zip(docs, scores, strict=True), key=lambda x: x[1], reverse=True)[:top_n]
 
     from application.services.retrieval import HybridRetriever
 

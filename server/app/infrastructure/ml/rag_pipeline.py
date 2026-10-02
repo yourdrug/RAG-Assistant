@@ -71,6 +71,7 @@ class RagPipelineState:
     # ── Cache ───────────────────────────────────────────────────────────
     q_hash: str = ""
     vis_hash: str = ""
+    cache_revision: str | None = None
 
     # ── Control ─────────────────────────────────────────────────────────
     terminal: bool = False

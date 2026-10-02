@@ -103,7 +103,8 @@ class TestFormatDocsBudget:
         docs = [_doc("short"), _doc("also short")]
         result = format_docs(docs, max_context_tokens=1000)
         assert "[1]" in result
-        assert "[2]" in result
+        assert "[2]" not in result  # Both chunks belong to one document.
+        assert "also short" in result
 
     def test_budget_truncation(self):
         long_content = "word " * 500  # ~2000 tokens

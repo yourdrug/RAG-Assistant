@@ -2,6 +2,7 @@ import { lazy, Suspense } from "react";
 import { Toaster } from "react-hot-toast";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { ChatPage } from "@/pages/chat";
+import { DocumentReaderPage } from "@/pages/document-reader";
 import { DocumentsPage } from "@/pages/documents";
 import { LoginPage } from "@/pages/login";
 import { ProfilePage } from "@/pages/profile";
@@ -84,6 +85,7 @@ export default function App() {
                   <Route path="/" element={<Navigate to="/chat" replace />} />
                   <Route path="/chat" element={<ChatPage />} />
                   <Route path="/documents" element={<DocumentsPage />} />
+                  <Route path="/documents/:documentId" element={<DocumentReaderPage />} />
                   <Route path="/search" element={<SearchPage />} />
                   <Route path="/profile" element={<ProfilePage />} />
                 </Route>

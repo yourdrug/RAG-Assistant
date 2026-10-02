@@ -96,6 +96,12 @@ class OutboxDispatcher:
                     await self._dispatch(entry)
             else:
                 await self._dispatch(entry)
+            # Durable retry boundary for cache invalidation, including ordinary
+            # chunks, deleted documents and newly uploaded documents.
+            if self._cache_invalidator is not None and entry.aggregate_type == "document":
+                await self._cache_invalidator.invalidate_by_document_ids(
+                    [entry.aggregate_id], raise_on_error=True
+                )
             async with self._uow_factory.create(master=True) as uow:
                 await uow.vector_outbox.mark_done(entry.id)
 
@@ -174,7 +180,7 @@ class OutboxDispatcher:
         if metadata:
             await self._vector_store.update_metadata_by_act_version(version_id, metadata)
         if self._cache_invalidator is not None and document_ids:
-            await self._cache_invalidator.invalidate_by_document_ids(document_ids)
+            await self._cache_invalidator.invalidate_by_document_ids(document_ids, raise_on_error=True)
 
     async def _apply_upsert(self, payload: dict, document_id: int = 0) -> None:
         points = payload["points"]

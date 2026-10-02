@@ -137,12 +137,15 @@ class ApplicationContainer:
         ml = _require(infra.ml.ml_clients, "ml_clients")
 
         chunk_search = ChunkSearchAdapter(uow_factory=uow)
+        from application.services.document_access_service import DocumentAccessService
+
         pii_redactor = PIIRedactorAdapter(pii_redaction_enabled=settings.pii_redaction_enabled)
         self.rag_service = RagService(
             ml_clients=ml,
             chunk_search=chunk_search,
             domain_registry=infra.domain_registry,
             pii_redactor=pii_redactor,
+            document_access=DocumentAccessService(uow),
         )
 
         self.ingestion_service = _require(
@@ -194,6 +197,7 @@ class ApplicationContainer:
             vector_store_repo=vsr,
             chunk_settings=LiveChunkSettings(),
             bm25_index=BM25IndexAdapter(ml),
+            cache_invalidator=infra.services.cache_invalidator,
         )
         self.ingest_app_service = IngestAppService(
             uow_factory=uow,

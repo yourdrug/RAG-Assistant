@@ -236,7 +236,7 @@ export function ChatPage() {
   };
 
   return (
-    <div className="flex h-full">
+    <div className="relative flex h-full">
       <div className="flex flex-1 flex-col">
         <div className="flex items-center justify-between border-b px-4 py-3">
           <div className="flex items-center gap-2">

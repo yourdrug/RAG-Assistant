@@ -87,7 +87,10 @@ def _make_service(llm_response: str = "Ответ из документов.", *
 
     chunk_search = overrides.pop("chunk_search", None)
     domain_registry = overrides.pop("domain_registry", None)
-    return RagService(ml_clients=mock_ml, chunk_search=chunk_search, domain_registry=domain_registry)
+    access = SimpleNamespace(allowed_document_ids=AsyncMock(side_effect=lambda ids, user: set(ids)))
+    return RagService(
+        ml_clients=mock_ml, chunk_search=chunk_search, domain_registry=domain_registry, document_access=access
+    )
 
 
 async def collect_events(service, question, history=None, ctx=None):
@@ -106,6 +109,7 @@ async def collect_events(service, question, history=None, ctx=None):
 # ---------------------------------------------------------------------------
 
 _STREAM_PATCHES = {
+    "infrastructure.ml.rag.rag_steps.get_corpus_revision": AsyncMock(return_value="0"),
     "infrastructure.ml.rag.rag_retrieval.ensure_embedding_identity": MagicMock(return_value="test:model:v1"),
     "infrastructure.ml.rag_service.build_qdrant_filter": MagicMock(return_value=MagicMock(should=[])),
     "infrastructure.ml.rag_service.with_temporal_filter": MagicMock(return_value=MagicMock(should=[])),
@@ -117,8 +121,8 @@ _STREAM_PATCHES = {
     "infrastructure.ml.rag.rag_steps.condense_question": AsyncMock(return_value="condensed question"),
     "infrastructure.ml.rag.rag_steps.rerank_documents": AsyncMock(
         return_value=[
-            (SimpleNamespace(page_content="chunk1", metadata={"source": "a.pdf"}), 0.9),
-            (SimpleNamespace(page_content="chunk2", metadata={"source": "a.pdf"}), 0.8),
+            (SimpleNamespace(page_content="chunk1", metadata={"source": "a.pdf", "document_id": 1}), 0.9),
+            (SimpleNamespace(page_content="chunk2", metadata={"source": "a.pdf", "document_id": 1}), 0.8),
         ]
     ),
     "infrastructure.ml.rag.rag_steps.deduplicate_docs": lambda docs: docs,
@@ -323,7 +327,13 @@ class TestStreamCacheHit:
             ),
             patch(
                 "infrastructure.ml.rag.rag_cache.find_cached_answer",
-                AsyncMock(return_value={"answer": "cached ans", "sources": [{"source": "cached.pdf"}]}),
+                AsyncMock(
+                    return_value={
+                        "document_ids": [1],
+                        "answer": "cached ans",
+                        "sources": [{"source": "cached.pdf", "document_id": 1}],
+                    }
+                ),
             ),
         ):
             service = _make_service()
@@ -334,7 +344,7 @@ class TestStreamCacheHit:
 
     @pytest.mark.asyncio
     async def test_cache_hit_yields_sources(self):
-        cached_sources = [{"source": "cached.pdf"}]
+        cached_sources = [{"source": "cached.pdf", "document_id": 1}]
         with (
             patch(
                 "infrastructure.ml.rag.rag_config.build_rag_settings",
@@ -342,7 +352,7 @@ class TestStreamCacheHit:
             ),
             patch(
                 "infrastructure.ml.rag.rag_cache.find_cached_answer",
-                AsyncMock(return_value={"answer": "cached", "sources": cached_sources}),
+                AsyncMock(return_value={"document_ids": [1], "answer": "cached", "sources": cached_sources}),
             ),
         ):
             service = _make_service()
@@ -412,7 +422,11 @@ class TestOutputSecurity:
     async def test_old_cached_answer_is_sanitized_before_emission(self):
         rag = _make_rag_settings(cache_enabled=True)
         rag.pii_redaction_enabled = True
-        cached = {"answer": "Адрес private@example.com", "sources": [{"source": "cached.pdf"}]}
+        cached = {
+            "document_ids": [1],
+            "answer": "Адрес private@example.com",
+            "sources": [{"source": "cached.pdf", "document_id": 1}],
+        }
         with (
             patch("infrastructure.ml.rag.rag_config.build_rag_settings", return_value=rag),
             patch("infrastructure.ml.rag.rag_cache.find_cached_answer", AsyncMock(return_value=cached)),
@@ -523,7 +537,7 @@ class TestStreamHelperMethods:
     def test_resolve_temporal_conflicts_no_conflicts(self):
         from infrastructure.ml.rag.rag_postprocess import resolve_temporal_conflicts
 
-        doc1 = SimpleNamespace(metadata={"source": "a.pdf"})
+        doc1 = SimpleNamespace(metadata={"source": "a.pdf", "document_id": 1})
         doc2 = SimpleNamespace(metadata={"source": "b.pdf"})
         docs = [(doc1, 0.9), (doc2, 0.8)]
         result = resolve_temporal_conflicts(docs)

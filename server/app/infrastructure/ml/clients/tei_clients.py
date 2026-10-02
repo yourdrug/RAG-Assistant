@@ -79,7 +79,7 @@ class TEIRerankerClient:
         r = await self._client.post(f"{self._base_url}/rerank", json=payload)
         r.raise_for_status()
         data = r.json()
-        return [item["score"] for item in data]
+        return self._ordered_scores(data, len(texts))
 
     def predict_sync(self, pairs: list[tuple[str, str]]) -> list[float]:
         if not pairs:
@@ -91,7 +91,25 @@ class TEIRerankerClient:
             r = client.post(f"{self._base_url}/rerank", json=payload)
             r.raise_for_status()
             data = r.json()
-            return [item["score"] for item in data]
+            return self._ordered_scores(data, len(texts))
+
+    @staticmethod
+    def _ordered_scores(data: list[dict], count: int) -> list[float]:
+        """TEI ranks results; its index identifies the original input text."""
+        import math
+
+        scores: dict[int, float] = {}
+        for item in data:
+            index = item.get("index")
+            if type(index) is not int or not 0 <= index < count or index in scores:
+                raise ValueError("Invalid or duplicate TEI rerank index")
+            score = float(item["score"])
+            if not math.isfinite(score):
+                raise ValueError("Non-finite TEI rerank score")
+            scores[index] = score
+        if len(scores) != count:
+            raise ValueError("Incomplete TEI rerank response")
+        return [scores[index] for index in range(count)]
 
     async def close(self) -> None:
         await self._client.aclose()

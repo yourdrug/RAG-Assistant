@@ -94,7 +94,17 @@ class ConversationService:
                         return
                     existing = conv.summary
 
-                new_summary = await self._summary_updater.update(existing, recent_turns)
+                turns = recent_turns
+                if not existing:
+                    # Bootstrap with the accumulated window, before its first
+                    # turns disappear. The current pair alone loses that history.
+                    turns = [
+                        {"role": msg.role, "content": msg.content}
+                        if hasattr(msg, "role")
+                        else {"role": msg["role"], "content": msg["content"]}
+                        for msg in history
+                    ] + recent_turns
+                new_summary = await self._summary_updater.update(existing, turns)
 
                 # Optimistic compare-and-swap: only write if the stored summary
                 # is unchanged since we read it. A concurrent update to the same

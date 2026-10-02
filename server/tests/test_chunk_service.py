@@ -88,7 +88,7 @@ def _make_uow(doc=None, chunk=None, max_index=0):
     return uow
 
 
-def _make_service(uow, *, chunk_settings=None, bm25_index=None):
+def _make_service(uow, *, chunk_settings=None, bm25_index=None, cache_invalidator=None):
     factory = MagicMock()
     factory.create.return_value = AsyncMock(
         __aenter__=AsyncMock(return_value=uow),
@@ -99,6 +99,7 @@ def _make_service(uow, *, chunk_settings=None, bm25_index=None):
         vector_store_repo=AsyncMock(),
         chunk_settings=chunk_settings or _FakeChunkSettings(),
         bm25_index=bm25_index or MagicMock(),
+        cache_invalidator=cache_invalidator,
     )
 
 

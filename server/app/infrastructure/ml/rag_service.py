@@ -14,6 +14,7 @@ from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING
 
 from application.ports.ml_clients import MLClientPort
+from application.ports.document_access import DocumentAccessPort
 
 from config import settings
 from domain.value_objects.rag_result import RagResult
@@ -21,7 +22,6 @@ from domain.utils import compute_reranker_score
 from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.llm_provider import Breadth
-from domain.value_objects.user_context import UserContext
 from domain.value_objects.stream_events import (
     PipelineMetaEvent,
     SourcesEvent,
@@ -64,11 +64,14 @@ class RagService:
         chunk_search: ChunkSearchAdapter | None = None,
         domain_registry: DomainProfileRegistry | None = None,
         pii_redactor: PIIRedactorPort | None = None,
+        *,
+        document_access: DocumentAccessPort,
     ) -> None:
         self._ml = ml_clients
         self._chunk_search = chunk_search
         self._domain_registry = domain_registry
         self._pii_redactor = pii_redactor
+        self._document_access = document_access
 
     @staticmethod
     def _prepare_history_dicts(history: list) -> list[dict]:
@@ -106,7 +109,7 @@ class RagService:
             req_id = uuid.uuid4().hex[:12]
             request_id_ctx.set(req_id)
 
-        user = UserContext(user_id=ctx.user_id, user_kind=ctx.user_kind, user_role=ctx.user_role)
+        user = ctx.to_user_context()
         scope = ctx.curator_scope
 
         from domain.services import get_visibility_conditions
@@ -185,14 +188,7 @@ class RagService:
             return
 
         # ── Step 2: Semantic answer cache ───────────────────────────
-        state, events = await step_check_cache(state)
-        for e in await self._drain_if_terminal(state, events):
-            yield e
-        if state.terminal:
-            return
-
-        # ── Step 3: Out-of-domain rejection ─────────────────────────
-        state, events = await step_reject_ood(state)
+        state, events = await step_check_cache(state, self._domain_registry, self._document_access)
         for e in await self._drain_if_terminal(state, events):
             yield e
         if state.terminal:
@@ -200,11 +196,18 @@ class RagService:
 
         # ── Step 4: Retrieval pipeline ──────────────────────────────
         yield StatusEvent(stage="searching")
-        state = await step_retrieve(state, self._ml, self._chunk_search)
+        state = await step_retrieve(state, self._ml, self._chunk_search, self._document_access)
         yield StatusEvent(stage="reranking")
 
+        # Regex topic hints cannot override evidence in the actual corpus.
+        state, events = await step_reject_ood(state)
+        for e in await self._drain_if_terminal(state, events):
+            yield e
+        if state.terminal:
+            return
+
         # ── Step 5: Self-RAG relevance gate + retry loop ────────────
-        state, events = await step_self_rag(state, self._ml, self._chunk_search)
+        state, events = await step_self_rag(state, self._ml, self._chunk_search, self._document_access)
         for e in await self._drain_if_terminal(state, events):
             yield e
         if state.terminal:
@@ -219,7 +222,7 @@ class RagService:
         # ── Step 7: Post-processing + metrics + cache + final yield ─
         state = step_postprocess(state)
 
-        if state.rag.features.cache_enabled:
+        if state.rag.features.cache_enabled and state.cache_revision is not None:
             await store_answer_cache(
                 state.docs,
                 state.query_for_search,
@@ -227,6 +230,7 @@ class RagService:
                 state.vis_hash,
                 state.full_answer,
                 state.sources,
+                expected_revision=state.cache_revision,
             )
 
         yield SourcesEvent(

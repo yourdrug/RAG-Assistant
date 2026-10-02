@@ -54,8 +54,7 @@ def filter_cited_sources(answer: str, sources: list[dict]) -> list[dict]:
     cited = {int(m) for m in re.findall(r"\[(\d+)\]", answer)}
     if not cited:
         return sources
-    filtered = [src for i, src in enumerate(sources, 1) if i in cited]
-    return filtered if filtered else sources
+    return [src for i, src in enumerate(sources, 1) if src.get("citation_id", i) in cited]
 
 
 def filter_cited_documents(answer: str, docs: list) -> list:
@@ -63,5 +62,8 @@ def filter_cited_documents(answer: str, docs: list) -> list:
     cited = {int(m) for m in re.findall(r"\[(\d+)\]", answer)}
     if not cited:
         return docs
-    selected = [item for index, item in enumerate(docs, 1) if index in cited]
-    return selected if selected else docs
+    return [
+        item
+        for index, item in enumerate(docs, 1)
+        if (item[0] if isinstance(item, tuple) else item).metadata.get("citation_id", index) in cited
+    ]

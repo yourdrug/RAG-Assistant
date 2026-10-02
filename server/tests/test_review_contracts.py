@@ -286,6 +286,7 @@ async def test_cache_shared_indexes_disabled_and_corrupt_entries(monkeypatch):
 async def test_optional_cache_logs_backend_failures_and_returns_miss(monkeypatch, caplog):
     redis = SimpleNamespace(
         get=AsyncMock(side_effect=OSError("offline")),
+        incr=AsyncMock(side_effect=OSError("offline")),
         pipeline=MagicMock(side_effect=OSError("offline")),
         smembers=AsyncMock(side_effect=OSError("offline")),
     )
@@ -293,6 +294,8 @@ async def test_optional_cache_logs_backend_failures_and_returns_miss(monkeypatch
     assert await answer_cache.find_cached_answer("q", "scope") is None
     await answer_cache.store_cached_answer("q", "q", "answer", [], "scope")
     assert await answer_cache.invalidate_by_document_ids([1]) == 0
+    with pytest.raises(OSError, match="offline"):
+        await answer_cache.invalidate_by_document_ids([1], raise_on_error=True)
     assert "Cache lookup failed" in caplog.text
     assert "Failed to store cached answer" in caplog.text
     assert "Cache invalidation failed" in caplog.text
@@ -346,6 +349,7 @@ async def test_cache_hit_preserves_expiration_and_removes_all_reverse_links(monk
 
     redis = SimpleNamespace(
         get=get,
+        incr=AsyncMock(return_value=1),
         set=set_value,
         smembers=members,
         pipeline=lambda **kwargs: _CacheContractPipeline(values, indexes, ttls, get, set_value),

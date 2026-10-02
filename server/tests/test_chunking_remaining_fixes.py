@@ -150,7 +150,8 @@ def test_oversized_document_does_not_discard_later_usable_sources():
     small = Document(page_content="Complete statement.", metadata={"source": "small.txt"})
     context, selected = format_docs_with_selection([(oversized, 0.9), (small, 0.8)], max_context_tokens=30)
     assert len(context) <= 30 * CHARS_PER_TOKEN
-    assert selected == [(small, 0.8)]
+    assert [(doc.page_content, score) for doc, score in selected] == [(small.page_content, 0.8)]
+    assert selected[0][0].metadata["citation_id"] == 1
     assert "[1] small.txt" in context and "[2]" not in context
 
 
