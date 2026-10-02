@@ -23,11 +23,29 @@ from sqlalchemy import text
 class SystemHealthProbe:
     """Adapts infrastructure connectivity checks behind HealthProbePort."""
 
+    async def check_tei(self) -> dict[str, HealthCheckResult]:
+        async def probe(url: str) -> HealthCheckResult:
+            try:
+                started = time.perf_counter()
+                async with httpx.AsyncClient(timeout=3) as client:
+                    response = await client.get(f"{url.rstrip('/')}/health")
+                    response.raise_for_status()
+                return HealthCheckResult(
+                    status=HealthStatus.OK.value,
+                    latency_ms=round((time.perf_counter() - started) * 1000, 1),
+                )
+            except (httpx.HTTPError, ValueError) as exc:
+                return HealthCheckResult(status=f"error: {exc}")
+
+        embed, rerank = await asyncio.gather(probe(settings.tei_embed_url), probe(settings.tei_rerank_url))
+        return {"tei_embed": embed, "tei_rerank": rerank}
+
     async def check_ollama(self) -> HealthCheckResult:
         try:
             t0 = time.perf_counter()
             async with httpx.AsyncClient(timeout=3) as client:
                 r = await client.get(f"{settings.ollama_base_url}/api/tags")
+                r.raise_for_status()
                 latency_ms = round((time.perf_counter() - t0) * 1000, 1)
                 models = [m["name"] for m in r.json().get("models", [])]
                 return HealthCheckResult(status=HealthStatus.OK.value, latency_ms=latency_ms, models=models)

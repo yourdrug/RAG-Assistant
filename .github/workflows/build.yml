@@ -12,6 +12,8 @@ on:
       build_target:
         description: "Build target (cpu or gpu)"
         required: false
+        type: choice
+        options: [cpu, gpu]
         default: "cpu"
 
 env:
@@ -19,8 +21,27 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  verify:
+    uses: ./.github/workflows/lint.yml
+
   build-server:
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        build_target: ${{ fromJSON(github.event_name == 'workflow_dispatch' && format('["{0}"]', inputs.build_target) || '["cpu","gpu"]') }}
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16.4-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: ci-database-password
+          POSTGRES_DB: rag_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U test -d rag_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
     permissions:
       contents: read
       packages: write
@@ -30,11 +51,15 @@ jobs:
 
       - name: Determine tag
         id: tag
+        env:
+          RELEASE_TAG: ${{ inputs.tag || 'latest' }}
         run: |
-          if [[ "${{ github.ref_type }}" == "tag" ]]; then
-            echo "version=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            echo "version=$version" >> "$GITHUB_OUTPUT"
           else
-            echo "version=${{ inputs.tag || 'latest' }}" >> "$GITHUB_OUTPUT"
+            version="$RELEASE_TAG"
+            echo "version=${version#v}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Set up Docker Buildx
@@ -53,25 +78,46 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=${{ steps.tag.outputs.version }}
-            type=raw,value=production-cpu-${{ steps.tag.outputs.version }}
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=${{ steps.tag.outputs.version }},enable=${{ matrix.build_target == 'cpu' }}
+            type=raw,value=production-${{ matrix.build_target }}-${{ steps.tag.outputs.version }}
+            type=raw,value=latest,enable=${{ matrix.build_target == 'cpu' && github.ref == 'refs/heads/main' }}
 
-      - name: Build and push server
+      - name: Build server for validation
         uses: docker/build-push-action@v6
         with:
           context: .
-          target: prod-${{ inputs.build_target || 'cpu' }}
-          push: true
+          target: prod-${{ matrix.build_target }}
+          load: true
+          push: false
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             SOURCE_VERSION=${{ steps.tag.outputs.version }}
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
-          cache-from: type=gha,scope=server
-          cache-to: type=gha,mode=max,scope=server
+          cache-from: type=gha,scope=server-${{ matrix.build_target }}
+          cache-to: type=gha,mode=max,scope=server-${{ matrix.build_target }}
+
+      - name: Smoke-test production image and migrations
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}:production-${{ matrix.build_target }}-${{ steps.tag.outputs.version }}
+        run: |
+          docker run --rm --network host --env-file scripts/operations/ci.env "$IMAGE" python main.py --help
+          docker run --rm --network host --env-file scripts/operations/ci.env \
+            --entrypoint python "$IMAGE" app/scripts/migrate.py
+          # Running twice verifies that migrations are idempotent at head.
+          docker run --rm --network host --env-file scripts/operations/ci.env \
+            --entrypoint python "$IMAGE" app/scripts/migrate.py
+
+      - name: Publish validated server
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          while IFS= read -r image_tag; do
+            docker push "$image_tag"
+          done <<< "$IMAGE_TAGS"
 
   build-client:
+    needs: verify
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -82,11 +128,15 @@ jobs:
 
       - name: Determine tag
         id: tag
+        env:
+          RELEASE_TAG: ${{ inputs.tag || 'latest' }}
         run: |
-          if [[ "${{ github.ref_type }}" == "tag" ]]; then
-            echo "version=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            echo "version=$version" >> "$GITHUB_OUTPUT"
           else
-            echo "version=${{ inputs.tag || 'latest' }}" >> "$GITHUB_OUTPUT"
+            version="$RELEASE_TAG"
+            echo "version=${version#v}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Set up Docker Buildx
@@ -108,15 +158,30 @@ jobs:
             type=raw,value=${{ steps.tag.outputs.version }}
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Build and push client
+      - name: Build client for validation
         uses: docker/build-push-action@v6
         with:
           context: ./client
           file: ./client/Dockerfile
-          push: true
+          load: true
+          push: false
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             VITE_API_URL=/api
           cache-from: type=gha,scope=client
           cache-to: type=gha,mode=max,scope=client
+
+
+      - name: Validate nginx template
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}/client:${{ steps.tag.outputs.version }}
+        run: docker run --rm -e UPSTREAM_SERVER=127.0.0.1:8001 "$IMAGE" nginx -t
+
+      - name: Publish validated client
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          while IFS= read -r image_tag; do
+            docker push "$image_tag"
+          done <<< "$IMAGE_TAGS"

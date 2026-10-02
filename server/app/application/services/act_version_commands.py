@@ -92,6 +92,8 @@ class ActVersionCommands:
                 act_type, act_number, None, visibility_scope
             )
             if legacy is not None and parse_date_guess(legacy.title) == signing_date:
+                if legacy.id is None:
+                    raise RuntimeError("Persisted regulatory act has no ID")
                 await uow.regulatory_acts.update_act_date(legacy.id, signing_date)
                 legacy.act_date = signing_date
                 existing = legacy

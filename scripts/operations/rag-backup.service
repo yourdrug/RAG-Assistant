@@ -1,0 +1,7 @@
+[Unit]
+Description=RAG consistent maintenance backup and restore verification
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/rag-assistant
+EnvironmentFile=-/opt/rag-assistant/.operations.env
+ExecStart=/opt/rag-assistant/scripts/operations/backup.sh

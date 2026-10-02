@@ -218,7 +218,7 @@ class ChunkMutationService:
 
             new_hash = content_hash(content)
 
-            context_metadata = {}
+            context_metadata: dict[str, int | str] = {}
             if page is not None:
                 context_metadata["page"] = page
             if section is not None:

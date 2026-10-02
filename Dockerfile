@@ -289,6 +289,7 @@ WORKDIR $PYSETUP_PATH
 COPY --chown=1001:1001 server/alembic.ini ./
 COPY --chown=1001:1001 server/entrypoint.sh ./
 COPY --chown=1001:1001 VERSION ./
+RUN if [ -n "$SOURCE_VERSION" ]; then printf '%s\n' "$SOURCE_VERSION" > VERSION; fi
 COPY --chown=1001:1001 server/app ./app
 
 # Switch to non-root user
@@ -364,6 +365,7 @@ WORKDIR $PYSETUP_PATH
 COPY --chown=1001:1001 server/alembic.ini ./
 COPY --chown=1001:1001 server/entrypoint.sh ./
 COPY --chown=1001:1001 VERSION ./
+RUN if [ -n "$SOURCE_VERSION" ]; then printf '%s\n' "$SOURCE_VERSION" > VERSION; fi
 COPY --chown=1001:1001 server/app ./app
 
 # Switch to non-root user

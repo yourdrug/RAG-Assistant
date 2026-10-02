@@ -212,7 +212,7 @@ def _merge_page_run(pages: list[Document]) -> list[Document]:
     if not pages:
         return []
     text = ""
-    spans = []
+    spans: list[tuple[int, int, int]] = []
     evidence = page_word_evidence([doc.page_content for doc in pages])
     for doc in pages:
         content = doc.page_content

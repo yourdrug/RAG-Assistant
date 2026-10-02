@@ -13,7 +13,7 @@ class RegulatoryActRepository(Protocol):
     async def find_by_type_and_number(
         self,
         act_type: str,
-        act_number: str,
+        act_number: str | None,
         act_date: date | None = None,
         visibility_scope: str = "internal_public",
     ) -> RegulatoryAct | None: ...

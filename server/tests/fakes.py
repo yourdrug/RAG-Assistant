@@ -677,7 +677,7 @@ class FakeRegulatoryActRepository:
         self._next_id = 1
 
     async def find_by_type_and_number(
-        self, act_type: str, act_number: str, act_date=None, visibility_scope="internal_public"
+        self, act_type: str, act_number: str | None, act_date=None, visibility_scope="internal_public"
     ):
         for act in self._acts.values():
             if (

@@ -1,6 +1,7 @@
 name: Lint & Test
 
 on:
+  workflow_call:
   push:
     branches: [main, develop]
   pull_request:
@@ -39,7 +40,7 @@ jobs:
     needs: lint
     services:
       postgres:
-        image: postgres:15
+        image: postgres:16.4-alpine
         env:
           POSTGRES_USER: test
           POSTGRES_PASSWORD: test

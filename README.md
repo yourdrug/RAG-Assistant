@@ -89,7 +89,12 @@ presentation/  ← FastAPI routes
 
 ## Продакшн (домен + TLS)
 
-Стек внутри Docker **неterminate TLS** — это делает внешний nginx на хосте с certbot/letsencrypt.
+Стек внутри Docker не завершает TLS — это делает внешний nginx на хосте с certbot/letsencrypt.
+
+Порты backend (`8001`) и клиентского nginx (`3001`) опубликованы только на `127.0.0.1`.
+Внешний доступ к UI и API идёт через HTTPS-домен. Для доступа к API из curl, Postman
+или другого приложения UI не требуется: используйте `https://rag.example.com/api/`.
+Внутри Docker-сети клиентский nginx обращается к backend по адресу `server:8001`.
 
 Клиентский контейнер уже запускает свой nginx, который проксирует `/api/*` на `server:8001` с таймаутами 600s для SSE-стриминга. Внешнему nginx достаточно проксировать один upstream:
 
@@ -108,11 +113,30 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_buffering off;
+        proxy_read_timeout 600s;
+        proxy_send_timeout 600s;
+        client_max_body_size 100m;
     }
 }
 ```
 
+Пример запроса к API (замените домен своим, а `TOKEN` — действующим JWT):
+
+```bash
+curl https://rag.example.com/api/documents \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+После изменения привязки портов пересоздайте контейнеры server и client: обычный
+`docker compose restart` не применяет изменения публикации портов.
+
 Деплой на сервер: `./deploy.sh 0.6.0` (или `./deploy.sh 0.6.0 --gpu`). Образы тянутся из GHCR.
+Скрипт загружает env-файлы, выбирает профиль TEI, сохраняет работающие контейнеры
+хранилищ и проверяет `/api/ready` после обновления приложения.
+
+Подготовка сервера, ограничения отката, права на данные, резервное копирование и
+таймеры мониторинга: [инструкция эксплуатации](docs/operations/deployment.md).
 
 ---
 

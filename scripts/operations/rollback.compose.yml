@@ -1,0 +1,9 @@
+# Previous releases may not have /ready; require healthy JSON from the legacy endpoint.
+services:
+  server:
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          curl --silent --fail http://localhost:8001/health |
+          python -c 'import json,sys; sys.exit(json.load(sys.stdin)["status"] != "healthy")'

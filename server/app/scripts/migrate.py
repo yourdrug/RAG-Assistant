@@ -11,7 +11,7 @@ Usage:
 
 from __future__ import annotations
 
-import sys
+import logging
 from pathlib import Path
 
 import psycopg
@@ -20,34 +20,40 @@ from alembic.config import Config
 
 from config import settings
 
+logger = logging.getLogger("default")
 LOCK_ID = 727271
 
 ALEMBIC_INI = Path(__file__).resolve().parent.parent.parent / "alembic.ini"
 
 
 def main() -> None:
-    dsn = (
-        f"postgresql://{settings.db_user}:{settings.db_password}"
-        f"@{settings.db_host}:{settings.db_port}/{settings.db_name}"
-    )
-
-    with psycopg.connect(dsn, autocommit=True) as conn:
+    with psycopg.connect(
+        host=settings.db_host,
+        port=settings.db_port,
+        user=settings.db_user,
+        password=settings.db_password,
+        dbname=settings.db_name,
+        connect_timeout=10,
+        autocommit=True,
+    ) as conn:
         with conn.cursor() as cur:
-            print("Acquiring advisory lock...")
+            cur.execute("SET lock_timeout = '60s'")
+            logger.info("Acquiring advisory lock...")
             cur.execute("SELECT pg_advisory_lock(%s)", (LOCK_ID,))
-            print("Lock acquired")
+            logger.info("Lock acquired")
 
             try:
                 cfg = Config(str(ALEMBIC_INI))
                 command.upgrade(cfg, "head")
-                print("Migrations completed.")
+                logger.info("Migrations completed.")
             except Exception:
-                print("alembic upgrade head failed", file=sys.stderr)
+                logger.exception("alembic upgrade head failed")
                 raise
             finally:
                 cur.execute("SELECT pg_advisory_unlock(%s)", (LOCK_ID,))
-                print("Lock released")
+                logger.info("Lock released")
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     main()

@@ -91,7 +91,11 @@ async def resolve_processing_conflict(
     async with uow_factory.create() as uow:
         old_doc = await uow.documents.get_by_id(ctx.replace_id)
     if new_doc and old_doc:
-        profile = domain_registry.get(ctx.doc_domain) if domain_registry else None
+        if domain_registry is not None and ctx.doc_domain is None:
+            raise RuntimeError(f"domain classification produced no domain for doc {ctx.document_id}")
+        profile = (
+            domain_registry.get(ctx.doc_domain) if domain_registry and ctx.doc_domain is not None else None
+        )
         old_source_path = await resolve_conflict(uow_factory, new_doc, old_doc, profile)
         if old_source_path:
             ctx.storage_deletes.append(old_source_path)

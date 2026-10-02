@@ -7,5 +7,6 @@ from enum import StrEnum
 
 class HealthStatus(StrEnum):
     OK = "ok"
+    HEALTHY = "healthy"
     DEGRADED = "degraded"
     ERROR = "error"

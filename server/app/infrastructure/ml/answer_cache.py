@@ -15,6 +15,8 @@ import gzip
 import json
 import logging
 import time
+from collections.abc import Awaitable
+from typing import cast
 
 from domain.utils import content_hash
 from infrastructure.redis.redis_client import redis_client
@@ -165,15 +167,20 @@ async def store_cached_answer(
         }
         if expected_revision is not None:
             indexes = [_doc_index_key(doc_id) for doc_id in set(document_ids or [])]
-            await r.eval(
-                _STORE_IF_CURRENT,
-                2 + len(indexes),
-                CORPUS_REVISION_KEY,
-                key,
-                *indexes,
-                expected_revision,
-                _encode_entry(entry),
-                CACHE_TTL_SECONDS,
+            # Redis shares the EVAL stub between sync and async clients; this
+            # connection is always redis.asyncio.Redis, so the result is awaitable.
+            await cast(
+                Awaitable[object],
+                r.eval(
+                    _STORE_IF_CURRENT,
+                    2 + len(indexes),
+                    CORPUS_REVISION_KEY,
+                    key,
+                    *indexes,
+                    expected_revision,
+                    _encode_entry(entry),
+                    str(CACHE_TTL_SECONDS),
+                ),
             )
             return
         pipe = r.pipeline(transaction=True)

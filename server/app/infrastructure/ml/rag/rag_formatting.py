@@ -94,7 +94,7 @@ def format_docs_with_selection(docs, max_context_tokens: int = 6000) -> tuple[st
 
     citation_id = 0
     for group in group_by_document(docs):
-        group_parts = []
+        group_parts: list[str] = []
         for item in group:
             doc = item[0] if isinstance(item, tuple) else item
             header = _build_header(doc, citation_id + 1)

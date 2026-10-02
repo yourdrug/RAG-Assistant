@@ -202,8 +202,9 @@ class OutboxDispatcher:
         # Another ingestion/review may have changed the edition while embedding
         # was running. Do not leave the snapshot in this upsert as the final state.
         version_ids = {chunk.metadata.get("act_version_id") for chunk in chunks}
-        for version_id in version_ids - {None}:
-            await self._apply_version_metadata(version_id, {})
+        for version_id in version_ids:
+            if version_id is not None:
+                await self._apply_version_metadata(version_id, {})
 
     async def reconcile_stuck_documents(self) -> int:
         """Find documents stuck in 'indexing' with no pending outbox entries and mark them done.

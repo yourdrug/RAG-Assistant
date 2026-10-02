@@ -50,7 +50,9 @@ RUN apk add --no-cache bash envsubst
 COPY --from=build /code/project/dist /usr/share/nginx/html
 
 ARG UPSTREAM_SERVER=server:8001
-ENV UPSTREAM_SERVER=${UPSTREAM_SERVER}
+ENV UPSTREAM_SERVER=${UPSTREAM_SERVER} \
+    TRUSTED_PROXY_CIDR=127.0.0.1 \
+    NGINX_ENVSUBST_FILTER="UPSTREAM_SERVER|TRUSTED_PROXY_CIDR"
 
 COPY nginx.conf /etc/nginx/templates/default.conf.template
 

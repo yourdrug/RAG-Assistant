@@ -18,3 +18,6 @@ class HealthSettingsPort(Protocol):
 
     @property
     def llm_provider(self) -> str: ...
+
+    @property
+    def ml_provider(self) -> str: ...

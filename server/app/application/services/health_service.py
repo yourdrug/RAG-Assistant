@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 
 from domain.value_objects.health_status import HealthStatus
@@ -35,9 +36,10 @@ class HealthService:
         self._settings = health_settings
 
     async def check(self) -> HealthResponse:
-        qdrant = await self._probe.check_qdrant()
-        postgres = await self._probe.check_postgres()
-        redis = await self._probe.check_redis()
+        qdrant, postgres, redis = await asyncio.gather(
+            self._probe.check_qdrant(), self._probe.check_postgres(), self._probe.check_redis()
+        )
+        ml_checks = await self._probe.check_tei() if self._settings.ml_provider == "tei" else {}
         active_jobs = await self._count_active_jobs()
 
         llm_provider = self._settings.llm_provider
@@ -50,10 +52,10 @@ class HealthService:
             status=HealthStatus.OK.value if self._config_listener.is_connected else "error: not connected"
         )
 
-        overall = "healthy"
-        error_checks = (qdrant, llm_check, postgres, redis, config_listener_status)
+        overall = HealthStatus.HEALTHY.value
+        error_checks = (qdrant, llm_check, postgres, redis, config_listener_status, *ml_checks.values())
         if any(c.status.startswith("error") for c in error_checks):
-            overall = "degraded"
+            overall = HealthStatus.DEGRADED.value
 
         return HealthResponse(
             status=overall,
@@ -61,6 +63,7 @@ class HealthService:
             uptime_seconds=self._settings.uptime_seconds,
             llm_provider=llm_provider,
             checks={
+                **ml_checks,
                 "api": HealthCheckResult(status=HealthStatus.OK.value),
                 "qdrant": qdrant,
                 "llm": llm_check,

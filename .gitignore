@@ -45,3 +45,8 @@ server/.coverage_report
 # Load test results & generated data
 loadtest/results/
 loadtest/data/test_users.json
+
+# Deployment state and local operation configuration / backups
+.deploy/
+.operations.env
+backups/

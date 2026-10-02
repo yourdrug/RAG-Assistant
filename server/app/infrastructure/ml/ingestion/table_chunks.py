@@ -61,7 +61,7 @@ def table_document_chunks(doc: Document, chunk_size: int, max_rows: int) -> list
 def _pack_rows(lines: list[str], prefix: str, header: str, metadata: dict, row_budget: int, max_rows: int):
     """Keep ordinary rows intact; put each partial oversized row in its own batch."""
     chunks = []
-    pending = []
+    pending: list[str] = []
     low = high = 0
 
     def flush():

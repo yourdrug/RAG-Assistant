@@ -159,6 +159,10 @@ class LiveHealthSettings:
     def llm_provider(self) -> str:
         return settings.llm_provider
 
+    @property
+    def ml_provider(self) -> str:
+        return settings.ml_provider
+
 
 class LiveConfigAdminSettings:
     """Each property read returns the current value from the global settings singleton."""

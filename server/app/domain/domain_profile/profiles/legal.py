@@ -124,10 +124,10 @@ class LegalDomainProfile(SettingsBackedProfile):
             refs.append(ReferenceMatch("chapter", m.group(1)))
         for m in _LAW_NAME_RE.finditer(text):
             refs.append(ReferenceMatch("law_name", m.group(0).strip()))
-        if m := _LAW_NUMBER_RE.search(text[:1500]):
-            refs.append(ReferenceMatch("act_number", m.group("number").upper()))
-            if m.group("date"):
-                refs.append(ReferenceMatch("act_date", m.group("date").strip()))
+        if act_match := _LAW_NUMBER_RE.search(text[:1500]):
+            refs.append(ReferenceMatch("act_number", act_match.group("number").upper()))
+            if act_match.group("date"):
+                refs.append(ReferenceMatch("act_date", act_match.group("date").strip()))
         return refs
 
     def extract_effective_date(self, text: str) -> EffectiveDateCandidate | None:

@@ -12,14 +12,13 @@ from datetime import date
 from domain.services import get_visibility_conditions
 from domain.value_objects.roles import UserKind, UserRole
 from qdrant_client.models import (
+    Condition,
     DatetimeRange,
     FieldCondition,
     Filter,
-    HasIdCondition,
     IsEmptyCondition,
     MatchAny,
     MatchValue,
-    NestedCondition,
     PayloadField,
 )
 
@@ -58,11 +57,10 @@ def build_qdrant_filter(
         managed_group_ids=managed_group_ids,
     )
 
-    ConditionType = FieldCondition | IsEmptyCondition | HasIdCondition | NestedCondition | Filter
-    should: list[ConditionType] = []
+    should: list[Condition] = []
 
     for cond in conditions:
-        must: list[ConditionType] = [
+        must: list[Condition] = [
             FieldCondition(key="metadata.visibility", match=MatchValue(value=cond.visibility)),
         ]
 
