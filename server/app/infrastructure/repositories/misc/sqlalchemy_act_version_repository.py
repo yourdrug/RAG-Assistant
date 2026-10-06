@@ -7,10 +7,10 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from domain.entities.act_version import ActVersion
-from infrastructure.database.models import ActVersionModel, DocumentModel
+from infrastructure.database.models import ActVersionModel, DocumentModel, RegulatoryActModel
 
 
-def _as_date(value) -> date | None:
+def as_date(value) -> date | None:
     """Normalize a Date/DateTime column value into a date."""
     if value is None:
         return None
@@ -24,13 +24,13 @@ class SQLAlchemyActVersionRepository:
         self._session = session
 
     @staticmethod
-    def _to_entity(m: ActVersionModel) -> ActVersion:
+    def to_entity(m: ActVersionModel) -> ActVersion:
         return ActVersion(
             id=m.id,
             act_id=m.act_id,
             document_id=m.document_id,
-            effective_from=_as_date(m.effective_from),
-            effective_to=_as_date(m.effective_to),
+            effective_from=as_date(m.effective_from),
+            effective_to=as_date(m.effective_to),
             is_current=m.is_current,
             date_source=m.date_source,
             date_confidence=m.date_confidence,
@@ -57,7 +57,7 @@ class SQLAlchemyActVersionRepository:
 
     async def get_by_id(self, version_id: int) -> ActVersion | None:
         m = await self._session.get(ActVersionModel, version_id)
-        return self._to_entity(m) if m else None
+        return self.to_entity(m) if m else None
 
     async def get_by_document_id(self, document_id: int, *, for_update: bool = False) -> ActVersion | None:
         if for_update:
@@ -82,7 +82,7 @@ class SQLAlchemyActVersionRepository:
             stmt = stmt.with_for_update()
         result = await self._session.execute(stmt)
         m = result.scalar_one_or_none()
-        return self._to_entity(m) if m else None
+        return self.to_entity(m) if m else None
 
     async def unset_current(self, act_id: int) -> None:
         stmt = (
@@ -92,10 +92,17 @@ class SQLAlchemyActVersionRepository:
         )
         await self._session.execute(stmt)
 
-    async def list_by_act(self, act_id: int) -> list[ActVersion]:
+    async def list_by_act(self, act_id: int, *, for_update: bool = False) -> list[ActVersion]:
+        if for_update:
+            # Parent lock also serializes insertion into an empty timeline.
+            await self._session.execute(
+                select(RegulatoryActModel.id).where(RegulatoryActModel.id == act_id).with_for_update()
+            )
         stmt = select(ActVersionModel).where(ActVersionModel.act_id == act_id).order_by(ActVersionModel.id)
+        if for_update:
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
         result = await self._session.execute(stmt)
-        return [self._to_entity(m) for m in result.scalars()]
+        return [self.to_entity(m) for m in result.scalars()]
 
     async def list_pending_review(self) -> list[ActVersion]:
         stmt = (
@@ -104,13 +111,13 @@ class SQLAlchemyActVersionRepository:
             .order_by(ActVersionModel.id)
         )
         result = await self._session.execute(stmt)
-        return [self._to_entity(m) for m in result.scalars()]
+        return [self.to_entity(m) for m in result.scalars()]
 
     async def list_page(self, limit: int, offset: int) -> tuple[list[ActVersion], int]:
         total = await self._session.scalar(select(func.count()).select_from(ActVersionModel))
         stmt = select(ActVersionModel).order_by(ActVersionModel.id).offset(offset).limit(limit)
         result = await self._session.execute(stmt)
-        return [self._to_entity(m) for m in result.scalars()], int(total or 0)
+        return [self.to_entity(m) for m in result.scalars()], int(total or 0)
 
     async def update(self, version: ActVersion) -> None:
         m = await self._session.get(ActVersionModel, version.id)

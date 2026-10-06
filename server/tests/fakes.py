@@ -730,7 +730,7 @@ class FakeActVersionRepository:
             if v.act_id == act_id and v.is_current:
                 v.is_current = False
 
-    async def list_by_act(self, act_id: int):
+    async def list_by_act(self, act_id: int, *, for_update: bool = False):
         return [v for v in self._versions.values() if v.act_id == act_id]
 
     async def list_pending_review(self):

@@ -499,3 +499,15 @@ UserContext.build()          → managed_*_ids from DB (CURATOR only)
 | Фаза 4: API | 🟡 PARTIAL | extra="forbid" ✅, cache invalidation ✅, email validation ✅; schemas split ❌, rate limiting ✅ |
 | Фаза 5: God-Files | ✅ DONE | rag_service stream → rag_steps, ingestion → parsers, benchmark → modules |
 | Фаза 6: Performance | ✅ DONE | BM25 thread safety, reverse index, gzip, batch rebuild, metrics |
+
+
+## Naming functions and modules
+
+- Не создавай имена Python-модулей, функций и обычных методов с начальным `_`.
+  Используй содержательные имена без ведущего подчёркивания, включая вспомогательные функции.
+- Исключение: обязательные Python/framework protocol hooks (`__init__`, `__aenter__` и т.п.).
+  Приватные атрибуты экземпляра (`self._repository`) это правило не затрагивает.
+- Не импортируй функции с ведущим `_` из других модулей. При изменении такого API
+  переименуй определение и все места использования в затрагиваемом компоненте.
+- Правила и инварианты редакций принадлежат `ActVersion` / `ActVersionTimeline` в domain.
+  Загрузка, блокировки, UoW, обновление чанков и outbox остаются в application/infrastructure.

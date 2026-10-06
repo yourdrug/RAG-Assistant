@@ -30,18 +30,18 @@ class FakeSettings:
         return "0"
 
 
-def _decree_profile():
+def decree_profile():
     from domain.domain_profile.profiles.decree import DecreeDomainProfile
 
     return DecreeDomainProfile(settings=FakeSettings())
 
 
-def _service(threshold: str = "0.85") -> tuple[ActVersioningService, FakeUnitOfWorkFactory]:
+def make_service(threshold: str = "0.85") -> tuple[ActVersioningService, FakeUnitOfWorkFactory]:
     factory = FakeUnitOfWorkFactory()
     return ActVersioningService(uow_factory=factory, settings=FakeSettings(threshold)), factory
 
 
-def _refs(number: str = "123") -> list[ReferenceMatch]:
+def act_refs(number: str = "123") -> list[ReferenceMatch]:
     return [
         ReferenceMatch("decree_number", number),
         ReferenceMatch("decree_date", "1 января 2026 г."),
@@ -50,7 +50,7 @@ def _refs(number: str = "123") -> list[ReferenceMatch]:
 
 @pytest.mark.asyncio
 async def test_handle_versioned_upload_matches_existing_act_by_number():
-    service, factory = _service()
+    service, factory = make_service()
     uow = factory._uow
     existing = await uow.regulatory_acts.save(
         RegulatoryAct(
@@ -59,7 +59,7 @@ async def test_handle_versioned_upload_matches_existing_act_by_number():
     )
 
     version = await service.handle_versioned_upload(
-        profile=_decree_profile(), document_id=1, extracted_refs=_refs("123")
+        profile=decree_profile(), document_id=1, extracted_refs=act_refs("123")
     )
 
     assert version.act_id == existing.id
@@ -70,9 +70,9 @@ async def test_handle_versioned_upload_matches_existing_act_by_number():
 
 @pytest.mark.asyncio
 async def test_handle_versioned_upload_creates_act_for_new_number():
-    service, factory = _service()
+    service, factory = make_service()
     version = await service.handle_versioned_upload(
-        profile=_decree_profile(), document_id=1, extracted_refs=_refs("777")
+        profile=decree_profile(), document_id=1, extracted_refs=act_refs("777")
     )
     assert version.act_id is not None
     acts = await factory._uow.regulatory_acts.list_all()
@@ -83,9 +83,9 @@ async def test_handle_versioned_upload_creates_act_for_new_number():
 @pytest.mark.asyncio
 async def test_handle_versioned_upload_without_number_pends_linkage():
     """No reliable number → act_id=NULL + review queue, never a guessy new act."""
-    service, factory = _service()
+    service, factory = make_service()
     version = await service.handle_versioned_upload(
-        profile=_decree_profile(), document_id=1, extracted_refs=[]
+        profile=decree_profile(), document_id=1, extracted_refs=[]
     )
     assert version.act_id is None
     assert version.date_source == "extracted"
@@ -96,7 +96,7 @@ async def test_handle_versioned_upload_without_number_pends_linkage():
 
 @pytest.mark.asyncio
 async def test_handle_versioned_upload_unsets_previous_current_and_syncs_chunks():
-    service, factory = _service()
+    service, factory = make_service()
     uow = factory._uow
     for document_id in (10, 11):
         uow.documents._documents[document_id] = Document(id=document_id)
@@ -111,9 +111,9 @@ async def test_handle_versioned_upload_unsets_previous_current_and_syncs_chunks(
     )
 
     new_version = await service.handle_versioned_upload(
-        profile=_decree_profile(),
+        profile=decree_profile(),
         document_id=11,
-        extracted_refs=_refs("5"),
+        extracted_refs=act_refs("5"),
         effective_date=date(2024, 1, 1),
     )
 
@@ -128,18 +128,18 @@ async def test_handle_versioned_upload_unsets_previous_current_and_syncs_chunks(
 
 @pytest.mark.asyncio
 async def test_date_source_trusted_only_above_threshold():
-    service, _ = _service(threshold="0.85")
+    service, _ = make_service(threshold="0.85")
     high = await service.handle_versioned_upload(
-        profile=_decree_profile(),
+        profile=decree_profile(),
         document_id=1,
-        extracted_refs=_refs("1"),
+        extracted_refs=act_refs("1"),
         effective_date=date(2026, 1, 1),
         date_confidence=0.9,
     )
     low = await service.handle_versioned_upload(
-        profile=_decree_profile(),
+        profile=decree_profile(),
         document_id=2,
-        extracted_refs=_refs("2"),
+        extracted_refs=act_refs("2"),
         effective_date=date(2026, 1, 1),
         date_confidence=0.3,
     )
@@ -149,12 +149,12 @@ async def test_date_source_trusted_only_above_threshold():
 
 @pytest.mark.asyncio
 async def test_update_version_sets_manual_and_enqueues_qdrant_sync():
-    service, factory = _service()
+    service, factory = make_service()
     uow = factory._uow
     version = await service.handle_versioned_upload(
-        profile=_decree_profile(),
+        profile=decree_profile(),
         document_id=1,
-        extracted_refs=_refs("9"),
+        extracted_refs=act_refs("9"),
         effective_date=date(2026, 1, 1),
         date_confidence=0.9,
     )
@@ -183,7 +183,7 @@ async def test_update_version_sets_manual_and_enqueues_qdrant_sync():
 
 @pytest.mark.asyncio
 async def test_update_version_unknown_id_raises():
-    service, _ = _service()
+    service, _ = make_service()
     with pytest.raises(EntityNotFound):
         await service.update_version(999, effective_from=date(2026, 1, 1))
 
@@ -195,8 +195,8 @@ async def test_update_version_unknown_id_raises():
 
 @pytest.mark.asyncio
 async def test_process_document_versioning_full_flow():
-    service, factory = _service(threshold="0.85")
-    profile = _decree_profile()
+    service, factory = make_service(threshold="0.85")
+    profile = decree_profile()
     text = (
         "УКАЗ ПРЕЗИДЕНТА № 42 от 1 марта 2026 г.\n"
         "О некоторых мерах по регулированию экономических отношений\n\n"
@@ -219,8 +219,8 @@ async def test_process_document_versioning_full_flow():
 
 @pytest.mark.asyncio
 async def test_process_document_versioning_low_confidence_date_not_filterable():
-    service, factory = _service(threshold="0.85")
-    profile = _decree_profile()
+    service, factory = make_service(threshold="0.85")
+    profile = decree_profile()
     # Only a header date (confidence 0.3 = signing-date hint) — must NOT reach
     # the filterable effective_from; the version stays a review-queue item
     # without a trusted date
@@ -238,7 +238,7 @@ async def test_process_document_versioning_low_confidence_date_not_filterable():
 
 @pytest.mark.asyncio
 async def test_process_document_versioning_skips_unversioned_profile():
-    service, _ = _service()
+    service, _ = make_service()
     from application.dto.versioning_dto import VersioningResult
     from domain.domain_profile.profiles.general import GeneralDomainProfile
 
@@ -252,3 +252,113 @@ async def test_process_document_versioning_skips_unversioned_profile():
         effective_from=None,
         warning=None,
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "new_start, expected_ends, current_document",
+    [
+        (date(2026, 1, 1), [date(2026, 1, 1), date(2027, 1, 1), None], 2),
+        (date(2023, 1, 1), [date(2027, 1, 1), date(2024, 1, 1), None], 1),
+        (date(2028, 1, 1), [date(2027, 1, 1), None, date(2028, 1, 1)], 1),
+        (date(2027, 1, 1), [date(2027, 1, 1), date(2027, 1, 1), None], 1),
+    ],
+)
+async def test_date_correction_rebuilds_chain_chunks_and_outbox(new_start, expected_ends, current_document):
+    from domain.value_objects.visibility import DocumentVisibility
+
+    service, factory = make_service()
+    service._commands._today = lambda: date(2026, 6, 1)
+    uow = factory._uow
+    versions = []
+    for document_id, start in enumerate([date(2024, 1, 1), date(2025, 1, 1), date(2027, 1, 1)], 1):
+        uow.documents._documents[document_id] = Document(
+            id=document_id, visibility=DocumentVisibility.INTERNAL_PUBLIC
+        )
+        version = await service.handle_versioned_upload(
+            decree_profile(), document_id, act_refs(), effective_date=start
+        )
+        versions.append(version)
+        uow.chunks._chunks.append(
+            {
+                "act_version_id": version.id,
+                "is_current": version.is_current,
+                "effective_from": version.effective_from,
+                "effective_to": version.effective_to,
+            }
+        )
+    before = len(uow.vector_outbox._entries)
+    await service.update_version(versions[1].id, effective_from=new_start, verified_by=42)
+    stored = [await uow.act_versions.get_by_id(version.id) for version in versions]
+    assert [version.effective_to for version in stored] == expected_ends
+    assert [version.document_id for version in stored if version.is_current] == [current_document]
+    entries = list(uow.vector_outbox._entries.values())[before:]
+    assert {entry.aggregate_id for entry in entries} >= {versions[0].id, versions[1].id}
+    for version, chunk in zip(stored, uow.chunks._chunks, strict=True):
+        assert chunk["effective_from"] == version.effective_from
+        assert chunk["effective_to"] == version.effective_to
+        assert chunk["is_current"] == version.is_current
+    for entry in entries:
+        version = await uow.act_versions.get_by_id(entry.aggregate_id)
+        assert entry.operation == OutboxOperation.UPDATE_METADATA
+        assert entry.payload["effective_to"] == (
+            version.effective_to.isoformat() if version.effective_to else None
+        )
+        assert entry.payload["is_current"] == version.is_current
+    if new_start == date(2026, 1, 1):
+        # The reported historical query now resolves v1 instead of a gap.
+        as_of = date(2025, 6, 1)
+        assert [
+            v.id
+            for v in stored
+            if v.effective_from <= as_of and (v.effective_to is None or as_of < v.effective_to)
+        ] == [versions[0].id]
+
+
+@pytest.mark.asyncio
+async def test_date_correction_preserves_explicit_expiry():
+    service, factory = make_service()
+    version = await service.handle_versioned_upload(
+        decree_profile(), 1, act_refs(), effective_date=date(2024, 1, 1)
+    )
+    await service.update_version(version.id, effective_to=date(2028, 1, 1))
+    await service.update_version(version.id, effective_from=date(2025, 1, 1))
+    stored = await factory._uow.act_versions.get_by_id(version.id)
+    assert stored.effective_to == date(2028, 1, 1)
+
+
+@pytest.mark.asyncio
+async def test_date_correction_outbox_failure_rolls_back_whole_chain():
+    from copy import deepcopy
+    from unittest.mock import AsyncMock
+
+    from domain.value_objects.visibility import DocumentVisibility
+
+    service, factory = make_service()
+    uow = factory._uow
+    versions = []
+    for document_id, start in enumerate([date(2024, 1, 1), date(2025, 1, 1)], 1):
+        uow.documents._documents[document_id] = Document(
+            id=document_id, visibility=DocumentVisibility.INTERNAL_PUBLIC
+        )
+        version = await service.handle_versioned_upload(
+            decree_profile(), document_id, act_refs(), effective_date=start
+        )
+        versions.append(version)
+        uow.chunks._chunks.append({"act_version_id": version.id, "is_current": version.is_current})
+    original = deepcopy((uow.act_versions._versions, uow.chunks._chunks, uow.vector_outbox._entries))
+    enqueue = uow.vector_outbox.enqueue
+    calls = 0
+
+    async def failing_enqueue(entry):
+        nonlocal calls
+        calls += 1
+        await enqueue(entry)
+        if calls == 2:
+            raise RuntimeError("outbox failure")
+
+    uow.vector_outbox.enqueue = AsyncMock(side_effect=failing_enqueue)
+    with pytest.raises(RuntimeError, match="outbox failure"):
+        await service.update_version(versions[1].id, effective_from=date(2026, 1, 1))
+    assert (uow.act_versions._versions, uow.chunks._chunks, uow.vector_outbox._entries) == original
+    assert factory._uow._rolled_back

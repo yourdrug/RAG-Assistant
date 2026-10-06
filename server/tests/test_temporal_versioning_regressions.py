@@ -121,6 +121,9 @@ async def test_backfilled_and_future_versions_keep_chronological_intervals_and_s
     factory._uow.chunks._chunks.append({"act_version_id": newest.id, "is_current": True})
     backfilled = await upload(service, 3, date(2022, 1, 1))
     future = await upload(service, 4, date(2099, 1, 1))
+    old = await factory._uow.act_versions.get_by_id(old.id)
+    newest = await factory._uow.act_versions.get_by_id(newest.id)
+    backfilled = await factory._uow.act_versions.get_by_id(backfilled.id)
     assert old.effective_to == date(2022, 1, 1)
     assert backfilled.effective_to == date(2024, 1, 1)
     assert newest.effective_to == date(2099, 1, 1)
@@ -414,6 +417,7 @@ async def test_same_effective_date_supersedes_old_edition():
         put_document(factory, document_id)
     original = await upload(service, 1, date(2024, 1, 1))
     corrected = await upload(service, 2, date(2024, 1, 1))
+    original = await factory._uow.act_versions.get_by_id(original.id)
     assert original.effective_to == original.effective_from
     assert not original.is_current and corrected.is_current
 

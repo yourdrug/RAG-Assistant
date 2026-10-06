@@ -9,22 +9,19 @@ from datetime import date, datetime
 from domain.domain_profile.date_parsing import parse_date_guess
 from domain.domain_profile.protocol import DomainProfile, ReferenceMatch
 from domain.entities.act_version import ActVersion
+from domain.entities.act_version_timeline import ActVersionTimeline
 from domain.entities.regulatory_act import RegulatoryAct
-from domain.entities.vector_outbox_entry import OutboxOperation, VectorOutboxEntry
 from domain.exceptions import EntityNotFound, ValidationError
-from domain.repositories.chunk_repository import ChunkVersioningRepository
 from domain.services.act_version_policy import (
-    _document_scope_key,
-    _extract_act_number,
-    _is_latest_version,
-    _new_version_effective_to,
-    _same_document_scope,
+    document_scope_key,
+    extract_act_number,
+    same_document_scope,
 )
 
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
 from application.services.act_version_answers import ActVersionAnswerInvalidator
 from application.services.act_version_planner import ActVersionPlanner
-from application.services.act_version_timeline import _apply_version_timeline, _relink_version
+from application.services.act_version_persistence import ActVersionPersistence
 from application.uow import UnitOfWork
 
 log = logging.getLogger("default")
@@ -55,16 +52,16 @@ class ActVersionCommands:
         similarity — the version gets act_id=NULL and lands in the manual
         linkage queue (TZ section 8.3).
         """
-        act_number = _extract_act_number(extracted_refs)
+        act_number = extract_act_number(extracted_refs)
 
         if not act_number:
             return None
 
         async with self._uow_factory.create(master=True) as uow:
-            return await self._find_or_create_act_in_uow(uow, act_type, act_number, extracted_refs)
+            return await self.find_or_create_act_in_uow(uow, act_type, act_number, extracted_refs)
 
     @staticmethod
-    async def _find_or_create_act_in_uow(
+    async def find_or_create_act_in_uow(
         uow: UnitOfWork,
         act_type: str,
         act_number: str,
@@ -153,21 +150,21 @@ class ActVersionCommands:
         existing_version = await uow.act_versions.get_by_document_id(document_id, for_update=True)
         if existing_version is not None:
             return existing_version
-        act_number = _extract_act_number(extracted_refs)
+        act_number = extract_act_number(extracted_refs)
         date_source = self._planner.resolve_date_source(profile.key, effective_date, date_confidence)
         act: RegulatoryAct | None = None
         previous: list[ActVersion] = []
         if act_number:
             document = await uow.documents.get_by_id(document_id)
-            scope = _document_scope_key(document) if document is not None else "internal_public"
-            act = await self._find_or_create_act_in_uow(uow, profile.key, act_number, extracted_refs, scope)
+            scope = document_scope_key(document) if document is not None else "internal_public"
+            act = await self.find_or_create_act_in_uow(uow, profile.key, act_number, extracted_refs, scope)
 
         if act is not None and act.id is not None:
-            previous = await uow.act_versions.list_by_act(act.id)
+            previous = await uow.act_versions.list_by_act(act.id, for_update=True)
             new_doc = await uow.documents.get_by_id(document_id)
             previous_docs = [await uow.documents.get_by_id(v.document_id) for v in previous]
             same_scope = new_doc is not None and all(
-                old_doc is not None and _same_document_scope(new_doc, old_doc) for old_doc in previous_docs
+                old_doc is not None and same_document_scope(new_doc, old_doc) for old_doc in previous_docs
             )
             if previous and not same_scope:
                 # A version uploaded into another visibility scope must never
@@ -179,15 +176,18 @@ class ActVersionCommands:
                 act = None
                 previous = []
             elif previous:
-                await _apply_version_timeline(uow, previous, effective_date, today=self._today())
+                timeline = ActVersionTimeline(tuple(previous))
+                changed = timeline.insert_boundary(effective_date, today=self._today())
+                await ActVersionPersistence(uow).save_changes(timeline, changed.versions)
 
+        timeline = ActVersionTimeline(tuple(previous))
         version = ActVersion(
             id=None,
             act_id=act.id if act is not None else None,
             document_id=document_id,
             effective_from=effective_date,
-            effective_to=_new_version_effective_to(previous, effective_date),
-            is_current=_is_latest_version(previous, effective_date, today=self._today()),
+            effective_to=timeline.successor_date(effective_date),
+            is_current=timeline.is_latest(effective_date, today=self._today()),
             date_source=date_source,
             date_confidence=date_confidence,
         )
@@ -218,10 +218,8 @@ class ActVersionCommands:
         """
         affected_act_ids: set[int] = set()
         async with self._uow_factory.create(master=True) as uow:
-            version = await uow.act_versions.get_by_id(version_id)
-            if version is None:
-                raise EntityNotFound("ActVersion", version_id)
-
+            persistence = ActVersionPersistence(uow)
+            version, timeline = await persistence.load(version_id)
             old_act_id = version.act_id
             if old_act_id is not None:
                 affected_act_ids.add(old_act_id)
@@ -231,47 +229,54 @@ class ActVersionCommands:
                 version.effective_to = effective_to
             if act_id_provided or act_id is not None:
                 version.act_id = act_id
-            if (
-                version.effective_from is not None
-                and version.effective_to is not None
-                and version.effective_to <= version.effective_from
-            ):
-                raise ValidationError("effective_to must be later than effective_from")
+            dates_changed = any(
+                (
+                    effective_from_provided,
+                    effective_from is not None,
+                    effective_to_provided,
+                    effective_to is not None,
+                )
+            )
+            corrected = (version,)
+            if old_act_id == version.act_id and version.act_id is not None and dates_changed:
+                correction = timeline.correct(
+                    version,
+                    end_provided=effective_to_provided or effective_to is not None,
+                    today=self._today(),
+                )
+                version = correction.get_version(version_id)
+                corrected = tuple(version if item.id == version_id else item for item in correction.versions)
             if old_act_id != version.act_id:
-                await _relink_version(uow, version, today=self._today())
+                await self.relink_version(uow, version)
+            version.validate_dates(explicit_end=effective_to)
             if version.act_id is not None:
                 affected_act_ids.add(version.act_id)
             version.date_source = _DATE_SOURCE_MANUAL
             version.verified_by = verified_by
             version.verified_at = datetime.now()
 
-            await uow.act_versions.update(version)
-            chunks: ChunkVersioningRepository = uow.chunks
-            await chunks.set_current_by_act_version_ids([version_id], version.is_current)
-
-            await chunks.update_temporal_by_act_version_id(
-                version_id,
-                effective_from=version.effective_from,
-                effective_to=version.effective_to,
-            )
-
-            await uow.vector_outbox.enqueue(
-                VectorOutboxEntry(
-                    operation=OutboxOperation.UPDATE_METADATA,
-                    aggregate_type="act_version",
-                    aggregate_id=version_id,
-                    payload={
-                        "act_version_id": version_id,
-                        "act_id": version.act_id,
-                        "is_current": version.is_current,
-                        "effective_from": (
-                            version.effective_from.isoformat() if version.effective_from else None
-                        ),
-                        "effective_to": version.effective_to.isoformat() if version.effective_to else None,
-                    },
-                )
-            )
+            await persistence.save_changes(timeline, corrected, edited_id=version_id)
 
         for affected_act_id in affected_act_ids:
             await self._answers.invalidate_act_answers(affected_act_id)
         await self._answers.invalidate_document_answers(version.document_id)
+
+    async def relink_version(self, uow: UnitOfWork, version: ActVersion) -> None:
+        if version.act_id is None:
+            return
+        target_act = await uow.regulatory_acts.get_by_id(version.act_id)
+        if target_act is None:
+            raise EntityNotFound("RegulatoryAct", version.act_id)
+        versions = await uow.act_versions.list_by_act(version.act_id, for_update=True)
+        previous = [item for item in versions if item.id != version.id]
+        document = await uow.documents.get_by_id(version.document_id)
+        for item in previous:
+            other = await uow.documents.get_by_id(item.document_id)
+            if document is None or other is None or not same_document_scope(document, other):
+                raise ValidationError("Versions of an act must have the same visibility scope")
+        timeline = ActVersionTimeline(tuple(previous))
+        changed = timeline.insert_boundary(version.effective_from, today=self._today())
+        await ActVersionPersistence(uow).save_changes(timeline, changed.versions)
+        version.is_current = timeline.is_latest(version.effective_from, today=self._today())
+        if version.effective_to is None:
+            version.effective_to = timeline.successor_date(version.effective_from)
