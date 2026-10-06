@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 
 from composition.utils import _missing_fields, _require
 from composition.service_providers import create_ingestion_service
-from config import settings
 from infrastructure.adapters.chunk_search_adapter import ChunkSearchAdapter
 from infrastructure.bm25.bm25_updater import BM25IndexAdapter
 
@@ -121,6 +120,7 @@ class ApplicationContainer:
             LiveChunkSettings,
             LiveConfigAdminSettings,
             LiveHealthSettings,
+            LiveRagSettings,
         )
         from infrastructure.adapters.pii_redactor_adapter import PIIRedactorAdapter
         from infrastructure.ml.guardrails.pdf_adapter import (
@@ -139,7 +139,7 @@ class ApplicationContainer:
         chunk_search = ChunkSearchAdapter(uow_factory=uow)
         from application.services.document_access_service import DocumentAccessService
 
-        pii_redactor = PIIRedactorAdapter(pii_redaction_enabled=settings.pii_redaction_enabled)
+        pii_redactor = PIIRedactorAdapter(rag_settings=LiveRagSettings())
         self.rag_service = RagService(
             ml_clients=ml,
             chunk_search=chunk_search,

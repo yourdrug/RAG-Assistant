@@ -17,6 +17,11 @@ from composition.container import (
 )
 from infrastructure.adapters.chunk_search_adapter import ChunkSearchAdapter
 from infrastructure.database.database import DatabaseManager
+from config import settings
+from domain.events.config_events import ConfigParameterChanged
+from domain.value_objects.config_value_type import ConfigValueType
+from infrastructure.events.in_process_event_bus import InProcessEventBus
+from infrastructure.events.postgres_config_listener import PostgresConfigListener
 
 
 @pytest.fixture
@@ -59,6 +64,53 @@ class TestInfrastructureContainer:
 
 
 class TestApplicationContainer:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("update_source", ["hot_reload", "db_resync"])
+    async def test_shared_pii_redactor_uses_config_loaded_after_init(self, monkeypatch, update_source):
+        monkeypatch.setattr(settings, "pii_redaction_enabled", False)
+        bus = InProcessEventBus()
+        monkeypatch.setattr("infrastructure.events.in_process_event_bus.event_bus", bus)
+        container = Container()
+        container.infrastructure = MagicMock()
+        with patch("composition.application.create_ingestion_service", return_value=MagicMock()):
+            container.application.init(container.infrastructure)
+        container._subscribe_config_events()
+
+        chat_redactor = container.application.chat_service._pii_redactor
+        rag_redactor = container.application.rag_service._pii_redactor
+        assert chat_redactor is rag_redactor
+        text = "Контакт: private@example.com"
+        assert chat_redactor.redact(text) == text
+        assert rag_redactor.scan_and_redact(text) == (text, [])
+
+        if update_source == "hot_reload":
+            bus.publish(
+                ConfigParameterChanged(
+                    key="pii_redaction_enabled",
+                    old_value="false",
+                    new_value="true",
+                    value_type=ConfigValueType.BOOL.value,
+                )
+            )
+        else:
+            uow = AsyncMock()
+            uow.config_parameters.get_all.return_value = [
+                MagicMock(
+                    key="pii_redaction_enabled",
+                    value="true",
+                    value_type=ConfigValueType.BOOL.value,
+                    domain_key=None,
+                )
+            ]
+            factory = container.infrastructure.db.uow_factory
+            factory.create.return_value.__aenter__ = AsyncMock(return_value=uow)
+            factory.create.return_value.__aexit__ = AsyncMock(return_value=False)
+            await PostgresConfigListener(bus, factory).resync(trigger="reconnect")
+
+        assert settings.pii_redaction_enabled is True
+        assert chat_redactor.redact(text) == "Контакт: ***"
+        assert rag_redactor.scan_and_redact(text) == ("Контакт: ***", ["email"])
+
     def test_init_requires_infra_initialized(self):
         app = ApplicationContainer()
         infra = InfrastructureContainer()

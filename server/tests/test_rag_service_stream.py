@@ -378,7 +378,7 @@ class TestOutputSecurity:
             patch("infrastructure.ml.rag_service.store_answer_cache", new_callable=AsyncMock) as store,
         ):
             service = _make_service()
-            service._pii_redactor = PIIRedactorAdapter(pii_redaction_enabled=True)
+            service._pii_redactor = PIIRedactorAdapter(rag_settings=rag)
             service._ml.llm_for_breadth.return_value.astream = MagicMock(
                 side_effect=lambda _: _async_iter(chunks)
             )
@@ -408,7 +408,7 @@ class TestOutputSecurity:
             patch("infrastructure.ml.rag_service.store_answer_cache", new_callable=AsyncMock) as store,
         ):
             service = _make_service()
-            service._pii_redactor = PIIRedactorAdapter(pii_redaction_enabled=True)
+            service._pii_redactor = PIIRedactorAdapter(rag_settings=rag)
             service._ml.llm_for_breadth.return_value.astream = MagicMock(return_value=_async_iter(chunks))
 
             events = await collect_events(service, "Вопрос?")
@@ -432,7 +432,7 @@ class TestOutputSecurity:
             patch("infrastructure.ml.rag.rag_cache.find_cached_answer", AsyncMock(return_value=cached)),
         ):
             service = _make_service()
-            service._pii_redactor = PIIRedactorAdapter(pii_redaction_enabled=True)
+            service._pii_redactor = PIIRedactorAdapter(rag_settings=rag)
             events = await collect_events(service, "Вопрос?")
             streamed = "".join(e.text for e in events if isinstance(e, TextChunk))
             assert "private@example.com" not in streamed

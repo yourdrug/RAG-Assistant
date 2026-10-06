@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+from application.ports.rag_settings import RagSettingsPort
+
 
 class PIIRedactorAdapter:
     """Implements PIIRedactorPort using infrastructure.ml.guardrails.PIIDetector."""
 
-    def __init__(self, pii_redaction_enabled: bool = False) -> None:
-        self._enabled = pii_redaction_enabled
+    def __init__(self, rag_settings: RagSettingsPort) -> None:
+        self._settings = rag_settings
 
     def redact(self, text: str) -> str:
-        if not self._enabled:
+        if not self._settings.pii_redaction_enabled:
             return text
 
         from infrastructure.ml.guardrails.guardrails import get_pii_detector
@@ -23,7 +25,7 @@ class PIIRedactorAdapter:
         return redacted
 
     def scan_and_redact(self, text: str) -> tuple[str, list[str]]:
-        if not self._enabled:
+        if not self._settings.pii_redaction_enabled:
             return text, []
 
         from infrastructure.ml.guardrails.guardrails import get_pii_detector
