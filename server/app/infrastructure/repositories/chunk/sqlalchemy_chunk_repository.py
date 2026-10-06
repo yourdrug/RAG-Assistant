@@ -92,6 +92,10 @@ class SQLAlchemyChunkRepository:
         manual: bool = False,
         content_hash: str | None = None,
         context_metadata: dict | None = None,
+        act_version_id: int | None = None,
+        effective_from: date | None = None,
+        effective_to: date | None = None,
+        is_current: bool = True,
     ) -> int:
         return await self._crud.insert_one(
             document_id=document_id,
@@ -105,6 +109,10 @@ class SQLAlchemyChunkRepository:
             manual=manual,
             content_hash=content_hash,
             context_metadata=context_metadata,
+            act_version_id=act_version_id,
+            effective_from=effective_from,
+            effective_to=effective_to,
+            is_current=is_current,
         )
 
     async def delete_one(self, chunk_id: int) -> None:

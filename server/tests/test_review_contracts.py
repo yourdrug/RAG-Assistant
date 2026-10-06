@@ -201,6 +201,7 @@ async def test_bm25_mutates_only_after_successful_commit(monkeypatch, operation,
         ),
         documents=SimpleNamespace(set_has_manual_edits=AsyncMock()),
         vector_outbox=SimpleNamespace(enqueue=AsyncMock()),
+        act_versions=SimpleNamespace(get_by_document_id=AsyncMock(return_value=None)),
     )
 
     class Transaction:

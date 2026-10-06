@@ -130,6 +130,10 @@ class SQLAlchemyChunkCrudRepository:
         manual: bool = False,
         content_hash: str | None = None,
         context_metadata: dict | None = None,
+        act_version_id: int | None = None,
+        effective_from: date | None = None,
+        effective_to: date | None = None,
+        is_current: bool = True,
     ) -> int:
         orm = ChunkModel(
             document_id=document_id,
@@ -143,6 +147,10 @@ class SQLAlchemyChunkCrudRepository:
             manual=manual,
             content_hash=content_hash,
             context_metadata=extract_chunk_context(context_metadata or {}),
+            act_version_id=act_version_id,
+            effective_from=effective_from,
+            effective_to=effective_to,
+            is_current=is_current,
         )
         self._session.add(orm)
         await self._session.flush()

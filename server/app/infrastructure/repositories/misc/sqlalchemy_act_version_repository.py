@@ -76,6 +76,10 @@ class SQLAlchemyActVersionRepository:
             )
             .limit(1)
         )
+        if for_update:
+            # Document locking also covers the absence of an edition. Lock the
+            # selected edition itself to serialize with date/timeline updates.
+            stmt = stmt.with_for_update()
         result = await self._session.execute(stmt)
         m = result.scalar_one_or_none()
         return self._to_entity(m) if m else None

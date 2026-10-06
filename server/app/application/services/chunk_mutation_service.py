@@ -213,6 +213,14 @@ class ChunkMutationService:
 
             warning = await self._check_duplicate_content(uow, content, document_id)
 
+            # Read the edition inside the write transaction and hold its lock
+            # until both the SQL chunk and vector outbox snapshot are committed.
+            version = await uow.act_versions.get_by_document_id(document_id, for_update=True)
+            act_version_id = version.id if version else None
+            effective_from = version.effective_from if version else None
+            effective_to = version.effective_to if version else None
+            is_current = version.is_current if version else True
+
             max_index = await chunks.get_max_chunk_index(document_id)
             next_index = max_index + 1
 
@@ -236,6 +244,10 @@ class ChunkMutationService:
                 manual=True,
                 content_hash=new_hash,
                 context_metadata=context_metadata,
+                act_version_id=act_version_id,
+                effective_from=effective_from,
+                effective_to=effective_to,
+                is_current=is_current,
             )
             metadata = build_outbox_metadata(
                 document_id=document_id,
@@ -246,6 +258,12 @@ class ChunkMutationService:
                 doc_domain=doc.doc_domain,
                 content_hash=new_hash,
                 manual=True,
+                chunk_index=next_index,
+                act_version_id=act_version_id,
+                act_id=version.act_id if version else None,
+                effective_from=effective_from.isoformat() if effective_from else None,
+                effective_to=effective_to.isoformat() if effective_to else None,
+                is_current=is_current,
             )
             if page is not None:
                 metadata["page"] = page

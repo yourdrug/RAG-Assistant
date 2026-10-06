@@ -105,6 +105,10 @@ class ChunkCrudRepository(Protocol):
         manual: bool = False,
         content_hash: str | None = None,
         context_metadata: dict | None = None,
+        act_version_id: int | None = None,
+        effective_from: date | None = None,
+        effective_to: date | None = None,
+        is_current: bool = True,
     ) -> int: ...
 
     async def delete_one(self, chunk_id: int) -> None: ...

@@ -85,6 +85,7 @@ def _make_uow(doc=None, chunk=None, max_index=0):
     uow.documents.set_has_manual_edits = AsyncMock()
     uow.documents.update_chunk_stats = AsyncMock()
     uow.vector_outbox.enqueue = AsyncMock()
+    uow.act_versions.get_by_document_id = AsyncMock(return_value=None)
     return uow
 
 
