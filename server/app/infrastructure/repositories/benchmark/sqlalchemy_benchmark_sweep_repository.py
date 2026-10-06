@@ -41,7 +41,7 @@ class SQLAlchemyBenchmarkSweepRepository:
         except IntegrityError as exc:
             # asyncpg exposes the constraint on the wrapped cause; psycopg
             # exposes it on diag. Other integrity failures must propagate.
-            cause = exc.orig.__cause__
+            cause = exc.orig.__cause__ if exc.orig is not None else None
             diag = getattr(exc.orig, "diag", None)
             constraint = getattr(cause, "constraint_name", None) or getattr(diag, "constraint_name", None)
             if constraint == BENCHMARK_ACTIVE_SWEEP_INDEX:

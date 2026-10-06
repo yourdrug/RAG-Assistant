@@ -20,7 +20,7 @@ class ActVersionTimeline:
         for version in self.versions:
             if version.id == version_id:
                 return replace(version)
-        raise EntityNotFound("ActVersion", version_id)
+        raise EntityNotFound("ActVersion", str(version_id))
 
     def is_latest(self, effective_date: date | None, *, today: date) -> bool:
         if effective_date is None:

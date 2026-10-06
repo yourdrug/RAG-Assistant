@@ -237,7 +237,7 @@ class ActVersionCommands:
                     effective_to is not None,
                 )
             )
-            corrected = (version,)
+            corrected: tuple[ActVersion, ...] = (version,)
             if old_act_id == version.act_id and version.act_id is not None and dates_changed:
                 correction = timeline.correct(
                     version,

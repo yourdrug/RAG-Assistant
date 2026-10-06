@@ -280,9 +280,9 @@ class TestCompiledScopeStructure:
         contexts = _walk_contexts(top)
         docid = [(n, under_or) for n, under_or in contexts if n[1] == "document_id"]
         assert docid, "document_id filter must be present in the WHERE clause"
-        assert all(
-            not under_or for _, under_or in docid
-        ), "document_id must never appear under an OR — it would grant access instead of narrowing"
+        assert all(not under_or for _, under_or in docid), (
+            "document_id must never appear under an OR — it would grant access instead of narrowing"
+        )
         assert any(n[3] == 5 for n, _ in docid)
 
 
@@ -347,9 +347,9 @@ class TestClientScope:
             "content": "my secret material",
         }
 
-        assert (
-            _eval(tree, foreign_doc5, pattern) is False
-        ), "document_id=5 must not grant access to foreign rows"
+        assert _eval(tree, foreign_doc5, pattern) is False, (
+            "document_id=5 must not grant access to foreign rows"
+        )
         assert _eval(tree, own_other_doc, pattern) is False, "must not see rows of another document"
         own_doc5 = {**foreign_doc5, "owner_id": 1}
         assert _eval(tree, own_doc5, pattern) is True
