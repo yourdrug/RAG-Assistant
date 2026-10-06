@@ -6,11 +6,12 @@ from domain.value_objects.benchmark_scoring import DEFAULT_OBJECTIVE_WEIGHTS, va
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from domain.value_objects.benchmark_dataset import BenchmarkDataset
 from domain.value_objects.benchmark_annotations import validate_annotations
 from domain.value_objects.benchmark_strategy import BenchmarkStrategy
+from domain.value_objects.sweep_evaluation_mode import SweepEvaluationMode, validate_sweep_mode
 
 
 # ---------------------------------------------------------------------------
@@ -132,11 +133,30 @@ class SweepCreateRequest(BaseModel):
     objective_weights: dict[str, float] = Field(default_factory=lambda: DEFAULT_OBJECTIVE_WEIGHTS.copy())
     dataset: str = BenchmarkDataset.MAIN.value
     top_n_llm: int = Field(3, ge=0, le=20)
+    evaluation_mode: SweepEvaluationMode = SweepEvaluationMode.FAST
+    judge_model: str | None = Field(default=None, min_length=1, max_length=255)
+
+    @field_validator("judge_model")
+    @classmethod
+    def validate_judge_model(cls, value: str | None) -> str | None:
+        if value is not None:
+            value = value.strip()
+            if not value:
+                raise ValueError("judge_model must not be blank")
+        return value
 
     @field_validator("objective_weights")
     @classmethod
     def validate_weights(cls, value: dict[str, float]) -> dict[str, float]:
-        return validate_objective_weights(value)
+        return validate_objective_weights(value, require_retrieval=False)
+
+    @model_validator(mode="after")
+    def validate_evaluation_mode(self) -> SweepCreateRequest:
+        validate_sweep_mode(self.evaluation_mode, self.strategy)
+        self.objective_weights = validate_objective_weights(
+            self.objective_weights, require_retrieval=self.evaluation_mode == SweepEvaluationMode.FAST
+        )
+        return self
 
 
 class SweepResponse(BaseModel):
@@ -147,6 +167,8 @@ class SweepResponse(BaseModel):
     objective_weights: dict
     dataset: str
     top_n_llm: int
+    evaluation_mode: SweepEvaluationMode = SweepEvaluationMode.FAST
+    judge_model: str | None = None
     total_configs: int
     evaluated_configs: int
     best_run_id: int | None = None

@@ -286,6 +286,8 @@ def sweep_create_to_dto(body: Any) -> Any:
         objective_weights=body.objective_weights,
         dataset=body.dataset,
         top_n_llm=body.top_n_llm,
+        judge_model=body.judge_model,
+        evaluation_mode=body.evaluation_mode,
     )
 
 
@@ -343,6 +345,8 @@ def sweep_to_response(s: Any, *, job_id: int | None = None) -> Any:
         objective_weights=s.objective_weights,
         dataset=s.dataset,
         top_n_llm=s.top_n_llm,
+        judge_model=s.judge_model,
+        evaluation_mode=s.evaluation_mode,
         total_configs=s.total_configs,
         evaluated_configs=s.evaluated_configs,
         best_run_id=s.best_run_id,

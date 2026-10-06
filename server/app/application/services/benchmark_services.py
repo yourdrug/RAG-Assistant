@@ -20,6 +20,7 @@ from domain.entities.benchmark_run import BenchmarkRun
 from domain.entities.benchmark_sweep import BenchmarkSweep
 from domain.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
 from domain.value_objects.sweep_status import BenchmarkSweepStatus
+from domain.value_objects.sweep_evaluation_mode import validate_sweep_mode
 
 RunCompareResult: TypeAlias = tuple[list[BenchmarkRun], dict[str, list[dict]]]
 
@@ -123,6 +124,7 @@ class BenchmarkSweepService:
         self._uow_factory = uow_factory
 
     async def create(self, body: SweepCreateDTO) -> BenchmarkSweep:
+        validate_sweep_mode(body.evaluation_mode, body.strategy)
         async with self._uow_factory.create(master=True) as uow:
             if await uow.benchmark_sweeps.has_active():
                 raise BusinessRuleViolation(
@@ -134,6 +136,8 @@ class BenchmarkSweepService:
                 objective_weights=body.objective_weights,
                 dataset=body.dataset,
                 top_n_llm=body.top_n_llm,
+                judge_model=body.judge_model,
+                evaluation_mode=body.evaluation_mode,
                 status=BenchmarkSweepStatus.PENDING.value,
             )
             sweep = await uow.benchmark_sweeps.create(sweep_entity)

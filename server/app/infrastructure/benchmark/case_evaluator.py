@@ -8,7 +8,7 @@ import time
 from config import settings
 from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.benchmark_annotations import validate_annotations
-from domain.services.benchmark_evaluation import evaluate_evidence
+from domain.services.benchmark_evaluation import evaluate_evidence, evaluate_retrieval
 
 from infrastructure.benchmark.answer_generators import BenchmarkAnswerGenerator
 
@@ -51,6 +51,26 @@ class BenchmarkCaseEvaluator:
             evidence.context if evidence else None,
             generated.answer,
         )
+        retrieval = evaluate_retrieval(question, evidence.retrieved if evidence else None)
+        evidence_metrics.update(
+            {
+                key: retrieval[key]
+                for key in (
+                    "fragment_recall_at_k",
+                    "fragment_mrr",
+                    "retrieval_fact_coverage",
+                    "evidence_completion_rr",
+                )
+            }
+        )
+        retriever_metrics = {**generated.retriever_metrics, **retrieval}
+        if evidence is None or evidence.retrieved is None:
+            retriever_metrics["source_hit_rate"] = generated.retriever_metrics.get("hit_rate")
+            retriever_metrics["source_mrr"] = generated.retriever_metrics.get("mrr")
+        # Legacy file metrics remain explicitly named diagnostics, never an
+        # alternative result when annotated evidence is unavailable.
+        retriever_metrics.setdefault("avg_similarity", 0.0)
+        retriever_metrics.setdefault("retrieved_sources", [])
         from infrastructure.benchmark.evidence_judge import judge_evidence
 
         judge_metrics = await asyncio.to_thread(
@@ -72,7 +92,7 @@ class BenchmarkCaseEvaluator:
             "answer": generated.answer,
             "expected_answer": question.get("expected_answer"),
             "source_hint": question.get("source_hint"),
-            "retriever_metrics": generated.retriever_metrics,
+            "retriever_metrics": retriever_metrics,
             "annotations": annotations,
             "evidence_metrics": evidence_metrics,
             "evidence_diagnostics": diagnostics,

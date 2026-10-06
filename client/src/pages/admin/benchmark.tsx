@@ -51,6 +51,7 @@ import { Skeleton } from "@/shared/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/shared/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 import { Textarea } from "@/shared/ui/textarea";
+import { BenchmarkJudgeModel } from "./benchmark-judge-model";
 
 // ─── Reusable widgets ─────────────────────────────────────────────────────
 
@@ -639,6 +640,8 @@ function SweepBuilderTab({ onSweepCreated }: { onSweepCreated: (id: number) => v
   const createSweep = useCreateSweep();
   const [strategy, setStrategy] = useState<"grid" | "random" | "successive_halving">("grid");
   const [topNLlm, setTopNLlm] = useState(3);
+  const [evaluationMode, setEvaluationMode] = useState<"fast" | "full">("fast");
+  const [judgeModel, setJudgeModel] = useState<string | null>(null);
   const [dataset, setDataset] = useState("main");
 
   // Parameter configs
@@ -660,13 +663,18 @@ function SweepBuilderTab({ onSweepCreated }: { onSweepCreated: (id: number) => v
     correctness: 0,
     faithfulness: 0.3,
     relevancy: 0.3,
+    fragment_recall_at_k: 0,
+    fragment_mrr: 0,
+    retrieval_fact_coverage: 0,
+    context_fragment_recall: 0,
+    context_fact_coverage: 0,
   });
 
   const estimatedConfigs = useMemo(() => {
+    if (strategy !== "grid") return 50;
     let total = 1;
     for (const [, cfg] of Object.entries(params)) {
       if (!cfg.enabled) continue;
-      if (strategy === "random") return 50; // fixed for random
       const values = cfg.values
         .split(",")
         .map((s) => s.trim())
@@ -677,6 +685,10 @@ function SweepBuilderTab({ onSweepCreated }: { onSweepCreated: (id: number) => v
   }, [params, strategy]);
 
   const handleStart = async () => {
+    if ((evaluationMode === "full" || topNLlm > 0) && !judgeModel?.trim()) {
+      toast.error("Select a judge model");
+      return;
+    }
     const searchSpace: Record<string, any> = {};
     for (const [key, cfg] of Object.entries(params)) {
       if (!cfg.enabled) continue;
@@ -697,10 +709,12 @@ function SweepBuilderTab({ onSweepCreated }: { onSweepCreated: (id: number) => v
     try {
       const result = await createSweep.mutateAsync({
         strategy,
+        evaluation_mode: evaluationMode,
         search_space: searchSpace,
         objective_weights: weights,
         dataset,
         top_n_llm: topNLlm,
+        judge_model: judgeModel?.trim() || null,
       });
       toast.success(`Sweep #${result.id} started`);
       onSweepCreated(result.id);
@@ -719,12 +733,35 @@ function SweepBuilderTab({ onSweepCreated }: { onSweepCreated: (id: number) => v
           </CardTitle>
         </CardHeader>
         <CardContent>
+          <div className="flex gap-3 mb-2">
+            <Button
+              variant={evaluationMode === "fast" ? "default" : "outline"}
+              onClick={() => setEvaluationMode("fast")}
+            >
+              Fast
+            </Button>
+            <Button
+              variant={evaluationMode === "full" ? "default" : "outline"}
+              onClick={() => {
+                setEvaluationMode("full");
+                setStrategy("grid");
+              }}
+            >
+              Full — all combinations
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground mb-3">
+            {evaluationMode === "full"
+              ? "Run RAG and judge for every grid combination. Top-N does not limit this mode."
+              : "Evaluate a shortlist using retrieval quality, fragment completeness, MRR and parameter diversity."}
+          </p>
           <div className="flex gap-3">
             {(["grid", "random", "successive_halving"] as const).map((s) => (
               <Button
                 key={s}
                 variant={strategy === s ? "default" : "outline"}
                 onClick={() => setStrategy(s)}
+                disabled={evaluationMode === "full" && s !== "grid"}
               >
                 {s}
               </Button>
@@ -734,7 +771,7 @@ function SweepBuilderTab({ onSweepCreated }: { onSweepCreated: (id: number) => v
             {strategy === "grid" && "Cartesian product of all values. Best for 2-4 parameters."}
             {strategy === "random" &&
               "50 random points from the search space. Good for 5+ parameters."}
-            {strategy === "successive_halving" && "Evaluate all on subset, keep top 50%, repeat."}
+            {strategy === "successive_halving" && "50 Optuna trials guided by retrieval scores."}
           </p>
         </CardContent>
       </Card>
@@ -797,11 +834,13 @@ function SweepBuilderTab({ onSweepCreated }: { onSweepCreated: (id: number) => v
           <CardContent className="space-y-3">
             <p className="text-xs text-muted-foreground">
               Metrics are normalized to 0–1. Influence is weight / sum of weights. Final selection
-              uses only fully evaluated configurations; Top-N = 0 uses retrieval only.
+              uses only fully evaluated configurations. Fast mode with Top-N = 0 uses retrieval
+              only. Fragment and context metrics require dataset annotations; missing evidence is
+              unavailable.
             </p>
             {Object.entries(weights).map(([key, val]) => (
               <div key={key} className="flex items-center gap-3">
-                <Label className="w-28 text-xs">{key}</Label>
+                <Label className="w-44 text-xs break-words">{key}</Label>
                 <Input
                   type="number"
                   step="0.1"
@@ -831,27 +870,41 @@ function SweepBuilderTab({ onSweepCreated }: { onSweepCreated: (id: number) => v
                 className="flex-1"
               />
             </div>
-            <div className="flex items-center gap-3">
-              <Label className="w-28 text-xs">Top-N for LLM</Label>
-              <Input
-                type="number"
-                min="0"
-                max="20"
-                value={topNLlm}
-                onChange={(e) => setTopNLlm(parseInt(e.target.value) || 0)}
-                className="w-20"
-              />
-            </div>
+            {evaluationMode === "fast" && (
+              <div className="flex items-center gap-3">
+                <Label className="w-28 text-xs">Top-N for LLM</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  max="20"
+                  value={topNLlm}
+                  onChange={(e) => setTopNLlm(parseInt(e.target.value) || 0)}
+                  className="w-20"
+                />
+              </div>
+            )}
+            <BenchmarkJudgeModel
+              value={judgeModel}
+              onChange={setJudgeModel}
+              disabled={evaluationMode === "fast" && topNLlm === 0}
+            />
             <div className="mt-4 p-3 bg-muted rounded-md text-sm">
               <div className="font-medium">Estimated combinations</div>
               <div className="text-2xl font-bold font-mono mt-1">{estimatedConfigs}</div>
               <div className="text-xs text-muted-foreground mt-1">
                 {strategy === "grid"
-                  ? `~${Math.ceil(estimatedConfigs * 0.5)}min retrieval-only + ~${topNLlm * 2}min LLM-judge`
+                  ? `${evaluationMode === "full" ? estimatedConfigs : Math.min(topNLlm, estimatedConfigs)} full RAG + judge evaluations`
                   : `${estimatedConfigs} random evaluations`}
               </div>
             </div>
-            <Button className="w-full mt-2" onClick={handleStart} disabled={createSweep.isPending}>
+            <Button
+              className="w-full mt-2"
+              onClick={handleStart}
+              disabled={
+                createSweep.isPending ||
+                ((evaluationMode === "full" || topNLlm > 0) && !judgeModel?.trim())
+              }
+            >
               <Play className="h-4 w-4 mr-2" />
               {createSweep.isPending ? "Starting..." : "Start Sweep"}
             </Button>
@@ -897,8 +950,10 @@ function SweepProgressTab({
                 <TableHead>ID</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Strategy</TableHead>
+                <TableHead>Evaluation</TableHead>
                 <TableHead>Progress</TableHead>
                 <TableHead>Dataset</TableHead>
+                <TableHead>Judge model</TableHead>
                 <TableHead>Best Run</TableHead>
                 <TableHead></TableHead>
               </TableRow>
@@ -917,6 +972,7 @@ function SweepProgressTab({
                     <StatusBadge status={s.status} />
                   </TableCell>
                   <TableCell className="text-xs">{s.strategy}</TableCell>
+                  <TableCell className="text-xs">{s.evaluation_mode}</TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">
                       <Progress
@@ -931,6 +987,11 @@ function SweepProgressTab({
                     </div>
                   </TableCell>
                   <TableCell className="text-xs">{s.dataset}</TableCell>
+                  <TableCell className="text-xs">
+                    {s.evaluation_mode === "fast" && s.top_n_llm === 0
+                      ? "-"
+                      : s.judge_model || "Default"}
+                  </TableCell>
                   <TableCell className="text-xs font-mono">
                     {s.best_run_id ? `#${s.best_run_id}` : "-"}
                   </TableCell>
@@ -952,7 +1013,7 @@ function SweepProgressTab({
               ))}
               {sweepsData?.sweeps.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                     No sweeps yet. Create one in the Sweep Builder tab.
                   </TableCell>
                 </TableRow>
@@ -1128,6 +1189,16 @@ function LeaderboardTab() {
                       </TableCell>
                       <TableCell className="font-mono text-xs">
                         {run.summary_metrics.composite?.toFixed(3) ?? "-"}
+                        {run.summary_metrics.evaluation_mode && (
+                          <div className="text-muted-foreground">
+                            {run.summary_metrics.evaluation_mode}:{" "}
+                            {run.summary_metrics.evaluated_config_count}/
+                            {run.summary_metrics.search_config_count} evaluated
+                            {run.summary_metrics.scored_config_count != null && (
+                              <span> ({run.summary_metrics.scored_config_count} scored)</span>
+                            )}
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell>
                         {run.llm_evaluated ? (
@@ -1155,6 +1226,14 @@ function LeaderboardTab() {
                       <TableRow>
                         <TableCell colSpan={11} className="p-0">
                           <div className="px-4 py-3 bg-muted/30">
+                            {run.summary_metrics.retrieval_labelled_count != null && (
+                              <p className="text-xs text-muted-foreground mb-2">
+                                Annotated cases: {run.summary_metrics.retrieval_annotated_count};
+                                source-only cases: {run.summary_metrics.retrieval_source_only_count}
+                                ; unavailable retrieval evidence:{" "}
+                                {run.summary_metrics.retrieval_unavailable_count}.
+                              </p>
+                            )}
                             {runDetail?.per_question_results ? (
                               <div className="space-y-2">
                                 <h4 className="text-sm font-medium flex items-center gap-1">
@@ -1169,6 +1248,10 @@ function LeaderboardTab() {
                                         <TableHead className="text-xs">Question</TableHead>
                                         <TableHead className="text-xs">Hit</TableHead>
                                         <TableHead className="text-xs">MRR</TableHead>
+                                        <TableHead className="text-xs">Fragment recall</TableHead>
+                                        <TableHead className="text-xs">Context fragments</TableHead>
+                                        <TableHead className="text-xs">Context facts</TableHead>
+                                        <TableHead className="text-xs">Source hit</TableHead>
                                         <TableHead className="text-xs">Faith</TableHead>
                                         <TableHead className="text-xs">Rel</TableHead>
                                         <TableHead className="text-xs">Latency</TableHead>
@@ -1200,6 +1283,24 @@ function LeaderboardTab() {
                                           </TableCell>
                                           <TableCell className="text-xs font-mono">
                                             {qr.mrr?.toFixed(2) ?? "-"}
+                                          </TableCell>
+                                          <TableCell className="text-xs font-mono">
+                                            {qr.evidence_metrics?.fragment_recall_at_k?.toFixed(
+                                              2,
+                                            ) ?? "-"}
+                                          </TableCell>
+                                          <TableCell className="text-xs font-mono">
+                                            {qr.evidence_metrics?.context_fragment_recall?.toFixed(
+                                              2,
+                                            ) ?? "-"}
+                                          </TableCell>
+                                          <TableCell className="text-xs font-mono">
+                                            {qr.evidence_metrics?.context_fact_coverage?.toFixed(
+                                              2,
+                                            ) ?? "-"}
+                                          </TableCell>
+                                          <TableCell className="text-xs font-mono">
+                                            {qr.source_hit_rate?.toFixed(0) ?? "-"}
                                           </TableCell>
                                           <TableCell className="text-xs">
                                             <ScoreBadge score={qr.faithfulness} />

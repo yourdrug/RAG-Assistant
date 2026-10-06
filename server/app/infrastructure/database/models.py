@@ -26,6 +26,8 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from domain.value_objects.sweep_status import BenchmarkSweepStatus
+from domain.value_objects.sweep_evaluation_mode import SweepEvaluationMode
+from domain.value_objects.benchmark_strategy import BenchmarkStrategy
 from infrastructure.database.basemodel import BaseModel, LinkedBaseModel
 
 BENCHMARK_ACTIVE_SWEEP_INDEX = "uq_benchmark_sweeps_one_active"
@@ -402,6 +404,15 @@ class BenchmarkSweepModel(BaseModel):
             name="benchmark_sweeps_status_check",
         ),
         Index("idx_benchmark_sweeps_status", "status"),
+        CheckConstraint(
+            f"evaluation_mode IN ('{SweepEvaluationMode.FAST.value}', '{SweepEvaluationMode.FULL.value}')",
+            name="benchmark_sweeps_evaluation_mode_check",
+        ),
+        CheckConstraint(
+            f"evaluation_mode != '{SweepEvaluationMode.FULL.value}' "
+            f"OR strategy = '{BenchmarkStrategy.GRID.value}'",
+            name="benchmark_sweeps_full_grid_check",
+        ),
         Index(
             BENCHMARK_ACTIVE_SWEEP_INDEX,
             text("(1)"),
@@ -418,6 +429,10 @@ class BenchmarkSweepModel(BaseModel):
     objective_weights: Mapped[dict] = mapped_column(JSON, nullable=False)
     dataset: Mapped[str] = mapped_column(String(100), nullable=False, server_default="main")
     top_n_llm: Mapped[int] = mapped_column(Integer, nullable=False, server_default="3")
+    judge_model: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    evaluation_mode: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default=SweepEvaluationMode.FAST.value
+    )
     job_id: Mapped[int | None] = mapped_column(
         ForeignKey("background_jobs.id", ondelete="SET NULL"), nullable=True
     )

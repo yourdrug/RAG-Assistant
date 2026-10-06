@@ -20,7 +20,7 @@ def sweep_score(questions, filenames):
         {q['question']: [(str(i), 0.8, doc) for i, doc in enumerate(docs)] for q in questions},
         {},
         {str(i): doc for i, doc in enumerate(docs)},
-        {},
+        {"hit_rate": 1},
     )
 
 
@@ -64,7 +64,7 @@ def test_multiple_sources_match_any_hint_at_first_relevant_rank(evaluate, hint, 
 def test_unlabelled_questions_have_no_retrieval_metrics(evaluate, hint, filenames):
     kind, score = evaluate
     result = score(hint, filenames)
-    expected = 0 if kind == 'sweep' else None
+    expected = None
     assert result['hit_rate'] == expected
     assert result['mrr'] == expected
     if kind != 'sweep':
@@ -119,6 +119,6 @@ async def test_sweep_does_not_fetch_candidates_for_blank_hints(monkeypatch):
         ),
     )
     cache = AsyncMock(return_value=({}, {}, {}))
-    monkeypatch.setattr(engine, '_cache_candidates', cache)
+    monkeypatch.setattr(engine, 'cache_candidates', cache)
     await engine.run_sweep(BenchmarkSweep(search_space={'top_k': {'values': [2]}}, top_n_llm=0))
     assert cache.call_args.args[0] == [valid]

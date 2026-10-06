@@ -89,17 +89,19 @@ async def test_phase_b_uses_loaded_dataset_including_cases_without_source_hints(
         id=20, question="Refusal", annotations={"expected_refusal": True}, dataset="custom"
     )
     factory, repo, _ = dataset_factory([labelled, unlabelled])
-    benchmark = SimpleNamespace(run=AsyncMock(return_value={"hit_rate": 1, "avg_faithfulness": 8, "avg_relevancy": 7}))
+    benchmark = SimpleNamespace(
+        run=AsyncMock(return_value={"hit_rate": 1, "avg_faithfulness": 8, "avg_relevancy": 7})
+    )
     engine = SweepEngine(factory, benchmark_service=benchmark)
     cache = AsyncMock(return_value=({}, {}, {}))
-    monkeypatch.setattr(engine, "_cache_candidates", cache)
+    monkeypatch.setattr(engine, "cache_candidates", cache)
 
     def score(config, *args):
         # Simulate dataset editing between phases. B must use the original snapshot.
         repo.list_active.return_value = [BenchmarkQuestion(id=30, question="Changed")]
         return {"composite_score": config["top_k"]}
 
-    monkeypatch.setattr(engine, "_score_config_cheap", score)
+    monkeypatch.setattr(engine, "score_config_cheap", score)
     results = await engine.run_sweep(
         BenchmarkSweep(dataset="custom", search_space={"top_k": {"values": [2, 5]}}, top_n_llm=2),
         judge_model="judge",

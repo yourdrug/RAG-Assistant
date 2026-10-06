@@ -2,7 +2,7 @@
 
 - C-4: ``_run_tracked_job`` persists job state on success / failure / cancellation,
   and keeps a heartbeat alive while the body runs.
-- M-14: cooperative sweep cancellation (``SweepEngine._check_cancelled``)
+- M-14: cooperative sweep cancellation (``SweepEngine.check_cancelled``)
   and the double-submit guard in ``BenchmarkSweepService.create``.
 """
 
@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 import pytest  # noqa: E402
 from domain.exceptions import BusinessRuleViolation  # noqa: E402
 from domain.value_objects.sweep_status import BenchmarkSweepStatus  # noqa: E402
+from domain.value_objects.sweep_evaluation_mode import SweepEvaluationMode  # noqa: E402
 
 from application.services.benchmark_services import BenchmarkSweepService  # noqa: E402
 from infrastructure.benchmark.sweep_engine import SweepCancelled, SweepEngine  # noqa: E402
@@ -153,7 +154,7 @@ class TestRunTrackedJob:
 class TestSweepCancellation:
     def test_check_cancelled_noop_without_callback(self):
         engine = SweepEngine(uow_factory=None)
-        asyncio.run(engine._check_cancelled(None, "anywhere"))
+        asyncio.run(engine.check_cancelled(None, "anywhere"))
 
     def test_check_cancelled_raises_when_requested(self):
         engine = SweepEngine(uow_factory=None)
@@ -162,7 +163,7 @@ class TestSweepCancellation:
             return True
 
         with pytest.raises(SweepCancelled):
-            asyncio.run(engine._check_cancelled(cancelled, "phase A"))
+            asyncio.run(engine.check_cancelled(cancelled, "phase A"))
 
     def test_check_cancelled_continues_when_not_requested(self):
         engine = SweepEngine(uow_factory=None)
@@ -170,7 +171,7 @@ class TestSweepCancellation:
         async def not_cancelled() -> bool:
             return False
 
-        asyncio.run(engine._check_cancelled(not_cancelled, "phase A"))
+        asyncio.run(engine.check_cancelled(not_cancelled, "phase A"))
 
 
 # ---------------------------------------------------------------------------
@@ -217,11 +218,13 @@ class _SweepFactory:
 
 
 class _CreateSweepBody:
+    evaluation_mode = SweepEvaluationMode.FAST.value
     strategy = "grid"
     search_space = {}
     objective_weights = {}
     dataset = "default"
     top_n_llm = 0
+    judge_model = None
 
 
 class TestSweepDoubleSubmitGuard:

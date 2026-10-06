@@ -41,6 +41,8 @@ def save_results(results: list[dict], out_dir: str, model_name: str = "", run_id
         "correctness",
         "hit_rate",
         "mrr",
+        "source_hit_rate",
+        "source_mrr",
         "avg_sim",
         "context_precision",
         "context_recall",
@@ -62,6 +64,8 @@ def save_results(results: list[dict], out_dir: str, model_name: str = "", run_id
                     **{key: gm.get(key) for key in ("faithfulness", "relevancy", "correctness")},
                     "hit_rate": rm.get("hit_rate"),
                     "mrr": rm.get("mrr"),
+                    "source_hit_rate": rm.get("source_hit_rate"),
+                    "source_mrr": rm.get("source_mrr"),
                     "avg_sim": rm.get("avg_similarity"),
                     "context_precision": cm.get("context_precision"),
                     "context_recall": cm.get("context_recall"),
@@ -99,10 +103,10 @@ def log_question_result(idx: int, total: int, q: dict, result: dict):
     sim_str = f"avg_sim={rm['avg_similarity']:.3f}"
     if rm["hit_rate"] is not None:
         hr_str = "hit" if rm["hit_rate"] else "miss"
-        mrr_str = f"mrr={rm['mrr']:.2f}"
+        mrr_str = f"mrr={rm['mrr']:.2f}" if rm["mrr"] is not None else "mrr=n/a"
         logger.info("  Retriever: %s  %s  %s", hr_str, mrr_str, sim_str)
     else:
-        logger.info("  Retriever: %s  (source_hint не задан)", sim_str)
+        logger.info("  Retriever: %s  (оценка недоступна: нет разметки или evidence)", sim_str)
 
     src_list = ", ".join(result["retriever_metrics"]["retrieved_sources"][:3])
     logger.info("  Источники: %s", src_list)
@@ -142,11 +146,14 @@ def log_summary(results: list[dict], total_time: float):
     logger.info("Retriever:")
     if m["hit_rate"] is not None:
         logger.info(
-            "  Hit Rate:        %.1f/10  (%.0f%% вопросов нашли нужный источник)",
+            "  Hit Rate:        %.1f/10  (%.0f%% размеченных вопросов прошли проверку retrieval)",
             m["hit_rate"] * 10,
             m["hit_rate"] * 100,
         )
-        logger.info("  MRR:             %.3f  (1.0 = нужный чанк всегда первый)", m["avg_mrr"])
+        if m["avg_mrr"] is not None:
+            logger.info(
+                "  MRR:             %.3f  (первый подходящий фрагмент или legacy-источник)", m["avg_mrr"]
+            )
     logger.info("  Avg Similarity:  %.3f", m["avg_similarity"])
 
     logger.info("Context Quality:")

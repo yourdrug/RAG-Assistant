@@ -35,8 +35,13 @@ async def test_full_benchmark_preserves_results_repeated_runs_and_cache_scope(be
     contexts = []
 
     async def invoke(question, history, ctx):
+        from langchain.schema import Document
+        from infrastructure.ml.rag.benchmark_evidence import capture_prompt
+
         assert get_setting("cache_enabled") is False
         contexts.append(ctx)
+        docs = [(Document(page_content="context", metadata={"source": "report.pdf"}), 0.9)]
+        capture_prompt(docs, docs, "context")
         return SimpleNamespace(
             answer="answer",
             input_tokens=20,
@@ -104,8 +109,8 @@ def grid_engine(monkeypatch):
     monkeypatch.setattr(
         engine, "load_questions", AsyncMock(return_value=[{"question": "q", "source_hint": "doc"}])
     )
-    monkeypatch.setattr(engine, "_cache_candidates", AsyncMock(return_value=({}, {}, {})))
-    monkeypatch.setattr(engine, "_score_config_cheap", lambda cfg, *a: {"composite_score": cfg["top_k"]})
+    monkeypatch.setattr(engine, "cache_candidates", AsyncMock(return_value=({}, {}, {})))
+    monkeypatch.setattr(engine, "score_config_cheap", lambda cfg, *a: {"composite_score": cfg["top_k"]})
     return engine
 
 
@@ -121,7 +126,7 @@ async def test_grid_sweep_scores_sorts_and_reports_progress(grid_engine):
 @pytest.mark.asyncio
 async def test_sweep_cancels_before_scoring(grid_engine, monkeypatch):
     score = MagicMock()
-    monkeypatch.setattr(grid_engine, "_score_config_cheap", score)
+    monkeypatch.setattr(grid_engine, "score_config_cheap", score)
     sweep = BenchmarkSweep(search_space={"top_k": {"values": [2]}}, top_n_llm=0)
     with pytest.raises(SweepCancelled):
         await grid_engine.run_sweep(sweep, should_cancel=AsyncMock(return_value=True))

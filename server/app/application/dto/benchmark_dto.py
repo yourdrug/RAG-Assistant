@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from domain.value_objects.benchmark_scoring import DEFAULT_OBJECTIVE_WEIGHTS
+from domain.value_objects.sweep_evaluation_mode import SweepEvaluationMode
 
 from dataclasses import dataclass, field
 
@@ -30,6 +31,8 @@ class SweepCreateDTO:
     objective_weights: dict = field(default_factory=lambda: DEFAULT_OBJECTIVE_WEIGHTS.copy())
     dataset: str = "main"
     top_n_llm: int = 3
+    judge_model: str | None = None
+    evaluation_mode: str = SweepEvaluationMode.FAST.value
 
 
 @dataclass(frozen=True)

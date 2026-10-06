@@ -39,7 +39,7 @@ async def _handle_sweep_cancelled(uow_factory, sweep_id: int) -> None:
     await _publish_sweep_event(sweep_id, {"done": True, "cancelled": True})
 
 
-async def _save_sweep_results(uow_factory, sweep, sweep_id: int, results: list[dict]) -> int | None:
+async def save_sweep_results(uow_factory, sweep, sweep_id: int, results: list[dict]) -> int | None:
     """Persist the best run and mark the sweep done. Returns the best run id."""
     best_run_id = None
     if not results:
@@ -54,7 +54,23 @@ async def _save_sweep_results(uow_factory, sweep, sweep_id: int, results: list[d
         "faithfulness": best.get("full_metrics", {}).get("avg_faithfulness"),
         "relevancy": full.get("avg_relevancy"),
         "correctness": full.get("avg_correctness"),
+        "evaluation_mode": sweep.evaluation_mode,
+        "evaluated_config_count": best.get("evaluated_config_count", 0),
+        "scored_config_count": best.get("scored_config_count", 0),
+        "search_config_count": len(results),
     }
+    # Keep evidence averages and coverage counts so a composite score can be
+    # explained without reopening the original report files.
+    diagnostics = full or best
+    metrics.update(
+        {
+            key: value
+            for key, value in diagnostics.items()
+            if key.startswith(("avg_fragment_", "avg_context_", "avg_retrieval_", "avg_source_"))
+            or key.endswith(("_evaluated_count", "_expected_count"))
+            or key.startswith("retrieval_")
+        }
+    )
     async with uow_factory.create(master=True) as uow:
         run_entity = BenchmarkRun(
             sweep_id=sweep_id,
@@ -104,7 +120,7 @@ async def run_sweep_task(
         try:
             results = await engine.run_sweep(
                 sweep=sweep,
-                judge_model=settings.llm_model,
+                judge_model=sweep.judge_model or settings.benchmark_judge_model or settings.llm_model,
                 progress_callback=_progress_callback,
                 should_cancel=_is_cancelled,
             )
@@ -117,7 +133,7 @@ async def run_sweep_task(
                     await uow.benchmark_sweeps.update_status(sweep_id, BenchmarkSweepStatus.FAILED.value)
             raise
 
-        best_run_id = await _save_sweep_results(uow_factory, sweep, sweep_id, results)
+        best_run_id = await save_sweep_results(uow_factory, sweep, sweep_id, results)
         await _publish_sweep_event(
             sweep_id,
             {"done": True, "best_run_id": best_run_id, "total_results": len(results)},

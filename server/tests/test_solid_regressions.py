@@ -19,8 +19,8 @@ def optuna_engine(monkeypatch):
     monkeypatch.setattr(
         engine, "load_questions", AsyncMock(return_value=[{"question": "q", "source_hint": "doc"}])
     )
-    monkeypatch.setattr(engine, "_cache_candidates", AsyncMock(return_value=({}, {}, {})))
-    monkeypatch.setattr(engine, "_score_config_cheap", lambda cfg, *a: {"composite_score": cfg["top_k"]})
+    monkeypatch.setattr(engine, "cache_candidates", AsyncMock(return_value=({}, {}, {})))
+    monkeypatch.setattr(engine, "score_config_cheap", lambda cfg, *a: {"composite_score": cfg["top_k"]})
     return engine
 
 
@@ -37,7 +37,7 @@ async def test_optuna_accepts_scalar_fetch_k_and_integer_range_without_step(optu
     results = await optuna_engine.run_sweep(optuna_sweep())
     assert len(results) == 3
     assert all(8 <= r["config"]["fetch_k"] <= 16 for r in results)
-    assert optuna_engine._cache_candidates.call_args.args[1] == 16
+    assert optuna_engine.cache_candidates.call_args.args[1] == 16
 
 
 @pytest.mark.asyncio
@@ -79,7 +79,7 @@ async def test_optuna_keeps_event_loop_responsive_during_scoring(optuna_engine, 
             await asyncio.sleep(0)
         released.set()
 
-    monkeypatch.setattr(optuna_engine, "_score_config_cheap", score)
+    monkeypatch.setattr(optuna_engine, "score_config_cheap", score)
     task = asyncio.create_task(heartbeat())
     try:
         await optuna_engine.run_sweep(optuna_sweep())

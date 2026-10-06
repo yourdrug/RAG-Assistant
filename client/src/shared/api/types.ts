@@ -338,6 +338,9 @@ export interface BenchmarkResultDetail {
     correctness?: number | null;
     hit_rate?: number | null;
     mrr?: number | null;
+    source_hit_rate?: number | null;
+    source_mrr?: number | null;
+    evidence_metrics?: Record<string, number | null>;
     avg_similarity?: number;
     latency_sec?: number;
   }> | null;
@@ -479,14 +482,17 @@ export interface BenchmarkQuestionUpdate {
 }
 
 export interface SweepCreateRequest {
+  evaluation_mode?: "fast" | "full";
   strategy: "grid" | "random" | "successive_halving";
   search_space: Record<string, { values?: number[]; min?: number; max?: number; step?: number }>;
   objective_weights?: Record<string, number>;
   dataset?: string;
   top_n_llm?: number;
+  judge_model?: string | null;
 }
 
 export interface SweepResponse {
+  evaluation_mode: "fast" | "full";
   id: number;
   status: "pending" | "running" | "done" | "failed" | "cancelled";
   strategy: string;
@@ -494,6 +500,7 @@ export interface SweepResponse {
   objective_weights: Record<string, number>;
   dataset: string;
   top_n_llm: number;
+  judge_model?: string | null;
   total_configs: number;
   evaluated_configs: number;
   best_run_id?: number | null;

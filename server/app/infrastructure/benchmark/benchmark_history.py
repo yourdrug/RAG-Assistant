@@ -50,8 +50,9 @@ def save_summary_to_history(summary: dict, config: dict, data_dir: str) -> None:
             if k.startswith("avg_fragment_")
             or k.startswith("avg_context_")
             or k.startswith("avg_answer_")
+            or k.startswith(("avg_retrieval_", "avg_source_", "avg_evidence_", "retrieval_"))
             or k in {"avg_refusal_score", "avg_citation_support_score", "avg_requirement_preservation_score"}
-            or k.endswith("_evaluated_count")
+            or k.endswith(("_evaluated_count", "_expected_count"))
         }
     )
 

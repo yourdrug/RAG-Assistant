@@ -7,7 +7,7 @@ and handles result persistence, history tracking, and regression comparison.
 from __future__ import annotations
 
 import json
-from domain.services.benchmark_evaluation import summarize_evidence
+from domain.services.benchmark_evaluation import summarize_evidence, summarize_retrieval
 
 import logging
 from pathlib import Path
@@ -141,6 +141,8 @@ def compute_summary_from_results(results: list[dict]) -> dict:
                 "correctness": r["generator_metrics"]["correctness"],
                 "hit_rate": r["retriever_metrics"]["hit_rate"],
                 "mrr": r["retriever_metrics"]["mrr"],
+                "source_hit_rate": r["retriever_metrics"].get("source_hit_rate"),
+                "source_mrr": r["retriever_metrics"].get("source_mrr"),
                 "avg_similarity": r["retriever_metrics"]["avg_similarity"],
                 "context_precision": r.get("context_metrics", {}).get("context_precision"),
                 "context_recall": r.get("context_metrics", {}).get("context_recall"),
@@ -153,4 +155,5 @@ def compute_summary_from_results(results: list[dict]) -> dict:
             }
             for r in results
         ],
+        **summarize_retrieval(results),
     }
