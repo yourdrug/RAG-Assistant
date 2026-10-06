@@ -17,9 +17,6 @@ class SweepSettingsPort(Protocol):
     def top_k(self) -> int: ...
 
     @property
-    def questions_path(self) -> str: ...
-
-    @property
     def results_path(self) -> str: ...
 
     def override(self, config: dict) -> AbstractContextManager[None]: ...
@@ -33,10 +30,6 @@ class LiveSweepSettings:
     @property
     def top_k(self) -> int:
         return int(get_setting("retriever_top_k"))
-
-    @property
-    def questions_path(self) -> str:
-        return str(Path(settings.data_dir) / "test_questions.json")
 
     @property
     def results_path(self) -> str:

@@ -149,7 +149,7 @@ async def delete_question(
 @router.post(
     "/admin/benchmark/questions/import",
     response_model=BenchmarkQuestionsImportResponse,
-    dependencies=[Depends(rate_limit(RateLimitPolicyName.BENCHMARK))],
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
 )
 async def import_questions(
     body: BenchmarkQuestionsImportRequest,
@@ -177,6 +177,7 @@ async def export_questions(
             "annotations": q.annotations,
             "tags": q.tags,
             "dataset": q.dataset,
+            "is_active": q.is_active,
         }
         for q in questions
     ]

@@ -369,7 +369,7 @@ class ChatLogModel(BaseModel):
 
 
 class BenchmarkQuestionModel(BaseModel):
-    """Benchmark test question — source of truth replaces test_questions.json."""
+    """Benchmark test question — database source of truth for all evaluations."""
 
     __tablename__ = "benchmark_questions"
     __table_args__ = (

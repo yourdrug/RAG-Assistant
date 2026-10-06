@@ -12,6 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 from main import create_application  # noqa: E402
+from application.ports.rate_limit import RateLimitPolicyName  # noqa: E402
 
 _EXPECTED: dict[tuple[str, str], str] = {
     # login (IP-scoped)
@@ -55,10 +56,10 @@ _EXPECTED: dict[tuple[str, str], str] = {
     ("POST", "/admin/benchmark/questions"): "write",
     ("PUT", "/admin/benchmark/questions/{question_id}"): "write",
     ("DELETE", "/admin/benchmark/questions/{question_id}"): "write",
+    ("POST", "/admin/benchmark/questions/import"): RateLimitPolicyName.WRITE.value,
     ("POST", "/admin/benchmark/sweep/{sweep_id}/cancel"): "write",
     # benchmark
     ("POST", "/benchmark"): "benchmark",
-    ("POST", "/admin/benchmark/questions/import"): "benchmark",
     ("POST", "/admin/benchmark/sweep"): "benchmark",
     ("POST", "/admin/benchmark/runs/{run_id}/apply"): "benchmark",
 }

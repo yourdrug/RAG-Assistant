@@ -14,6 +14,8 @@ from langchain.schema import Document as LCDocument
 from config import settings
 from domain.utils import content_hash, rrf_merge
 
+from infrastructure.benchmark.source_hints import matches_source_hints, parse_source_hints
+
 logger = logging.getLogger("default")
 
 
@@ -123,8 +125,8 @@ def score_config_cheap(  # noqa: C901
 
     for q in questions:
         qtext = q["question"]
-        source_hint = q.get("source_hint")
-        if source_hint is None:
+        hints = parse_source_hints(q.get("source_hint"))
+        if not hints:
             continue
 
         dense_trimmed = dense_cache.get(qtext, [])[:fetch_k]
@@ -154,7 +156,7 @@ def score_config_cheap(  # noqa: C901
             if doc is None:
                 continue
             filename = doc.metadata.get("filename", "") or doc.metadata.get("source", "")
-            if source_hint.lower() in filename.lower():
+            if matches_source_hints(filename, hints):
                 hit = 1
                 if mrr == 0.0:
                     mrr = 1.0 / rank

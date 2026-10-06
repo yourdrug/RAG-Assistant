@@ -17,7 +17,7 @@ class BenchmarkRunnerPort(Protocol):
 
     async def run(
         self,
-        questions_path: str,
+        questions: list[dict],
         out_dir: str,
         top_k: int,
         judge_model: str,

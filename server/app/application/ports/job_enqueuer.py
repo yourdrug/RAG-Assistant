@@ -49,7 +49,7 @@ class JobEnqueuerPort(Protocol):
     async def enqueue_benchmark(
         self,
         *,
-        questions_path: str,
+        dataset: str,
         out_dir: str,
         top_k: int,
         judge_model: str,

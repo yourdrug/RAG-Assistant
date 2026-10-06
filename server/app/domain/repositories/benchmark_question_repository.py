@@ -11,6 +11,10 @@ from domain.entities.benchmark_question import BenchmarkQuestion
 class BenchmarkQuestionRepository(Protocol):
     async def get_by_id(self, question_id: int) -> BenchmarkQuestion | None: ...
 
+    async def list_active(self, *, dataset: str) -> list[BenchmarkQuestion]:
+        """Read the complete active dataset in one database snapshot."""
+        ...
+
     async def list_items(
         self,
         *,

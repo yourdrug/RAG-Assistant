@@ -122,6 +122,19 @@ function SourceHintPicker({
 
   const filtered = files || [];
 
+  const selectFile = (file: string) => {
+    const parts = (value || "").split(";");
+    parts[parts.length - 1] = file;
+    onChange(
+      parts
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .join("; "),
+    );
+    setQuery("");
+    setOpen(false);
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -131,9 +144,7 @@ function SourceHintPicker({
       setHighlightIdx((i) => Math.max(i - 1, 0));
     } else if (e.key === "Enter" && highlightIdx >= 0 && filtered[highlightIdx]) {
       e.preventDefault();
-      onChange(filtered[highlightIdx]);
-      setQuery("");
-      setOpen(false);
+      selectFile(filtered[highlightIdx]);
     } else if (e.key === "Escape") {
       setOpen(false);
     }
@@ -148,20 +159,20 @@ function SourceHintPicker({
           onChange={(e) => {
             const v = e.target.value || null;
             onChange(v);
-            setQuery(v || "");
+            setQuery((v || "").split(";").at(-1)?.trim() || "");
             setOpen(true);
             setHighlightIdx(-1);
           }}
           onFocus={() => {
             setOpen(true);
-            setQuery(value || "");
+            setQuery((value || "").split(";").at(-1)?.trim() || "");
           }}
           onBlur={() => {
             // Delay to allow click on dropdown item
             setTimeout(() => setOpen(false), 200);
           }}
           onKeyDown={handleKeyDown}
-          placeholder="Select or type filename"
+          placeholder="file1.pdf; file2.pdf"
           className="flex-1"
         />
         {value && (
@@ -206,9 +217,7 @@ function SourceHintPicker({
               }`}
               onMouseDown={(e) => {
                 e.preventDefault();
-                onChange(file);
-                setQuery("");
-                setOpen(false);
+                selectFile(file);
               }}
               onMouseEnter={() => setHighlightIdx(idx)}
             >
@@ -217,6 +226,10 @@ function SourceHintPicker({
           ))}
         </div>
       )}
+      <p className="mt-1 text-xs text-muted-foreground">
+        Separate sources with ;. A match with any source counts as a hit. Leave blank to skip Hit
+        Rate and MRR.
+      </p>
     </div>
   );
 }

@@ -3,7 +3,6 @@
 from domain.exceptions.domain_errors import (
     AppException,
     AuthenticationError,
-    BenchmarkQuestionsNotFound,
     BusinessRuleViolation,
     ClientException,
     ContextBudgetExceededError,
@@ -20,7 +19,6 @@ from domain.exceptions.domain_errors import (
 
 __all__ = [
     "AppException",
-    "BenchmarkQuestionsNotFound",
     "ClientException",
     "ServerException",
     "ValidationError",

@@ -72,6 +72,7 @@ class BenchmarkQuestionService:
             tags=body.tags,
             dataset=body.dataset,
             notes=body.notes,
+            is_active=body.is_active,
             created_by=created_by,
         )
         async with self._uow_factory.create(master=True) as uow:
@@ -104,6 +105,7 @@ class BenchmarkQuestionService:
                 annotations=q.annotations,
                 tags=q.tags,
                 dataset=q.dataset,
+                is_active=q.is_active,
                 created_by=created_by,
             )
             for q in bodies

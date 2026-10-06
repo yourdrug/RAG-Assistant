@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from domain.entities.conversation import Conversation
 from domain.repositories.conversation_repository import ConversationListItem
+from domain.value_objects.message_role import MessageRole
 from sqlalchemy import Integer, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -123,17 +124,19 @@ class SQLAlchemyConversationRepository:
         ``document_id`` will not match — those summaries stay stale but
         are harmless (summary only affects condensation, not retrieval).
         """
-        from sqlalchemy import func, text
+        from sqlalchemy import JSON, case, literal
+
+        sources = case(
+            (func.json_typeof(MessageModel.sources) == "array", MessageModel.sources),
+            else_=literal([], type_=JSON),
+        )
+        source = func.json_array_elements(sources).column_valued("source", joins_implicitly=True)
 
         cited_conv_ids = (
             select(MessageModel.conversation_id)
-            .where(MessageModel.role == "assistant")
-            .where(
-                func.json_array_elements(func.coalesce(MessageModel.sources, text("'[]'::json")))
-                .op("->>")("document_id")
-                .cast(Integer)
-                == document_id
-            )
+            .select_from(MessageModel)
+            .where(MessageModel.role == MessageRole.ASSISTANT.value)
+            .where(source.op("->>")("document_id").cast(Integer) == document_id)
             .distinct()
             .subquery()
         )

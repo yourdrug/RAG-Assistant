@@ -14,9 +14,8 @@ from infrastructure.repositories.chunk.sqlalchemy_chunk_repository import SQLAlc
 
 
 @pytest.fixture
-def benchmark_io(monkeypatch, tmp_path):
-    path = tmp_path / "questions.json"
-    path.write_text('[{"id":"first","question":"question","source_hint":"report"}]')
+def benchmark_io(monkeypatch):
+    questions = [{"id": "first", "question": "question", "source_hint": "report"}]
     score = AsyncMock(return_value={"faithfulness": 8, "relevancy": 7, "correctness": None})
     monkeypatch.setattr(judge, "judge_answer_async", score)
     monkeypatch.setattr(
@@ -27,12 +26,12 @@ def benchmark_io(monkeypatch, tmp_path):
     monkeypatch.setattr(persistence, "save_results", saved)
     monkeypatch.setattr(persistence, "log_question_result", lambda *a: None)
     monkeypatch.setattr(persistence, "log_summary", lambda *a: None)
-    return str(path), saved, score
+    return questions, saved, score
 
 
 @pytest.mark.asyncio
 async def test_full_benchmark_preserves_results_repeated_runs_and_cache_scope(benchmark_io):
-    path, saved, score = benchmark_io
+    questions, saved, score = benchmark_io
     contexts = []
 
     async def invoke(question, history, ctx):
@@ -50,7 +49,7 @@ async def test_full_benchmark_preserves_results_repeated_runs_and_cache_scope(be
 
     previous = _settings_overrides.get()
     await run_benchmark_async(
-        path, "unused", 4, "judge", n_runs=2, rag_service=SimpleNamespace(invoke=invoke)
+        questions, "unused", 4, "judge", n_runs=2, rag_service=SimpleNamespace(invoke=invoke)
     )
     assert _settings_overrides.get() == previous
     results = saved.call_args.args[0]
@@ -66,11 +65,11 @@ async def test_full_benchmark_preserves_results_repeated_runs_and_cache_scope(be
 
 @pytest.mark.asyncio
 async def test_benchmark_restores_cache_scope_and_propagates_pipeline_error(benchmark_io):
-    path, saved, _ = benchmark_io
+    questions, saved, _ = benchmark_io
     previous = _settings_overrides.get()
     rag = SimpleNamespace(invoke=AsyncMock(side_effect=RuntimeError("pipeline failed")))
     with pytest.raises(RuntimeError, match="pipeline failed"):
-        await run_benchmark_async(path, "unused", 4, "judge", rag_service=rag)
+        await run_benchmark_async(questions, "unused", 4, "judge", rag_service=rag)
     assert _settings_overrides.get() == previous
     saved.assert_not_called()
 
@@ -79,7 +78,7 @@ async def test_benchmark_restores_cache_scope_and_propagates_pipeline_error(benc
 async def test_standalone_benchmark_keeps_acl_context_and_usage(benchmark_io, monkeypatch):
     from infrastructure.benchmark import retrieval
 
-    path, saved, score = benchmark_io
+    questions, saved, score = benchmark_io
     docs = [(SimpleNamespace(page_content="context", metadata={"source": "report.pdf"}), 0.9)]
     retrieve = MagicMock(return_value=docs)
     monkeypatch.setattr(retrieval, "build_llm", lambda *a, **kw: object())
@@ -88,7 +87,7 @@ async def test_standalone_benchmark_keeps_acl_context_and_usage(benchmark_io, mo
         response_metadata={"token_usage": {"prompt_tokens": 30, "completion_tokens": 5}}
     )
     monkeypatch.setattr(judge, "get_rag_answer_with_usage", lambda *a: ("answer", response))
-    await run_benchmark_async(path, "unused", 4, "judge", fetch_k=12)
+    await run_benchmark_async(questions, "unused", 4, "judge", fetch_k=12)
     assert retrieve.call_args.args[1:3] == (4, 12)
     assert retrieve.call_args.kwargs["access_filter"] is not None
     assert retrieve.call_args.kwargs["visibility_conditions"]
@@ -103,7 +102,7 @@ async def test_standalone_benchmark_keeps_acl_context_and_usage(benchmark_io, mo
 def grid_engine(monkeypatch):
     engine = SweepEngine(uow_factory=None)
     monkeypatch.setattr(
-        engine, "_load_questions", AsyncMock(return_value=[{"question": "q", "source_hint": "doc"}])
+        engine, "load_questions", AsyncMock(return_value=[{"question": "q", "source_hint": "doc"}])
     )
     monkeypatch.setattr(engine, "_cache_candidates", AsyncMock(return_value=({}, {}, {})))
     monkeypatch.setattr(engine, "_score_config_cheap", lambda cfg, *a: {"composite_score": cfg["top_k"]})
@@ -133,7 +132,7 @@ async def test_sweep_cancels_before_scoring(grid_engine, monkeypatch):
 async def test_sweep_restores_existing_overrides_when_full_benchmark_fails(grid_engine, monkeypatch):
     token = _settings_overrides.set({"cache_enabled": True, "retriever_top_k": 99})
     monkeypatch.setattr(
-        grid_engine, "_run_full_benchmark", AsyncMock(side_effect=RuntimeError("judge failed"))
+        grid_engine, "run_full_benchmark", AsyncMock(side_effect=RuntimeError("judge failed"))
     )
     try:
         sweep = BenchmarkSweep(search_space={"top_k": {"values": [2]}}, top_n_llm=1)

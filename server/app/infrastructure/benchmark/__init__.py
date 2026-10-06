@@ -42,7 +42,6 @@ from infrastructure.benchmark.persistence import (  # noqa: F401
 
 # Runner
 from infrastructure.benchmark.runner import (  # noqa: F401
-    load_questions,
     run_benchmark_async,
 )
 
@@ -67,6 +66,5 @@ __all__ = [
     "log_summary",
     "save_results",
     "_sanitize_model_name",
-    "load_questions",
     "run_benchmark_async",
 ]

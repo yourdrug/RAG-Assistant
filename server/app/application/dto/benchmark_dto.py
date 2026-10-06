@@ -16,6 +16,7 @@ class BenchmarkQuestionCreateDTO:
     tags: list[str] | None = None
     dataset: str = "main"
     notes: str | None = None
+    is_active: bool = True
 
 
 @dataclass(frozen=True)

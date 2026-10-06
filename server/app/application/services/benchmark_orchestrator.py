@@ -33,7 +33,7 @@ class BenchmarkService:
 
     async def run(
         self,
-        questions_path: str,
+        questions: list[dict],
         out_dir: str,
         top_k: int,
         judge_model: str,
@@ -43,13 +43,13 @@ class BenchmarkService:
     ) -> dict:
         """Run benchmark via shared async implementation, return summary dict."""
         log.info("RAG Benchmark")
-        log.info("  questions : %s", questions_path)
+        log.info("  questions : %d", len(questions))
         log.info("  top_k     : %d", top_k)
         log.info("  judge     : %s", judge_model)
 
         if self._runner is not None:
             await self._runner.run(
-                questions_path=questions_path,
+                questions=questions,
                 out_dir=out_dir,
                 top_k=top_k,
                 judge_model=judge_model,

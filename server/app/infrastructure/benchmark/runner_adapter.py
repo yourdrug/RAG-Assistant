@@ -13,7 +13,7 @@ class AsyncBenchmarkRunner:
 
     async def run(
         self,
-        questions_path: str,
+        questions: list[dict],
         out_dir: str,
         top_k: int,
         judge_model: str,
@@ -25,7 +25,7 @@ class AsyncBenchmarkRunner:
         from infrastructure.benchmark.runner import run_benchmark_async
 
         await run_benchmark_async(
-            questions_path=questions_path,
+            questions=questions,
             out_dir=out_dir,
             top_k=top_k,
             judge_model=judge_model,

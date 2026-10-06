@@ -10,6 +10,7 @@ import pytest_asyncio
 from application.services.conversation_service import ConversationService
 from domain.entities.message import Message
 from domain.value_objects.message_role import MessageRole
+from domain.value_objects.roles import UserRole
 from main import app
 from presentation.api.auth_dependencies import get_current_user
 from presentation.api import dependencies as deps
@@ -39,6 +40,33 @@ async def asgi_client():
 def sign_in(role="user", user_id=1):
     user = CurrentUser(id=user_id, email="asgi@example.org", role=role, kind="internal", is_active=True)
     app.dependency_overrides[get_current_user] = lambda: user
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("dataset", [None, "custom"])
+async def test_benchmark_launch_enqueues_database_dataset(asgi_client, tmp_path, dataset):
+    from domain.value_objects.benchmark_dataset import BenchmarkDataset
+
+    sign_in(role=UserRole.ADMIN.value)
+    enqueuer = SimpleNamespace(enqueue_benchmark=AsyncMock())
+    app.dependency_overrides[deps.create_job_enqueuer] = lambda: enqueuer
+    app.dependency_overrides[deps.create_job_service] = lambda: SimpleNamespace(
+        create_job=AsyncMock(return_value=8)
+    )
+    app.dependency_overrides[deps.create_benchmark_config] = lambda: SimpleNamespace(
+        data_dir=str(tmp_path), retriever_top_k=7, llm_model="judge"
+    )
+    app.dependency_overrides[deps.create_idempotency_store] = lambda: None
+    response = await asgi_client.post("/benchmark", json={} if dataset is None else {"dataset": dataset})
+    assert response.status_code == 200
+    enqueuer.enqueue_benchmark.assert_awaited_once_with(
+        dataset=dataset or BenchmarkDataset.MAIN.value,
+        out_dir=str(tmp_path / "benchmark_results"),
+        top_k=7,
+        judge_model="judge",
+        job_id=8,
+    )
+    assert list(tmp_path.iterdir()) == []
 
 
 @pytest.mark.asyncio

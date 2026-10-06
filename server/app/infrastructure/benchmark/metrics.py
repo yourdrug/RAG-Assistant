@@ -7,6 +7,8 @@ from pathlib import Path
 
 from langchain.schema import Document
 
+from infrastructure.benchmark.source_hints import matches_source_hints, parse_source_hints
+
 logger = logging.getLogger("default")
 
 
@@ -28,7 +30,8 @@ def compute_retriever_metrics(
     scores_list = [s for _, s in docs_with_scores]
     avg_sim = sum(scores_list) / len(scores_list) if scores_list else 0.0
 
-    if source_hint is None:
+    hints = parse_source_hints(source_hint)
+    if not hints:
         return {
             "hit_rate": None,
             "mrr": None,
@@ -40,7 +43,7 @@ def compute_retriever_metrics(
     mrr = 0.0
     for rank, (doc, _) in enumerate(docs_with_scores, 1):
         filename = doc.metadata.get("filename", "") or doc.metadata.get("source", "")
-        if source_hint.lower() in filename.lower():
+        if matches_source_hints(filename, hints):
             hit_rate = 1
             if mrr == 0.0:
                 mrr = 1.0 / rank

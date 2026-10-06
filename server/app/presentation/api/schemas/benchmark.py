@@ -19,7 +19,7 @@ from domain.value_objects.benchmark_strategy import BenchmarkStrategy
 class BenchmarkRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    questions_path: str | None = None
+    dataset: str = Field(default=BenchmarkDataset.MAIN.value, min_length=1, max_length=100)
     out_dir: str | None = None
     top_k: int | None = None
     judge_model: str | None = None
@@ -67,6 +67,7 @@ class BenchmarkQuestionCreate(BaseModel):
     _validate_annotations = field_validator("annotations")(validate_annotations)
     tags: list[str] | None = None
     dataset: str = BenchmarkDataset.MAIN.value
+    is_active: bool = True
     notes: str | None = None
 
 

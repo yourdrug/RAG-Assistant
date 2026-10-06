@@ -616,6 +616,9 @@ class FakeApiKeyRepository:
 
 
 class FakeBenchmarkQuestionRepository:
+    async def list_active(self, *, dataset: str):
+        return []
+
     async def list(self, **kwargs):
         return []
 

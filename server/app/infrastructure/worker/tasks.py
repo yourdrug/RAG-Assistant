@@ -26,6 +26,7 @@ from composition.service_providers import (
     create_ingest_app_service,
 )
 from domain.value_objects.visibility import DocumentVisibility
+from application.services.benchmark_dataset import load_benchmark_questions
 from infrastructure.benchmark.runner import run_benchmark_async
 from infrastructure.worker.admission import one_document_per_principal
 
@@ -258,7 +259,7 @@ async def run_single_ingest(
 async def run_benchmark(
     ctx: dict[str, Any],
     *,
-    questions_path: str,
+    dataset: str,
     out_dir: str,
     top_k: int,
     judge_model: str,
@@ -267,9 +268,10 @@ async def run_benchmark(
     """Run RAG quality benchmark (non-blocking async version)."""
     uow_factory = ctx["container"].infrastructure.db.uow_factory
 
-    async def _action() -> None:
+    async def evaluate_benchmark() -> None:
+        questions = await load_benchmark_questions(uow_factory, dataset)
         await run_benchmark_async(
-            questions_path=questions_path,
+            questions=questions,
             out_dir=out_dir,
             top_k=top_k,
             judge_model=judge_model,
@@ -278,7 +280,7 @@ async def run_benchmark(
     await _run_tracked_job(
         uow_factory,
         job_id,
-        _action,
+        evaluate_benchmark,
         description="benchmark run",
         job_try=ctx.get("job_try", 1),
     )

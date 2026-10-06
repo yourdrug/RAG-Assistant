@@ -297,7 +297,7 @@ export interface HealthResponse {
 // ─── Benchmark ───────────────────────────────────────────────────────────────
 
 export interface BenchmarkRequest {
-  questions_path?: string | null;
+  dataset?: string;
   out_dir?: string | null;
   top_k?: number | null;
   judge_model?: string | null;
@@ -464,6 +464,7 @@ export interface BenchmarkQuestionCreate {
   source_hint?: string | null;
   tags?: string[] | null;
   dataset?: string;
+  is_active?: boolean;
   notes?: string | null;
 }
 

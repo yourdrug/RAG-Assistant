@@ -13,6 +13,15 @@ class SQLAlchemyBenchmarkQuestionRepository:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
 
+    async def list_active(self, *, dataset: str) -> list[BenchmarkQuestion]:
+        stmt = (
+            select(BenchmarkQuestionModel)
+            .where(BenchmarkQuestionModel.dataset == dataset, BenchmarkQuestionModel.is_active.is_(True))
+            .order_by(BenchmarkQuestionModel.id)
+        )
+        result = await self._db.execute(stmt)
+        return [self._to_entity(orm) for orm in result.scalars().all()]
+
     async def get_by_id(self, question_id: int) -> BenchmarkQuestion | None:
         stmt = select(BenchmarkQuestionModel).where(BenchmarkQuestionModel.id == question_id)
         result = await self._db.execute(stmt)

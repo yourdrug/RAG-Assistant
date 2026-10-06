@@ -2,7 +2,6 @@
 
 import asyncio
 import csv
-import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -107,14 +106,12 @@ def test_unavailable_evidence_and_unannotated_cases_are_not_zero_scores():
         {"unsupported": True},
     ],
 )
-def test_annotation_validation_shared_by_file_and_api(tmp_path, annotations):
-    from infrastructure.benchmark.runner import load_questions
+def test_annotation_validation_shared_by_runner_and_api(annotations):
+    from infrastructure.benchmark.runner import validate_questions
     from presentation.api.schemas.benchmark import BenchmarkQuestionCreate
 
-    path = tmp_path / "questions.json"
-    path.write_text(json.dumps([{"question": "Q", "annotations": annotations}]))
     with pytest.raises(ValueError):
-        load_questions(str(path))
+        validate_questions([{"question": "Q", "annotations": annotations}])
     with pytest.raises(ValidationError):
         BenchmarkQuestionCreate(question="Q", annotations=annotations)
 

@@ -48,9 +48,7 @@ async def run_benchmark(
     idempotency_key: str | None = Depends(get_idempotency_key),
     idempotency_store=Depends(create_idempotency_store),
 ):
-    q_path = req.questions_path or str(Path(bench_cfg.data_dir) / "test_questions.json")
     o_dir = req.out_dir or str(Path(bench_cfg.data_dir) / "benchmark_results")
-    q_path = validate_data_path_within_dir(q_path, bench_cfg.data_dir)
     o_dir = validate_data_path_within_dir(o_dir, bench_cfg.data_dir)
     k = req.top_k or bench_cfg.retriever_top_k
     judge = req.judge_model or bench_cfg.llm_model
@@ -68,7 +66,7 @@ async def run_benchmark(
     job_id = await job_service.create_job(JobType.BENCHMARK)
 
     await job_enqueuer.enqueue_benchmark(
-        questions_path=q_path,
+        dataset=req.dataset,
         out_dir=o_dir,
         top_k=k,
         judge_model=judge,

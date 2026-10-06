@@ -84,14 +84,14 @@ class JobEnqueuerAdapter:
     async def enqueue_benchmark(
         self,
         *,
-        questions_path: str,
+        dataset: str,
         out_dir: str,
         top_k: int,
         judge_model: str,
         job_id: int,
     ) -> None:
         await _enqueue_benchmark(
-            questions_path=questions_path,
+            dataset=dataset,
             out_dir=out_dir,
             top_k=top_k,
             judge_model=judge_model,

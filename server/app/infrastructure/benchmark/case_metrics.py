@@ -2,10 +2,12 @@
 
 import logging
 
+from infrastructure.benchmark.source_hints import matches_source_hints, parse_source_hints
+
 logger = logging.getLogger("default")
 
 
-def _compute_retriever_metrics_from_sources(
+def compute_retriever_metrics_from_sources(
     sources: list[dict],
     source_hint: str | None,
 ) -> dict:
@@ -16,7 +18,8 @@ def _compute_retriever_metrics_from_sources(
     scores = [s.get("max_score", 0.0) for s in sources]
     avg_sim = sum(scores) / len(scores) if scores else 0.0
 
-    if source_hint is None:
+    hints = parse_source_hints(source_hint)
+    if not hints:
         return {
             "hit_rate": None,
             "mrr": None,
@@ -28,7 +31,7 @@ def _compute_retriever_metrics_from_sources(
     mrr = 0.0
     for rank, src in enumerate(sources, 1):
         filename = src.get("source", "")
-        if source_hint.lower() in filename.lower():
+        if matches_source_hints(filename, hints):
             hit_rate = 1
             if mrr == 0.0:
                 mrr = 1.0 / rank

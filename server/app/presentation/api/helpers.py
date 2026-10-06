@@ -272,6 +272,7 @@ def question_create_to_dto(body: Any) -> Any:
         tags=body.tags,
         dataset=body.dataset,
         notes=body.notes,
+        is_active=body.is_active,
     )
 
 

@@ -17,7 +17,7 @@ from infrastructure.benchmark.sweep_engine import SweepEngine, SweepCancelled
 def optuna_engine(monkeypatch):
     engine = SweepEngine(uow_factory=None)
     monkeypatch.setattr(
-        engine, "_load_questions", AsyncMock(return_value=[{"question": "q", "source_hint": "doc"}])
+        engine, "load_questions", AsyncMock(return_value=[{"question": "q", "source_hint": "doc"}])
     )
     monkeypatch.setattr(engine, "_cache_candidates", AsyncMock(return_value=({}, {}, {})))
     monkeypatch.setattr(engine, "_score_config_cheap", lambda cfg, *a: {"composite_score": cfg["top_k"]})
@@ -91,9 +91,8 @@ async def test_optuna_keeps_event_loop_responsive_during_scoring(optuna_engine, 
 
 
 @pytest.mark.asyncio
-async def test_full_pipeline_uses_requested_retrieval_limits(monkeypatch, tmp_path):
-    path = tmp_path / "questions.json"
-    path.write_text('[{"question":"q"}]')
+async def test_full_pipeline_uses_requested_retrieval_limits(monkeypatch):
+    questions = [{"question": "q"}]
 
     async def invoke(**kwargs):
         assert get_setting("retriever_top_k") == 7
@@ -102,7 +101,7 @@ async def test_full_pipeline_uses_requested_retrieval_limits(monkeypatch, tmp_pa
 
     with pytest.raises(RuntimeError, match="limits checked"):
         await run_benchmark_async(
-            str(path), "unused", 7, "judge", fetch_k=23, rag_service=SimpleNamespace(invoke=invoke)
+            questions, "unused", 7, "judge", fetch_k=23, rag_service=SimpleNamespace(invoke=invoke)
         )
 
 

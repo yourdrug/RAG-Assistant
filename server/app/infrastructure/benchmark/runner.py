@@ -5,15 +5,13 @@ then evaluates quality via LLM judge.
 """
 
 import asyncio
-import json
 import logging
-from pathlib import Path
 
 from config import settings
-from domain.exceptions import BenchmarkQuestionsNotFound
+from domain.value_objects.benchmark_annotations import validate_annotations
 
 from infrastructure.benchmark.case_metrics import (
-    _compute_retriever_metrics_from_sources as _compute_retriever_metrics_from_sources,
+    compute_retriever_metrics_from_sources as compute_retriever_metrics_from_sources,
 )
 from infrastructure.benchmark.case_metrics import (
     _extract_usage_from_response as _extract_usage_from_response,
@@ -21,46 +19,21 @@ from infrastructure.benchmark.case_metrics import (
 
 logger = logging.getLogger("default")
 
-EXAMPLE_QUESTIONS = [
-    {
-        "id": "q1",
-        "question": "Какие товары подлежат обязательной маркировке?",
-        "expected_answer": None,
-        "source_hint": None,
-    },
-    {
-        "id": "q2",
-        "question": "Каков порядок электронного документооборота?",
-        "expected_answer": None,
-        "source_hint": "электронном документе",
-    },
-]
 
-
-def load_questions(path: str) -> list[dict]:
-    p = Path(path)
-    if not p.exists():
-        logger.warning("Файл %s не найден — создаю пример test_questions.json", path)
-        example_path = Path(path)
-        example_path.write_text(json.dumps(EXAMPLE_QUESTIONS, ensure_ascii=False, indent=2), encoding="utf-8")
-        logger.info("Отредактируй %s и запусти снова.", path)
-        raise BenchmarkQuestionsNotFound(path)
-
-    data = json.loads(p.read_text(encoding="utf-8"))
-    from domain.value_objects.benchmark_annotations import validate_annotations
-
-    if not isinstance(data, list):
-        raise ValueError("benchmark questions must be a JSON array")
-    for question in data:
+def validate_questions(questions: list[dict]) -> None:
+    """Validate database cases before starting expensive evaluation."""
+    if not isinstance(questions, list):
+        raise ValueError("benchmark questions must be a list")
+    if not questions:
+        raise ValueError("benchmark requires at least one active question")
+    for question in questions:
         if not isinstance(question, dict) or not isinstance(question.get("question"), str):
             raise ValueError("each benchmark case requires a question string")
         validate_annotations(question.get("annotations"))
-    logger.info("Загружено вопросов: %d", len(data))
-    return data
 
 
 async def run_benchmark_async(
-    questions_path: str,
+    questions: list[dict],
     out_dir: str,
     top_k: int,
     judge_model: str,
@@ -87,15 +60,15 @@ async def run_benchmark_async(
         "RagService" if rag_service else "standalone",
     )
     logger.info(
-        "questions=%s top_k=%d model=%s judge=%s seed=%s runs=%d",
-        questions_path,
+        "questions=%d top_k=%d model=%s judge=%s seed=%s runs=%d",
+        len(questions),
         top_k,
         settings.llm_model,
         judge_model,
         seed,
         n_runs,
     )
-    questions = await asyncio.to_thread(load_questions, questions_path)
+    validate_questions(questions)
     semaphore = asyncio.Semaphore(max_concurrent)
     ctx = ChatContext(user_id=0, user_kind="internal", user_role="admin")
     generator = (

@@ -353,22 +353,6 @@ class TestSaveResults:
 
 
 # ---------------------------------------------------------------------------
-# load_questions
-# ---------------------------------------------------------------------------
-
-
-class TestLoadQuestions:
-    def test_loads_json_file(self, tmp_path):
-        from infrastructure.benchmark.runner import load_questions
-
-        q_file = tmp_path / "questions.json"
-        q_file.write_text(json.dumps([{"id": "q1", "question": "test?"}]))
-        result = load_questions(str(q_file))
-        assert len(result) == 1
-        assert result[0]["id"] == "q1"
-
-
-# ---------------------------------------------------------------------------
 # _safe_avg
 # ---------------------------------------------------------------------------
 

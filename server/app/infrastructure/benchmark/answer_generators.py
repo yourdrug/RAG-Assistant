@@ -17,7 +17,7 @@ from infrastructure.ml.rag.benchmark_evidence import (
 )
 
 from infrastructure.benchmark.case_metrics import (
-    _compute_retriever_metrics_from_sources,
+    compute_retriever_metrics_from_sources,
     _extract_usage_from_response,
 )
 
@@ -67,7 +67,7 @@ class RagBenchmarkGenerator:
         return BenchmarkAnswer(
             answer=result.answer,
             context=context,
-            retriever_metrics=_compute_retriever_metrics_from_sources(
+            retriever_metrics=compute_retriever_metrics_from_sources(
                 result.sources, question.get("source_hint")
             ),
             input_tokens=result.input_tokens,

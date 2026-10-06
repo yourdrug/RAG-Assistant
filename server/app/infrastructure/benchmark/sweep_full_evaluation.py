@@ -18,15 +18,15 @@ class SweepFullEvaluator:
         results: list[dict],
         top_n_llm: int,
         judge_model: str,
-        questions_path: str | None,
+        questions: list[dict],
         weights: dict,
         should_cancel: ShouldCancel | None,
-        run_benchmark: Callable[[str, str], Awaitable[dict]],
+        run_benchmark: Callable[[list[dict], str], Awaitable[dict]],
     ) -> list[dict]:
         for idx, result in enumerate(results[:top_n_llm], 1):
             await check_cancelled(should_cancel, f"phase B config {idx}/{top_n_llm}")
             with self._runtime.override(result["config"]):
-                full = await run_benchmark(questions_path or self._runtime.questions_path, judge_model)
+                full = await run_benchmark(questions, judge_model)
             result["full_metrics"] = full
             result["llm_evaluated"] = True
             result["composite_score"] = compute_composite_score(
