@@ -46,12 +46,14 @@ async def _save_sweep_results(uow_factory, sweep, sweep_id: int, results: list[d
         return best_run_id
     best = results[0]
     config = best.get("config", {})
+    full = best.get("full_metrics", {})
     metrics = {
-        "hit_rate": best.get("avg_hit_rate"),
-        "mrr": best.get("avg_mrr"),
+        "hit_rate": full.get("hit_rate") if full else best.get("avg_hit_rate"),
+        "mrr": full.get("avg_mrr") if full else best.get("avg_mrr"),
         "composite": best.get("composite_score"),
         "faithfulness": best.get("full_metrics", {}).get("avg_faithfulness"),
-        "relevancy": best.get("full_metrics", {}).get("avg_relevancy"),
+        "relevancy": full.get("avg_relevancy"),
+        "correctness": full.get("avg_correctness"),
     }
     async with uow_factory.create(master=True) as uow:
         run_entity = BenchmarkRun(

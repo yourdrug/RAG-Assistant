@@ -656,6 +656,8 @@ function SweepBuilderTab({ onSweepCreated }: { onSweepCreated: (id: number) => v
   // Objective weights
   const [weights, setWeights] = useState({
     hit_rate: 0.4,
+    mrr: 0,
+    correctness: 0,
     faithfulness: 0.3,
     relevancy: 0.3,
   });
@@ -793,6 +795,10 @@ function SweepBuilderTab({ onSweepCreated }: { onSweepCreated: (id: number) => v
             <CardTitle className="text-base">Objective Weights</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
+            <p className="text-xs text-muted-foreground">
+              Metrics are normalized to 0–1. Influence is weight / sum of weights. Final selection
+              uses only fully evaluated configurations; Top-N = 0 uses retrieval only.
+            </p>
             {Object.entries(weights).map(([key, val]) => (
               <div key={key} className="flex items-center gap-3">
                 <Label className="w-28 text-xs">{key}</Label>

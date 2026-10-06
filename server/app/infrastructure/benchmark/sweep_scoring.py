@@ -13,6 +13,11 @@ from langchain.schema import Document as LCDocument
 
 from config import settings
 from domain.utils import content_hash, rrf_merge
+from domain.value_objects.benchmark_scoring import (
+    DEFAULT_OBJECTIVE_WEIGHTS,
+    METRIC_SCALES,
+    validate_objective_weights,
+)
 
 from infrastructure.benchmark.source_hints import matches_source_hints, parse_source_hints
 
@@ -74,27 +79,19 @@ def compute_composite_score(
     metrics: dict,
     weights: dict | None = None,
 ) -> float:
-    """Compute weighted composite score from individual metrics."""
-    if weights is None:
-        weights = {}
+    """Weighted mean on a common 0–1 scale, using only available metrics.
 
-    default_weights = {
-        "hit_rate": 0.3,
-        "mrr": 0.2,
-        "faithfulness": 0.25,
-        "relevancy": 0.15,
-        "correctness": 0.1,
-    }
-    w = {**default_weights, **(weights or {})}
-
+    Phase A uses retrieval metrics only. Final selection requires all
+    positively weighted metrics to be available (see SweepFullEvaluator).
+    """
+    resolved = validate_objective_weights(DEFAULT_OBJECTIVE_WEIGHTS if weights is None else weights)
     total = 0.0
     total_weight = 0.0
-    for key, weight in w.items():
+    for key, weight in resolved.items():
         value = metrics.get(key)
-        if value is not None:
-            total += float(value) * weight
+        if weight > 0 and value is not None:
+            total += float(value) / METRIC_SCALES[key] * weight
             total_weight += weight
-
     return total / total_weight if total_weight > 0 else 0.0
 
 

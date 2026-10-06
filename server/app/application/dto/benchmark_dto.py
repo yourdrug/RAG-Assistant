@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from domain.value_objects.benchmark_scoring import DEFAULT_OBJECTIVE_WEIGHTS
+
 from dataclasses import dataclass, field
 
 
@@ -25,9 +27,7 @@ class SweepCreateDTO:
 
     strategy: str = "grid"
     search_space: dict = field(default_factory=dict)
-    objective_weights: dict = field(
-        default_factory=lambda: {"hit_rate": 0.4, "faithfulness": 0.3, "relevancy": 0.3}
-    )
+    objective_weights: dict = field(default_factory=lambda: DEFAULT_OBJECTIVE_WEIGHTS.copy())
     dataset: str = "main"
     top_n_llm: int = 3
 

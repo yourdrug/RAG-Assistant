@@ -89,7 +89,7 @@ async def test_phase_b_uses_loaded_dataset_including_cases_without_source_hints(
         id=20, question="Refusal", annotations={"expected_refusal": True}, dataset="custom"
     )
     factory, repo, _ = dataset_factory([labelled, unlabelled])
-    benchmark = SimpleNamespace(run=AsyncMock(return_value={"avg_faithfulness": 8}))
+    benchmark = SimpleNamespace(run=AsyncMock(return_value={"hit_rate": 1, "avg_faithfulness": 8, "avg_relevancy": 7}))
     engine = SweepEngine(factory, benchmark_service=benchmark)
     cache = AsyncMock(return_value=({}, {}, {}))
     monkeypatch.setattr(engine, "_cache_candidates", cache)

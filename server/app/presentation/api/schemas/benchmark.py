@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from domain.value_objects.benchmark_scoring import DEFAULT_OBJECTIVE_WEIGHTS, validate_objective_weights
+
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -127,11 +129,14 @@ class SweepCreateRequest(BaseModel):
 
     strategy: str = Field(BenchmarkStrategy.GRID.value, pattern="^(grid|random|successive_halving)$")
     search_space: dict
-    objective_weights: dict = Field(
-        default_factory=lambda: {"hit_rate": 0.4, "faithfulness": 0.3, "relevancy": 0.3}
-    )
+    objective_weights: dict[str, float] = Field(default_factory=lambda: DEFAULT_OBJECTIVE_WEIGHTS.copy())
     dataset: str = BenchmarkDataset.MAIN.value
     top_n_llm: int = Field(3, ge=0, le=20)
+
+    @field_validator("objective_weights")
+    @classmethod
+    def validate_weights(cls, value: dict[str, float]) -> dict[str, float]:
+        return validate_objective_weights(value)
 
 
 class SweepResponse(BaseModel):
