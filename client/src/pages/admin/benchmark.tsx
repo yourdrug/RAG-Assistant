@@ -638,7 +638,7 @@ function QuestionsTab() {
 
 function SweepBuilderTab({ onSweepCreated }: { onSweepCreated: (id: number) => void }) {
   const createSweep = useCreateSweep();
-  const [strategy, setStrategy] = useState<"grid" | "random" | "successive_halving">("grid");
+  const [strategy, setStrategy] = useState<"grid" | "random" | "optuna_tpe">("grid");
   const [topNLlm, setTopNLlm] = useState(3);
   const [evaluationMode, setEvaluationMode] = useState<"fast" | "full">("fast");
   const [judgeModel, setJudgeModel] = useState<string | null>(null);
@@ -756,7 +756,7 @@ function SweepBuilderTab({ onSweepCreated }: { onSweepCreated: (id: number) => v
               : "Evaluate a shortlist using retrieval quality, fragment completeness, MRR and parameter diversity."}
           </p>
           <div className="flex gap-3">
-            {(["grid", "random", "successive_halving"] as const).map((s) => (
+            {(["grid", "random", "optuna_tpe"] as const).map((s) => (
               <Button
                 key={s}
                 variant={strategy === s ? "default" : "outline"}
@@ -771,7 +771,7 @@ function SweepBuilderTab({ onSweepCreated }: { onSweepCreated: (id: number) => v
             {strategy === "grid" && "Cartesian product of all values. Best for 2-4 parameters."}
             {strategy === "random" &&
               "50 random points from the search space. Good for 5+ parameters."}
-            {strategy === "successive_halving" && "50 Optuna trials guided by retrieval scores."}
+            {strategy === "optuna_tpe" && "50 Optuna TPE trials guided by retrieval scores."}
           </p>
         </CardContent>
       </Card>

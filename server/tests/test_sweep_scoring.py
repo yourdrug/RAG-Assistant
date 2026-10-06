@@ -146,7 +146,7 @@ async def test_reranker_scores_all_combinations_but_llm_only_scores_shortlist(mo
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("strategy", [BenchmarkStrategy.RANDOM, BenchmarkStrategy.SUCCESSIVE_HALVING])
+@pytest.mark.parametrize("strategy", [BenchmarkStrategy.RANDOM, BenchmarkStrategy.OPTUNA_TPE])
 async def test_sampled_reranker_trials_respect_llm_budget(monkeypatch, strategy):
     engine = SweepEngine(uow_factory=None)
     monkeypatch.setattr(

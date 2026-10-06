@@ -9,6 +9,7 @@ import pytest
 
 from config import get_setting
 from domain.entities.benchmark_sweep import BenchmarkSweep
+from domain.value_objects.benchmark_strategy import BenchmarkStrategy
 from infrastructure.benchmark.runner import run_benchmark_async
 from infrastructure.benchmark.sweep_engine import SweepEngine, SweepCancelled
 
@@ -26,7 +27,7 @@ def optuna_engine(monkeypatch):
 
 def optuna_sweep():
     return BenchmarkSweep(
-        strategy="successive_halving",
+        strategy=BenchmarkStrategy.OPTUNA_TPE.value,
         search_space={"top_k": {"values": [2, 5]}, "fetch_k": {"min": 8, "max": 16}, "_n_trials": 3},
         top_n_llm=0,
     )
@@ -38,6 +39,15 @@ async def test_optuna_accepts_scalar_fetch_k_and_integer_range_without_step(optu
     assert len(results) == 3
     assert all(8 <= r["config"]["fetch_k"] <= 16 for r in results)
     assert optuna_engine.cache_candidates.call_args.args[1] == 16
+
+
+@pytest.mark.asyncio
+async def test_legacy_persisted_strategy_produces_same_tpe_results(optuna_engine):
+    sweep = optuna_sweep()
+    canonical = await optuna_engine.run_sweep(sweep)
+    sweep.strategy = BenchmarkStrategy.SUCCESSIVE_HALVING.value
+    legacy = await optuna_engine.run_sweep(sweep)
+    assert legacy == canonical
 
 
 @pytest.mark.asyncio

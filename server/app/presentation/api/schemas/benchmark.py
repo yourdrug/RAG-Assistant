@@ -128,13 +128,23 @@ class BenchmarkQuestionsImportResponse(BaseModel):
 class SweepCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    strategy: str = Field(BenchmarkStrategy.GRID.value, pattern="^(grid|random|successive_halving)$")
+    strategy: BenchmarkStrategy = Field(
+        BenchmarkStrategy.GRID,
+        description="Search strategy. successive_halving is a deprecated alias for optuna_tpe.",
+    )
     search_space: dict
     objective_weights: dict[str, float] = Field(default_factory=lambda: DEFAULT_OBJECTIVE_WEIGHTS.copy())
     dataset: str = BenchmarkDataset.MAIN.value
     top_n_llm: int = Field(3, ge=0, le=20)
     evaluation_mode: SweepEvaluationMode = SweepEvaluationMode.FAST
     judge_model: str | None = Field(default=None, min_length=1, max_length=255)
+
+    @field_validator("strategy")
+    @classmethod
+    def normalize_strategy(cls, value: BenchmarkStrategy) -> BenchmarkStrategy:
+        if value == BenchmarkStrategy.SUCCESSIVE_HALVING:
+            return BenchmarkStrategy.OPTUNA_TPE
+        return value
 
     @field_validator("judge_model")
     @classmethod

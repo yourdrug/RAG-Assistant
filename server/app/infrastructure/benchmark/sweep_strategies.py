@@ -70,7 +70,7 @@ class OptunaSweepStrategy:
             return max(spec["values"], default=default)
         return spec.get("max", spec.get("default", default))
 
-    def _sample_config(self, trial) -> dict:
+    def sample_config(self, trial) -> dict:
         config = {}
         for param, spec in self._space.items():
             if param.startswith("_"):
@@ -98,12 +98,11 @@ class OptunaSweepStrategy:
         study = optuna.create_study(
             direction="maximize",
             sampler=optuna.samplers.TPESampler(seed=42),
-            pruner=optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=2),
         )
         results = []
 
         def objective(trial):
-            config = self._sample_config(trial)
+            config = self.sample_config(trial)
             result = score(config)
             result["config"] = config
             results.append(result)
@@ -125,5 +124,7 @@ def default_strategy_factories() -> dict[str, Callable[[dict], SweepSearchStrate
         BenchmarkStrategy.RANDOM.value: lambda space: EnumeratedSweepStrategy(
             generate_random_points(space, space.get("_n_random", 50))
         ),
+        BenchmarkStrategy.OPTUNA_TPE.value: OptunaSweepStrategy,
+        # Keep previously persisted sweeps executable without a data migration.
         BenchmarkStrategy.SUCCESSIVE_HALVING.value: OptunaSweepStrategy,
     }

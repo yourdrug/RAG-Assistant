@@ -483,7 +483,7 @@ export interface BenchmarkQuestionUpdate {
 
 export interface SweepCreateRequest {
   evaluation_mode?: "fast" | "full";
-  strategy: "grid" | "random" | "successive_halving";
+  strategy: "grid" | "random" | "optuna_tpe";
   search_space: Record<string, { values?: number[]; min?: number; max?: number; step?: number }>;
   objective_weights?: Record<string, number>;
   dataset?: string;
