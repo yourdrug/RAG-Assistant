@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from domain.entities.benchmark_sweep import BenchmarkSweep
+from domain.exceptions import BusinessRuleViolation
 from domain.value_objects.sweep_status import BenchmarkSweepStatus
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from infrastructure.database.models import BenchmarkSweepModel
+from infrastructure.database.models import BENCHMARK_ACTIVE_SWEEP_INDEX, BenchmarkSweepModel
 
 
 class SQLAlchemyBenchmarkSweepRepository:
@@ -18,7 +20,7 @@ class SQLAlchemyBenchmarkSweepRepository:
         stmt = select(BenchmarkSweepModel).where(BenchmarkSweepModel.id == sweep_id)
         result = await self._db.execute(stmt)
         orm = result.scalar_one_or_none()
-        return self._to_entity(orm) if orm else None
+        return self.to_entity(orm) if orm else None
 
     async def create(self, sweep: BenchmarkSweep) -> BenchmarkSweep:
         orm = BenchmarkSweepModel(
@@ -34,9 +36,21 @@ class SQLAlchemyBenchmarkSweepRepository:
             best_run_id=sweep.best_run_id,
         )
         self._db.add(orm)
-        await self._db.flush()
+        try:
+            await self._db.flush()
+        except IntegrityError as exc:
+            # asyncpg exposes the constraint on the wrapped cause; psycopg
+            # exposes it on diag. Other integrity failures must propagate.
+            cause = exc.orig.__cause__
+            diag = getattr(exc.orig, "diag", None)
+            constraint = getattr(cause, "constraint_name", None) or getattr(diag, "constraint_name", None)
+            if constraint == BENCHMARK_ACTIVE_SWEEP_INDEX:
+                raise BusinessRuleViolation(
+                    "Another sweep is pending or running — cancel it or wait for it to finish"
+                ) from exc
+            raise
         await self._db.refresh(orm)
-        return self._to_entity(orm)
+        return self.to_entity(orm)
 
     async def update_status(self, sweep_id: int, status: str) -> None:
         stmt = (
@@ -79,7 +93,7 @@ class SQLAlchemyBenchmarkSweepRepository:
             .limit(limit)
         )
         result = await self._db.execute(stmt)
-        return [self._to_entity(orm) for orm in result.scalars().all()]
+        return [self.to_entity(orm) for orm in result.scalars().all()]
 
     async def count(self) -> int:
         stmt = select(func.count()).select_from(BenchmarkSweepModel)
@@ -103,7 +117,7 @@ class SQLAlchemyBenchmarkSweepRepository:
         return (result.scalar_one() or 0) > 0
 
     @staticmethod
-    def _to_entity(orm: BenchmarkSweepModel) -> BenchmarkSweep:
+    def to_entity(orm: BenchmarkSweepModel) -> BenchmarkSweep:
         return BenchmarkSweep(
             id=orm.id,
             creation_date=orm.creation_date,

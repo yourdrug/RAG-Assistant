@@ -83,8 +83,8 @@ def worker(
             max_jobs=max_jobs,
             health_check_interval=health_check_interval,
             queue_name=QUEUE_NAME,
-            on_startup=_on_startup,
-            on_shutdown=_on_shutdown,
+            on_startup=on_startup,
+            on_shutdown=on_shutdown,
         )
 
         logger.info(
@@ -102,7 +102,7 @@ def worker(
         sys.exit(1)
 
 
-async def _on_startup(ctx: dict) -> None:
+async def on_startup(ctx: dict) -> None:
     """Initialize database and infrastructure on worker startup."""
     from composition.container import Container
     from infrastructure.database.database import database
@@ -140,18 +140,20 @@ async def _on_startup(ctx: dict) -> None:
     logger.info("Worker: config listener started")
 
 
-async def _on_shutdown(ctx: dict) -> None:
+async def on_shutdown(ctx: dict) -> None:
     """Cleanup on worker shutdown."""
     from infrastructure.database.database import database
     from infrastructure.redis.redis_client import redis_client
 
-    listener = ctx.get("config_listener")
-    if listener:
-        await listener.stop()
-        logger.info("Worker: config listener stopped")
-
-    await redis_client.aclose()
-    logger.info("Worker: Redis disconnected")
-
-    await database.disconnect()
-    logger.info("Worker: database disconnected")
+    try:
+        container = ctx.get("container")
+        if container is not None:
+            await container.dispose()
+            logger.info("Worker: container disposed")
+    finally:
+        try:
+            await redis_client.aclose()
+            logger.info("Worker: Redis disconnected")
+        finally:
+            await database.disconnect()
+            logger.info("Worker: database disconnected")

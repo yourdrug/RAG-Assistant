@@ -25,7 +25,10 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from domain.value_objects.sweep_status import BenchmarkSweepStatus
 from infrastructure.database.basemodel import BaseModel, LinkedBaseModel
+
+BENCHMARK_ACTIVE_SWEEP_INDEX = "uq_benchmark_sweeps_one_active"
 
 
 class UserModel(BaseModel):
@@ -399,6 +402,14 @@ class BenchmarkSweepModel(BaseModel):
             name="benchmark_sweeps_status_check",
         ),
         Index("idx_benchmark_sweeps_status", "status"),
+        Index(
+            BENCHMARK_ACTIVE_SWEEP_INDEX,
+            text("(1)"),
+            unique=True,
+            postgresql_where=text(
+                f"status IN ('{BenchmarkSweepStatus.PENDING.value}', '{BenchmarkSweepStatus.RUNNING.value}')"
+            ),
+        ),
     )
 
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="pending")

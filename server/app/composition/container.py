@@ -54,12 +54,12 @@ class Container:
                 "Container.init() must be called exactly once. Second call detected — this is a bug."
             )
         self.infrastructure.init(database_manager)
-        self._subscribe_config_events()
+        self.subscribe_config_events()
         try:
             self.application.init(self.infrastructure)
         except Exception:
             log.exception("ApplicationContainer.init() failed — rolling back infrastructure")
-            self._unsubscribe_config_events()
+            self.unsubscribe_config_events()
             # Use synchronous dispose since application was never fully initialized
             # and infrastructure.dispose() has no awaitable work for DB cleanup.
             self.infrastructure._initialized = False
@@ -91,12 +91,16 @@ class Container:
 
         Safe to call even if init() was never called.
         """
-        await self.application.dispose()
-        await self.infrastructure.dispose()
-        self._unsubscribe_config_events()
-        self._initialized = False
+        try:
+            await self.application.dispose()
+        finally:
+            try:
+                await self.infrastructure.dispose()
+            finally:
+                self.unsubscribe_config_events()
+                self._initialized = False
 
-    def _subscribe_config_events(self) -> None:
+    def subscribe_config_events(self) -> None:
         """Subscribe config-change handlers to the event bus."""
         from domain.events.config_events import ConfigParameterChanged
         from infrastructure.events.in_process_event_bus import event_bus
@@ -122,14 +126,14 @@ class Container:
         # global settings — update the cache on every event carrying domain_key.
         adapter = self.infrastructure.domain_settings
 
-        def _update_domain_settings_cache(event: ConfigParameterChanged) -> None:
+        def update_domain_settings_cache(event: ConfigParameterChanged) -> None:
             if getattr(event, "domain_key", None) is not None and adapter is not None:
                 adapter.set(event.key, event.domain_key, event.new_value)
                 log.info("Domain config applied: %s[%s] = %s", event.key, event.domain_key, event.new_value)
 
-        bus.subscribe(ConfigParameterChanged, _update_domain_settings_cache)
+        bus.subscribe(ConfigParameterChanged, update_domain_settings_cache)
 
-        def _invalidate_llm(event: ConfigParameterChanged) -> None:
+        def invalidate_llm(event: ConfigParameterChanged) -> None:
             llm_keys = {
                 "llm_provider",
                 "llm_model",
@@ -137,26 +141,28 @@ class Container:
                 "llm_top_p",
                 "llm_num_ctx_narrow",
                 "llm_num_predict_narrow",
+                "llm_num_ctx_broad",
+                "llm_num_predict_broad",
                 "openrouter_model",
             }
             if event.key in llm_keys:
                 ml.invalidate_llm()
 
-        def _invalidate_bm25(event: ConfigParameterChanged) -> None:
+        def invalidate_bm25(event: ConfigParameterChanged) -> None:
             if event.key == "hybrid_enabled":
                 ml.invalidate_bm25()
 
-        def _invalidate_embedding_clients(event: ConfigParameterChanged) -> None:
+        def invalidate_embedding_clients(event: ConfigParameterChanged) -> None:
             if event.key in {"ml_provider", "deepinfra_embed_model"}:
                 ml.invalidate_embeddings()
             if event.key in {"ml_provider", "deepinfra_rerank_model"}:
                 ml.invalidate_reranker()
 
-        bus.subscribe(ConfigParameterChanged, _invalidate_llm)
-        bus.subscribe(ConfigParameterChanged, _invalidate_bm25)
-        bus.subscribe(ConfigParameterChanged, _invalidate_embedding_clients)
+        bus.subscribe(ConfigParameterChanged, invalidate_llm)
+        bus.subscribe(ConfigParameterChanged, invalidate_bm25)
+        bus.subscribe(ConfigParameterChanged, invalidate_embedding_clients)
 
-    def _unsubscribe_config_events(self) -> None:
+    def unsubscribe_config_events(self) -> None:
         """Remove all config-change handlers from the event bus."""
         from infrastructure.events.in_process_event_bus import event_bus
 

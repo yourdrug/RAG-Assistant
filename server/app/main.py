@@ -89,8 +89,6 @@ async def _shutdown(container, scheduler, database, redis_client) -> None:
     await _safe(scheduler.shutdown(), "shutdown scheduler")
     if container is not None:
         await _safe(container.dispose(), "dispose container")
-        if container.infrastructure.ml.ml_clients is not None:
-            await _safe(container.infrastructure.ml.ml_clients.close(), "close ml_clients")
 
     from infrastructure.worker.queue import close_arq_pool
 

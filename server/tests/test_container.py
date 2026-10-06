@@ -74,7 +74,7 @@ class TestApplicationContainer:
         container.infrastructure = MagicMock()
         with patch("composition.application.create_ingestion_service", return_value=MagicMock()):
             container.application.init(container.infrastructure)
-        container._subscribe_config_events()
+        container.subscribe_config_events()
 
         chat_redactor = container.application.chat_service._pii_redactor
         rag_redactor = container.application.rag_service._pii_redactor
@@ -159,8 +159,8 @@ class TestContainer:
         with (
             patch.object(InfrastructureContainer, "init"),
             patch.object(ApplicationContainer, "init"),
-            patch.object(Container, "_subscribe_config_events"),
-            patch.object(Container, "_unsubscribe_config_events"),
+            patch.object(Container, "subscribe_config_events"),
+            patch.object(Container, "unsubscribe_config_events"),
         ):
             c.init(mock_db)
             with pytest.raises(RuntimeError, match="exactly once"):
@@ -180,8 +180,8 @@ class TestContainer:
             patch.object(ApplicationContainer, "init"),
             patch.object(ApplicationContainer, "dispose", new_callable=AsyncMock),
             patch.object(InfrastructureContainer, "dispose", new_callable=AsyncMock),
-            patch.object(Container, "_subscribe_config_events"),
-            patch.object(Container, "_unsubscribe_config_events"),
+            patch.object(Container, "subscribe_config_events"),
+            patch.object(Container, "unsubscribe_config_events"),
         ):
             c.init(mock_db)
             assert c._initialized is True
@@ -219,8 +219,8 @@ class TestContainer:
             patch.object(ApplicationContainer, "init"),
             patch.object(ApplicationContainer, "dispose", new_callable=AsyncMock),
             patch.object(InfrastructureContainer, "dispose", new_callable=AsyncMock),
-            patch.object(Container, "_subscribe_config_events"),
-            patch.object(Container, "_unsubscribe_config_events"),
+            patch.object(Container, "subscribe_config_events"),
+            patch.object(Container, "unsubscribe_config_events"),
         ):
             c.init(mock_database_manager)
             mock_infra_init.assert_called_once_with(mock_database_manager)
@@ -272,7 +272,7 @@ class TestChunkSearchAdapter:
 
 
 # ===========================================================================
-# _subscribe_config_events — wiring
+# subscribe_config_events — wiring
 # ===========================================================================
 
 
@@ -284,7 +284,7 @@ class TestSubscribeConfigEvents:
         c.infrastructure.ml.ml_clients = MagicMock()
 
         with patch("infrastructure.events.in_process_event_bus.event_bus") as mock_bus:
-            c._subscribe_config_events()
+            c.subscribe_config_events()
             assert mock_bus.subscribe.call_count == 9
             for call_args in mock_bus.subscribe.call_args_list:
                 event_type = call_args[0][0]
@@ -303,7 +303,7 @@ class TestSubscribeConfigEvents:
         c.infrastructure.ml.ml_clients = mock_ml
 
         with patch("infrastructure.events.in_process_event_bus.event_bus") as mock_bus:
-            c._subscribe_config_events()
+            c.subscribe_config_events()
 
             handlers = [call[0][1] for call in mock_bus.subscribe.call_args_list]
 
