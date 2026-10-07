@@ -1,6 +1,8 @@
 """Compose specialized chunk repositories over one transactional SQLAlchemy session."""
 
 from __future__ import annotations
+
+from domain.value_objects.chunk_context import TABLE_CONTEXT_MAX_CHUNKS
 from collections.abc import AsyncIterator
 from datetime import date, datetime
 from domain.repositories.chunk_repository import ChunkSearchResult, ChunkStats
@@ -193,10 +195,24 @@ class SQLAlchemyChunkRepository:
         )
 
     async def get_table_batches(
-        self, document_id: int, anchor_index: int, exclude_hashes: set[str] | None = None, *, user
-    ) -> list[ChunkSearchResult]:
+        self,
+        document_id,
+        table_id,
+        exclude_hashes=None,
+        *,
+        user,
+        limit=TABLE_CONTEXT_MAX_CHUNKS,
+        row_start=None,
+        row_end=None,
+    ):
         return await self._context.get_table_batches(
-            document_id=document_id, anchor_index=anchor_index, exclude_hashes=exclude_hashes, user=user
+            document_id,
+            table_id,
+            exclude_hashes,
+            user=user,
+            limit=limit,
+            row_start=row_start,
+            row_end=row_end,
         )
 
     async def set_current_by_act_version_ids(self, act_version_ids: list[int], is_current: bool) -> int:

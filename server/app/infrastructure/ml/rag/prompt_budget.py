@@ -7,5 +7,10 @@ Callers with a local tokenizer may supply an exact message counter.
 import math
 
 
+def estimate_text_tokens(text: str) -> int:
+    """Use the same conservative estimate for context and chat message text."""
+    return math.ceil(len(text.encode("utf-8")) / 3)
+
+
 def estimate_message_tokens(messages: list) -> int:
-    return 3 + sum(12 + math.ceil(len(str(message.content).encode("utf-8")) / 3) for message in messages)
+    return 3 + sum(12 + estimate_text_tokens(str(message.content)) for message in messages)

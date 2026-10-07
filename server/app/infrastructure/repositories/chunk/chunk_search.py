@@ -79,7 +79,7 @@ def _row_to_search_result(row) -> ChunkSearchResult:
     )
 
 
-def _build_acl_clauses(
+def build_acl_clauses(
     user,
     group_ids: list[int],
     managed_client_ids: list[int] | None = None,
@@ -189,7 +189,7 @@ class SQLAlchemyChunkSearchRepository:
         if len(query.strip()) < 3:
             return []
 
-        acl_clauses = _build_acl_clauses(
+        acl_clauses = build_acl_clauses(
             user,
             user.group_ids,
             user.managed_client_ids,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from domain.value_objects.llm_provider import Breadth
+from .evidence_reading import evidence_reading_rules
 
 from .prompt_blocks import (
     _INTRO,
@@ -46,6 +47,7 @@ def build_system_prompt(
     breadth: str = Breadth.NARROW,
     domain_addendum: str | None = None,
     enumerate_cases: bool = False,
+    question: str = "",
 ) -> str:
     """Build the system prompt text based on question breadth and context composition.
 
@@ -72,6 +74,7 @@ def build_system_prompt(
         _CITATION_CONTEXT_HANDLING_BLOCK,
         "<formatting_rules>\n" + formatting_rules + "\n</formatting_rules>",
         _TABLE_IMAGE_RULES_BLOCK,
+        *evidence_reading_rules(question),
         _SOURCE_REFERENCE_STYLE_BLOCK,
     ]
 

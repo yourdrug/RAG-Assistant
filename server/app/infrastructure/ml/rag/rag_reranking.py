@@ -2,7 +2,24 @@
 
 from pathlib import Path
 
-from domain.utils import deduplicate_docs  # noqa: F401
+from domain.utils import content_hash
+from infrastructure.ml.rag.benchmark_evidence import active_evidence, capture_exclusions
+from infrastructure.ml.rag.context_selection import ExclusionReason, exclusion_record
+
+
+def deduplicate_docs(docs: list) -> list:
+    """Deduplicate retrieval candidates and preserve request-local diagnostics."""
+    seen = set()
+    selected = []
+    for doc in docs:
+        identity = content_hash(doc.page_content)
+        if identity in seen:
+            if active_evidence.get() is not None:
+                capture_exclusions([exclusion_record(doc, ExclusionReason.DUPLICATE, "retrieval")])
+            continue
+        seen.add(identity)
+        selected.append(doc)
+    return selected
 
 
 async def rerank_documents(
@@ -33,12 +50,33 @@ async def rerank_documents(
     if hasattr(scores, "__await__"):
         scores = await scores
 
-    ranked = sorted(zip(docs, scores, strict=True), key=lambda x: x[1], reverse=True)[:top_n]
+    ranked = sorted(zip(docs, scores, strict=True), key=lambda x: x[1], reverse=True)
+    if active_evidence.get() is not None:
+        capture_exclusions(
+            [exclusion_record(item, ExclusionReason.RERANK_TOP_N, "reranker") for item in ranked[top_n:]]
+        )
+    ranked = ranked[:top_n]
 
     from application.services.retrieval import HybridRetriever
 
     retriever = HybridRetriever()
-    return retriever.apply_rerank_filters(ranked, min_score=min_score, score_gap_ratio=score_gap_ratio)
+    selected = retriever.apply_rerank_filters(ranked, min_score=min_score, score_gap_ratio=score_gap_ratio)
+    if active_evidence.get() is not None:
+        kept = {id(doc) for doc, _ in selected}
+        capture_exclusions(
+            [
+                exclusion_record(
+                    item,
+                    ExclusionReason.RERANK_THRESHOLD,
+                    "reranker",
+                    min_score=min_score,
+                    score_gap_ratio=score_gap_ratio,
+                )
+                for item in ranked
+                if id(item[0]) not in kept
+            ]
+        )
+    return selected
 
 
 def group_by_section(docs: list[tuple]) -> list[tuple]:

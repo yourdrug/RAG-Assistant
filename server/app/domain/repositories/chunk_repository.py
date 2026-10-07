@@ -5,6 +5,8 @@ The UoW exposes their combined facade over one transaction.
 
 from __future__ import annotations
 
+from domain.value_objects.chunk_context import TABLE_CONTEXT_MAX_CHUNKS
+
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -188,10 +190,13 @@ class ChunkContextRepository(Protocol):
     async def get_table_batches(
         self,
         document_id: int,
-        anchor_index: int,
+        table_id: str,
         exclude_hashes: set[str] | None = None,
         *,
         user: UserContext,
+        limit: int = TABLE_CONTEXT_MAX_CHUNKS,
+        row_start: int | None = None,
+        row_end: int | None = None,
     ) -> list[ChunkSearchResult]: ...
 
 

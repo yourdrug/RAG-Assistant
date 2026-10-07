@@ -263,10 +263,17 @@ def split_documents(
     original position and repeat headers in every domain.
     """
     chunks: list[Document] = []
+    table_counts: dict[str, int] = {}
     for doc in merge_pdf_pages(docs):
         if not doc.page_content.strip():
             continue
         if doc.metadata.get("content_type") == PageContentType.TABLE.value:
+            source = doc.metadata.get("source", "")
+            table_counts[source] = table_counts.get(source, 0) + 1
+            doc = Document(
+                page_content=doc.page_content,
+                metadata={**doc.metadata, "table_id": f"table-{table_counts[source]}"},
+            )
             chunks.extend(
                 table_document_chunks(
                     doc, settings_chunk_size(domain, settings, chunk_settings), TABLE_BATCH_ROWS

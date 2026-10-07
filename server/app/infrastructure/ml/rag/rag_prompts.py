@@ -244,11 +244,13 @@ def build_prompt(
     summary: str | None = None,
     domain_addendum: str | None = None,
     enumerate_cases: bool = False,
+    question: str = "",
 ) -> ChatPromptTemplate:
     system_text = build_system_prompt(
         breadth,
         domain_addendum=domain_addendum,
         enumerate_cases=enumerate_cases,
+        question=question,
     )
     messages: list = [
         ("system", system_text),
@@ -270,5 +272,8 @@ def build_prompt(
     # injected instructions in documents execute at user privilege, not system.
     messages.append(("human", build_context_message()))
     messages.append(MessagesPlaceholder(variable_name="history"))
-    messages.append(("human", "{question}"))
+    from domain.services.rag_policy.evidence_reading import evidence_reading_reminder
+
+    reminder = evidence_reading_reminder(question).replace("{", "{{").replace("}", "}}")
+    messages.append(("human", "{question}" + reminder))
     return ChatPromptTemplate.from_messages(messages)

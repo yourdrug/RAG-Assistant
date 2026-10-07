@@ -62,14 +62,14 @@ def test_prompt_groups_fragments_by_document_and_sources_keep_the_same_numbers()
     context, selected = format_docs_with_selection(docs)
     assert context.count("[1]") == context.count("[2]") == 1
     assert (
-        context.index("First condition") < context.index("Second condition") < context.index("Other document")
+        context.index("Other document") < context.index("First condition") < context.index("Second condition")
     )
-    assert [item[0].metadata["citation_id"] for item in selected] == [1, 1, 2]
+    assert [item[0].metadata["citation_id"] for item in selected] == [1, 2, 2]
     # Selection metadata does not mutate the retrieved evidence.
     assert all("citation_id" not in item[0].metadata for item in docs)
     cited = filter_cited_documents("Условие согласно [2].", selected)
     sources = extract_sources(cited)
-    assert [(s["citation_id"], s["document_id"]) for s in sources] == [(2, 20)]
+    assert [(s["citation_id"], s["document_id"]) for s in sources] == [(2, 10)]
     assert filter_cited_documents("Условие согласно [999].", selected) == []
 
 

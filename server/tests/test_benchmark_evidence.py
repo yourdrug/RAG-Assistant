@@ -212,7 +212,19 @@ async def test_case_output_contains_diagnostics_and_real_evidence(monkeypatch):
     monkeypatch.setattr(
         evidence_judge, "judge_evidence", lambda *a, **kw: {"scores": {"refusal_score": 10}, "details": {}}
     )
-    evidence = BenchmarkEvidence([doc(FRAGMENT["text"])], [], "Другой текст")
+    from infrastructure.ml.rag.context_selection import ExclusionReason
+
+    exclusions = [{"reason": ExclusionReason.BUDGET.value, "stage": "context"}]
+    candidates = [doc(FRAGMENT["text"])]
+    budget = {"input_tokens": 100, "num_ctx": 256}
+    evidence = BenchmarkEvidence(
+        candidates,
+        [],
+        "Другой текст",
+        exclusions=exclusions,
+        prompt_candidates=candidates,
+        prompt_budget=budget,
+    )
     answer = BenchmarkAnswer("Ответ", evidence.context, {}, 10, 2, evidence=evidence)
     generator = SimpleNamespace(generate=AsyncMock(return_value=answer))
     result = await BenchmarkCaseEvaluator(generator, "judge").evaluate(
@@ -224,6 +236,9 @@ async def test_case_output_contains_diagnostics_and_real_evidence(monkeypatch):
     assert result["evidence_metrics"]["fragment_recall_at_k"] == 1
     assert result["evidence_metrics"]["context_fragment_recall"] == 0
     assert result["evidence"]["context"] == "Другой текст"
+    assert result["evidence"]["exclusions"] == exclusions
+    assert result["evidence"]["prompt_candidates"] == candidates
+    assert result["evidence"]["prompt_budget"] == budget
     assert result["evidence_diagnostics"]["missing_context_fragments"] == [FRAGMENT]
 
 

@@ -156,7 +156,7 @@ def test_oversized_document_does_not_discard_later_usable_sources():
 
 
 def test_budget_includes_separators():
-    docs = [Document(page_content="x" * 14, metadata={"source": "a"}) for _ in range(2)]
+    docs = [Document(page_content=letter * 14, metadata={"source": "a"}) for letter in ("x", "y")]
     context, selected = format_docs_with_selection(docs, max_context_tokens=10)
     assert len(context) <= 10 * CHARS_PER_TOKEN
     assert len(selected) == 1

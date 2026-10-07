@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from domain.value_objects.chunk_context import TABLE_CONTEXT_MAX_CHUNKS
+
 from typing import TYPE_CHECKING
 
 from domain.repositories.chunk_repository import ChunkRetrievalRepository
@@ -43,12 +45,24 @@ class ChunkSearchAdapter:
                 user=user,
             )
 
-    async def get_table_batches(self, document_id, anchor_index, exclude_hashes=None, *, user):
+    async def get_table_batches(
+        self,
+        document_id,
+        table_id,
+        exclude_hashes=None,
+        *,
+        user,
+        limit=TABLE_CONTEXT_MAX_CHUNKS,
+        row_start=None,
+        row_end=None,
+    ):
         async with self._uow_factory.create() as uow:
-            repository: ChunkRetrievalRepository = uow.chunks
-            return await repository.get_table_batches(
-                document_id=document_id,
-                anchor_index=anchor_index,
-                exclude_hashes=exclude_hashes,
+            return await uow.chunks.get_table_batches(
+                document_id,
+                table_id,
+                exclude_hashes,
                 user=user,
+                limit=limit,
+                row_start=row_start,
+                row_end=row_end,
             )

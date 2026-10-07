@@ -22,7 +22,8 @@ from infrastructure.ml.rag.rag_formatting import format_docs
 from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata
 from infrastructure.ml.rag.rag_reranking import deduplicate_docs, rerank_documents
 from infrastructure.ml.rag.rag_retrieval import run_hybrid_search
-from infrastructure.ml.rag.benchmark_evidence import capture_retrieval
+from infrastructure.ml.rag.benchmark_evidence import active_evidence, capture_exclusions, capture_retrieval
+from infrastructure.ml.rag.context_selection import ExclusionReason, exclusion_record
 from infrastructure.ml.rag.rag_postprocess import enrich_with_neighbors, resolve_temporal_conflicts
 from infrastructure.ml.rag.rag_prompts import decompose_question
 from infrastructure.metrics.metrics import RAG_STAGE_DURATION
@@ -403,6 +404,10 @@ async def rerank_and_enrich(
     from domain.services.rag_policy import select_final_top_k, compute_context_budget
 
     final_top_k = select_final_top_k(breadth, enumerate_cases, rag)
+    if active_evidence.get() is not None:
+        capture_exclusions(
+            [exclusion_record(item, ExclusionReason.FINAL_TOP_K, "retrieval") for item in docs[final_top_k:]]
+        )
     docs = docs[:final_top_k]
     capture_retrieval(docs)
     avg_sim = sum(s for _, s in docs) / len(docs) if docs else 0.0
@@ -423,6 +428,7 @@ async def rerank_and_enrich(
         chunk_search,
         max_context_tokens,
         user=ctx.to_user_context(),
+        query=query,
     )
 
     if document_access is not None:

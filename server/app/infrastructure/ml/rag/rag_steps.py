@@ -72,6 +72,7 @@ from infrastructure.ml.rag.rag_postprocess import (  # noqa: F401
     reject_not_relevant,
     resolve_temporal_conflicts,
 )
+from infrastructure.ml.rag.evidence_focus import format_generation_messages
 from infrastructure.ml.rag.rag_prompts import (  # noqa: F401
     build_prompt,
     condense_question,
@@ -447,7 +448,8 @@ def step_build_context(
 ) -> tuple[list, list]:
     """Build prompt and format messages for LLM generation.
 
-    Returns (messages, grouped_docs).
+    Returns messages and retrieval candidates for downstream retrieval metrics.
+    The grouped selection with citation IDs is stored in ``state._prompt_docs``.
     """
     ctx = state.ctx
     if state.breadth is None:
@@ -465,6 +467,7 @@ def step_build_context(
         summary=ctx.summary,
         domain_addendum=domain_addendum,
         enumerate_cases=state.enumerate_cases,
+        question=state.question,
     )
 
     num_ctx = (
@@ -478,7 +481,9 @@ def step_build_context(
     count_tokens = token_counter or estimate_message_tokens
     history = list(state.history_messages)
     while True:
-        base_messages = prompt.format_messages(context="", history=history, question=state.question)
+        base_messages = format_generation_messages(
+            prompt, context="", history=history, question=state.question
+        )
         max_context_tokens = num_ctx - num_predict - count_tokens(base_messages)
         if max_context_tokens > 0:
             break
@@ -486,26 +491,54 @@ def step_build_context(
             raise ContextBudgetExceededError()
         # Drop oldest complete user/assistant turns, preserving recent context.
         history = history[2:]
-    grouped_docs = group_by_section(state.docs)
-    candidates = grouped_docs
+    input_budget = num_ctx - num_predict
     while True:
-        context, selected = format_docs_with_selection(candidates, max_context_tokens=max_context_tokens)
-        if grouped_docs and not selected:
+        exclusions = []
+
+        def count_context(context, current_history=history):
+            return count_tokens(
+                format_generation_messages(
+                    prompt, context=context, history=current_history, question=state.question
+                )
+            )
+
+        context, selected = format_docs_with_selection(
+            state.docs,
+            max_context_tokens=input_budget,
+            context_counter=count_context,
+            query_parts=state.sub_queries or [state.question],
+            exclusions=exclusions,
+        )
+        if state.docs and not selected:
             if history:
                 history = history[2:]
-                base_messages = prompt.format_messages(context="", history=history, question=state.question)
-                max_context_tokens = num_ctx - num_predict - count_tokens(base_messages)
-                candidates = grouped_docs
                 continue
+            capture_prompt(state.docs, [], context, exclusions=exclusions)
             raise ContextBudgetExceededError()
-        messages = prompt.format_messages(context=context, history=history, question=state.question)
-        if count_tokens(messages) + num_predict <= num_ctx:
-            state._prompt_docs = selected
-            break
-        candidates = selected[:-1]
+        messages = format_generation_messages(
+            prompt, context=context, history=history, question=state.question
+        )
+        if count_tokens(messages) > input_budget:
+            raise ContextBudgetExceededError()
+        state._prompt_docs = selected
+        break
     state.history_messages = history
-    capture_prompt(state.docs, state._prompt_docs, context)
-    return messages, grouped_docs
+    capture_prompt(
+        state.docs,
+        selected,
+        context,
+        exclusions=exclusions,
+        budget={
+            "num_ctx": num_ctx,
+            "num_predict": num_predict,
+            "input_tokens": count_tokens(messages),
+            "base_tokens": count_context(""),
+            "effective_breadth": effective_breadth.value,
+            "enumerate_cases": state.enumerate_cases,
+            "query_parts": state.sub_queries or [state.question],
+        },
+    )
+    return messages, state.docs
 
 
 async def step_generate(

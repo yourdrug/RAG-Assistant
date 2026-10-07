@@ -4,6 +4,9 @@ from collections.abc import Mapping
 from copy import deepcopy
 
 
+TABLE_CONTEXT_MAX_CHUNKS = 32
+
+
 CHUNK_CONTEXT_FIELDS = frozenset(
     {
         "section",
@@ -30,6 +33,7 @@ CHUNK_CONTEXT_FIELDS = frozenset(
         "subpoint_num_number",
         "step_number",
         "step_numbers",
+        "table_id",
         "table_header",
         "table_row_start",
         "table_row_end",

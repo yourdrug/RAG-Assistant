@@ -10,6 +10,9 @@ from collections.abc import AsyncIterator
 from datetime import date as _date
 
 from domain.value_objects.llm_provider import Breadth
+from domain.value_objects.chunk_context import TABLE_CONTEXT_MAX_CHUNKS
+from domain.value_objects.page_content_type import PageContentType
+from infrastructure.ml.rag.table_context import focus_table_rows, requests_table_overview
 from domain.value_objects.not_found_patterns import NOT_FOUND_PATTERNS
 from domain.value_objects.rag_settings import RagSettings
 from domain.value_objects.stream_events import SourcesEvent, StreamEvent, TextChunk
@@ -142,70 +145,100 @@ def apply_citation_filter(rag: RagSettings, full_answer: str, sources: list[dict
     return filtered
 
 
+async def fetch_context_neighbors(doc, chunk_search, user, full_table, enumerate_cases, hashes, scopes):
+    """Resolve one authorized table/row scope or a bounded text neighborhood."""
+    document_id = doc.metadata.get("document_id")
+    chunk_index = doc.metadata.get("chunk_index")
+    if not document_id or chunk_index is None:
+        return []
+    if doc.metadata.get("content_type") != PageContentType.TABLE.value:
+        if not enumerate_cases:
+            return []
+        return await chunk_search.get_neighbors(
+            document_id,
+            chunk_index,
+            window=3,
+            exclude_hashes=hashes,
+            user=user,
+        )
+    table_id = doc.metadata.get("table_id")
+    row_start = None if full_table else doc.metadata.get("table_row_start")
+    row_end = None if full_table else doc.metadata.get("table_row_end")
+    # Legacy chunks cannot establish safe boundaries. Reindex them.
+    if not table_id or (not full_table and (row_start is None or row_end is None)):
+        return []
+    scope = (document_id, table_id, row_start, row_end)
+    if scope in scopes:
+        return []
+    scopes.add(scope)
+    return await chunk_search.get_table_batches(
+        document_id,
+        table_id,
+        exclude_hashes=hashes,
+        user=user,
+        limit=TABLE_CONTEXT_MAX_CHUNKS,
+        row_start=row_start,
+        row_end=row_end,
+    )
+
+
 async def enrich_with_neighbors(
     docs: list[tuple],
     enumerate_cases: bool,
     chunk_search,
     max_context_tokens: int = 6000,
     user=None,
+    query: str = "",
 ) -> list[tuple]:
-    """Add neighboring chunks from the same document for richer context."""
-    if not chunk_search or not enumerate_cases:
-        return docs
-
+    """Expand table rows within their table; full tables require an overview request."""
     from langchain.schema import Document as LCDocument
 
+    full_table = requests_table_overview(query)
+    if not full_table:
+        docs = [
+            (focus_table_rows(doc, query), score)
+            if doc.metadata.get("content_type") == PageContentType.TABLE.value
+            else (doc, score)
+            for doc, score in docs
+        ]
+    if not chunk_search:
+        return docs
     existing_hashes = {h for h in (doc.metadata.get("content_hash") for doc, _ in docs) if h is not None}
     new_docs: list[tuple] = []
     current_chars = sum(len(doc.page_content) for doc, _ in docs)
     max_chars = max_context_tokens * CHARS_PER_TOKEN
-
+    scopes: set[tuple] = set()
     for doc, score in docs:
-        chunk_index = doc.metadata.get("chunk_index")
-        document_id = doc.metadata.get("document_id")
-
-        if not document_id or chunk_index is None:
-            continue
-
-        is_table = doc.metadata.get("content_type") == "table"
         try:
-            if is_table:
-                neighbors = await chunk_search.get_table_batches(
-                    document_id,
-                    chunk_index,
-                    exclude_hashes=existing_hashes,
-                    user=user,
-                )
-            else:
-                neighbors = await chunk_search.get_neighbors(
-                    document_id,
-                    chunk_index,
-                    window=3,
-                    exclude_hashes=existing_hashes,
-                    user=user,
-                )
+            neighbors = await fetch_context_neighbors(
+                doc,
+                chunk_search,
+                user,
+                full_table,
+                enumerate_cases,
+                existing_hashes,
+                scopes,
+            )
         except Exception:
             log.warning(
-                "Failed to fetch neighbors for doc_id=%s chunk_index=%s",
-                document_id,
-                chunk_index,
-                exc_info=True,
+                "Failed to fetch context for doc_id=%s", doc.metadata.get("document_id"), exc_info=True
             )
             continue
-
-        for n in neighbors:
-            if n.content_hash and n.content_hash not in existing_hashes:
-                neighbor_chars = len(n.content)
-                if current_chars + neighbor_chars > max_chars:
-                    break
-                neighbor_doc = LCDocument(
-                    page_content=n.content,
-                    metadata=chunk_result_metadata(n),
-                )
-                new_docs.append((neighbor_doc, score * 0.9))
-                existing_hashes.add(n.content_hash)
-                current_chars += neighbor_chars
-
+        for neighbor in neighbors:
+            if not neighbor.content_hash or neighbor.content_hash in existing_hashes:
+                continue
+            neighbor_doc = LCDocument(
+                page_content=neighbor.content,
+                metadata=chunk_result_metadata(neighbor),
+            )
+            if not full_table:
+                neighbor_doc = focus_table_rows(neighbor_doc, query)
+            neighbor_chars = len(neighbor_doc.page_content)
+            if current_chars + neighbor_chars > max_chars:
+                break
+            new_docs.append((neighbor_doc, score * 0.9))
+            existing_hashes.add(neighbor.content_hash)
+            current_chars += neighbor_chars
     return docs + new_docs
 
 
