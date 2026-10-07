@@ -18,6 +18,7 @@ import {
   metricValue,
   preferredTrendRun,
   TREND_METRICS,
+  trendDomain,
 } from "@/shared/lib/benchmark-trends";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
@@ -430,44 +431,55 @@ export function BenchmarkTrendsTab() {
                 </p>
               )}
               {plottedCount > 0 && (
-                <div className="h-64 mt-4">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={chartData} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
-                      <XAxis dataKey="run" tick={{ fontSize: 12 }} />
-                      <YAxis
-                        domain={[0, metric.scale]}
-                        tick={{ fontSize: 12 }}
-                        tickFormatter={(value: number) =>
-                          metric.scale === 1 ? `${Math.round(value * 100)}%` : String(value)
-                        }
-                      />
-                      <Tooltip
-                        content={({ active, payload }) =>
-                          active && payload?.length ? (
-                            <div className="rounded-md border bg-popover p-3 text-xs text-popover-foreground shadow-md">
-                              <p>
-                                {payload[0].payload.run} · {payload[0].payload.date}
-                              </p>
-                              <p>
-                                {metric.label}:{" "}
-                                {formatTrendMetric(payload[0].payload.value, metric)}
-                              </p>
-                            </div>
-                          ) : null
-                        }
-                      />
-                      <Line
-                        type="linear"
-                        dataKey="value"
-                        stroke="var(--color-primary)"
-                        strokeWidth={2}
-                        dot={{ r: 4 }}
-                        connectNulls={false}
-                        isAnimationActive={false}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
+                <div className="mt-4">
+                  <p className="text-xs text-muted-foreground">Y-axis zooms to measured values.</p>
+                  <div className="h-64">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart
+                        data={chartData}
+                        margin={{ top: 8, right: 16, bottom: 8, left: 0 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
+                        <XAxis dataKey="run" tick={{ fontSize: 12 }} />
+                        <YAxis
+                          domain={trendDomain(
+                            chartData.map((point) => point.value),
+                            metric.scale,
+                          )}
+                          allowDataOverflow
+                          tickCount={5}
+                          tick={{ fontSize: 12 }}
+                          tickFormatter={(value: number) =>
+                            metric.scale === 1 ? `${(value * 100).toFixed(1)}%` : value.toFixed(2)
+                          }
+                        />
+                        <Tooltip
+                          content={({ active, payload }) =>
+                            active && payload?.length ? (
+                              <div className="rounded-md border bg-popover p-3 text-xs text-popover-foreground shadow-md">
+                                <p>
+                                  {payload[0].payload.run} · {payload[0].payload.date}
+                                </p>
+                                <p>
+                                  {metric.label}:{" "}
+                                  {formatTrendMetric(payload[0].payload.value, metric)}
+                                </p>
+                              </div>
+                            ) : null
+                          }
+                        />
+                        <Line
+                          type="linear"
+                          dataKey="value"
+                          stroke="var(--color-primary)"
+                          strokeWidth={2}
+                          dot={{ r: 4 }}
+                          connectNulls={false}
+                          isAnimationActive={false}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
                 </div>
               )}
               <div className="overflow-x-auto mt-4 max-h-80">

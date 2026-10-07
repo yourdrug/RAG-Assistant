@@ -2,6 +2,8 @@
 
 from contextvars import ContextVar
 
+judge_context: ContextVar[dict | None] = ContextVar("benchmark_judge_context", default=None)
+
 judge_usage: ContextVar[list[dict] | None] = ContextVar("benchmark_judge_usage", default=None)
 
 

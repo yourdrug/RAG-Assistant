@@ -174,3 +174,24 @@ async def test_strategy_awaits_progress_before_next_score(monkeypatch):
 
     await EnumeratedSweepStrategy([{"top_k": 1}, {"top_k": 2}]).evaluate(score, callback, None)
     assert progress == [(1, 2), (2, 2)]
+
+
+@pytest.mark.asyncio
+async def test_partial_judge_coverage_is_failed_and_resumable_without_traceback(monkeypatch, caplog):
+    factory = SweepFactory()
+    result = {
+        "config": {},
+        "llm_evaluated": True,
+        "evaluation_complete": False,
+        "full_metrics": {"total_questions": 30, "judge_evaluated_count": 27, "judge_error_count": 3},
+    }
+    engine = SimpleNamespace(run_sweep=AsyncMock(return_value=[result]))
+    monkeypatch.setattr(sweep, "create_sweep_engine", lambda infra: engine)
+    monkeypatch.setattr(sweep, "publish_sweep_event", AsyncMock())
+    await sweep.run_sweep_task(sweep_context(factory), sweep_id=1, job_id=2)
+    factory.sweeps.update_status.assert_awaited_with(1, BenchmarkSweepStatus.FAILED.value)
+    factory.jobs.mark_done.assert_not_awaited()
+    assert "27 из 30" in factory.jobs.mark_failed.await_args.args[1]
+    records = [record for record in caplog.records if "incomplete" in record.message]
+    assert records and all(record.exc_info is None for record in records)
+    assert sweep.publish_sweep_event.await_args.args[1]["error"]

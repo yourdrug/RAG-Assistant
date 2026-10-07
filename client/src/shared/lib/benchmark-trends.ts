@@ -144,3 +144,17 @@ export function metricsWithQuestionCoverage(
   }
   return metrics;
 }
+
+/** Zoom to measured values with padding; retain the metric's physical bounds. */
+export function trendDomain(values: (number | null)[], scale: number): [number, number] {
+  const measured = values.filter(
+    (value): value is number => value !== null && Number.isFinite(value),
+  );
+  if (!measured.length) return [0, scale];
+  const min = Math.min(...measured);
+  const max = Math.max(...measured);
+  const padding = Math.max((max - min) * 0.2, scale * 0.005);
+  const low = Math.max(0, min - padding);
+  const high = Math.min(scale, max + padding);
+  return low < high ? [low, high] : [0, scale];
+}

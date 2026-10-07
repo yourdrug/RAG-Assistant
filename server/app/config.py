@@ -95,7 +95,7 @@ class Settings(BaseSettings):
     reranker_max_concurrent: int = 8
     bm25_search_max_concurrent: int = 8
     semaphore_acquire_timeout: int = 30  # seconds, max wait for semaphore acquire before 429/503
-    benchmark_max_concurrent: int = 3
+    benchmark_max_concurrent: int = Field(default=10, ge=1)
     benchmark_judge_max_concurrent: int = Field(default=3, ge=1)
     benchmark_judge_grouped_enabled: bool = True
     benchmark_judge_initial_tokens: int = Field(default=2048, ge=1)

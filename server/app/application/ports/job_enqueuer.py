@@ -8,6 +8,8 @@ from typing import Protocol
 class JobEnqueuerPort(Protocol):
     """Enqueues background processing jobs."""
 
+    async def enqueue_document_deletion(self, *, document_id: int, user_id: int, job_id: int) -> None: ...
+
     async def enqueue_document_processing(
         self,
         *,

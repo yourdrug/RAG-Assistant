@@ -29,6 +29,7 @@ from domain.value_objects.visibility import DocumentVisibility
 from application.services.benchmark_dataset import load_benchmark_questions
 from infrastructure.benchmark.runner import run_benchmark_async
 from infrastructure.worker.admission import one_document_per_principal
+from infrastructure.worker.outcomes import IncompleteEvaluation
 
 # Re-export cron tasks for backward compatibility (Arq worker config imports from here)
 from infrastructure.worker.cron import (  # noqa: F401
@@ -106,6 +107,9 @@ async def run_tracked_job(
             logger.warning("Worker: job %d cancelled (%s) — persisting failed state", job_id, description)
             await _mark_job_failed_safe(uow_factory, job_id, "Task cancelled (timeout or worker shutdown)")
             raise
+        except IncompleteEvaluation as exc:
+            logger.warning("Worker: job %d incomplete (%s): %s", job_id, description, exc)
+            await _mark_job_failed_safe(uow_factory, job_id, str(exc))
         except Exception as e:
             logger.exception("Worker: job %d failed (%s)", job_id, description)
             if job_try < max_tries:

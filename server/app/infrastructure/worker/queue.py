@@ -191,3 +191,16 @@ async def enqueue_sweep(
         sweep_id=sweep_id,
         job_id=job_id,
     )
+
+
+async def enqueue_document_deletion(*, document_id: int, user_id: int, job_id: int) -> None:
+    job = await _enqueue_arq(
+        QUEUE_NAME,
+        "delete_document",
+        arq_job_id=f"delete_doc:{document_id}:{job_id}",
+        document_id=document_id,
+        user_id=user_id,
+        job_id=job_id,
+    )
+    if job is None:
+        raise RuntimeError("Document deletion job was not enqueued")

@@ -4,12 +4,76 @@ import re
 
 from langchain_core.messages import HumanMessage
 
+from domain.services.rag_policy.evidence_reading import ENUMERATION_READING_RULES, evidence_reading_rules
+
 MAX_FOCUS_CHARS = 3000
+
+
+def table_lookup_anchors(context: str, question: str) -> list[str]:
+    """Repeat best matching complete rows, retaining ties rather than guessing."""
+    if not re.search(r"\bкод\w*", question, re.IGNORECASE):
+        return []
+    terms = {word[:5] for word in re.findall(r"[а-яё]{5,}", question.casefold())}
+    candidates = []
+    header = ""
+    for line in context.splitlines():
+        if not line.startswith("|"):
+            header = ""
+            continue
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        if not any(re.fullmatch(r"\d+", cell) for cell in cells):
+            if not re.fullmatch(r"[|\s:-]+", line):
+                header = line
+            continue
+        score = sum(term in line.casefold() for term in terms)
+        if score >= 2:
+            candidates.append((score, header + "\n" + line if header else line))
+    best = max((score for score, _ in candidates), default=0)
+    return [anchor for score, anchor in candidates if score == best]
+
+
+def conditional_paragraph(lines: list[str], index: int) -> str:
+    paragraph = [lines[index]]
+    for following in lines[index + 1 :]:
+        if not following.strip() or following.startswith(("|", "[", "---")):
+            break
+        if re.match(r"(?:при|в)\s", following, re.IGNORECASE):
+            break
+        paragraph.append(following)
+    return "\n".join(paragraph)
+
+
+def enumeration_anchors(context: str, question: str) -> list[str]:
+    """Repeat complete conditional paragraphs, scoped by reference or question terms."""
+    if ENUMERATION_READING_RULES not in evidence_reading_rules(question):
+        return []
+    reference = re.search(r"\b(?:п\.|подпункт\w*)\s*(\d+\.\d+)", question, re.IGNORECASE)
+    terms = {word[:7] for word in re.findall(r"[а-яё]{7,}", question.casefold())}
+    anchors = []
+    for block in re.split(r"\n---\n", context):
+        if reference and not re.search(rf"\bsubpoint_num\s+{re.escape(reference[1])}(?![\d.])", block):
+            continue
+        lines = block.splitlines()
+        for index, line in enumerate(lines):
+            if not re.match(r"(?:при|в)\s", line, re.IGNORECASE):
+                continue
+            # Scope-only headings end with ':'; repeat the actual cases instead.
+            if line.rstrip().endswith(":"):
+                continue
+            matches = sum(term in line.casefold() for term in terms)
+            if not reference and matches < 2:
+                continue
+            anchors.append(conditional_paragraph(lines, index))
+    anchors = list(dict.fromkeys(anchors))
+    # Put the full inventory before the long paragraphs so later categories
+    # remain visible even when a model concentrates on the first few excerpts.
+    categories = [anchor.split(" - ", 1)[0] for anchor in anchors if " - " in anchor]
+    return list(dict.fromkeys(categories + anchors))
 
 
 def reading_anchors(context: str, question: str) -> list[str]:
     lines = context.splitlines()
-    anchors = []
+    anchors = table_lookup_anchors(context, question)
     dates = re.findall(r"\d{2}\.\d{2}\.\d{4}", question)
     if re.search(r"дополнительн|введ[её]н", question, re.IGNORECASE):
         for index, line in enumerate(lines):
@@ -41,6 +105,7 @@ def reading_anchors(context: str, question: str) -> list[str]:
             row for row in related_rows if set(re.findall(r"\b(?:an|n|a)\.\.\d+", row)) - target_formats
         )
         anchors.extend(target_rows)
+    anchors.extend(enumeration_anchors(context, question))
     return list(dict.fromkeys(anchors))
 
 

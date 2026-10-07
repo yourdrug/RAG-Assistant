@@ -309,3 +309,9 @@ def create_storage_config(request: Request):
     from config import settings
 
     return StorageConfig(file_backend=settings.file_backend, redis_url=settings.redis_url)
+
+
+def create_document_deletion_jobs(request: Request):
+    return _get_or_raise(
+        _create_container(request).application.document_deletion_jobs, "DocumentDeletionJobs"
+    )

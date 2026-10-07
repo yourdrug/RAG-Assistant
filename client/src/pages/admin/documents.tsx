@@ -76,7 +76,7 @@ export function AdminDocumentsPage() {
     if (deleteId === null) return;
     try {
       await deleteMut.mutateAsync(deleteId);
-      toast.success("Deleted");
+      toast.success("Deletion queued");
     } catch {
       toast.error("Failed");
     }
@@ -115,6 +115,7 @@ export function AdminDocumentsPage() {
           )}
           <div className="flex flex-col gap-1">
             <span className="font-medium break-words">{row.original.filename}</span>
+            {deleteMut.isDeleting(row.original.id) && <Badge variant="secondary">Deleting…</Badge>}
             {row.original.has_manual_edits && (
               <Badge variant="warning" className="text-xs w-fit">
                 Edited
@@ -295,7 +296,13 @@ export function AdminDocumentsPage() {
             >
               <Pencil className="h-4 w-4 text-muted-foreground" />
             </Button>
-            <Button variant="ghost" size="icon" onClick={() => setDeleteId(doc.id)}>
+            <Button
+              variant="ghost"
+              size="icon"
+              disabled={deleteMut.isDeleting(doc.id)}
+              title={deleteMut.isDeleting(doc.id) ? "Deleting…" : "Delete"}
+              onClick={() => setDeleteId(doc.id)}
+            >
               <Trash2 className="h-4 w-4 text-destructive" />
             </Button>
           </div>

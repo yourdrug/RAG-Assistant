@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from application.services.assignment_service import AssignmentService
     from application.services.document_command_service import DocumentCommandService
     from application.services.document_query_service import DocumentQueryService
+    from application.services.document_deletion_jobs import DocumentDeletionJobs
     from application.services.group_service import GroupService
     from application.services.health_service import HealthService
     from application.services.ingest_service import IngestAppService
@@ -63,6 +64,7 @@ class ApplicationContainer:
     auth_service: AuthService | None = field(default=None)
     document_command_service: "DocumentCommandService | None" = field(default=None)
     document_query_service: "DocumentQueryService | None" = field(default=None)
+    document_deletion_jobs: "DocumentDeletionJobs | None" = field(default=None)
     chunk_service: ChunkService | None = field(default=None)
     ingest_app_service: IngestAppService | None = field(default=None)
     config_service: ConfigService | None = field(default=None)
@@ -104,6 +106,7 @@ class ApplicationContainer:
         from application.services.assignment_service import AssignmentService
         from application.services.document_command_service import DocumentCommandService
         from application.services.document_query_service import DocumentQueryService
+        from application.services.document_deletion_jobs import DocumentDeletionJobs
         from application.services.group_service import GroupService
         from application.services.health_service import HealthService
         from application.services.ingest_service import IngestAppService
@@ -189,6 +192,7 @@ class ApplicationContainer:
             bm25_index=BM25IndexAdapter(ml),
             domain_registry=infra.domain_registry,
         )
+        self.document_deletion_jobs = DocumentDeletionJobs(uow, infra.services.job_enqueuer)
         self.document_query_service = DocumentQueryService(
             uow_factory=uow,
         )

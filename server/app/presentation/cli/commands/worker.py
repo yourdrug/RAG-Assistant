@@ -21,6 +21,7 @@ from infrastructure.worker.tasks import (
     run_full_ingest,
     run_single_ingest,
 )
+from infrastructure.worker.document_deletion import delete_document
 from infrastructure.worker.checkpoint_cleanup import cron_sweep_checkpoint_cleanup
 from infrastructure.worker.sweep import run_sweep_task as run_sweep
 
@@ -51,6 +52,7 @@ def worker(
         redis_settings = RedisSettings.from_dsn(settings.redis_url)
 
         functions: Sequence[Function] = [
+            arq_func(delete_document, timeout=_PROCESS_TIMEOUT, keep_result=0, max_tries=_MAX_JOB_TRIES),
             arq_func(process_document, timeout=_PROCESS_TIMEOUT, keep_result=0, max_tries=10000),
             arq_func(run_full_ingest, timeout=_FULL_INGEST_TIMEOUT, keep_result=0, max_tries=_MAX_JOB_TRIES),
             arq_func(

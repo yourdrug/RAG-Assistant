@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from infrastructure.worker.queue import (
     enqueue_benchmark as _enqueue_benchmark,
+    enqueue_document_deletion,
     enqueue_document_processing as _enqueue_document_processing,
     enqueue_ingest as _enqueue_ingest,
     enqueue_ingest_file as _enqueue_ingest_file,
@@ -13,6 +14,9 @@ from infrastructure.worker.queue import (
 
 class JobEnqueuerAdapter:
     """Thin wrapper making worker queue functions available as an injectable port."""
+
+    async def enqueue_document_deletion(self, *, document_id: int, user_id: int, job_id: int) -> None:
+        await enqueue_document_deletion(document_id=document_id, user_id=user_id, job_id=job_id)
 
     async def enqueue_document_processing(
         self,

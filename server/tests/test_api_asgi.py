@@ -10,6 +10,7 @@ import pytest_asyncio
 from application.services.conversation_service import ConversationService
 from domain.entities.message import Message
 from domain.value_objects.message_role import MessageRole
+from domain.value_objects.job_status import BackgroundJobStatus
 from domain.value_objects.roles import UserRole
 from main import app
 from presentation.api.auth_dependencies import get_current_user
@@ -166,3 +167,55 @@ async def test_private_document_ownership_through_real_route(asgi_client, user_i
         assert response.json()["filename"] == "private.pdf"
     else:
         assert "private.pdf" not in response.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "user_id,role,expected", [(1, UserRole.CURATOR, 202), (2, UserRole.CURATOR, 409), (1, UserRole.USER, 403)]
+)
+async def test_document_delete_queues_only_after_authorization(asgi_client, user_id, role, expected):
+    from application.services.document_deletion_jobs import DocumentDeletionJobs
+    from domain.entities.background_job import BackgroundJob
+    from domain.entities.document import Document
+    from domain.value_objects.job_type import JobType
+    from domain.value_objects.visibility import DocumentVisibility
+
+    factory = FakeUnitOfWorkFactory()
+    document = await factory._uow.documents.save(
+        Document(
+            filename="private.pdf",
+            owner_id=1,
+            visibility=DocumentVisibility.INTERNAL_PRIVATE,
+        )
+    )
+    jobs = factory._uow.background_jobs
+    jobs.create = AsyncMock(
+        return_value=BackgroundJob(id=42, related_id=document.id, job_type=JobType.DOCUMENT_DELETION)
+    )
+    enqueuer = SimpleNamespace(enqueue_document_deletion=AsyncMock())
+    service = DocumentDeletionJobs(factory, enqueuer)
+    app.dependency_overrides[deps.create_document_deletion_jobs] = lambda: service
+    sign_in(role.value, user_id)
+    response = await asgi_client.delete(f"/documents/{document.id}")
+    assert response.status_code == expected
+    assert await factory._uow.documents.get_by_id(document.id) == document
+    if expected == 202:
+        assert response.json() == {
+            "status": BackgroundJobStatus.PENDING.value,
+            "document_id": document.id,
+            "job_id": 42,
+        }
+        enqueuer.enqueue_document_deletion.assert_awaited_once_with(
+            document_id=document.id, user_id=user_id, job_id=42
+        )
+        jobs.get_by_id = AsyncMock(
+            return_value=BackgroundJob(id=42, related_id=document.id, job_type=JobType.DOCUMENT_DELETION)
+        )
+        progress = await asgi_client.get(f"/documents/{document.id}/deletion/42")
+        assert progress.status_code == 200
+        assert progress.json()["status"] == BackgroundJobStatus.PENDING.value
+        await factory._uow.documents.delete(document.id)
+        assert (await asgi_client.get(f"/documents/{document.id}/deletion/42")).status_code == 404
+    else:
+        jobs.create.assert_not_awaited()
+        enqueuer.enqueue_document_deletion.assert_not_awaited()

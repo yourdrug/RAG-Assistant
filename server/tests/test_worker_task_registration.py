@@ -34,3 +34,22 @@ def test_enqueued_sweep_resolves_to_registered_handler(monkeypatch):
     assert len(cleanup_jobs) == 1
     assert cleanup_jobs[0].minute == set(range(60))
     worker_instance.run.assert_called_once()
+
+
+def test_enqueued_deletion_resolves_to_registered_handler(monkeypatch):
+    from infrastructure.worker.document_deletion import delete_document
+
+    pool = Mock(enqueue_job=AsyncMock())
+    monkeypatch.setattr(queue, "_get_pool", AsyncMock(return_value=pool))
+    worker_factory = Mock(return_value=Mock())
+    monkeypatch.setattr(worker_command, "Worker", worker_factory)
+    worker_command.worker()
+    asyncio.run(queue.enqueue_document_deletion(document_id=7, user_id=1, job_id=42))
+    task_name = pool.enqueue_job.call_args.args[0]
+    functions = worker_factory.call_args.kwargs["functions"]
+    handlers = [function for function in functions if function.name == task_name]
+    assert len(handlers) == 1
+    assert handlers[0].coroutine is delete_document
+    assert pool.enqueue_job.call_args.kwargs["document_id"] == 7
+    assert pool.enqueue_job.call_args.kwargs["user_id"] == 1
+    assert pool.enqueue_job.call_args.kwargs["job_id"] == 42

@@ -6,6 +6,7 @@ import asyncio
 import time
 from dataclasses import asdict
 from pathlib import Path
+from uuid import uuid4
 
 from infrastructure.benchmark.answer_generators import BenchmarkAnswer
 from infrastructure.ml.rag.benchmark_evidence import BenchmarkEvidence
@@ -45,9 +46,17 @@ class BenchmarkCaseEvaluator:
     async def evaluate(
         self, idx: int, question: dict, run_idx: int, ctx: ChatContext, checkpoint_path: Path | None = None
     ) -> dict:
-        from infrastructure.benchmark.token_usage import judge_usage
+        from infrastructure.benchmark.token_usage import judge_usage, judge_context
 
         saved = await self.load_stages(checkpoint_path)
+        context_token = judge_context.set(
+            {
+                "case_id": uuid4().hex,
+                "question_id": question.get("id", idx),
+                "run": run_idx,
+                "checkpoint": str(checkpoint_path) if checkpoint_path else None,
+            }
+        )
         records: list[dict] = (saved or {}).get("judge_usage", [])
         token = judge_usage.set(records)
         try:
@@ -59,6 +68,7 @@ class BenchmarkCaseEvaluator:
             return result
         finally:
             judge_usage.reset(token)
+            judge_context.reset(context_token)
             if checkpoint_path:
                 saved = await self.load_stages(checkpoint_path)
                 saved["judge_usage"] = records

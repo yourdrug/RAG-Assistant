@@ -7,17 +7,12 @@ dependency providers.
 
 from __future__ import annotations
 
-from enum import StrEnum
+from domain.value_objects.job_type import JobType as JobType
 
 
 # ---------------------------------------------------------------------------
 # Job types (must match worker task names)
 # ---------------------------------------------------------------------------
-class JobType(StrEnum):
-    DOCUMENT_PROCESSING = "document_processing"
-    INGEST = "ingest"
-    BENCHMARK = "benchmark"
-    SWEEP = "sweep"
 
 
 # ---------------------------------------------------------------------------

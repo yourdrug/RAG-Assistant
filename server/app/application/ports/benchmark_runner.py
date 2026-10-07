@@ -22,7 +22,7 @@ class BenchmarkRunnerPort(Protocol):
         out_dir: str,
         top_k: int,
         judge_model: str,
-        max_concurrent: int = 4,
+        max_concurrent: int | None = None,
         seed: int | None = None,
         n_runs: int = 1,
         rag_service: ChatRAGPort | None = None,

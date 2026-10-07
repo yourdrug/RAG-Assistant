@@ -165,7 +165,7 @@ export function DocumentsPage() {
     if (deleteId === null) return;
     try {
       await deleteMut.mutateAsync(deleteId);
-      toast.success("Deleted");
+      toast.success("Deletion queued");
     } catch {
       toast.error("Failed");
     }
@@ -196,6 +196,7 @@ export function DocumentsPage() {
             className="font-medium break-words text-primary hover:underline"
           >
             {row.original.filename}
+            {deleteMut.isDeleting(row.original.id) && <Badge variant="secondary">Deleting…</Badge>}
           </Link>
         </div>
       ),
@@ -304,6 +305,8 @@ export function DocumentsPage() {
             variant="ghost"
             size="icon"
             className="h-8 w-8"
+            disabled={deleteMut.isDeleting(row.original.id)}
+            title={deleteMut.isDeleting(row.original.id) ? "Deleting…" : "Delete"}
             onClick={() => setDeleteId(row.original.id)}
           >
             <Trash2 className="h-4 w-4 text-destructive" />

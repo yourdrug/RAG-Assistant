@@ -102,7 +102,7 @@ logging_config: dict[str, Any] = {
     "disable_existing_loggers": False,
     "filters": {
         "exclude_exceptions": {"()": ExceptionFilter},
-        "below_error": {"()": LevelThresholdFilter, "max_level": logging.ERROR},
+        "below_error": {"()": LevelThresholdFilter, "max_level": logging.ERROR - 1},
         "above_warning": {"()": LevelMinFilter, "min_level": logging.ERROR},
         "request_id": {"()": RequestIDFilter},
     },

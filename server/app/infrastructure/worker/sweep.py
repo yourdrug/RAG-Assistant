@@ -14,6 +14,8 @@ from composition.service_providers import create_sweep_engine
 from infrastructure.benchmark.sweep_engine import SweepCancelled
 from infrastructure.benchmark.checkpoint_cleanup import cleanup_sweep_checkpoints
 
+from infrastructure.worker.outcomes import IncompleteEvaluation
+
 logger = logging.getLogger("default")
 
 
@@ -193,7 +195,7 @@ def validate_sweep_coverage(results: list[dict]) -> None:
         complete = sum(r.get("judge_evaluated_count", 0) for r in evaluated)
         # All configurations have run. Retain checkpoints and expose Resume
         # using the existing failed-sweep lifecycle, even with a valid winner.
-        raise ValueError(
+        raise IncompleteEvaluation(
             f"Оценено {complete} из {total}, ошибок {error_count}. "
             f"Неполных конфигураций: {incomplete}. Resume выполнит недостающие оценки."
         )

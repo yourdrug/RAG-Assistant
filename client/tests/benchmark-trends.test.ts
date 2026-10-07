@@ -71,3 +71,18 @@ test("percentages and judge scores show their own units and comparable deltas", 
   assert.equal(formatMetricDelta(7, 8.2, correctness), "-1.2 pts");
   assert.equal(formatMetricDelta(null, 0, hit), null);
 });
+
+
+test("trend domain magnifies 72.5% vs 75% without clipping physical bounds", async () => {
+  const { trendDomain } = await import("../src/shared/lib/benchmark-trends.ts");
+  const [low, high] = trendDomain([null, 0.725, 0.75], 1);
+  assert.ok(low < 0.725 && high > 0.75);
+  assert.ok(high - low < 0.1);
+  assert.ok((0.75 - 0.725) / (high - low) > 0.5);
+  assert.deepEqual(trendDomain([0], 1), [0, 0.005]);
+  assert.deepEqual(trendDomain([1, 1], 1), [0.995, 1]);
+  assert.deepEqual(trendDomain([null, Number.NaN], 1), [0, 1]);
+  assert.deepEqual(trendDomain([0, 10], 10), [0, 10]);
+  const [judgeLow, judgeHigh] = trendDomain([7.25, 7.5], 10);
+  assert.ok(judgeLow < 7.25 && judgeHigh > 7.5 && judgeHigh - judgeLow < 1);
+});

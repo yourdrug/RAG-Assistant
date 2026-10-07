@@ -39,7 +39,7 @@ class BenchmarkService:
         judge_model: str,
         seed: int | None = None,
         n_runs: int = 1,
-        max_concurrent: int = 4,
+        max_concurrent: int | None = None,
         resume: bool = False,
         checkpoints: BenchmarkCheckpoints | None = None,
         checkpoint_prefix: str | None = None,

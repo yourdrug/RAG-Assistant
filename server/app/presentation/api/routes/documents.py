@@ -11,6 +11,7 @@ from application.services.document_query_service import DocumentQueryService
 from application.services.job_service import JobService
 from domain.value_objects.capabilities import Capability
 from domain.value_objects.doc_domain import DocDomain
+from domain.value_objects.job_status import BackgroundJobStatus
 from domain.value_objects.visibility import DocumentVisibility
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 
@@ -18,8 +19,7 @@ from presentation.api.auth_dependencies import get_current_user, require_capabil
 from presentation.api.rate_limit import rate_limit
 from presentation.api.dependencies import (
     create_action_logger,
-    create_cache_invalidator,
-    create_cache_config,
+    create_document_deletion_jobs,
     create_document_command_service,
     create_document_query_service,
     create_idempotency_store,
@@ -162,20 +162,35 @@ async def get_document_status(
 @router.delete(
     "/documents/{document_id}",
     response_model=DeleteDocumentResponse,
+    status_code=202,
     dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
 )
 async def delete_document(
     document_id: int,
     current_user: CurrentUser = Depends(require_capability(Capability.DOCUMENTS_MANAGE)),
-    cmd: DocumentCommandService = Depends(create_document_command_service),
+    deletion_jobs=Depends(create_document_deletion_jobs),
     log=Depends(create_action_logger),
-    cache_inv=Depends(create_cache_invalidator),
-    cache_cfg=Depends(create_cache_config),
 ):
-    await cmd.delete_document(document_id, current_user.id, current_user.role, current_user.kind)
-    await cache_inv.invalidate_by_document_ids([document_id], cache_enabled=cache_cfg.cache_enabled)
-    log("document.delete", user_id=current_user.id, details={"document_id": document_id})
-    return DeleteDocumentResponse(status="deleted", document_id=document_id)
+    job_id = await deletion_jobs.enqueue(document_id, current_user.id, current_user.kind, current_user.role)
+    log(
+        "document.delete.queued",
+        user_id=current_user.id,
+        details={"document_id": document_id, "job_id": job_id},
+    )
+    return DeleteDocumentResponse(
+        status=BackgroundJobStatus.PENDING.value, document_id=document_id, job_id=job_id
+    )
+
+
+@router.get("/documents/{document_id}/deletion/{job_id}", response_model=DeleteDocumentResponse)
+async def get_document_deletion(
+    document_id: int,
+    job_id: int,
+    current_user: CurrentUser = Depends(require_capability(Capability.DOCUMENTS_MANAGE)),
+    deletion_jobs=Depends(create_document_deletion_jobs),
+):
+    job = await deletion_jobs.get(document_id, job_id, current_user.id, current_user.kind, current_user.role)
+    return DeleteDocumentResponse(status=job.status, document_id=document_id, job_id=job_id)
 
 
 @router.patch(

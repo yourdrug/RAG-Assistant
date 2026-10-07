@@ -79,7 +79,10 @@ async def run_benchmark_async(
         n_runs,
     )
     validate_questions(questions)
+    if max_concurrent < 1:
+        raise ValueError("max_concurrent must be positive")
     semaphore = asyncio.Semaphore(max_concurrent)
+    completed = 0
     ctx = ChatContext(user_id=0, user_kind=UserKind.INTERNAL, user_role=UserRole.ADMIN)
     generator = (
         RagBenchmarkGenerator(rag_service, top_k, fetch_k)
@@ -109,10 +112,24 @@ async def run_benchmark_async(
     all_results = []
 
     async def process_question(idx: int, question: dict, run_idx: int) -> dict:
+        nonlocal completed
         async with semaphore:
+            logger.info(
+                "Benchmark question %s started (run %d, slot limit %d)",
+                question.get("id", idx),
+                run_idx,
+                max_concurrent,
+            )
             path = checkpoint_dir / f"{run_idx}-{idx}.json" if checkpoint_dir else None
             cached = await store.load(str(path)) if path and store else None
             if cached is not None:
+                completed += 1
+                logger.info(
+                    "Benchmark progress: %d/%d completed (restored question=%s)",
+                    completed,
+                    len(questions) * n_runs,
+                    question.get("id", idx),
+                )
                 return cached
             result = await evaluator.evaluate(
                 idx,
@@ -126,6 +143,13 @@ async def run_benchmark_async(
             diagnostic_errors = bool(result_judge_errors(result))
             if path and not diagnostic_errors:
                 await store.save(str(path), result)
+            completed += 1
+            logger.info(
+                "Benchmark progress: %d/%d completed; question=%s",
+                completed,
+                len(questions) * n_runs,
+                question.get("id", idx),
+            )
             log_question_result(idx, len(questions), question, result)
             return result
 
