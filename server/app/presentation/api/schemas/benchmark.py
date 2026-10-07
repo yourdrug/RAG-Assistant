@@ -46,7 +46,7 @@ class BenchmarkResultSummary(BaseModel):
 class BenchmarkResultDetail(BaseModel):
     id: int
     summary: BenchmarkResultSummary
-    per_question_results: dict | None = None
+    per_question_results: list[dict] | None = None
 
 
 class BenchmarkResultsListResponse(BaseModel):

@@ -313,9 +313,10 @@ async def test_incomplete_config_is_excluded_instead_of_reweighting():
 
 
 @pytest.mark.asyncio
-async def test_no_complete_finalist_fails_without_retrieval_winner():
+async def test_no_complete_finalist_returns_diagnostics_without_retrieval_winner():
     run = AsyncMock(return_value={"hit_rate": 1, "avg_faithfulness": 10})
-    with pytest.raises(ValueError, match="No fully evaluated"):
-        await SweepFullEvaluator(LiveSweepSettings()).evaluate(
-            [{"config": {}, "composite_score": 1}], 1, "judge", [], DEFAULT_OBJECTIVE_WEIGHTS, None, run
-        )
+    results = await SweepFullEvaluator(LiveSweepSettings()).evaluate(
+        [{"config": {}, "composite_score": 1}], 1, "judge", [], DEFAULT_OBJECTIVE_WEIGHTS, None, run
+    )
+    assert results[0]["composite_score"] is None
+    assert results[0]["evaluation_complete"] is False

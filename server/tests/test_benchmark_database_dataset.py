@@ -20,7 +20,11 @@ from presentation.api.schemas.benchmark import BenchmarkRequest
 def dataset_factory(questions=None, error=None):
     repo = SimpleNamespace(list_active=AsyncMock(return_value=questions or [], side_effect=error))
     uow = MagicMock()
-    uow.__aenter__ = AsyncMock(return_value=SimpleNamespace(benchmark_questions=repo))
+    uow.__aenter__ = AsyncMock(
+        return_value=SimpleNamespace(
+            benchmark_questions=repo, benchmark_runs=SimpleNamespace(create=AsyncMock())
+        )
+    )
     uow.__aexit__ = AsyncMock(return_value=False)
     factory = SimpleNamespace(create=MagicMock(return_value=uow))
     return factory, repo, uow
@@ -131,7 +135,7 @@ async def test_worker_loads_selected_dataset_before_evaluation(monkeypatch):
     ctx = {
         "container": SimpleNamespace(infrastructure=SimpleNamespace(db=SimpleNamespace(uow_factory=factory)))
     }
-    run = AsyncMock()
+    run = AsyncMock(return_value=[])
     monkeypatch.setattr(tasks, "run_benchmark_async", run)
 
     async def tracked(factory_arg, job_id, action, **kwargs):
@@ -139,7 +143,7 @@ async def test_worker_loads_selected_dataset_before_evaluation(monkeypatch):
         assert job_id == 8
         await action()
 
-    monkeypatch.setattr(tasks, "_run_tracked_job", tracked)
+    monkeypatch.setattr(tasks, "run_tracked_job", tracked)
     await tasks.run_benchmark(
         ctx, dataset="custom", out_dir="results", top_k=7, judge_model="judge", job_id=8
     )
@@ -162,3 +166,16 @@ async def test_queue_serializes_dataset_and_deduplicates_per_dataset(monkeypatch
     assert [c.kwargs["dataset"] for c in calls] == [BenchmarkDataset.MAIN.value, "custom"]
     assert calls[0].kwargs["arq_job_id"] != calls[1].kwargs["arq_job_id"]
     assert all("questions_path" not in c.kwargs for c in calls)
+
+
+@pytest.mark.asyncio
+async def test_dataset_catalog_uses_repository_without_question_pagination():
+    from application.services.benchmark_services import BenchmarkQuestionService
+
+    factory, repo, uow = dataset_factory()
+    repo.get_datasets = AsyncMock(return_value=[BenchmarkDataset.MAIN.value, "quick-30", "custom"])
+    result = await BenchmarkQuestionService(factory).list_datasets()
+    assert result == [BenchmarkDataset.MAIN.value, "quick-30", "custom"]
+    repo.get_datasets.assert_awaited_once_with()
+    repo.list_active.assert_not_awaited()
+    uow.__aexit__.assert_awaited_once()

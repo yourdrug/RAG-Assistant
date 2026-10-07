@@ -461,7 +461,7 @@ class BenchmarkRunModel(BaseModel):
     duration_sec: Mapped[float] = mapped_column(Float, nullable=False, server_default="0")
     llm_evaluated: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     dataset: Mapped[str] = mapped_column(String(100), nullable=False, server_default="main")
-    per_question_results: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    per_question_results: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
     filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
 
@@ -517,3 +517,15 @@ class IngestionRegistryModel(BaseModel):
     chunks: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     chars: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     indexed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class BenchmarkCheckpointModel(LinkedBaseModel):
+    """A committed snapshot of paid work, independent of the worker filesystem."""
+
+    __tablename__ = "benchmark_checkpoints"
+
+    sweep_id: Mapped[int] = mapped_column(
+        ForeignKey("benchmark_sweeps.id", ondelete="CASCADE"), primary_key=True
+    )
+    key: Mapped[str] = mapped_column(String(512), primary_key=True)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False)

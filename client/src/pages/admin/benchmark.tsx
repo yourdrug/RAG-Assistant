@@ -21,10 +21,11 @@ import {
 } from "lucide-react";
 import { Fragment, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
+import { useSearchParams } from "react-router-dom";
 import { apiClient } from "@/shared/api/client";
 import {
   useApplyRunConfig,
-  useBenchmarkHistory,
+  useBenchmarkDatasets,
   useBenchmarkQuestions,
   useBenchmarkResult,
   useBenchmarkRuns,
@@ -34,7 +35,8 @@ import {
   useCreateSweep,
   useDeleteBenchmarkQuestion,
   useImportBenchmarkQuestions,
-  useRegressionCheck,
+  useJob,
+  useResumeSweep,
   useSourceFiles,
   useSweeps,
   useUpdateBenchmarkQuestion,
@@ -47,37 +49,47 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
 import { Progress } from "@/shared/ui/progress";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/shared/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 import { Textarea } from "@/shared/ui/textarea";
 import { BenchmarkJudgeModel } from "./benchmark-judge-model";
+import { BenchmarkTrendsTab } from "./benchmark-trends";
 
 // ─── Reusable widgets ─────────────────────────────────────────────────────
 
-function MetricCard({
-  label,
+function BenchmarkDatasetSelect({
   value,
-  icon: Icon,
-  color = "text-foreground",
+  onChange,
+  allowAll = false,
 }: {
-  label: string;
-  value: string | number | null;
-  icon: typeof TrendingUp;
-  color?: string;
+  value: string;
+  onChange: (value: string) => void;
+  allowAll?: boolean;
 }) {
+  const { data: datasets, isLoading, isError } = useBenchmarkDatasets();
+  const options = [...new Set([...(datasets ?? []), ...(value ? [value] : [])])].sort();
   return (
-    <Card>
-      <CardContent className="pt-4">
-        <div className="flex items-center gap-2 mb-1">
-          <Icon className={`h-4 w-4 ${color}`} />
-          <span className="text-xs text-muted-foreground">{label}</span>
-        </div>
-        <div className={`text-2xl font-bold font-mono ${color}`}>
-          {value !== null && value !== undefined ? value : "-"}
-        </div>
-      </CardContent>
-    </Card>
+    <div className="space-y-1 min-w-40">
+      <Select
+        value={value || "all-datasets"}
+        onValueChange={(next) => onChange(next === "all-datasets" ? "" : next)}
+      >
+        <SelectTrigger aria-label="Dataset">
+          <SelectValue placeholder={isLoading ? "Loading datasets…" : "Select dataset"} />
+        </SelectTrigger>
+        <SelectContent>
+          {allowAll && <SelectItem value="all-datasets">All datasets</SelectItem>}
+          {options.map((name) => (
+            <SelectItem key={name} value={name}>
+              {name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {isError && <p className="text-xs text-destructive">Could not load datasets</p>}
+    </div>
   );
 }
 
@@ -372,12 +384,7 @@ function QuestionsTab() {
           onChange={(e) => setSearch(e.target.value)}
           className="max-w-sm"
         />
-        <Input
-          placeholder="Dataset filter"
-          value={datasetFilter}
-          onChange={(e) => setDatasetFilter(e.target.value)}
-          className="max-w-[150px]"
-        />
+        <BenchmarkDatasetSelect value={datasetFilter} onChange={setDatasetFilter} allowAll />
         <Button variant="outline" size="sm" onClick={() => refetch()}>
           <RefreshCw className="h-4 w-4 mr-1" /> Refresh
         </Button>
@@ -864,11 +871,18 @@ function SweepBuilderTab({ onSweepCreated }: { onSweepCreated: (id: number) => v
           <CardContent className="space-y-3">
             <div className="flex items-center gap-3">
               <Label className="w-28 text-xs">Dataset</Label>
-              <Input
-                value={dataset}
-                onChange={(e) => setDataset(e.target.value)}
-                className="flex-1"
-              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setDataset("quick-30");
+                  setEvaluationMode("fast");
+                  setTopNLlm(1);
+                }}
+              >
+                Quick-30 · Top-N 1
+              </Button>
+              <BenchmarkDatasetSelect value={dataset} onChange={setDataset} />
             </div>
             {evaluationMode === "fast" && (
               <div className="flex items-center gap-3">
@@ -893,7 +907,7 @@ function SweepBuilderTab({ onSweepCreated }: { onSweepCreated: (id: number) => v
               <div className="text-2xl font-bold font-mono mt-1">{estimatedConfigs}</div>
               <div className="text-xs text-muted-foreground mt-1">
                 {strategy === "grid"
-                  ? `${evaluationMode === "full" ? estimatedConfigs : Math.min(topNLlm, estimatedConfigs)} full RAG + judge evaluations`
+                  ? `${evaluationMode === "full" ? estimatedConfigs : Math.min(topNLlm, estimatedConfigs)} full RAG + judge evaluations (one per dataset question; several judge calls per answer)`
                   : `${estimatedConfigs} random evaluations`}
               </div>
             </div>
@@ -917,6 +931,34 @@ function SweepBuilderTab({ onSweepCreated }: { onSweepCreated: (id: number) => v
 
 // ─── Tab 3: Live Progress / Sweeps ────────────────────────────────────────
 
+function SweepJobError({ jobId }: { jobId: number | null }) {
+  const { data: job, isLoading, isError } = useJob(jobId);
+  return (
+    <details
+      className="mt-1 max-w-md text-xs text-destructive"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <summary className="cursor-pointer">
+        {job?.error_message?.match(/Оценено \d+ из \d+, ошибок \d+/)?.[0] || "Error details"}
+      </summary>
+      <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words">
+        {jobId === null ? (
+          <a href="/admin/jobs" className="underline">
+            This older sweep has no linked job. View Jobs.
+          </a>
+        ) : (
+          job?.error_message ||
+          (isLoading
+            ? "Loading error…"
+            : isError
+              ? "Could not load job error"
+              : "No error details recorded")
+        )}
+      </pre>
+    </details>
+  );
+}
+
 function SweepProgressTab({
   activeSweepId,
   onSweepSelect,
@@ -924,14 +966,16 @@ function SweepProgressTab({
   activeSweepId: number | null;
   onSweepSelect: (id: number) => void;
 }) {
-  const { data: sweepsData, isLoading } = useSweeps();
+  const { data: sweepsData, isLoading, refetch } = useSweeps();
   const cancelSweep = useCancelSweep();
+  const resumeSweep = useResumeSweep();
+  const restartSweep = useCreateSweep();
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold">Sweeps</h3>
-        <Button variant="outline" size="sm" onClick={() => onSweepSelect(0)}>
+        <Button variant="outline" size="sm" onClick={() => refetch()}>
           <RefreshCw className="h-4 w-4 mr-1" /> Refresh
         </Button>
       </div>
@@ -951,7 +995,7 @@ function SweepProgressTab({
                 <TableHead>Status</TableHead>
                 <TableHead>Strategy</TableHead>
                 <TableHead>Evaluation</TableHead>
-                <TableHead>Progress</TableHead>
+                <TableHead>Progress (current phase)</TableHead>
                 <TableHead>Dataset</TableHead>
                 <TableHead>Judge model</TableHead>
                 <TableHead>Best Run</TableHead>
@@ -970,6 +1014,7 @@ function SweepProgressTab({
                   <TableCell className="font-mono">#{s.id}</TableCell>
                   <TableCell>
                     <StatusBadge status={s.status} />
+                    {s.status === "failed" && <SweepJobError jobId={s.job_id ?? null} />}
                   </TableCell>
                   <TableCell className="text-xs">{s.strategy}</TableCell>
                   <TableCell className="text-xs">{s.evaluation_mode}</TableCell>
@@ -982,7 +1027,9 @@ function SweepProgressTab({
                         className="w-24 h-2"
                       />
                       <span className="text-xs text-muted-foreground">
-                        {s.evaluated_configs}/{s.total_configs}
+                        {s.status === "running" && s.total_configs === 0
+                          ? "Preparing…"
+                          : `${s.evaluated_configs}/${s.total_configs}`}
                       </span>
                     </div>
                   </TableCell>
@@ -996,18 +1043,80 @@ function SweepProgressTab({
                     {s.best_run_id ? `#${s.best_run_id}` : "-"}
                   </TableCell>
                   <TableCell>
-                    {(s.status === "pending" || s.status === "running") && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          cancelSweep.mutate(s.id);
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {(s.status === "failed" || s.status === "cancelled") && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={resumeSweep.isPending}
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            try {
+                              await resumeSweep.mutateAsync(s.id);
+                              toast.success("Sweep resumed; only missing scores will be evaluated");
+                              refetch();
+                            } catch {
+                              toast.error(
+                                "Could not resume sweep; check that no other sweep is active",
+                              );
+                            }
+                          }}
+                        >
+                          Resume
+                        </Button>
+                      )}
+                      {s.status !== "pending" && s.status !== "running" && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={restartSweep.isPending}
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            try {
+                              const created = await restartSweep.mutateAsync({
+                                strategy: s.strategy,
+                                search_space: s.search_space,
+                                objective_weights: s.objective_weights,
+                                dataset: s.dataset,
+                                top_n_llm: s.top_n_llm,
+                                judge_model: s.judge_model,
+                                evaluation_mode: s.evaluation_mode,
+                              });
+                              onSweepSelect(created.id);
+                              toast.success(
+                                `Sweep #${created.id} restarted with the same settings`,
+                              );
+                              refetch();
+                            } catch {
+                              toast.error("Could not restart sweep");
+                            }
+                          }}
+                        >
+                          <RefreshCw className="h-4 w-4 mr-1" />
+                          Restart with same settings
+                        </Button>
+                      )}
+                      {(s.status === "pending" || s.status === "running") && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={cancelSweep.isPending && cancelSweep.variables === s.id}
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            try {
+                              await cancelSweep.mutateAsync(s.id);
+                              toast.success("Sweep cancelled");
+                            } catch {
+                              toast.error("Could not cancel sweep");
+                            }
+                          }}
+                        >
+                          {cancelSweep.isPending && cancelSweep.variables === s.id
+                            ? "Cancelling…"
+                            : "Cancel"}
+                        </Button>
+                      )}
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -1226,6 +1335,35 @@ function LeaderboardTab() {
                       <TableRow>
                         <TableCell colSpan={11} className="p-0">
                           <div className="px-4 py-3 bg-muted/30">
+                            {run.summary_metrics.judge_evaluated_count != null && (
+                              <p className="text-xs text-muted-foreground mb-2">
+                                Оценено {run.summary_metrics.judge_evaluated_count} из{" "}
+                                {run.summary_metrics.total_questions}, ошибок{" "}
+                                {run.summary_metrics.judge_error_count ?? 0}
+                              </p>
+                            )}
+                            {run.summary_metrics.total_judge_input_tokens != null && (
+                              <p className="text-xs text-muted-foreground mb-2">
+                                This configuration: generation{" "}
+                                {Number(
+                                  run.summary_metrics.total_input_tokens || 0,
+                                ).toLocaleString()}{" "}
+                                input /{" "}
+                                {Number(
+                                  run.summary_metrics.total_output_tokens || 0,
+                                ).toLocaleString()}{" "}
+                                output tokens; judge{" "}
+                                {Number(
+                                  run.summary_metrics.total_judge_input_tokens || 0,
+                                ).toLocaleString()}{" "}
+                                input /{" "}
+                                {Number(
+                                  run.summary_metrics.total_judge_output_tokens || 0,
+                                ).toLocaleString()}{" "}
+                                output tokens ({run.summary_metrics.total_judge_calls} calls). RAG
+                                auxiliary calls are excluded. Cost estimate covers generation only.
+                              </p>
+                            )}
                             {run.summary_metrics.retrieval_labelled_count != null && (
                               <p className="text-xs text-muted-foreground mb-2">
                                 Annotated cases: {run.summary_metrics.retrieval_annotated_count};
@@ -1339,211 +1477,30 @@ function LeaderboardTab() {
   );
 }
 
-// ─── Tab 5: Trends ────────────────────────────────────────────────────────
-
-function TrendsTab() {
-  const { data: historyData, isLoading } = useBenchmarkHistory({ days: 30 });
-  const latestRunId = historyData?.points?.length
-    ? historyData.points[historyData.points.length - 1].run_id
-    : null;
-  const { data: regressionData } = useRegressionCheck(latestRunId);
-
-  if (isLoading) {
-    return (
-      <div className="space-y-2">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <Skeleton key={i} className="h-12 w-full" />
-        ))}
-      </div>
-    );
-  }
-
-  const points = historyData?.points || [];
-
-  if (points.length === 0) {
-    return (
-      <div className="text-center py-12 text-muted-foreground">
-        <History className="h-12 w-12 mx-auto mb-3 opacity-30" />
-        <p>No benchmark history yet. Run benchmarks to see trends.</p>
-      </div>
-    );
-  }
-
-  // Simple text-based trend display
-  const metrics = ["hit_rate", "faithfulness", "relevancy", "composite"];
-  const latest = points[points.length - 1];
-  const previous = points.length > 1 ? points[points.length - 2] : null;
-
-  return (
-    <div className="space-y-4">
-      {/* Latest snapshot */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {metrics.map((m) => {
-          const current = latest?.metrics?.[m] ?? latest?.metrics?.[`avg_${m}`] ?? null;
-          const prev = previous?.metrics?.[m] ?? previous?.metrics?.[`avg_${m}`] ?? null;
-          const delta = current !== null && prev !== null ? current - prev : null;
-          return (
-            <MetricCard
-              key={m}
-              label={m.replace("avg_", "")}
-              value={
-                current !== null
-                  ? typeof current === "number"
-                    ? current.toFixed(3)
-                    : String(current)
-                  : null
-              }
-              icon={TrendingUp}
-              color={
-                delta !== null
-                  ? delta > 0
-                    ? "text-green-500"
-                    : delta < 0
-                      ? "text-red-500"
-                      : "text-foreground"
-                  : "text-foreground"
-              }
-            />
-          );
-        })}
-      </div>
-
-      {/* Regression check */}
-      {regressionData && regressionData.results.length > 0 && (
-        <Card className={regressionData.passed ? "border-green-200" : "border-red-200"}>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm flex items-center gap-2">
-              {regressionData.passed ? (
-                <CheckCircle2 className="h-4 w-4 text-green-500" />
-              ) : (
-                <XCircle className="h-4 w-4 text-red-500" />
-              )}
-              Regression Check — {regressionData.passed ? "PASSED" : "FAILED"}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="text-xs">Metric</TableHead>
-                    <TableHead className="text-xs">Baseline</TableHead>
-                    <TableHead className="text-xs">Current</TableHead>
-                    <TableHead className="text-xs">Delta</TableHead>
-                    <TableHead className="text-xs">Threshold</TableHead>
-                    <TableHead className="text-xs">Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {regressionData.results.map((r) => (
-                    <TableRow key={r.metric}>
-                      <TableCell className="text-xs font-mono">{r.metric}</TableCell>
-                      <TableCell className="text-xs">
-                        {r.baseline != null ? r.baseline.toFixed(4) : "-"}
-                      </TableCell>
-                      <TableCell className="text-xs">
-                        {r.current != null ? r.current.toFixed(4) : "-"}
-                      </TableCell>
-                      <TableCell className="text-xs font-mono">
-                        {r.delta != null ? (
-                          <span className={r.failed ? "text-red-500" : "text-green-500"}>
-                            {r.delta > 0 ? "+" : ""}
-                            {r.delta.toFixed(4)}
-                          </span>
-                        ) : (
-                          "-"
-                        )}
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{r.threshold}</TableCell>
-                      <TableCell className="text-xs">
-                        {r.failed ? (
-                          <Badge variant="destructive" className="text-xs">
-                            FAIL
-                          </Badge>
-                        ) : (
-                          <Badge variant="success" className="text-xs">
-                            OK
-                          </Badge>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* History table */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">History</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="max-h-[400px] overflow-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Run</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Hit Rate</TableHead>
-                  <TableHead>Faithfulness</TableHead>
-                  <TableHead>Relevancy</TableHead>
-                  <TableHead>Composite</TableHead>
-                  <TableHead>Dataset</TableHead>
-                  <TableHead>LLM</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {points.map((p) => (
-                  <TableRow key={p.run_id}>
-                    <TableCell className="font-mono text-xs">#{p.run_id}</TableCell>
-                    <TableCell className="text-xs">
-                      {p.creation_date ? new Date(p.creation_date).toLocaleDateString() : "-"}
-                    </TableCell>
-                    <TableCell>
-                      {p.metrics.hit_rate != null
-                        ? `${(p.metrics.hit_rate * 100).toFixed(0)}%`
-                        : "-"}
-                    </TableCell>
-                    <TableCell>
-                      <ScoreBadge score={p.metrics.faithfulness ?? p.metrics.avg_faithfulness} />
-                    </TableCell>
-                    <TableCell>
-                      <ScoreBadge score={p.metrics.relevancy ?? p.metrics.avg_relevancy} />
-                    </TableCell>
-                    <TableCell className="font-mono text-xs">
-                      {p.metrics.composite?.toFixed(3) ?? "-"}
-                    </TableCell>
-                    <TableCell className="text-xs">{p.dataset}</TableCell>
-                    <TableCell>
-                      {p.llm_evaluated ? (
-                        <Badge variant="success" className="text-xs">
-                          Yes
-                        </Badge>
-                      ) : (
-                        <Badge variant="secondary" className="text-xs">
-                          No
-                        </Badge>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
 // ─── Main Page ────────────────────────────────────────────────────────────
 
 export function AdminBenchmarkPage() {
-  const [activeTab, setActiveTab] = useState("questions");
-  const [activeSweepId, setActiveSweepId] = useState<number | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedTab = searchParams.get("tab");
+  const activeTab =
+    requestedTab &&
+    ["questions", "sweep-builder", "progress", "leaderboard", "trends"].includes(requestedTab)
+      ? requestedTab
+      : "questions";
+  const sweepId = Number(searchParams.get("sweep"));
+  const activeSweepId = Number.isSafeInteger(sweepId) && sweepId > 0 ? sweepId : null;
+  function setActiveTab(tab: string) {
+    setSearchParams((current) => {
+      current.set("tab", tab);
+      return current;
+    });
+  }
+  function setActiveSweepId(id: number) {
+    setSearchParams((current) => {
+      current.set("sweep", String(id));
+      return current;
+    });
+  }
 
   return (
     <div className="p-6 space-y-6">
@@ -1592,8 +1549,11 @@ export function AdminBenchmarkPage() {
         <TabsContent value="sweep-builder" className="mt-4">
           <SweepBuilderTab
             onSweepCreated={(id) => {
-              setActiveSweepId(id);
-              setActiveTab("progress");
+              setSearchParams((current) => {
+                current.set("sweep", String(id));
+                current.set("tab", "progress");
+                return current;
+              });
             }}
           />
         </TabsContent>
@@ -1626,11 +1586,12 @@ export function AdminBenchmarkPage() {
             <CardHeader>
               <CardTitle>Trends</CardTitle>
               <CardDescription>
-                Metric history over time. Track regressions and improvements.
+                See where evidence is lost between search, context and answer. Compare runs on the
+                same dataset.
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <TrendsTab />
+              <BenchmarkTrendsTab />
             </CardContent>
           </Card>
         </TabsContent>

@@ -2,7 +2,7 @@
 
 Verifies the fixes for:
 1. Double retry (tenacity + instructor) removed — only instructor(max_retries=2) remains
-2. _get_judge_client caches clients per model (no new TCP pool per call)
+2. get_judge_client caches clients per model (no new TCP pool per call)
 3. judge_answer_async._judge_one uses asyncio.wait_for, not manual retry loop
 """
 
@@ -34,101 +34,97 @@ def _mock_instructor_client(return_score: float = 8.0, return_reason: str = "goo
 
 
 # ---------------------------------------------------------------------------
-# _judge_with_structured_output — no tenacity, only instructor
+# judge_with_structured_output — no tenacity, only instructor
 # ---------------------------------------------------------------------------
 
 
 class TestJudgeWithStructuredOutput:
     def test_returns_judge_score(self):
-        from infrastructure.benchmark.judge import _judge_with_structured_output
+        from infrastructure.benchmark.judge import judge_with_structured_output
 
         client = _mock_instructor_client(return_score=7.5, return_reason="decent")
-        result = _judge_with_structured_output(client, "test prompt", "model")
+        result = judge_with_structured_output(client, "test prompt", "model")
         assert isinstance(result, JudgeScore)
         assert result.score == 7.5
         client.chat.completions.create.assert_called_once()
 
     def test_no_tenacity_retry_on_failure(self):
-        """When instructor raises, _judge_with_structured_output should NOT retry externally.
+        """When instructor raises, judge_with_structured_output should NOT retry externally.
 
         The old code had @retry(stop=stop_after_attempt(3)) which would catch
         the exception and retry up to 3 times.  Now it should propagate immediately.
         """
-        from infrastructure.benchmark.judge import _judge_with_structured_output
+        from infrastructure.benchmark.judge import judge_with_structured_output
 
         client = MagicMock()
         client.chat.completions.create.side_effect = RuntimeError("LLM unavailable")
 
         with pytest.raises(RuntimeError, match="LLM unavailable"):
-            _judge_with_structured_output(client, "prompt", "model")
+            judge_with_structured_output(client, "prompt", "model")
 
         # Called exactly once — no outer retry
         assert client.chat.completions.create.call_count == 1
 
     def test_instructor_max_retries_is_two(self):
         """Verify the instructor call uses max_retries=2 (not 3 or more)."""
-        from infrastructure.benchmark.judge import _judge_with_structured_output
+        from infrastructure.benchmark.judge import JUDGE_OUTPUT_TOKENS, judge_with_structured_output
 
         client = _mock_instructor_client()
-        _judge_with_structured_output(client, "prompt", "model")
+        judge_with_structured_output(client, "prompt", "model")
 
         call_kwargs = client.chat.completions.create.call_args
-        assert call_kwargs.kwargs.get("max_retries") == 2
+        assert call_kwargs.kwargs["max_retries"].stop.max_attempt_number == 2
+        assert call_kwargs.kwargs["max_tokens"] == JUDGE_OUTPUT_TOKENS
 
 
 # ---------------------------------------------------------------------------
-# _get_judge_client — caching
+# get_judge_client — caching
 # ---------------------------------------------------------------------------
 
 
 class TestGetJudgeClientCaching:
     def test_same_model_returns_same_client(self):
-        from infrastructure.benchmark.judge import _get_judge_client, _judge_client_cache
+        from infrastructure.benchmark.judge import get_judge_client, _judge_client_cache
 
         _judge_client_cache.clear()
         mock_client = MagicMock()
         with patch(
-            "infrastructure.ml.clients.instructor_client.create_llm_instructor_client",
-            return_value=(mock_client, "resolved_model"),
+            "infrastructure.benchmark.judge.instructor.from_openai",
+            return_value=mock_client,
         ):
-            c1 = _get_judge_client("test-model")
-            c2 = _get_judge_client("test-model")
+            c1 = get_judge_client("test-model")
+            c2 = get_judge_client("test-model")
             assert c1 is c2
         _judge_client_cache.clear()
 
     def test_different_models_return_different_clients(self):
-        from infrastructure.benchmark.judge import _get_judge_client, _judge_client_cache
+        from infrastructure.benchmark.judge import get_judge_client, _judge_client_cache
 
         _judge_client_cache.clear()
         mock_a = MagicMock()
         mock_b = MagicMock()
 
-        def _create(model):
-            if model == "model-a":
-                return mock_a, "a"
-            return mock_b, "b"
-
         with patch(
-            "infrastructure.ml.clients.instructor_client.create_llm_instructor_client",
-            side_effect=_create,
+            "infrastructure.benchmark.judge.instructor.from_openai",
+            side_effect=[mock_a, mock_b],
         ):
-            c1 = _get_judge_client("model-a")
-            c2 = _get_judge_client("model-b")
+            c1 = get_judge_client("model-a")
+            c2 = get_judge_client("model-b")
             assert c1 is not c2
         _judge_client_cache.clear()
 
     def test_create_called_only_once_per_model(self):
-        from infrastructure.benchmark.judge import _get_judge_client, _judge_client_cache
+        from infrastructure.benchmark.judge import get_judge_client, _judge_client_cache
 
         _judge_client_cache.clear()
         mock_client = MagicMock()
         with patch(
-            "infrastructure.ml.clients.instructor_client.create_llm_instructor_client",
-            return_value=(mock_client, "resolved"),
+            "infrastructure.benchmark.judge.instructor.from_openai",
+            return_value=mock_client,
         ) as mock_create:
-            _get_judge_client("x")
-            _get_judge_client("x")
-            _get_judge_client("x")
+            get_judge_client("x")
+            get_judge_client("x")
+            get_judge_client("x")
             assert mock_create.call_count == 1
         _judge_client_cache.clear()
 
@@ -145,8 +141,8 @@ class TestJudgeAnswerAsync:
 
         client = _mock_instructor_client(return_score=9.0, return_reason="excellent")
         with (
-            patch("infrastructure.benchmark.judge._get_judge_model", return_value="test-model"),
-            patch("infrastructure.benchmark.judge._get_judge_client", return_value=client),
+            patch("infrastructure.benchmark.judge.get_judge_model", return_value="test-model"),
+            patch("infrastructure.benchmark.judge.get_judge_client", return_value=client),
             patch("infrastructure.benchmark.judge.settings") as mock_settings,
         ):
             mock_settings.llm_provider = SimpleNamespace(value="ollama")
@@ -171,14 +167,16 @@ class TestJudgeAnswerAsync:
         client = MagicMock()
         client.chat.completions.create.side_effect = RuntimeError("LLM down")
         with (
-            patch("infrastructure.benchmark.judge._get_judge_model", return_value="m"),
-            patch("infrastructure.benchmark.judge._get_judge_client", return_value=client),
+            patch("infrastructure.benchmark.judge.get_judge_model", return_value="m"),
+            patch("infrastructure.benchmark.judge.get_judge_client", return_value=client),
             patch("infrastructure.benchmark.judge.settings") as mock_settings,
         ):
             mock_settings.llm_provider = SimpleNamespace(value="ollama")
             mock_settings.llm_auxiliary_timeout = 30.0
-            with pytest.raises(RuntimeError, match="LLM down"):
-                await judge_answer_async("q", "a", "ctx")
+            result = await judge_answer_async("q", "a", "ctx")
+            assert result["faithfulness"] is None
+            assert result["relevancy"] is None
+            assert "LLM down" in result["faithfulness_error"]
 
         # asyncio.gather runs tasks concurrently — when one fails, the others
         # are cancelled.  So we get 1 or 2 calls depending on scheduling, but
@@ -191,8 +189,8 @@ class TestJudgeAnswerAsync:
 
         client = _mock_instructor_client(return_score=7.0, return_reason="ok")
         with (
-            patch("infrastructure.benchmark.judge._get_judge_model", return_value="m"),
-            patch("infrastructure.benchmark.judge._get_judge_client", return_value=client),
+            patch("infrastructure.benchmark.judge.get_judge_model", return_value="m"),
+            patch("infrastructure.benchmark.judge.get_judge_client", return_value=client),
             patch("infrastructure.benchmark.judge.settings") as mock_settings,
         ):
             mock_settings.llm_provider = SimpleNamespace(value="ollama")

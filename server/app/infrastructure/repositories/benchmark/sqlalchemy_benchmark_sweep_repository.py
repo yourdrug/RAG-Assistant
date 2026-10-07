@@ -4,20 +4,29 @@ from __future__ import annotations
 
 from domain.entities.benchmark_sweep import BenchmarkSweep
 from domain.exceptions import BusinessRuleViolation
+from domain.value_objects.job_status import BackgroundJobStatus
 from domain.value_objects.sweep_status import BenchmarkSweepStatus
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.dialects.postgresql import insert
 
-from infrastructure.database.models import BENCHMARK_ACTIVE_SWEEP_INDEX, BenchmarkSweepModel
+from infrastructure.database.models import (
+    BENCHMARK_ACTIVE_SWEEP_INDEX,
+    BackgroundJobModel,
+    BenchmarkSweepModel,
+    BenchmarkCheckpointModel,
+)
 
 
 class SQLAlchemyBenchmarkSweepRepository:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
 
-    async def get_by_id(self, sweep_id: int) -> BenchmarkSweep | None:
+    async def get_by_id(self, sweep_id: int, *, for_update: bool = False) -> BenchmarkSweep | None:
         stmt = select(BenchmarkSweepModel).where(BenchmarkSweepModel.id == sweep_id)
+        if for_update:
+            stmt = stmt.with_for_update()
         result = await self._db.execute(stmt)
         orm = result.scalar_one_or_none()
         return self.to_entity(orm) if orm else None
@@ -61,6 +70,67 @@ class SQLAlchemyBenchmarkSweepRepository:
             .values(status=status, version=BenchmarkSweepModel.version + 1)
         )
         await self._db.execute(stmt)
+
+    async def requeue(self, sweep_id: int) -> bool:
+        # Compare-and-set plus the unique active-sweep index serialize resumes.
+        try:
+            result = await self._db.execute(
+                update(BenchmarkSweepModel)
+                .where(
+                    BenchmarkSweepModel.id == sweep_id,
+                    BenchmarkSweepModel.status.in_(
+                        [BenchmarkSweepStatus.FAILED.value, BenchmarkSweepStatus.CANCELLED.value]
+                    ),
+                )
+                .values(
+                    status=BenchmarkSweepStatus.PENDING.value,
+                    job_id=None,
+                    version=BenchmarkSweepModel.version + 1,
+                )
+            )
+        except IntegrityError as exc:
+            cause = exc.orig.__cause__ if exc.orig is not None else None
+            diag = getattr(exc.orig, "diag", None)
+            constraint = getattr(cause, "constraint_name", None) or getattr(diag, "constraint_name", None)
+            if constraint == BENCHMARK_ACTIVE_SWEEP_INDEX:
+                raise BusinessRuleViolation("Another sweep is already active") from exc
+            raise
+        return result.rowcount == 1
+
+    async def fail_dead_jobs(self) -> int:
+        result = await self._db.execute(
+            update(BenchmarkSweepModel)
+            .where(
+                BenchmarkSweepModel.status.in_(
+                    [BenchmarkSweepStatus.PENDING.value, BenchmarkSweepStatus.RUNNING.value]
+                ),
+                BenchmarkSweepModel.job_id.in_(
+                    select(BackgroundJobModel.id).where(
+                        BackgroundJobModel.status == BackgroundJobStatus.FAILED.value
+                    )
+                ),
+            )
+            .values(status=BenchmarkSweepStatus.FAILED.value, version=BenchmarkSweepModel.version + 1)
+        )
+        return result.rowcount
+
+    async def set_job_id(self, sweep_id: int, job_id: int) -> None:
+        await self._db.execute(
+            update(BenchmarkSweepModel)
+            .where(BenchmarkSweepModel.id == sweep_id)
+            .values(job_id=job_id, version=BenchmarkSweepModel.version + 1)
+        )
+
+    async def update_progress(self, sweep_id: int, evaluated: int, total: int) -> None:
+        await self._db.execute(
+            update(BenchmarkSweepModel)
+            .where(BenchmarkSweepModel.id == sweep_id)
+            .values(
+                evaluated_configs=evaluated,
+                total_configs=total,
+                version=BenchmarkSweepModel.version + 1,
+            )
+        )
 
     async def increment_evaluated(self, sweep_id: int) -> None:
         """Atomically increment evaluated_configs (SQL-level, no read-modify-write race)."""
@@ -136,4 +206,19 @@ class SQLAlchemyBenchmarkSweepRepository:
             evaluated_configs=orm.evaluated_configs,
             best_run_id=orm.best_run_id,
             version=orm.version,
+        )
+
+    async def load_checkpoint(self, sweep_id: int, key: str) -> object | None:
+        row = await self._db.get(BenchmarkCheckpointModel, (sweep_id, key))
+        return row.payload["value"] if row is not None else None
+
+    async def save_checkpoint(self, sweep_id: int, key: str, value: object) -> None:
+        statement = insert(BenchmarkCheckpointModel).values(
+            sweep_id=sweep_id, key=key, payload={"value": value}
+        )
+        await self._db.execute(
+            statement.on_conflict_do_update(
+                index_elements=[BenchmarkCheckpointModel.sweep_id, BenchmarkCheckpointModel.key],
+                set_={"payload": statement.excluded.payload},
+            )
         )

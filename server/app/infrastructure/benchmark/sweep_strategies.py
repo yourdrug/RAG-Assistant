@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 from collections.abc import Awaitable, Callable
 from typing import Protocol
@@ -13,8 +14,17 @@ from infrastructure.benchmark.sweep_scoring import generate_grid_points, generat
 
 logger = logging.getLogger("default")
 ScoreConfig = Callable[[dict], dict]
-ProgressCallback = Callable[[int, int, dict | None], None]
+ProgressCallback = Callable[[int, int, dict | None], Awaitable[None] | None]
 ShouldCancel = Callable[[], Awaitable[bool]]
+
+
+async def report_progress(
+    callback: ProgressCallback | None, evaluated: int, total: int, result: dict | None
+) -> None:
+    if callback is not None:
+        pending = callback(evaluated, total, result)
+        if inspect.isawaitable(pending):
+            await pending
 
 
 class SweepCancelled(Exception):
@@ -51,8 +61,7 @@ class EnumeratedSweepStrategy:
             result = await asyncio.to_thread(score, point)
             result["config"] = point
             results.append(result)
-            if progress is not None:
-                progress(idx, len(self._points), result)
+            await report_progress(progress, idx, len(self._points), result)
         results.sort(key=lambda r: r.get("composite_score", 0), reverse=True)
         return results
 
@@ -111,8 +120,7 @@ class OptunaSweepStrategy:
         for evaluated in range(1, self._n_trials + 1):
             await check_cancelled(should_cancel, f"Optuna trial {evaluated}")
             await asyncio.to_thread(study.optimize, objective, n_trials=1)
-            if progress is not None:
-                progress(evaluated, self._n_trials, results[-1])
+            await report_progress(progress, evaluated, self._n_trials, results[-1])
         await check_cancelled(should_cancel, "after Optuna trials")
         results.sort(key=lambda r: r.get("composite_score", 0), reverse=True)
         return results

@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Protocol, runtime_checkable
 
 from application.ports.chat_rag_port import ChatRAGPort
+from application.ports.benchmark_checkpoints import BenchmarkCheckpoints
 
 
 @runtime_checkable
@@ -25,4 +26,8 @@ class BenchmarkRunnerPort(Protocol):
         seed: int | None = None,
         n_runs: int = 1,
         rag_service: ChatRAGPort | None = None,
-    ) -> None: ...
+        resume: bool = False,
+        checkpoints: BenchmarkCheckpoints | None = None,
+        checkpoint_prefix: str | None = None,
+        export_files: bool = False,
+    ) -> list[dict]: ...

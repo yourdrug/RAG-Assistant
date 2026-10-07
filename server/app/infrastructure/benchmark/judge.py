@@ -4,6 +4,13 @@ import asyncio
 import logging
 import threading
 import time
+import json
+
+import instructor
+from instructor.core.exceptions import IncompleteOutputException
+from openai import OpenAI, APIConnectionError, RateLimitError, InternalServerError
+from pydantic import ValidationError
+from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_exponential
 from typing import Any
 
 from config import settings
@@ -18,6 +25,8 @@ logger = logging.getLogger("default")
 
 JUDGE_MAX_RETRIES = 3
 JUDGE_RETRY_DELAY = 5.0
+JUDGE_OUTPUT_TOKENS = 2048
+JUDGE_EXPANDED_OUTPUT_TOKENS = 8192
 
 # ---------------------------------------------------------------------------
 # Cached judge client (one connection pool per model, not per call)
@@ -50,7 +59,7 @@ FAITHFULNESS_PROMPT = """\
 Ответ полностью из контекста = 10. Ответ содержит выдуманные факты = 0.
 
 Ответь СТРОГО в формате JSON (только JSON, без пояснений):
-{{"score": <число от 0 до 10>, "reason": "<одно предложение>"}}
+{{"score": <число от 0 до 10>, "reason": "<не более 15 слов>"}}
 """
 
 RELEVANCY_PROMPT = """\
@@ -71,7 +80,7 @@ RELEVANCY_PROMPT = """\
 Точный полный ответ = 10. Ответ не по теме = 0. «Не найдена» при отсутствии информации = 7-10.
 
 Ответь СТРОГО в формате JSON (только JSON, без пояснений):
-{{"score": <число от 0 до 10>, "reason": "<одно предложение>"}}
+{{"score": <число от 0 до 10>, "reason": "<не более 15 слов>"}}
 """
 
 CORRECTNESS_PROMPT = """\
@@ -87,7 +96,7 @@ CORRECTNESS_PROMPT = """\
 Полное совпадение по смыслу = 10. Противоречит эталону = 0.
 
 Ответь СТРОГО в формате JSON (только JSON, без пояснений):
-{{"score": <число от 0 до 10>, "reason": "<одно предложение>"}}
+{{"score": <число от 0 до 10>, "reason": "<не более 15 слов>"}}
 """
 
 CONTEXT_PRECISION_PROMPT = """\
@@ -106,7 +115,7 @@ CONTEXT_PRECISION_PROMPT = """\
 Считай количество релевантных документов и дели на общее число.
 
 Ответь СТРОГО в формате JSON (только JSON, без пояснений):
-{{"score": <число от 0 до 10>, "reason": "<одно предложение>"}}
+{{"score": <число от 0 до 10>, "reason": "<не более 15 слов>"}}
 """
 
 CONTEXT_RECALL_PROMPT = """\
@@ -124,7 +133,7 @@ CONTEXT_RECALL_PROMPT = """\
 Вся необходимая информация есть = 10. Ничего нет = 0.
 
 Ответь СТРОГО в формате JSON (только JSON, без пояснений):
-{{"score": <число от 0 до 10>, "reason": "<одно предложение>"}}
+{{"score": <число от 0 до 10>, "reason": "<не более 15 слов>"}}
 """
 
 
@@ -133,7 +142,7 @@ CONTEXT_RECALL_PROMPT = """\
 # ---------------------------------------------------------------------------
 
 
-def _get_judge_model() -> str:
+def get_judge_model() -> str:
     """Resolve the judge model: explicit setting > fast model for OpenRouter > llm_model for Ollama."""
     if settings.benchmark_judge_model:
         return settings.benchmark_judge_model
@@ -143,7 +152,7 @@ def _get_judge_model() -> str:
     return "meta-llama/llama-3.1-8b-instruct"
 
 
-def _get_judge_client(model: str):
+def get_judge_client(model: str):
     """Get or create a cached instructor client for the judge model.
 
     Thread-safe: first call creates the client, subsequent calls return the cached
@@ -156,30 +165,75 @@ def _get_judge_client(model: str):
         cached = _judge_client_cache.get(model)
         if cached is not None:
             return cached
-        from infrastructure.ml.clients.instructor_client import create_llm_instructor_client
+        # OpenRouter's Instructor adapter supports JSON, but rejects MD_JSON.
+        # Both modes avoid requiring tool calling from the chosen model.
+        raw = OpenAI(
+            base_url=settings.openrouter_base_url
+            if settings.llm_provider == LLMProvider.OPENROUTER
+            else f"{settings.ollama_base_url}/v1",
+            api_key=settings.openrouter_api_key
+            if settings.llm_provider == LLMProvider.OPENROUTER
+            else "ollama",
+            timeout=settings.llm_auxiliary_timeout,
+            max_retries=0,
+        )
+        mode = (
+            instructor.Mode.JSON
+            if settings.llm_provider == LLMProvider.OPENROUTER
+            else instructor.Mode.MD_JSON
+        )
+        client = instructor.from_openai(raw, mode=mode)
+        from infrastructure.benchmark.token_usage import record_judge_usage
 
-        client, _resolved = create_llm_instructor_client(model=model)
+        client.on("completion:response", record_judge_usage)
         _judge_client_cache[model] = client
         return client
 
 
-def _judge_with_structured_output(
+def judge_with_structured_output(
     client,
     prompt: str,
     model: str,
 ) -> JudgeScore:
     """Call judge LLM with structured output via instructor.
 
-    Uses instructor's ``max_retries=2`` for automatic validation retries.
-    No outer tenacity/retry layer — this matches the single-layer pattern
-    used in ``rag_relevance.py`` and ``helpers.py``.
+    Uses two attempts for transient or validation failures; HTTP 400 is terminal.
+    Truncation permits one additional call with a larger output budget and no retries.
     """
-    return client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        response_model=JudgeScore,
-        max_retries=2,
-    )
+    initial_budget = settings.benchmark_judge_initial_tokens
+    retry_budget = settings.benchmark_judge_retry_tokens
+    for attempt, budget in enumerate((initial_budget, retry_budget)):
+        try:
+            return client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                response_model=JudgeScore,
+                max_tokens=budget,
+                timeout=settings.llm_auxiliary_timeout,
+                max_retries=Retrying(
+                    retry=retry_if_exception_type(
+                        (
+                            APIConnectionError,
+                            RateLimitError,
+                            InternalServerError,
+                            ValidationError,
+                            json.JSONDecodeError,
+                        )
+                    ),
+                    stop=stop_after_attempt(2 if attempt == 0 else 1),
+                    wait=wait_exponential(multiplier=1, max=3),
+                ),
+            )
+        except IncompleteOutputException:
+            if attempt == 1:
+                raise
+            logger.warning(
+                "Judge output truncated for model %s at %d tokens; retrying with %d tokens",
+                model,
+                budget,
+                retry_budget,
+            )
+    raise RuntimeError("Judge output budget exhausted")
 
 
 # ---------------------------------------------------------------------------
@@ -244,9 +298,7 @@ def judge_answer(
     judge_llm=None,
 ) -> dict:
     """Run judge LLM synchronously with structured output (instructor only)."""
-    model = _get_judge_model()
-    client = _get_judge_client(model if settings.llm_provider == LLMProvider.OLLAMA else "")
-
+    model = get_judge_model()
     prompts = {
         "faithfulness": FAITHFULNESS_PROMPT.format(context=context, question=question, answer=answer),
         "relevancy": RELEVANCY_PROMPT.format(question=question, answer=answer),
@@ -259,13 +311,15 @@ def judge_answer(
     scores: dict[str, float | str | None] = {}
     for key, prompt in prompts.items():
         try:
-            result = _judge_with_structured_output(client, prompt, model)
+            client = get_judge_client(model if settings.llm_provider == LLMProvider.OLLAMA else "")
+            result = judge_with_structured_output(client, prompt, model)
             scores[key] = max(0.0, min(10.0, result.score))
             scores[f"{key}_reason"] = result.reason
         except Exception as exc:
-            logger.warning("Judge structured output failed for %s: %s — falling back to 0.0", key, exc)
-            scores[key] = 0.0
+            logger.warning("Judge structured output failed for %s: %s", key, exc)
+            scores[key] = None
             scores[f"{key}_reason"] = f"[Ошибка вызова судьи: {exc}]"
+            scores[f"{key}_error"] = str(exc)
 
     if "correctness" not in scores:
         scores["correctness"] = None
@@ -281,11 +335,11 @@ async def judge_answer_async(
     judge_llm=None,
     *,
     judge_model: str | None = None,
+    saved_metrics: dict | None = None,
+    metric_callback=None,
 ) -> dict:
     """Judge answer quality with structured output (instructor + timeout)."""
-    model = judge_model or _get_judge_model()
-    client = _get_judge_client(model if settings.llm_provider == LLMProvider.OLLAMA else "")
-
+    model = judge_model or get_judge_model()
     prompts = {
         "faithfulness": FAITHFULNESS_PROMPT.format(context=context, question=question, answer=answer),
         "relevancy": RELEVANCY_PROMPT.format(question=question, answer=answer),
@@ -295,27 +349,31 @@ async def judge_answer_async(
             question=question, expected=expected_answer, answer=answer
         )
 
-    async def _judge_one(prompt: str) -> JudgeScore:
-        def _call() -> JudgeScore:
-            return client.chat.completions.create(
-                model=model,
-                messages=[{"role": "user", "content": prompt}],
-                response_model=JudgeScore,
-                max_retries=2,
-            )
-
+    async def judge_one(prompt: str) -> JudgeScore:
+        client = get_judge_client(model if settings.llm_provider == LLMProvider.OLLAMA else "")
         return await asyncio.wait_for(
-            asyncio.to_thread(_call),
-            timeout=settings.llm_auxiliary_timeout,
+            asyncio.to_thread(judge_with_structured_output, client, prompt, model),
+            timeout=settings.llm_auxiliary_timeout * 3 + 3,
         )
 
-    keys = list(prompts.keys())
-    raw_results = await asyncio.gather(*[_judge_one(prompts[k]) for k in keys])
-
-    scores: dict[str, float | str | None] = {}
-    for key, result in zip(keys, raw_results, strict=False):
-        scores[key] = max(0.0, min(10.0, result.score))
-        scores[f"{key}_reason"] = result.reason
+    scores = dict(saved_metrics or {})
+    for key, prompt in prompts.items():
+        if scores.get(key) is not None:
+            continue
+        try:
+            result = await judge_one(prompt)
+            scores[key] = max(0.0, min(10.0, result.score))
+            scores[f"{key}_reason"] = result.reason
+            scores.pop(f"{key}_error", None)
+        except Exception as exc:
+            # Each metric is independent: provider failures are missing data,
+            # never a numerical score, and must not discard sibling results.
+            logger.warning("Judge failed for %s: %s", key, exc)
+            scores[key] = None
+            scores[f"{key}_error"] = str(exc)
+            scores[f"{key}_reason"] = f"[Error: {exc}]"
+        if metric_callback is not None:
+            await metric_callback(dict(scores))
 
     if "correctness" not in scores:
         scores["correctness"] = None

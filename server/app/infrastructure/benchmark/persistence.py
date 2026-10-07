@@ -112,18 +112,18 @@ def log_question_result(idx: int, total: int, q: dict, result: dict):
     logger.info("  Источники: %s", src_list)
 
     gm = result["generator_metrics"]
-    logger.info("  Faithfulness: %.1f/10  — %s", gm["faithfulness"], gm["faithfulness_reason"])
-    logger.info("  Relevancy:    %.1f/10  — %s", gm["relevancy"], gm["relevancy_reason"])
+    logger.info("  Faithfulness: %s/10  — %s", gm["faithfulness"], gm["faithfulness_reason"])
+    logger.info("  Relevancy:    %s/10  — %s", gm["relevancy"], gm["relevancy_reason"])
     if gm["correctness"] is not None:
-        logger.info("  Correctness:  %.1f/10  — %s", gm["correctness"], gm["correctness_reason"])
+        logger.info("  Correctness:  %s/10  — %s", gm["correctness"], gm["correctness_reason"])
 
     cm = result.get("context_metrics", {})
     cp = cm.get("context_precision")
     cr = cm.get("context_recall")
     if cp is not None:
-        logger.info("  Context Precision: %.1f/10  — %s", cp, cm.get("context_precision_reason", ""))
+        logger.info("  Context Precision: %s/10  — %s", cp, cm.get("context_precision_reason", ""))
     if cr is not None:
-        logger.info("  Context Recall:    %.1f/10  — %s", cr, cm.get("context_recall_reason", ""))
+        logger.info("  Context Recall:    %s/10  — %s", cr, cm.get("context_recall_reason", ""))
 
     if result.get("evidence_metrics"):
         logger.info("  Evidence: %s", result["evidence_metrics"])
@@ -146,7 +146,7 @@ def log_summary(results: list[dict], total_time: float):
     logger.info("Retriever:")
     if m["hit_rate"] is not None:
         logger.info(
-            "  Hit Rate:        %.1f/10  (%.0f%% размеченных вопросов прошли проверку retrieval)",
+            "  Hit Rate:        %s/10  (%.0f%% размеченных вопросов прошли проверку retrieval)",
             m["hit_rate"] * 10,
             m["hit_rate"] * 100,
         )
@@ -159,12 +159,12 @@ def log_summary(results: list[dict], total_time: float):
     logger.info("Context Quality:")
     if m["avg_context_precision"] is not None:
         logger.info(
-            "  Context Precision: %.1f/10  (доля релевантных документов среди ретривированных)",
+            "  Context Precision: %s/10  (доля релевантных документов среди ретривированных)",
             m["avg_context_precision"],
         )
     if m["avg_context_recall"] is not None:
         logger.info(
-            "  Context Recall:    %.1f/10  (доля нужной информации в контексте)", m["avg_context_recall"]
+            "  Context Recall:    %s/10  (доля нужной информации в контексте)", m["avg_context_recall"]
         )
 
     for metric in EVIDENCE_METRICS:
@@ -174,24 +174,25 @@ def log_summary(results: list[dict], total_time: float):
             )
 
     logger.info("Generator:")
-    logger.info(
-        "  Faithfulness:    %.1f/10  (достоверность — нет ли выдуманных фактов)", m["avg_faithfulness"]
-    )
-    logger.info("  Relevancy:       %.1f/10  (ответ по существу вопроса)", m["avg_relevancy"])
+    logger.info("  Faithfulness:    %s/10  (достоверность — нет ли выдуманных фактов)", m["avg_faithfulness"])
+    logger.info("  Relevancy:       %s/10  (ответ по существу вопроса)", m["avg_relevancy"])
     if m["avg_correctness"] is not None:
-        logger.info("  Correctness:     %.1f/10  (совпадение с эталоном)", m["avg_correctness"])
+        logger.info("  Correctness:     %s/10  (совпадение с эталоном)", m["avg_correctness"])
 
     bad = [
         r
         for r in results
-        if r["generator_metrics"]["faithfulness"] < 5 or r["generator_metrics"]["relevancy"] < 5
+        if any(
+            r["generator_metrics"].get(key) is not None and r["generator_metrics"][key] < 5
+            for key in ("faithfulness", "relevancy")
+        )
     ]
     if bad:
         logger.warning("Проблемные вопросы (%d):", len(bad))
         for r in bad:
             gm = r["generator_metrics"]
             logger.warning("  [%s] %s", r["id"], r["question"][:60])
-            logger.warning("        faith=%.1f  rel=%.1f", gm["faithfulness"], gm["relevancy"])
+            logger.warning("        faith=%s  rel=%s", gm["faithfulness"], gm["relevancy"])
             logger.warning("        %s", gm["faithfulness_reason"])
 
     logger.info("Время: %.1fs  (%.1fs на вопрос)", total_time, total_time / n)

@@ -7,6 +7,7 @@ import pytest
 from langchain.schema import Document
 from pydantic import ValidationError
 
+
 from application.services.benchmark_orchestrator import compute_summary_from_results
 from domain.entities.benchmark_sweep import BenchmarkSweep
 from domain.services.benchmark_evaluation import evaluate_retrieval, summarize_evidence
@@ -29,6 +30,13 @@ from infrastructure.benchmark.sweep_strategies import SweepCancelled
 from infrastructure.ml.rag.benchmark_evidence import BenchmarkEvidence
 from presentation.api.helpers import sweep_create_to_dto, sweep_to_response
 from presentation.api.schemas.benchmark import SweepCreateRequest
+
+
+@pytest.fixture(autouse=True)
+def individual_judge_mode(monkeypatch):
+    from config import settings
+
+    monkeypatch.setattr(settings, "benchmark_judge_grouped_enabled", False)
 
 
 def document(text, **metadata):
@@ -222,7 +230,7 @@ def mock_judges(monkeypatch):
         AsyncMock(return_value={"faithfulness": 10, "relevancy": 10, "correctness": 10}),
     )
     monkeypatch.setattr(metrics, "compute_context_precision_recall", lambda *a, **k: {})
-    monkeypatch.setattr(evidence_judge, "judge_evidence", lambda *a: {"scores": {}, "details": {}})
+    monkeypatch.setattr(evidence_judge, "judge_evidence", lambda *a, **kw: {"scores": {}, "details": {}})
 
 
 @pytest.mark.asyncio
@@ -355,16 +363,17 @@ async def test_partial_missing_context_cannot_improve_composite_by_excluding_cas
         for value in (1, None)
     ]
     full = {"hit_rate": 1, **summarize_evidence(cases)}
-    with pytest.raises(ValueError, match="No fully evaluated"):
-        await SweepFullEvaluator(LiveSweepSettings()).evaluate(
-            [{"config": {}, "composite_score": 1}],
-            1,
-            "judge",
-            [],
-            {"hit_rate": 0.1, "context_fact_coverage": 0.9},
-            None,
-            AsyncMock(return_value=full),
-        )
+    results = await SweepFullEvaluator(LiveSweepSettings()).evaluate(
+        [{"config": {}, "composite_score": 1}],
+        1,
+        "judge",
+        [],
+        {"hit_rate": 0.1, "context_fact_coverage": 0.9},
+        None,
+        AsyncMock(return_value=full),
+    )
+    assert results[0]["composite_score"] is None
+    assert results[0]["evaluation_complete"] is False
 
 
 @pytest.mark.asyncio

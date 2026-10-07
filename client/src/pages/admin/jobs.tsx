@@ -119,7 +119,7 @@ export function JobsPage() {
                       <TableCell className="text-xs">
                         {formatDuration(job.started_at ?? null, job.finished_at ?? null)}
                       </TableCell>
-                      <TableCell className="text-xs text-destructive max-w-[200px] truncate">
+                      <TableCell className="text-xs text-destructive max-w-md whitespace-pre-wrap break-words">
                         {job.error_message ?? "-"}
                       </TableCell>
                       <TableCell className="text-xs">

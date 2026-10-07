@@ -1,6 +1,6 @@
 """Tests for short-term reliability fixes (AUDIT.md items 7-13).
 
-- C-4: ``_run_tracked_job`` persists job state on success / failure / cancellation,
+- C-4: ``run_tracked_job`` persists job state on success / failure / cancellation,
   and keeps a heartbeat alive while the body runs.
 - M-14: cooperative sweep cancellation (``SweepEngine.check_cancelled``)
   and the double-submit guard in ``BenchmarkSweepService.create``.
@@ -22,7 +22,7 @@ from infrastructure.benchmark.sweep_engine import SweepCancelled, SweepEngine  #
 from infrastructure.worker import tasks as worker_tasks  # noqa: E402
 
 # ---------------------------------------------------------------------------
-# Stateful fake for _run_tracked_job tests
+# Stateful fake for run_tracked_job tests
 # ---------------------------------------------------------------------------
 
 
@@ -76,7 +76,7 @@ class _Factory:
 
 
 def _run_tracked(repo, body, **kwargs):
-    asyncio.run(worker_tasks._run_tracked_job(_Factory(repo), 1, body, description="test", **kwargs))
+    asyncio.run(worker_tasks.run_tracked_job(_Factory(repo), 1, body, description="test", **kwargs))
 
 
 class TestRunTrackedJob:

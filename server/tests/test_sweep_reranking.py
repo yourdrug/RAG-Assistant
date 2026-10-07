@@ -8,10 +8,50 @@ import pytest
 from langchain.schema import Document
 from qdrant_client.models import Filter
 
+from domain.value_objects.visibility import DocumentVisibility
+from infrastructure.bm25.bm25_index import BM25Index
 from infrastructure.benchmark.sweep_data import SweepDataSource
 from infrastructure.benchmark.sweep_reranking import cache_reranker_scores
 from infrastructure.benchmark.sweep_scoring import cache_candidates
 from infrastructure.benchmark.sweep_strategies import SweepCancelled
+
+
+@pytest.mark.asyncio
+async def test_sweep_candidates_forward_acl_to_real_bm25():
+    visibilities = list(DocumentVisibility)
+    hashes = [visibility.value for visibility in visibilities]
+    bm25 = BM25Index(
+        texts=["benchmark evidence"] * len(visibilities),
+        hashes=hashes,
+        doc_visibility=hashes,
+        doc_owner_id=[99] * len(visibilities),
+        doc_group_id=[99] * len(visibilities),
+    )
+    allowed = set(visibilities) - {DocumentVisibility.CLIENT_PRIVATE}
+    points = [
+        SimpleNamespace(
+            score=1.0,
+            payload={
+                "page_content": "benchmark evidence",
+                "metadata": {"content_hash": visibility.value, "visibility": visibility.value},
+            },
+        )
+        for visibility in allowed
+    ]
+    client = SimpleNamespace(search=MagicMock(return_value=points))
+    clients = SimpleNamespace(
+        qdrant_client=lambda: client,
+        embeddings=lambda: SimpleNamespace(embed_query_sync=lambda query: [0.1]),
+        _ensure_bm25_loaded=AsyncMock(return_value=bm25),
+    )
+    data = SweepDataSource(None, clients)
+
+    _, sparse, _ = await data.cache_candidates([{"question": "benchmark evidence"}], 10)
+
+    assert {hash_value for hash_value, _ in sparse["benchmark evidence"]} == {
+        visibility.value for visibility in allowed
+    }
+    assert client.search.call_args.kwargs["query_filter"] is not None
 
 
 @pytest.mark.asyncio

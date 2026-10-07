@@ -21,6 +21,7 @@ from infrastructure.worker.tasks import (
     run_full_ingest,
     run_single_ingest,
 )
+from infrastructure.worker.checkpoint_cleanup import cron_sweep_checkpoint_cleanup
 from infrastructure.worker.sweep import run_sweep_task as run_sweep
 
 logger = logging.getLogger("cli")
@@ -59,7 +60,10 @@ def worker(
                 max_tries=_MAX_JOB_TRIES,
             ),
             arq_func(run_benchmark, timeout=_BENCHMARK_TIMEOUT, keep_result=0, max_tries=_MAX_JOB_TRIES),
-            arq_func(run_sweep, timeout=_SWEEP_TIMEOUT, keep_result=0, max_tries=_MAX_JOB_TRIES),
+            arq_func(
+                run_sweep, name="run_sweep", timeout=_SWEEP_TIMEOUT, keep_result=0, max_tries=_MAX_JOB_TRIES
+            ),
+            arq_func(cron_sweep_checkpoint_cleanup, timeout=_CRON_TIMEOUT, keep_result=0),
             arq_func(cron_job_cleanup, timeout=_CRON_TIMEOUT, keep_result=0),
             arq_func(cron_recover_orphaned_jobs, timeout=_CRON_TIMEOUT, keep_result=0),
             arq_func(cron_recover_stuck_processing, timeout=_CRON_TIMEOUT, keep_result=0),
@@ -67,6 +71,7 @@ def worker(
         ]
 
         cron_jobs = [
+            cron(cron_sweep_checkpoint_cleanup, minute=set(range(60)), timeout=_CRON_TIMEOUT),
             cron(cron_job_cleanup, hour={1, 13}, timeout=_CRON_TIMEOUT),
             cron(cron_recover_orphaned_jobs, minute={0, 15, 30, 45}, timeout=_CRON_TIMEOUT),
             cron(cron_recover_stuck_processing, minute={5, 20, 35, 50}, timeout=_CRON_TIMEOUT),
@@ -134,6 +139,13 @@ async def on_startup(ctx: dict) -> None:
 
     await listener.resync(trigger="worker_startup")
     logger.info("Worker: config synced from database")
+
+    from infrastructure.resilience.circuit_breaker import init_breakers
+
+    init_breakers(
+        fail_max=settings.llm_breaker_fail_max,
+        timeout_duration=settings.llm_breaker_timeout_duration,
+    )
 
     await listener.start()
     ctx["config_listener"] = listener

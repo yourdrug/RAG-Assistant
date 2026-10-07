@@ -72,6 +72,71 @@ async def test_unique_index_also_guards_status_updates(pg_engine):
                 await repo.update_status(terminal.id, BenchmarkSweepStatus.RUNNING.value)
 
 
+async def test_concurrent_resume_has_one_winner(pg_engine):
+    sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
+    async with sessions.begin() as session:
+        repo = SQLAlchemyBenchmarkSweepRepository(session)
+        terminal = await repo.create(BenchmarkSweep(status=BenchmarkSweepStatus.FAILED.value))
+
+    async def resume():
+        async with sessions.begin() as session:
+            return await SQLAlchemyBenchmarkSweepRepository(session).requeue(terminal.id)
+
+    results = await asyncio.gather(resume(), resume())
+    assert sorted(results) == [False, True]
+
+
+async def test_cleanup_lock_serializes_with_resume(pg_engine):
+    sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
+    async with sessions.begin() as session:
+        terminal = await SQLAlchemyBenchmarkSweepRepository(session).create(
+            BenchmarkSweep(status=BenchmarkSweepStatus.FAILED.value)
+        )
+
+    async def resume():
+        async with sessions.begin() as session:
+            return await SQLAlchemyBenchmarkSweepRepository(session).requeue(terminal.id)
+
+    async with sessions.begin() as session:
+        locked = await SQLAlchemyBenchmarkSweepRepository(session).get_by_id(terminal.id, for_update=True)
+        assert locked.status == BenchmarkSweepStatus.FAILED.value
+        task = asyncio.create_task(resume())
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(asyncio.shield(task), timeout=0.1)
+    assert await asyncio.wait_for(task, timeout=5) is True
+
+
+async def test_resume_cannot_displace_an_active_sweep(pg_engine):
+    sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
+    async with sessions.begin() as session:
+        repo = SQLAlchemyBenchmarkSweepRepository(session)
+        await repo.create(BenchmarkSweep())
+        terminal = await repo.create(BenchmarkSweep(status=BenchmarkSweepStatus.CANCELLED.value))
+    async with sessions.begin() as session:
+        with pytest.raises(BusinessRuleViolation):
+            async with session.begin_nested():
+                await SQLAlchemyBenchmarkSweepRepository(session).requeue(terminal.id)
+
+
+async def test_dead_job_releases_active_sweep(pg_engine):
+    from domain.value_objects.job_status import BackgroundJobStatus
+    from presentation.api.constants import JobType
+    from infrastructure.database.models import BackgroundJobModel
+
+    sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
+    async with sessions.begin() as session:
+        job = BackgroundJobModel(job_type=JobType.SWEEP.value, status=BackgroundJobStatus.FAILED.value)
+        session.add(job)
+        await session.flush()
+        repo = SQLAlchemyBenchmarkSweepRepository(session)
+        sweep = await repo.create(BenchmarkSweep(job_id=job.id, status=BenchmarkSweepStatus.RUNNING.value))
+        assert await repo.fail_dead_jobs() == 1
+        assert (await repo.get_by_id(sweep.id)).status == BenchmarkSweepStatus.FAILED.value
+        assert await repo.requeue(sweep.id) is True
+        # Requeue clears the old failed job; the reaper cannot fail the new attempt.
+        assert await repo.fail_dead_jobs() == 0
+
+
 async def test_migration_upgrade_and_downgrade(pg_engine):
     migration = import_module(
         "infrastructure.database.migrations.versions.h1c2d3e4f5g6_one_active_benchmark_sweep"

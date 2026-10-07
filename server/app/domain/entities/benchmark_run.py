@@ -16,7 +16,7 @@ class BenchmarkRun:
     llm_evaluated: bool = False
     dataset: str = BenchmarkDataset.MAIN.value
     sweep_id: int | None = None
-    per_question_results: dict | None = None
+    per_question_results: list[dict] | None = None
     filename: str | None = None
     id: int | None = None
     creation_date: datetime = field(default_factory=lambda: datetime.now(UTC))

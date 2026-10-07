@@ -50,3 +50,23 @@ async def jobs_stats(
     stats = await service.count_by_status()
     total = sum(stats.values())
     return JobsStatsResponse(total=total, by_status=stats)
+
+
+@router.get("/admin/jobs/{job_id}", response_model=JobResponse)
+async def get_job(
+    job_id: int,
+    admin: CurrentUser = Depends(require_admin),
+    service: JobService = Depends(create_job_service),
+):
+    job = await service.get(job_id)
+    return JobResponse(
+        id=job.id,
+        job_type=job.job_type,
+        status=job.status,
+        related_id=job.related_id,
+        request_id=job.request_id,
+        started_at=job.started_at,
+        finished_at=job.finished_at,
+        error_message=job.error_message,
+        creation_date=job.creation_date,
+    )

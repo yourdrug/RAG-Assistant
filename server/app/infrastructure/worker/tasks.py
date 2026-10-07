@@ -5,7 +5,7 @@ Each task function mirrors the corresponding ``_process_document_in_background``
 run in a separate worker process via Arq.
 
 Job state guarantees:
-- Every long task runs inside ``_run_tracked_job``: RUNNING on start, DONE on
+- Every long task runs inside ``run_tracked_job``: RUNNING on start, DONE on
   success, FAILED on exception, and FAILED on ``CancelledError`` (arq timeout
   or worker shutdown) — documents never stay PROCESSING forever.
 - A heartbeat task refreshes ``background_jobs.heartbeat_at`` every minute so
@@ -83,7 +83,7 @@ async def _mark_job_failed_safe(uow_factory, job_id: int, error: str) -> None:
         logger.exception("Worker: failed to mark job %d as failed", job_id)
 
 
-async def _run_tracked_job(
+async def run_tracked_job(
     uow_factory,
     job_id: int,
     action: Callable[[], Awaitable[None]],
@@ -182,7 +182,7 @@ async def process_document(
             job_id,
         )
 
-    await _run_tracked_job(
+    await run_tracked_job(
         uow_factory,
         job_id,
         _action,
@@ -215,7 +215,7 @@ async def run_full_ingest(
             resolved_dir, reset, domain=domain, visibility=vis, group_id=group_id, client_id=client_id
         )
 
-    await _run_tracked_job(
+    await run_tracked_job(
         uow_factory,
         job_id,
         _action,
@@ -247,7 +247,7 @@ async def run_single_ingest(
             resolved, domain=domain, visibility=vis, group_id=group_id, client_id=client_id
         )
 
-    await _run_tracked_job(
+    await run_tracked_job(
         uow_factory,
         job_id,
         _action,
@@ -270,14 +270,29 @@ async def run_benchmark(
 
     async def evaluate_benchmark() -> None:
         questions = await load_benchmark_questions(uow_factory, dataset)
-        await run_benchmark_async(
+        results = await run_benchmark_async(
             questions=questions,
             out_dir=out_dir,
             top_k=top_k,
             judge_model=judge_model,
+            export_files=False,
         )
+        from application.services.benchmark_orchestrator import compute_summary_from_results
+        from domain.entities.benchmark_run import BenchmarkRun
 
-    await _run_tracked_job(
+        summary = compute_summary_from_results(results)
+        async with uow_factory.create(master=True) as uow:
+            await uow.benchmark_runs.create(
+                BenchmarkRun(
+                    config_json={"top_k": top_k, "judge_model": judge_model},
+                    summary_metrics={key: value for key, value in summary.items() if key != "results"},
+                    per_question_results=summary["results"],
+                    dataset=dataset,
+                    llm_evaluated=True,
+                )
+            )
+
+    await run_tracked_job(
         uow_factory,
         job_id,
         evaluate_benchmark,

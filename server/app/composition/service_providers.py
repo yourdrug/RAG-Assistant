@@ -23,6 +23,7 @@ log = logging.getLogger("default")
 def create_sweep_engine(infra: InfrastructureContainer):
     """Bind sweep execution to the already initialized benchmark and ML services."""
     from infrastructure.benchmark.sweep_engine import SweepEngine
+    from infrastructure.benchmark.checkpoint import DatabaseBenchmarkCheckpoints
     from infrastructure.benchmark.sweep_settings import LiveSweepSettings
 
     return SweepEngine(
@@ -30,6 +31,9 @@ def create_sweep_engine(infra: InfrastructureContainer):
         benchmark_service=_require(infra.ml.benchmark_service, "benchmark_service"),
         ml_clients=_require(infra.ml.ml_clients, "ml_clients"),
         runtime=LiveSweepSettings(),
+        checkpoint_factory=lambda sweep_id, root: DatabaseBenchmarkCheckpoints(
+            _require(infra.db.uow_factory, "uow_factory"), sweep_id, legacy_root=root
+        ),
     )
 
 

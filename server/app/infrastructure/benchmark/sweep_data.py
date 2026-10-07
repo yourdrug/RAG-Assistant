@@ -4,6 +4,7 @@ from __future__ import annotations
 
 
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
+from domain.services.access_control import get_visibility_conditions
 from domain.value_objects.roles import UserKind, UserRole
 
 from application.services.benchmark_dataset import load_benchmark_questions
@@ -26,7 +27,19 @@ class SweepDataSource:
             user={"id": 0, "kind": UserKind.INTERNAL, "role": UserRole.ADMIN}, group_ids=[]
         )
         return await cache_candidates(
-            questions, max_fetch_k, ml_clients=self._ml_clients, access_filter=access_filter
+            questions,
+            max_fetch_k,
+            ml_clients=self._ml_clients,
+            access_filter=access_filter,
+            visibility_conditions=get_visibility_conditions(
+                user_kind=UserKind.INTERNAL,
+                user_id=0,
+                group_ids=[],
+                for_list=False,
+                user_role=UserRole.ADMIN,
+            ),
+            user_id=0,
+            user_group_ids=[],
         )
 
     async def cache_reranker_scores(

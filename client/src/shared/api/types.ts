@@ -308,16 +308,14 @@ export interface BenchmarkResponse {
 }
 
 export interface BenchmarkResultSummary {
-  filename: string;
-  model: string | null;
-  total_questions: number;
-  total_time_sec: number;
-  hit_rate: number | null;
-  avg_mrr: number | null;
-  avg_faithfulness: number | null;
-  avg_relevancy: number | null;
-  avg_correctness: number | null;
-  avg_similarity: number | null;
+  id: number;
+  config_json: Record<string, unknown>;
+  summary_metrics: Record<string, unknown>;
+  duration_sec: number;
+  llm_evaluated: boolean;
+  dataset: string;
+  sweep_id?: number | null;
+  creation_date?: string | null;
 }
 
 export interface BenchmarkResultsListResponse {
@@ -333,8 +331,8 @@ export interface BenchmarkResultDetail {
     question: string;
     answer: string;
     expected_answer?: string | null;
-    faithfulness?: number;
-    relevancy?: number;
+    faithfulness?: number | null;
+    relevancy?: number | null;
     correctness?: number | null;
     hit_rate?: number | null;
     mrr?: number | null;
@@ -495,7 +493,7 @@ export interface SweepResponse {
   evaluation_mode: "fast" | "full";
   id: number;
   status: "pending" | "running" | "done" | "failed" | "cancelled";
-  strategy: string;
+  strategy: SweepCreateRequest["strategy"];
   search_space: Record<string, any>;
   objective_weights: Record<string, number>;
   dataset: string;

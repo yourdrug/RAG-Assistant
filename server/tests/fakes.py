@@ -640,7 +640,28 @@ class FakeBenchmarkQuestionRepository:
 
 
 class FakeBenchmarkSweepRepository:
-    async def get_by_id(self, sweep_id: int):
+    async def set_job_id(self, sweep_id: int, job_id: int) -> None:
+        self.job_ids[sweep_id] = job_id
+
+    def __init__(self):
+        self.progress: dict[int, tuple[int, int]] = {}
+        self.job_ids: dict[int, int] = {}
+        self.checkpoints = {}
+
+    async def load_checkpoint(self, sweep_id, key):
+        import copy
+
+        return copy.deepcopy(self.checkpoints.get((sweep_id, key)))
+
+    async def save_checkpoint(self, sweep_id, key, value):
+        import copy
+
+        self.checkpoints[sweep_id, key] = copy.deepcopy(value)
+
+    async def update_progress(self, sweep_id: int, evaluated: int, total: int) -> None:
+        self.progress[sweep_id] = (evaluated, total)
+
+    async def get_by_id(self, sweep_id: int, *, for_update: bool = False):
         return None
 
     async def create(self, entity):
@@ -661,6 +682,29 @@ class FakeBenchmarkSweepRepository:
 
 
 class FakeBenchmarkRunRepository:
+    def __init__(self):
+        self.runs = {}
+
+    async def create(self, run):
+        run.id = len(self.runs) + 1
+        self.runs[run.id] = run
+        return run
+
+    async def save_for_sweep(self, run):
+        existing = next(
+            (
+                r
+                for r in self.runs.values()
+                if r.sweep_id == run.sweep_id and r.config_json == run.config_json
+            ),
+            None,
+        )
+        if existing:
+            run.id = existing.id
+            self.runs[run.id] = run
+            return run
+        return await self.create(run)
+
     async def get_by_id(self, run_id: int):
         return None
 

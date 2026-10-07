@@ -33,7 +33,7 @@ class BenchmarkResultSummary:
 class BenchmarkResultDetail:
     id: int
     summary: BenchmarkResultSummary
-    per_question_results: dict | None = None
+    per_question_results: list[dict] | None = None
 
 
 @dataclass(frozen=True)

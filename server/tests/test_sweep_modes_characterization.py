@@ -5,12 +5,20 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+
 from application.services.benchmark_orchestrator import compute_summary_from_results
 from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.roles import UserKind
 from infrastructure.benchmark.answer_generators import BenchmarkAnswer
 from infrastructure.benchmark.case_evaluator import BenchmarkCaseEvaluator
 from infrastructure.ml.rag.benchmark_evidence import BenchmarkEvidence
+
+
+@pytest.fixture(autouse=True)
+def individual_judge_mode(monkeypatch):
+    from config import settings
+
+    monkeypatch.setattr(settings, "benchmark_judge_grouped_enabled", False)
 
 
 @pytest.mark.asyncio
@@ -23,7 +31,7 @@ async def test_case_evaluator_preserves_question_and_actual_context(monkeypatch)
         AsyncMock(return_value={"faithfulness": 8, "relevancy": 7, "correctness": 9}),
     )
     monkeypatch.setattr(metrics, "compute_context_precision_recall", lambda *a, **k: {})
-    monkeypatch.setattr(evidence_judge, "judge_evidence", lambda *a: {"scores": {}, "details": {}})
+    monkeypatch.setattr(evidence_judge, "judge_evidence", lambda *a, **kw: {"scores": {}, "details": {}})
     documents = [{"content": "article 17", "metadata": {"source": "law.pdf"}}]
     evidence = BenchmarkEvidence(documents, documents, "actual prompt")
     answer = BenchmarkAnswer(

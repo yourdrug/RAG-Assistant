@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from domain.value_objects.sweep_status import BenchmarkSweepStatus
 
 from application.ports.rate_limit import RateLimitPolicyName
 from application.services.benchmark_services import (
@@ -80,6 +81,14 @@ router = APIRouter(tags=["benchmark-admin"])
 # ---------------------------------------------------------------------------
 # Questions CRUD
 # ---------------------------------------------------------------------------
+
+
+@router.get("/admin/benchmark/datasets", response_model=list[str])
+async def list_datasets(
+    admin: CurrentUser = Depends(require_admin),
+    service: BenchmarkQuestionService = Depends(create_benchmark_question_service),
+):
+    return await service.list_datasets()
 
 
 @router.get("/admin/benchmark/questions", response_model=BenchmarkQuestionsListResponse)
@@ -218,10 +227,33 @@ async def create_sweep(
     if sweep.id is None:
         raise RuntimeError("BenchmarkSweep saved with None id")
 
-    await service.update_status(sweep.id, "pending")
+    await service.attach_job(sweep.id, job_id)
 
     await job_enqueuer.enqueue_sweep(sweep_id=sweep.id, job_id=job_id)
 
+    return sweep_to_response(sweep, job_id=job_id)
+
+
+@router.post(
+    "/admin/benchmark/sweep/{sweep_id}/resume",
+    response_model=SweepResponse,
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.BENCHMARK))],
+)
+async def resume_sweep(
+    sweep_id: int,
+    admin: CurrentUser = Depends(require_admin),
+    service: BenchmarkSweepService = Depends(create_benchmark_sweep_service),
+    job_service: JobService = Depends(create_job_service),
+    job_enqueuer=Depends(create_job_enqueuer),
+):
+    sweep = await service.resume(sweep_id)
+    try:
+        job_id = await job_service.create_job(JobType.SWEEP, related_id=sweep_id)
+        await service.attach_job(sweep_id, job_id)
+        await job_enqueuer.enqueue_sweep(sweep_id=sweep_id, job_id=job_id)
+    except Exception:
+        await service.update_status(sweep_id, BenchmarkSweepStatus.FAILED.value)
+        raise
     return sweep_to_response(sweep, job_id=job_id)
 
 
@@ -271,7 +303,7 @@ async def sweep_progress_stream(
                 while True:
                     try:
                         message = await asyncio.wait_for(
-                            pubsub.get_message(ignore_subscribe_messages=True),
+                            pubsub.get_message(ignore_subscribe_messages=True, timeout=30),
                             timeout=30,
                         )
                     except TimeoutError:

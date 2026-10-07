@@ -6,11 +6,11 @@ and handles result persistence, history tracking, and regression comparison.
 
 from __future__ import annotations
 
-import json
 from domain.services.benchmark_evaluation import summarize_evidence, summarize_retrieval
+from domain.services.benchmark_judge import judge_coverage, result_judge_errors
+from application.ports.benchmark_checkpoints import BenchmarkCheckpoints
 
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from domain.utils import percentile as _percentile
@@ -40,6 +40,9 @@ class BenchmarkService:
         seed: int | None = None,
         n_runs: int = 1,
         max_concurrent: int = 4,
+        resume: bool = False,
+        checkpoints: BenchmarkCheckpoints | None = None,
+        checkpoint_prefix: str | None = None,
     ) -> dict:
         """Run benchmark via shared async implementation, return summary dict."""
         log.info("RAG Benchmark")
@@ -47,34 +50,37 @@ class BenchmarkService:
         log.info("  top_k     : %d", top_k)
         log.info("  judge     : %s", judge_model)
 
-        if self._runner is not None:
-            await self._runner.run(
-                questions=questions,
-                out_dir=out_dir,
-                top_k=top_k,
-                judge_model=judge_model,
-                max_concurrent=max_concurrent,
-                seed=seed,
-                n_runs=n_runs,
-                rag_service=self._rag_service,
-            )
-
-        # Read back the latest results JSON to return structured summary
-        result_files = sorted(Path(out_dir).glob("benchmark_*.json"))
-        if not result_files:
-            return {"status": "done", "total_questions": 0}
-
-        latest = json.loads(result_files[-1].read_text(encoding="utf-8"))
-        summary = compute_summary_from_results(latest)
-        summary["status"] = "done"
-        summary["json_path"] = str(result_files[-1])
-        return summary
+        if self._runner is None:
+            raise RuntimeError("A benchmark runner must be injected")
+        results = await self._runner.run(
+            questions=questions,
+            out_dir=out_dir,
+            top_k=top_k,
+            judge_model=judge_model,
+            max_concurrent=max_concurrent,
+            seed=seed,
+            n_runs=n_runs,
+            rag_service=self._rag_service,
+            resume=resume,
+            checkpoints=checkpoints,
+            checkpoint_prefix=checkpoint_prefix,
+            export_files=False,
+        )
+        return {**compute_summary_from_results(results), "status": "done"}
 
 
 def compute_summary_from_results(results: list[dict]) -> dict:
     """Build summary dict from benchmark results list."""
-    faiths = [r["generator_metrics"]["faithfulness"] for r in results]
-    rels = [r["generator_metrics"]["relevancy"] for r in results]
+    faiths = [
+        r["generator_metrics"]["faithfulness"]
+        for r in results
+        if r["generator_metrics"].get("faithfulness") is not None
+    ]
+    rels = [
+        r["generator_metrics"]["relevancy"]
+        for r in results
+        if r["generator_metrics"].get("relevancy") is not None
+    ]
     corrs = [
         r["generator_metrics"]["correctness"]
         for r in results
@@ -107,6 +113,7 @@ def compute_summary_from_results(results: list[dict]) -> dict:
     return {
         **summarize_evidence(results),
         "total_questions": len(results),
+        **judge_coverage(results),
         "total_time_sec": round(sum(latencies), 1),
         "hit_rate": round(sum(hit_rates) / len(hit_rates), 3) if hit_rates else None,
         "avg_mrr": round(sum(mrrs) / len(mrrs), 3) if mrrs else None,
@@ -123,6 +130,10 @@ def compute_summary_from_results(results: list[dict]) -> dict:
         "latency_max": round(latencies[-1], 2) if latencies else 0,
         "total_input_tokens": total_input_tokens,
         "total_output_tokens": total_output_tokens,
+        "total_judge_input_tokens": sum(r.get("judge_input_tokens", 0) for r in results),
+        "total_judge_output_tokens": sum(r.get("judge_output_tokens", 0) for r in results),
+        "total_judge_calls": sum(r.get("judge_calls", 0) for r in results),
+        "usage_scope": "generation plus observed judge calls; excludes RAG auxiliary calls",
         "estimated_cost_usd": round(total_cost, 6),
         "breadth_distribution": {
             "narrow": sum(1 for b in breadths if b == "narrow"),
@@ -136,6 +147,9 @@ def compute_summary_from_results(results: list[dict]) -> dict:
                 "question": r["question"],
                 "answer": r["answer"],
                 "expected_answer": r.get("expected_answer"),
+                "judge_errors": result_judge_errors(r),
+                "generator_metrics": r["generator_metrics"],
+                "context_metrics": r.get("context_metrics", {}),
                 "faithfulness": r["generator_metrics"]["faithfulness"],
                 "relevancy": r["generator_metrics"]["relevancy"],
                 "correctness": r["generator_metrics"]["correctness"],

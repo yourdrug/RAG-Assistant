@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from domain.value_objects.app_stage import AppStage
@@ -96,6 +96,10 @@ class Settings(BaseSettings):
     bm25_search_max_concurrent: int = 8
     semaphore_acquire_timeout: int = 30  # seconds, max wait for semaphore acquire before 429/503
     benchmark_max_concurrent: int = 3
+    benchmark_judge_max_concurrent: int = Field(default=3, ge=1)
+    benchmark_judge_grouped_enabled: bool = True
+    benchmark_judge_initial_tokens: int = Field(default=2048, ge=1)
+    benchmark_judge_retry_tokens: int = Field(default=8192, ge=1)
     benchmark_judge_model: str = ""  # empty = use fast_llm for OpenRouter, llm_model for Ollama
 
     # ── OpenRouter ──────────────────────────────────────────────────────────
@@ -262,7 +266,7 @@ class Settings(BaseSettings):
     rate_limit_upload_per_hour: int = 20
     rate_limit_search_per_minute: int = 60
     rate_limit_write_per_minute: int = 60
-    rate_limit_benchmark_per_hour: int = 3
+    rate_limit_benchmark_per_hour: int = 60
     rate_limit_max_buckets: int = 10000  # LRU cap for per-principal buckets
 
     # ── Cost rate limiting ──────────────────────────────────────────────────

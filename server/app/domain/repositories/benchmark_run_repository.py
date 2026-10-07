@@ -13,6 +13,8 @@ class BenchmarkRunRepository(Protocol):
 
     async def create(self, run: BenchmarkRun) -> BenchmarkRun: ...
 
+    async def save_for_sweep(self, run: BenchmarkRun) -> BenchmarkRun: ...
+
     async def list_items(
         self,
         *,

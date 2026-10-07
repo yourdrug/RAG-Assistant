@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from application.ports.benchmark_checkpoints import BenchmarkCheckpoints
 
 if TYPE_CHECKING:
     from application.ports.chat_rag_port import ChatRAGPort
@@ -21,10 +22,14 @@ class AsyncBenchmarkRunner:
         seed: int | None = None,
         n_runs: int = 1,
         rag_service: "ChatRAGPort | None" = None,
-    ) -> None:
+        resume: bool = False,
+        checkpoints: BenchmarkCheckpoints | None = None,
+        checkpoint_prefix: str | None = None,
+        export_files: bool = False,
+    ) -> list[dict]:
         from infrastructure.benchmark.runner import run_benchmark_async
 
-        await run_benchmark_async(
+        return await run_benchmark_async(
             questions=questions,
             out_dir=out_dir,
             top_k=top_k,
@@ -33,4 +38,8 @@ class AsyncBenchmarkRunner:
             seed=seed,
             n_runs=n_runs,
             rag_service=rag_service,
+            resume=resume,
+            checkpoints=checkpoints,
+            checkpoint_prefix=checkpoint_prefix,
+            export_files=export_files,
         )

@@ -12,6 +12,7 @@ from application.ports.rate_limit import RateLimitDecision
 from application.services.benchmark_services import BenchmarkSweepService
 from domain.entities.benchmark_sweep import BenchmarkSweep
 from domain.exceptions import ClientException
+from domain.value_objects.sweep_status import BenchmarkSweepStatus
 from domain.value_objects.roles import UserKind, UserRole
 from domain.value_objects.sweep_evaluation_mode import SweepEvaluationMode
 from fakes import FakeUnitOfWorkFactory
@@ -37,9 +38,20 @@ def test_blank_or_oversized_judge_model_is_rejected(model):
 
 @pytest.mark.parametrize("role", [UserRole.ADMIN, UserRole.USER])
 @pytest.mark.parametrize("mode", list(SweepEvaluationMode))
-def test_api_preserves_selected_judge_and_requires_admin(role, mode):
+@pytest.mark.parametrize("operation", ["create", "resume"])
+def test_api_preserves_selected_judge_and_requires_admin(role, mode, operation):
     factory = FakeUnitOfWorkFactory()
     service = BenchmarkSweepService(factory)
+    if operation == "resume":
+        factory._uow.benchmark_sweeps.get_by_id = AsyncMock(
+            return_value=BenchmarkSweep(
+                id=1,
+                status=BenchmarkSweepStatus.FAILED.value,
+                judge_model="chosen/judge",
+                evaluation_mode=mode.value,
+            )
+        )
+        factory._uow.benchmark_sweeps.requeue = AsyncMock(return_value=True)
     jobs = SimpleNamespace(create_job=AsyncMock(return_value=2))
     queue = SimpleNamespace(enqueue_sweep=AsyncMock())
     app = FastAPI()
@@ -57,7 +69,7 @@ def test_api_preserves_selected_judge_and_requires_admin(role, mode):
     )
     with TestClient(app) as client:
         response = client.post(
-            "/admin/benchmark/sweep",
+            "/admin/benchmark/sweep" if operation == "create" else "/admin/benchmark/sweep/1/resume",
             json={
                 "search_space": {"top_k": {"values": [2]}},
                 "judge_model": " chosen/judge ",
@@ -69,6 +81,7 @@ def test_api_preserves_selected_judge_and_requires_admin(role, mode):
         assert response.json()["judge_model"] == "chosen/judge"
         assert response.json()["evaluation_mode"] == mode
         queue.enqueue_sweep.assert_awaited_once_with(sweep_id=1, job_id=2)
+        assert factory._uow.benchmark_sweeps.job_ids[1] == 2
     else:
         assert response.status_code == 403
         jobs.create_job.assert_not_called()
@@ -92,14 +105,14 @@ async def test_worker_uses_saved_judge_instead_of_main_model(monkeypatch, select
     factory._uow.benchmark_sweeps.get_by_id = AsyncMock(return_value=saved)
     engine = SimpleNamespace(run_sweep=AsyncMock(return_value=[]))
     monkeypatch.setattr(worker, "create_sweep_engine", MagicMock(return_value=engine))
-    monkeypatch.setattr(worker, "_publish_sweep_event", AsyncMock())
+    monkeypatch.setattr(worker, "publish_sweep_event", AsyncMock())
     monkeypatch.setattr(worker.settings, "llm_model", "main-model")
     monkeypatch.setattr(worker.settings, "benchmark_judge_model", configured)
 
     async def run_action(factory, job_id, action, **kwargs):
         await action()
 
-    monkeypatch.setattr(tasks, "_run_tracked_job", run_action)
+    monkeypatch.setattr(tasks, "run_tracked_job", run_action)
     container = SimpleNamespace(infrastructure=SimpleNamespace(db=SimpleNamespace(uow_factory=factory)))
     await worker.run_sweep_task({"container": container}, sweep_id=1, job_id=2)
     assert engine.run_sweep.call_args.kwargs["judge_model"] == expected

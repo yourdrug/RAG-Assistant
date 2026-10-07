@@ -144,8 +144,8 @@ async def test_async_judge_uses_explicit_model(monkeypatch):
 
     create = MagicMock(return_value=SimpleNamespace(score=8.0, reason="ok"))
     client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
-    monkeypatch.setattr(judge, "_get_judge_client", lambda model: client)
-    monkeypatch.setattr(judge, "_get_judge_model", lambda: "default-model")
+    monkeypatch.setattr(judge, "get_judge_client", lambda model: client)
+    monkeypatch.setattr(judge, "get_judge_model", lambda: "default-model")
     result = await judge.judge_answer_async("question", "answer", "context", judge_model="requested-model")
     assert result["faithfulness"] == 8.0
     assert all(call.kwargs["model"] == "requested-model" for call in create.call_args_list)
@@ -155,9 +155,9 @@ def test_context_judge_uses_same_explicit_model(monkeypatch):
     from infrastructure.benchmark import judge, metrics
 
     score = MagicMock(return_value=SimpleNamespace(score=8.0, reason="ok"))
-    monkeypatch.setattr(judge, "_get_judge_client", lambda model: object())
-    monkeypatch.setattr(judge, "_get_judge_model", lambda: "default-model")
-    monkeypatch.setattr(judge, "_judge_with_structured_output", score)
+    monkeypatch.setattr(judge, "get_judge_client", lambda model: object())
+    monkeypatch.setattr(judge, "get_judge_model", lambda: "default-model")
+    monkeypatch.setattr(judge, "judge_with_structured_output", score)
     result = metrics.compute_context_precision_recall(
         "question", "answer", context_override="context", judge_model="requested-model"
     )

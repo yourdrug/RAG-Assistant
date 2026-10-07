@@ -6,7 +6,7 @@ from domain.entities.benchmark_run import BenchmarkRun
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from infrastructure.database.models import BenchmarkRunModel
+from infrastructure.database.models import BenchmarkRunModel, BenchmarkSweepModel
 
 
 class SQLAlchemyBenchmarkRunRepository:
@@ -34,6 +34,26 @@ class SQLAlchemyBenchmarkRunRepository:
         await self._db.flush()
         await self._db.refresh(orm)
         return self._to_entity(orm)
+
+    async def save_for_sweep(self, run: BenchmarkRun) -> BenchmarkRun:
+        if run.sweep_id is None:
+            raise ValueError("sweep_id is required")
+        # The parent row serializes config lookup + insert across worker retries.
+        await self._db.execute(
+            select(BenchmarkSweepModel.id).where(BenchmarkSweepModel.id == run.sweep_id).with_for_update()
+        )
+        rows = await self._db.execute(
+            select(BenchmarkRunModel).where(BenchmarkRunModel.sweep_id == run.sweep_id)
+        )
+        existing = next((row for row in rows.scalars() if row.config_json == run.config_json), None)
+        if existing is None:
+            return await self.create(run)
+        existing.summary_metrics = run.summary_metrics
+        existing.per_question_results = run.per_question_results
+        existing.llm_evaluated = run.llm_evaluated
+        existing.duration_sec = run.duration_sec
+        await self._db.flush()
+        return self._to_entity(existing)
 
     async def list_items(
         self,

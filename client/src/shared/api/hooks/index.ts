@@ -30,6 +30,7 @@ export {
 export {
   useApplyRunConfig,
   useBenchmark,
+  useBenchmarkDatasets,
   useBenchmarkHistory,
   useBenchmarkQuestions,
   useBenchmarkResult,
@@ -44,6 +45,7 @@ export {
   useExportBenchmarkQuestions,
   useImportBenchmarkQuestions,
   useRegressionCheck,
+  useResumeSweep,
   useSourceFiles,
   useSweep,
   useSweeps,
@@ -81,6 +83,6 @@ export {
 } from "./use-groups";
 export { useHealth } from "./use-health";
 export { useIngestAll, useIngestFile, useIngestRegistry, useUploadFiles } from "./use-ingest";
-export { useJobStats, useJobs } from "./use-jobs";
+export { useJob, useJobStats, useJobs } from "./use-jobs";
 export { useLogs } from "./use-logs";
 export { useMetrics } from "./use-metrics";

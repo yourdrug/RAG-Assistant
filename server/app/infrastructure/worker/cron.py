@@ -40,6 +40,7 @@ async def cron_recover_orphaned_jobs(ctx: dict[str, Any]) -> None:
         stale_pending = await uow.background_jobs.fail_stale_pending(
             timeout_minutes=settings.stale_pending_timeout_minutes
         )
+        await uow.benchmark_sweeps.fail_dead_jobs()
     if orphaned_ids:
         logger.warning("Cron: recovered %d orphaned jobs: %s", len(orphaned_ids), orphaned_ids)
     for job in stale_pending:

@@ -9,6 +9,7 @@ import pytest
 from langchain.schema import Document
 from pydantic import ValidationError
 
+
 from domain.services.benchmark_evaluation import evaluate_evidence, summarize_evidence
 from domain.value_objects.benchmark_annotations import validate_annotations
 from domain.value_objects.chat_context import ChatContext
@@ -22,6 +23,13 @@ from infrastructure.ml.rag.benchmark_evidence import (
     capture_prompt,
     capture_retrieval,
 )
+
+
+@pytest.fixture(autouse=True)
+def individual_judge_mode(monkeypatch):
+    from config import settings
+
+    monkeypatch.setattr(settings, "benchmark_judge_grouped_enabled", False)
 
 
 def doc(content, source="rules.pdf", **metadata):
@@ -202,7 +210,7 @@ async def test_case_output_contains_diagnostics_and_real_evidence(monkeypatch):
     )
     monkeypatch.setattr(metrics, "compute_context_precision_recall", lambda *a, **k: {})
     monkeypatch.setattr(
-        evidence_judge, "judge_evidence", lambda *a: {"scores": {"refusal_score": 10}, "details": {}}
+        evidence_judge, "judge_evidence", lambda *a, **kw: {"scores": {"refusal_score": 10}, "details": {}}
     )
     evidence = BenchmarkEvidence([doc(FRAGMENT["text"])], [], "Другой текст")
     answer = BenchmarkAnswer("Ответ", evidence.context, {}, 10, 2, evidence=evidence)
@@ -222,12 +230,12 @@ async def test_case_output_contains_diagnostics_and_real_evidence(monkeypatch):
 def test_judge_failures_are_unavailable_with_diagnostics(monkeypatch):
     from infrastructure.benchmark import evidence_judge
 
-    monkeypatch.setattr(evidence_judge, "_get_judge_client", lambda *a: object())
+    monkeypatch.setattr(evidence_judge, "get_judge_client", lambda *a: object())
 
     def fail(*args):
         raise RuntimeError("judge offline")
 
-    monkeypatch.setattr(evidence_judge, "_judge_with_structured_output", fail)
+    monkeypatch.setattr(evidence_judge, "judge_with_structured_output", fail)
     result = evidence_judge.judge_evidence("Q", "A", "C", {"expected_refusal": True}, "model")
     assert result["scores"]["refusal_score"] is None
     assert result["details"]["refusal_score"]["error"] == "judge offline"
@@ -239,7 +247,7 @@ def test_legacy_annotations_skip_extra_judge(monkeypatch):
     def fail(*args):
         raise AssertionError("legacy case must not call judge")
 
-    monkeypatch.setattr(evidence_judge, "_get_judge_client", fail)
+    monkeypatch.setattr(evidence_judge, "get_judge_client", fail)
     assert evidence_judge.judge_evidence("Q", "A", "C", None, "model") == {"scores": {}, "details": {}}
 
 
@@ -326,7 +334,7 @@ def test_judge_client_failure_is_reported_and_missing_context_is_not_scored(monk
     def fail(*args):
         raise RuntimeError("client offline")
 
-    monkeypatch.setattr(evidence_judge, "_get_judge_client", fail)
+    monkeypatch.setattr(evidence_judge, "get_judge_client", fail)
     result = evidence_judge.judge_evidence("Q", "A", None, {"expected_refusal": True}, "model")
     assert "citation_support_score" not in result["scores"]
     assert result["scores"]["refusal_score"] is None

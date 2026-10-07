@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from domain.entities.background_job import BackgroundJob
+from domain.exceptions import EntityNotFound
 from domain.value_objects.job_status import BackgroundJobStatus
 
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
@@ -28,6 +29,13 @@ class JobService:
             if created.id is None:
                 raise RuntimeError("BackgroundJob create returned None id")
             return created.id
+
+    async def get(self, job_id: int) -> BackgroundJob:
+        async with self._uow_factory.create() as uow:
+            job = await uow.background_jobs.get_by_id(job_id)
+        if job is None:
+            raise EntityNotFound("BackgroundJob", job_id)
+        return job
 
     async def list_recent(self, limit: int = 50, offset: int = 0):
         async with self._uow_factory.create() as uow:

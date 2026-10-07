@@ -1,6 +1,7 @@
 """Benchmark metrics — retriever metrics, context precision/recall, summary."""
 
 from domain.services.benchmark_evaluation import summarize_evidence, summarize_retrieval
+from domain.services.benchmark_judge import judge_coverage, result_judge_errors  # noqa: F401
 
 import logging
 from pathlib import Path
@@ -65,6 +66,8 @@ def compute_context_precision_recall(
     context_override: str | None = None,
     *,
     judge_model: str | None = None,
+    saved_metrics: dict | None = None,
+    metric_callback=None,
 ) -> dict:
     """Compute context_precision and context_recall via LLM judge.
 
@@ -76,6 +79,8 @@ def compute_context_precision_recall(
         context_override: If provided, use this as the context string directly
             instead of extracting from docs_with_scores.
         judge_model: Explicit judge model; falls back to the configured model when omitted.
+        saved_metrics: Successful scores reused on resume.
+        metric_callback: Persist each metric after its judge call.
 
     """
     from config import settings
@@ -84,9 +89,9 @@ def compute_context_precision_recall(
     from infrastructure.benchmark.judge import (
         CONTEXT_PRECISION_PROMPT,
         CONTEXT_RECALL_PROMPT,
-        _get_judge_client,
-        _get_judge_model,
-        _judge_with_structured_output,
+        get_judge_client,
+        get_judge_model,
+        judge_with_structured_output,
     )
 
     if not context_override and not docs_with_scores:
@@ -97,8 +102,7 @@ def compute_context_precision_recall(
             "context_recall_reason": "No documents retrieved",
         }
 
-    model = judge_model or _get_judge_model()
-    client = _get_judge_client(model if settings.llm_provider == LLMProvider.OLLAMA else "")
+    model = judge_model or get_judge_model()
 
     if context_override:
         context = context_override
@@ -109,29 +113,28 @@ def compute_context_precision_recall(
             d.page_content if hasattr(d, "page_content") else str(d) for d, _ in docs_with_scores
         )
 
-    result: dict[str, float | str | None] = {
-        "context_precision": None,
-        "context_precision_reason": "",
-        "context_recall": None,
-    }
-
-    try:
-        prompt = CONTEXT_PRECISION_PROMPT.format(question=question, answer=answer, context=context)
-        cp = _judge_with_structured_output(client, prompt, model)
-        result["context_precision"] = max(0.0, min(10.0, cp.score))
-        result["context_precision_reason"] = cp.reason
-    except Exception as exc:
-        logger.warning("Context precision judge failed: %s", exc)
-        result["context_precision_reason"] = f"[Error: {exc}]"
-
-    try:
-        prompt = CONTEXT_RECALL_PROMPT.format(question=question, answer=answer, context=context)
-        cr = _judge_with_structured_output(client, prompt, model)
-        result["context_recall"] = max(0.0, min(10.0, cr.score))
-        result["context_recall_reason"] = cr.reason
-    except Exception as exc:
-        logger.warning("Context recall judge failed: %s", exc)
-        result["context_recall_reason"] = f"[Error: {exc}]"
+    result = dict(saved_metrics or {})
+    for key, template in (
+        ("context_precision", CONTEXT_PRECISION_PROMPT),
+        ("context_recall", CONTEXT_RECALL_PROMPT),
+    ):
+        if result.get(key) is not None:
+            continue
+        try:
+            client = get_judge_client(model if settings.llm_provider == LLMProvider.OLLAMA else "")
+            score = judge_with_structured_output(
+                client, template.format(question=question, answer=answer, context=context), model
+            )
+            result[key] = max(0.0, min(10.0, score.score))
+            result[f"{key}_reason"] = score.reason
+            result.pop(f"{key}_error", None)
+        except Exception as exc:
+            logger.warning("Context judge failed (%s): %s", key, exc)
+            result[key] = None
+            result[f"{key}_error"] = str(exc)
+            result[f"{key}_reason"] = f"[Error: {exc}]"
+        if metric_callback is not None:
+            metric_callback(dict(result))
 
     return result
 
@@ -161,8 +164,16 @@ def compute_summary_metrics(results: list[dict]) -> dict:
 
     Includes latency percentiles, token cost, and coverage diagnostics.
     """
-    faiths = [r["generator_metrics"]["faithfulness"] for r in results]
-    rels = [r["generator_metrics"]["relevancy"] for r in results]
+    faiths = [
+        r["generator_metrics"]["faithfulness"]
+        for r in results
+        if r["generator_metrics"].get("faithfulness") is not None
+    ]
+    rels = [
+        r["generator_metrics"]["relevancy"]
+        for r in results
+        if r["generator_metrics"].get("relevancy") is not None
+    ]
     corrs = [
         r["generator_metrics"]["correctness"]
         for r in results
@@ -194,6 +205,7 @@ def compute_summary_metrics(results: list[dict]) -> dict:
     return {
         **summarize_evidence(results),
         "total_questions": len(results),
+        **judge_coverage(results),
         "pct_with_expected_answer": round(total_with_expected / len(results) * 100, 1) if results else 0,
         "total_time_sec": round(sum(latencies), 1),
         "hit_rate": round(sum(hit_rates) / len(hit_rates), 3) if hit_rates else None,

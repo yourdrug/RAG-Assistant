@@ -11,7 +11,12 @@ from domain.value_objects.sweep_evaluation_mode import SweepEvaluationMode
 
 from infrastructure.benchmark.sweep_scoring import compute_composite_score
 from infrastructure.benchmark.sweep_settings import SweepSettingsPort
-from infrastructure.benchmark.sweep_strategies import ShouldCancel, check_cancelled
+from infrastructure.benchmark.sweep_strategies import (
+    ProgressCallback,
+    ShouldCancel,
+    check_cancelled,
+    report_progress,
+)
 
 
 class SweepFullEvaluator:
@@ -29,7 +34,7 @@ class SweepFullEvaluator:
         run_benchmark: Callable[[list[dict], str], Awaitable[dict]],
         *,
         evaluation_mode: SweepEvaluationMode = SweepEvaluationMode.FAST,
-        progress_callback: Callable[[int, int, dict | None], None] | None = None,
+        progress_callback: ProgressCallback | None = None,
     ) -> list[dict]:
         weights = validate_objective_weights(weights, require_retrieval=False)
         evaluation_mode = SweepEvaluationMode(evaluation_mode)
@@ -38,6 +43,7 @@ class SweepFullEvaluator:
             if evaluation_mode == SweepEvaluationMode.FULL
             else select_fast_candidates(results, top_n_llm)
         )
+        await report_progress(progress_callback, 0, len(candidates), {"phase": "full_evaluation"})
         finalists = []
         for result in results:
             result["retrieval_score"] = result.get("composite_score")
@@ -51,13 +57,13 @@ class SweepFullEvaluator:
             metrics = {
                 key: full.get("hit_rate" if key == "hit_rate" else f"avg_{key}") for key in METRIC_SCALES
             }
-            if has_complete_objectives(full, metrics, weights):
+            result["evaluation_complete"] = has_complete_objectives(full, metrics, weights)
+            if result["evaluation_complete"]:
                 result["composite_score"] = compute_composite_score(metrics, weights)
                 finalists.append(result)
-            if progress_callback is not None:
-                progress_callback(idx, len(candidates), {**result, "phase": "full_evaluation"})
-        if not finalists:
-            raise ValueError("No fully evaluated configurations have all positively weighted metrics")
+            await report_progress(
+                progress_callback, idx, len(candidates), {**result, "phase": "full_evaluation"}
+            )
         await check_cancelled(should_cancel, "after phase B evaluation")
         finalists.sort(key=lambda r: r["composite_score"], reverse=True)
         for result in results:

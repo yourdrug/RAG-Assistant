@@ -19,6 +19,7 @@ from domain.value_objects.benchmark_annotations import validate_annotations
 from domain.entities.benchmark_run import BenchmarkRun
 from domain.entities.benchmark_sweep import BenchmarkSweep
 from domain.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
+from domain.value_objects.job_status import BackgroundJobStatus
 from domain.value_objects.sweep_status import BenchmarkSweepStatus
 from domain.value_objects.sweep_evaluation_mode import validate_sweep_mode
 
@@ -63,6 +64,10 @@ class BenchmarkQuestionService:
                 dataset=dataset, tag=tag, search=search, is_active=is_active
             )
             return questions, total
+
+    async def list_datasets(self) -> builtins.list[str]:
+        async with self._uow_factory.create() as uow:
+            return await uow.benchmark_questions.get_datasets()
 
     async def create(self, body: BenchmarkQuestionCreateDTO, created_by: int) -> BenchmarkQuestion:
         entity = BenchmarkQuestion(
@@ -159,7 +164,7 @@ class BenchmarkSweepService:
 
     async def cancel(self, sweep_id: int) -> None:
         async with self._uow_factory.create(master=True) as uow:
-            sweep = await uow.benchmark_sweeps.get_by_id(sweep_id)
+            sweep = await uow.benchmark_sweeps.get_by_id(sweep_id, for_update=True)
 
             if sweep is None:
                 raise EntityNotFound("BenchmarkSweep", sweep_id)
@@ -168,6 +173,30 @@ class BenchmarkSweepService:
                 raise ValidationError(f"Cannot cancel sweep in '{sweep.status}' status")
 
             await uow.benchmark_sweeps.update_status(sweep_id, BenchmarkSweepStatus.CANCELLED.value)
+
+    async def resume(self, sweep_id: int) -> BenchmarkSweep:
+        async with self._uow_factory.create(master=True) as uow:
+            sweep = await uow.benchmark_sweeps.get_by_id(sweep_id)
+            if sweep is None:
+                raise EntityNotFound("BenchmarkSweep", sweep_id)
+            if sweep.job_id is not None:
+                job = await uow.background_jobs.get_by_id(sweep.job_id)
+                if job is not None and job.status in (
+                    BackgroundJobStatus.PENDING.value,
+                    BackgroundJobStatus.RUNNING.value,
+                ):
+                    raise BusinessRuleViolation(
+                        "The previous sweep job is still stopping; retry after it finishes"
+                    )
+            if not await uow.benchmark_sweeps.requeue(sweep_id):
+                raise ValidationError("Only failed or cancelled sweeps can be resumed")
+            sweep.status = BenchmarkSweepStatus.PENDING.value
+            sweep.job_id = None
+            return sweep
+
+    async def attach_job(self, sweep_id: int, job_id: int) -> None:
+        async with self._uow_factory.create(master=True) as uow:
+            await uow.benchmark_sweeps.set_job_id(sweep_id, job_id)
 
     async def update_status(self, sweep_id: int, status: str) -> None:
         async with self._uow_factory.create(master=True) as uow:
