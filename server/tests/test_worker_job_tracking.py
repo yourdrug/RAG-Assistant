@@ -124,6 +124,17 @@ class TestRunTrackedJob:
         assert repo.status == "failed"
         assert repo.error is not None and "cancel" in repo.error.lower()
 
+    @pytest.mark.parametrize("failure", [TimeoutError(), RuntimeError("   ")])
+    def test_empty_exception_message_persists_exception_type(self, failure):
+        repo = _StatefulJobRepo()
+
+        async def body():
+            raise failure
+
+        _run_tracked(repo, body, max_tries=1)
+        assert repo.finished
+        assert repo.error == type(failure).__name__
+
     def test_heartbeat_touches_while_running(self, monkeypatch):
         monkeypatch.setattr(worker_tasks, "_HEARTBEAT_INTERVAL_SEC", 0.01)
         repo = _StatefulJobRepo()

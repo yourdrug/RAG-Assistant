@@ -142,6 +142,22 @@ async def test_failed_sweep_retries_then_records_error_and_notifies(monkeypatch,
 
 
 @pytest.mark.asyncio
+async def test_empty_timeout_message_is_saved_and_published(monkeypatch):
+    factory = SweepFactory()
+    engine = SimpleNamespace(run_sweep=AsyncMock(side_effect=TimeoutError()))
+    publish = AsyncMock()
+    monkeypatch.setattr(sweep, "create_sweep_engine", lambda infra: engine)
+    monkeypatch.setattr(sweep, "publish_sweep_event", publish)
+
+    await sweep.run_sweep_task(sweep_context(factory), sweep_id=1, job_id=2)
+
+    factory.sweeps.update_status.assert_awaited_with(1, BenchmarkSweepStatus.FAILED.value)
+    factory.jobs.mark_failed.assert_awaited_once_with(2, "TimeoutError")
+    assert publish.await_args.args[1]["error"] == "TimeoutError"
+    factory.jobs.mark_done.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_timeout_marks_sweep_and_job_failed(monkeypatch):
     factory = SweepFactory()
     engine = SimpleNamespace(run_sweep=AsyncMock(side_effect=asyncio.CancelledError()))

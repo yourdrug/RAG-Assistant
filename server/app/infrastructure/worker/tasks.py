@@ -29,7 +29,7 @@ from domain.value_objects.visibility import DocumentVisibility
 from application.services.benchmark_dataset import load_benchmark_questions
 from infrastructure.benchmark.runner import run_benchmark_async
 from infrastructure.worker.admission import one_document_per_principal
-from infrastructure.worker.outcomes import IncompleteEvaluation
+from infrastructure.worker.outcomes import IncompleteEvaluation, job_error_message
 
 # Re-export cron tasks for backward compatibility (Arq worker config imports from here)
 from infrastructure.worker.cron import (  # noqa: F401
@@ -122,7 +122,7 @@ async def run_tracked_job(
                     defer_seconds,
                 )
                 raise Retry(defer=defer_seconds) from e
-            await _mark_job_failed_safe(uow_factory, job_id, str(e))
+            await _mark_job_failed_safe(uow_factory, job_id, job_error_message(e))
         else:
             async with uow_factory.create(master=True) as uow:
                 await uow.background_jobs.mark_done(job_id)

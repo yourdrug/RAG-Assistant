@@ -18,6 +18,7 @@ import infrastructure.ml.rag.rag_reranking as rag_rr  # noqa: E402
 import infrastructure.ml.rag.rag_relevance as rag_rel  # noqa: E402
 import infrastructure.ml.rag.rag_sources as rag_src  # noqa: E402
 from domain.services.rag_policy import classify_question_breadth  # noqa: E402
+from domain.value_objects.llm_provider import LLMProvider  # noqa: E402
 from infrastructure.ml.rag.rag_prompts import decompose_question  # noqa: E402
 from langchain_core.language_models import FakeListChatModel  # noqa: E402
 
@@ -498,6 +499,35 @@ class TestShouldEnumerateCases:
 
 
 class TestCheckRelevance:
+    @pytest.mark.parametrize("provider", list(LLMProvider))
+    def test_timeout_identifies_stage_model_and_limit(self, monkeypatch, provider):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock, MagicMock
+
+        client = MagicMock()
+        client.chat.completions.create = AsyncMock(side_effect=TimeoutError())
+        monkeypatch.setattr(
+            "config.settings",
+            SimpleNamespace(
+                llm_provider=provider.value,
+                llm_model="test-model",
+                openrouter_model="test-model",
+                llm_auxiliary_timeout=30,
+            ),
+        )
+
+        with pytest.raises(TimeoutError) as raised:
+            asyncio.run(
+                rag_rel.check_relevance(
+                    SimpleNamespace(instructor_client=client), "question", [_doc("context")]
+                )
+            )
+
+        assert "relevance gate" in str(raised.value)
+        assert f"provider={provider.value}, model=test-model" in str(raised.value)
+        assert "LLM_AUXILIARY_TIMEOUT=30s" in str(raised.value)
+        assert isinstance(raised.value.__cause__, TimeoutError)
+
     def test_empty_docs_returns_false(self):
         result = asyncio.run(rag_rel.check_relevance(None, "question", []))
         assert result == (False, "Нет документов для проверки")

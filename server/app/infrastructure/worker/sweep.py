@@ -14,7 +14,7 @@ from composition.service_providers import create_sweep_engine
 from infrastructure.benchmark.sweep_engine import SweepCancelled
 from infrastructure.benchmark.checkpoint_cleanup import cleanup_sweep_checkpoints
 
-from infrastructure.worker.outcomes import IncompleteEvaluation
+from infrastructure.worker.outcomes import IncompleteEvaluation, job_error_message
 
 logger = logging.getLogger("default")
 
@@ -169,7 +169,7 @@ async def run_sweep_task(
             await record_sweep_failure(uow_factory, sweep_id, "Task cancelled (timeout or worker shutdown)")
             raise
         except Exception as exc:
-            cancelled = await record_sweep_failure(uow_factory, sweep_id, str(exc))
+            cancelled = await record_sweep_failure(uow_factory, sweep_id, job_error_message(exc))
             if cancelled:
                 return
             raise
