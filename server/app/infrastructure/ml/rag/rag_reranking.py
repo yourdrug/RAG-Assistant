@@ -2,7 +2,9 @@
 
 from pathlib import Path
 
+from application.services.retrieval import HybridRetriever
 from domain.utils import content_hash
+from domain.services.retrieval_diversity import prioritize_distinct_provisions
 from infrastructure.ml.rag.benchmark_evidence import active_evidence, capture_exclusions
 from infrastructure.ml.rag.context_selection import ExclusionReason, exclusion_record
 
@@ -30,7 +32,7 @@ async def rerank_documents(
     min_score: float | None = None,
     score_gap_ratio: float | None = None,
 ) -> list[tuple]:
-    """Переранжировать кандидатов кросс-энкодером и вернуть top_n лучших."""
+    """Rerank, filter and retain distinct provisions within the top_n budget."""
     if not docs:
         return []
 
@@ -50,19 +52,19 @@ async def rerank_documents(
     if hasattr(scores, "__await__"):
         scores = await scores
 
-    ranked = sorted(zip(docs, scores, strict=True), key=lambda x: x[1], reverse=True)
+    scored = sorted(zip(docs, scores, strict=True), key=lambda x: x[1], reverse=True)
+    retriever = HybridRetriever()
+    eligible = retriever.apply_rerank_filters(scored, min_score=min_score, score_gap_ratio=score_gap_ratio)
+    ranked = prioritize_distinct_provisions(eligible)
     if active_evidence.get() is not None:
         capture_exclusions(
             [exclusion_record(item, ExclusionReason.RERANK_TOP_N, "reranker") for item in ranked[top_n:]]
         )
     ranked = ranked[:top_n]
 
-    from application.services.retrieval import HybridRetriever
-
-    retriever = HybridRetriever()
-    selected = retriever.apply_rerank_filters(ranked, min_score=min_score, score_gap_ratio=score_gap_ratio)
+    selected = ranked
     if active_evidence.get() is not None:
-        kept = {id(doc) for doc, _ in selected}
+        eligible_ids = {id(doc) for doc, _ in eligible}
         capture_exclusions(
             [
                 exclusion_record(
@@ -72,8 +74,8 @@ async def rerank_documents(
                     min_score=min_score,
                     score_gap_ratio=score_gap_ratio,
                 )
-                for item in ranked
-                if id(item[0]) not in kept
+                for item in scored
+                if id(item[0]) not in eligible_ids
             ]
         )
     return selected

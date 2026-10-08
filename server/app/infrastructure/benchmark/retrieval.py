@@ -12,6 +12,7 @@ from pydantic import SecretStr
 
 from application.services.retrieval import HybridRetriever
 from domain.utils import content_hash
+from domain.services.retrieval_diversity import prioritize_distinct_provisions
 from infrastructure.ml.clients.factories import (
     create_embeddings,
     create_qdrant_client,
@@ -160,9 +161,9 @@ def retrieve_with_scores_hybrid(
         pairs.append((question, content_with_prefix))
 
     scores = reranker.predict_sync(pairs)
-    ranked = sorted(zip(candidate_docs, scores, strict=False), key=lambda x: x[1], reverse=True)[:top_k]
+    ranked = sorted(zip(candidate_docs, scores, strict=False), key=lambda x: x[1], reverse=True)
 
-    return _apply_rerank_filters(ranked)
+    return prioritize_distinct_provisions(_apply_rerank_filters(ranked))[:top_k]
 
 
 def build_llm(model: str, base_url: str, provider: str = LLMProvider.OLLAMA):

@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 from domain.utils import deduplicate_docs, rrf_merge
+from domain.services.retrieval_diversity import prioritize_distinct_provisions
 
 
 class HybridRetriever:
@@ -38,7 +39,8 @@ class HybridRetriever:
             sparse_weight: Weight for sparse scores in RRF.
 
         Returns:
-            Deduplicated list of Document objects, ordered by RRF score.
+            Deduplicated documents: first one per structural provision in RRF
+            order, then remaining chunks in RRF order, within fetch_k.
 
         """
         if sparse_results:
@@ -60,10 +62,9 @@ class HybridRetriever:
             seen.add(h)
             if h in dense_by_hash:
                 candidates.append(dense_by_hash[h][1])
-            if len(candidates) >= fetch_k:
-                break
-
-        return deduplicate_docs(candidates)
+        # Apply the budget after structural diversity: repeated sentence splits
+        # of one provision must not crowd out another retriever's provision.
+        return prioritize_distinct_provisions(deduplicate_docs(candidates))[:fetch_k]
 
     def apply_rerank_filters(
         self,
