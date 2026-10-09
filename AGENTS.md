@@ -176,6 +176,16 @@ When analyzing or modifying code:
 
 ## Production code hygiene
 
+### No nested imports except heavy ML libraries
+
+- Размещай импорты на уровне модуля. Не добавляй импорты внутри функций, методов или классов.
+- Единственное исключение — ленивый импорт тяжёлых внешних ML-библиотек, когда он предотвращает
+  дорогостоящую загрузку при старте или откладывает загрузку опционального ML-компонента.
+  Причину такого импорта поясняй комментарием рядом с ним.
+- Модули проекта, включая `infrastructure.ml.*`, не относятся к этому исключению.
+  Циклические зависимости устраняй в структуре зависимостей, а не вложенными импортами.
+- Импорты только для аннотаций размещай в блоке `if TYPE_CHECKING:` на уровне модуля.
+
 ### Use existing enums and constants instead of magic values
 
 Always use an existing enum member or named constant when one represents the required value. Before adding a literal, look for its canonical definition. This applies to application code and tests, including document visibility, roles, statuses, types, and policy names.

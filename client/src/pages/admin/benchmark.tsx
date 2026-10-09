@@ -665,11 +665,11 @@ function SweepBuilderTab({ onSweepCreated }: { onSweepCreated: (id: number) => v
 
   // Objective weights
   const [weights, setWeights] = useState({
-    hit_rate: 0.4,
+    hit_rate: 0.2,
     mrr: 0,
-    correctness: 0,
-    faithfulness: 0.3,
-    relevancy: 0.3,
+    correctness: 0.3,
+    faithfulness: 0.4,
+    relevancy: 0.1,
     fragment_recall_at_k: 0,
     fragment_mrr: 0,
     retrieval_fact_coverage: 0,
