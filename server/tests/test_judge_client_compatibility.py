@@ -79,4 +79,7 @@ def test_judge_client_provider_compatibility(monkeypatch, provider, base_url, mo
         assert requests[0]["response_format"] == {"type": "json_object"}
     else:
         assert "response_format" not in requests[0]
-    assert records == [{"input_tokens": 20, "output_tokens": 10}]
+    assert len(records) == 1
+    assert records[0]['input_tokens'] == 20 and records[0]['output_tokens'] == 10
+    assert records[0]['model'] == 'judge-model'
+    assert records[0]['cost_usd'] is None

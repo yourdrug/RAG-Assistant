@@ -14,18 +14,22 @@ from typing import TYPE_CHECKING
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.llm_provider import Breadth
 from domain.value_objects.search_mode import SearchMode
+from domain.services.evidence_queries import evidence_search_queries
 from langchain.schema import Document as LCDocument
 
 from domain.utils import content_hash
 from infrastructure.ml.clients.llm_schemas import SufficiencyAssessment
 from infrastructure.ml.rag.rag_formatting import format_docs
 from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata
-from infrastructure.ml.rag.rag_reranking import deduplicate_docs, rerank_documents
+from infrastructure.ml.rag.rag_reranking import deduplicate_docs, rerank_documents, filter_scope_candidates
 from infrastructure.ml.rag.rag_retrieval import run_hybrid_search
 from infrastructure.ml.rag.benchmark_evidence import active_evidence, capture_exclusions, capture_retrieval
 from infrastructure.ml.rag.context_selection import ExclusionReason, exclusion_record
 from infrastructure.ml.rag.rag_postprocess import enrich_with_neighbors, resolve_temporal_conflicts
 from infrastructure.ml.rag.rag_prompts import decompose_question
+from infrastructure.ml.rag.linked_context import enrich_linked_context
+from infrastructure.ml.rag.field_evidence import augment_field_candidates
+from infrastructure.ml.rag.applicable_context import enrich_applicable_context
 from infrastructure.metrics.metrics import RAG_STAGE_DURATION
 from infrastructure.repositories.vector.acl import with_domain_filter
 
@@ -340,6 +344,25 @@ async def retrieve_with_decomposition(
         )
         sub_queries = [query]
 
+    for probe in evidence_search_queries(query)[1:]:
+        if probe in sub_queries:
+            continue
+        extra = await run_retrieval(
+            probe,
+            fetch_k,
+            retrieval_filter,
+            rag,
+            ml_clients,
+            breadth,
+            query_domain,
+            effective_dense_weight,
+            effective_sparse_weight,
+            visibility_conditions=visibility_conditions,
+            user_id=user_id,
+            user_group_ids=user_group_ids,
+        )
+        candidates = deduplicate_docs([*candidates, *extra])
+        sub_queries.append(probe)
     return candidates, sub_queries
 
 
@@ -367,6 +390,7 @@ async def rerank_and_enrich(
 
     Returns (docs_with_scores, final_docs, avg_sim).
     """
+    candidates = await augment_field_candidates(query, candidates, chunk_search, ctx)
     if document_access is not None:
         from infrastructure.ml.rag.document_access import filter_documents
 
@@ -436,5 +460,9 @@ async def rerank_and_enrich(
 
         docs = await filter_scored_documents(docs, document_access, ctx.to_user_context())
         avg_sim = sum(score for _, score in docs) / len(docs) if docs else 0.0
+    docs = filter_scope_candidates(docs, query, "context")
+    docs = await enrich_linked_context(docs, query, chunk_search, ctx.to_user_context())
+    docs = await enrich_applicable_context(docs, query, chunk_search, ctx.to_user_context())
+    avg_sim = sum(score for _, score in docs) / len(docs) if docs else 0.0
     docs_only: list[LCDocument] = [d for d, _ in docs] if docs and isinstance(docs[0], tuple) else []
     return docs, docs_only, avg_sim

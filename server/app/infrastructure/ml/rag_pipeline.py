@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from domain.value_objects.evidence_assessment import EvidenceAssessment
 from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.llm_provider import Breadth
 from domain.value_objects.rag_settings import RagSettings
@@ -55,6 +56,8 @@ class RagPipelineState:
     # ── Output ──────────────────────────────────────────────────────────
     full_answer: str = ""
     output_sanitized: bool = False
+    grounded_answer: str | None = None
+    evidence_assessment: EvidenceAssessment | None = None
     sources: list[dict] = field(default_factory=list)
     confidence: float = 0.0
     usage_report: object | None = None

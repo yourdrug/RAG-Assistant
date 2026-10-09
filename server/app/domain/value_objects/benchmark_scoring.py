@@ -15,11 +15,11 @@ METRIC_SCALES = {
     "retrieval_fact_coverage": 1.0,
 }
 DEFAULT_OBJECTIVE_WEIGHTS = {
-    "hit_rate": 0.4,
+    "hit_rate": 0.2,
     "mrr": 0.0,
-    "faithfulness": 0.3,
-    "relevancy": 0.3,
-    "correctness": 0.0,
+    "faithfulness": 0.4,
+    "relevancy": 0.1,
+    "correctness": 0.3,
     "fragment_recall_at_k": 0.0,
     "fragment_mrr": 0.0,
     "context_fragment_recall": 0.0,

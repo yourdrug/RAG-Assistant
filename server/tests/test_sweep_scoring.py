@@ -239,9 +239,13 @@ async def test_full_evaluation_runs_shortlist_and_restores_settings():
 
 
 def test_normalization_makes_weights_proportional_to_influence():
-    assert compute_composite_score({"hit_rate": 1, "faithfulness": 0, "relevancy": 0}) == pytest.approx(0.4)
-    assert compute_composite_score({"hit_rate": 0, "faithfulness": 10, "relevancy": 0}) == pytest.approx(0.3)
-    assert compute_composite_score({"hit_rate": 1, "faithfulness": 10, "relevancy": 10}) == pytest.approx(1)
+    zero = {"hit_rate": 0, "faithfulness": 0, "relevancy": 0, "correctness": 0}
+    assert compute_composite_score({**zero, "hit_rate": 1}) == pytest.approx(0.2)
+    assert compute_composite_score({**zero, "faithfulness": 10}) == pytest.approx(0.4)
+    assert compute_composite_score({**zero, "correctness": 10}) == pytest.approx(0.3)
+    assert compute_composite_score(
+        {"hit_rate": 1, "faithfulness": 10, "relevancy": 10, "correctness": 10}
+    ) == pytest.approx(1)
 
 
 def test_mrr_and_correctness_have_explicit_normalized_influence():
@@ -283,15 +287,15 @@ async def test_unchecked_config_cannot_beat_full_finalists():
     ]
     run = AsyncMock(
         side_effect=[
-            {"hit_rate": 0, "avg_faithfulness": 1, "avg_relevancy": 1},
-            {"hit_rate": 0, "avg_faithfulness": 2, "avg_relevancy": 2},
+            {"hit_rate": 0, "avg_faithfulness": 1, "avg_relevancy": 1, "avg_correctness": 1},
+            {"hit_rate": 0, "avg_faithfulness": 2, "avg_relevancy": 2, "avg_correctness": 2},
         ]
     )
     ranked = await SweepFullEvaluator(LiveSweepSettings()).evaluate(
         results, 2, "judge", [], DEFAULT_OBJECTIVE_WEIGHTS, None, run
     )
     assert [r["config"]["top_k"] for r in ranked] == [3, 5, 2]
-    assert ranked[0]["composite_score"] == pytest.approx(0.12)
+    assert ranked[0]["composite_score"] == pytest.approx(0.16)
     assert ranked[-1]["composite_score"] is None
     assert ranked[-1]["retrieval_score"] == 0.8
 
@@ -302,7 +306,7 @@ async def test_incomplete_config_is_excluded_instead_of_reweighting():
     run = AsyncMock(
         side_effect=[
             {"hit_rate": 1, "avg_faithfulness": 10},
-            {"hit_rate": 0, "avg_faithfulness": 1, "avg_relevancy": 1},
+            {"hit_rate": 0, "avg_faithfulness": 1, "avg_relevancy": 1, "avg_correctness": 1},
         ]
     )
     ranked = await SweepFullEvaluator(LiveSweepSettings()).evaluate(

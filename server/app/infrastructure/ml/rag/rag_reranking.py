@@ -5,6 +5,8 @@ from pathlib import Path
 from application.services.retrieval import HybridRetriever
 from domain.utils import content_hash
 from domain.services.retrieval_diversity import prioritize_distinct_provisions
+from domain.services.evidence_queries import contradicts_requested_scope
+from infrastructure.ml.rag.rag_formatting import content_with_parent_scope
 from infrastructure.ml.rag.benchmark_evidence import active_evidence, capture_exclusions
 from infrastructure.ml.rag.context_selection import ExclusionReason, exclusion_record
 
@@ -24,6 +26,18 @@ def deduplicate_docs(docs: list) -> list:
     return selected
 
 
+def filter_scope_candidates(docs: list, question: str, stage: str = "reranker") -> list:
+    compatible = []
+    for item in docs:
+        doc = item[0] if isinstance(item, tuple) else item
+        if contradicts_requested_scope(question, content_with_parent_scope(doc)):
+            if active_evidence.get() is not None:
+                capture_exclusions([exclusion_record(item, ExclusionReason.SCOPE_MISMATCH, stage)])
+        else:
+            compatible.append(item)
+    return compatible
+
+
 async def rerank_documents(
     question: str,
     docs: list,
@@ -33,6 +47,7 @@ async def rerank_documents(
     score_gap_ratio: float | None = None,
 ) -> list[tuple]:
     """Rerank, filter and retain distinct provisions within the top_n budget."""
+    docs = filter_scope_candidates(docs, question)
     if not docs:
         return []
 

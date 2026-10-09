@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 
 import httpx
+from infrastructure.ml.usage_capture import record_inference_response
 
 log = logging.getLogger("default")
 
@@ -43,7 +44,9 @@ class DeepInfraEmbeddingsClient:
             json={"input": text, "model": self._model, "encoding_format": "float"},
         )
         r.raise_for_status()
-        return r.json()["data"][0]["embedding"]
+        data = r.json()
+        record_inference_response(data, model=self._model, operation='embedding')
+        return data["data"][0]["embedding"]
 
     async def embed_documents(self, texts: list[str]) -> list[list[float]]:
         if not texts:
@@ -54,7 +57,9 @@ class DeepInfraEmbeddingsClient:
             json={"input": texts, "model": self._model, "encoding_format": "float"},
         )
         r.raise_for_status()
-        data = r.json()["data"]
+        payload = r.json()
+        record_inference_response(payload, model=self._model, operation='embedding')
+        data = payload["data"]
         return [item["embedding"] for item in sorted(data, key=lambda x: x["index"])]
 
     def embed_query_sync(self, text: str) -> list[float]:
@@ -65,7 +70,9 @@ class DeepInfraEmbeddingsClient:
                 json={"input": text, "model": self._model, "encoding_format": "float"},
             )
             r.raise_for_status()
-            return r.json()["data"][0]["embedding"]
+            data = r.json()
+            record_inference_response(data, model=self._model, operation='embedding')
+            return data["data"][0]["embedding"]
 
     async def close(self) -> None:
         await self._client.aclose()
@@ -101,7 +108,9 @@ class DeepInfraRerankerClient:
             json=payload,
         )
         r.raise_for_status()
-        return r.json()["scores"]
+        data = r.json()
+        record_inference_response(data, model=self._model, operation='reranking')
+        return data["scores"]
 
     def predict_sync(self, pairs: list[tuple[str, str]]) -> list[float]:
         if not pairs:
@@ -116,7 +125,9 @@ class DeepInfraRerankerClient:
                 json=payload,
             )
             r.raise_for_status()
-            return r.json()["scores"]
+            data = r.json()
+            record_inference_response(data, model=self._model, operation='reranking')
+            return data["scores"]
 
     async def close(self) -> None:
         await self._client.aclose()

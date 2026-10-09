@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from config import _settings_overrides, get_setting
+from config import _settings_overrides, get_setting, settings
 from domain.entities.benchmark_sweep import BenchmarkSweep
 from infrastructure.benchmark import judge, metrics, persistence
 from infrastructure.benchmark.runner import run_benchmark_async
@@ -15,6 +15,8 @@ from infrastructure.repositories.chunk.sqlalchemy_chunk_repository import SQLAlc
 
 @pytest.fixture
 def benchmark_io(monkeypatch):
+    # These characterize the individual judge path mocked below.
+    monkeypatch.setattr(settings, 'benchmark_judge_grouped_enabled', False)
     questions = [{"id": "first", "question": "question", "source_hint": "report"}]
     score = AsyncMock(return_value={"faithfulness": 8, "relevancy": 7, "correctness": None})
     monkeypatch.setattr(judge, "judge_answer_async", score)
@@ -61,7 +63,8 @@ async def test_full_benchmark_preserves_results_repeated_runs_and_cache_scope(be
     assert [r["run"] for r in results] == [1, 2]
     assert [r["id"] for r in results] == ["first", "first"]
     assert results[0]["retriever_metrics"]["hit_rate"] == 1
-    assert results[0]["cost_usd"] == 0.25
+    assert results[0]["estimated_generation_cost_usd"] == 0.25
+    assert results[0]['cost_usd'] == 0  # The test double makes no model calls.
     assert results[0]["input_tokens"] == 20
     assert all(c.user_role == "admin" and c.user_kind == "internal" for c in contexts)
     assert score.call_args.kwargs["context"] == "context"

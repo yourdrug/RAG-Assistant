@@ -10,6 +10,7 @@ from pathlib import Path
 
 from config import get_setting
 from infrastructure.benchmark.checkpoint import fingerprint, FileBenchmarkCheckpoints
+from infrastructure.benchmark.judge_rubric import JUDGE_RUBRIC_VERSION
 from application.ports.benchmark_checkpoints import BenchmarkCheckpoints
 
 from config import settings
@@ -122,7 +123,7 @@ async def run_benchmark_async(
             )
             path = checkpoint_dir / f"{run_idx}-{idx}.json" if checkpoint_dir else None
             cached = await store.load(str(path)) if path and store else None
-            if cached is not None:
+            if cached is not None and cached.get("judge_rubric_version") == JUDGE_RUBRIC_VERSION:
                 completed += 1
                 logger.info(
                     "Benchmark progress: %d/%d completed (restored question=%s)",

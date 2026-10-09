@@ -9,6 +9,12 @@ from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
 from langchain_core.runnables import Runnable
+from infrastructure.ml.usage_capture import (
+    UsageCapturingCompletions,
+    active_llm_usage,
+    active_stream_response,
+    record_model_response,
+)
 
 log = logging.getLogger("default")
 
@@ -47,6 +53,9 @@ class ManagedLLM(Runnable):
 
     def __init__(self, client):
         self.client = client
+        if hasattr(client, 'root_async_client') and hasattr(client, 'async_client'):
+            if not isinstance(client.async_client, UsageCapturingCompletions):
+                client.async_client = UsageCapturingCompletions(client.async_client)
         self._active = 0
         self._retired = False
         self._close_task = None
@@ -74,12 +83,35 @@ class ManagedLLM(Runnable):
 
     async def ainvoke(self, input, config=None, **kwargs):
         async with self._lease():
-            return await self.client.ainvoke(input, config=config, **kwargs)
+            response = await self.client.ainvoke(input, config=config, **kwargs)
+            record_model_response(
+                response, model=getattr(self.client, 'model_name', '') or getattr(self.client, 'model', '')
+            )
+            return response
 
     async def astream(self, input, config=None, **kwargs):
         async with self._lease():
-            async for item in self.client.astream(input, config=config, **kwargs):
-                yield item
+            accumulated = None
+            metadata: dict = {}
+            raw_response: dict = {}
+            capture_token = active_stream_response.set(
+                raw_response if active_llm_usage.get() is not None else None
+            )
+            try:
+                async for item in self.client.astream(input, config=config, **kwargs):
+                    if active_llm_usage.get() is not None:
+                        metadata.update(getattr(item, 'response_metadata', {}) or {})
+                        accumulated = item if accumulated is None else accumulated + item
+                    yield item
+            finally:
+                if accumulated is not None:
+                    # LangChain concatenates repeated string metadata when merging chunks.
+                    accumulated.response_metadata = metadata
+                    record_model_response(
+                        SimpleNamespace(**raw_response) if raw_response.get('usage') else accumulated,
+                        model=getattr(self.client, 'model_name', '') or getattr(self.client, 'model', ''),
+                    )
+                active_stream_response.reset(capture_token)
 
     def retire(self) -> None:
         self._retired = True

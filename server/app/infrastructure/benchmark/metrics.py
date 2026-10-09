@@ -200,7 +200,10 @@ def compute_summary_metrics(results: list[dict]) -> dict:
     total_with_expected = sum(1 for r in results if r.get("expected_answer") is not None)
     total_input_tokens = sum(r.get("input_tokens") or 0 for r in results)
     total_output_tokens = sum(r.get("output_tokens") or 0 for r in results)
-    total_cost = sum(r.get("cost_usd") or 0.0 for r in results)
+    known_cost = sum(r['cost_usd'] for r in results if r.get('cost_usd') is not None)
+    cost_complete = all(r.get('cost_usd') is not None for r in results)
+    total_cost = known_cost if cost_complete else None
+    rag_latencies = sorted(r['rag_latency_sec'] for r in results if r.get('rag_latency_sec') is not None)
 
     return {
         **summarize_evidence(results),
@@ -224,7 +227,13 @@ def compute_summary_metrics(results: list[dict]) -> dict:
         **summarize_retrieval(results),
         "total_input_tokens": total_input_tokens,
         "total_output_tokens": total_output_tokens,
-        "estimated_cost_usd": round(total_cost, 6),
+        "rag_time_sec": round(sum(rag_latencies), 2),
+        "rag_latency_p50": round(_percentile(rag_latencies, 50), 2) if rag_latencies else None,
+        "rag_latency_p95": round(_percentile(rag_latencies, 95), 2) if rag_latencies else None,
+        "total_cost_usd": round(total_cost, 6) if total_cost is not None else None,
+        "known_cost_usd": round(known_cost, 6),
+        "cost_complete": cost_complete,
+        "estimated_cost_usd": round(sum(r.get('estimated_generation_cost_usd') or 0.0 for r in results), 6),
     }
 
 

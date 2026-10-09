@@ -27,6 +27,7 @@ from domain.value_objects.benchmark_scoring import (
     METRIC_SCALES,
     validate_objective_weights,
 )
+from infrastructure.ml.rag.rag_reranking import filter_scope_candidates
 
 
 logger = logging.getLogger("default")
@@ -190,6 +191,9 @@ def score_config_cheap(  # noqa: C901
                 dw,
                 sw,
             )
+            # The reranker cache excludes contradictory scope before inference.
+            # Mirror production's post-merge scope filter before reading scores.
+            candidates = filter_scope_candidates(candidates, qtext)
             hash_by_document = {id(doc): h for h, (_, doc) in available.items()}
             query_scores = rerank_scores.get(qtext, {})
             ranked = sorted(

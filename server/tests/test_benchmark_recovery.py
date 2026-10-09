@@ -18,6 +18,7 @@ from fakes import FakeUnitOfWorkFactory
 from infrastructure.benchmark import judge, persistence, runner
 from infrastructure.benchmark.case_evaluator import BenchmarkCaseEvaluator
 from infrastructure.benchmark.answer_generators import BenchmarkAnswer
+from infrastructure.benchmark.judge_rubric import JUDGE_RUBRIC_VERSION
 
 
 @pytest.fixture(autouse=True)
@@ -57,7 +58,7 @@ async def test_resume_skips_completed_questions_and_invalidates_changed_settings
         calls.append(question["question"])
         if fail and idx == 2:
             raise RuntimeError("provider rejected request")
-        return {"id": idx, "question": question["question"]}
+        return {"id": idx, "question": question["question"], 'judge_rubric_version': JUDGE_RUBRIC_VERSION}
 
     monkeypatch.setattr(case_evaluator.BenchmarkCaseEvaluator, "evaluate", evaluate)
     monkeypatch.setattr(persistence, "log_question_result", lambda *a: None)

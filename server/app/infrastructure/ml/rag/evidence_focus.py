@@ -1,17 +1,104 @@
-"""Repeat exact reading anchors from existing context; never create new evidence."""
+"""Project explicit source links and repeat exact quotes without inventing evidence."""
 
 import re
 
 from langchain_core.messages import HumanMessage
 
 from domain.services.rag_policy.evidence_reading import ENUMERATION_READING_RULES, evidence_reading_rules
+from domain.services.evidence_queries import table_scope_confirmed
 
 MAX_FOCUS_CHARS = 3000
+EVIDENCE_POLICY_VERSION = "2026-10-09-applicability-v6"
+
+
+def normalize_reading_text(text: str) -> str:
+    return " ".join(re.sub(r"‹br›|<br\s*/?>", " ", text.casefold()).replace("ё", "е").split())
+
+
+def requested_fields(question: str) -> list[tuple[str, str]]:
+    return [
+        (match[2], match[1])
+        for match in re.finditer(r"пол[еяю]\s+«([^»]+)»\s*\(позици[яи]\s+(\d+)", question, re.IGNORECASE)
+    ]
+
+
+def matching_field_rows(text: str, number: str, name: str) -> list[str]:
+    rows = []
+    for line in text.splitlines():
+        if not line.startswith("|"):
+            continue
+        cells = line.split("|")
+        actual_name = (
+            normalize_reading_text(re.split(r'\b(?:an|n|a)\.\.\d+', cells[2], maxsplit=1)[0]).strip(' "')
+            if len(cells) > 2
+            else ''
+        )
+        if len(cells) > 3 and cells[1].strip(' "') == number and normalize_reading_text(name) == actual_name:
+            rows.append(line)
+    return rows
+
+
+def evidence_reading_map(context: str, question: str) -> list[str]:
+    """Label only explicit source links; absent rows remain absent evidence."""
+    fields = requested_fields(question)
+    maps = []
+    for number, name in fields:
+        if not any(
+            matching_field_rows(block, number, name) and table_scope_confirmed(question, block)
+            for block in re.split(r"\n\s*---\s*\n", context)
+        ):
+            maps.append(
+                f"Целевая строка {number} «{name}»: в контексте не найдена; её значение не подтверждено."
+            )
+    for block in amendment_anchors(context, question):
+        if not table_scope_confirmed(question, block):
+            continue
+        before, operation, after = re.split(
+            r"(заменить\s+позицией\s*:?)", block, maxsplit=1, flags=re.IGNORECASE
+        )
+        for number, name in fields:
+            old = matching_field_rows(before, number, name)
+            new = matching_field_rows(after, number, name)
+            if not old or not new:
+                continue
+            # These labels are a projection of the explicit replacement, not
+            # an inference from two values or the order of relevance hits.
+            maps.append(
+                f"Поле {number} «{name}»\nДО изменения:\n{old[-1]}\n"
+                f"Операция: {operation}\nПОСЛЕ изменения:\n{new[0]}"
+            )
+    return maps
+
+
+def amendment_anchors(context: str, question: str) -> list[str]:
+    """Repeat complete explicit replacements, never pair disconnected values."""
+    if not re.search(r"измен|замен", question, re.IGNORECASE):
+        return []
+    table = re.search(r"таблиц\w*\s+(\d+(?:\.\d+)*)", question, re.IGNORECASE)
+    names = re.findall(r"«([^»]+)»", question)
+    if not table or not names:
+        return []
+    anchors = []
+    for block in re.split(r"\n\s*---\s*\n", context):
+        normalized = re.sub(r"‹br›|<br\s*/?>", " ", block.casefold()).replace("ё", "е")
+        normalized = " ".join(normalized.split())
+        if not re.search(rf"в таблице {re.escape(table[1])}(?![\d.])", normalized):
+            continue
+        if not re.search(r"заменить\s+позицией", normalized):
+            continue
+        if not any(" ".join(name.casefold().replace("ё", "е").split()) in normalized for name in names):
+            continue
+        anchors.append(block.strip())
+    return anchors
 
 
 def table_lookup_anchors(context: str, question: str) -> list[str]:
     """Repeat best matching complete rows, retaining ties rather than guessing."""
     if not re.search(r"\bкод\w*", question, re.IGNORECASE):
+        return []
+    # A field named "код" can ask about an amendment to its status. Repeating
+    # just the consolidated row would discard the old → replacement → new link.
+    if re.search(r"измен|замен|статус|обязательност", question, re.IGNORECASE):
         return []
     terms = {word[:5] for word in re.findall(r"[а-яё]{5,}", question.casefold())}
     candidates = []
@@ -73,7 +160,7 @@ def enumeration_anchors(context: str, question: str) -> list[str]:
 
 def reading_anchors(context: str, question: str) -> list[str]:
     lines = context.splitlines()
-    anchors = table_lookup_anchors(context, question)
+    anchors = amendment_anchors(context, question) + table_lookup_anchors(context, question)
     dates = re.findall(r"\d{2}\.\d{2}\.\d{4}", question)
     if re.search(r"дополнительн|введ[её]н", question, re.IGNORECASE):
         for index, line in enumerate(lines):
@@ -112,11 +199,11 @@ def reading_anchors(context: str, question: str) -> list[str]:
 def format_generation_messages(prompt, *, context, history, question):
     """Accountable prompt assembly: full context remains byte-for-byte unchanged.
 
-    Anchors repeat existing evidence at user privilege. Both candidate-budget
+    Quotes and explicit-link projections stay at user privilege. Both candidate-budget
     counting and the final model call use this same assembly function.
     """
     messages = prompt.format_messages(context=context, history=history, question=question)
-    anchors = reading_anchors(context, question)
+    anchors = evidence_reading_map(context, question) + reading_anchors(context, question)
     selected = []
     size = 0
     for anchor in anchors:

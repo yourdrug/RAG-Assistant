@@ -267,6 +267,7 @@ class TestChunkSearchAdapter:
             limit=10,
             mode="exact",
             as_of_date=as_of_date,
+            document_id=None,
         )
         assert result == ["result"]
 

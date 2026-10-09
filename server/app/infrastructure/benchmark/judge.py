@@ -21,6 +21,8 @@ from langchain.schema import Document
 from infrastructure.ml.clients.llm_schemas import JudgeScore
 from infrastructure.ml.rag.rag_formatting import format_docs
 
+from infrastructure.benchmark.judge_rubric import CORRECTNESS_CRITERIA, FAITHFULNESS_CRITERIA
+
 logger = logging.getLogger("default")
 
 JUDGE_MAX_RETRIES = 3
@@ -45,7 +47,8 @@ ANSWER_PROMPT_TEMPLATE = """\
 Вопрос: {question}
 """
 
-FAITHFULNESS_PROMPT = """\
+FAITHFULNESS_PROMPT = (
+    """\
 Ты — строгий эксперт по оценке качества ответов AI-ассистентов.
 
 Контекст из документов:
@@ -55,12 +58,14 @@ FAITHFULNESS_PROMPT = """\
 
 Ответ ассистента: {answer}
 
-Задача: оцени FAITHFULNESS (достоверность) — насколько ответ основан на предоставленном контексте.
-Ответ полностью из контекста = 10. Ответ содержит выдуманные факты = 0.
+Задача: """
+    + FAITHFULNESS_CRITERIA
+    + """
 
 Ответь СТРОГО в формате JSON (только JSON, без пояснений):
 {{"score": <число от 0 до 10>, "reason": "<не более 15 слов>"}}
 """
+)
 
 RELEVANCY_PROMPT = """\
 Ты — строгий эксперт по оценке качества ответов AI-ассистентов.
@@ -83,7 +88,8 @@ RELEVANCY_PROMPT = """\
 {{"score": <число от 0 до 10>, "reason": "<не более 15 слов>"}}
 """
 
-CORRECTNESS_PROMPT = """\
+CORRECTNESS_PROMPT = (
+    """\
 Ты — строгий эксперт по оценке качества ответов AI-ассистентов.
 
 Вопрос: {question}
@@ -92,12 +98,14 @@ CORRECTNESS_PROMPT = """\
 
 Ответ ассистента: {answer}
 
-Задача: оцени CORRECTNESS (правильность) — насколько ответ совпадает по смыслу с эталонным.
-Полное совпадение по смыслу = 10. Противоречит эталону = 0.
+Задача: """
+    + CORRECTNESS_CRITERIA
+    + """
 
 Ответь СТРОГО в формате JSON (только JSON, без пояснений):
 {{"score": <число от 0 до 10>, "reason": "<не более 15 слов>"}}
 """
+)
 
 CONTEXT_PRECISION_PROMPT = """\
 Ты — эксперт по оценке качества поиска (retrieval) в RAG-системе.

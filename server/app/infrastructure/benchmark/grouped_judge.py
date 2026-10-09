@@ -23,29 +23,25 @@ from infrastructure.benchmark.judge_diagnostics import (
     metric_error_codes,
 )
 
+from infrastructure.benchmark.judge_rubric import (
+    CITATION_SUPPORT_CRITERIA,
+    CORRECTNESS_CRITERIA,
+    FAITHFULNESS_CRITERIA,
+)
+
 INSTRUCTIONS = {
     "relevancy": (
         'RELEVANCY: отвечает ли ответ на вопрос? Полный ответ = 10, не по теме = 0. Корректный '
         'ожидаемый отказ = 10; отказ при доступном эталонном ответе = 0.'
     ),
-    "correctness": (
-        'CORRECTNESS: совпадение по смыслу с эталоном, включая ограничения и исключения. '
-        'Полное = 10, противоречие = 0.'
-    ),
+    "correctness": CORRECTNESS_CRITERIA,
     "refusal_score": (
         'REFUSAL: соответствует ли поведение expected_refusal? true требует явного отказа без '
         'выдуманных фактов; false требует содержательного ответа. Оцени смысл, а не слово '
         "'нет'."
     ),
-    "faithfulness": (
-        'FAITHFULNESS: все ли утверждения ответа основаны на контексте? Все подтверждены = 10, '
-        'выдуманные факты = 0.'
-    ),
-    "citation_support_score": (
-        'CITATION SUPPORT: подтверждают ли ссылки связанные утверждения? Выдуманные ссылки и '
-        'неподтверждённые утверждения снижают оценку. Содержательный ответ без ссылок = 0. Для '
-        'корректного отказа без утверждений ссылки не нужны.'
-    ),
+    "faithfulness": FAITHFULNESS_CRITERIA,
+    "citation_support_score": CITATION_SUPPORT_CRITERIA,
     "requirement_preservation_score": (
         'REQUIREMENT PRESERVATION: сохранены ли ВСЕ required_facts и required_conditions? '
         'Вложенный список — альтернативы одного требования. Проверяй смысл, отрицания, область '

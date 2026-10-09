@@ -1,0 +1,680 @@
+{
+  "scope": "Production extractor probes, no retrieval or downstream LLM",
+  "passed": 22,
+  "total": 24,
+  "results": [
+    {
+      "id": "timing-positive",
+      "kind": "timing",
+      "question": "В каком режиме передаются сведения о товарах, включённых в перечни, согласно постановлению N 71?",
+      "docs": [
+        {
+          "page_content": "Сведения о товарах, включенных в перечни, передаются в режиме реального времени.",
+          "metadata": {
+            "source": "Постановление N 71.docx",
+            "citation_id": 1,
+            "document_id": 71,
+            "chunk_index": 1,
+            "act_version_id": 1
+          }
+        }
+      ],
+      "required": [
+        "реального времени",
+        "[1]"
+      ],
+      "answer": "Сведения о товарах, включенных в перечни, передаются в режиме реального времени. [1]",
+      "checks": {
+        "declined": true,
+        "required": true,
+        "forbidden": true
+      },
+      "passed": true,
+      "extractor_latency_sec": 0.0005247329972917214,
+      "llm_calls": 0,
+      "llm_cost_usd": 0
+    },
+    {
+      "id": "timing-opposite",
+      "kind": "timing",
+      "question": "В каком режиме передаются сведения о товарах, включённых в перечни, согласно постановлению N 71?",
+      "docs": [
+        {
+          "page_content": "Сведения о товарах, не включенных в перечни, передаются в режиме ежедневной передачи.",
+          "metadata": {
+            "source": "Постановление N 71.docx",
+            "citation_id": 1,
+            "document_id": 71,
+            "chunk_index": 1,
+            "act_version_id": 1
+          }
+        }
+      ],
+      "expect_decline": true,
+      "answer": null,
+      "checks": {
+        "declined": true,
+        "required": true,
+        "forbidden": true
+      },
+      "passed": true,
+      "extractor_latency_sec": 3.229499270673841e-05,
+      "llm_calls": 0,
+      "llm_cost_usd": 0
+    },
+    {
+      "id": "timing-unrelated-action",
+      "kind": "timing",
+      "question": "В каком режиме передаются сведения о товарах, включённых в перечни, согласно постановлению N 71?",
+      "docs": [
+        {
+          "page_content": "Архивные отчеты передаются в режиме ежедневной передачи.",
+          "metadata": {
+            "source": "Постановление N 71.docx",
+            "citation_id": 1,
+            "document_id": 71,
+            "chunk_index": 1,
+            "act_version_id": 1
+          }
+        }
+      ],
+      "expect_decline": true,
+      "answer": null,
+      "checks": {
+        "declined": true,
+        "required": true,
+        "forbidden": true
+      },
+      "passed": true,
+      "extractor_latency_sec": 2.3586995666846633e-05,
+      "llm_calls": 0,
+      "llm_cost_usd": 0
+    },
+    {
+      "id": "timing-missing-category",
+      "kind": "timing",
+      "question": "В каком режиме передаются сведения о товарах, включённых в перечни, согласно постановлению N 71?",
+      "docs": [
+        {
+          "page_content": "Сведения передаются в режиме реального времени.",
+          "metadata": {
+            "source": "Постановление N 71.docx",
+            "citation_id": 1,
+            "document_id": 71,
+            "chunk_index": 1,
+            "act_version_id": 1
+          }
+        }
+      ],
+      "expect_decline": true,
+      "answer": null,
+      "checks": {
+        "declined": true,
+        "required": true,
+        "forbidden": true
+      },
+      "passed": true,
+      "extractor_latency_sec": 2.54540063906461e-05,
+      "llm_calls": 0,
+      "llm_cost_usd": 0
+    },
+    {
+      "id": "timing-extra-condition",
+      "kind": "timing",
+      "question": "В каком режиме передаются сведения о товарах, включённых в перечни, согласно постановлению N 71?",
+      "docs": [
+        {
+          "page_content": "Сведения о товарах, включенных в перечни, передаются в режиме реального времени только при аварии.",
+          "metadata": {
+            "source": "Постановление N 71.docx",
+            "citation_id": 1,
+            "document_id": 71,
+            "chunk_index": 1,
+            "act_version_id": 1
+          }
+        }
+      ],
+      "required": [
+        "только при аварии"
+      ],
+      "answer": "Сведения о товарах, включенных в перечни, передаются в режиме реального времени только при аварии. [1]",
+      "checks": {
+        "declined": true,
+        "required": true,
+        "forbidden": true
+      },
+      "passed": true,
+      "extractor_latency_sec": 4.326700582168996e-05,
+      "llm_calls": 0,
+      "llm_cost_usd": 0
+    },
+    {
+      "id": "timing-neighbor-negation",
+      "kind": "timing",
+      "question": "В каком режиме передаются сведения о товарах, включённых в перечни, согласно постановлению N 71?",
+      "docs": [
+        {
+          "page_content": "Сведения о товарах, не включенных в перечни, обрабатываются отдельно.\nСведения о товарах, включенных в перечни, передаются в режиме реального времени.\nАрхивные отчеты передаются в режиме ежедневной передачи.",
+          "metadata": {
+            "source": "Постановление N 71.docx",
+            "citation_id": 1,
+            "document_id": 71,
+            "chunk_index": 1,
+            "act_version_id": 1
+          }
+        }
+      ],
+      "expect_decline": true,
+      "answer": null,
+      "checks": {
+        "declined": true,
+        "required": true,
+        "forbidden": true
+      },
+      "passed": true,
+      "extractor_latency_sec": 2.6182999135926366e-05,
+      "llm_calls": 0,
+      "llm_cost_usd": 0
+    },
+    {
+      "id": "timing-negative-query",
+      "kind": "timing",
+      "question": "В каком режиме передаются сведения о товарах, не включённых в перечни, согласно постановлению N 71?",
+      "docs": [
+        {
+          "page_content": "Сведения о товарах, не включенных в перечни, передаются в режиме ежедневной передачи.",
+          "metadata": {
+            "source": "Постановление N 71.docx",
+            "citation_id": 1,
+            "document_id": 71,
+            "chunk_index": 1,
+            "act_version_id": 1
+          }
+        }
+      ],
+      "required": [
+        "ежедневной"
+      ],
+      "answer": "Сведения о товарах, не включенных в перечни, передаются в режиме ежедневной передачи. [1]",
+      "checks": {
+        "declined": true,
+        "required": true,
+        "forbidden": true
+      },
+      "passed": true,
+      "extractor_latency_sec": 3.935399581678212e-05,
+      "llm_calls": 0,
+      "llm_cost_usd": 0
+    },
+    {
+      "id": "timing-other-act",
+      "kind": "timing",
+      "question": "В каком режиме передаются сведения о товарах, включённых в перечни, согласно постановлению N 71?",
+      "docs": [
+        {
+          "page_content": "Сведения о товарах, включенных в перечни, передаются в режиме реального времени.",
+          "metadata": {
+            "source": "Постановление N 710.docx",
+            "citation_id": 1,
+            "document_id": 71,
+            "chunk_index": 1,
+            "act_version_id": 1
+          }
+        }
+      ],
+      "expect_decline": true,
+      "answer": null,
+      "checks": {
+        "declined": true,
+        "required": true,
+        "forbidden": true
+      },
+      "passed": true,
+      "extractor_latency_sec": 2.499199763406068e-05,
+      "llm_calls": 0,
+      "llm_cost_usd": 0
+    },
+    {
+      "id": "timing-conflicting-versions",
+      "kind": "timing",
+      "question": "В каком режиме передаются сведения о товарах, включённых в перечни, согласно постановлению N 71?",
+      "docs": [
+        {
+          "page_content": "Сведения о товарах, включенных в перечни, передаются в режиме реального времени.",
+          "metadata": {
+            "source": "Постановление N 71.docx",
+            "citation_id": 1,
+            "document_id": 71,
+            "chunk_index": 1,
+            "act_version_id": 1
+          }
+        },
+        {
+          "page_content": "Сведения о товарах, включенных в перечни, передаются в режиме ежедневной передачи.",
+          "metadata": {
+            "source": "Постановление N 71.docx",
+            "citation_id": 2,
+            "document_id": 71,
+            "chunk_index": 1,
+            "act_version_id": 2
+          }
+        }
+      ],
+      "expect_decline": true,
+      "answer": null,
+      "checks": {
+        "declined": true,
+        "required": true,
+        "forbidden": true
+      },
+      "passed": true,
+      "extractor_latency_sec": 7.476900645997375e-05,
+      "llm_calls": 0,
+      "llm_cost_usd": 0
+    },
+    {
+      "id": "procedure-two-stages",
+      "kind": "procedure",
+      "question": "Опишите порядок взаимодействия с логистическим оператором согласно постановлению N 71: хранение и последующая отгрузка.",
+      "docs": [
+        {
+          "page_content": "При передаче логистическому оператору товара на хранение оформляется документ А.",
+          "metadata": {
+            "source": "Постановление N 71.docx",
+            "citation_id": 1,
+            "document_id": 71,
+            "chunk_index": 1,
+            "act_version_id": 1
+          }
+        },
+        {
+          "page_content": "При отгрузке логистическим оператором товара оформляется документ Б.",
+          "metadata": {
+            "source": "Постановление N 71.docx",
+            "citation_id": 1,
+            "document_id": 71,
+            "chunk_index": 2,
+            "act_version_id": 1
+          }
+        }
+      ],
+      "required": [
+        "При передаче логистическому оператору товара на хранение оформляется документ А.",
+        "При отгрузке логистическим оператором товара оформляется документ Б."
+      ],
+      "answer": "При передаче логистическому оператору товара на хранение оформляется документ А. [1]\n\nПри отгрузке логистическим оператором товара оформляется документ Б. [1]",
+      "checks": {
+        "declined": true,
+        "required": true,
+        "forbidden": true
+      },
+      "passed": true,
+      "extractor_latency_sec": 0.0005608429928543046,
+      "llm_calls": 0,
+      "llm_cost_usd": 0
+    },
+    {
+      "id": "procedure-one-stage",
+      "kind": "procedure",
+      "question": "Опишите порядок взаимодействия с логистическим оператором согласно постановлению N 71: хранение и последующая отгрузка.",
+      "docs": [
+        {
+          "page_content": "При передаче логистическому оператору товара на хранение оформляется документ А.",
+          "metadata": {
+            "source": "Постановление N 71.docx",
+            "citation_id": 1,
+            "document_id": 71,
+            "chunk_index": 1,
+            "act_version_id": 1
+          }
+        }
+      ],
+      "expect_decline": true,
+      "answer": null,
+      "checks": {
+        "declined": true,
+        "required": true,
+        "forbidden": true
+      },
+      "passed": true,
+      "extractor_latency_sec": 5.153600068297237e-05,
+      "llm_calls": 0,
+      "llm_cost_usd": 0
+    },
+    {
+      "id": "procedure-duplicate-one-stage",
+      "kind": "procedure",
+      "question": "Опишите порядок взаимодействия с логистическим оператором согласно постановлению N 71: хранение и последующая отгрузка.",
+      "docs": [
+        {
+          "page_content": "При передаче логистическому оператору товара на хранение оформляется документ А.",
+          "metadata": {
+            "source": "Постановление N 71.docx",
+            "citation_id": 1,
+            "document_id": 71,
+            "chunk_index": 1,
+            "act_version_id": 1
+          }
+        },
+        {
+          "page_content": "При передаче логистическому оператору товара на хранение оформляется документ А.",
+          "metadata": {
+            "source": "Постановление N 71.docx",
+            "citation_id": 2,
+            "document_id": 71,
+            "chunk_index": 2,
+            "act_version_id": 1
+          }
+        }
+      ],
+      "expect_decline": true,
+      "answer": null,
+      "checks": {
+        "declined": true,
+        "required": true,
+        "forbidden": true
+      },
+      "passed": true,
+      "extractor_latency_sec": 5.63729990972206e-05,
+      "llm_calls": 0,
+      "llm_cost_usd": 0
+    },
+    {
+      "id": "procedure-other-act",
+      "kind": "procedure",
+      "question": "Опишите порядок взаимодействия с логистическим оператором согласно постановлению N 71: хранение и последующая отгрузка.",
+      "docs": [
+        {
+          "page_content": "При передаче логистическому оператору товара на хранение оформляется документ А.",
+          "metadata": {
+            "source": "Постановление N 72.docx",
+            "citation_id": 1,
+            "document_id": 71,
+            "chunk_index": 1,
+            "act_version_id": 1
+          }
+        },
+        {
+          "page_content": "При отгрузке логистическим оператором товара оформляется документ Б.",
+          "metadata": {
+            "source": "Постановление N 72.docx",
+            "citation_id": 1,
+            "document_id": 71,
+            "chunk_index": 2,
+            "act_version_id": 1
+          }
+        }
+      ],
+      "expect_decline": true,
+      "answer": null,
+      "checks": {
+        "declined": true,
+        "required": true,
+        "forbidden": true
+      },
+      "passed": true,
+      "extractor_latency_sec": 3.12449992634356e-05,
+      "llm_calls": 0,
+      "llm_cost_usd": 0
+    },
+    {
+      "id": "procedure-other-version",
+      "kind": "procedure",
+      "question": "Опишите порядок взаимодействия с логистическим оператором согласно постановлению N 71: хранение и последующая отгрузка.",
+      "docs": [
+        {
+          "page_content": "При передаче логистическому оператору товара на хранение оформляется документ А.",
+          "metadata": {
+            "source": "Постановление N 71.docx",
+            "citation_id": 1,
+            "document_id": 71,
+            "chunk_index": 1,
+            "act_version_id": 1
+          }
+        },
+        {
+          "page_content": "При передаче логистическому оператору товара на хранение документ А не оформляется.",
+          "metadata": {
+            "source": "Постановление N 71.docx",
+            "citation_id": 2,
+            "document_id": 71,
+            "chunk_index": 1,
+            "act_version_id": 2
+          }
+        }
+      ],
+      "expect_decline": true,
+      "answer": null,
+      "checks": {
+        "declined": true,
+        "required": true,
+        "forbidden": true
+      },
+      "passed": true,
+      "extractor_latency_sec": 4.720498691312969e-05,
+      "llm_calls": 0,
+      "llm_cost_usd": 0
+    },
+    {
+      "id": "procedure-only-shipping",
+      "kind": "procedure",
+      "question": "Опишите порядок взаимодействия с логистическим оператором согласно постановлению N 71: хранение и последующая отгрузка.",
+      "docs": [
+        {
+          "page_content": "При отгрузке логистическим оператором товара оформляется документ Б.",
+          "metadata": {
+            "source": "Постановление N 71.docx",
+            "citation_id": 1,
+            "document_id": 71,
+            "chunk_index": 1,
+            "act_version_id": 1
+          }
+        },
+        {
+          "page_content": "При отгрузке логистическим оператором товара в ночное время оформляется документ В.",
+          "metadata": {
+            "source": "Постановление N 71.docx",
+            "citation_id": 1,
+            "document_id": 71,
+            "chunk_index": 2,
+            "act_version_id": 1
+          }
+        }
+      ],
+      "expect_decline": true,
+      "answer": null,
+      "checks": {
+        "declined": true,
+        "required": true,
+        "forbidden": true
+      },
+      "passed": true,
+      "extractor_latency_sec": 4.160900425631553e-05,
+      "llm_calls": 0,
+      "llm_cost_usd": 0
+    },
+    {
+      "id": "table-positive",
+      "kind": "table",
+      "question": "Изменился ли формат поля «Код отправителя» (позиция 31 таблицы 7.2, BLRDLN), как поля «Код получателя» (позиция 36)?",
+      "context": "[1] Consolidated\nТеги ЭТН:\n| 31 | Код отправителя an..8 | М |\n\n---\n\n[2] Amendment\nв таблице 7.2 - структура сообщения BLRDLN позицию\n| 36 | Код получателя an..8 | М |\nзаменить позицией\n| 36 | Код получателя an..12 | М |",
+      "required": [
+        "формат an..8. [1]",
+        "an..8 → an..12. [2]"
+      ],
+      "forbidden": [
+        "не изменился",
+        "до изменения"
+      ],
+      "answer": "Целевая строка 31 «Код отправителя»: в контексте не найдена; её значение не подтверждено. Нельзя подтвердить значение или сделать вывод о его изменении.",
+      "checks": {
+        "declined": true,
+        "required": false,
+        "forbidden": true
+      },
+      "passed": false,
+      "extractor_latency_sec": 0.0006995000003371388,
+      "llm_calls": 0,
+      "llm_cost_usd": 0
+    },
+    {
+      "id": "table-missing-row",
+      "kind": "table",
+      "question": "Изменился ли формат поля «Код отправителя» (позиция 31 таблицы 7.2, BLRDLN), как поля «Код получателя» (позиция 36)?",
+      "context": "[2] Amendment\nв таблице 7.2 - структура сообщения BLRDLN позицию\n| 36 | Код получателя an..8 | М |\nзаменить позицией\n| 36 | Код получателя an..12 | М |",
+      "required": [
+        "не подтверждено"
+      ],
+      "forbidden": [
+        "Поле 31 «Код отправителя»: в целевой строке указан"
+      ],
+      "answer": "Целевая строка 31 «Код отправителя»: в контексте не найдена; её значение не подтверждено. Нельзя подтвердить значение или сделать вывод о его изменении.",
+      "checks": {
+        "declined": true,
+        "required": true,
+        "forbidden": true
+      },
+      "passed": true,
+      "extractor_latency_sec": 8.090300252661109e-05,
+      "llm_calls": 0,
+      "llm_cost_usd": 0
+    },
+    {
+      "id": "table-wrong-number",
+      "kind": "table",
+      "question": "Изменился ли формат поля «Код отправителя» (позиция 31 таблицы 7.2, BLRDLN), как поля «Код получателя» (позиция 36)?",
+      "context": "[1] Consolidated\nТеги ЭТН:\n| 30 | Код отправителя an..8 | М |\n\n---\n\n[2] Amendment\nв таблице 7.2 - структура сообщения BLRDLN позицию\n| 36 | Код получателя an..8 | М |\nзаменить позицией\n| 36 | Код получателя an..12 | М |",
+      "required": [
+        "не подтверждено"
+      ],
+      "answer": "Целевая строка 31 «Код отправителя»: в контексте не найдена; её значение не подтверждено. Нельзя подтвердить значение или сделать вывод о его изменении.",
+      "checks": {
+        "declined": true,
+        "required": true,
+        "forbidden": true
+      },
+      "passed": true,
+      "extractor_latency_sec": 7.415500294882804e-05,
+      "llm_calls": 0,
+      "llm_cost_usd": 0
+    },
+    {
+      "id": "table-wrong-message",
+      "kind": "table",
+      "question": "Изменился ли формат поля «Код отправителя» (позиция 31 таблицы 7.2, BLRDLN), как поля «Код получателя» (позиция 36)?",
+      "context": "[1] Consolidated\nТеги ЭТТН:\n| 31 | Код отправителя an..8 | М |\n\n---\n\n[2] Amendment\nв таблице 7.2 - структура сообщения BLRDLN позицию\n| 36 | Код получателя an..8 | М |\nзаменить позицией\n| 36 | Код получателя an..12 | М |",
+      "required": [
+        "не подтверждено"
+      ],
+      "answer": "Целевая строка 31 «Код отправителя»: в контексте не найдена; её значение не подтверждено. Нельзя подтвердить значение или сделать вывод о его изменении.",
+      "checks": {
+        "declined": true,
+        "required": true,
+        "forbidden": true
+      },
+      "passed": true,
+      "extractor_latency_sec": 8.51560034789145e-05,
+      "llm_calls": 0,
+      "llm_cost_usd": 0
+    },
+    {
+      "id": "table-wrong-explicit-table",
+      "kind": "table",
+      "question": "Изменился ли формат поля «Код отправителя» (позиция 31 таблицы 7.2, BLRDLN), как поля «Код получателя» (позиция 36)?",
+      "context": "[1] Consolidated\nТаблица 7.1\nТеги ЭТН:\n| 31 | Код отправителя an..8 | М |\n\n---\n\n[2] Amendment\nв таблице 7.2 - структура сообщения BLRDLN позицию\n| 36 | Код получателя an..8 | М |\nзаменить позицией\n| 36 | Код получателя an..12 | М |",
+      "required": [
+        "не подтверждено"
+      ],
+      "answer": "Целевая строка 31 «Код отправителя»: в контексте не найдена; её значение не подтверждено. Нельзя подтвердить значение или сделать вывод о его изменении.",
+      "checks": {
+        "declined": true,
+        "required": true,
+        "forbidden": true
+      },
+      "passed": true,
+      "extractor_latency_sec": 7.857299351599067e-05,
+      "llm_calls": 0,
+      "llm_cost_usd": 0
+    },
+    {
+      "id": "table-two-values",
+      "kind": "table",
+      "question": "Изменился ли формат поля «Код отправителя» (позиция 31 таблицы 7.2, BLRDLN), как поля «Код получателя» (позиция 36)?",
+      "context": "[1] Consolidated\nТеги ЭТН:\n| 31 | Код отправителя an..8 | М |\n| 31 | Код отправителя an..9 | М |\n\n---\n\n[2] Amendment\nв таблице 7.2 - структура сообщения BLRDLN позицию\n| 36 | Код получателя an..8 | М |\nзаменить позицией\n| 36 | Код получателя an..12 | М |",
+      "expect_decline": true,
+      "answer": "Целевая строка 31 «Код отправителя»: в контексте не найдена; её значение не подтверждено. Нельзя подтвердить значение или сделать вывод о его изменении.",
+      "checks": {
+        "declined": false,
+        "required": true,
+        "forbidden": true
+      },
+      "passed": false,
+      "extractor_latency_sec": 8.048499876167625e-05,
+      "llm_calls": 0,
+      "llm_cost_usd": 0
+    },
+    {
+      "id": "amendment-positive",
+      "kind": "amendment",
+      "question": "Изменился ли формат поля «Код отправителя» (позиция 31 таблицы 7.2, BLRDLN), как поля «Код получателя» (позиция 36)?",
+      "context": "[1] Consolidated\nТеги ЭТН:\n| 31 | Код отправителя an..8 | М |\n\n---\n\n[2] Amendment\nв таблице 7.2 - структура сообщения BLRDLN позицию\n| 36 | Код получателя an..8 | М |\nзаменить позицией\n| 36 | Код получателя an..12 | М |",
+      "required": [
+        "ДО изменения",
+        "ПОСЛЕ изменения"
+      ],
+      "forbidden": [],
+      "answer": "Целевая строка 31 «Код отправителя»: в контексте не найдена; её значение не подтверждено.\nПоле 36 «Код получателя»\nДО изменения:\n| 36 | Код получателя an..8 | М |\nОперация: заменить позицией\n\nПОСЛЕ изменения:\n| 36 | Код получателя an..12 | М |",
+      "checks": {
+        "declined": true,
+        "required": true,
+        "forbidden": true
+      },
+      "passed": true,
+      "extractor_latency_sec": 7.425599324051291e-05,
+      "llm_calls": 0,
+      "llm_cost_usd": 0
+    },
+    {
+      "id": "amendment-missing-operation",
+      "kind": "amendment",
+      "question": "Изменился ли формат поля «Код отправителя» (позиция 31 таблицы 7.2, BLRDLN), как поля «Код получателя» (позиция 36)?",
+      "context": "[1] Consolidated\nТеги ЭТН:\n| 31 | Код отправителя an..8 | М |\n\n---\n\n[2] Amendment\nв таблице 7.2 - структура сообщения BLRDLN позицию\n| 36 | Код получателя an..8 | М |\nпояснение\n| 36 | Код получателя an..12 | М |",
+      "required": [],
+      "forbidden": [
+        "ДО изменения",
+        "ПОСЛЕ изменения"
+      ],
+      "answer": "Целевая строка 31 «Код отправителя»: в контексте не найдена; её значение не подтверждено.",
+      "checks": {
+        "declined": true,
+        "required": true,
+        "forbidden": true
+      },
+      "passed": true,
+      "extractor_latency_sec": 4.83960029669106e-05,
+      "llm_calls": 0,
+      "llm_cost_usd": 0
+    },
+    {
+      "id": "amendment-other-table",
+      "kind": "amendment",
+      "question": "Изменился ли формат поля «Код отправителя» (позиция 31 таблицы 7.2, BLRDLN), как поля «Код получателя» (позиция 36)?",
+      "context": "[1] Consolidated\nТеги ЭТН:\n| 31 | Код отправителя an..8 | М |\n\n---\n\n[2] Amendment\nв таблице 7.1 - структура сообщения BLRDLN позицию\n| 36 | Код получателя an..8 | М |\nзаменить позицией\n| 36 | Код получателя an..12 | М |",
+      "required": [],
+      "forbidden": [
+        "ДО изменения",
+        "ПОСЛЕ изменения"
+      ],
+      "answer": "Целевая строка 31 «Код отправителя»: в контексте не найдена; её значение не подтверждено.\nЦелевая строка 36 «Код получателя»: в контексте не найдена; её значение не подтверждено.",
+      "checks": {
+        "declined": true,
+        "required": true,
+        "forbidden": true
+      },
+      "passed": true,
+      "extractor_latency_sec": 4.30410000262782e-05,
+      "llm_calls": 0,
+      "llm_cost_usd": 0
+    }
+  ]
+}

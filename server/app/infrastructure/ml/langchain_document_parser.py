@@ -23,6 +23,7 @@ from infrastructure.ml.ingestion import (
     parse_pdf,
 )
 from infrastructure.ml.ingestion import split_documents as _split_documents
+from infrastructure.ml.ingestion.amendment_context import attach_table_replacement_scope
 from infrastructure.ml.ingestion.markdown import extract_doc_title as _extract_md_title
 from infrastructure.ml.ingestion.rtf import extract_doc_title as _extract_rtf_title
 from infrastructure.ml.ingestion.rtf import parse_rtf, parse_rtf_sections
@@ -357,6 +358,7 @@ class LangchainDocumentParser:
 
         if not docs:
             raise RuntimeError("Too little text in document")
+        attach_table_replacement_scope(docs)
         return docs
 
 

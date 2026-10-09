@@ -1,0 +1,31 @@
+{
+  "pytest": {
+    "passed": 2442,
+    "skipped": 35,
+    "failed": 0,
+    "duration_sec": 67.81
+  },
+  "mypy": {
+    "before": 32,
+    "after": 29,
+    "new_errors": []
+  },
+  "layers": {
+    "domain_forbidden_imports": 0,
+    "application_infrastructure_imports": 0
+  },
+  "generation_boundary": {
+    "frozen_cases": 24,
+    "all_guarded_without_generation_client": true
+  },
+  "source_hashes": {
+    "server/app/domain/services/evidence_applicability.py": "e590dd0a8fc0dae5ea024c2585fbe5588dbe5de79571dc007d2faea17f159d7d",
+    "server/app/infrastructure/ml/rag/grounded_response.py": "da991bd57afe4597eded48fdc9f4bb132b101c7014a407efd5e847da6e888570",
+    "server/app/infrastructure/ml/rag/applicable_context.py": "e5a59fc128f089e1bc76abd66972a54bdec5f7fabfb4597246a15159f52a5280"
+  },
+  "staged_tree_tests": {
+    "passed": 137,
+    "failed": 0,
+    "duration_sec": 3.44
+  }
+}

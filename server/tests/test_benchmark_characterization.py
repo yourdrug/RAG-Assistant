@@ -142,6 +142,15 @@ class TestComputeRetrieverMetrics:
 
 
 class TestComputeSummaryMetrics:
+    def test_unknown_cost_does_not_become_zero_in_total(self):
+        from infrastructure.benchmark.metrics import compute_summary_metrics
+
+        results = [{**_result(), 'cost_usd': 0.02}, {**_result(), 'cost_usd': None}]
+        summary = compute_summary_metrics(results)
+        assert summary['total_cost_usd'] is None
+        assert summary['known_cost_usd'] == 0.02
+        assert summary['cost_complete'] is False
+
     def test_basic_summary(self):
         from infrastructure.benchmark.metrics import compute_summary_metrics
 

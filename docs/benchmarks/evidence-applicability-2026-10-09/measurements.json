@@ -1,0 +1,68 @@
+{
+  "baseline_accepted": false,
+  "baseline_reasons": [
+    "Frozen extractor expectations:22/24; two fixtures omit target table identity and now safely refuse.",
+    "Judge correctness is available only for4/30; no silent replacement by zero.",
+    "Actual embedding billing is absent from API responses; complete API cost is an explicit tariff estimate.",
+    "Known residuals159/161 (unsupported synthesis) and149/160 (retrieval/context loss) remain."
+  ],
+  "source_run": 12,
+  "evidence_policy": "2026-10-09-applicability-v6",
+  "generation_model": "qwen/qwen-2.5-7b-instruct",
+  "judge_model": "qwen/qwen-2.5-7b-instruct",
+  "cases_completed": 30,
+  "rag_latency": {
+    "sum_sec": 134.08230944004026,
+    "mean_sec": 4.469410314668009,
+    "p50_sec": 3.6714637365003,
+    "p95_sec": 9.313714849350799,
+    "max_sec": 14.613056175003294,
+    "scope": "Full invoke: retrieval, selection, relevance, generation/refusal; excludes judge and application startup. Sum is aggregate request time, not concurrent wall-clock duration."
+  },
+  "judge_latency": {
+    "sum_sec": 93.4463158850267,
+    "p50_sec": 3.1768999455016456
+  },
+  "rag_cost": {
+    "calls": 135,
+    "actual_known_cost_usd": 0.02218962,
+    "actual_cost_complete": false,
+    "estimated_complete_cost_usd": 0.022202140000000013,
+    "unpriced_calls": [],
+    "embedding_estimate_source": "https://deepinfra.com/BAAI/bge-m3",
+    "embedding_usd_per_million_tokens": 0.01
+  },
+  "judge_cost": {
+    "calls": 131,
+    "actual_known_cost_usd": 0.0377414,
+    "actual_cost_complete": true,
+    "estimated_complete_cost_usd": 0.0377414,
+    "unpriced_calls": [],
+    "embedding_estimate_source": "https://deepinfra.com/BAAI/bge-m3",
+    "embedding_usd_per_million_tokens": 0.01
+  },
+  "combined_api_cost": {
+    "calls": 266,
+    "actual_known_cost_usd": 0.05993102,
+    "actual_cost_complete": false,
+    "estimated_complete_cost_usd": 0.05994354000000001,
+    "unpriced_calls": [],
+    "embedding_estimate_source": "https://deepinfra.com/BAAI/bge-m3",
+    "embedding_usd_per_million_tokens": 0.01
+  },
+  "cost_excludes": "Hosting, local compute, earlier exploratory/rejected runs and unobserved transport retries; not an invoice total.",
+  "judge_coverage": {
+    "faithfulness": 30,
+    "relevancy": 30,
+    "correctness": 4
+  },
+  "control_cases": [
+    137,
+    140,
+    151,
+    154,
+    145,
+    148,
+    155
+  ]
+}

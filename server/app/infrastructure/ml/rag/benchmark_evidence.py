@@ -28,7 +28,19 @@ def snapshot_documents(docs: list) -> list[dict]:
                 "source": doc.metadata.get("filename") or doc.metadata.get("source", ""),
                 **{
                     key: doc.metadata[key]
-                    for key in ("document_id", "chunk_index", "content_hash", "citation_id")
+                    for key in (
+                        "document_id",
+                        "chunk_index",
+                        "content_hash",
+                        "citation_id",
+                        "act_id",
+                        "act_version_id",
+                        "effective_from",
+                        "effective_to",
+                        "is_current",
+                        "verified_timing_scope",
+                    "verified_amended_acts",
+                    )
                     if key in doc.metadata
                 },
             },

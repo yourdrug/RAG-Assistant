@@ -12,6 +12,7 @@ from infrastructure.benchmark.answer_generators import BenchmarkAnswer
 from infrastructure.ml.rag.benchmark_evidence import BenchmarkEvidence
 from application.ports.benchmark_checkpoints import BenchmarkCheckpoints
 from infrastructure.benchmark.checkpoint import FileBenchmarkCheckpoints
+from infrastructure.benchmark.judge_rubric import JUDGE_RUBRIC_VERSION
 
 from config import settings
 from domain.value_objects.chat_context import ChatContext
@@ -19,6 +20,7 @@ from domain.value_objects.benchmark_annotations import validate_annotations
 from domain.services.benchmark_evaluation import evaluate_evidence, evaluate_retrieval
 
 from infrastructure.benchmark.answer_generators import BenchmarkAnswerGenerator
+from infrastructure.ml.usage_capture import summarize_usage
 
 
 class BenchmarkCaseEvaluator:
@@ -57,14 +59,25 @@ class BenchmarkCaseEvaluator:
                 "checkpoint": str(checkpoint_path) if checkpoint_path else None,
             }
         )
-        records: list[dict] = (saved or {}).get("judge_usage", [])
+        records = saved.get('judge_usage', judge_usage.get())
+        if records is None:
+            records = []
         token = judge_usage.set(records)
         try:
             result = await self.evaluate_case(idx, question, run_idx, ctx, checkpoint_path)
-            result["judge_input_tokens"] = sum(r["input_tokens"] for r in records)
-            result["judge_output_tokens"] = sum(r["output_tokens"] for r in records)
+            result["judge_input_tokens"] = sum(r.get("input_tokens") or 0 for r in records)
+            result["judge_output_tokens"] = sum(r.get("output_tokens") or 0 for r in records)
             result["judge_calls"] = len(records)
-            result["usage_scope"] = "generation plus observed judge calls; excludes RAG auxiliary calls"
+            all_records = (result.get('rag_usage') or []) + records
+            result['judge_usage'] = records
+            result['total_usage'] = summarize_usage(all_records)
+            result['total_cost_usd'] = (
+                result['total_usage']['cost_usd'] if result.get('rag_usage') is not None else None
+            )
+            result['cost_usd'] = result['total_cost_usd']
+            result["usage_scope"] = (
+                "observed RAG model calls plus judge responses, including validation retries"
+            )
             return result
         finally:
             judge_usage.reset(token)
@@ -82,6 +95,8 @@ class BenchmarkCaseEvaluator:
         annotations = validate_annotations(question.get("annotations"))
         started = time.monotonic()
         stages = await self.load_stages(checkpoint_path)
+        if refresh_judge_rubric(stages):
+            await self.save_stages(checkpoint_path, stages)
         saved_answer = stages.get("generated")
         if saved_answer is not None:
             saved_answer = dict(saved_answer)
@@ -162,11 +177,17 @@ class BenchmarkCaseEvaluator:
                 "prompt_budget": evidence.prompt_budget if evidence else None,
             },
             "generator_metrics": generator_metrics,
+            "judge_rubric_version": JUDGE_RUBRIC_VERSION,
             "context_metrics": context_metrics,
             "latency_sec": round(time.monotonic() - started, 2),
+            "rag_latency_sec": generated.rag_latency_sec,
+            "rag_usage": generated.llm_usage,
+            "rag_cost_usd": summarize_usage(generated.llm_usage)['cost_usd']
+            if generated.llm_usage is not None
+            else None,
             "input_tokens": generated.input_tokens,
             "output_tokens": generated.output_tokens,
-            "cost_usd": round(cost, 6),
+            "estimated_generation_cost_usd": round(cost, 6),
             "ttft_sec": generated.ttft_sec,
             "breadth": generated.breadth,
             "domain": generated.domain,
@@ -255,6 +276,16 @@ class BenchmarkCaseEvaluator:
                 metric_callback=lambda value: save_sync("evidence_judge", value),
             )
         return generator_metrics, context_metrics, judge_metrics
+
+
+def refresh_judge_rubric(stages: dict) -> bool:
+    """Rejudge old checkpoints while preserving generated answers and evidence."""
+    if stages.get("judge_rubric_version") == JUDGE_RUBRIC_VERSION:
+        return False
+    for key in ("grouped_metrics", "generator_metrics", "context_metrics", "evidence_judge"):
+        stages.pop(key, None)
+    stages["judge_rubric_version"] = JUDGE_RUBRIC_VERSION
+    return True
 
 
 def restore_grouped_scores(stages: dict) -> dict:

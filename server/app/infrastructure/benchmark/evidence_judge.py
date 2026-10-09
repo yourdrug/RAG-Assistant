@@ -8,6 +8,8 @@ from domain.value_objects.llm_provider import LLMProvider
 
 from infrastructure.benchmark.judge import get_judge_client, judge_with_structured_output
 
+from infrastructure.benchmark.judge_rubric import CITATION_SUPPORT_CRITERIA
+
 logger = logging.getLogger("default")
 
 
@@ -24,15 +26,7 @@ def judge_evidence(
     result: dict = saved_metrics or {"scores": {}, "details": {}}
     if not annotations:
         return result
-    checks = {
-        "citation_support_score": (
-            "Оцени от 0 до 10 подтверждение ответа контекстом и корректность ссылок на источники. "
-            "Каждая содержательная ссылка должна подтверждать связанное с ней утверждение. "
-            "Выдуманные ссылки и неподтверждённые утверждения снижают оценку. "
-            "Для содержательного ответа без ссылок поставь 0. Для корректного отказа без утверждений "
-            "о документах ссылки не требуются."
-        )
-    }
+    checks = {"citation_support_score": CITATION_SUPPORT_CRITERIA}
     if context is None:
         checks.pop("citation_support_score")
     if "expected_refusal" in annotations:

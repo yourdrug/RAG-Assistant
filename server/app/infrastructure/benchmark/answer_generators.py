@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -20,6 +21,7 @@ from infrastructure.benchmark.case_metrics import (
     compute_retriever_metrics_from_sources,
     _extract_usage_from_response,
 )
+from infrastructure.ml.usage_capture import active_llm_usage
 
 
 @dataclass(frozen=True)
@@ -33,6 +35,8 @@ class BenchmarkAnswer:
     breadth: str | None = None
     domain: str | None = None
     evidence: BenchmarkEvidence | None = None
+    rag_latency_sec: float | None = None
+    llm_usage: list[dict] | None = None
 
 
 class BenchmarkAnswerGenerator(Protocol):
@@ -56,9 +60,16 @@ class RagBenchmarkGenerator:
         evidence = BenchmarkEvidence()
         evidence_token = active_evidence.set(evidence)
         token = _settings_overrides.set(overrides)
+        records = active_llm_usage.get()
+        if records is None:
+            records = []
+        usage_token = active_llm_usage.set(records)
+        started = time.monotonic()
         try:
             result = await self._rag.invoke(question=question["question"], history=[], ctx=ctx)
+            elapsed = time.monotonic() - started
         finally:
+            active_llm_usage.reset(usage_token)
             _settings_overrides.reset(token)
             active_evidence.reset(evidence_token)
         context = "\n\n---\n\n".join(s.get("content", "") for s in result.sources if s.get("content"))
@@ -76,6 +87,8 @@ class RagBenchmarkGenerator:
             breadth=result.breadth,
             domain=result.domain,
             evidence=evidence,
+            rag_latency_sec=elapsed,
+            llm_usage=records,
         )
 
 

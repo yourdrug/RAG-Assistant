@@ -72,7 +72,10 @@ from infrastructure.ml.rag.rag_postprocess import (  # noqa: F401
     reject_not_relevant,
     resolve_temporal_conflicts,
 )
-from infrastructure.ml.rag.evidence_focus import format_generation_messages
+from infrastructure.ml.rag.evidence_focus import EVIDENCE_POLICY_VERSION, format_generation_messages
+from infrastructure.ml.rag.grounded_response import (
+    scoped_evidence_response,
+)
 from infrastructure.ml.rag.rag_prompts import (  # noqa: F401
     build_prompt,
     condense_question,
@@ -190,6 +193,7 @@ async def step_check_cache(
             "deepinfra_embed_model": settings.deepinfra_embed_model,
             "deepinfra_rerank_model": settings.deepinfra_rerank_model,
             "retrieval_score_threshold": settings.rag_retrieval_score_threshold,
+            "evidence_policy": EVIDENCE_POLICY_VERSION,
             "domain_prompts": {
                 profile.key: [
                     profile.prompt_addendum(Breadth.NARROW, state.ctx.as_of_date),
@@ -200,8 +204,8 @@ async def step_check_cache(
             if domain_registry is not None
             else {},
             "system_prompts": [
-                build_system_prompt(Breadth.NARROW),
-                build_system_prompt(Breadth.BROAD, enumerate_cases=True),
+                build_system_prompt(Breadth.NARROW, question=state.question),
+                build_system_prompt(Breadth.BROAD, enumerate_cases=True, question=state.question),
             ],
         },
     )
@@ -521,6 +525,9 @@ def step_build_context(
         if count_tokens(messages) > input_budget:
             raise ContextBudgetExceededError()
         state._prompt_docs = selected
+        state.grounded_answer, state.evidence_assessment = scoped_evidence_response(
+            selected, context, state.question
+        )
         break
     state.history_messages = history
     capture_prompt(
@@ -563,19 +570,21 @@ async def step_generate(
     from infrastructure.resilience.circuit_breaker import get_breaker
 
     breaker = get_breaker("llm_generate")
-    breaker.check_open()
-
-    async with ml_clients.generation_semaphore:
-        try:
-            async for chunk in ml_clients.llm_for_breadth(effective_breadth).astream(messages):
-                last_chunk = chunk
-                text = chunk.content
-                if text:
-                    answer_parts.append(text)
-        except Exception:
-            await breaker.report_failure()
-            raise
-        await breaker.report_success()
+    if state.grounded_answer is not None:
+        answer_parts.append(state.grounded_answer)
+    else:
+        breaker.check_open()
+        async with ml_clients.generation_semaphore:
+            try:
+                async for chunk in ml_clients.llm_for_breadth(effective_breadth).astream(messages):
+                    last_chunk = chunk
+                    text = chunk.content
+                    if text:
+                        answer_parts.append(text)
+            except Exception:
+                await breaker.report_failure()
+                raise
+            await breaker.report_success()
     RAG_STAGE_DURATION.labels("generate").observe(time.monotonic() - t0)
 
     full_answer, output_verdict = OutputScanner().sanitize_output("".join(answer_parts))
