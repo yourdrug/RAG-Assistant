@@ -12,6 +12,8 @@ from domain.entities.message import Message
 from domain.value_objects.message_role import MessageRole
 from domain.value_objects.job_status import BackgroundJobStatus
 from domain.value_objects.roles import UserRole
+from domain.value_objects.doc_domain import DocDomain
+from domain.repositories.chunk_repository import ChunkSearchResult
 from main import app
 from presentation.api.auth_dependencies import get_current_user
 from presentation.api import dependencies as deps
@@ -41,6 +43,87 @@ async def asgi_client():
 def sign_in(role="user", user_id=1):
     user = CurrentUser(id=user_id, email="asgi@example.org", role=role, kind="internal", is_active=True)
     app.dependency_overrides[get_current_user] = lambda: user
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", ["/ingest", "/ingest/file"])
+@pytest.mark.parametrize("domain", ["legal_typo", "", "AUTO"])
+async def test_ingestion_rejects_unknown_domain_before_creating_job(asgi_client, path, domain):
+    sign_in(UserRole.ADMIN.value)
+    jobs = SimpleNamespace(create_job=AsyncMock(return_value=8))
+    app.dependency_overrides[deps.create_job_service] = lambda: jobs
+    app.dependency_overrides[deps.create_job_enqueuer] = lambda: SimpleNamespace(
+        enqueue_ingest=AsyncMock(), enqueue_ingest_file=AsyncMock()
+    )
+    app.dependency_overrides[deps.create_ingest_service] = lambda: SimpleNamespace(
+        resolve_docs_dir=lambda value: value, resolve_ingest_target=lambda value: value
+    )
+    app.dependency_overrides[deps.create_idempotency_store] = lambda: None
+    response = await asgi_client.post(path, params={"domain": domain, "file_path": "docs/test.pdf"})
+    assert response.status_code == 422
+    assert "domain" in response.json()["errors"]
+    jobs.create_job.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", ["/ingest", "/ingest/file"])
+@pytest.mark.parametrize("domain", [*(item.value for item in DocDomain), "auto"])
+async def test_ingestion_accepts_supported_and_automatic_domains(asgi_client, path, domain):
+    sign_in(UserRole.ADMIN.value)
+    app.dependency_overrides[deps.create_job_service] = lambda: SimpleNamespace(
+        create_job=AsyncMock(return_value=8)
+    )
+    app.dependency_overrides[deps.create_job_enqueuer] = lambda: SimpleNamespace(
+        enqueue_ingest=AsyncMock(), enqueue_ingest_file=AsyncMock()
+    )
+    app.dependency_overrides[deps.create_ingest_service] = lambda: SimpleNamespace(
+        resolve_docs_dir=lambda value: value, resolve_ingest_target=lambda value: value
+    )
+    app.dependency_overrides[deps.create_idempotency_store] = lambda: None
+    response = await asgi_client.post(path, params={"domain": domain, "file_path": "docs/test.pdf"})
+    assert response.status_code == 200
+    assert response.json()["status"] == "started"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("domain", ["legal_typo", "auto"])
+async def test_preview_index_rejects_unknown_domain_before_loading_file(asgi_client, domain):
+    sign_in(UserRole.ADMIN.value)
+    cache = SimpleNamespace(get_bytes=AsyncMock(return_value=None))
+    app.dependency_overrides[deps.create_preview_cache] = lambda: cache
+    app.dependency_overrides[deps.create_document_command_service] = lambda: MagicMock()
+    app.dependency_overrides[deps.create_job_service] = lambda: MagicMock()
+    app.dependency_overrides[deps.create_job_enqueuer] = lambda: MagicMock()
+    response = await asgi_client.post("/admin/documents/preview/test/index", data={"doc_domain": domain})
+    assert response.status_code == 422
+    assert "doc_domain" in response.json()["errors"]
+    cache.get_bytes.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_exact_search_reports_full_total_and_requested_page(asgi_client):
+    sign_in()
+    row = ChunkSearchResult(3, 10, "test.txt", "matching needle text", 3)
+    service = SimpleNamespace(exact_search=AsyncMock(return_value=([row], 53)))
+    app.dependency_overrides[deps.create_search_service] = lambda: service
+    response = await asgi_client.post("/search/exact", json={"query": "needle", "limit": 2, "offset": 2})
+    assert response.status_code == 200
+    assert response.json()["total"] == 53
+    assert response.json()["limit"] == 2
+    assert response.json()["offset"] == 2
+    assert [row["chunk_id"] for row in response.json()["results"]] == [3]
+    assert service.exact_search.call_args.kwargs["offset"] == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("offset", [-1, 0.5, "bad"])
+async def test_exact_search_rejects_invalid_offset(asgi_client, offset):
+    sign_in()
+    service = SimpleNamespace(exact_search=AsyncMock())
+    app.dependency_overrides[deps.create_search_service] = lambda: service
+    response = await asgi_client.post("/search/exact", json={"query": "needle", "offset": offset})
+    assert response.status_code == 422
+    service.exact_search.assert_not_awaited()
 
 
 @pytest.mark.asyncio

@@ -1,9 +1,12 @@
 "use client";
 import { FileText, Search as SearchIcon } from "lucide-react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { type SearchMode, useExactSearch } from "@/shared/api/hooks/use-search";
-import type { ExactSearchResult } from "@/shared/api/types";
+import { getSearchPagination } from "@/shared/lib/search-pagination";
+import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
+
+const SEARCH_PAGE_SIZE = 50;
 
 function highlightMatch(text: string, query: string): ReactNode[] {
   if (!query.trim()) return [text];
@@ -24,39 +27,25 @@ function highlightMatch(text: string, query: string): ReactNode[] {
 export function SearchPage() {
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<SearchMode>("exact");
-  const [results, setResults] = useState<ExactSearchResult[]>([]);
-  const [hasSearched, setHasSearched] = useState(false);
-  const exactSearch = useExactSearch();
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const queryRef = useRef(query);
-  const modeRef = useRef(mode);
-  queryRef.current = query;
-  modeRef.current = mode;
+  const [search, setSearch] = useState({ query: "", mode: "exact" as SearchMode, offset: 0 });
+  const isCurrentSearch = search.query === query.trim() && search.mode === mode;
+  const hasSearched = isCurrentSearch && search.query.length >= 3;
+  const exactSearch = useExactSearch({ ...search, limit: SEARCH_PAGE_SIZE }, hasSearched);
+  const results = hasSearched ? (exactSearch.data?.results ?? []) : [];
+  const total = hasSearched ? (exactSearch.data?.total ?? 0) : 0;
+  const offset = exactSearch.data?.offset ?? search.offset;
+  const pagination = getSearchPagination(total, offset, SEARCH_PAGE_SIZE);
 
   useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (query.trim().length < 3) {
-      setResults([]);
-      setHasSearched(false);
-      return;
-    }
-    debounceRef.current = setTimeout(async () => {
-      setHasSearched(true);
-      try {
-        const res = await exactSearch.mutateAsync({
-          query: queryRef.current,
-          mode: modeRef.current,
-          limit: 50,
-        });
-        setResults(res.results);
-      } catch {
-        setResults([]);
-      }
-    }, 400);
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
+    const timer = setTimeout(() => setSearch({ query: query.trim(), mode, offset: 0 }), 400);
+    return () => clearTimeout(timer);
   }, [query, mode]);
+
+  useEffect(() => {
+    if (hasSearched && exactSearch.data && search.offset > 0 && search.offset >= total) {
+      setSearch((value) => ({ ...value, offset: pagination.lastOffset }));
+    }
+  }, [hasSearched, exactSearch.data, search.offset, total, pagination.lastOffset]);
 
   return (
     <div className="flex flex-col h-full">
@@ -81,7 +70,7 @@ export function SearchPage() {
                 className="pl-9"
               />
             </div>
-            {query.length > 0 && query.length < 3 && (
+            {query.trim().length > 0 && query.trim().length < 3 && (
               <p className="text-xs text-muted-foreground">Minimum 3 characters to search</p>
             )}
           </div>
@@ -122,8 +111,11 @@ export function SearchPage() {
           {hasSearched && results.length > 0 && (
             <div className="space-y-3">
               <p className="text-sm text-muted-foreground">
-                Found {results.length} result{results.length !== 1 ? "s" : ""} for &quot;{query}
+                Found {total} result{total !== 1 ? "s" : ""} for &quot;{search.query}
                 &quot; ({mode === "exact" ? "pg_trgm ranked" : "contains"})
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Showing {offset + 1}–{offset + results.length} of {total}
               </p>
               {results.map((r) => (
                 <div
@@ -138,24 +130,74 @@ export function SearchPage() {
                     <span className="text-xs text-muted-foreground">chunk #{r.chunk_index}</span>
                   </div>
                   <p className="text-sm leading-relaxed text-muted-foreground">
-                    {highlightMatch(r.content, query)}
+                    {highlightMatch(r.content, search.query)}
                   </p>
                 </div>
               ))}
             </div>
           )}
 
-          {/* Empty state after search */}
-          {hasSearched && results.length === 0 && query.length >= 3 && !exactSearch.isPending && (
-            <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-              <SearchIcon className="h-12 w-12 mb-4 opacity-50" />
-              <p className="text-lg">No results found</p>
-              <p className="text-sm mt-1">Try a different query or switch search mode</p>
-            </div>
+          {hasSearched && (pagination.pages > 1 || pagination.hasPrevious) && (
+            <nav
+              aria-label="Search result pages"
+              className="flex items-center justify-between mt-6"
+            >
+              <span className="text-sm text-muted-foreground">
+                Page {pagination.page}
+                {pagination.pages >= pagination.page && ` of ${pagination.pages}`}
+              </span>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  disabled={!pagination.hasPrevious || exactSearch.isFetching}
+                  onClick={() =>
+                    setSearch((value) => ({
+                      ...value,
+                      offset: Math.max(0, offset - SEARCH_PAGE_SIZE),
+                    }))
+                  }
+                >
+                  Previous
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={!pagination.hasNext || exactSearch.isFetching}
+                  onClick={() =>
+                    setSearch((value) => ({ ...value, offset: offset + SEARCH_PAGE_SIZE }))
+                  }
+                >
+                  Next
+                </Button>
+              </div>
+            </nav>
           )}
 
+          {query.trim().length >= 3 && (!hasSearched || exactSearch.isFetching) && (
+            <p role="status" className="text-sm text-muted-foreground py-6">
+              Searching…
+            </p>
+          )}
+
+          {hasSearched && exactSearch.isError && (
+            <p role="alert" className="text-sm text-destructive py-6">
+              Search failed. Please try again.
+            </p>
+          )}
+
+          {/* Empty state after search */}
+          {hasSearched &&
+            results.length === 0 &&
+            exactSearch.isSuccess &&
+            !exactSearch.isFetching && (
+              <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+                <SearchIcon className="h-12 w-12 mb-4 opacity-50" />
+                <p className="text-lg">No results found</p>
+                <p className="text-sm mt-1">Try a different query or switch search mode</p>
+              </div>
+            )}
+
           {/* Initial state */}
-          {!hasSearched && (
+          {query.trim().length < 3 && (
             <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
               <SearchIcon className="h-12 w-12 mb-4 opacity-50" />
               <p className="text-lg">Search your documents</p>

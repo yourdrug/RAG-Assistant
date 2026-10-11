@@ -230,6 +230,9 @@ class FakeChunkRepository:
     async def search_substring(self, **kwargs):
         return []
 
+    async def search_substring_page(self, **kwargs):
+        return [], 0
+
     async def get_all_contents(self) -> list[str]:
         return []
 

@@ -10,7 +10,7 @@ from domain.services import get_visibility_conditions
 from domain.value_objects.owner_match import OwnerMatch
 from domain.value_objects.roles import UserKind, UserRole
 from domain.value_objects.search_mode import SearchMode
-from sqlalchemy import and_, or_, select, text
+from sqlalchemy import and_, func, or_, select, text, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.database.models import ActVersionModel, ChunkModel
@@ -124,7 +124,7 @@ def build_acl_clauses(
     return acl_clauses
 
 
-def _build_exact_search_stmt(query: str, acl_clauses: list, document_id: int | None, limit: int):
+def build_exact_search_stmt(query: str, acl_clauses: list, document_id: int | None, limit: int | None):
     """Build SELECT statement for word-boundary search using GIN trigram index.
 
     Uses ILIKE '% word %' which leverages the existing pg_trgm GIN index
@@ -146,7 +146,7 @@ def _build_exact_search_stmt(query: str, acl_clauses: list, document_id: int | N
     return stmt
 
 
-def _build_fuzzy_search_stmt(query: str, acl_clauses: list, document_id: int | None, limit: int):
+def build_fuzzy_search_stmt(query: str, acl_clauses: list, document_id: int | None, limit: int | None):
     """Build SELECT statement for ILIKE fuzzy search."""
     stmt = (
         select(*_SEARCH_COLUMNS)
@@ -160,7 +160,7 @@ def _build_fuzzy_search_stmt(query: str, acl_clauses: list, document_id: int | N
     return stmt
 
 
-def _build_temporal_clause(as_of_date: date | None):
+def build_temporal_clause(as_of_date: date | None):
     effective_date = as_of_date or date.today()
     return and_(
         or_(ChunkModel.effective_from.is_(None), ChunkModel.effective_from <= effective_date),
@@ -170,6 +170,30 @@ def _build_temporal_clause(as_of_date: date | None):
             ChunkModel.effective_from.is_not(None),
             ChunkModel.effective_to.is_not(None),
         ),
+    )
+
+
+def build_substring_search_stmt(
+    query: str,
+    user,
+    mode: str,
+    document_id: int | None,
+    as_of_date: date | None,
+    limit: int | None = None,
+):
+    """Share content, document, ACL and temporal predicates across both consumers."""
+    acl_clauses = build_acl_clauses(
+        user,
+        user.group_ids,
+        user.managed_client_ids,
+        user.managed_internal_ids,
+        user.managed_group_ids,
+    )
+    builder = build_exact_search_stmt if mode == SearchMode.EXACT.value else build_fuzzy_search_stmt
+    return (
+        builder(query, acl_clauses, document_id, limit)
+        .outerjoin(ActVersionModel, ChunkModel.act_version_id == ActVersionModel.id)
+        .where(build_temporal_clause(as_of_date))
     )
 
 
@@ -189,22 +213,42 @@ class SQLAlchemyChunkSearchRepository:
         if len(query.strip()) < 3:
             return []
 
-        acl_clauses = build_acl_clauses(
-            user,
-            user.group_ids,
-            user.managed_client_ids,
-            user.managed_internal_ids,
-            user.managed_group_ids,
-        )
-
-        if mode == SearchMode.EXACT.value:
-            stmt = _build_exact_search_stmt(query, acl_clauses, document_id, limit)
-        else:
-            stmt = _build_fuzzy_search_stmt(query, acl_clauses, document_id, limit)
-
-        stmt = stmt.outerjoin(ActVersionModel, ChunkModel.act_version_id == ActVersionModel.id).where(
-            _build_temporal_clause(as_of_date)
-        )
-
+        stmt = build_substring_search_stmt(query, user, mode, document_id, as_of_date, limit)
         result = await self._session.execute(stmt)
         return [_row_to_search_result(row) for row in result.all()]
+
+    async def search_substring_page(
+        self,
+        query: str,
+        user,
+        limit: int = 20,
+        offset: int = 0,
+        mode: str = SearchMode.EXACT.value,
+        document_id: int | None = None,
+        as_of_date: date | None = None,
+    ) -> tuple[list[ChunkSearchResult], int]:
+        if len(query.strip()) < 3:
+            return [], 0
+
+        # Materialize only matching IDs. Count and page use one database snapshot,
+        # including empty pages beyond the last match, without buffering all content.
+        matches = (
+            build_substring_search_stmt(query, user, mode, document_id, as_of_date)
+            .with_only_columns(ChunkModel.id)
+            .order_by(None)
+            .cte("matching_chunks")
+        )
+        totals = select(func.count().label("total")).select_from(matches).cte("match_total")
+        page = select(matches.c.id).order_by(matches.c.id).limit(limit).offset(offset).cte("match_page")
+        stmt = (
+            select(*_SEARCH_COLUMNS, totals.c.total)
+            .select_from(
+                totals.outerjoin(page, true())
+                .outerjoin(ChunkModel, ChunkModel.id == page.c.id)
+                .outerjoin(ActVersionModel, ChunkModel.act_version_id == ActVersionModel.id)
+            )
+            .order_by(ChunkModel.id)
+        )
+        result = await self._session.execute(stmt)
+        rows = result.all()
+        return [_row_to_search_result(row) for row in rows if row[0] is not None], rows[0][-1]

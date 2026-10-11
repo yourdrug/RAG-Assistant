@@ -7,8 +7,10 @@ from pathlib import Path
 from typing import Any
 
 import docx
+from docx.oxml.ns import qn
 
 from infrastructure.ml.ingestion.table_formatting import markdown_cell
+from infrastructure.storage.docx_validation import validate_docx_archive
 
 
 def _has_page_break(paragraph) -> bool:
@@ -316,8 +318,7 @@ def _collect_docx_metadata(
 
 def parse_docx(file_path: Path) -> tuple[str, dict]:
     """Parse DOCX and return (text, metadata)."""
-    from docx.oxml.ns import qn
-
+    validate_docx_archive(file_path)
     doc = docx.Document(str(file_path))
     numberer = ListNumberer(_get_numbering_formats(doc))
     parts: list[str] = []
@@ -371,8 +372,7 @@ def parse_docx(file_path: Path) -> tuple[str, dict]:
 
 def parse_docx_sections(file_path: Path) -> list[tuple[str | None, str]]:
     """Split DOCX into (heading, content) sections by Heading*/Title styles."""
-    from docx.oxml.ns import qn
-
+    validate_docx_archive(file_path)
     doc = docx.Document(str(file_path))
 
     para_by_element = {id(p._element): p for p in doc.paragraphs}

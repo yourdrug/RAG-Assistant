@@ -437,6 +437,8 @@ export interface ExactSearchResponse {
   query: string;
   results: ExactSearchResult[];
   total: number;
+  limit: number;
+  offset: number;
 }
 
 // ─── Benchmark Lab ────────────────────────────────────────────────────────
