@@ -8,6 +8,7 @@ import pytest
 import pytest_asyncio
 
 from application.services.conversation_service import ConversationService
+from application.services.ingest_service import IngestAppService
 from domain.entities.message import Message
 from domain.value_objects.message_role import MessageRole
 from domain.value_objects.job_status import BackgroundJobStatus
@@ -19,6 +20,7 @@ from presentation.api.auth_dependencies import get_current_user
 from presentation.api import dependencies as deps
 from presentation.api.schemas import CurrentUser
 from fakes import FakeUnitOfWorkFactory
+from ingestion_helpers import ingestion_components, FIRST_KEY, SECOND_KEY
 
 
 @pytest_asyncio.fixture
@@ -83,6 +85,27 @@ async def test_ingestion_accepts_supported_and_automatic_domains(asgi_client, pa
     response = await asgi_client.post(path, params={"domain": domain, "file_path": "docs/test.pdf"})
     assert response.status_code == 200
     assert response.json()["status"] == "started"
+
+
+@pytest.mark.asyncio
+async def test_force_ingestion_invalidates_only_requested_object_key(asgi_client):
+    # Use a real registry/service; only background job delivery is external.
+    sign_in(UserRole.ADMIN.value)
+    service, factory, _, _ = ingestion_components(None)
+    await service._registry.upsert(FIRST_KEY, "hash", f"s3://bucket/{FIRST_KEY}", 1, 10)
+    await service._registry.upsert(SECOND_KEY, "hash", f"s3://bucket/{SECOND_KEY}", 1, 10)
+    app.dependency_overrides[deps.create_ingest_service] = lambda: IngestAppService(factory, service)
+    app.dependency_overrides[deps.create_job_service] = lambda: SimpleNamespace(
+        create_job=AsyncMock(return_value=8)
+    )
+    app.dependency_overrides[deps.create_job_enqueuer] = lambda: SimpleNamespace(
+        enqueue_ingest_file=AsyncMock()
+    )
+    app.dependency_overrides[deps.create_idempotency_store] = lambda: None
+    response = await asgi_client.post("/ingest/file", params={"file_path": FIRST_KEY, "force": True})
+
+    assert response.status_code == 200
+    assert set(await service.get_registry()) == {SECOND_KEY}
 
 
 @pytest.mark.asyncio

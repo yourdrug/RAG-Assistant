@@ -8,6 +8,8 @@ database opens its own UnitOfWork.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from application.dto.ingest_dto import IngestRegistryItemDTO, IngestRegistryResult, IngestStatusResult
 from application.ports.ingestion_port import IngestionPort
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
@@ -62,10 +64,10 @@ class IngestAppService:
     async def get_registry(self) -> IngestRegistryResult:
         raw = await self._ingestion.get_registry()
         items = []
-        for filename, info in raw.items():
+        for object_key, info in raw.items():
             items.append(
                 IngestRegistryItemDTO(
-                    filename=filename,
+                    filename=info.get("filename", Path(object_key).name),
                     chunks=info.get("chunks", 0),
                     chars=info.get("chars", 0),
                     indexed_at=info.get("indexed_at", ""),
@@ -86,8 +88,8 @@ class IngestAppService:
     def resolve_ingest_target(self, file_path: str) -> str:
         return self._ingestion.resolve_ingest_target(file_path)
 
-    async def force_reindex(self, filename: str) -> None:
-        await self._ingestion.force_reindex(filename)
+    async def force_reindex(self, object_key: str) -> None:
+        await self._ingestion.force_reindex(object_key)
 
     async def upload_files(self, files, prefix: str = "docs/") -> list[str]:
         return await self._ingestion.upload_files(files, prefix)

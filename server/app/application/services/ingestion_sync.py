@@ -9,14 +9,17 @@ Extracted from IngestionService to isolate the Postgres sync concern.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from application.dto.versioning_dto import VersioningResult
 from application.services.document_pipeline import enrich_chunks_metadata, process_chunks, tag_chunks
+from application.services.document_utils import resolve_unique_filename
+from application.services.ingestion_source import object_key_from_source
 from domain.entities.document import Document as DocEntity
 from domain.entities.raw_document import RawDocument
 from domain.entities.vector_outbox_entry import OutboxOperation, VectorOutboxEntry
-from domain.exceptions import ValidationError
+from domain.exceptions import EntityNotFound, UniqueConstraintViolation, ValidationError
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.roles import UserKind
 from domain.value_objects.visibility import DocumentVisibility
@@ -28,6 +31,7 @@ if TYPE_CHECKING:
     from domain.domain_profile.registry import DomainProfileRegistry
 
 log = logging.getLogger("default")
+INGESTION_TRANSACTION_MAX_ATTEMPTS = 3
 
 
 class DocumentSyncService:
@@ -89,21 +93,22 @@ class DocumentSyncService:
         }
 
         # --- Phase 1: document rows (single committed transaction) ---
-        doc_ids = await self.ensure_document_rows(
+        documents = await self.ensure_document_rows(
             documents_to_sync, visibility=visibility, group_id=group_id, owner_id=owner_id
         )
 
         # --- Phase 2: versioning + chunks + outbox (per document) ---
-        for fname, info in documents_to_sync.items():
-            doc_id = doc_ids.get(fname)
+        for object_key, info in documents_to_sync.items():
+            document = documents[object_key]
+            doc_id = document.id
             if doc_id is None:
-                continue
+                raise RuntimeError(f"Document {object_key} has no ID after creation")
             src = info.get("source", "")
             file_chunks = chunks_by_source.get(src, [])
             if not file_chunks:
                 continue
             await self.sync_one_document(
-                fname=fname,
+                fname=document.filename,
                 doc_id=doc_id,
                 src=src,
                 file_chunks=file_chunks,
@@ -121,9 +126,25 @@ class DocumentSyncService:
         visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC,
         group_id: int | None = None,
         owner_id: int | None = None,
-    ) -> dict[str, int]:
-        """Phase 1: get-or-create document rows for all registry filenames."""
-        doc_ids: dict[str, int] = {}
+    ) -> dict[str, DocEntity]:
+        """Commit source bindings before content sync; retry creation races."""
+        for attempt in range(INGESTION_TRANSACTION_MAX_ATTEMPTS):
+            try:
+                return await self.create_document_rows(registry, visibility, group_id, owner_id)
+            except UniqueConstraintViolation:
+                if attempt == INGESTION_TRANSACTION_MAX_ATTEMPTS - 1:
+                    raise
+                log.warning("Concurrent ingestion document creation; retrying transaction")
+        raise RuntimeError("Ingestion document creation attempts exhausted")
+
+    async def create_document_rows(
+        self,
+        registry: dict,
+        visibility: DocumentVisibility,
+        group_id: int | None,
+        owner_id: int | None,
+    ) -> dict[str, DocEntity]:
+        documents: dict[str, DocEntity] = {}
         async with self._uow_factory.create(master=True) as uow:
             if visibility == DocumentVisibility.CLIENT_PRIVATE:
                 if owner_id is None:
@@ -132,33 +153,40 @@ class DocumentSyncService:
                 if client_user is None or client_user.kind != UserKind.CLIENT:
                     raise ValidationError("client_id must be a user with kind='client'")
 
-            for fname in registry:
-                existing = await uow.documents.find_active_slot(
+            for object_key, info in registry.items():
+                # Metadata source remains the full URI. Use its exact object key
+                # even when a legacy in-memory caller still keys its dict by name.
+                ingestion_key = object_key_from_source(info["source"])
+                existing = await uow.documents.find_by_ingestion_key(
                     owner_id=owner_id,
-                    filename=fname,
+                    ingestion_key=ingestion_key,
                     group_id=group_id,
                 )
                 if existing is None and owner_id is not None:
                     # Preserve the ID when privatizing a legacy ownerless ingestion row.
-                    existing = await uow.documents.find_active_slot(
-                        owner_id=None, filename=fname, group_id=group_id
+                    existing = await uow.documents.find_by_ingestion_key(
+                        owner_id=None, ingestion_key=ingestion_key, group_id=group_id
                     )
                 if existing:
                     if existing.id is None:
-                        raise RuntimeError(f"Document {fname} has None id after find_active_slot")
-                    doc_ids[fname] = existing.id
+                        raise RuntimeError(f"Document {object_key} has no ID after source lookup")
+                    documents[object_key] = existing
                 else:
+                    filename = await resolve_unique_filename(
+                        uow.documents, owner_id, group_id, Path(ingestion_key).name
+                    )
                     doc = DocEntity(
-                        filename=fname,
+                        filename=filename,
+                        ingestion_key=ingestion_key,
                         visibility=visibility,
                         owner_id=owner_id,
                         group_id=group_id,
                     )
                     saved = await uow.documents.save(doc)
                     if saved.id is None:
-                        raise RuntimeError(f"Document {fname} has None id after save")
-                    doc_ids[fname] = saved.id
-        return doc_ids
+                        raise RuntimeError(f"Document {object_key} has no ID after save")
+                    documents[object_key] = saved
+        return documents
 
     async def sync_one_document(
         self,
@@ -217,10 +245,57 @@ class DocumentSyncService:
             RawDocument(page_content=c.page_content, metadata=dict(c.metadata)) for c in file_chunks
         ]
 
+        for attempt in range(INGESTION_TRANSACTION_MAX_ATTEMPTS):
+            try:
+                versioning = await self.persist_source_document(
+                    doc_id,
+                    src,
+                    raw_chunks,
+                    visibility,
+                    owner_id,
+                    group_id,
+                    chunk_domain,
+                    profile,
+                    versioning_plan,
+                    versioning,
+                )
+                break
+            except UniqueConstraintViolation:
+                if attempt == INGESTION_TRANSACTION_MAX_ATTEMPTS - 1:
+                    raise
+                log.warning("Concurrent ingestion filename reservation; retrying document transaction")
+        if act_versioning_service is not None:
+            if versioning.act_id is not None:
+                await act_versioning_service.invalidate_act_answers(versioning.act_id)
+            else:
+                await act_versioning_service.invalidate_document_answers(doc_id)
+
+    async def persist_source_document(
+        self,
+        doc_id: int,
+        src: str,
+        raw_chunks: list[RawDocument],
+        visibility: DocumentVisibility,
+        owner_id: int | None,
+        group_id: int | None,
+        chunk_domain: str,
+        profile,
+        versioning_plan,
+        versioning: VersioningResult,
+    ) -> VersioningResult:
+        """Commit display name, ACL, versioning, chunks and outbox together."""
+        act_versioning_service = self._act_versioning_service
         async with self._uow_factory.create(master=True) as uow:
-            # The row lock serializes concurrent replacements. ACL, chunks and
-            # vector outbox are committed or rolled back together in this UoW.
-            await uow.documents.set_acl(doc_id, visibility, owner_id, group_id)
+            document = await uow.documents.get_by_id(doc_id, for_update=True)
+            if document is None:
+                raise EntityNotFound("Document", doc_id)
+            fname = document.filename
+            occupied = await uow.documents.find_active_slot(owner_id, fname, group_id)
+            if occupied is not None and occupied.id != doc_id:
+                fname = await resolve_unique_filename(uow.documents, owner_id, group_id, fname)
+            # Update filename and ACL atomically: an alias may be occupied in
+            # the old scope but free in the destination scope (or vice versa).
+            await uow.documents.set_acl(doc_id, visibility, owner_id, group_id, filename=fname)
             if versioning_plan is not None and versioning_plan.warning is None:
                 if act_versioning_service is None:
                     raise RuntimeError("Versioning plan exists without an act versioning service")
@@ -285,11 +360,7 @@ class DocumentSyncService:
                     payload={"source": src, "document_id": doc_id},
                 )
             )
-        if act_versioning_service is not None:
-            if versioning.act_id is not None:
-                await act_versioning_service.invalidate_act_answers(versioning.act_id)
-            else:
-                await act_versioning_service.invalidate_document_answers(doc_id)
+        return versioning
 
     async def delete_internal_documents(self) -> None:
         """Delete all internal documents (owner_id=NULL, non-manual) from DB.

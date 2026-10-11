@@ -27,6 +27,7 @@ class SQLAlchemyDocumentRepository:
         orm = DocumentModel(
             filename=document.filename,
             source_path=document.source_path,
+            ingestion_key=document.ingestion_key,
             visibility=document.visibility.value
             if hasattr(document.visibility, "value")
             else document.visibility,
@@ -49,8 +50,11 @@ class SQLAlchemyDocumentRepository:
         document.id = orm.id
         return document
 
-    async def get_by_id(self, document_id: int) -> Document | None:
-        result = await self._db.execute(select(DocumentModel).where(DocumentModel.id == document_id))
+    async def get_by_id(self, document_id: int, *, for_update: bool = False) -> Document | None:
+        stmt = select(DocumentModel).where(DocumentModel.id == document_id)
+        if for_update:
+            stmt = stmt.with_for_update()
+        result = await self._db.execute(stmt)
         orm = result.scalar_one_or_none()
         return self._to_entity(orm) if orm else None
 
@@ -135,6 +139,8 @@ class SQLAlchemyDocumentRepository:
         visibility: DocumentVisibility,
         owner_id: int | None,
         group_id: int | None,
+        *,
+        filename: str | None = None,
     ) -> None:
         result = await self._db.execute(
             select(DocumentModel).where(DocumentModel.id == document_id).with_for_update()
@@ -145,6 +151,8 @@ class SQLAlchemyDocumentRepository:
         orm.visibility = visibility.value
         orm.owner_id = owner_id
         orm.group_id = group_id
+        if filename is not None:
+            orm.filename = filename
         orm.version += 1
         try:
             await self._db.flush()
@@ -178,6 +186,19 @@ class SQLAlchemyDocumentRepository:
         if for_update:
             stmt = stmt.with_for_update()
         result = await self._db.execute(stmt)
+        orm = result.scalar_one_or_none()
+        return self._to_entity(orm) if orm else None
+
+    async def find_by_ingestion_key(
+        self, owner_id: int | None, ingestion_key: str, group_id: int | None
+    ) -> Document | None:
+        result = await self._db.execute(
+            select(DocumentModel).where(
+                DocumentModel.ingestion_key == ingestion_key,
+                DocumentModel.owner_id == owner_id,
+                DocumentModel.group_id == group_id,
+            )
+        )
         orm = result.scalar_one_or_none()
         return self._to_entity(orm) if orm else None
 
@@ -385,6 +406,7 @@ class SQLAlchemyDocumentRepository:
             id=orm.id,
             filename=orm.filename,
             source_path=orm.source_path,
+            ingestion_key=orm.ingestion_key,
             visibility=DocumentVisibility(orm.visibility),
             owner_id=orm.owner_id,
             group_id=orm.group_id,

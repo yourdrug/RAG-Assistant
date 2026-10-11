@@ -340,7 +340,7 @@ class FakeDocumentRepository:
         self._documents: dict[int, object] = {}
         self._next_id = 1
 
-    async def get_by_id(self, doc_id: int):
+    async def get_by_id(self, doc_id: int, *, for_update=False):
         return self._documents.get(doc_id)
 
     async def get_by_ids(self, document_ids: list[int]):
@@ -397,6 +397,16 @@ class FakeDocumentRepository:
                 return d
         return None
 
+    async def find_by_ingestion_key(self, owner_id, ingestion_key, group_id):
+        for document in self._documents.values():
+            if (
+                document.ingestion_key == ingestion_key
+                and document.owner_id == owner_id
+                and document.group_id == group_id
+            ):
+                return document
+        return None
+
     async def update_status(self, document_id: int, status: str, **kwargs) -> None:
         return None
 
@@ -420,6 +430,8 @@ class FakeDocumentRepository:
         visibility: DocumentVisibility,
         owner_id: int | None,
         group_id: int | None,
+        *,
+        filename: str | None = None,
     ) -> None:
         doc = self._documents.get(document_id)
         if doc is None:
@@ -427,6 +439,8 @@ class FakeDocumentRepository:
         doc.visibility = visibility
         doc.owner_id = owner_id
         doc.group_id = group_id
+        if filename is not None:
+            doc.filename = filename
         doc.version += 1
 
     async def set_source_path(self, document_id: int, source_path: str) -> None:
@@ -870,20 +884,20 @@ class FakeIngestionRegistryRepository:
     def __init__(self) -> None:
         self._entries: dict[str, IngestionRegistryEntry] = {}
 
-    async def get(self, filename: str) -> IngestionRegistryEntry | None:
-        return self._entries.get(filename)
+    async def get(self, object_key: str) -> IngestionRegistryEntry | None:
+        return self._entries.get(object_key)
 
     async def upsert(self, entry: IngestionRegistryEntry) -> None:
-        self._entries[entry.filename] = entry
+        self._entries[entry.object_key] = entry
 
-    async def delete(self, filename: str) -> None:
-        self._entries.pop(filename, None)
+    async def delete(self, object_key: str) -> None:
+        self._entries.pop(object_key, None)
 
     async def list_all(self) -> dict[str, IngestionRegistryEntry]:
         return dict(self._entries)
 
-    async def is_already_indexed(self, filename: str, file_hash: str) -> bool:
-        entry = self._entries.get(filename)
+    async def is_already_indexed(self, object_key: str, file_hash: str) -> bool:
+        entry = self._entries.get(object_key)
         return entry is not None and entry.file_hash == file_hash
 
 

@@ -131,6 +131,14 @@ class DocumentModel(BaseModel):
         Index("idx_documents_visibility", "visibility"),
         Index("idx_documents_status", "status"),
         Index("idx_documents_doc_domain", "doc_domain"),
+        Index(
+            "ux_documents_ingestion_key",
+            text("COALESCE(owner_id, 0)"),
+            text("COALESCE(group_id, 0)"),
+            "ingestion_key",
+            unique=True,
+            postgresql_where="ingestion_key IS NOT NULL",
+        ),
         # COALESCE so public/group (NULL owner) rows collide too — NULLs are
         # distinct in plain unique indexes, which let duplicate public uploads
         # through.
@@ -146,6 +154,7 @@ class DocumentModel(BaseModel):
 
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
     source_path: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    ingestion_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     visibility: Mapped[str] = mapped_column(String(20), nullable=False)
     owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     group_id: Mapped[int | None] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"))
@@ -509,11 +518,12 @@ class IngestionRegistryModel(BaseModel):
     """Tracks which files have been indexed — replaces JSON-file registry."""
 
     __tablename__ = "ingestion_registry"
-    __table_args__ = (Index("idx_ingestion_registry_filename", "filename", unique=True),)
+    __table_args__ = (Index("ux_ingestion_registry_object_key", "object_key", unique=True),)
 
+    object_key: Mapped[str] = mapped_column(Text, nullable=False)
     filename: Mapped[str] = mapped_column(String(500), nullable=False)
     file_hash: Mapped[str] = mapped_column(String(255), nullable=False, server_default="")
-    source: Mapped[str] = mapped_column(String(1000), nullable=False, server_default="")
+    source: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
     chunks: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     chars: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     indexed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -25,7 +25,8 @@ async def indexed_public_document():
     factory = FakeUnitOfWorkFactory()
     uow = factory._uow
     uow.users.add_user(CLIENT_ID, kind=UserKind.CLIENT)
-    doc = await uow.documents.save(Document(filename=FILENAME))
+    # A migrated legacy ingestion row carries its confirmed source binding.
+    doc = await uow.documents.save(Document(filename=FILENAME, ingestion_key="docs/report.md"))
     await uow.chunks.bulk_insert(
         document_id=doc.id,
         filename=FILENAME,

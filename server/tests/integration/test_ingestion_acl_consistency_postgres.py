@@ -34,7 +34,9 @@ async def test_concurrent_reindex_serializes_acl_and_content_replacement(pg_engi
         session.add_all(clients)
         await session.flush()
         first_client, second_client = [client.id for client in clients]
-        doc = await SQLAlchemyDocumentRepository(session).save(Document(filename="report.md"))
+        doc = await SQLAlchemyDocumentRepository(session).save(
+            Document(filename="report.md", ingestion_key="docs/report.md")
+        )
         doc_id = doc.id
         await SQLAlchemyChunkRepository(session).bulk_insert(
             doc_id, "report.md", DocumentVisibility.INTERNAL_PUBLIC.value, ["old public text"]
@@ -52,10 +54,15 @@ async def test_concurrent_reindex_serializes_acl_and_content_replacement(pg_engi
     real_factory = UnitOfWorkFactory(SessionDatabase())
 
     class GatedDocumentRepository(SQLAlchemyDocumentRepository):
-        async def set_acl(self, document_id, visibility, owner_id, group_id):
+        async def get_by_id(self, document_id, *, for_update=False):
+            if for_update and first_locked.is_set():
+                second_attempted.set()
+            return await super().get_by_id(document_id, for_update=for_update)
+
+        async def set_acl(self, document_id, visibility, owner_id, group_id, *, filename=None):
             if owner_id == second_client:
                 second_attempted.set()
-            await super().set_acl(document_id, visibility, owner_id, group_id)
+            await super().set_acl(document_id, visibility, owner_id, group_id, filename=filename)
             if owner_id == first_client:
                 first_locked.set()
                 await release_first.wait()

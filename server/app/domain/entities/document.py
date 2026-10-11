@@ -39,6 +39,7 @@ class Document:
     chars: int | None = None
     creation_date: datetime = field(default_factory=lambda: datetime.now(UTC))
     indexed_at: datetime | None = None
+    ingestion_key: str | None = None
 
     def __post_init__(self) -> None:
         if isinstance(self.visibility, str):

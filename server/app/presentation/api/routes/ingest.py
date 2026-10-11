@@ -156,7 +156,7 @@ async def ingest_single_file(
         return IngestStatusResponse(**cached)
 
     if force:
-        await service.force_reindex(file_path.split("/")[-1])
+        await service.force_reindex(resolved)
 
     job_id = await job_service.create_job(JobType.INGEST, related_id=None)
 

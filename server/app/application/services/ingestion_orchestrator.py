@@ -67,8 +67,9 @@ class IngestionService:
     async def get_registry(self) -> dict:
         return await self._registry.list_all()
 
-    async def force_reindex(self, filename: str) -> None:
-        await self._registry.delete(filename)
+    async def force_reindex(self, object_key: str) -> None:
+        self._targets.validate_key(object_key)
+        await self._registry.delete(object_key)
 
     @staticmethod
     def _validate_s3_key(key: str) -> None:

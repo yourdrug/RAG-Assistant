@@ -60,8 +60,8 @@ class SingleFileIngestionWorkflow:
             return None
 
         file_hash = s3_file_hash(file_info)
-        if await self._registry.is_indexed(file_info.filename, file_hash):
-            log.warning("File '%s' already in registry.", file_info.filename)
+        if await self._registry.is_indexed(file_info.key, file_hash):
+            log.warning("File '%s' already in registry.", file_info.key)
             return None
 
         docs = await self._loader.load_file(file_info)
@@ -85,7 +85,8 @@ class SingleFileIngestionWorkflow:
         )
         source = self._loader.s3_source_key(file_info)
         entry = {
-            file_info.filename: {
+            file_info.key: {
+                "filename": file_info.filename,
                 "hash": file_hash,
                 "source": source,
                 "chunks": len(chunks),
@@ -102,5 +103,5 @@ class SingleFileIngestionWorkflow:
             client_id=scope.client_id,
         )
         # Registry is committed after the sync transaction, never before it.
-        await self._registry.upsert(file_info.filename, file_hash, source, len(chunks), total_chars)
+        await self._registry.upsert(file_info.key, file_hash, source, len(chunks), total_chars)
         return chunks

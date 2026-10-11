@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from application.services.ingestion_source import object_key_from_source
 from domain.repositories.ingestion_registry_repository import IngestionRegistryEntry
 
 if TYPE_CHECKING:
@@ -36,7 +37,7 @@ class IngestionRegistry:
 
     async def upsert(
         self,
-        filename: str,
+        object_key: str,
         file_hash_val: str,
         source: str,
         chunks_count: int,
@@ -45,7 +46,8 @@ class IngestionRegistry:
     ) -> None:
         async with self._uow_factory.create(master=True) as uow:
             entry = IngestionRegistryEntry(
-                filename=filename,
+                object_key=object_key,
+                filename=Path(object_key).name,
                 file_hash=file_hash_val,
                 source=source,
                 chunks=chunks_count,
@@ -54,15 +56,16 @@ class IngestionRegistry:
             )
             await uow.ingestion_registry.upsert(entry)
 
-    async def is_indexed(self, filename: str, file_hash_val: str) -> bool:
+    async def is_indexed(self, object_key: str, file_hash_val: str) -> bool:
         async with self._uow_factory.create(master=True) as uow:
-            return await uow.ingestion_registry.is_already_indexed(filename, file_hash_val)
+            return await uow.ingestion_registry.is_already_indexed(object_key, file_hash_val)
 
     async def list_all(self) -> dict:
         async with self._uow_factory.create(master=True) as uow:
             entries = await uow.ingestion_registry.list_all()
             return {
                 name: {
+                    "filename": e.filename,
                     "hash": e.file_hash,
                     "source": e.source,
                     "chunks": e.chunks,
@@ -72,9 +75,9 @@ class IngestionRegistry:
                 for name, e in entries.items()
             }
 
-    async def delete(self, filename: str) -> None:
+    async def delete(self, object_key: str) -> None:
         async with self._uow_factory.create(master=True) as uow:
-            await uow.ingestion_registry.delete(filename)
+            await uow.ingestion_registry.delete(object_key)
 
     def collect_entries(
         self,
@@ -89,12 +92,12 @@ class IngestionRegistry:
         """
         entries: dict[str, dict] = {}
         for src, chars in source_chars.items():
-            fname = Path(src).name
-            key = "/".join(src.split("/")[3:])
+            key = object_key_from_source(src)
             file_info = self._file_storage.get_file_info(key)
             h = s3_file_hash(file_info) if file_info else "unknown"
             chunks_count = sum(1 for c in chunks if c.metadata.get("source") == src)
-            entries[fname] = {
+            entries[key] = {
+                "filename": Path(key).name,
                 "hash": h,
                 "source": src,
                 "chunks": chunks_count,
@@ -104,9 +107,9 @@ class IngestionRegistry:
 
     async def persist_entries(self, entries: dict[str, dict]) -> None:
         """Upsert collected registry entries (call after the sync committed)."""
-        for fname, info in entries.items():
+        for object_key, info in entries.items():
             await self.upsert(
-                fname,
+                object_key,
                 info["hash"],
                 info["source"],
                 info["chunks"],

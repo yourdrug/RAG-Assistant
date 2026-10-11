@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 from application.ports.document_parser import DocumentParserPort, DocumentSplitterPort, FileMeta, SplitContext
 from application.services.document_pipeline import classify_domain, tag_chunks, tag_domain
 from application.services.ingestion_registry import s3_file_hash
+from application.services.ingestion_source import S3_SOURCE_PREFIX
 from domain.entities.raw_document import RawDocument
 from domain.services.document_domain_classifier import classify_document_domain
 from domain.value_objects.doc_domain import DocDomain, DomainDetectionMode
@@ -49,7 +50,7 @@ class S3DocumentLoader:
         self._registry = registry
 
     def s3_source_key(self, file_item: "FileItem") -> str:
-        return f"s3://{self._ingestion_settings.s3_bucket}/{file_item.key}"
+        return f"{S3_SOURCE_PREFIX}{self._ingestion_settings.s3_bucket}/{file_item.key}"
 
     def _parse_file(self, source: "FileItem", temp_path: Path) -> list | None:
         meta = FileMeta(
@@ -147,9 +148,9 @@ class S3DocumentLoader:
             if (
                 not force
                 and self._registry is not None
-                and await self._registry.is_indexed(file_item.filename, s3_file_hash(file_item))
+                and await self._registry.is_indexed(file_item.key, s3_file_hash(file_item))
             ):
-                log.info("%s CACHED  %s", tag, file_item.filename)
+                log.info("%s CACHED  %s", tag, file_item.key)
                 skipped_cached += 1
                 continue
 
