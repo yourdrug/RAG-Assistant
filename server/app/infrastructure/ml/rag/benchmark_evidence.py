@@ -39,7 +39,7 @@ def snapshot_documents(docs: list) -> list[dict]:
                         "effective_to",
                         "is_current",
                         "verified_timing_scope",
-                    "verified_amended_acts",
+                        "verified_amended_acts",
                     )
                     if key in doc.metadata
                 },

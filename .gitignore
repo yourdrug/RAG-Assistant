@@ -35,8 +35,15 @@ docs/operations/*
 .opencode/
 opencode.json
 .zvec-grep
-.codex
-.agents
+# Codex: track shared agents/skills; keep other local settings ignored
+/.codex/*
+!/.codex/config.toml
+!/.codex/README.md
+!/.codex/agents/
+/.codex/agents/*
+!/.codex/agents/*.toml
+/.agents/*
+!/.agents/skills/
 
 # coverage
 server/.coverage

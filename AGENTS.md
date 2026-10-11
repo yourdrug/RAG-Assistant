@@ -521,3 +521,27 @@ UserContext.build()          → managed_*_ids from DB (CURATOR only)
   переименуй определение и все места использования в затрагиваемом компоненте.
 - Правила и инварианты редакций принадлежат `ActVersion` / `ActVersionTimeline` в domain.
   Загрузка, блокировки, UoW, обновление чанков и outbox остаются в application/infrastructure.
+
+## Codex project agents and skills
+
+Адаптация `.opencode/` для Codex хранится в `.codex/agents/*.toml`
+(восемь ролей ревью) и `.agents/skills/` (четыре профильных скилла и
+семь workflow). Форматы, ограничения и примеры: `.codex/README.md`.
+
+Вызовы: `$review-full [scope]`, `$review-pr [base]`, `$review-quick [scope]`,
+`$review-arch [scope]`, `$review-rag [scope]`, `$review-security [scope]`,
+`$review-tests [scope]`. Профильные скиллы: `$fastapi-ddd-layering`,
+`$dependency-injection-patterns`, `$multi-tenant-rag-security`,
+`$python-async-performance`.
+
+При запуске review-workflow следуй его SKILL.md и инструкциям
+`review-orchestrator`. Workflow предусматривает делегирование указанным
+ролям при наличии инструментов субагентов; без них применяй роли
+последовательно и сообщай об этом. Эти workflow не разрешают исправление
+кода. Read-only ревьюеры возвращают находки основной сессии; основной
+агент сохраняет отчёт, когда это предусмотрено workflow или запросом.
+Тесты, сервисы и нагрузочные проверки запускаются только по прямому запросу.
+
+При расхождении исторического чек-листа с правилами проекта приоритет
+имеют AGENTS.md и проверенные контракты текущего кода. Исходный набор
+`.opencode/` и адаптация Codex поддерживаются отдельно.
