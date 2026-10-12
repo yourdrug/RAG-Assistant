@@ -42,9 +42,9 @@ async def test_batch_workflow_syncs_before_recording_registry_entry(failure):
     loader.classify_source_domains.return_value = {source: "general"}
     registry = MagicMock()
     registry.list_all = AsyncMock(return_value={})
-    registry.collect_entries.return_value = {
+    registry.collect_entries = AsyncMock(return_value={
         "report.pdf": {"hash": "hash", "source": source, "chunks": 1, "chars": 11}
-    }
+    })
 
     async def persist_entries(entries):
         events.append("registry")
@@ -110,7 +110,7 @@ async def test_single_file_workflow_syncs_before_recording_registry_entry(sync_f
     events: list[str] = []
 
     file_storage = MagicMock()
-    file_storage.get_file_info.return_value = file_info
+    file_storage.get_file_info = AsyncMock(return_value=file_info)
     file_storage.supported_extensions = (".pdf",)
     loader = MagicMock()
     loader.load_file = AsyncMock(return_value=[document])

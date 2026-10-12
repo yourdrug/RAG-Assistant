@@ -137,7 +137,7 @@ class S3DocumentLoader:
     ) -> tuple[list, int]:
         """Load and parse all S3 files, returning (documents, skipped_count)."""
         s3_prefix = prefix or "docs/"
-        items = self._file_storage.list_files(s3_prefix)
+        items = await self._file_storage.list_files(s3_prefix)
         log.info("Found %d files in s3://%s/%s", len(items), self._ingestion_settings.s3_bucket, s3_prefix)
 
         documents, skipped_cached, ok, errors = [], 0, 0, 0

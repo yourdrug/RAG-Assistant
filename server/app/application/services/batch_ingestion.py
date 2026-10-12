@@ -74,7 +74,7 @@ class BatchIngestionWorkflow:
             source = chunk.metadata.get("source", "")
             tag_domain([chunk], source_domains.get(source, DocDomain.GENERAL.value))
 
-        entries = self._registry.collect_entries(docs, chunks, source_chars)
+        entries = await self._registry.collect_entries(docs, chunks, source_chars)
         await self._sync.sync_documents_to_db(
             {**registry, **entries},
             source_chars,

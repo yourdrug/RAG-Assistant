@@ -54,7 +54,7 @@ class SingleFileIngestionWorkflow:
         log.info("=" * 55)
 
     async def _ingest(self, file_path: str, *, scope: IngestionScope, registry: dict) -> list | None:
-        file_info = self._file_storage.get_file_info(file_path)
+        file_info = await self._file_storage.get_file_info(file_path)
         if file_info is None:
             log.error("File not found in S3: %s", file_path)
             return None

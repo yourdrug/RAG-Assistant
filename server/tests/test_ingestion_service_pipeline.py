@@ -66,8 +66,8 @@ def _make_service(**overrides):
     mock_vector_store.ensure_collection = AsyncMock()
     mock_file_storage = MagicMock()
     mock_file_storage.supported_extensions = (".pdf", ".docx", ".txt", ".md")
-    mock_file_storage.list_files = MagicMock(return_value=[])
-    mock_file_storage.get_file_info = MagicMock(return_value=None)
+    mock_file_storage.list_files = AsyncMock(return_value=[])
+    mock_file_storage.get_file_info = AsyncMock(return_value=None)
     mock_file_storage.download_to_temp = AsyncMock(return_value=Path("/tmp/test.pdf"))
     mock_parser = MagicMock()
     mock_splitter = MagicMock()
@@ -445,14 +445,14 @@ class TestRunFullIngestion:
     @pytest.mark.asyncio
     async def test_no_documents_returns_early(self):
         svc = _make_service()
-        svc._batch._loader._file_storage.list_files = MagicMock(return_value=[])
+        svc._batch._loader._file_storage.list_files = AsyncMock(return_value=[])
         # Should not raise
         await svc.run_full_ingestion(docs_dir="empty/", reset=False)
 
     @pytest.mark.asyncio
     async def test_ensure_collection_called(self):
         svc = _make_service()
-        svc._batch._loader._file_storage.list_files = MagicMock(return_value=[])
+        svc._batch._loader._file_storage.list_files = AsyncMock(return_value=[])
         await svc.run_full_ingestion(docs_dir="empty/", reset=False)
         svc._batch._vector_store.ensure_collection.assert_called_once()
 
@@ -478,7 +478,7 @@ class TestRunFullIngestion:
         mock_factory.create = MagicMock(return_value=mock_ctx)
 
         svc = _make_service(uow_factory=mock_factory)
-        svc._batch._loader._file_storage.list_files = MagicMock(return_value=[])
+        svc._batch._loader._file_storage.list_files = AsyncMock(return_value=[])
 
         await svc.run_full_ingestion(docs_dir="empty/", reset=True)
         mock_uow.documents.delete_internal_documents.assert_called_once()

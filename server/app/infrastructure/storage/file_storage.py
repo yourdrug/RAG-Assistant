@@ -18,15 +18,17 @@ from pathlib import Path
 
 import boto3
 from botocore.config import Config as BotoConfig
+from botocore.exceptions import ClientError
 
 from application.ports.file_storage import FileItem, FileStorage
 from config import settings
 
 log = logging.getLogger("default")
+S3_MISSING_CODES = frozenset({"404", "NoSuchKey", "NotFound"})
 
 # Explicit timeouts/retries — botocore defaults can hang for minutes, which
 # would pin a worker thread (and, historically, the event loop) per call.
-_S3_CONFIG = BotoConfig(
+S3_CONFIG = BotoConfig(
     connect_timeout=10,
     read_timeout=60,
     retries={"max_attempts": 3, "mode": "standard"},
@@ -41,7 +43,10 @@ class LocalStorage:
     def supported_extensions(self) -> tuple[str, ...]:
         return settings.supported_extensions
 
-    def list_files(self, prefix: str) -> list[FileItem]:
+    async def list_files(self, prefix: str) -> list[FileItem]:
+        return await asyncio.to_thread(self.list_files_sync, prefix)
+
+    def list_files_sync(self, prefix: str) -> list[FileItem]:
         base = self.base_dir / prefix
         if not base.exists():
             return []
@@ -65,7 +70,7 @@ class LocalStorage:
         return items
 
     async def download_to_temp(self, key: str) -> Path:
-        def _download() -> Path:
+        def download() -> Path:
             src = self.base_dir / key
             if not src.exists():
                 raise FileNotFoundError(f"File not found: {key}")
@@ -79,17 +84,20 @@ class LocalStorage:
             tmp.close()
             return Path(tmp.name)
 
-        return await asyncio.to_thread(_download)
+        return await asyncio.to_thread(download)
 
     async def upload_file(self, key: str, data: bytes) -> None:
-        def _upload() -> None:
+        def upload() -> None:
             dest = self.base_dir / key
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(data)
 
-        await asyncio.to_thread(_upload)
+        await asyncio.to_thread(upload)
 
-    def get_file_info(self, key: str) -> FileItem | None:
+    async def get_file_info(self, key: str) -> FileItem | None:
+        return await asyncio.to_thread(self.get_file_info_sync, key)
+
+    def get_file_info_sync(self, key: str) -> FileItem | None:
         f = self.base_dir / key
         if not f.exists():
             return None
@@ -103,32 +111,35 @@ class LocalStorage:
         )
 
     async def delete_file(self, key: str) -> None:
-        def _delete() -> None:
+        def delete() -> None:
             f = self.base_dir / key
             if f.exists():
                 f.unlink()
 
-        await asyncio.to_thread(_delete)
+        await asyncio.to_thread(delete)
 
     async def rename_file(self, old_key: str, new_key: str) -> None:
-        def _rename() -> None:
+        def rename() -> None:
             src = self.base_dir / old_key
             dst = self.base_dir / new_key
             if src.exists():
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 src.rename(dst)
 
-        await asyncio.to_thread(_rename)
+        await asyncio.to_thread(rename)
 
     async def copy_file(self, old_key: str, new_key: str) -> None:
-        def _copy() -> None:
+        def copy() -> None:
             src = self.base_dir / old_key
             dst = self.base_dir / new_key
             if src.exists():
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src, dst)
 
-        await asyncio.to_thread(_copy)
+        await asyncio.to_thread(copy)
+
+    async def aclose(self) -> None:
+        """Local storage has no persistent resources."""
 
 
 class S3Storage:
@@ -137,7 +148,7 @@ class S3Storage:
             "aws_access_key_id": settings.s3_access_key,
             "aws_secret_access_key": settings.s3_secret_key,
             "region_name": settings.s3_region,
-            "config": _S3_CONFIG,
+            "config": S3_CONFIG,
         }
         if settings.s3_endpoint and not settings.s3_endpoint.startswith("https://s3.amazonaws.com"):
             kwargs["endpoint_url"] = settings.s3_endpoint
@@ -148,7 +159,10 @@ class S3Storage:
     def supported_extensions(self) -> tuple[str, ...]:
         return settings.supported_extensions
 
-    def list_files(self, prefix: str) -> list[FileItem]:
+    async def list_files(self, prefix: str) -> list[FileItem]:
+        return await asyncio.to_thread(self.list_files_sync, prefix)
+
+    def list_files_sync(self, prefix: str) -> list[FileItem]:
         paginator = self.client.get_paginator("list_objects_v2")
         items: list[FileItem] = []
         for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix):
@@ -169,7 +183,7 @@ class S3Storage:
         return sorted(items, key=lambda x: x.key)
 
     async def download_to_temp(self, key: str) -> Path:
-        def _download() -> Path:
+        def download() -> Path:
             suffix = Path(key).suffix
             tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
             try:
@@ -181,16 +195,21 @@ class S3Storage:
             tmp.close()
             return Path(tmp.name)
 
-        return await asyncio.to_thread(_download)
+        return await asyncio.to_thread(download)
 
     async def upload_file(self, key: str, data: bytes) -> None:
         await asyncio.to_thread(self.client.put_object, Bucket=self.bucket, Key=key, Body=data)
 
-    def get_file_info(self, key: str) -> FileItem | None:
+    async def get_file_info(self, key: str) -> FileItem | None:
+        return await asyncio.to_thread(self.get_file_info_sync, key)
+
+    def get_file_info_sync(self, key: str) -> FileItem | None:
         try:
             resp = self.client.head_object(Bucket=self.bucket, Key=key)
-        except self.client.exceptions.ClientError:
-            return None
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") in S3_MISSING_CODES:
+                return None
+            raise
         ext = Path(key).suffix.lower()
         return FileItem(
             key=key,
@@ -208,14 +227,14 @@ class S3Storage:
         )
 
     async def rename_file(self, old_key: str, new_key: str) -> None:
-        async def _rename() -> None:
+        async def rename() -> None:
             await self.copy_file(old_key, new_key)
             await self.delete_file(old_key)
 
-        await _rename()
+        await rename()
 
     async def copy_file(self, old_key: str, new_key: str) -> None:
-        def _copy() -> None:
+        def copy() -> None:
             try:
                 self.client.copy_object(
                     Bucket=self.bucket, CopySource=f"{self.bucket}/{old_key}", Key=new_key
@@ -227,7 +246,7 @@ class S3Storage:
                 else:
                     raise
 
-        await asyncio.to_thread(_copy)
+        await asyncio.to_thread(copy)
 
     def download_bytes(self, key: str) -> bytes:
         """Download an entire object as bytes synchronously.
@@ -237,6 +256,9 @@ class S3Storage:
         """
         resp = self.client.get_object(Bucket=self.bucket, Key=key)
         return resp["Body"].read()
+
+    async def aclose(self) -> None:
+        await asyncio.to_thread(self.close)
 
     def close(self) -> None:
         """Close the underlying boto3 connection pool."""
@@ -255,7 +277,7 @@ class LazyStorage:
         self._retired = []
         self._lock = threading.Lock()
 
-    def _ensure(self):
+    def ensure(self):
         if self._resolved is None:
             with self._lock:
                 if self._resolved is None:
@@ -263,7 +285,7 @@ class LazyStorage:
         return self._resolved
 
     def __getattr__(self, name):
-        return getattr(self._ensure(), name)
+        return getattr(self.ensure(), name)
 
     def invalidate(self) -> None:
         """Rotate the backend; old instances stay alive until container shutdown."""

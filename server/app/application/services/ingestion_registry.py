@@ -76,7 +76,7 @@ class IngestionRegistry:
         async with self._uow_factory.create(master=True) as uow:
             await uow.ingestion_registry.delete(filename)
 
-    def collect_entries(
+    async def collect_entries(
         self,
         docs: list,
         chunks: list,
@@ -91,7 +91,7 @@ class IngestionRegistry:
         for src, chars in source_chars.items():
             fname = Path(src).name
             key = "/".join(src.split("/")[3:])
-            file_info = self._file_storage.get_file_info(key)
+            file_info = await self._file_storage.get_file_info(key)
             h = s3_file_hash(file_info) if file_info else "unknown"
             chunks_count = sum(1 for c in chunks if c.metadata.get("source") == src)
             entries[fname] = {

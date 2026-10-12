@@ -179,7 +179,7 @@ async def test_single_file_ingestion_refreshes_sparse_before_recording_success(s
     )
 
     workflow = SingleFileIngestionWorkflow(
-        SimpleNamespace(get_file_info=lambda path: info, supported_extensions=(".txt",)),
+        SimpleNamespace(get_file_info=AsyncMock(return_value=info), supported_extensions=(".txt",)),
         SimpleNamespace(
             load_file=AsyncMock(return_value=[chunk]),
             classify_text_domain=lambda text, domain: domain,
