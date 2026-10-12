@@ -36,7 +36,7 @@ def _make_ml_clients(qdrant_client=None, embeddings=None, bm25_index=None):
     embs = embeddings or MagicMock()
     embs.embed_query = AsyncMock(return_value=[0.1] * 384)
     ml.embeddings.return_value = embs
-    ml._ensure_bm25_loaded = AsyncMock(return_value=bm25_index)
+    ml.ensure_bm25_loaded = AsyncMock(return_value=bm25_index)
     return ml
 
 
@@ -73,9 +73,9 @@ class TestDenseSearchACLFilter:
 
         call_kwargs = mock_client.search.call_args
         applied_filter = call_kwargs.kwargs["query_filter"]
-        assert applied_filter is not None, (
-            "Must-style filter from with_temporal_filter was dropped — dense search ran without ACL!"
-        )
+        assert (
+            applied_filter is not None
+        ), "Must-style filter from with_temporal_filter was dropped — dense search ran without ACL!"
         assert applied_filter is temporal_af
 
     def test_must_style_filter_after_domain_NOT_dropped(self):

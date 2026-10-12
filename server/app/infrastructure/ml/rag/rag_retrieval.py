@@ -154,7 +154,7 @@ async def run_hybrid_search(
     if not visibility_conditions:
         return []
 
-    bm25_index = await ml_clients._ensure_bm25_loaded()
+    bm25_index = await ml_clients.ensure_bm25_loaded()
 
     if rag.hybrid_search.enabled and bm25_index is not None:
         t0 = time.monotonic()

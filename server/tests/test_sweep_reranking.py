@@ -42,7 +42,7 @@ async def test_sweep_candidates_forward_acl_to_real_bm25():
     clients = SimpleNamespace(
         qdrant_client=lambda: client,
         embeddings=lambda: SimpleNamespace(embed_query_sync=lambda query: [0.1]),
-        _ensure_bm25_loaded=AsyncMock(return_value=bm25),
+        ensure_bm25_loaded=AsyncMock(return_value=bm25),
     )
     data = SweepDataSource(None, clients)
 
@@ -127,7 +127,7 @@ async def test_sparse_only_chunks_are_resolved_with_acl_before_reranking(monkeyp
         clients = SimpleNamespace(
             qdrant_client=lambda: client,
             embeddings=lambda: embeddings,
-            _ensure_bm25_loaded=AsyncMock(return_value=bm25),
+            ensure_bm25_loaded=AsyncMock(return_value=bm25),
             qdrant_search_semaphore=asyncio.Semaphore(1),
         )
     else:

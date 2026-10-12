@@ -12,19 +12,11 @@ the index to S3, acting as a safety net against drift.
 from __future__ import annotations
 
 import logging
-import threading
 import time
 from application.ports.ml_clients import MLClientPort
 from infrastructure.metrics.metrics import BM25_UPDATE_DURATION
 
 log = logging.getLogger("default")
-
-_bm25_lock = threading.Lock()
-
-
-def _find_index_by_hash(idx, old_hash: str) -> int | None:
-    """Find the BM25 internal index for a given content hash (O(1) via reverse index)."""
-    return idx.find_by_hash(old_hash)
 
 
 def bm25_add(
@@ -36,12 +28,9 @@ def bm25_add(
     group_id: int | None = None,
 ) -> None:
     """Add a new text to the BM25 index."""
-    idx = registry.bm25_index()
-    if idx is None:
-        return
     start = time.perf_counter()
     try:
-        with _bm25_lock:
+        with registry.bm25_update() as idx:
             idx.add_text(
                 text,
                 text_hash=text_hash,
@@ -70,13 +59,10 @@ def bm25_replace(
     If the old hash is not found in the index (e.g. after a rebuild),
     the new text is appended instead.
     """
-    idx = registry.bm25_index()
-    if idx is None:
-        return
     start = time.perf_counter()
     try:
-        with _bm25_lock:
-            pos = _find_index_by_hash(idx, old_hash)
+        with registry.bm25_update() as idx:
+            pos = idx.find_by_hash(old_hash)
             if pos is not None:
                 idx.replace_text(
                     pos,
@@ -108,13 +94,10 @@ def bm25_remove(registry: MLClientPort, old_hash: str) -> None:
     If the hash is not found (already removed or after rebuild), this is
     a no-op.
     """
-    idx = registry.bm25_index()
-    if idx is None:
-        return
     start = time.perf_counter()
     try:
-        with _bm25_lock:
-            pos = _find_index_by_hash(idx, old_hash)
+        with registry.bm25_update() as idx:
+            pos = idx.find_by_hash(old_hash)
             if pos is not None:
                 idx.remove_text(pos)
                 log.debug("BM25: removed text at pos %d (n_docs=%d)", pos, idx.n_docs)

@@ -22,7 +22,7 @@ from copy import deepcopy
 
 import asyncio
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
 
 from domain.entities.message import Message
 from domain.entities.vector_outbox_entry import OutboxStatus, VectorOutboxEntry
@@ -1095,7 +1095,10 @@ class FakeMLClientRegistry:
     def bm25_index(self):
         return None
 
-    async def _ensure_bm25_loaded(self):
+    def bm25_update(self):
+        return nullcontext(self.bm25_index())
+
+    async def ensure_bm25_loaded(self):
         return None
 
     def vector_store(self):

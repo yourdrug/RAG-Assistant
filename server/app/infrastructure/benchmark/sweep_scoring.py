@@ -252,7 +252,7 @@ async def cache_candidates(
     if ml_clients is not None:
         client = ml_clients.qdrant_client()
         embeddings = ml_clients.embeddings()
-        bm25_index = await ml_clients._ensure_bm25_loaded()
+        bm25_index = await ml_clients.ensure_bm25_loaded()
     else:
         from infrastructure.ml.clients.factories import (
             create_embeddings,

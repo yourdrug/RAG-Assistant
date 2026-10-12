@@ -1,6 +1,7 @@
 """Tests for ChunkService business logic."""
 
 from dataclasses import dataclass
+import threading
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -13,6 +14,10 @@ from domain.value_objects.document_status import DocumentStatus
 from domain.value_objects.roles import UserRole
 from domain.value_objects.source_type import SourceType
 from domain.value_objects.visibility import DocumentVisibility
+from infrastructure.bm25.bm25_index import BM25Index
+from infrastructure.bm25.bm25_updater import BM25IndexAdapter
+from infrastructure.ml.clients import factories
+from infrastructure.ml.clients.client_registry import MLClientRegistry
 
 
 # ---------------------------------------------------------------------------
@@ -95,6 +100,7 @@ def _make_service(uow, *, chunk_settings=None, bm25_index=None, cache_invalidato
         __aenter__=AsyncMock(return_value=uow),
         __aexit__=AsyncMock(return_value=False),
     )
+
     return ChunkService(
         uow_factory=factory,
         vector_store_repo=AsyncMock(),
@@ -102,6 +108,24 @@ def _make_service(uow, *, chunk_settings=None, bm25_index=None, cache_invalidato
         bm25_index=bm25_index or MagicMock(),
         cache_invalidator=cache_invalidator,
     )
+
+
+@pytest.mark.asyncio
+async def test_add_chunk_loads_bm25_outside_event_loop(monkeypatch):
+    event_loop_thread = threading.get_ident()
+    loader_threads = []
+
+    def load():
+        loader_threads.append(threading.get_ident())
+        return BM25Index([])
+
+    monkeypatch.setattr(factories, "load_bm25_index", load)
+    registry = MLClientRegistry()
+    service = _make_service(_make_uow(), bm25_index=BM25IndexAdapter(registry))
+    result = await service.add_chunk(document_id=1, content="x" * 300, user_id=100, user_role=UserRole.ADMIN)
+    assert result.id is not None
+    assert registry.bm25_index().texts == ["x" * 300]
+    assert loader_threads and event_loop_thread not in loader_threads
 
 
 # ---------------------------------------------------------------------------

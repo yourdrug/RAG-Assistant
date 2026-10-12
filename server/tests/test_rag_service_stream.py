@@ -80,7 +80,7 @@ def _make_service(llm_response: str = "Ответ из документов.", *
     mock_ml.embeddings.return_value.embed_query = AsyncMock(return_value=[0.1] * 384)
     mock_ml.qdrant_client.return_value.search.return_value = []
     mock_ml.qdrant_client.return_value.scroll.return_value = ([], None)
-    mock_ml._ensure_bm25_loaded = AsyncMock(return_value=None)
+    mock_ml.ensure_bm25_loaded = AsyncMock(return_value=None)
     mock_ml.bm25_search_semaphore = asyncio.Semaphore(8)
     mock_ml.reranker_semaphore = asyncio.Semaphore(8)
     mock_ml.embedding_semaphore = asyncio.Semaphore(8)

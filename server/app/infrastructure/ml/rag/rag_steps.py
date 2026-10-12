@@ -290,7 +290,7 @@ async def step_retrieve(
     )
 
     # Record sparse survival ratio per role
-    bm25_idx = await ml_clients._ensure_bm25_loaded()
+    bm25_idx = await ml_clients.ensure_bm25_loaded()
     if bm25_idx is not None and bm25_idx.last_survival_ratio is not None:
         RAG_SPARSE_SURVIVAL_RATIO.labels(role=ctx.user_role).observe(bm25_idx.last_survival_ratio)
 

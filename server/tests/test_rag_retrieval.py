@@ -220,7 +220,7 @@ async def test_hybrid_search_fallback_to_dense_when_bm25_disabled(mock_settings,
     ml_clients = MagicMock()
     ml_clients.qdrant_client.return_value = mock_client
     ml_clients.embeddings.return_value = mock_embeddings
-    ml_clients._ensure_bm25_loaded = AsyncMock(return_value=None)  # no BM25
+    ml_clients.ensure_bm25_loaded = AsyncMock(return_value=None)  # no BM25
 
     _acl_filter = Filter(must=[FieldCondition(key="id", match=MatchValue(value=0))])
 
@@ -270,7 +270,7 @@ async def test_run_hybrid_search_acl_defaults_are_mandatory(mock_settings, mock_
     )
 
     ml_clients = MagicMock()
-    ml_clients._ensure_bm25_loaded = AsyncMock(return_value=None)
+    ml_clients.ensure_bm25_loaded = AsyncMock(return_value=None)
 
     with pytest.raises(RuntimeError, match="requires access_filter"):
         await run_hybrid_search(
@@ -290,7 +290,7 @@ async def test_run_hybrid_search_acl_defaults_are_mandatory(mock_settings, mock_
         with pytest.raises(RuntimeError, match="requires"):
             await run_hybrid_search("test", 10, Filter(must=[]), rag, ml_clients, **acl)
 
-    ml_clients._ensure_bm25_loaded.assert_not_awaited()
+    ml_clients.ensure_bm25_loaded.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -335,7 +335,7 @@ async def test_run_hybrid_search_empty_conditions_fail_closed(mock_settings, moc
     ml_clients = MagicMock()
     ml_clients.qdrant_client.return_value = mock_client
     ml_clients.embeddings.return_value = mock_embeddings
-    ml_clients._ensure_bm25_loaded = AsyncMock(return_value=MagicMock())
+    ml_clients.ensure_bm25_loaded = AsyncMock(return_value=MagicMock())
 
     results = await run_hybrid_search(
         "test",
@@ -352,7 +352,7 @@ async def test_run_hybrid_search_empty_conditions_fail_closed(mock_settings, moc
     mock_client.search.assert_not_called()
     ml_clients.embeddings.assert_not_called()
     ml_clients.embeddings.return_value.embed_query.assert_not_awaited()
-    ml_clients._ensure_bm25_loaded.assert_not_awaited()
+    ml_clients.ensure_bm25_loaded.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -412,7 +412,7 @@ async def test_hybrid_search_uses_rrf_when_bm25_available(mock_settings, mock_me
     ml_clients = MagicMock()
     ml_clients.qdrant_client.return_value = mock_client
     ml_clients.embeddings.return_value = mock_embeddings
-    ml_clients._ensure_bm25_loaded = AsyncMock(return_value=mock_bm25)
+    ml_clients.ensure_bm25_loaded = AsyncMock(return_value=mock_bm25)
 
     _acl_filter = Filter(must=[FieldCondition(key="id", match=MatchValue(value=0))])
     conditions = [VisibilityCondition(visibility=DocumentVisibility.INTERNAL_PUBLIC)]

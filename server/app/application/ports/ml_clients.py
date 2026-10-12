@@ -8,7 +8,7 @@ infrastructure implementation.
 
 from __future__ import annotations
 
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, ContextManager, Protocol, runtime_checkable
 
 
 @runtime_checkable
@@ -57,7 +57,9 @@ class MLClientPort(Protocol):
 
     def bm25_index(self) -> Any: ...
 
-    async def _ensure_bm25_loaded(self) -> Any: ...
+    def bm25_update(self) -> ContextManager[Any]: ...
+
+    async def ensure_bm25_loaded(self) -> Any: ...
 
     @property
     def instructor_client(self) -> Any: ...

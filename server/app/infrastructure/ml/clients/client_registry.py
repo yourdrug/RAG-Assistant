@@ -14,8 +14,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
-import time
-from typing import TYPE_CHECKING, Any
+from collections.abc import Iterator
+from contextlib import contextmanager
+from typing import Any
 
 from application.ports.ml_clients import AsyncSemaphorePort, MLClientPort
 from config import settings
@@ -23,8 +24,8 @@ from infrastructure.ml.clients.managed_llm import ManagedLLM, ManagedInstructor
 from domain.exceptions.domain_errors import SemaphoreTimeoutError
 from domain.value_objects.llm_provider import LLMProvider
 
-if TYPE_CHECKING:
-    from infrastructure.bm25.bm25_index import BM25Index
+from infrastructure.bm25.bm25_index import BM25Index
+from infrastructure.ml.clients import factories
 
 log = logging.getLogger("default")
 
@@ -82,8 +83,9 @@ class MLClientRegistry(MLClientPort):
         self._qdrant_client: Any = None
         self._bm25_index: BM25Index | None = None
         self._bm25_loaded: bool = False
-        self._bm25_last_reload: float = 0.0
-        self._bm25_reload_lock: asyncio.Lock | None = None
+        self._bm25_generation = 0
+        self._bm25_state_lock = threading.Lock()
+        self._bm25_load_lock = threading.Lock()
         self._instructor: Any = None
 
         # Eager init semaphores — lightweight objects, no race conditions
@@ -171,45 +173,45 @@ class MLClientRegistry(MLClientPort):
                     self._qdrant_client = create_qdrant_client()
         return self._qdrant_client
 
-    async def _ensure_bm25_loaded(self) -> BM25Index | None:
-        """Load BM25 index from S3 with thundering-herd protection.
-
-        Uses an asyncio.Lock so that concurrent coroutines after invalidation
-        do not all trigger a synchronous S3 download simultaneously.  The
-        threading-level double-checked lock (``_init_lock``) is kept for
-        thread-safety during the very first access from a non-async context.
-        """
-        if self._bm25_loaded:
-            return self._bm25_index
-
-        if self._bm25_reload_lock is None:
-            self._bm25_reload_lock = asyncio.Lock()
-
-        async with self._bm25_reload_lock:
-            # Re-check after acquiring lock — another coroutine may have reloaded.
-            now = time.monotonic()
-            if self._bm25_loaded or (now - self._bm25_last_reload) <= 5.0:
-                return self._bm25_index
-
-            from infrastructure.ml.clients.factories import load_bm25_index
-
-            self._bm25_index = await asyncio.to_thread(load_bm25_index)
-            self._bm25_loaded = True
-            self._bm25_last_reload = now
-            return self._bm25_index
+    async def ensure_bm25_loaded(self) -> BM25Index | None:
+        """Use the same single-flight loader as sync callers, outside the event loop."""
+        return await asyncio.to_thread(self.bm25_index)
 
     def bm25_index(self) -> BM25Index | None:
-        """Return the BM25 index, blocking on first load (thread-safe via _init_lock)."""
-        if not self._bm25_loaded:
-            with self._init_lock:
-                now = time.monotonic()
-                if not self._bm25_loaded and (now - self._bm25_last_reload) > 5.0:
-                    from infrastructure.ml.clients.factories import load_bm25_index
+        """Blocking accessor for worker threads and synchronous consumers."""
+        with self._bm25_state_lock:
+            if self._bm25_loaded:
+                return self._bm25_index
 
-                    self._bm25_index = load_bm25_index()
+        with self._bm25_load_lock:
+            while True:
+                with self._bm25_state_lock:
+                    if self._bm25_loaded:
+                        return self._bm25_index
+                    generation = self._bm25_generation
+                index = factories.load_bm25_index()
+                with self._bm25_state_lock:
+                    # Invalidation can run while S3 is loading; discard that snapshot.
+                    if generation != self._bm25_generation:
+                        continue
+                    self._bm25_index = index
                     self._bm25_loaded = True
-                    self._bm25_last_reload = now
-        return self._bm25_index
+                    return index
+
+    @contextmanager
+    def bm25_update(self) -> Iterator[BM25Index]:
+        """Keep index selection and mutation atomic with respect to invalidation."""
+        while True:
+            index = self.bm25_index()
+            with self._bm25_state_lock:
+                if not self._bm25_loaded or index is not self._bm25_index:
+                    continue
+                if index is None:
+                    log.warning("BM25 snapshot unavailable — starting an index for incremental updates")
+                    index = BM25Index([])
+                    self._bm25_index = index
+                yield index
+                return
 
     @property
     def instructor_client(self):
@@ -273,8 +275,10 @@ class MLClientRegistry(MLClientPort):
 
     def invalidate_bm25(self) -> None:
         """Clear cached BM25 index (reload from disk on next access)."""
-        self._bm25_index = None
-        self._bm25_loaded = False
+        with self._bm25_state_lock:
+            self._bm25_generation += 1
+            self._bm25_index = None
+            self._bm25_loaded = False
         log.info("MLClientRegistry: BM25 index cache invalidated")
 
     # ------------------------------------------------------------------
