@@ -5,11 +5,13 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 from pathlib import Path
 
 from botocore.exceptions import BotoCoreError, ClientError
 
 from infrastructure.bm25.bm25_index import BM25Index
+from domain.value_objects.visibility import DocumentVisibility
 from infrastructure.storage.file_storage import S3_MISSING_CODES
 
 log = logging.getLogger("default")
@@ -64,11 +66,51 @@ async def load_bm25_index_from_s3(storage) -> BM25Index | None:
         return None
 
 
+def validate_snapshot_column(field: str, values, count: int, value_type: type) -> None:
+    """Validate parallel snapshot columns before they reach scoring/ACL code."""
+    if values is None:
+        return  # Legacy snapshots omit hashes/ACL and retain existing defaults.
+    if not isinstance(values, list) or len(values) != count:
+        raise ValueError(f"BM25 snapshot {field} must match texts length")
+    for value in values:
+        if value is None and field != "hashes":
+            continue
+        if not isinstance(value, value_type) or isinstance(value, bool):
+            raise ValueError(f"Invalid BM25 snapshot {field} value")
+        if field == "doc_visibility" and isinstance(value, str):
+            DocumentVisibility(value)
+
+
+def validate_snapshot(data) -> None:
+    """Reject malformed persisted data without catching unrelated programming errors."""
+    if not isinstance(data, dict) or not isinstance(data.get("texts"), list):
+        raise ValueError("BM25 snapshot texts must be a list")
+    texts = data["texts"]
+    if not all(isinstance(text, str) for text in texts):
+        raise ValueError("BM25 snapshot texts must contain strings")
+    for field, value_type in (
+        ("hashes", str),
+        ("doc_visibility", str),
+        ("doc_owner_id", int),
+        ("doc_group_id", int),
+    ):
+        validate_snapshot_column(field, data.get(field), len(texts), value_type)
+    for field in ("k1", "b"):
+        if field not in data:
+            continue
+        value = data[field]
+        if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value):
+            raise ValueError(f"BM25 snapshot {field} must be a finite number")
+        if value < 0 or (field == "b" and value > 1):
+            raise ValueError(f"Invalid BM25 snapshot {field} range")
+
+
 def load_bm25_index_from_s3_sync(storage) -> BM25Index | None:
     """Load BM25 index from S3 synchronously."""
     try:
         raw = storage.download_bytes(BM25_S3_KEY)
         data = json.loads(raw)
+        validate_snapshot(data)
         idx = BM25Index.from_dict(data)
         log.info("BM25 index loaded from S3 (sync): %d docs", idx.n_docs)
         return idx

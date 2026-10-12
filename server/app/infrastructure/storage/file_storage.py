@@ -215,14 +215,19 @@ class S3Storage:
             raise RuntimeError("S3 storage belongs to another event loop")
 
     async def ensure_client(self):
+        """Acquire a client through the same admission/teardown boundary as requests."""
+        async with self.operation() as client:
+            return client
+
+    async def initialize_client(self):
+        if not self._active:
+            raise RuntimeError("S3 client initialization requires an active storage operation")
         async with self._init_lock:
             if self._client is None:
                 context = get_session().create_client("s3", **self._kwargs)
-                try:
-                    client = await context.__aenter__()
-                except BaseException:
-                    await context.__aexit__(None, None, None)
-                    raise
+                # Like async with, exit only a successfully entered SDK context.
+                # ClientCreatorContext has no client to close if creation fails.
+                client = await context.__aenter__()
                 self._context = context
                 self._client = client
             return self._client
@@ -238,7 +243,7 @@ class S3Storage:
         try:
             await asyncio.wait_for(self._limit.acquire(), timeout=self._acquire_timeout)
             acquired = True
-            yield await self.ensure_client()
+            yield await self.initialize_client()
         finally:
             if acquired:
                 self._limit.release()

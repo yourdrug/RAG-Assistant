@@ -38,15 +38,15 @@ async def test_concurrent_lazy_init_one_client_and_idempotent_close(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_init_failure_cleans_context_then_retries(monkeypatch):
+async def test_init_failure_discards_unentered_context_then_retries(monkeypatch):
     storage, client, context, _ = client_harness(monkeypatch)
     context.__aenter__.side_effect = [OSError("connect"), client]
     with pytest.raises(OSError, match="connect"):
         await storage.upload_file("a", b"x")
-    context.__aexit__.assert_awaited_once()
+    context.__aexit__.assert_not_awaited()
     await storage.upload_file("a", b"x")
     await storage.aclose()
-    assert context.__aexit__.await_count == 2
+    context.__aexit__.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -202,3 +202,63 @@ async def test_delayed_network_keeps_heartbeat_responsive(monkeypatch, operation
     if operation == "get":
         result.unlink()
     await storage.aclose()
+
+
+@pytest.mark.asyncio
+async def test_closed_storage_cannot_reopen_via_client_acquisition(monkeypatch):
+    storage, _, _, session = client_harness(monkeypatch)
+    await storage.aclose()
+    with pytest.raises(RuntimeError, match="closed"):
+        await storage.ensure_client()
+    session.create_client.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error", [TimeoutError("S3 timeout"), asyncio.CancelledError()])
+async def test_head_timeout_or_cancellation_propagates_and_releases_slot(monkeypatch, error):
+    storage, client, _, _ = client_harness(monkeypatch, max_concurrent=1)
+    client.head_object.side_effect = error
+    with pytest.raises(type(error)):
+        await storage.get_file_info("a.txt")
+    await asyncio.wait_for(storage.upload_file("b.txt", b"content"), 2)
+    client.put_object.assert_awaited_once()
+    await storage.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancelled", [False, True])
+async def test_real_sdk_context_failed_creation_preserves_error_and_allows_retry(monkeypatch, cancelled):
+    from aiobotocore.session import ClientCreatorContext
+
+    storage, client, _, session = client_harness(monkeypatch)
+    client.__aenter__ = AsyncMock(return_value=client)
+    client.__aexit__ = AsyncMock()
+    started = asyncio.Event()
+    failure = OSError("creation failed")
+    attempts = 0
+
+    async def create():
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            if cancelled:
+                started.set()
+                await asyncio.Event().wait()
+            raise failure
+        return client
+
+    session.create_client.side_effect = lambda *args, **kwargs: ClientCreatorContext(create())
+    if cancelled:
+        pending = asyncio.create_task(storage.upload_file("a", b"x"))
+        await asyncio.wait_for(started.wait(), 5)
+        pending.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await pending
+    else:
+        with pytest.raises(OSError) as caught:
+            await storage.upload_file("a", b"x")
+        assert caught.value is failure
+    client.__aexit__.assert_not_awaited()
+    await storage.upload_file("a", b"x")
+    await storage.aclose()
+    client.__aexit__.assert_awaited_once()

@@ -33,14 +33,14 @@ client: `rag-client:0.13.0`; MinIO: `RELEASE.2024-09-22T00-33-43Z`.
 
 - Characterization baseline: **132 passed**.
 - Regression ingestion/transactions/CLI/worker/storage/RAG: **276 passed**.
-- Полный unit-набор: **2580 passed, 81 deselected**; дополнительные lifecycle
-  тесты после этого: **22 passed**. Последующий итоговый прогон записывается ниже.
+- Финальный полный unit-набор после исправлений ревью: **2593 passed, 81 deselected**
+  за 68.98 s. Дополнительные lifecycle/review проверки: **62 passed**.
 - Ruff: проходит. Обязательные layer checks: оба пустые.
 - `task lint`: ruff проходит, mypy — **29 ошибок в 13 файлах**. На baseline-копии
   `c3dbf15` тот же набор diagnostic messages, новых ошибок нет.
 - Format check: исходный `tests/test_chunk_search_acl.py` требует форматирования;
   файл не относится к миграции. Изменённые файлы отформатированы.
-- MinIO smoke: **2 passed**, без warnings. PUT/HEAD/LIST/GET/COPY/RENAME/DELETE,
+- Финальный MinIO smoke после review fixes: **2 passed** за 3.46 s, без warnings. PUT/HEAD/LIST/GET/COPY/RENAME/DELETE,
   Unicode/пробелы, пустой объект, SHA-256, pagination 1001 объектов и пять ротаций.
   Cleanup удаляет только заранее записанные keys под UUID test prefix.
 - Delayed fake LIST/HEAD/body-read удерживаются 1 s; heartbeat 50 ms продолжает
@@ -90,3 +90,36 @@ migration downgrade, очистка bucket или переиндексация. 
 не фиксирует success registry row, штатный ingestion retry остаётся доступен.
 Парсинг/OCR остаются отдельным источником блокирующей CPU/I/O работы; async S3
 не устраняет весь event-loop lag. Retired pools живут до shutdown.
+
+## Решения исполнения и финальное ревью
+
+Независимый read-only reviewer проверил `c3dbf15..1962607`; Critical/Minor не найдено.
+Два Important исправлены в одном проходе с RED→GREEN и полным зелёным suite:
+- Реальный aiobotocore ClientCreatorContext нельзя закрывать, если его вход не
+  завершился. Исходная ошибка/CancelledError сохраняются, повторная инициализация
+  доступна. Проверено настоящим SDK context без сети.
+- Валидный JSON с неверными texts/ACL/hashes/numeric fields отклоняется явной
+  validation как BM25LoadError. Программные ошибки не поглощаются broad catch.
+Дополнительно закрыт обход shutdown через публичный ensure_client().
+
+Решения, принятые при исполнении (и цена, если они не подходят):
+1. Отдельная ветка в текущем checkout вместо worktree: сохранены локальные ignored
+   plan/config и готовая среда; изменения видны в основном рабочем каталоге.
+2. Characterization expected GREEN без production changes: они фиксируют текущее
+   поведение; RED→GREEN применён к новому поведению. Ограничение — полнота выбранных
+   сценариев baseline, а не доказательство, что текущая бизнес-логика идеальна.
+3. Узкие BM25LoadError consumer fallback границы из задачи 7 перенесены в A:
+   сохраняют старую dense деградацию; цена — чуть больший scope consumer diff в A.
+4. Standalone владеет sync-reader через свою registry, без неиспользуемого async
+   storage; async storage composition для standalone остаётся работой этапа B.
+5. Async BM25 loading/mutations и удаление boto3 исключены из этого этапа по запросу
+   пользователя; для полного перехода требуется этап B.
+6. Существующие broad catches mutation adapter/отмена LocalStorage download не
+   менялись; отменённый local download по-прежнему может оставить temp-файл.
+7. Production SLA/throughput и deployment не проверялись: контролируемый smoke не
+   доказывает производственную производительность; работающие сервисы не менялись.
+8. Изменения после reviewed commit проверены автором с RED→GREEN и полным suite,
+   без повторного reviewer, согласно executing-plans; независимого второго ревью
+   именно финальных исправлений нет.
+
+Deferred minors: отсутствуют. Ни push, ни merge не выполнялись.

@@ -57,3 +57,21 @@ def test_network_snapshot_failure_is_wrapped_and_can_retry():
     with pytest.raises(BM25LoadError) as caught:
         load_bm25_index_from_s3_sync(reader)
     assert caught.value.__cause__ is failure
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        b'{"texts":[null]}',
+        b'{"texts":[42]}',
+        b'{"texts":"not a list"}',
+        b'{"texts":["text"],"doc_visibility":[{}]}',
+        b'{"texts":["text"],"doc_owner_id":[]}',
+        b'{"texts":["text"],"k1":"bad"}',
+    ],
+)
+def test_valid_json_invalid_snapshot_is_retryable_load_failure(raw):
+    reader = MagicMock(download_bytes=MagicMock(return_value=raw))
+    with pytest.raises(BM25LoadError) as caught:
+        load_bm25_index_from_s3_sync(reader)
+    assert isinstance(caught.value.__cause__, ValueError)
