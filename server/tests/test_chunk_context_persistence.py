@@ -2,7 +2,7 @@
 
 from datetime import date
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from langchain.schema import Document
@@ -47,8 +47,12 @@ async def test_ingestion_context_reaches_sql_search_and_neighbor_prompts():
         for number, model in enumerate(models, 1):
             model.id = number
 
+    empty_result = MagicMock()
+    empty_result.scalars.return_value.all.return_value = []
     session = SimpleNamespace(
-        execute=AsyncMock(), add_all=lambda rows: models.extend(rows), flush=AsyncMock(side_effect=flush)
+        execute=AsyncMock(return_value=empty_result),
+        add_all=lambda rows: models.extend(rows),
+        flush=AsyncMock(side_effect=flush),
     )
     repository = SQLAlchemyChunkRepository(session)
     uow = SimpleNamespace(

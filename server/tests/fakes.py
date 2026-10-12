@@ -156,6 +156,13 @@ class FakeChunkRepository:
         self._chunks: list[dict] = []
         self._next_id = 1
 
+    async def get_ids_by_document_id(self, document_id: int, *, for_update: bool = False) -> list[int]:
+        return [c["id"] for c in self._chunks if c["document_id"] == document_id]
+
+    async def iter_all_contents_with_acl(self, batch_size: int = 1000):
+        for c in self._chunks:
+            yield c["content"], c["visibility"], c["owner_id"], c["group_id"]
+
     async def bulk_insert(
         self,
         document_id: int,

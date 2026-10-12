@@ -11,7 +11,7 @@ from domain.value_objects.chunk_context import extract_chunk_context
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from infrastructure.database.models import ChunkModel
+from infrastructure.database.models import ChunkModel, DocumentModel
 from infrastructure.repositories.chunk.chunk_mapping import to_chunk_search_result
 from infrastructure.repositories.chunk.chunk_pagination import (
     _build_cursor_backward_conditions,
@@ -24,6 +24,17 @@ from infrastructure.repositories.chunk.chunk_pagination import (
 class SQLAlchemyChunkCrudRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
+
+    async def get_ids_by_document_id(self, document_id: int, *, for_update: bool = False) -> list[int]:
+        if for_update:
+            # Lock the parent even when it has no chunks, serializing replacements.
+            await self._session.execute(
+                select(DocumentModel.id).where(DocumentModel.id == document_id).with_for_update()
+            )
+        result = await self._session.execute(
+            select(ChunkModel.id).where(ChunkModel.document_id == document_id)
+        )
+        return list(result.scalars().all())
 
     async def bulk_insert(
         self,

@@ -20,7 +20,8 @@ from domain.value_objects.visibility import DocumentVisibility
 
 
 @pytest.mark.asyncio
-async def test_batch_workflow_syncs_before_recording_registry_entry():
+@pytest.mark.parametrize("sparse_fails", [False, True])
+async def test_batch_workflow_syncs_before_recording_registry_entry(sparse_fails):
     source = "s3://bucket/docs/report.pdf"
     document = Document(page_content="report text", metadata={"source": source})
     chunk = Document(page_content="report text", metadata={"source": source})
@@ -56,24 +57,31 @@ async def test_batch_workflow_syncs_before_recording_registry_entry():
 
     sync.sync_documents_to_db = AsyncMock(side_effect=sync_documents)
     sparse_index = MagicMock()
-    sparse_index.update = AsyncMock()
+
+    async def update_sparse(*args, **kwargs):
+        events.append("sparse")
+        if sparse_fails:
+            raise ConnectionError("sparse unavailable")
+
+    sparse_index.update = AsyncMock(side_effect=update_sparse)
 
     workflow = BatchIngestionWorkflow(vector_store, settings, loader, registry, sync, sparse_index)
-    await workflow.run(
-        "docs/",
-        reset=False,
-        scope=IngestionScope(
-            visibility=DocumentVisibility.INTERNAL_GROUP,
-            group_id=7,
-            client_id=9,
-        ),
+    scope = IngestionScope(
+        visibility=DocumentVisibility.INTERNAL_GROUP,
+        group_id=7,
+        client_id=9,
     )
+    if sparse_fails:
+        with pytest.raises(ConnectionError, match="sparse unavailable"):
+            await workflow.run("docs/", reset=False, scope=scope)
+    else:
+        await workflow.run("docs/", reset=False, scope=scope)
 
     assert chunk.metadata["visibility"] == DocumentVisibility.INTERNAL_GROUP.value
     assert chunk.metadata["group_id"] == 7
     assert chunk.metadata["client_id"] == 9
     assert chunk.metadata["doc_domain"] == "general"
-    assert events == ["sync", "registry"]
+    assert events == (["sync", "sparse"] if sparse_fails else ["sync", "sparse", "registry"])
     sparse_index.update.assert_awaited_once_with([chunk], reset=False)
 
 

@@ -25,6 +25,9 @@ class SQLAlchemyChunkRepository:
         self._versioning = SQLAlchemyChunkVersioningRepository(session)
         self._search = SQLAlchemyChunkSearchRepository(session)
 
+    async def get_ids_by_document_id(self, document_id: int, *, for_update: bool = False) -> list[int]:
+        return await self._crud.get_ids_by_document_id(document_id, for_update=for_update)
+
     async def bulk_insert(
         self,
         document_id: int,

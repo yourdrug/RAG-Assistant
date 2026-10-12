@@ -62,6 +62,10 @@ class ChunkStats:
 class ChunkCrudRepository(Protocol):
     """CRUD operations for document chunks."""
 
+    async def get_ids_by_document_id(self, document_id: int, *, for_update: bool = False) -> list[int]:
+        """Read chunk IDs; optionally lock the document until the transaction ends."""
+        ...
+
     async def bulk_insert(
         self,
         document_id: int,

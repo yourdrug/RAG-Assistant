@@ -93,6 +93,10 @@ def create_ingestion_service(
         registry=registry,
     )
     targets = S3IngestionTargets()
+    sparse_index = SparseIndexBuilder(
+        ingestion_settings,
+        S3SparseIndexAdmin(file_storage=file_storage, uow_factory=uow),
+    )
     return IngestionService(
         batch_workflow=BatchIngestionWorkflow(
             _require(infra.ml.vector_store_repo, "vector_store_repo"),
@@ -100,12 +104,15 @@ def create_ingestion_service(
             loader,
             registry,
             sync,
-            SparseIndexBuilder(
-                ingestion_settings,
-                S3SparseIndexAdmin(file_storage=file_storage),
-            ),
+            sparse_index,
         ),
-        single_file_workflow=SingleFileIngestionWorkflow(file_storage, loader, registry, sync),
+        single_file_workflow=SingleFileIngestionWorkflow(
+            file_storage,
+            loader,
+            registry,
+            sync,
+            sparse_index=sparse_index,
+        ),
         registry=registry,
         targets=targets,
         uploads=S3UploadService(file_storage, targets),

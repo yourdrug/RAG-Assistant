@@ -47,6 +47,8 @@ def fake_uow(fake_outbox):
     uow.vector_outbox = fake_outbox
     # Set up a minimal document repository for the dispatcher
     uow.documents = FakeDocumentRepository()
+    # Dispatcher upserts only chunks still present in the committed SQL corpus.
+    uow.chunks._chunks = [{"id": 10, "document_id": 1}]
     return uow
 
 

@@ -84,9 +84,9 @@ class BatchIngestionWorkflow:
             group_id=scope.group_id,
             client_id=scope.client_id,
         )
-        # Persist only after the document/chunk transaction commits.
-        await self._registry.persist_entries(entries)
         await self._sparse_index.update(chunks, reset=reset)
+        # A sparse-index failure must leave the file eligible for a CLI retry.
+        await self._registry.persist_entries(entries)
 
         log.info("=" * 55)
         log.info("DONE  |  %d chunks  |  %.1fs total", len(chunks), time.monotonic() - started_at)

@@ -204,7 +204,7 @@ async def process_chunks(
 
     if _existing_uow is not None:
         uow = _existing_uow
-        await _process_chunks_in_uow(
+        await process_chunks_in_uow(
             uow,
             document_id,
             filename,
@@ -219,7 +219,7 @@ async def process_chunks(
         return
 
     async with uow_factory.create(master=True) as uow:
-        await _process_chunks_in_uow(
+        await process_chunks_in_uow(
             uow,
             document_id,
             filename,
@@ -252,7 +252,7 @@ def _parse_meta_datetime(value) -> "date | None":
         return None
 
 
-async def _process_chunks_in_uow(
+async def process_chunks_in_uow(
     uow: Any,
     document_id: int,
     filename: str,
@@ -264,6 +264,7 @@ async def _process_chunks_in_uow(
     hashes: list[str],
     set_indexing: bool,
 ) -> None:
+    replaced_ids = await uow.chunks.get_ids_by_document_id(document_id, for_update=True)
     # 1. Bulk insert → получаем chunk_ids
     # Doc-level versioning fields live identically on every chunk's metadata.
     first_meta = chunks[0].metadata if chunks else {}
@@ -296,6 +297,15 @@ async def _process_chunks_in_uow(
         rc.metadata["chunk_index"] = i
 
     # 3. Enqueue outbox для Qdrant
+    if replaced_ids:
+        await uow.vector_outbox.enqueue(
+            VectorOutboxEntry(
+                operation=OutboxOperation.DELETE_CHUNKS,
+                aggregate_type="document",
+                aggregate_id=document_id,
+                payload={"chunk_ids": replaced_ids},
+            )
+        )
     await uow.vector_outbox.enqueue(
         VectorOutboxEntry(
             operation=OutboxOperation.UPSERT_CHUNKS,

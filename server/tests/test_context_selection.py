@@ -183,7 +183,7 @@ async def test_reranker_threshold_and_dedup_diagnostics_survive_prompt_capture()
 def saved_snapshot_replay():
     root = Path(__file__).resolve().parents[2]
     script = root / "server/scripts/replay_context_snapshots.py"
-    snapshot = root / "docs/benchmarks/context-budget-replay-2026-10-07/input.json"
+    snapshot = Path(__file__).parent / "fixtures" / "context_budget_replay.json"
     return runpy.run_path(str(script))["replay"](json.loads(snapshot.read_text(encoding="utf-8")))
 
 

@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from application.services.document_loader import S3DocumentLoader
     from application.services.ingestion_sync import DocumentSyncService
     from application.services.ingestion_registry import IngestionRegistry
+    from application.services.sparse_index_builder import SparseIndexBuilder
 
 log = logging.getLogger("default")
 
@@ -28,11 +29,13 @@ class SingleFileIngestionWorkflow:
         loader: "S3DocumentLoader",
         registry: "IngestionRegistry",
         sync: "DocumentSyncService",
+        sparse_index: "SparseIndexBuilder | None" = None,
     ) -> None:
         self._file_storage = file_storage
         self._loader = loader
         self._registry = registry
         self._sync = sync
+        self._sparse_index = sparse_index
 
     async def run(self, file_path: str, *, scope: IngestionScope) -> None:
         started_at = time.monotonic()
@@ -101,6 +104,8 @@ class SingleFileIngestionWorkflow:
             group_id=scope.group_id,
             client_id=scope.client_id,
         )
-        # Registry is committed after the sync transaction, never before it.
+        if self._sparse_index is not None:
+            await self._sparse_index.update(chunks, reset=False)
+        # Record success only after sparse persistence, so failures remain retryable.
         await self._registry.upsert(file_info.filename, file_hash, source, len(chunks), total_chars)
         return chunks

@@ -85,17 +85,7 @@ class OutboxDispatcher:
 
     async def _apply_one(self, entry: VectorOutboxEntry) -> None:
         try:
-            if entry.operation == OutboxOperation.UPSERT_CHUNKS:
-                if not await self._document_exists(entry.aggregate_id):
-                    log.info(
-                        "Skipping UPSERT for deleted document %d (entry %d)",
-                        entry.aggregate_id,
-                        entry.id,
-                    )
-                else:
-                    await self._dispatch(entry)
-            else:
-                await self._dispatch(entry)
+            await self._dispatch(entry)
             # Durable retry boundary for cache invalidation, including ordinary
             # chunks, deleted documents and newly uploaded documents.
             if self._cache_invalidator is not None and entry.aggregate_type == "document":
@@ -139,7 +129,7 @@ class OutboxDispatcher:
 
     async def _dispatch(self, entry: VectorOutboxEntry) -> None:
         if entry.operation == OutboxOperation.UPSERT_CHUNKS:
-            await self._apply_upsert(entry.payload, document_id=entry.aggregate_id)
+            await self.apply_upsert(entry.payload, document_id=entry.aggregate_id)
         elif entry.operation == OutboxOperation.DELETE_BY_DOCUMENT:
             await self._vector_store.delete_by_document_id(entry.payload["document_id"])
         elif entry.operation == OutboxOperation.DELETE_CHUNKS:
@@ -182,8 +172,19 @@ class OutboxDispatcher:
         if self._cache_invalidator is not None and document_ids:
             await self._cache_invalidator.invalidate_by_document_ids(document_ids, raise_on_error=True)
 
-    async def _apply_upsert(self, payload: dict, document_id: int = 0) -> None:
-        points = payload["points"]
+    async def current_chunk_ids(self, document_id: int) -> set[int]:
+        async with self._uow_factory.create(master=True) as uow:
+            return set(await uow.chunks.get_ids_by_document_id(document_id))
+
+    async def apply_upsert(self, payload: dict, document_id: int = 0) -> None:
+        current_ids = await self.current_chunk_ids(document_id)
+        obsolete_ids = [p["chunk_id"] for p in payload["points"] if p["chunk_id"] not in current_ids]
+        if obsolete_ids:
+            # Also clean up on retries after a failed upload-time deletion.
+            await self._vector_store.delete_by_ids(obsolete_ids)
+        points = [p for p in payload["points"] if p["chunk_id"] in current_ids]
+        if not points:
+            return
         chunks = [
             Chunk(
                 content=p["page_content"],
@@ -199,6 +200,11 @@ class OutboxDispatcher:
         if chunks:
             await self._vector_store.ensure_collection(settings.embed_dim, reset=False)
         await self._vector_store.upload_documents(chunks, should_cancel=_doc_cancelled)
+        # A replacement can commit while embeddings/upload are running.
+        current_ids = await self.current_chunk_ids(document_id)
+        obsolete_ids = [p["chunk_id"] for p in points if p["chunk_id"] not in current_ids]
+        if obsolete_ids:
+            await self._vector_store.delete_by_ids(obsolete_ids)
         # Another ingestion/review may have changed the edition while embedding
         # was running. Do not leave the snapshot in this upsert as the final state.
         version_ids = {chunk.metadata.get("act_version_id") for chunk in chunks}
