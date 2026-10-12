@@ -21,3 +21,13 @@ class DocumentStatus(
     INDEXING = "indexing"
     DONE = "done"
     FAILED = "failed"
+
+
+# Completed and failed documents retain their filename until explicitly removed.
+DOCUMENT_SLOT_STATUSES = (
+    DocumentStatus.PENDING,
+    DocumentStatus.PROCESSING,
+    DocumentStatus.INDEXING,
+    DocumentStatus.DONE,
+    DocumentStatus.FAILED,
+)

@@ -27,6 +27,8 @@ from composition.service_providers import (
 )
 from domain.value_objects.visibility import DocumentVisibility
 from application.services.benchmark_dataset import load_benchmark_questions
+from application.services.benchmark_orchestrator import compute_summary_from_results
+from domain.entities.benchmark_run import BenchmarkRun
 from infrastructure.benchmark.runner import run_benchmark_async
 from infrastructure.worker.admission import one_document_per_principal
 from infrastructure.worker.outcomes import IncompleteEvaluation, job_error_message
@@ -280,9 +282,8 @@ async def run_benchmark(
             top_k=top_k,
             judge_model=judge_model,
             export_files=False,
+            rag_service=ctx["container"].application.rag_service,
         )
-        from application.services.benchmark_orchestrator import compute_summary_from_results
-        from domain.entities.benchmark_run import BenchmarkRun
 
         summary = compute_summary_from_results(results)
         async with uow_factory.create(master=True) as uow:

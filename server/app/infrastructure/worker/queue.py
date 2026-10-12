@@ -14,6 +14,7 @@ H-7/H-8 hardening:
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 from typing import Any
@@ -28,31 +29,36 @@ logger = logging.getLogger("default")
 QUEUE_NAME = "background_tasks"
 
 _pool = None
+pool_lock = asyncio.Lock()
 
 
-async def _get_pool():
+async def get_pool():
     """Lazily create and reuse one arq pool per process."""
     global _pool
     if _pool is None:
-        _pool = await create_pool(RedisSettings.from_dsn(settings.redis_url))
+        async with pool_lock:
+            if _pool is None:
+                _pool = await create_pool(RedisSettings.from_dsn(settings.redis_url))
     return _pool
 
 
 async def close_arq_pool() -> None:
     """Close the shared arq pool (call from lifespan shutdown)."""
     global _pool
-    if _pool is not None:
-        await _pool.close()
-        _pool = None
+    async with pool_lock:
+        if _pool is not None:
+            pool = _pool
+            _pool = None
+            await pool.close()
 
 
-def _deterministic_id(prefix: str, *parts: Any) -> str:
+def deterministic_id(prefix: str, *parts: Any) -> str:
     raw = "|".join(str(p) for p in parts)
     digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]  # noqa: S324
     return f"{prefix}:{digest}"
 
 
-async def _enqueue_arq(
+async def enqueue_arq(
     queue_name: str, func_name: str, arq_job_id: str | None = None, **kwargs: Any
 ) -> Job | None:
     """Enqueue a task via Arq's Redis queue.
@@ -60,7 +66,7 @@ async def _enqueue_arq(
     Returns None when arq refused the enqueue because a job with the same
     ``_job_id`` is already queued or running (duplicate suppression).
     """
-    pool = await _get_pool()
+    pool = await get_pool()
     job = await pool.enqueue_job(func_name, _queue_name=queue_name, _job_id=arq_job_id, **kwargs)
     if job is None:
         logger.warning(
@@ -92,7 +98,7 @@ async def enqueue_document_processing(
     principal_id: int | None = None,
 ) -> None:
     """Enqueue document processing via Arq."""
-    await _enqueue_arq(
+    await enqueue_arq(
         QUEUE_NAME,
         "process_document",
         arq_job_id=f"process_doc:{document_id}:{job_id}",
@@ -120,10 +126,10 @@ async def enqueue_ingest(
     client_id: int | None = None,
 ) -> None:
     """Enqueue full ingestion via Arq (deduplicated per parameters)."""
-    await _enqueue_arq(
+    await enqueue_arq(
         QUEUE_NAME,
         "run_full_ingest",
-        arq_job_id=_deterministic_id("ingest_full", resolved_dir, reset, domain),
+        arq_job_id=deterministic_id("ingest_full", resolved_dir, reset, domain),
         resolved_dir=resolved_dir,
         reset=reset,
         domain=domain,
@@ -144,10 +150,10 @@ async def enqueue_ingest_file(
     client_id: int | None = None,
 ) -> None:
     """Enqueue single-file ingestion via Arq (deduplicated per parameters)."""
-    await _enqueue_arq(
+    await enqueue_arq(
         QUEUE_NAME,
         "run_single_ingest",
-        arq_job_id=_deterministic_id("ingest_file", resolved, domain),
+        arq_job_id=deterministic_id("ingest_file", resolved, domain),
         resolved=resolved,
         domain=domain,
         job_id=job_id,
@@ -166,10 +172,10 @@ async def enqueue_benchmark(
     job_id: int,
 ) -> None:
     """Enqueue benchmark run via Arq (deduplicated per parameters)."""
-    await _enqueue_arq(
+    await enqueue_arq(
         QUEUE_NAME,
         "run_benchmark",
-        arq_job_id=_deterministic_id("benchmark", dataset, out_dir, top_k, judge_model),
+        arq_job_id=deterministic_id("benchmark", dataset, out_dir, top_k, judge_model),
         dataset=dataset,
         out_dir=out_dir,
         top_k=top_k,
@@ -184,7 +190,7 @@ async def enqueue_sweep(
     job_id: int,
 ) -> None:
     """Enqueue parameter sweep via Arq (deduplicated per sweep)."""
-    await _enqueue_arq(
+    await enqueue_arq(
         QUEUE_NAME,
         "run_sweep",
         arq_job_id=f"sweep:{sweep_id}",
@@ -194,7 +200,7 @@ async def enqueue_sweep(
 
 
 async def enqueue_document_deletion(*, document_id: int, user_id: int, job_id: int) -> None:
-    job = await _enqueue_arq(
+    job = await enqueue_arq(
         QUEUE_NAME,
         "delete_document",
         arq_job_id=f"delete_doc:{document_id}:{job_id}",

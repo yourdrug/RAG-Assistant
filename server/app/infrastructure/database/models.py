@@ -25,6 +25,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from domain.value_objects.document_status import DOCUMENT_SLOT_STATUSES
 from domain.value_objects.sweep_status import BenchmarkSweepStatus
 from domain.value_objects.sweep_evaluation_mode import SweepEvaluationMode
 from domain.value_objects.benchmark_strategy import BenchmarkStrategy
@@ -140,7 +141,9 @@ class DocumentModel(BaseModel):
             text("COALESCE(group_id, 0)"),
             "filename",
             unique=True,
-            postgresql_where="status IN ('pending', 'processing', 'done', 'failed')",
+            postgresql_where="status IN ("
+            + ", ".join(f"'{status.value}'" for status in DOCUMENT_SLOT_STATUSES)
+            + ")",
         ),
     )
 

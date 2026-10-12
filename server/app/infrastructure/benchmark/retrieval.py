@@ -13,21 +13,18 @@ from pydantic import SecretStr
 from application.services.retrieval import HybridRetriever
 from domain.utils import content_hash
 from domain.services.retrieval_diversity import prioritize_distinct_provisions
-from infrastructure.ml.clients.factories import (
-    create_embeddings,
-    create_qdrant_client,
-    create_reranker,
-    load_bm25_index,
-)
+from application.ports.ml_clients import MLClientPort
+from infrastructure.repositories.vector.embedding_identity import ensure_embedding_identity
 
 logger = logging.getLogger("default")
 
 _retriever = HybridRetriever()
 
 
-def _search_dense(
+def search_dense(
     question: str,
     fetch_k: int,
+    ml_clients: MLClientPort,
     access_filter=None,
 ) -> tuple[list[tuple[Document, float]], dict[str, tuple[float, Document]]]:
     """Dense search via Qdrant client. Returns (dense_docs, dense_by_hash).
@@ -36,9 +33,8 @@ def _search_dense(
     filter are returned (defense-in-depth: same filter used in production
     RAG retrieval).
     """
-    client = create_qdrant_client()
-    embeddings = create_embeddings()
-    from infrastructure.repositories.vector.embedding_identity import ensure_embedding_identity
+    client = ml_clients.qdrant_client()
+    embeddings = ml_clients.embeddings()
 
     ensure_embedding_identity(client, embeddings.embedding_identity)
     query_vector = embeddings.embed_query_sync(question)
@@ -62,9 +58,10 @@ def _search_dense(
     return dense_docs, dense_by_hash
 
 
-def _search_sparse(
+def search_sparse(
     question: str,
     fetch_k: int,
+    ml_clients: MLClientPort,
     visibility_conditions=None,
     user_id: int | None = None,
     user_group_ids: list[int] | None = None,
@@ -74,7 +71,7 @@ def _search_sparse(
     When *visibility_conditions* is provided, candidates are pre-filtered
     by ACL before scoring (defense-in-depth: Qdrant resolve still applies).
     """
-    bm25_index = load_bm25_index()
+    bm25_index = ml_clients.bm25_index()
     if bm25_index is not None:
         return bm25_index.search_with_hashes(
             question,
@@ -86,7 +83,7 @@ def _search_sparse(
     return []
 
 
-def _merge_and_dedup(
+def merge_and_dedup(
     dense_by_hash: dict[str, tuple[float, Document]],
     sparse_results: list[tuple[str, float]],
     fetch_k: int,
@@ -107,7 +104,7 @@ def _merge_and_dedup(
     )
 
 
-def _apply_rerank_filters(
+def apply_rerank_filters(
     ranked: list[tuple[Document, float]],
     min_score: float | None = None,
     score_gap_ratio: float | None = None,
@@ -128,6 +125,7 @@ def retrieve_with_scores_hybrid(
     question: str,
     top_k: int,
     fetch_k: int,
+    ml_clients: MLClientPort,
     access_filter=None,
     visibility_conditions=None,
     user_id: int | None = None,
@@ -138,20 +136,21 @@ def retrieve_with_scores_hybrid(
     ACL parameters are forwarded to dense and sparse search to ensure
     benchmark retrieval respects document visibility.
     """
-    _, dense_by_hash = _search_dense(question, fetch_k, access_filter=access_filter)
-    sparse_results = _search_sparse(
+    _, dense_by_hash = search_dense(question, fetch_k, ml_clients, access_filter=access_filter)
+    sparse_results = search_sparse(
         question,
         fetch_k,
+        ml_clients,
         visibility_conditions=visibility_conditions,
         user_id=user_id,
         user_group_ids=user_group_ids,
     )
-    candidate_docs = _merge_and_dedup(dense_by_hash, sparse_results, fetch_k)
+    candidate_docs = merge_and_dedup(dense_by_hash, sparse_results, fetch_k)
 
     if not candidate_docs:
         return []
 
-    reranker = create_reranker()
+    reranker = ml_clients.reranker()
     pairs = []
     for doc in candidate_docs:
         source = doc.metadata.get("source", "")
@@ -163,7 +162,7 @@ def retrieve_with_scores_hybrid(
     scores = reranker.predict_sync(pairs)
     ranked = sorted(zip(candidate_docs, scores, strict=False), key=lambda x: x[1], reverse=True)
 
-    return prioritize_distinct_provisions(_apply_rerank_filters(ranked))[:top_k]
+    return prioritize_distinct_provisions(apply_rerank_filters(ranked))[:top_k]
 
 
 def build_llm(model: str, base_url: str, provider: str = LLMProvider.OLLAMA):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from copy import deepcopy
 from datetime import date
 from pathlib import Path
 
@@ -329,7 +330,6 @@ async def test_date_correction_preserves_explicit_expiry():
 
 @pytest.mark.asyncio
 async def test_date_correction_outbox_failure_rolls_back_whole_chain():
-    from copy import deepcopy
     from unittest.mock import AsyncMock
 
     from domain.value_objects.visibility import DocumentVisibility
@@ -345,7 +345,14 @@ async def test_date_correction_outbox_failure_rolls_back_whole_chain():
             decree_profile(), document_id, act_refs(), effective_date=start
         )
         versions.append(version)
-        uow.chunks._chunks.append({"act_version_id": version.id, "is_current": version.is_current})
+        uow.chunks._chunks.append(
+            {
+                "act_version_id": version.id,
+                "is_current": version.is_current,
+                "effective_from": version.effective_from,
+                "effective_to": version.effective_to,
+            }
+        )
     original = deepcopy((uow.act_versions._versions, uow.chunks._chunks, uow.vector_outbox._entries))
     enqueue = uow.vector_outbox.enqueue
     calls = 0
@@ -362,3 +369,108 @@ async def test_date_correction_outbox_failure_rolls_back_whole_chain():
         await service.update_version(versions[1].id, effective_from=date(2026, 1, 1))
     assert (uow.act_versions._versions, uow.chunks._chunks, uow.vector_outbox._entries) == original
     assert factory._uow._rolled_back
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("transfer", [False, True])
+@pytest.mark.parametrize("outbox_failure", [False, True])
+async def test_relink_rebuilds_both_timelines_atomically(transfer, outbox_failure):
+    service, factory = make_service()
+    service._commands._today = lambda: date(2026, 6, 1)
+    uow = factory._uow
+    versions = []
+    for document_id, number, start in [
+        (1, "123", date(2024, 1, 1)),
+        (2, "123", date(2025, 1, 1)),
+        (3, "456", date(2024, 6, 1)),
+    ]:
+        uow.documents._documents[document_id] = Document(id=document_id)
+        version = await service.handle_versioned_upload(
+            decree_profile(), document_id, act_refs(number), effective_date=start
+        )
+        versions.append(version)
+        uow.chunks._chunks.append(
+            {
+                "act_version_id": version.id,
+                "is_current": version.is_current,
+                "effective_from": version.effective_from,
+                "effective_to": version.effective_to,
+            }
+        )
+    source, moved, target = versions
+    update = uow.act_versions.update
+
+    async def enforce_current_slot(version):
+        others = await uow.act_versions.list_by_act(version.act_id)
+        if version.act_id is not None and version.is_current:
+            assert not any(item.id != version.id and item.is_current for item in others)
+        await update(version)
+
+    uow.act_versions.update = enforce_current_slot
+    original = deepcopy((uow.act_versions._versions, uow.chunks._chunks, uow.vector_outbox._entries))
+    before = len(uow.vector_outbox._entries)
+    if outbox_failure:
+        enqueue = uow.vector_outbox.enqueue
+        calls = 0
+
+        async def failing_enqueue(entry):
+            nonlocal calls
+            calls += 1
+            await enqueue(entry)
+            if calls == 2:
+                raise RuntimeError("outbox failure")
+
+        uow.vector_outbox.enqueue = failing_enqueue
+        with pytest.raises(RuntimeError, match="outbox failure"):
+            await service.update_version(
+                moved.id, act_id=target.act_id if transfer else None, act_id_provided=True
+            )
+        assert (uow.act_versions._versions, uow.chunks._chunks, uow.vector_outbox._entries) == original
+        assert uow._rolled_back
+        return
+    await service.update_version(moved.id, act_id=target.act_id if transfer else None, act_id_provided=True)
+    first = await uow.act_versions.get_by_id(source.id)
+    assert first.is_current
+    assert first.effective_to is None
+    stored_moved = await uow.act_versions.get_by_id(moved.id)
+    assert stored_moved.act_id == (target.act_id if transfer else None)
+    if transfer:
+        stored_target = await uow.act_versions.get_by_id(target.id)
+        assert not stored_target.is_current
+        assert stored_target.effective_to == date(2025, 1, 1)
+    for chunk in uow.chunks._chunks:
+        version = await uow.act_versions.get_by_id(chunk["act_version_id"])
+        assert chunk["is_current"] == version.is_current
+        assert chunk["effective_to"] == version.effective_to
+    entries = list(uow.vector_outbox._entries.values())[before:]
+    assert {entry.aggregate_id for entry in entries} == (
+        {source.id, moved.id, target.id} if transfer else {source.id, moved.id}
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("explicit_expiry", [None, date(2026, 1, 1)])
+async def test_moving_historical_edition_drops_only_derived_source_end(explicit_expiry):
+    service, factory = make_service()
+    service._commands._today = lambda: date(2026, 6, 1)
+    uow = factory._uow
+    versions = []
+    for document_id, number, start in [
+        (1, "123", date(2024, 1, 1)),
+        (2, "123", date(2027, 1, 1)),
+        (3, "456", date(2023, 1, 1)),
+    ]:
+        uow.documents._documents[document_id] = Document(id=document_id)
+        versions.append(
+            await service.handle_versioned_upload(
+                decree_profile(), document_id, act_refs(number), effective_date=start
+            )
+        )
+    moved, successor, target = versions
+    if explicit_expiry:
+        await service.update_version(moved.id, effective_to=explicit_expiry)
+    await service.update_version(moved.id, act_id=target.act_id)
+    stored = await uow.act_versions.get_by_id(moved.id)
+    assert stored.effective_to == explicit_expiry
+    remaining = await uow.act_versions.get_by_id(successor.id)
+    assert not remaining.is_current  # Future edition must not be promoted.

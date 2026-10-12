@@ -11,7 +11,7 @@ from presentation.cli.commands import worker as worker_command
 
 def test_enqueued_sweep_resolves_to_registered_handler(monkeypatch):
     pool = Mock(enqueue_job=AsyncMock())
-    monkeypatch.setattr(queue, "_get_pool", AsyncMock(return_value=pool))
+    monkeypatch.setattr(queue, "get_pool", AsyncMock(return_value=pool))
     worker_instance = Mock()
     worker_factory = Mock(return_value=worker_instance)
     monkeypatch.setattr(worker_command, "Worker", worker_factory)
@@ -40,7 +40,7 @@ def test_enqueued_deletion_resolves_to_registered_handler(monkeypatch):
     from infrastructure.worker.document_deletion import delete_document
 
     pool = Mock(enqueue_job=AsyncMock())
-    monkeypatch.setattr(queue, "_get_pool", AsyncMock(return_value=pool))
+    monkeypatch.setattr(queue, "get_pool", AsyncMock(return_value=pool))
     worker_factory = Mock(return_value=Mock())
     monkeypatch.setattr(worker_command, "Worker", worker_factory)
     worker_command.worker()

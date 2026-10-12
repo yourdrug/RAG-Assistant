@@ -6,6 +6,7 @@ then evaluates quality via LLM judge.
 
 import asyncio
 import logging
+import time
 from pathlib import Path
 
 from config import get_setting
@@ -15,12 +16,17 @@ from application.ports.benchmark_checkpoints import BenchmarkCheckpoints
 
 from config import settings
 from domain.value_objects.benchmark_annotations import validate_annotations
+from domain.value_objects.chat_context import ChatContext
+from domain.value_objects.roles import UserKind, UserRole
+from infrastructure.benchmark import answer_generators, persistence
+from infrastructure.benchmark.case_evaluator import BenchmarkCaseEvaluator
+from infrastructure.benchmark.metrics import result_judge_errors
 
 from infrastructure.benchmark.case_metrics import (
     compute_retriever_metrics_from_sources as compute_retriever_metrics_from_sources,
 )
 from infrastructure.benchmark.case_metrics import (
-    _extract_usage_from_response as _extract_usage_from_response,
+    extract_usage_from_response as extract_usage_from_response,
 )
 
 logger = logging.getLogger("default")
@@ -38,6 +44,18 @@ def validate_questions(questions: list[dict]) -> None:
         validate_annotations(question.get("annotations"))
 
 
+def validate_pipeline(rag_service, standalone: bool) -> None:
+    if rag_service is None and not standalone:
+        raise ValueError("rag_service is required; use standalone=True for standalone evaluation")
+    if rag_service is not None and standalone:
+        raise ValueError("rag_service and standalone=True are mutually exclusive")
+
+
+async def close_owned_generator(generator, standalone: bool) -> None:
+    if standalone:
+        await generator.close()
+
+
 async def run_benchmark_async(
     questions: list[dict],
     out_dir: str,
@@ -52,17 +70,10 @@ async def run_benchmark_async(
     checkpoints: BenchmarkCheckpoints | None = None,
     checkpoint_prefix: str | None = None,
     export_files: bool = True,
+    standalone: bool = False,
 ) -> list[dict]:
     """Schedule benchmark cases, aggregate each run and persist the results."""
-    import time
-
-    from domain.value_objects.chat_context import ChatContext
-    from domain.value_objects.roles import UserKind, UserRole
-
-    from infrastructure.benchmark.answer_generators import RagBenchmarkGenerator, StandaloneBenchmarkGenerator
-    from infrastructure.benchmark.case_evaluator import BenchmarkCaseEvaluator
-    from infrastructure.benchmark.persistence import log_question_result, log_summary, save_results
-
+    validate_pipeline(rag_service, standalone)
     if max_concurrent is None:
         max_concurrent = settings.benchmark_max_concurrent
     logger.info(
@@ -86,9 +97,9 @@ async def run_benchmark_async(
     completed = 0
     ctx = ChatContext(user_id=0, user_kind=UserKind.INTERNAL, user_role=UserRole.ADMIN)
     generator = (
-        RagBenchmarkGenerator(rag_service, top_k, fetch_k)
+        answer_generators.RagBenchmarkGenerator(rag_service, top_k, fetch_k)
         if rag_service is not None
-        else StandaloneBenchmarkGenerator(top_k, fetch_k, ctx)
+        else answer_generators.StandaloneBenchmarkGenerator(top_k, fetch_k, ctx)
     )
     # Store only a hash of settings: credentials must never enter report files.
     identity = fingerprint(
@@ -139,8 +150,6 @@ async def run_benchmark_async(
                 ctx,
                 **({"checkpoint_path": path.with_suffix(".stages.json")} if path else {}),
             )
-            from infrastructure.benchmark.metrics import result_judge_errors
-
             diagnostic_errors = bool(result_judge_errors(result))
             if path and not diagnostic_errors:
                 await store.save(str(path), result)
@@ -151,33 +160,37 @@ async def run_benchmark_async(
                 len(questions) * n_runs,
                 question.get("id", idx),
             )
-            log_question_result(idx, len(questions), question, result)
+            persistence.log_question_result(idx, len(questions), question, result)
             return result
 
-    for run_idx in range(1, n_runs + 1):
-        started = time.monotonic()
-        # TaskGroup cancels sibling work on failure; gather previously left paid
-        # requests running while the worker restarted the entire sweep.
-        try:
-            async with asyncio.TaskGroup() as group:
-                tasks = [
-                    group.create_task(process_question(idx, q, run_idx)) for idx, q in enumerate(questions, 1)
-                ]
-        except ExceptionGroup as exc:
-            # Preserve the actionable provider error in the persisted job error.
-            failure = exc.exceptions[0]
-            while isinstance(failure, ExceptionGroup):
-                failure = failure.exceptions[0]
-            raise failure from exc
-        results = [task.result() for task in tasks]
-        log_summary(list(results), time.monotonic() - started)
-        all_results.extend(results)
-    if export_files:
-        await asyncio.to_thread(
-            save_results,
-            all_results,
-            out_dir,
-            model_name=settings.llm_model,
-            run_id="all" if n_runs > 1 else "",
-        )
-    return all_results
+    try:
+        for run_idx in range(1, n_runs + 1):
+            started = time.monotonic()
+            # TaskGroup cancels sibling work on failure; gather previously left paid
+            # requests running while the worker restarted the entire sweep.
+            try:
+                async with asyncio.TaskGroup() as group:
+                    tasks = [
+                        group.create_task(process_question(idx, q, run_idx))
+                        for idx, q in enumerate(questions, 1)
+                    ]
+            except ExceptionGroup as exc:
+                # Preserve the actionable provider error in the persisted job error.
+                failure = exc.exceptions[0]
+                while isinstance(failure, ExceptionGroup):
+                    failure = failure.exceptions[0]
+                raise failure from exc
+            results = [task.result() for task in tasks]
+            persistence.log_summary(list(results), time.monotonic() - started)
+            all_results.extend(results)
+        if export_files:
+            await asyncio.to_thread(
+                persistence.save_results,
+                all_results,
+                out_dir,
+                model_name=settings.llm_model,
+                run_id="all" if n_runs > 1 else "",
+            )
+        return all_results
+    finally:
+        await close_owned_generator(generator, standalone)

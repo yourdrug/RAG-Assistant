@@ -33,6 +33,12 @@ class InProcessEventBus:
             getattr(handler, "__qualname__", handler),
         )
 
+    def unsubscribe(self, event_type: type, handler: Callable) -> None:
+        """Remove an owned subscription without disturbing other containers."""
+        handlers = self._handlers.get(event_type, [])
+        if handler in handlers:
+            handlers.remove(handler)
+
     def unsubscribe_all(self) -> None:
         """Remove all registered handlers.
 

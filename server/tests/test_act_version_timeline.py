@@ -77,3 +77,43 @@ def test_insertion_closes_previous_edition_without_mutating_snapshot():
     assert original.get_version(2).effective_to is None
     assert changed.get_version(2).effective_to == date(2026, 1, 1)
     assert not changed.get_version(2).is_current
+
+
+@pytest.mark.parametrize("removed_id, remaining_id, expected_end", [(2, 1, None), (1, 2, None)])
+def test_removal_reopens_derived_boundaries_and_selects_current(removed_id, remaining_id, expected_end):
+    original = timeline()
+    remaining = original.remove(removed_id, today=date(2026, 6, 1))
+    assert len(remaining.versions) == 1
+    assert remaining.get_version(remaining_id).effective_to == expected_end
+    assert remaining.get_version(remaining_id).is_current
+    assert len(original.versions) == 2
+
+
+def test_removal_preserves_explicit_expiry():
+    original = ActVersionTimeline(
+        (
+            ActVersion(1, 10, 1, date(2024, 1, 1), date(2024, 6, 1), False),
+            ActVersion(2, 10, 2, date(2025, 1, 1), None, True),
+        )
+    )
+    remaining = original.remove(2, today=date(2026, 6, 1))
+    assert remaining.get_version(1).effective_to == date(2024, 6, 1)
+    assert not remaining.get_version(1).is_current
+
+
+def test_removal_of_only_edition_leaves_empty_timeline():
+    original = ActVersionTimeline((timeline().get_version(2),))
+    assert original.remove(2, today=date(2026, 6, 1)).versions == ()
+
+
+def test_removal_of_middle_edition_connects_remaining_neighbors():
+    original = ActVersionTimeline(
+        (
+            *timeline().versions,
+            ActVersion(3, 10, 3, date(2027, 1, 1), None, False),
+        )
+    )
+    remaining = original.remove(2, today=date(2026, 6, 1))
+    assert remaining.get_version(1).effective_to == date(2027, 1, 1)
+    assert remaining.get_version(1).is_current
+    assert not remaining.get_version(3).is_current

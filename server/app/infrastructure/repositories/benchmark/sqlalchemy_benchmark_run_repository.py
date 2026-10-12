@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from domain.entities.benchmark_run import BenchmarkRun
+from domain.services.benchmark_evaluation import EVIDENCE_METRICS, summarize_evidence
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,7 +18,7 @@ class SQLAlchemyBenchmarkRunRepository:
         stmt = select(BenchmarkRunModel).where(BenchmarkRunModel.id == run_id)
         result = await self._db.execute(stmt)
         orm = result.scalar_one_or_none()
-        return self._to_entity(orm) if orm else None
+        return self.to_entity(orm) if orm else None
 
     async def create(self, run: BenchmarkRun) -> BenchmarkRun:
         orm = BenchmarkRunModel(
@@ -33,7 +34,7 @@ class SQLAlchemyBenchmarkRunRepository:
         self._db.add(orm)
         await self._db.flush()
         await self._db.refresh(orm)
-        return self._to_entity(orm)
+        return self.to_entity(orm)
 
     async def save_for_sweep(self, run: BenchmarkRun) -> BenchmarkRun:
         if run.sweep_id is None:
@@ -53,7 +54,7 @@ class SQLAlchemyBenchmarkRunRepository:
         existing.llm_evaluated = run.llm_evaluated
         existing.duration_sec = run.duration_sec
         await self._db.flush()
-        return self._to_entity(existing)
+        return self.to_entity(existing)
 
     async def list_items(
         self,
@@ -78,7 +79,7 @@ class SQLAlchemyBenchmarkRunRepository:
 
         stmt = stmt.offset(offset).limit(limit)
         result = await self._db.execute(stmt)
-        return [self._to_entity(orm) for orm in result.scalars().all()]
+        return [self.to_entity(orm) for orm in result.scalars().all()]
 
     async def count(
         self,
@@ -103,7 +104,7 @@ class SQLAlchemyBenchmarkRunRepository:
             .order_by(BenchmarkRunModel.creation_date.desc())
         )
         result = await self._db.execute(stmt)
-        return [self._to_entity(orm) for orm in result.scalars().all()]
+        return [self.to_entity(orm) for orm in result.scalars().all()]
 
     async def get_latest(self, dataset: str | None = None) -> BenchmarkRun | None:
         stmt = select(BenchmarkRunModel).order_by(BenchmarkRunModel.creation_date.desc())
@@ -112,16 +113,26 @@ class SQLAlchemyBenchmarkRunRepository:
         stmt = stmt.limit(1)
         result = await self._db.execute(stmt)
         orm = result.scalar_one_or_none()
-        return self._to_entity(orm) if orm else None
+        return self.to_entity(orm) if orm else None
 
     @staticmethod
-    def _to_entity(orm: BenchmarkRunModel) -> BenchmarkRun:
+    def to_entity(orm: BenchmarkRunModel) -> BenchmarkRun:
+        summary = dict(orm.summary_metrics or {})
+        # Older sweep summaries omitted answer averages, but retained question scores.
+        missing = [metric for metric in EVIDENCE_METRICS if summary.get(f"avg_{metric}") is None]
+        if missing and orm.per_question_results:
+            recovered = summarize_evidence(orm.per_question_results)
+            for metric in missing:
+                average = recovered[f"avg_{metric}"]
+                if average is not None:
+                    summary[f"avg_{metric}"] = average
+                    summary[f"{metric}_evaluated_count"] = recovered[f"{metric}_evaluated_count"]
         return BenchmarkRun(
             id=orm.id,
             creation_date=orm.creation_date,
             sweep_id=orm.sweep_id,
             config_json=orm.config_json or {},
-            summary_metrics=orm.summary_metrics or {},
+            summary_metrics=summary,
             duration_sec=orm.duration_sec,
             llm_evaluated=orm.llm_evaluated,
             dataset=orm.dataset,

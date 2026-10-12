@@ -62,18 +62,6 @@ logger = logging.getLogger("default")
 # ---------------------------------------------------------------------------
 
 
-async def _seed_domain_config_defaults(container) -> None:
-    """Seed domain config defaults from DomainProfile.config_defaults() (TZ section 3)."""
-    if container.infrastructure.domain_registry is None:
-        return
-    from infrastructure.initialization import seed_domain_config_defaults
-
-    await seed_domain_config_defaults(
-        container.infrastructure.db.uow_factory,
-        container.infrastructure.domain_registry,
-    )
-
-
 async def _shutdown(container, scheduler, database, redis_client) -> None:
     """Gracefully shut down all resources. Each step isolated to prevent cascading failures."""
     shutdown_log = logging.getLogger("default")
@@ -116,7 +104,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
         if container.infrastructure.db.uow_factory is None:
             raise RuntimeError("UnitOfWorkFactory failed to initialize")
         await initialize_app(container.infrastructure.db.uow_factory)
-        await _seed_domain_config_defaults(container)
+        await container.infrastructure.bootstrap_domain_settings()
 
         if container.infrastructure.events.config_listener is None:
             raise RuntimeError("ConfigListener failed to initialize")

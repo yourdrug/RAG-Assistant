@@ -122,17 +122,6 @@ class Container:
         bus.subscribe(ConfigParameterChanged, invalidate_pii_detector_cache)
         bus.subscribe(ConfigParameterChanged, audit_log_config_change)
 
-        # Domain-specific params live in the DomainSettingsAdapter cache, not in
-        # global settings — update the cache on every event carrying domain_key.
-        adapter = self.infrastructure.domain_settings
-
-        def update_domain_settings_cache(event: ConfigParameterChanged) -> None:
-            if getattr(event, "domain_key", None) is not None and adapter is not None:
-                adapter.set(event.key, event.domain_key, event.new_value)
-                log.info("Domain config applied: %s[%s] = %s", event.key, event.domain_key, event.new_value)
-
-        bus.subscribe(ConfigParameterChanged, update_domain_settings_cache)
-
         def invalidate_llm(event: ConfigParameterChanged) -> None:
             llm_keys = {
                 "llm_provider",

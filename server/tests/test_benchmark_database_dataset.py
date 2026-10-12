@@ -133,7 +133,10 @@ async def test_worker_loads_selected_dataset_before_evaluation(monkeypatch):
 
     factory, repo, _ = dataset_factory([BenchmarkQuestion(id=72, question="Database case")])
     ctx = {
-        "container": SimpleNamespace(infrastructure=SimpleNamespace(db=SimpleNamespace(uow_factory=factory)))
+        "container": SimpleNamespace(
+            infrastructure=SimpleNamespace(db=SimpleNamespace(uow_factory=factory)),
+            application=SimpleNamespace(rag_service=object()),
+        )
     }
     run = AsyncMock(return_value=[])
     monkeypatch.setattr(tasks, "run_benchmark_async", run)
@@ -157,7 +160,7 @@ async def test_queue_serializes_dataset_and_deduplicates_per_dataset(monkeypatch
     from infrastructure.worker import queue
 
     enqueue = AsyncMock()
-    monkeypatch.setattr(queue, "_enqueue_arq", enqueue)
+    monkeypatch.setattr(queue, "enqueue_arq", enqueue)
     for dataset in [BenchmarkDataset.MAIN.value, "custom"]:
         await queue.enqueue_benchmark(
             dataset=dataset, out_dir="results", top_k=7, judge_model="judge", job_id=8

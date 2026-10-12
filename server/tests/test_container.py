@@ -286,7 +286,8 @@ class TestSubscribeConfigEvents:
 
         with patch("infrastructure.events.in_process_event_bus.event_bus") as mock_bus:
             c.subscribe_config_events()
-            assert mock_bus.subscribe.call_count == 9
+            # Domain cache subscription belongs to infrastructure bootstrap.
+            assert mock_bus.subscribe.call_count == 8
             for call_args in mock_bus.subscribe.call_args_list:
                 event_type = call_args[0][0]
                 assert event_type is ConfigParameterChanged

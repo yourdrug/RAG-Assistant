@@ -78,26 +78,44 @@ class ActVersionTimeline:
         Equal starts use insertion order: the newest edition supersedes earlier ones.
         Returns copies so validation can finish before any repository writes.
         """
-        previous = list(self.versions)
         self.get_version(edited.id)
         if end_provided:
             edited.validate_dates(explicit_end=edited.effective_to)
 
-        def key(version: ActVersion) -> tuple[date, int]:
-            return version.effective_from or date.min, version.id or 0
+        explicit_ends = self.explicit_ends()
+        if end_provided:
+            explicit_ends[edited.id] = edited.effective_to
+        versions = tuple(edited if version.id == edited.id else version for version in self.versions)
+        return self.rebuild(versions, explicit_ends, today=today)
 
-        old_order = sorted(previous, key=key)
-        explicit_ends: dict[int | None, date | None] = {}
+    @staticmethod
+    def order_key(version: ActVersion) -> tuple[date, int]:
+        return version.effective_from or date.min, version.id or 0
+
+    def explicit_ends(self) -> dict[int | None, date | None]:
+        """Separate expiry dates from boundaries derived from the old adjacency."""
+        old_order = sorted(self.versions, key=self.order_key)
+        ends: dict[int | None, date | None] = {}
         for index, version in enumerate(old_order):
             successor = old_order[index + 1] if index + 1 < len(old_order) else None
             derived = successor is not None and version.effective_to == successor.effective_from
-            explicit_ends[version.id] = None if derived else version.effective_to
-        if end_provided:
-            explicit_ends[edited.id] = edited.effective_to
+            ends[version.id] = None if derived else version.effective_to
+        return ends
 
-        ordered = sorted(
-            [replace(edited if version.id == edited.id else version) for version in previous], key=key
-        )
+    def remove(self, version_id: int, *, today: date) -> ActVersionTimeline:
+        """Reconnect remaining editions after unlinking, preserving explicit expiry."""
+        self.get_version(version_id)
+        remaining = tuple(version for version in self.versions if version.id != version_id)
+        return self.rebuild(remaining, self.explicit_ends(), today=today)
+
+    def rebuild(
+        self,
+        versions: tuple[ActVersion, ...],
+        explicit_ends: dict[int | None, date | None],
+        *,
+        today: date,
+    ) -> ActVersionTimeline:
+        ordered = sorted((replace(version) for version in versions), key=self.order_key)
         for index, version in enumerate(ordered):
             successor = ordered[index + 1] if index + 1 < len(ordered) else None
             boundary = successor.effective_from if successor is not None else None

@@ -246,7 +246,14 @@ class ActVersionCommands:
                 )
                 version = correction.get_version(version_id)
                 corrected = tuple(version if item.id == version_id else item for item in correction.versions)
+            remaining = None
             if old_act_id != version.act_id:
+                remaining = self.remove_from_timeline(
+                    timeline,
+                    version,
+                    old_act_id=old_act_id,
+                    end_provided=effective_to_provided or effective_to is not None,
+                )
                 await self.relink_version(uow, version)
             version.validate_dates(explicit_end=effective_to)
             if version.act_id is not None:
@@ -256,13 +263,39 @@ class ActVersionCommands:
             version.verified_at = datetime.now()
 
             await persistence.save_changes(timeline, corrected, edited_id=version_id)
+            if remaining is not None:
+                # Move the row first, freeing the source act's unique current slot.
+                await persistence.save_changes(timeline, remaining.versions)
 
         for affected_act_id in affected_act_ids:
             await self._answers.invalidate_act_answers(affected_act_id)
         await self._answers.invalidate_document_answers(version.document_id)
 
+    def remove_from_timeline(
+        self,
+        timeline: ActVersionTimeline,
+        version: ActVersion,
+        *,
+        old_act_id: int | None,
+        end_provided: bool,
+    ) -> ActVersionTimeline | None:
+        if old_act_id is None:
+            return None
+        if version.id is None:
+            raise RuntimeError("Persisted act version has no ID")
+        remaining = timeline.remove(version.id, today=self._today())
+        if not end_provided:
+            version.effective_to = timeline.explicit_ends()[version.id]
+        return remaining
+
     async def relink_version(self, uow: UnitOfWork, version: ActVersion) -> None:
         if version.act_id is None:
+            standalone = ActVersionTimeline((version,))
+            version.is_current = (
+                standalone.correct(version, end_provided=False, today=self._today())
+                .get_version(version.id)
+                .is_current
+            )
             return
         target_act = await uow.regulatory_acts.get_by_id(version.act_id)
         if target_act is None:

@@ -8,7 +8,7 @@ from config import settings
 from domain.entities.document import Document
 from domain.exceptions import UniqueConstraintViolation
 from domain.services import get_visibility_conditions
-from domain.value_objects.document_status import DocumentStatus
+from domain.value_objects.document_status import DOCUMENT_SLOT_STATUSES, DocumentStatus
 from domain.value_objects.owner_match import OwnerMatch
 from domain.value_objects.roles import UserKind, UserRole
 from domain.value_objects.visibility import DocumentVisibility
@@ -134,14 +134,7 @@ class SQLAlchemyDocumentRepository:
     ) -> Document | None:
         conditions = [
             DocumentModel.filename == filename,
-            DocumentModel.status.in_(
-                [
-                    DocumentStatus.PENDING.value,
-                    DocumentStatus.PROCESSING.value,
-                    DocumentStatus.DONE.value,
-                    DocumentStatus.FAILED.value,
-                ]
-            ),
+            DocumentModel.status.in_(DOCUMENT_SLOT_STATUSES),
         ]
         if owner_id is None:
             conditions.append(DocumentModel.owner_id.is_(None))
@@ -173,14 +166,7 @@ class SQLAlchemyDocumentRepository:
                 DocumentModel.filename.in_(filenames),
                 DocumentModel.owner_id.is_(None),
                 DocumentModel.group_id.is_(None),
-                DocumentModel.status.in_(
-                    [
-                        DocumentStatus.PENDING.value,
-                        DocumentStatus.PROCESSING.value,
-                        DocumentStatus.DONE.value,
-                        DocumentStatus.FAILED.value,
-                    ]
-                ),
+                DocumentModel.status.in_(DOCUMENT_SLOT_STATUSES),
             )
             .group_by(DocumentModel.filename)
             .subquery()

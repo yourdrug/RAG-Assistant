@@ -15,7 +15,6 @@ from presentation.cli.commands import worker
 
 @pytest.mark.asyncio
 async def test_worker_initializes_breakers_after_config_resync(monkeypatch):
-    from composition import container as container_module
     from infrastructure.database.database import database
     from infrastructure.redis.redis_client import redis_client
     from infrastructure.resilience import circuit_breaker
@@ -25,10 +24,11 @@ async def test_worker_initializes_breakers_after_config_resync(monkeypatch):
         init=Mock(),
         infrastructure=SimpleNamespace(
             domain_registry=None,
+            bootstrap_domain_settings=AsyncMock(),
             events=SimpleNamespace(config_listener=listener),
         ),
     )
-    monkeypatch.setattr(container_module, "Container", Mock(return_value=container))
+    monkeypatch.setattr(worker, "Container", Mock(return_value=container))
     monkeypatch.setattr(database, "connect", AsyncMock())
     monkeypatch.setattr(redis_client, "init", AsyncMock())
     monkeypatch.setattr(circuit_breaker, "_breakers", {})
@@ -89,6 +89,26 @@ class SweepUow:
     async def __aexit__(self, *args):
         if not args[0]:
             self.factory.committed_progress = list(self.benchmark_sweeps.update_progress.await_args_list)
+
+
+@pytest.mark.asyncio
+async def test_sweep_saves_answer_coverage_in_history_summary():
+    factory = SweepFactory()
+    best = {
+        "llm_evaluated": True,
+        "full_metrics": {
+            "avg_answer_condition_coverage": 0.6667,
+            "avg_answer_fact_coverage": 0.8,
+            "answer_condition_coverage_evaluated_count": 6,
+        },
+    }
+
+    await sweep.save_sweep_run(factory, factory.saved, 1, best)
+
+    saved = factory.runs.save_for_sweep.await_args.args[0]
+    assert saved.summary_metrics["avg_answer_condition_coverage"] == 0.6667
+    assert saved.summary_metrics["avg_answer_fact_coverage"] == 0.8
+    assert saved.summary_metrics["answer_condition_coverage_evaluated_count"] == 6
 
 
 def sweep_context(factory, attempt=1):

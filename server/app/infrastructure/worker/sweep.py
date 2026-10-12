@@ -9,6 +9,7 @@ from typing import Any
 
 from config import settings
 from domain.entities.benchmark_run import BenchmarkRun
+from domain.services.benchmark_evaluation import EVIDENCE_METRICS
 from domain.value_objects.sweep_status import BenchmarkSweepStatus
 from composition.service_providers import create_sweep_engine
 from infrastructure.benchmark.sweep_engine import SweepCancelled
@@ -93,7 +94,8 @@ async def save_sweep_run(uow_factory, sweep, sweep_id: int, best: dict) -> int |
         {
             key: value
             for key, value in diagnostics.items()
-            if key.startswith(("avg_fragment_", "avg_context_", "avg_retrieval_", "avg_source_"))
+            if key in {f"avg_{metric}" for metric in EVIDENCE_METRICS}
+            or key.startswith(("avg_fragment_", "avg_context_", "avg_retrieval_", "avg_source_"))
             or key.endswith(("_evaluated_count", "_expected_count"))
             or key.startswith("retrieval_")
         }

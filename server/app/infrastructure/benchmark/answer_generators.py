@@ -10,6 +10,13 @@ from typing import Protocol
 from application.ports.chat_rag_port import ChatRAGPort
 from config import _settings_overrides, get_setting, settings
 from domain.value_objects.chat_context import ChatContext
+from domain.services.access_control import get_visibility_conditions
+from domain.value_objects.roles import UserKind, UserRole
+from infrastructure.repositories.vector.acl import build_qdrant_filter
+from infrastructure.ml.rag.rag_formatting import format_docs_with_selection
+from infrastructure.benchmark import judge, metrics, retrieval
+from infrastructure.ml.clients.client_registry import MLClientRegistry
+from infrastructure.ml.clients.managed_llm import close_llm_pools
 
 from infrastructure.ml.rag.benchmark_evidence import (
     BenchmarkEvidence,
@@ -19,9 +26,21 @@ from infrastructure.ml.rag.benchmark_evidence import (
 
 from infrastructure.benchmark.case_metrics import (
     compute_retriever_metrics_from_sources,
-    _extract_usage_from_response,
+    extract_usage_from_response,
 )
 from infrastructure.ml.usage_capture import active_llm_usage
+
+
+async def run_owned_sync(function, *args, **kwargs):
+    """Wait for synchronous work before releasing the clients it still uses."""
+    task = asyncio.create_task(asyncio.to_thread(function, *args, **kwargs))
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError as exc:
+        try:
+            await task
+        finally:
+            raise exc
 
 
 @dataclass(frozen=True)
@@ -94,11 +113,7 @@ class RagBenchmarkGenerator:
 
 class StandaloneBenchmarkGenerator:
     def __init__(self, top_k: int, fetch_k: int | None, ctx: ChatContext) -> None:
-        from domain.services.access_control import get_visibility_conditions
-        from domain.value_objects.roles import UserKind, UserRole
-
-        from infrastructure.repositories.vector.acl import build_qdrant_filter
-
+        self._clients = MLClientRegistry()
         self._top_k = top_k
         self._fetch_k = fetch_k
         self._access_filter = build_qdrant_filter(
@@ -113,31 +128,36 @@ class StandaloneBenchmarkGenerator:
         )
 
     async def generate(self, question: dict, ctx: ChatContext) -> BenchmarkAnswer:
-        from infrastructure.benchmark.judge import get_rag_answer_with_usage
-        from infrastructure.benchmark.metrics import compute_retriever_metrics
-        from infrastructure.benchmark.retrieval import build_llm, retrieve_with_scores_hybrid
-
-        llm = build_llm(settings.llm_model, settings.ollama_base_url, provider=settings.llm_provider)
-        docs = await asyncio.to_thread(
-            retrieve_with_scores_hybrid,
-            question["question"],
-            self._top_k,
-            self._fetch_k or int(get_setting("rag.retriever_fetch_k")),
-            access_filter=self._access_filter,
-            visibility_conditions=self._visibility_conditions,
-            user_id=ctx.user_id,
-            user_group_ids=ctx.user_group_ids,
+        llm = retrieval.build_llm(
+            settings.llm_model, settings.ollama_base_url, provider=settings.llm_provider
         )
-        from infrastructure.ml.rag.rag_formatting import format_docs_with_selection
+        try:
+            docs = await run_owned_sync(
+                retrieval.retrieve_with_scores_hybrid,
+                question["question"],
+                self._top_k,
+                self._fetch_k or int(get_setting("rag.retriever_fetch_k")),
+                access_filter=self._access_filter,
+                visibility_conditions=self._visibility_conditions,
+                user_id=ctx.user_id,
+                user_group_ids=ctx.user_group_ids,
+                ml_clients=self._clients,
+            )
+            context, selected = format_docs_with_selection(docs, max_context_tokens=4000)
+            answer, response = await run_owned_sync(
+                judge.get_rag_answer_with_usage, llm, docs, question["question"]
+            )
+            input_tokens, output_tokens = extract_usage_from_response(response)
+            return BenchmarkAnswer(
+                answer=answer,
+                context=context,
+                evidence=BenchmarkEvidence(snapshot_documents(docs), snapshot_documents(selected), context),
+                retriever_metrics=metrics.compute_retriever_metrics(docs, question.get("source_hint")),
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+            )
+        finally:
+            await close_llm_pools(llm)
 
-        context, selected = format_docs_with_selection(docs, max_context_tokens=4000)
-        answer, response = await asyncio.to_thread(get_rag_answer_with_usage, llm, docs, question["question"])
-        input_tokens, output_tokens = _extract_usage_from_response(response)
-        return BenchmarkAnswer(
-            answer=answer,
-            context=context,
-            evidence=BenchmarkEvidence(snapshot_documents(docs), snapshot_documents(selected), context),
-            retriever_metrics=compute_retriever_metrics(docs, question.get("source_hint")),
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-        )
+    async def close(self) -> None:
+        await self._clients.close()

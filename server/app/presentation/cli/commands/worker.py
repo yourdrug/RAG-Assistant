@@ -10,7 +10,12 @@ from arq.connections import RedisSettings
 from arq.cron import cron
 from arq.worker import Function, Worker, func as arq_func
 
+from composition.container import Container
 from config import settings
+from infrastructure.database.database import database
+from infrastructure.redis.redis_client import redis_client
+from infrastructure.resilience.circuit_breaker import init_breakers
+from infrastructure.worker.queue import QUEUE_NAME
 from infrastructure.worker.tasks import (
     cron_bm25_rebuild,
     cron_job_cleanup,
@@ -46,8 +51,6 @@ def worker(
     Cron-задачи: job_cleanup (2x/day), recover_orphaned (15 мин), bm25_rebuild (3:00 UTC).
     Использует Redis как брокер.
     """
-    from infrastructure.worker.queue import QUEUE_NAME
-
     try:
         redis_settings = RedisSettings.from_dsn(settings.redis_url)
 
@@ -111,11 +114,6 @@ def worker(
 
 async def on_startup(ctx: dict) -> None:
     """Initialize database and infrastructure on worker startup."""
-    from composition.container import Container
-    from infrastructure.database.database import database
-    from infrastructure.initialization import seed_domain_config_defaults
-    from infrastructure.redis.redis_client import redis_client
-
     await database.connect()
     logger.info("Worker: database connected")
 
@@ -127,13 +125,7 @@ async def on_startup(ctx: dict) -> None:
     container.init(database)
     ctx["container"] = container
 
-    # Seed domain config defaults (same as the API lifespan). The worker can
-    # start before the API has ever seeded (parallel compose boot / worker-only
-    # deployment) — without this, legal/general profiles KeyError on their
-    # config parameters (e.g. fingerprint_min_articles) during first ingestion.
-    domain_registry = container.infrastructure.domain_registry
-    if domain_registry is not None and container.infrastructure.db.uow_factory is not None:
-        await seed_domain_config_defaults(container.infrastructure.db.uow_factory, domain_registry)
+    await container.infrastructure.bootstrap_domain_settings()
 
     listener = container.infrastructure.events.config_listener
     if listener is None:
@@ -141,8 +133,6 @@ async def on_startup(ctx: dict) -> None:
 
     await listener.resync(trigger="worker_startup")
     logger.info("Worker: config synced from database")
-
-    from infrastructure.resilience.circuit_breaker import init_breakers
 
     init_breakers(
         fail_max=settings.llm_breaker_fail_max,
@@ -156,9 +146,6 @@ async def on_startup(ctx: dict) -> None:
 
 async def on_shutdown(ctx: dict) -> None:
     """Cleanup on worker shutdown."""
-    from infrastructure.database.database import database
-    from infrastructure.redis.redis_client import redis_client
-
     try:
         container = ctx.get("container")
         if container is not None:

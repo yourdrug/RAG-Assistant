@@ -14,6 +14,9 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from composition.utils import _missing_fields, _require
+from domain.events.config_events import ConfigParameterChanged
+from infrastructure.events.in_process_event_bus import event_bus
+from infrastructure.initialization import seed_domain_config_defaults
 
 if TYPE_CHECKING:
     from application.ports.action_logger import ActionLoggerPort
@@ -343,6 +346,7 @@ class InfrastructureContainer:
     domain_settings: DomainSettingsAdapter | None = field(default=None, repr=False)
     rate_limit: PyrateRateLimiter | None = field(default=None, repr=False)
     _initialized: bool = field(default=False, repr=False)
+    _domain_settings_subscribed: bool = field(default=False, repr=False)
 
     def init(self, database_manager: DatabaseManager) -> None:
         """Create all infrastructure-layer objects.
@@ -378,6 +382,25 @@ class InfrastructureContainer:
 
         self._initialized = True
         log.info("Infrastructure container initialized")
+
+    async def bootstrap_domain_settings(self) -> None:
+        """Seed and load domain config before API, worker, or CLI use."""
+        if self.domain_registry is None or self.domain_settings is None:
+            raise RuntimeError("Domain settings must be initialized before bootstrap")
+        if not self._domain_settings_subscribed:
+            event_bus.subscribe(ConfigParameterChanged, self.update_domain_settings_cache)
+            self._domain_settings_subscribed = True
+        await seed_domain_config_defaults(self.db.uow, self.domain_registry)
+        # Read from the writer after seeding; replica lag must not leave config missing.
+        async with self.db.uow.create(master=True) as uow:
+            rows = await uow.config_parameters.get_all()
+        for row in rows:
+            if row.domain_key is not None:
+                self.domain_settings.set(row.key, row.domain_key, row.normalize(row.value))
+
+    def update_domain_settings_cache(self, event: ConfigParameterChanged) -> None:
+        if event.domain_key is not None and self.domain_settings is not None:
+            self.domain_settings.set(event.key, event.domain_key, event.new_value)
 
     def _init_rate_limit(self) -> None:
         """Build the Redis-backed rate limiter (requires an initialized Redis client)."""
@@ -447,5 +470,8 @@ class InfrastructureContainer:
                             self.ml.ml_clients = None
                     finally:
                         self.ml.dispose()
+                        if self._domain_settings_subscribed:
+                            event_bus.unsubscribe(ConfigParameterChanged, self.update_domain_settings_cache)
+                            self._domain_settings_subscribed = False
                         self._initialized = False
         log.info("Infrastructure container disposed")

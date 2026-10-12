@@ -7,7 +7,7 @@ import pytest
 
 from config import _settings_overrides, get_setting, settings
 from domain.entities.benchmark_sweep import BenchmarkSweep
-from infrastructure.benchmark import judge, metrics, persistence
+from infrastructure.benchmark import evidence_judge, judge, metrics, persistence
 from infrastructure.benchmark.runner import run_benchmark_async
 from infrastructure.benchmark.sweep_engine import SweepEngine, SweepCancelled
 from infrastructure.repositories.chunk.sqlalchemy_chunk_repository import SQLAlchemyChunkRepository
@@ -18,6 +18,9 @@ def benchmark_io(monkeypatch):
     # These characterize the individual judge path mocked below.
     monkeypatch.setattr(settings, 'benchmark_judge_grouped_enabled', False)
     questions = [{"id": "first", "question": "question", "source_hint": "report"}]
+    monkeypatch.setattr(
+        evidence_judge, "judge_evidence", lambda *args, **kwargs: {"scores": {}, "details": {}}
+    )
     score = AsyncMock(return_value={"faithfulness": 8, "relevancy": 7, "correctness": None})
     monkeypatch.setattr(judge, "judge_answer_async", score)
     monkeypatch.setattr(
@@ -84,18 +87,24 @@ async def test_benchmark_restores_cache_scope_and_propagates_pipeline_error(benc
 
 @pytest.mark.asyncio
 async def test_standalone_benchmark_keeps_acl_context_and_usage(benchmark_io, monkeypatch):
-    from infrastructure.benchmark import retrieval
+    from infrastructure.benchmark import answer_generators, retrieval
 
     questions, saved, score = benchmark_io
     docs = [(SimpleNamespace(page_content="context", metadata={"source": "report.pdf"}), 0.9)]
     retrieve = MagicMock(return_value=docs)
-    monkeypatch.setattr(retrieval, "build_llm", lambda *a, **kw: object())
+    llm = SimpleNamespace(close=AsyncMock())
+    clients = SimpleNamespace(close=AsyncMock())
+    monkeypatch.setattr(answer_generators, "MLClientRegistry", lambda: clients)
+    monkeypatch.setattr(retrieval, "build_llm", lambda *a, **kw: llm)
     monkeypatch.setattr(retrieval, "retrieve_with_scores_hybrid", retrieve)
     response = SimpleNamespace(
         response_metadata={"token_usage": {"prompt_tokens": 30, "completion_tokens": 5}}
     )
     monkeypatch.setattr(judge, "get_rag_answer_with_usage", lambda *a: ("answer", response))
-    await run_benchmark_async(questions, "unused", 4, "judge", fetch_k=12)
+    await run_benchmark_async(questions, "unused", 4, "judge", fetch_k=12, standalone=True)
+    llm.close.assert_awaited_once()
+    clients.close.assert_awaited_once()
+    assert retrieve.call_args.kwargs["ml_clients"] is clients
     assert retrieve.call_args.args[1:3] == (4, 12)
     assert retrieve.call_args.kwargs["access_filter"] is not None
     assert retrieve.call_args.kwargs["visibility_conditions"]

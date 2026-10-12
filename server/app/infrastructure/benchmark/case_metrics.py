@@ -45,7 +45,7 @@ def compute_retriever_metrics_from_sources(
     }
 
 
-def _extract_usage_from_response(response) -> tuple[int | None, int | None]:
+def extract_usage_from_response(response) -> tuple[int | None, int | None]:
     """Extract input/output token counts from a LangChain LLM response."""
     try:
         metadata = getattr(response, "response_metadata", {}) or {}

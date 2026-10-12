@@ -254,13 +254,13 @@ class TestSanitizeModelName:
 
 
 # ---------------------------------------------------------------------------
-# _apply_rerank_filters
+# apply_rerank_filters
 # ---------------------------------------------------------------------------
 
 
 class TestApplyRerankFilters:
     def test_min_score_filters_low(self):
-        from infrastructure.benchmark.retrieval import _apply_rerank_filters
+        from infrastructure.benchmark.retrieval import apply_rerank_filters
 
         with patch("infrastructure.benchmark.retrieval.get_setting") as mock_get:
             mock_get.side_effect = lambda key: {
@@ -272,12 +272,12 @@ class TestApplyRerankFilters:
                 (_doc("b"), 0.3),
                 (_doc("c"), 0.7),
             ]
-            result = _apply_rerank_filters(docs)
+            result = apply_rerank_filters(docs)
             assert len(result) == 2
             assert all(s >= 0.5 for _, s in result)
 
     def test_gap_ratio_filters(self):
-        from infrastructure.benchmark.retrieval import _apply_rerank_filters
+        from infrastructure.benchmark.retrieval import apply_rerank_filters
 
         with patch("infrastructure.benchmark.retrieval.get_setting") as mock_get:
             mock_get.side_effect = lambda key: {
@@ -289,16 +289,16 @@ class TestApplyRerankFilters:
                 (_doc("b"), 0.6),
                 (_doc("c"), 0.3),
             ]
-            result = _apply_rerank_filters(docs)
+            result = apply_rerank_filters(docs)
             # cutoff = 1.0 * 0.5 = 0.5, so 0.3 is filtered
             assert len(result) == 2
 
     def test_no_filters(self):
-        from infrastructure.benchmark.retrieval import _apply_rerank_filters
+        from infrastructure.benchmark.retrieval import apply_rerank_filters
 
         with patch("infrastructure.benchmark.retrieval.get_setting", return_value=None):
             docs = [(_doc("a"), 0.9), (_doc("b"), 0.1)]
-            result = _apply_rerank_filters(docs)
+            result = apply_rerank_filters(docs)
             assert len(result) == 2
 
 
