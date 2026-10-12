@@ -7,12 +7,14 @@ into composable Pydantic types and model validators.
 from __future__ import annotations
 
 from pathlib import Path
+from io import BytesIO
 from typing import Annotated
 
 from pydantic import AfterValidator, BaseModel, ValidationError, model_validator
 from fastapi.exceptions import RequestValidationError
 
 from presentation.api.constants import MAGIC_BYTES
+from infrastructure.storage.docx_validation import validate_docx_archive
 
 
 # ---------------------------------------------------------------------------
@@ -42,13 +44,6 @@ SafeRelativePath = Annotated[str, AfterValidator(_reject_unsafe_path)]
 # ---------------------------------------------------------------------------
 # Structural file checks (pure functions)
 # ---------------------------------------------------------------------------
-
-
-def _is_zip_archive(data: bytes) -> bool:
-    """Check for ZIP End Of Central Directory record."""
-    if len(data) < 22:
-        return False
-    return b"PK\x05\x06" in data[-65557:]
 
 
 def _is_valid_pdf(data: bytes) -> bool:
@@ -81,7 +76,7 @@ class FileContent(BaseModel):
     check_structural: bool = False
 
     @model_validator(mode="after")
-    def _validate_content(self) -> FileContent:
+    def validate_content(self) -> FileContent:
         if not self.data:
             raise ValueError("File is empty")
 
@@ -100,8 +95,8 @@ class FileContent(BaseModel):
         if self.check_structural:
             if ext == ".pdf" and not _is_valid_pdf(self.data):
                 raise ValueError("File content is not a valid PDF (missing EOF marker)")
-            if ext == ".docx" and not _is_zip_archive(self.data):
-                raise ValueError("File content is not a valid ZIP-archive (.docx)")
+            if ext == ".docx":
+                validate_docx_archive(BytesIO(self.data))
             if ext == ".doc" and not _is_ole2_document(self.data):
                 raise ValueError("File content is not a valid OLE2 compound document (.doc)")
 

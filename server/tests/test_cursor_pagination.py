@@ -8,6 +8,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 from application.services.chunk_service import ChunkService  # noqa: E402
+from domain.entities.document import Document  # noqa: E402
 from domain.exceptions import ValidationError  # noqa: E402
 from domain.utils import decode_cursor, encode_cursor  # noqa: E402
 from domain.value_objects.visibility import DocumentVisibility  # noqa: E402
@@ -53,17 +54,9 @@ class TestCursorEncoding:
 # ---------------------------------------------------------------------------
 
 
-def _make_doc(doc_id: int = 1, owner_id: int = 10):
-    """Build a minimal document-like object matching what ChunkService expects."""
-    from unittest.mock import MagicMock
-
-    doc = MagicMock()
-    doc.id = doc_id
-    doc.owner_id = owner_id
-    doc.visibility = DocumentVisibility.INTERNAL_PUBLIC
-    doc.status = "done"
-    doc.can_edit_chunks.return_value = True
-    return doc
+def make_doc(doc_id: int = 1):
+    """Public document ACL agrees with the seeded chunks."""
+    return Document(id=doc_id, visibility=DocumentVisibility.INTERNAL_PUBLIC)
 
 
 def _seed_chunks(fake_chunks: FakeChunkRepository, document_id: int, count: int):
@@ -92,7 +85,7 @@ class TestChunkServiceCursor:
     @pytest.fixture
     def uow(self):
         uow = FakeUnitOfWork()
-        uow.documents._documents[1] = _make_doc(1)
+        uow.documents._documents[1] = make_doc(1)
         return uow
 
     @pytest.fixture

@@ -34,10 +34,11 @@ async def exact_search(
     Uses pg_trgm GIN index for fast ILIKE on millions of chunks.
     Requires min 3 characters for trigram index efficiency.
     """
-    results = await search_service.exact_search(
+    results, total = await search_service.exact_search(
         query=req.query,
         user=UserContext(user_id=current_user.id, user_kind=current_user.kind, user_role=current_user.role),
         limit=req.limit,
+        offset=req.offset,
         mode=req.mode,
         document_id=req.document_id,
     )
@@ -54,5 +55,7 @@ async def exact_search(
             )
             for r in results
         ],
-        total=len(results),
+        total=total,
+        limit=req.limit,
+        offset=req.offset,
     )

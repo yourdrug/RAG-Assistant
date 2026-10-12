@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import hashlib
+import asyncio
 
 from application.ports.rate_limit import RateLimitPolicyName
 from application.services.document_command_service import DocumentCommandService
@@ -84,7 +85,7 @@ async def upload_document(
     max_bytes = upload_cfg.max_upload_size_mb * 1024 * 1024
     data = await read_upload_with_limit(file, max_bytes)
 
-    validate_uploaded_file(data, filename)
+    await asyncio.to_thread(validate_uploaded_file, data, filename)
 
     cached, reservation = await reserve_idempotency(
         idempotency_store,

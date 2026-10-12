@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Protocol, runtime_checkable
 
 from domain.entities.document import Document
+from domain.value_objects.visibility import DocumentVisibility
 
 
 @runtime_checkable
@@ -33,6 +34,16 @@ class DocumentCrudRepository(Protocol):
     ) -> bool: ...
     async def set_source_path(self, document_id: int, source_path: str) -> None: ...
     async def set_domain(self, document_id: int, doc_domain: str) -> None: ...
+    async def set_acl(
+        self,
+        document_id: int,
+        visibility: DocumentVisibility,
+        owner_id: int | None,
+        group_id: int | None,
+    ) -> None:
+        """Lock the document and update ACL within the caller's transaction."""
+        ...
+
     async def find_active_slot(
         self,
         owner_id: int | None,

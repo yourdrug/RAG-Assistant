@@ -8,6 +8,7 @@ from datetime import date, datetime
 from domain.repositories.chunk_repository import ChunkSearchResult, ChunkStats
 from domain.value_objects.cursor_page import CursorPage
 from domain.value_objects.doc_domain import DocDomain
+from domain.value_objects.search_mode import SearchMode
 from sqlalchemy.ext.asyncio import AsyncSession
 from infrastructure.repositories.chunk.chunk_crud import SQLAlchemyChunkCrudRepository
 from infrastructure.repositories.chunk.chunk_corpus import SQLAlchemyChunkCorpusRepository
@@ -238,4 +239,24 @@ class SQLAlchemyChunkRepository:
     ) -> list[ChunkSearchResult]:
         return await self._search.search_substring(
             query=query, user=user, limit=limit, mode=mode, document_id=document_id, as_of_date=as_of_date
+        )
+
+    async def search_substring_page(
+        self,
+        query: str,
+        user,
+        limit: int = 20,
+        offset: int = 0,
+        mode: str = SearchMode.EXACT.value,
+        document_id: int | None = None,
+        as_of_date: date | None = None,
+    ) -> tuple[list[ChunkSearchResult], int]:
+        return await self._search.search_substring_page(
+            query=query,
+            user=user,
+            limit=limit,
+            offset=offset,
+            mode=mode,
+            document_id=document_id,
+            as_of_date=as_of_date,
         )

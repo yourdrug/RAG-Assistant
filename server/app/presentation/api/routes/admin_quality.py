@@ -9,6 +9,7 @@ from pathlib import Path
 
 from domain.exceptions import ServerException
 from domain.value_objects.file_backend import FileBackend
+from domain.value_objects.doc_domain import DocDomain
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from application.ports.rate_limit import RateLimitPolicyName
@@ -355,7 +356,7 @@ async def index_from_preview(
     visibility: str = Form("internal_public"),
     group_id: int | None = Form(None),
     client_id: int | None = Form(None),
-    doc_domain: str | None = Form(None),
+    doc_domain: DocDomain | None = Form(None),
     admin: CurrentUser = Depends(require_admin),
     preview_cache=Depends(create_preview_cache),
     cmd=Depends(create_document_command_service),
@@ -386,7 +387,7 @@ async def index_from_preview(
         user_kind=admin.kind,
         user_role=admin.role,
         rename_on_conflict=False,
-        doc_domain=doc_domain,
+        doc_domain=doc_domain.value if doc_domain is not None else None,
         document_service=cmd,
         job_service=job_service,
         enqueue_fn=job_enqueuer.enqueue_document_processing,

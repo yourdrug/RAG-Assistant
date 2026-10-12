@@ -8,15 +8,29 @@ from typing import TYPE_CHECKING
 from application.dto.chunk_dto import ChunkItemDTO
 from application.services.chunk_mappers import to_chunk_dto
 from application.services.user_context_factory import UserContextFactory
-from domain.exceptions import EntityNotFound
+from domain.exceptions import BusinessRuleViolation, EntityNotFound
 from domain.services import check_document_access
 from domain.utils import decode_cursor
 from domain.value_objects.cursor_page import CursorPage
 
 if TYPE_CHECKING:
     from application.ports.unit_of_work_factory import UnitOfWorkFactory
+    from domain.entities.document import Document
+    from domain.repositories.chunk_repository import ChunkSearchResult
 
 log = logging.getLogger(__name__)
+
+
+def validate_chunk_acl(document: Document, chunks: list[ChunkSearchResult]) -> None:
+    """Fail closed on legacy inconsistency or an ACL change between SQL reads."""
+    for chunk in chunks:
+        if (
+            chunk.document_id != document.id
+            or chunk.visibility != document.visibility
+            or chunk.owner_id != document.owner_id
+            or chunk.group_id != document.group_id
+        ):
+            raise BusinessRuleViolation("Chunk ACL does not match document ACL")
 
 
 class ChunkQueryService:
@@ -53,6 +67,7 @@ class ChunkQueryService:
                 offset=offset,
                 content_hashes=content_hashes,
             )
+            validate_chunk_acl(doc, chunks)
 
             return [to_chunk_dto(c) for c in chunks], total
 
@@ -85,6 +100,7 @@ class ChunkQueryService:
                 direction=direction,
                 content_hashes=content_hashes,
             )
+            validate_chunk_acl(doc, page.items)
 
             return CursorPage(
                 items=[to_chunk_dto(c) for c in page.items],

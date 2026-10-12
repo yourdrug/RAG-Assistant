@@ -26,8 +26,10 @@ from contextlib import asynccontextmanager
 
 from domain.entities.message import Message
 from domain.entities.vector_outbox_entry import OutboxStatus, VectorOutboxEntry
+from domain.exceptions import EntityNotFound
 from domain.repositories.ingestion_registry_repository import IngestionRegistryEntry
 from domain.value_objects.stream_events import SourcesEvent, TextChunk
+from domain.value_objects.visibility import DocumentVisibility
 
 # ---------------------------------------------------------------------------
 # Fake UnitOfWork
@@ -228,6 +230,9 @@ class FakeChunkRepository:
     async def search_substring(self, **kwargs):
         return []
 
+    async def search_substring_page(self, **kwargs):
+        return [], 0
+
     async def get_all_contents(self) -> list[str]:
         return []
 
@@ -319,6 +324,9 @@ class FakeChunkRepository:
                 filename=c.get("filename", ""),
                 content=c.get("content", ""),
                 chunk_index=c.get("chunk_index", 0),
+                visibility=c.get("visibility", ""),
+                owner_id=c.get("owner_id"),
+                group_id=c.get("group_id"),
                 content_hash=c.get("content_hash"),
                 context_metadata=c.get("context_metadata", {}),
             )
@@ -405,6 +413,21 @@ class FakeDocumentRepository:
         doc = self._documents.get(document_id)
         if doc is not None:
             doc.doc_domain = doc_domain
+
+    async def set_acl(
+        self,
+        document_id: int,
+        visibility: DocumentVisibility,
+        owner_id: int | None,
+        group_id: int | None,
+    ) -> None:
+        doc = self._documents.get(document_id)
+        if doc is None:
+            raise EntityNotFound("Document", document_id)
+        doc.visibility = visibility
+        doc.owner_id = owner_id
+        doc.group_id = group_id
+        doc.version += 1
 
     async def set_source_path(self, document_id: int, source_path: str) -> None:
         doc = self._documents.get(document_id)

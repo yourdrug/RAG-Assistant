@@ -15,7 +15,7 @@ from application.services.document_pipeline import classify_domain, tag_chunks, 
 from application.services.ingestion_registry import s3_file_hash
 from domain.entities.raw_document import RawDocument
 from domain.services.document_domain_classifier import classify_document_domain
-from domain.value_objects.doc_domain import DocDomain
+from domain.value_objects.doc_domain import DocDomain, DomainDetectionMode
 
 if TYPE_CHECKING:
     from domain.domain_profile.settings_port import DomainSettingsPort
@@ -84,8 +84,9 @@ class S3DocumentLoader:
             chunks.extend(self.index_docs(group, domain=domain))
         return chunks
 
-    def index_docs(self, docs: list, domain: str = "general") -> list:
+    def index_docs(self, docs: list, domain: str = DocDomain.GENERAL.value) -> list:
         """Parse and split documents into chunks. No direct Qdrant upload."""
+        domain = DocDomain(domain).value
         profile = self._get_profile(domain)
         context = SplitContext(
             domain=domain,
@@ -103,8 +104,8 @@ class S3DocumentLoader:
 
     def classify_text_domain(self, text: str, domain: str) -> str:
         """Registry-based classification with legacy fallback."""
-        if domain != "auto":
-            return domain
+        if domain != DomainDetectionMode.AUTO.value:
+            return DocDomain(domain).value
         return classify_domain(
             text,
             domain_registry=self._domain_registry,

@@ -17,6 +17,7 @@ class ExactSearchRequest(BaseModel):
         description="exact=pg_trgm ranked, icontains=plain ILIKE",
     )
     limit: int = Field(20, ge=1, le=100)
+    offset: int = Field(0, ge=0, description="Number of matching chunks to skip")
     document_id: int | None = Field(None, description="Filter by document ID (optional)")
 
 
@@ -31,4 +32,6 @@ class ExactSearchResult(BaseModel):
 class ExactSearchResponse(BaseModel):
     query: str
     results: list[ExactSearchResult]
-    total: int
+    total: int = Field(..., ge=0, description="Total matching chunks within the user's access scope")
+    limit: int
+    offset: int

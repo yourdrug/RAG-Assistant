@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 from config import settings
 from domain.entities.document import Document
-from domain.exceptions import UniqueConstraintViolation
+from domain.exceptions import EntityNotFound, UniqueConstraintViolation
 from domain.services import get_visibility_conditions
 from domain.value_objects.document_status import DOCUMENT_SLOT_STATUSES, DocumentStatus
 from domain.value_objects.owner_match import OwnerMatch
@@ -128,6 +128,28 @@ class SQLAlchemyDocumentRepository:
         if orm:
             orm.doc_domain = doc_domain
             await self._db.flush()
+
+    async def set_acl(
+        self,
+        document_id: int,
+        visibility: DocumentVisibility,
+        owner_id: int | None,
+        group_id: int | None,
+    ) -> None:
+        result = await self._db.execute(
+            select(DocumentModel).where(DocumentModel.id == document_id).with_for_update()
+        )
+        orm = result.scalar_one_or_none()
+        if orm is None:
+            raise EntityNotFound("Document", document_id)
+        orm.visibility = visibility.value
+        orm.owner_id = owner_id
+        orm.group_id = group_id
+        orm.version += 1
+        try:
+            await self._db.flush()
+        except IntegrityError as exc:
+            raise UniqueConstraintViolation(detail=str(exc)) from exc
 
     async def find_active_slot(
         self, owner_id: int | None, filename: str, group_id: int | None, for_update: bool = False

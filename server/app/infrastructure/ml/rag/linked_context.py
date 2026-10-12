@@ -87,11 +87,13 @@ async def enrich_linked_context(docs, question, chunk_search, user):
     # consolidated tables or general definitions when lookup slots are limited.
     ordered = sorted(
         docs,
-        key=lambda item: bool(item[0].metadata.get("table_header"))
-        if item[0].metadata.get("content_type") == PageContentType.TABLE.value
-        else not any(
-            STAGE_RE.match(line) or line.startswith("В накладной ")
-            for line in chunk_body(item[0]).splitlines()
+        key=lambda item: (
+            bool(item[0].metadata.get("table_header"))
+            if item[0].metadata.get("content_type") == PageContentType.TABLE.value
+            else not any(
+                STAGE_RE.match(line) or line.startswith("В накладной ")
+                for line in chunk_body(item[0]).splitlines()
+            )
         ),
     )
     for doc, _ in ordered:

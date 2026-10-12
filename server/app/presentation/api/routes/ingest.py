@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import logging
 import hashlib
+import asyncio
 
 from application.ports.ingestion_port import IngestionPort
 from application.ports.rate_limit import RateLimitPolicyName
 from application.services.ingest_service import IngestAppService
 from application.services.job_service import JobService
 from domain.value_objects.visibility import DocumentVisibility
+from domain.value_objects.doc_domain import DocDomainSelection, DomainDetectionMode
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 
 from presentation.api.auth_dependencies import require_admin
@@ -53,7 +55,7 @@ async def ingest_documents(
     request: Request,
     docs_dir: SafeRelativePath = "docs/",
     reset: bool = False,
-    domain: str = "auto",
+    domain: DocDomainSelection = DomainDetectionMode.AUTO,
     visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC,
     group_id: int | None = None,
     client_id: int | None = None,
@@ -98,7 +100,7 @@ async def ingest_documents(
     await job_enqueuer.enqueue_ingest(
         resolved_dir=resolved,
         reset=reset,
-        domain=domain,
+        domain=domain.value,
         job_id=job_id,
         visibility=visibility.value,
         group_id=group_id,
@@ -119,7 +121,7 @@ async def ingest_single_file(
     request: Request,
     file_path: SafeRelativePath,
     force: bool = False,
-    domain: str = "auto",
+    domain: DocDomainSelection = DomainDetectionMode.AUTO,
     visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC,
     group_id: int | None = None,
     client_id: int | None = None,
@@ -166,7 +168,7 @@ async def ingest_single_file(
 
     await job_enqueuer.enqueue_ingest_file(
         resolved=resolved,
-        domain=domain,
+        domain=domain.value,
         job_id=job_id,
         visibility=visibility.value,
         group_id=group_id,
@@ -224,7 +226,7 @@ async def upload_files(
     file_fingerprints = []
     for f in files:
         data = await read_upload_with_limit(f, max_bytes)
-        fc = validate_uploaded_file(data, f.filename or "unnamed")
+        fc = await asyncio.to_thread(validate_uploaded_file, data, f.filename or "unnamed")
         file_data.append(type("UploadFileData", (), {"filename": f.filename, "data": fc.data})())
         file_fingerprints.append(
             {"filename": f.filename or "unnamed", "sha256": hashlib.sha256(fc.data).hexdigest()}

@@ -302,8 +302,10 @@ async def test_missing_row_response_cannot_be_overridden_by_model_and_cache_chan
 def test_timing_response_requires_unique_norm_in_requested_act_and_correct_category():
     question = "В каком режиме передают сведения о товарах, включённых в перечни, по постановлению N 11?"
     right = Document(
-        page_content=("Сведения о товарах, включенных в перечни, передаются провайдером "
-                      "в режиме реального времени в момент поступления;"),
+        page_content=(
+            "Сведения о товарах, включенных в перечни, передаются провайдером "
+            "в режиме реального времени в момент поступления;"
+        ),
         metadata={"source": "Постановление N 11.docx", "citation_id": 1},
     )
     wrong = Document(

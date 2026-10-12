@@ -155,6 +155,22 @@ class ChunkSearchRepository(Protocol):
 
 
 @runtime_checkable
+class ChunkSearchPageRepository(Protocol):
+    """Paginated API search, with the total restricted to the same access scope."""
+
+    async def search_substring_page(
+        self,
+        query: str,
+        user: UserContext,
+        limit: int = 20,
+        offset: int = 0,
+        mode: str = SearchMode.EXACT.value,
+        document_id: int | None = None,
+        as_of_date: date | None = None,
+    ) -> tuple[list[ChunkSearchResult], int]: ...
+
+
+@runtime_checkable
 class ChunkCorpusRepository(Protocol):
     """Read the chunk corpus for sparse-index rebuilding."""
 
@@ -218,7 +234,12 @@ class ChunkVersioningRepository(Protocol):
 
 @runtime_checkable
 class ChunkRepository(
-    ChunkCrudRepository, ChunkCorpusRepository, ChunkRetrievalRepository, ChunkVersioningRepository, Protocol
+    ChunkCrudRepository,
+    ChunkCorpusRepository,
+    ChunkRetrievalRepository,
+    ChunkSearchPageRepository,
+    ChunkVersioningRepository,
+    Protocol,
 ):
     """Combined facade for UnitOfWork.
 
