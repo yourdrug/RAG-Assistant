@@ -20,8 +20,8 @@ from domain.value_objects.visibility import DocumentVisibility
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("sparse_fails", [False, True])
-async def test_batch_workflow_syncs_before_recording_registry_entry(sparse_fails):
+@pytest.mark.parametrize("failure", [None, "sync", "sparse"])
+async def test_batch_workflow_syncs_before_recording_registry_entry(failure):
     source = "s3://bucket/docs/report.pdf"
     document = Document(page_content="report text", metadata={"source": source})
     chunk = Document(page_content="report text", metadata={"source": source})
@@ -54,13 +54,15 @@ async def test_batch_workflow_syncs_before_recording_registry_entry(sparse_fails
 
     async def sync_documents(*args, **kwargs):
         events.append("sync")
+        if failure == "sync":
+            raise ConnectionError("sync unavailable")
 
     sync.sync_documents_to_db = AsyncMock(side_effect=sync_documents)
     sparse_index = MagicMock()
 
     async def update_sparse(*args, **kwargs):
         events.append("sparse")
-        if sparse_fails:
+        if failure == "sparse":
             raise ConnectionError("sparse unavailable")
 
     sparse_index.update = AsyncMock(side_effect=update_sparse)
@@ -71,8 +73,8 @@ async def test_batch_workflow_syncs_before_recording_registry_entry(sparse_fails
         group_id=7,
         client_id=9,
     )
-    if sparse_fails:
-        with pytest.raises(ConnectionError, match="sparse unavailable"):
+    if failure:
+        with pytest.raises(ConnectionError, match=f"{failure} unavailable"):
             await workflow.run("docs/", reset=False, scope=scope)
     else:
         await workflow.run("docs/", reset=False, scope=scope)
@@ -81,12 +83,21 @@ async def test_batch_workflow_syncs_before_recording_registry_entry(sparse_fails
     assert chunk.metadata["group_id"] == 7
     assert chunk.metadata["client_id"] == 9
     assert chunk.metadata["doc_domain"] == "general"
-    assert events == (["sync", "sparse"] if sparse_fails else ["sync", "sparse", "registry"])
-    sparse_index.update.assert_awaited_once_with([chunk], reset=False)
+    expected = {"sync": ["sync"], "sparse": ["sync", "sparse"], None: ["sync", "sparse", "registry"]}
+    assert events == expected[failure]
+    if failure == "sync":
+        sparse_index.update.assert_not_awaited()
+    else:
+        sparse_index.update.assert_awaited_once_with([chunk], reset=False)
+    if failure:
+        registry.persist_entries.assert_not_awaited()
+    else:
+        registry.persist_entries.assert_awaited_once_with(registry.collect_entries.return_value)
 
 
 @pytest.mark.asyncio
-async def test_single_file_workflow_syncs_before_recording_registry_entry():
+@pytest.mark.parametrize("sync_fails", [False, True])
+async def test_single_file_workflow_syncs_before_recording_registry_entry(sync_fails):
     file_info = SimpleNamespace(
         key="docs/report.pdf",
         filename="report.pdf",
@@ -118,16 +129,29 @@ async def test_single_file_workflow_syncs_before_recording_registry_entry():
 
     async def sync_documents(*args, **kwargs):
         events.append("sync")
+        if sync_fails:
+            raise ConnectionError("sync unavailable")
 
     sync.sync_documents_to_db = AsyncMock(side_effect=sync_documents)
 
     workflow = SingleFileIngestionWorkflow(file_storage, loader, registry, sync)
-    await workflow.run(
+    action = workflow.run(
         "docs/report.pdf",
         scope=IngestionScope(visibility=DocumentVisibility.INTERNAL_GROUP, group_id=7, client_id=9),
     )
+    if sync_fails:
+        with pytest.raises(ConnectionError, match="sync unavailable"):
+            await action
+    else:
+        await action
 
     assert chunk.metadata["visibility"] == DocumentVisibility.INTERNAL_GROUP.value
     assert chunk.metadata["group_id"] == 7
     assert chunk.metadata["client_id"] == 9
-    assert events == ["sync", "registry"]
+    assert events == (["sync"] if sync_fails else ["sync", "registry"])
+    if sync_fails:
+        registry.upsert.assert_not_awaited()
+    else:
+        registry.upsert.assert_awaited_once_with(
+            "report.pdf", "42_2026-01-01 00:00:00", "s3://bucket/docs/report.pdf", 1, 11
+        )

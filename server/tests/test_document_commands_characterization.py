@@ -15,6 +15,8 @@ from application.services.document_command_service import DocumentCommandService
 from domain.entities.document import Document
 from domain.exceptions import BusinessRuleViolation, ValidationError
 from domain.value_objects.document_status import DocumentStatus
+from domain.value_objects.visibility import DocumentVisibility
+from domain.value_objects.roles import UserRole
 from fakes import FakeUnitOfWorkFactory
 
 
@@ -255,3 +257,30 @@ async def test_delete_db_failure_rolls_back_outbox_and_summaries_without_deletin
     assert h.uow.vector_outbox._entries == {}
     assert (await h.uow.conversations.get(conversation.id)).summary == "summary"
     h.storage.delete_file.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("db_fails", [False, True])
+async def test_delete_removes_bm25_before_commit_and_storage_after_commit(db_fails):
+    h = harness()
+    doc = await seed(h)
+    await h.uow.chunks.bulk_insert(
+        document_id=doc.id, filename=doc.filename,
+        visibility=DocumentVisibility.INTERNAL_PRIVATE.value, owner_id=1, group_id=None,
+        doc_domain="general", chunks=["text"], content_hashes=["hash"],
+    )
+    def remove(content_hash):
+        assert h.factory.active
+        assert content_hash == "hash"
+        h.factory.events.append("bm25_remove")
+    h.bm25.remove.side_effect = remove
+    if db_fails:
+        h.uow.documents.delete = AsyncMock(side_effect=RuntimeError("DB failure"))
+        with pytest.raises(RuntimeError, match="DB failure"):
+            await h.command.delete_document(doc.id, 1, UserRole.USER)
+        assert h.factory.events == [("begin", True), "bm25_remove", "rollback"]
+        h.storage.delete_file.assert_not_awaited()
+    else:
+        await h.command.delete_document(doc.id, 1, UserRole.USER)
+        assert h.factory.events == [("begin", True), "bm25_remove", "commit", "storage_delete"]
+        h.storage.delete_file.assert_awaited_once_with("old-key")
