@@ -7,9 +7,17 @@ import json
 import logging
 from pathlib import Path
 
+from botocore.exceptions import BotoCoreError, ClientError
+
 from infrastructure.bm25.bm25_index import BM25Index
+from infrastructure.storage.file_storage import S3_MISSING_CODES
 
 log = logging.getLogger("default")
+
+
+class BM25LoadError(RuntimeError):
+    """Snapshot load failed; absence must never mask storage/corruption errors."""
+
 
 BM25_S3_KEY = "_system/bm25_index.json"
 
@@ -64,6 +72,9 @@ def load_bm25_index_from_s3_sync(storage) -> BM25Index | None:
         idx = BM25Index.from_dict(data)
         log.info("BM25 index loaded from S3 (sync): %d docs", idx.n_docs)
         return idx
-    except Exception as e:
-        log.warning("Failed to load BM25 index from S3 (sync): %s", e)
-        return None
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") in S3_MISSING_CODES:
+            return None
+        raise BM25LoadError("Failed to load BM25 snapshot from S3") from exc
+    except (BotoCoreError, OSError, ValueError, KeyError, TypeError) as exc:
+        raise BM25LoadError("Failed to read/parse BM25 snapshot") from exc

@@ -6,7 +6,7 @@ from infrastructure.storage.file_storage import (
     LazyStorage,
     LocalStorage,
     S3Storage,
-    get_storage,
+    create_storage,
 )
 
-__all__ = ["FileStorage", "FileItem", "LazyStorage", "LocalStorage", "S3Storage", "get_storage"]
+__all__ = ["FileStorage", "FileItem", "LazyStorage", "LocalStorage", "S3Storage", "create_storage"]

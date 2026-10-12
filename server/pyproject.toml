@@ -47,6 +47,8 @@ dependencies = [
     "pyjwt==2.10.1",
     # --- Storage (S3 / MinIO) ---
     "boto3>=1.34.0",
+    "aiobotocore==3.9.2",
+    "botocore>=1.43.101,<1.43.107",
     # --- Queue / Redis ---
     "arq>=0.26.0",
     # NOTE: arq caps redis<6, so redis 5.x stays. pyrate-limiter is installed

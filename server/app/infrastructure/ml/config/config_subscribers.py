@@ -24,7 +24,6 @@ from domain.events.config_events import ConfigParameterChanged
 from domain.utils import parse_bool
 
 from infrastructure.ml.ingestion import get_paddle_ocr
-from infrastructure.storage import get_storage
 
 from domain.value_objects.dynamic_config import DYNAMIC_FIELDS_MAP
 
@@ -122,15 +121,25 @@ def invalidate_paddle_ocr_cache(event: ConfigParameterChanged) -> None:
     log.info("PaddleOCR cache invalidated (ocr_lang_paddle -> %s)", event.new_value)
 
 
-def invalidate_storage_cache(event: ConfigParameterChanged, storage=None) -> None:
+def invalidate_storage_cache(event: ConfigParameterChanged, storage=None, ml_clients=None) -> None:
     """Сбросить кэш хранилища при изменении backend или S3-параметров."""
-    storage_keys = {"file_backend", "s3_endpoint", "s3_bucket", "s3_access_key", "s3_secret_key", "s3_region"}
+    storage_keys = {
+        "file_backend",
+        "s3_endpoint",
+        "s3_bucket",
+        "s3_access_key",
+        "s3_secret_key",
+        "s3_region",
+        "s3_max_concurrent",
+        "data_dir",
+    }
     if event.key not in storage_keys:
         return
 
-    get_storage.cache_clear()
     if storage is not None:
         storage.invalidate()
+    if ml_clients is not None:
+        ml_clients.invalidate_snapshot_reader()
     if event.key in SENSITIVE_KEYS:
         log.info("Storage cache invalidated (%s -> %s)", event.key, _mask_value(event.new_value))
     else:

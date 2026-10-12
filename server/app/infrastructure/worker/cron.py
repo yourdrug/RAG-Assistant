@@ -8,11 +8,16 @@ import time
 from typing import Any
 
 from config import settings
+from infrastructure.bm25.bm25_invalidation import publish_bm25_invalidation
+from infrastructure.bm25.bm25_index import BM25Index
+from infrastructure.bm25.persistence import save_bm25_index_to_s3
+from infrastructure.metrics.metrics import BM25_REBUILD_MEMORY
+from domain.repositories.chunk_repository import ChunkCorpusRepository
 
 logger = logging.getLogger("default")
 
 
-def _add_bm25_batch(index, rows) -> int:
+def add_bm25_batch(index, rows) -> int:
     """Tokenize one bounded chunk batch into the private rebuild index."""
     text_bytes = 0
     for content, visibility, owner_id, group_id in rows:
@@ -86,13 +91,6 @@ async def cron_bm25_rebuild(ctx: dict[str, Any]) -> None:
         logger.debug("Cron: BM25 rebuild skipped — hybrid search disabled")
         return
 
-    from infrastructure.bm25.bm25_invalidation import publish_bm25_invalidation
-    from infrastructure.bm25.bm25_index import BM25Index
-    from infrastructure.bm25.persistence import save_bm25_index_to_s3
-    from infrastructure.metrics.metrics import BM25_REBUILD_MEMORY
-    from infrastructure.storage import get_storage
-    from domain.repositories.chunk_repository import ChunkCorpusRepository
-
     uow_factory = ctx["container"].infrastructure.db.uow_factory
     t0 = time.monotonic()
 
@@ -104,10 +102,10 @@ async def cron_bm25_rebuild(ctx: dict[str, Any]) -> None:
         async for row in corpus.iter_all_contents_with_acl(batch_size=1000):
             pending_rows.append(row)
             if len(pending_rows) >= 250:
-                total_text_bytes += await asyncio.to_thread(_add_bm25_batch, bm25_index, pending_rows)
+                total_text_bytes += await asyncio.to_thread(add_bm25_batch, bm25_index, pending_rows)
                 pending_rows.clear()
         if pending_rows:
-            total_text_bytes += await asyncio.to_thread(_add_bm25_batch, bm25_index, pending_rows)
+            total_text_bytes += await asyncio.to_thread(add_bm25_batch, bm25_index, pending_rows)
 
     if bm25_index.n_docs == 0:
         logger.info("Cron: BM25 rebuild — no chunks found, skipping")
@@ -115,7 +113,7 @@ async def cron_bm25_rebuild(ctx: dict[str, Any]) -> None:
 
     BM25_REBUILD_MEMORY.set(total_text_bytes)
 
-    storage = get_storage()
+    storage = ctx["container"].infrastructure.ml.file_storage
     await save_bm25_index_to_s3(bm25_index, storage)
     await publish_bm25_invalidation()
 

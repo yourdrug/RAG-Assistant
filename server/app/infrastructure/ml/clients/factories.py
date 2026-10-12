@@ -8,6 +8,9 @@ from __future__ import annotations
 
 import logging
 
+from infrastructure.bm25.persistence import load_bm25_index_from_s3_sync
+from infrastructure.bm25.s3_snapshot_reader import S3SnapshotReader
+
 import httpx
 from config import settings
 from domain.value_objects.llm_provider import Breadth, LLMProvider
@@ -243,20 +246,19 @@ def create_qdrant_client() -> QdrantClient:
 # ---------------------------------------------------------------------------
 
 
-def load_bm25_index():
-    """Load BM25 index from S3. Returns None if not found."""
-    from infrastructure.bm25.persistence import load_bm25_index_from_s3_sync
-    from infrastructure.storage import get_storage
-
-    storage = get_storage()
-    if not hasattr(storage, "download_bytes"):
-        log.warning("BM25 index loading requires S3 storage (no download_bytes support)")
+def load_bm25_index(reader: S3SnapshotReader | None = None):
+    """Load via an explicitly owned reader; standalone callers own a short lifetime."""
+    if reader is None:
+        reader = S3SnapshotReader()
+        try:
+            if not reader.enabled:
+                return None
+            return load_bm25_index_from_s3_sync(reader)
+        finally:
+            reader.close()
+    if not reader.enabled:
         return None
-
-    index = load_bm25_index_from_s3_sync(storage)
-    if index is None:
-        log.info("No BM25 index found in S3 — hybrid search disabled for this run")
-    return index
+    return load_bm25_index_from_s3_sync(reader)
 
 
 # ---------------------------------------------------------------------------

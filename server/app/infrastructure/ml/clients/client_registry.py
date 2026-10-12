@@ -25,6 +25,8 @@ from domain.exceptions.domain_errors import SemaphoreTimeoutError
 from domain.value_objects.llm_provider import LLMProvider
 
 from infrastructure.bm25.bm25_index import BM25Index
+from infrastructure.bm25.s3_snapshot_reader import S3SnapshotReader
+from infrastructure.storage.file_storage import run_storage_io
 from infrastructure.ml.clients import factories
 
 log = logging.getLogger("default")
@@ -81,6 +83,9 @@ class MLClientRegistry(MLClientPort):
         self._fast_llm: Any = None
         self._reranker: Any = None
         self._qdrant_client: Any = None
+        self._bm25_reader = S3SnapshotReader()
+        self._retired_readers: list[S3SnapshotReader] = []
+        self._closed = False
         self._bm25_index: BM25Index | None = None
         self._bm25_loaded: bool = False
         self._bm25_generation = 0
@@ -175,11 +180,13 @@ class MLClientRegistry(MLClientPort):
 
     async def ensure_bm25_loaded(self) -> BM25Index | None:
         """Use the same single-flight loader as sync callers, outside the event loop."""
-        return await asyncio.to_thread(self.bm25_index)
+        return await run_storage_io(self.bm25_index)
 
     def bm25_index(self) -> BM25Index | None:
         """Blocking accessor for worker threads and synchronous consumers."""
         with self._bm25_state_lock:
+            if self._closed:
+                raise RuntimeError("ML registry is closed")
             if self._bm25_loaded:
                 return self._bm25_index
 
@@ -188,8 +195,11 @@ class MLClientRegistry(MLClientPort):
                 with self._bm25_state_lock:
                     if self._bm25_loaded:
                         return self._bm25_index
+                    if self._closed:
+                        raise RuntimeError("ML registry is closed")
                     generation = self._bm25_generation
-                index = factories.load_bm25_index()
+                    reader = self._bm25_reader
+                index = factories.load_bm25_index(reader)
                 with self._bm25_state_lock:
                     # Invalidation can run while S3 is loading; discard that snapshot.
                     if generation != self._bm25_generation:
@@ -273,6 +283,14 @@ class MLClientRegistry(MLClientPort):
                 self._reranker = None
         log.info("MLClientRegistry: reranker client cache invalidated")
 
+    def invalidate_snapshot_reader(self) -> None:
+        with self._bm25_state_lock:
+            self._retired_readers.append(self._bm25_reader)
+            self._bm25_reader = S3SnapshotReader()
+            self._bm25_generation += 1
+            self._bm25_index = None
+            self._bm25_loaded = False
+
     def invalidate_bm25(self) -> None:
         """Clear cached BM25 index (reload from disk on next access)."""
         with self._bm25_state_lock:
@@ -285,8 +303,29 @@ class MLClientRegistry(MLClientPort):
     # Lifecycle
     # ------------------------------------------------------------------
 
+    def close_snapshot_readers(self) -> None:
+        error = None
+        with self._bm25_load_lock:
+            with self._bm25_state_lock:
+                readers = [self._bm25_reader, *self._retired_readers]
+                self._retired_readers.clear()
+            for reader in readers:
+                try:
+                    reader.close()
+                except Exception as exc:
+                    if error is None:
+                        error = exc
+        if error is not None:
+            raise error
+
     async def close(self) -> None:
-        """Close all HTTP connection pools. Call during app shutdown."""
+        """Drain BM25 jobs before closing their owned client pools."""
+        self._closed = True
+        reader_error = None
+        try:
+            await run_storage_io(self.close_snapshot_readers)
+        except Exception as exc:
+            reader_error = exc
         clients_to_close = [
             self._embeddings,
             self._reranker,
@@ -316,3 +355,5 @@ class MLClientRegistry(MLClientPort):
         self._llm_breadth_cache.clear()
         self._retired_clients.clear()
         log.info("MLClientRegistry: connection pools closed")
+        if reader_error is not None:
+            raise reader_error

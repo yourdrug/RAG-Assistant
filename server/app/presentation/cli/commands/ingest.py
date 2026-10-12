@@ -16,7 +16,6 @@ import typer
 from config import settings
 from domain.value_objects.visibility import DocumentVisibility
 from application.services.ingestion_orchestrator import IngestionService
-from infrastructure.storage import get_storage
 
 logger = logging.getLogger("cli")
 
@@ -131,8 +130,6 @@ def ingest_upload(
 ) -> None:
     """Upload a local file to S3 storage."""
     try:
-        storage = get_storage()
-
         path = Path(file_path)
         if not path.exists():
             logger.error("File not found: %s", file_path)
@@ -140,7 +137,11 @@ def ingest_upload(
 
         s3_key = key or f"docs/{path.name}"
         data = path.read_bytes()
-        asyncio.run(storage.upload_file(s3_key, data))
+
+        async def upload_action(infra):
+            await infra.ml.storage.upload_file(s3_key, data)
+
+        asyncio.run(run_with_infrastructure(upload_action))
         logger.info("Uploaded: s3://%s/%s (%d bytes)", settings.s3_bucket, s3_key, len(data))
     except Exception as exc:
         logger.error("Upload error", exc_info=exc)

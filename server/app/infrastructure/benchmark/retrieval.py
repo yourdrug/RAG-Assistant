@@ -1,6 +1,7 @@
 """Benchmark retrieval — dense, sparse, hybrid search and reranking."""
 
 import logging
+from infrastructure.bm25.persistence import BM25LoadError
 from pathlib import Path
 
 from config import get_setting, settings
@@ -71,7 +72,11 @@ def search_sparse(
     When *visibility_conditions* is provided, candidates are pre-filtered
     by ACL before scoring (defense-in-depth: Qdrant resolve still applies).
     """
-    bm25_index = ml_clients.bm25_index()
+    try:
+        bm25_index = ml_clients.bm25_index()
+    except BM25LoadError:
+        logger.warning("BM25 snapshot unavailable; using dense search", exc_info=True)
+        bm25_index = None
     if bm25_index is not None:
         return bm25_index.search_with_hashes(
             question,

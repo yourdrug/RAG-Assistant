@@ -265,14 +265,21 @@ async def test_delete_removes_bm25_before_commit_and_storage_after_commit(db_fai
     h = harness()
     doc = await seed(h)
     await h.uow.chunks.bulk_insert(
-        document_id=doc.id, filename=doc.filename,
-        visibility=DocumentVisibility.INTERNAL_PRIVATE.value, owner_id=1, group_id=None,
-        doc_domain="general", chunks=["text"], content_hashes=["hash"],
+        document_id=doc.id,
+        filename=doc.filename,
+        visibility=DocumentVisibility.INTERNAL_PRIVATE.value,
+        owner_id=1,
+        group_id=None,
+        doc_domain="general",
+        chunks=["text"],
+        content_hashes=["hash"],
     )
+
     def remove(content_hash):
         assert h.factory.active
         assert content_hash == "hash"
         h.factory.events.append("bm25_remove")
+
     h.bm25.remove.side_effect = remove
     if db_fails:
         h.uow.documents.delete = AsyncMock(side_effect=RuntimeError("DB failure"))

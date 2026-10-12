@@ -115,7 +115,7 @@ async def test_add_chunk_loads_bm25_outside_event_loop(monkeypatch):
     event_loop_thread = threading.get_ident()
     loader_threads = []
 
-    def load():
+    def load(reader=None):
         loader_threads.append(threading.get_ident())
         return BM25Index([])
 

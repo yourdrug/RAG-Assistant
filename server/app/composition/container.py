@@ -118,7 +118,9 @@ class Container:
         bus.subscribe(ConfigParameterChanged, apply_to_settings)
         bus.subscribe(ConfigParameterChanged, invalidate_paddle_ocr_cache)
         storage = self.infrastructure.ml.file_storage
-        bus.subscribe(ConfigParameterChanged, partial(invalidate_storage_cache, storage=storage))
+        bus.subscribe(
+            ConfigParameterChanged, partial(invalidate_storage_cache, storage=storage, ml_clients=ml)
+        )
         bus.subscribe(ConfigParameterChanged, invalidate_pii_detector_cache)
         bus.subscribe(ConfigParameterChanged, audit_log_config_change)
 

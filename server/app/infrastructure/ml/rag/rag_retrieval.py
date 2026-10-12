@@ -6,6 +6,7 @@ rag_service.py to reduce its size and isolate the retrieval I/O layer.
 
 import asyncio
 import logging
+from infrastructure.bm25.persistence import BM25LoadError
 import time
 
 from application.ports.ml_clients import MLClientPort
@@ -154,7 +155,11 @@ async def run_hybrid_search(
     if not visibility_conditions:
         return []
 
-    bm25_index = await ml_clients.ensure_bm25_loaded()
+    try:
+        bm25_index = await ml_clients.ensure_bm25_loaded()
+    except BM25LoadError:
+        log.warning("BM25 snapshot unavailable; using dense search", exc_info=True)
+        bm25_index = None
 
     if rag.hybrid_search.enabled and bm25_index is not None:
         t0 = time.monotonic()

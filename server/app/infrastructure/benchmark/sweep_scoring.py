@@ -7,6 +7,7 @@ helpers used by the sweep engine; they are NOT part of the public API.
 from __future__ import annotations
 
 import asyncio
+from infrastructure.bm25.persistence import BM25LoadError
 import itertools
 import logging
 from decimal import Decimal
@@ -28,6 +29,8 @@ from domain.value_objects.benchmark_scoring import (
     validate_objective_weights,
 )
 from infrastructure.ml.rag.rag_reranking import filter_scope_candidates
+from infrastructure.ml.clients import factories
+from infrastructure.storage.file_storage import run_storage_io
 
 
 logger = logging.getLogger("default")
@@ -231,6 +234,17 @@ def score_config_cheap(  # noqa: C901
     return metrics
 
 
+async def load_candidate_snapshot(ml_clients):
+    """Keep transient snapshot failures retryable while retaining dense fallback."""
+    try:
+        if ml_clients is not None:
+            return await ml_clients.ensure_bm25_loaded()
+        return await run_storage_io(factories.load_bm25_index)
+    except BM25LoadError:
+        logger.warning("BM25 snapshot unavailable; using dense search", exc_info=True)
+        return None
+
+
 async def cache_candidates(
     questions: list[dict],
     max_fetch_k: int,
@@ -252,17 +266,10 @@ async def cache_candidates(
     if ml_clients is not None:
         client = ml_clients.qdrant_client()
         embeddings = ml_clients.embeddings()
-        bm25_index = await ml_clients.ensure_bm25_loaded()
     else:
-        from infrastructure.ml.clients.factories import (
-            create_embeddings,
-            create_qdrant_client,
-            load_bm25_index,
-        )
-
-        client = create_qdrant_client()
-        embeddings = create_embeddings()
-        bm25_index = load_bm25_index()
+        client = factories.create_qdrant_client()
+        embeddings = factories.create_embeddings()
+    bm25_index = await load_candidate_snapshot(ml_clients)
 
     for q in questions:
         qtext = q["question"]

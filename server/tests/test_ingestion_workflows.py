@@ -42,9 +42,9 @@ async def test_batch_workflow_syncs_before_recording_registry_entry(failure):
     loader.classify_source_domains.return_value = {source: "general"}
     registry = MagicMock()
     registry.list_all = AsyncMock(return_value={})
-    registry.collect_entries = AsyncMock(return_value={
-        "report.pdf": {"hash": "hash", "source": source, "chunks": 1, "chars": 11}
-    })
+    registry.collect_entries = AsyncMock(
+        return_value={"report.pdf": {"hash": "hash", "source": source, "chunks": 1, "chars": 11}}
+    )
 
     async def persist_entries(entries):
         events.append("registry")

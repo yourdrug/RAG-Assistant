@@ -121,3 +121,31 @@ async def test_domain_bootstrap_propagates_database_failure_and_can_release_subs
         await infra.bootstrap_domain_settings()
     await infra.dispose()
     assert not bus._handlers[ConfigParameterChanged]
+
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_cli_upload_closes_container_storage_before_loop_exit(monkeypatch, tmp_path, fails):
+    path = tmp_path / "report.txt"
+    path.write_bytes(b"content")
+    events = []
+    storage = SimpleNamespace(upload_file=AsyncMock(), aclose=AsyncMock())
+    if fails:
+        storage.upload_file.side_effect = OSError("storage unavailable")
+
+    async def run(action):
+        try:
+            return await action(SimpleNamespace(ml=SimpleNamespace(storage=storage)))
+        finally:
+            await storage.aclose()
+            events.append("closed")
+
+    monkeypatch.setattr(ingest, "run_with_infrastructure", run)
+    if fails:
+        with pytest.raises(SystemExit) as caught:
+            ingest.ingest_upload(str(path), key="docs/report.txt")
+        assert caught.value.code == 1
+    else:
+        ingest.ingest_upload(str(path), key="docs/report.txt")
+    storage.upload_file.assert_awaited_once_with("docs/report.txt", b"content")
+    storage.aclose.assert_awaited_once()
+    assert events == ["closed"]

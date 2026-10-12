@@ -7,6 +7,7 @@ with mocked Qdrant/BM25/embeddings to verify correct orchestration logic.
 from __future__ import annotations
 
 import sys
+import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -444,3 +445,47 @@ def mock_embedding_binding(monkeypatch):
     monkeypatch.setattr(
         "infrastructure.ml.rag.rag_retrieval.ensure_embedding_identity", lambda *args: "test:model:v1"
     )
+
+
+@pytest.mark.asyncio
+async def test_failed_bm25_load_keeps_dense_acl_and_next_request_retries(monkeypatch):
+    from types import SimpleNamespace
+    from langchain.schema import Document
+    from infrastructure.bm25.persistence import BM25LoadError
+    from infrastructure.ml.rag.rag_retrieval import run_hybrid_search
+
+    document = Document(page_content="authorized", metadata={"source": "allowed.txt"})
+    dense = AsyncMock(return_value=[("hash", 0.9, document)])
+    monkeypatch.setattr("infrastructure.ml.rag.rag_retrieval.qdrant_dense_search", dense)
+    clients = MagicMock()
+    clients.ensure_bm25_loaded = AsyncMock(side_effect=[BM25LoadError("S3 denied"), None])
+    acl = Filter(must=[FieldCondition(key="owner_id", match=MatchValue(value=42))])
+    conditions = [VisibilityCondition(visibility=DocumentVisibility.INTERNAL_PUBLIC)]
+    rag = SimpleNamespace(hybrid_search=SimpleNamespace(enabled=True))
+    for _ in range(2):
+        assert await run_hybrid_search(
+            "q", 10, acl, rag, clients, visibility_conditions=conditions, user_id=42, user_group_ids=[]
+        ) == [document]
+    assert clients.ensure_bm25_loaded.await_count == 2
+    assert all(call.args[2] is acl for call in dense.await_args_list)
+    clients.qdrant_client.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error", [ValueError("programming error"), asyncio.CancelledError()])
+async def test_bm25_fallback_does_not_swallow_unrelated_errors(error):
+    from types import SimpleNamespace
+    from infrastructure.ml.rag.rag_retrieval import run_hybrid_search
+
+    clients = MagicMock(ensure_bm25_loaded=AsyncMock(side_effect=error))
+    with pytest.raises(type(error)):
+        await run_hybrid_search(
+            "q",
+            10,
+            Filter(must=[]),
+            SimpleNamespace(),
+            clients,
+            visibility_conditions=[VisibilityCondition(visibility=DocumentVisibility.INTERNAL_PUBLIC)],
+            user_id=42,
+            user_group_ids=[],
+        )

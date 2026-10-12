@@ -28,7 +28,7 @@ async def test_invalidation_discards_inflight_snapshot(monkeypatch):
     release = threading.Event()
     calls = 0
 
-    def load():
+    def load(reader=None):
         nonlocal calls
         calls += 1
         if calls == 1:
@@ -57,7 +57,7 @@ async def test_sync_update_and_async_load_share_one_snapshot(monkeypatch):
     release = threading.Event()
     calls = 0
 
-    def load():
+    def load(reader=None):
         nonlocal calls
         calls += 1
         started.set()
@@ -82,7 +82,9 @@ async def test_sync_update_and_async_load_share_one_snapshot(monkeypatch):
 
 @pytest.mark.parametrize("operation", ["add", "replace", "remove"])
 def test_updates_after_invalidation_are_applied(monkeypatch, operation):
-    monkeypatch.setattr(factories, "load_bm25_index", lambda: BM25Index(["old"], hashes=["old-hash"]))
+    monkeypatch.setattr(
+        factories, "load_bm25_index", lambda reader=None: BM25Index(["old"], hashes=["old-hash"])
+    )
     registry = MLClientRegistry()
     registry.bm25_index()
     registry.invalidate_bm25()
@@ -99,7 +101,7 @@ def test_updates_after_invalidation_are_applied(monkeypatch, operation):
 
 
 def test_add_without_snapshot_retains_text_and_acl(monkeypatch):
-    monkeypatch.setattr(factories, "load_bm25_index", lambda: None)
+    monkeypatch.setattr(factories, "load_bm25_index", lambda reader=None: None)
     registry = MLClientRegistry()
     bm25_add(registry, "new", "new-hash", DocumentVisibility.INTERNAL_PRIVATE.value, 42, None)
     index = registry.bm25_index()
@@ -110,7 +112,9 @@ def test_add_without_snapshot_retains_text_and_acl(monkeypatch):
 
 
 def test_invalidation_between_selection_and_mutation_retries(monkeypatch):
-    monkeypatch.setattr(factories, "load_bm25_index", lambda: BM25Index(["old"], hashes=["old-hash"]))
+    monkeypatch.setattr(
+        factories, "load_bm25_index", lambda reader=None: BM25Index(["old"], hashes=["old-hash"])
+    )
     registry = MLClientRegistry()
     original_accessor = registry.bm25_index
     invalidate = True
@@ -135,3 +139,71 @@ def test_failed_load_can_retry(monkeypatch):
     with pytest.raises(OSError, match="storage unavailable"):
         registry.bm25_index()
     assert registry.bm25_index().texts == ["recovered"]
+
+
+@pytest.mark.asyncio
+async def test_config_rotation_discards_old_reader_snapshot(monkeypatch):
+    from config import settings
+
+    started, release = threading.Event(), threading.Event()
+    buckets = []
+    monkeypatch.setattr(settings, "s3_bucket", "old-bucket")
+
+    def load(reader):
+        buckets.append(reader.bucket)
+        if len(buckets) == 1:
+            started.set()
+            if not release.wait(5):
+                raise TimeoutError("reader not released")
+        return BM25Index([reader.bucket])
+
+    monkeypatch.setattr(factories, "load_bm25_index", load)
+    registry = MLClientRegistry()
+    pending = asyncio.create_task(registry.ensure_bm25_loaded())
+    try:
+        assert await asyncio.to_thread(started.wait, 5)
+        monkeypatch.setattr(settings, "s3_bucket", "new-bucket")
+        registry.invalidate_snapshot_reader()
+    finally:
+        release.set()
+    index = await asyncio.wait_for(pending, 5)
+    assert buckets == ["old-bucket", "new-bucket"]
+    assert index.texts == ["new-bucket"]
+    await registry.close()
+
+
+@pytest.mark.asyncio
+async def test_registry_shutdown_drains_cancelled_snapshot_load(monkeypatch):
+    from config import settings
+    from unittest.mock import MagicMock
+
+    started, release = threading.Event(), threading.Event()
+    client = MagicMock()
+
+    def read():
+        started.set()
+        if not release.wait(5):
+            raise TimeoutError("reader not released")
+        return b'{"texts": ["snapshot"], "hashes": ["hash"]}'
+
+    body = MagicMock(read=read)
+    client.get_object.return_value = {"Body": body}
+    monkeypatch.setattr(settings, "file_backend", "s3")
+    monkeypatch.setattr("infrastructure.bm25.s3_snapshot_reader.boto3.client", lambda *a, **k: client)
+    registry = MLClientRegistry()
+    pending = asyncio.create_task(registry.ensure_bm25_loaded())
+    closing = None
+    try:
+        assert await asyncio.to_thread(started.wait, 5)
+        pending.cancel()
+        closing = asyncio.create_task(registry.close())
+        await asyncio.sleep(0)
+        assert not pending.done()
+        client.close.assert_not_called()
+    finally:
+        release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(pending, 5)
+    await asyncio.wait_for(closing, 5)
+    body.close.assert_called_once()
+    client.close.assert_called_once()

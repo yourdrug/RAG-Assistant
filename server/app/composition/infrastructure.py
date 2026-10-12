@@ -157,12 +157,6 @@ class MLContainer:
 
     def dispose(self) -> None:
         """Clear ML-specific caches and release resources."""
-        # LazyStorage proxies the resolved backend; the cache lives on the
-        # get_storage() factory (lru_cache) — reset that, not the proxy.
-        from infrastructure.storage import get_storage
-
-        get_storage.cache_clear()
-
         # Clear OCR/lru_cache caches — import may fail if optional deps
         # (paddleocr, surya) are not installed.
         try:
@@ -461,13 +455,13 @@ class InfrastructureContainer:
                 await self.events.dispose()
             finally:
                 try:
-                    if self.ml.file_storage is not None:
-                        await self.ml.file_storage.aclose()
+                    if self.ml.ml_clients is not None:
+                        await self.ml.ml_clients.close()
+                        self.ml.ml_clients = None
                 finally:
                     try:
-                        if self.ml.ml_clients is not None:
-                            await self.ml.ml_clients.close()
-                            self.ml.ml_clients = None
+                        if self.ml.file_storage is not None:
+                            await self.ml.file_storage.aclose()
                     finally:
                         self.ml.dispose()
                         if self._domain_settings_subscribed:

@@ -202,6 +202,7 @@ class Settings(BaseSettings):
     s3_access_key: str = ""
     s3_secret_key: str = ""
     s3_region: str = "us-east-1"
+    s3_max_concurrent: int = Field(default=10, ge=1)
     supported_extensions: tuple = (".pdf", ".docx", ".doc", ".rtf", ".md", ".txt")
     max_upload_size_mb: int = 50
 

@@ -10,6 +10,8 @@ Extracted from ``RagService.stream()`` to eliminate the C901 god-method.
 
 from __future__ import annotations
 
+from infrastructure.bm25.persistence import BM25LoadError
+
 import logging
 import time
 from collections.abc import AsyncIterator
@@ -290,7 +292,11 @@ async def step_retrieve(
     )
 
     # Record sparse survival ratio per role
-    bm25_idx = await ml_clients.ensure_bm25_loaded()
+    try:
+        bm25_idx = await ml_clients.ensure_bm25_loaded()
+    except BM25LoadError:
+        log.warning("BM25 snapshot unavailable; using dense search", exc_info=True)
+        bm25_idx = None
     if bm25_idx is not None and bm25_idx.last_survival_ratio is not None:
         RAG_SPARSE_SURVIVAL_RATIO.labels(role=ctx.user_role).observe(bm25_idx.last_survival_ratio)
 
