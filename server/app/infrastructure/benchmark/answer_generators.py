@@ -17,6 +17,7 @@ from infrastructure.ml.rag.rag_formatting import format_docs_with_selection
 from infrastructure.benchmark import judge, metrics, retrieval
 from infrastructure.ml.clients.client_registry import MLClientRegistry
 from infrastructure.ml.clients.managed_llm import close_llm_pools
+from infrastructure.storage.file_storage import finish_owned_task
 
 from infrastructure.ml.rag.benchmark_evidence import (
     BenchmarkEvidence,
@@ -38,7 +39,7 @@ async def run_owned_sync(function, *args, **kwargs):
         return await asyncio.shield(task)
     except asyncio.CancelledError as exc:
         try:
-            await task
+            await finish_owned_task(task)
         finally:
             raise exc
 

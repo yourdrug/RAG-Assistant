@@ -7,6 +7,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from domain.value_objects.chat_context import ChatContext
+from domain.value_objects.roles import UserKind, UserRole
+from infrastructure.benchmark import answer_generators, retrieval, runner
 from infrastructure.worker import queue, tasks
 
 
@@ -102,16 +105,12 @@ async def test_worker_benchmark_runs_container_rag_pipeline(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_benchmark_requires_explicit_standalone_opt_in(monkeypatch):
-    from infrastructure.benchmark import runner
-
     with pytest.raises(ValueError, match="rag_service.*standalone"):
         await runner.run_benchmark_async([{"question": "q"}], "unused", 4, "judge", export_files=False)
 
 
 @pytest.mark.asyncio
 async def test_explicit_standalone_closes_owned_resources_on_failure(monkeypatch):
-    from infrastructure.benchmark import answer_generators, runner
-
     closed = []
 
     class Standalone:
@@ -134,10 +133,6 @@ async def test_explicit_standalone_closes_owned_resources_on_failure(monkeypatch
 
 @pytest.mark.asyncio
 async def test_standalone_closes_llm_when_retrieval_fails(monkeypatch):
-    from infrastructure.benchmark import answer_generators, retrieval
-    from domain.value_objects.chat_context import ChatContext
-    from domain.value_objects.roles import UserKind, UserRole
-
     llm = SimpleNamespace(close=AsyncMock())
     monkeypatch.setattr(retrieval, "build_llm", lambda *args, **kwargs: llm)
 
@@ -157,19 +152,24 @@ async def test_standalone_closes_llm_when_retrieval_fails(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_standalone_cancellation_waits_for_owned_retrieval_before_closing(monkeypatch):
-    from infrastructure.benchmark import answer_generators, retrieval
-    from domain.value_objects.chat_context import ChatContext
-    from domain.value_objects.roles import UserKind, UserRole
-
+@pytest.mark.parametrize("cancel_count", [1, 3])
+@pytest.mark.parametrize("retrieval_fails", [False, True])
+async def test_standalone_cancellation_waits_for_owned_retrieval_before_closing(
+    monkeypatch, cancel_count, retrieval_fails
+):
     started = threading.Event()
     release = threading.Event()
+    finished = threading.Event()
     llm = SimpleNamespace(close=AsyncMock())
     monkeypatch.setattr(retrieval, "build_llm", lambda *args, **kwargs: llm)
 
     def retrieve(*args, **kwargs):
         started.set()
-        release.wait(timeout=5)
+        if not release.wait(timeout=5):
+            raise TimeoutError("retrieval not released")
+        finished.set()
+        if retrieval_fails:
+            raise RuntimeError("retrieval failed after cancellation")
         return []
 
     monkeypatch.setattr(retrieval, "retrieve_with_scores_hybrid", retrieve)
@@ -179,13 +179,17 @@ async def test_standalone_cancellation_waits_for_owned_retrieval_before_closing(
     try:
         await asyncio.to_thread(started.wait, 5)
         assert started.is_set()
-        task.cancel()
-        await asyncio.sleep(0)
-        await asyncio.sleep(0)
-        llm.close.assert_not_awaited()
+        for _ in range(cancel_count):
+            task.cancel()
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            assert not task.done()
+            assert not finished.is_set()
+            llm.close.assert_not_awaited()
     finally:
         release.set()
         with pytest.raises(asyncio.CancelledError):
             await task
         await generator.close()
     llm.close.assert_awaited_once()
+    assert finished.is_set()
