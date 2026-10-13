@@ -67,7 +67,12 @@ def quoted_env_value(value: str) -> str:
     return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
 
 
-def rewrite_env(snapshot: EnvSnapshot, removed: set[str], updates: dict[str, str]) -> str:
+def rewrite_env(
+    snapshot: EnvSnapshot,
+    removed: set[str],
+    updates: dict[str, str],
+    source: EnvSnapshot | None = None,
+) -> str:
     pieces = [
         binding.original.string
         for binding in parse_stream(io.StringIO(snapshot.text))
@@ -77,7 +82,16 @@ def rewrite_env(snapshot: EnvSnapshot, removed: set[str], updates: dict[str, str
     if updates:
         if text and not text.endswith("\n"):
             text += "\n"
-        text += "".join(f"{key}={quoted_env_value(value)}\n" for key, value in updates.items())
+        # Preserve secret syntax: dotenv and Compose decode quoted backslashes differently.
+        bindings = {
+            binding.key.upper(): binding.original.string.replace(binding.key, binding.key.upper(), 1)
+            for binding in parse_stream(io.StringIO(source.text if source else ""))
+            if binding.key is not None
+        }
+        for key, value in updates.items():
+            text += bindings[key] if source else f"{key}={quoted_env_value(value)}\n"
+            if not text.endswith("\n"):
+                text += "\n"
     return text
 
 
@@ -268,16 +282,16 @@ async def migrate_env_configuration(uow_factory, env_file: Path, apply: bool = F
     env = await asyncio.to_thread(read_snapshot, env_file)
     secrets = await asyncio.to_thread(read_snapshot, env_file.with_name(env_file.name + ".secrets"), True)
     moved = secret_moves(env, secrets)
-    effective = {**env.values, **secrets.values, **os.environ}
+    effective = {**env.values, **secrets.values, **{key.upper(): value for key, value in os.environ.items()}}
     candidates = [
         migration_parameter(key, raw)
         for key in sorted(TARGET_DYNAMIC_SETTING_KEYS - POOL_KEYS.keys())
-        if (raw := env.values.get(key.upper())) is not None
+        if (raw := effective.get(key.upper())) is not None
     ]
-    candidates += pool_parameters(env.values)
+    candidates += pool_parameters(effective)
     updates = compose_updates(env, effective)
     env_text = rewrite_env(env, set(moved), updates)
-    secret_text = rewrite_env(secrets, set(), moved)
+    secret_text = rewrite_env(secrets, set(), moved, source=env)
     async with uow_factory.create(master=True) as uow:
         rows = await uow.config_parameters.get_all()
         s3_rows = validate_storage_and_credentials(rows, effective)

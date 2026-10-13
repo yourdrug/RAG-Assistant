@@ -1,7 +1,10 @@
 """Migration contracts using a transactional in-memory repository and real files."""
 
 import copy
+import json
 import logging
+import shutil
+import subprocess
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -13,6 +16,7 @@ from typer.testing import CliRunner
 from domain.entities.config_parameter import ConfigParameter
 from domain.value_objects.config_value_type import ConfigValueType
 from domain.value_objects.doc_domain import DocDomain
+from domain.value_objects.dynamic_config import LEGACY_POOL_SETTING_KEYS, TARGET_DYNAMIC_SETTING_KEYS
 from fakes import FakeConfigParameterRepository
 from infrastructure import config_migration
 from presentation.cli.commands import config as config_command
@@ -39,8 +43,13 @@ class MigrationFactory:
 
 @pytest.fixture
 def migration_env(tmp_path, monkeypatch):
-    for key in ("ML_PROVIDER", "S3_ACCESS_KEY", "S3_SECRET_KEY", "FILE_BACKEND", "RATE_LIMIT_ENABLED"):
-        monkeypatch.delenv(key, raising=False)
+    for key in (
+        TARGET_DYNAMIC_SETTING_KEYS
+        | LEGACY_POOL_SETTING_KEYS
+        | {"s3_access_key", "s3_secret_key", "file_backend"}
+    ):
+        monkeypatch.delenv(key.upper(), raising=False)
+        monkeypatch.delenv(key.lower(), raising=False)
     path = tmp_path / ".env"
     path.write_text(
         '# preserved comment\nLLM_MODEL="legacy model"\nLEGAL_CHUNK_SIZE=1600\n'
@@ -48,6 +57,110 @@ def migration_env(tmp_path, monkeypatch):
         "HTTP_POOL_MAX_KEEPALIVE=18\nS3_ACCESS_KEY=private-access\nS3_SECRET_KEY=private-secret\n"
     )
     return path, MigrationFactory()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "binding,value",
+    [
+        (r"S3_SECRET_KEY=ab\cd", r"ab\cd"),
+        (r'S3_SECRET_KEY="ab\\cd"', r"ab\cd"),
+        (r"S3_SECRET_KEY='ab\cd'", r"ab\cd"),
+        (r"S3_SECRET_KEY='ab\\cd'", r"ab\cd"),
+        (r"s3_secret_key=ab\cd", r"ab\cd"),
+        (r"export S3_SECRET_KEY=ab\cd # retained comment", r"ab\cd"),
+    ],
+)
+async def test_secret_transfer_preserves_original_dotenv_binding(migration_env, binding, value):
+    path, factory = migration_env
+    path.write_text(binding + "\n")
+    await config_migration.migrate_env_configuration(factory, path, apply=True)
+    secret_path = path.with_name(".env.secrets")
+    assert dotenv_values(secret_path)["S3_SECRET_KEY"] == value
+    await config_migration.migrate_env_configuration(factory, path, apply=True)
+    assert dotenv_values(secret_path)["S3_SECRET_KEY"] == value
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "binding,expected",
+    [
+        (r"S3_SECRET_KEY=ab\cd", r"ab\cd"),
+        (r'S3_SECRET_KEY="ab\\cd"', r"ab\cd"),
+        (r"S3_SECRET_KEY='ab\cd'", r"ab\cd"),
+        (r"S3_SECRET_KEY='ab\\cd'", r"ab\\cd"),
+        (r"S3_SECRET_KEY='ab\cd\'ef'", r"ab\cd'ef"),
+    ],
+)
+async def test_secret_transfer_preserves_compose_credentials(migration_env, binding, expected):
+    path, factory = migration_env
+    docker = shutil.which("docker")
+    if docker is None:
+        pytest.skip("Docker Compose parser is unavailable")
+    version = subprocess.run([docker, "compose", "version"], capture_output=True, timeout=10)  # noqa: S603
+    if version.returncode:
+        pytest.skip("Docker Compose parser is unavailable")
+    path.write_text(binding + "\n")
+    await config_migration.migrate_env_configuration(factory, path, apply=True)
+    compose_file = path.with_name("compose.yaml")
+    compose_file.write_text("services:\n  probe:\n    image: busybox\n    env_file: [.env, .env.secrets]\n")
+    # config only invokes the real env parser; no daemon, images or services are used.
+    result = subprocess.run(  # noqa: S603 -- fixed arguments and a test-owned temporary path
+        [docker, "compose", "--env-file", "/dev/null", "-f", str(compose_file), "config", "--format", "json"],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=10,
+    )
+    assert json.loads(result.stdout)["services"]["probe"]["environment"]["S3_SECRET_KEY"] == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("exported_key", ["LLM_MODEL", "llm_model"])
+async def test_dynamic_environment_override_is_migrated(migration_env, monkeypatch, exported_key):
+    path, factory = migration_env
+    monkeypatch.setenv(exported_key, "exported-model")
+    await config_migration.migrate_env_configuration(factory, path, apply=True)
+    assert (await factory.repository.get_by_key("llm_model")).value == "exported-model"
+    assert dotenv_values(path)["LLM_MODEL"] == "legacy model"
+
+
+@pytest.mark.asyncio
+async def test_environment_only_dynamic_override_is_migrated(migration_env, monkeypatch):
+    path, factory = migration_env
+    monkeypatch.setenv("RATE_LIMIT_CHAT_PER_MINUTE", "100")
+    await config_migration.migrate_env_configuration(factory, path, apply=True)
+    assert (await factory.repository.get_by_key("rate_limit_chat_per_minute")).value == "100"
+
+
+@pytest.mark.asyncio
+async def test_legacy_pool_environment_overrides_are_migrated(migration_env, monkeypatch):
+    path, factory = migration_env
+    monkeypatch.setenv("HTTP_POOL_MAX_CONNECTIONS", "81")
+    monkeypatch.setenv("HTTP_POOL_MAX_KEEPALIVE", "31")
+    await config_migration.migrate_env_configuration(factory, path, apply=True)
+    rows = {row.key: row.value for row in await factory.repository.get_all()}
+    assert rows["embedding_http_max_connections"] == "81"
+    assert rows["rerank_http_max_connections"] == "40"
+    assert rows["embedding_http_max_keepalive_connections"] == "31"
+    assert rows["rerank_http_max_keepalive_connections"] == "15"
+
+
+@pytest.mark.asyncio
+async def test_secret_file_dynamic_value_has_priority_over_env(migration_env):
+    path, factory = migration_env
+    path.with_name(".env.secrets").write_text("LLM_MODEL=secret-file-model\n")
+    await config_migration.migrate_env_configuration(factory, path, apply=True)
+    assert (await factory.repository.get_by_key("llm_model")).value == "secret-file-model"
+
+
+@pytest.mark.asyncio
+async def test_existing_db_value_survives_environment_override(migration_env, monkeypatch):
+    path, factory = migration_env
+    await add_row(factory, "llm_model", "db-model")
+    monkeypatch.setenv("LLM_MODEL", "exported-model")
+    await config_migration.migrate_env_configuration(factory, path, apply=True)
+    assert (await factory.repository.get_by_key("llm_model")).value == "db-model"
 
 
 async def add_row(factory, key, value, domain_key=None):
