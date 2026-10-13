@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
 from application.ports.bm25_index import BM25IndexPort
@@ -36,7 +35,7 @@ class DocumentDeleteCommand:
         chunks, _ = await uow.chunks.list_for_document(document_id, limit=10000)
         for chunk in chunks:
             if chunk.content_hash is not None:
-                await asyncio.to_thread(self._bm25_index.remove, chunk.content_hash)
+                await self._bm25_index.remove(chunk.content_hash)
 
     async def execute(
         self, document_id: int, user_id: int, user_role: str, user_kind: str = UserKind.INTERNAL

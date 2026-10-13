@@ -8,6 +8,9 @@ import pytest
 
 from test_s3_storage_async import client_harness
 from infrastructure.storage import file_storage
+from infrastructure.bm25 import persistence
+from infrastructure.bm25.bm25_updater import BM25IndexAdapter
+from infrastructure.ml.clients.client_registry import MLClientRegistry
 
 
 class Body:
@@ -179,3 +182,104 @@ async def test_cancel_during_successful_close_removes_unreturned_file(monkeypatc
     assert body.closed
     assert not paths[0].exists()
     await storage.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("phase", ["read", "creation"])
+@pytest.mark.parametrize("failure", ["close", "unlink"])
+@pytest.mark.parametrize("consumer", ["storage", "loader", "mutation"])
+async def test_download_cancellation_survives_cleanup_failure(
+    monkeypatch, tmp_path, phase, failure, consumer
+):
+    storage, client, _, _ = client_harness(monkeypatch)
+    body = Body([])
+    body.release = asyncio.Event()
+    client.get_object.return_value = {"Body": body}
+    original_create = file_storage.tempfile.NamedTemporaryFile
+    original_unlink = Path.unlink
+    started, release = threading.Event(), threading.Event()
+    cleanup_attempted = threading.Event()
+    handles = []
+
+    def create(**kwargs):
+        handle = original_create(dir=tmp_path, **kwargs)
+        handles.append(handle)
+        original_close = handle.close
+
+        def close():
+            original_close()
+            if failure == "close":
+                cleanup_attempted.set()
+                raise PermissionError("cannot close download")
+
+        handle.close = close
+        started.set()
+        if phase == "creation" and not release.wait(5):
+            raise TimeoutError("creation not released")
+        return handle
+
+    def unlink(path, *args, **kwargs):
+        if path.parent == tmp_path and failure == "unlink":
+            cleanup_attempted.set()
+            raise PermissionError("cannot remove download")
+        return original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(file_storage.tempfile, "NamedTemporaryFile", create)
+    monkeypatch.setattr(Path, "unlink", unlink)
+    registry = MLClientRegistry(bm25_loader=lambda: persistence.load_bm25_index_from_s3(storage))
+    operation = {
+        "storage": lambda: storage.download_to_temp("report.pdf"),
+        "loader": registry.ensure_bm25_loaded,
+        "mutation": lambda: BM25IndexAdapter(registry).add("new", text_hash="new-hash"),
+    }[consumer]()
+    pending = asyncio.create_task(operation)
+    try:
+        if phase == "creation":
+            assert await asyncio.to_thread(started.wait, 5)
+        else:
+            await asyncio.wait_for(body.started.wait(), 5)
+        pending.cancel("request cancelled")
+        release.set()
+        with pytest.raises(asyncio.CancelledError, match="request cancelled"):
+            await asyncio.wait_for(pending, 5)
+        assert pending.cancelled()
+        assert cleanup_attempted.is_set()
+        assert handles[0].closed
+        assert body.closed
+        assert storage._active == 0
+        with pytest.raises(persistence.BM25SnapshotNotReady):
+            registry.bm25_index()
+    finally:
+        release.set()
+        for handle in handles:
+            original_unlink(Path(handle.name), missing_ok=True)
+        await registry.close()
+        await storage.aclose()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_temp_creation_failure_preserves_cancellation(monkeypatch):
+    storage, client, _, _ = client_harness(monkeypatch)
+    body = Body([])
+    client.get_object.return_value = {"Body": body}
+    started, release = threading.Event(), threading.Event()
+
+    def create(**kwargs):
+        started.set()
+        if not release.wait(5):
+            raise TimeoutError("creation not released")
+        raise PermissionError("cannot create download")
+
+    monkeypatch.setattr(file_storage.tempfile, "NamedTemporaryFile", create)
+    pending = asyncio.create_task(storage.download_to_temp("report.pdf"))
+    try:
+        assert await asyncio.to_thread(started.wait, 5)
+        pending.cancel("request cancelled")
+        release.set()
+        with pytest.raises(asyncio.CancelledError, match="request cancelled"):
+            await asyncio.wait_for(pending, 5)
+        assert body.closed
+        assert storage._active == 0
+    finally:
+        release.set()
+        await storage.aclose()

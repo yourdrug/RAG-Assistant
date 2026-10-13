@@ -58,11 +58,12 @@ async def run_storage_io(function, *args, **kwargs):
     task = asyncio.create_task(asyncio.to_thread(function, *args, **kwargs))
     try:
         return await asyncio.shield(task)
-    except asyncio.CancelledError:
+    except asyncio.CancelledError as exc:
         try:
             await finish_owned_task(task)
         finally:
-            raise
+            # A failed thread job must not replace the caller's cancellation.
+            raise exc
 
 
 def write_download_block(handle, block: bytes) -> None:
@@ -293,6 +294,15 @@ class S3Storage:
                 )
                 try:
                     handle = await asyncio.shield(creation)
+                except asyncio.CancelledError as exc:
+                    try:
+                        handle = await finish_owned_task(creation)
+                        await run_storage_io(close_download, handle, remove=True)
+                    except OSError:
+                        log.warning("Failed to create/clean up S3 download after cancellation", exc_info=True)
+                    finally:
+                        # Neither thread failure nor cleanup may replace cancellation.
+                        raise exc
                 except BaseException:
                     handle = await finish_owned_task(creation)
                     await run_storage_io(close_download, handle, remove=True)
@@ -301,6 +311,13 @@ class S3Storage:
                     while block := await body.read(S3_DOWNLOAD_CHUNK_BYTES):
                         await run_storage_io(write_download_block, handle, block)
                     await run_storage_io(close_download, handle, remove=False)
+                except asyncio.CancelledError as exc:
+                    try:
+                        await run_storage_io(close_download, handle, remove=True)
+                    except OSError:
+                        log.warning("Failed to clean up S3 download after cancellation", exc_info=True)
+                    finally:
+                        raise exc
                 except BaseException:
                     await run_storage_io(close_download, handle, remove=True)
                     raise

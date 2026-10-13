@@ -8,6 +8,7 @@ import asyncio
 import logging
 import time
 from pathlib import Path
+from typing import cast
 
 from config import get_setting
 from infrastructure.benchmark.checkpoint import fingerprint, FileBenchmarkCheckpoints
@@ -133,7 +134,7 @@ async def run_benchmark_async(
                 max_concurrent,
             )
             path = checkpoint_dir / f"{run_idx}-{idx}.json" if checkpoint_dir else None
-            cached = await store.load(str(path)) if path and store else None
+            cached = cast(dict | None, await store.load(str(path))) if path and store else None
             if cached is not None and cached.get("judge_rubric_version") == JUDGE_RUBRIC_VERSION:
                 completed += 1
                 logger.info(
@@ -151,7 +152,7 @@ async def run_benchmark_async(
                 **({"checkpoint_path": path.with_suffix(".stages.json")} if path else {}),
             )
             diagnostic_errors = bool(result_judge_errors(result))
-            if path and not diagnostic_errors:
+            if path and store is not None and not diagnostic_errors:
                 await store.save(str(path), result)
             completed += 1
             logger.info(

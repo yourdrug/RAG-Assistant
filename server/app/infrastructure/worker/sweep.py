@@ -261,6 +261,8 @@ async def record_sweep_failure(uow_factory, sweep_id: int, message: str) -> bool
         if not cancelled:
             await uow.benchmark_sweeps.update_status(sweep_id, BenchmarkSweepStatus.FAILED.value)
     await asyncio.to_thread(cleanup_sweep_checkpoints, settings.data_dir, sweep_id, successful=False)
-    event = {"done": True, "cancelled": True} if cancelled else {"done": True, "error": message}
+    event: dict[str, bool | str] = (
+        {"done": True, "cancelled": True} if cancelled else {"done": True, "error": message}
+    )
     await publish_sweep_event(sweep_id, event)
     return cancelled

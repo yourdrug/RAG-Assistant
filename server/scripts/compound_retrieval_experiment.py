@@ -10,6 +10,7 @@ import asyncio
 import json
 import logging
 from dataclasses import replace
+from functools import partial
 from pathlib import Path
 
 from langchain_core.documents import Document
@@ -19,6 +20,8 @@ from domain.utils import content_hash
 from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.roles import UserKind, UserRole
 from infrastructure.ml.clients.client_registry import MLClientRegistry
+from infrastructure.bm25.persistence import load_configured_bm25_snapshot
+from infrastructure.storage.file_storage import LazyStorage
 from infrastructure.ml.rag.rag_config import build_rag_settings
 from infrastructure.ml.rag.rag_formatting import format_docs_with_selection
 from infrastructure.ml.rag.rag_retrieval import run_hybrid_search
@@ -48,7 +51,8 @@ def record(doc, score=None):
 
 
 async def compare(cases, user_id):
-    registry = MLClientRegistry()
+    storage = LazyStorage()
+    registry = MLClientRegistry(bm25_loader=partial(load_configured_bm25_snapshot, storage))
     settings = build_rag_settings()
     settings = replace(settings, retriever=replace(settings.retriever, fetch_k=30, top_k=8))
     user = ChatContext(user_id, UserKind.INTERNAL, UserRole.ADMIN).to_user_context()
@@ -108,7 +112,10 @@ async def compare(cases, user_id):
                 logger.info("Retrieved %s %s candidates=%s", case["id"], arm, len(by_hash))
             report["cases"].append(output)
     finally:
-        await registry.close()
+        try:
+            await registry.close()
+        finally:
+            await storage.aclose()
     return report
 
 

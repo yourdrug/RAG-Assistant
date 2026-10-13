@@ -93,8 +93,8 @@ async def test_standalone_benchmark_keeps_acl_context_and_usage(benchmark_io, mo
     docs = [(SimpleNamespace(page_content="context", metadata={"source": "report.pdf"}), 0.9)]
     retrieve = MagicMock(return_value=docs)
     llm = SimpleNamespace(close=AsyncMock())
-    clients = SimpleNamespace(close=AsyncMock())
-    monkeypatch.setattr(answer_generators, "MLClientRegistry", lambda: clients)
+    clients = SimpleNamespace(close=AsyncMock(), ensure_bm25_loaded=AsyncMock(return_value=None))
+    monkeypatch.setattr(answer_generators, "MLClientRegistry", lambda **kwargs: clients)
     monkeypatch.setattr(retrieval, "build_llm", lambda *a, **kw: llm)
     monkeypatch.setattr(retrieval, "retrieve_with_scores_hybrid", retrieve)
     response = SimpleNamespace(

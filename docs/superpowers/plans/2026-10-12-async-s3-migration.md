@@ -1,6 +1,6 @@
 # План миграции S3-хранилища на aiobotocore
 
-> **Для исполнителя:** выполнять задачи последовательно с помощью `superpowers:executing-plans`; при выбранном пользователем делегировании — `superpowers:subagent-driven-development`. Чекбоксы отражают выполнение, а не только написание кода. При подготовке документа реализация и тесты не выполнялись. По последующему запросу выполнен этап A; работающие server/worker не обновлялись.
+> **Для исполнителя:** выполнять задачи последовательно с помощью `superpowers:executing-plans`; при выбранном пользователем делегировании — `superpowers:subagent-driven-development`. Чекбоксы отражают выполнение, а не только написание кода. При подготовке документа реализация и тесты не выполнялись. По последующим запросам выполнены этапы A и B (задачи 1–7); 2026-10-13 после исправления отмены выполнены финальные smoke-проверки и последовательный выпуск A → B для server/worker.
 
 **Goal:** перевести сетевые операции S3 в server, Arq worker и CLI на aiobotocore, устранить PERF-001 и затем полностью удалить boto3, сохранив ACL, транзакционные границы и согласованность BM25.
 
@@ -10,7 +10,7 @@
 
 **Spec:** пользовательский запрос о миграции async-клиента; исходный PERF-001; [проверка совместимости](../../research/aiobotocore-compatibility.md); [правила проекта](../../../AGENTS.md). Проектные решения и критерии поведения зафиксированы ниже, поскольку отдельной согласованной спецификации миграции пока нет.
 
-**Дата:** 2026-10-12. **Статус:** этап A (задачи 1–5) реализован и проверен; этап B не начат. Фактические результаты: [runbook](../../operations/async-s3-migration.md).
+**Дата:** 2026-10-12. **Статус:** этап A (задачи 1–5) реализован и проверен; этап B (задачи 6–7) реализован и проверен; два Important из финального ревью и последующий P2 отмены исправлены с RED→GREEN. 2026-10-13 выполнены финальный MinIO/Redis smoke и последовательный выпуск A → B. Фактические результаты: [runbook](../../operations/async-s3-migration.md).
 
 Документы под `docs/*` сейчас исключены правилом `.gitignore:21`. Файл существует локально; при включении плана/отчёта в PR добавить именно эти документы через `git add -f`, не менять правила игнорирования всей папки.
 
@@ -274,14 +274,14 @@ uv run pytest tests/test_ingestion_workflows.py tests/test_ingestion_service_pip
 
 Захват threading state lock, который может удерживаться CPU mutation, не выполнять блокирующим ожиданием на event loop: чтение/публикация snapshot выполняются короткими sync helpers через to_thread. CPU mutation и parsing никогда не выполняются под async load lock на event loop. Invalidation не содержит await или сетевых запросов; сохранённая сериализация state проверяется тестами.
 
-- [ ] Сначала расширить lifecycle tests на 10 одновременных async callers: один download, один JSON parse, один опубликованный snapshot.
-- [ ] Добавить invalidation during download; invalidation между ensure и mutation; mutation после missing snapshot; cancellation первого loader при ожидающем втором; failed load затем успешный retry. Отдельный тест: при постоянном storage failure один вызов mutation не зацикливается, не добавляет текст в неподтверждённый пустой snapshot, следующий вызов повторяет load.
-- [ ] Переадаптировать существующий тест «sync update + async load share one snapshot»: async adapter + CPU worker по-прежнему дают один snapshot и сохраняют добавленный текст/ACL. Проверки не удалять из-за изменения API.
-- [ ] Добавить assert, что cached-only accessor и sync updater не вызывают storage ни при ready, ни при unloaded state.
-- [ ] Реализовать async loader/state алгоритм; инжектировать в container registry; оставить переходный reader только у ещё не переведённых потребителей задачи 7. На этом переходном шаге их старый путь должен по-прежнему работать, а не обращаться к уже cached-only accessor без подготовки snapshot: при необходимости сразу включить соответствующий caller из задачи 7 в этот PR.
-- [ ] Сделать mutation port/adapter async и заменить application `await to_thread(self._bm25_index.method, ...)` на `await self._bm25_index.method(...)`. Не перемещать вызовы относительно UoW/commit.
-- [ ] Обновить фейки/AsyncMock и assertions в chunk/document тестах; подтвердить сохранение hash/visibility/owner/group и поведения rollback.
-- [ ] Выполнить BM25 lifecycle/incremental, transaction characterization и обязательные ACL tests.
+- [x] Сначала расширить lifecycle tests на 10 одновременных async callers: один download, один JSON parse, один опубликованный snapshot.
+- [x] Добавить invalidation during download; invalidation между ensure и mutation; mutation после missing snapshot; cancellation первого loader при ожидающем втором; failed load затем успешный retry. Отдельный тест: при постоянном storage failure один вызов mutation не зацикливается, не добавляет текст в неподтверждённый пустой snapshot, следующий вызов повторяет load.
+- [x] Переадаптировать существующий тест «sync update + async load share one snapshot»: async adapter + CPU worker по-прежнему дают один snapshot и сохраняют добавленный текст/ACL. Проверки не удалять из-за изменения API.
+- [x] Добавить assert, что cached-only accessor и sync updater не вызывают storage ни при ready, ни при unloaded state.
+- [x] Реализовать async loader/state алгоритм; инжектировать в container registry; оставить переходный reader только у ещё не переведённых потребителей задачи 7. На этом переходном шаге их старый путь должен по-прежнему работать, а не обращаться к уже cached-only accessor без подготовки snapshot: при необходимости сразу включить соответствующий caller из задачи 7 в этот PR.
+- [x] Сделать mutation port/adapter async и заменить application `await to_thread(self._bm25_index.method, ...)` на `await self._bm25_index.method(...)`. Не перемещать вызовы относительно UoW/commit.
+- [x] Обновить фейки/AsyncMock и assertions в chunk/document тестах; подтвердить сохранение hash/visibility/owner/group и поведения rollback.
+- [x] Выполнить BM25 lifecycle/incremental, transaction characterization и обязательные ACL tests.
 
 **Готовность:** cold BM25 load использует async storage; CPU offloaded; concurrent update не теряется; cancellation не отравляет loaded state. Коммит: `refactor: load BM25 snapshots asynchronously`.
 
@@ -291,29 +291,29 @@ uv run pytest tests/test_ingestion_workflows.py tests/test_ingestion_service_pip
 
 **Consumes:** async BM25 loader и cached-only state задачи 6. **Produces:** отсутствие boto3 и sync S3 I/O во всех путях.
 
-- [ ] RAG steps/retrieval и benchmark ловят только `BM25LoadError` вокруг подготовки snapshot, логируют ошибку и возвращаются к прежнему dense-only fallback. Добавить regression на ошибку load, повторный успешный load и сохранение Qdrant ACL; остальные exceptions/CancelledError не поглощать.
-- [ ] Metrics с registry вызывает `await ensure_bm25_loaded()`; fallback без registry получает явно переданный loader/storage с определённым владельцем. Не создавать глобальный registry/client ради каждой метрики.
-- [ ] StandaloneBenchmarkGenerator.generate() await загружает BM25 до `run_owned_sync(retrieve_with_scores_hybrid, ...)`, затем передаёт snapshot явно.
-- [ ] В `retrieve_with_scores_hybrid` и `search_sparse` добавить keyword-only `bm25_index: BM25Index | None`; CPU scorer использует переданный snapshot и не обращается к registry.bm25_index(). None означает подтверждённую допустимую работу без sparse, а не необходимость скрытого load.
-- [ ] Sweep с registry await ensure; fallback без registry получает async loader через composition/owned standalone lifecycle. Удалить прямой sync factory load.
-- [ ] Обновить benchmark exports/callers/fakes и существующие lifecycle tests; отмена standalone benchmark ожидает завершение owned CPU jobs до закрытия его storage.
-- [ ] Удалить `s3_snapshot_reader.py`, sync S3 persistence, `factories.load_bm25_index()` и их global cache/dispose ветки. Отдельный sync cached-only accessor при необходимости остаётся — он работает только с памятью.
-- [ ] Удалить boto3 из pyproject и выполнить `task lock`. Botocore остаётся прямой зависимостью из-за Config. Подтвердить отсутствие boto3/s3transfer в resolved tree либо объяснить реального нового транзитивного потребителя, если он появился с момента baseline.
-- [ ] Найти все старые `get_storage`, `download_bytes`, `load_bm25_index_from_s3_sync`, imports boto3 и `to_thread` вокруг async методов; каждый остаток устранить или доказать, что он относится только к локальному CPU/I/O.
+- [x] RAG steps/retrieval и benchmark ловят только `BM25LoadError` вокруг подготовки snapshot, логируют ошибку и возвращаются к прежнему dense-only fallback. Добавить regression на ошибку load, повторный успешный load и сохранение Qdrant ACL; остальные exceptions/CancelledError не поглощать.
+- [x] Metrics с registry вызывает `await ensure_bm25_loaded()`; fallback без registry получает явно переданный loader/storage с определённым владельцем. Не создавать глобальный registry/client ради каждой метрики.
+- [x] StandaloneBenchmarkGenerator.generate() await загружает BM25 до `run_owned_sync(retrieve_with_scores_hybrid, ...)`, затем передаёт snapshot явно.
+- [x] В `retrieve_with_scores_hybrid` и `search_sparse` добавить keyword-only `bm25_index: BM25Index | None`; CPU scorer использует переданный snapshot и не обращается к registry.bm25_index(). None означает подтверждённую допустимую работу без sparse, а не необходимость скрытого load.
+- [x] Sweep с registry await ensure; fallback без registry получает async loader через composition/owned standalone lifecycle. Удалить прямой sync factory load.
+- [x] Обновить benchmark exports/callers/fakes и существующие lifecycle tests; отмена standalone benchmark ожидает завершение owned CPU jobs до закрытия его storage.
+- [x] Удалить `s3_snapshot_reader.py`, sync S3 persistence, `factories.load_bm25_index()` и их global cache/dispose ветки. Отдельный sync cached-only accessor при необходимости остаётся — он работает только с памятью.
+- [x] Удалить boto3 из pyproject и выполнить `task lock`. Botocore остаётся прямой зависимостью из-за Config. Подтвердить отсутствие boto3/s3transfer в resolved tree либо объяснить реального нового транзитивного потребителя, если он появился с момента baseline.
+- [x] Найти все старые `get_storage`, `download_bytes`, `load_bm25_index_from_s3_sync`, imports boto3 и `to_thread` вокруг async методов; каждый остаток устранить или доказать, что он относится только к локальному CPU/I/O.
 
-**Готовность этапа B:** весь S3 network I/O async, sync CPU consumers получают готовый snapshot, boto3 не импортируется/не требуется. Коммит: `refactor: remove synchronous S3 client dependencies`.
+**Готовность этапа B:** весь S3 network I/O async, sync CPU consumers получают готовый snapshot, boto3 не импортируется/не требуется. Плановый коммит: `refactor: remove synchronous S3 client dependencies`; исходные изменения оставлены в working tree; 2026-10-13 из него собран и выпущен образ B. Независимое ревью выявило две ошибки, обе исправлены и покрыты regression: ошибка temp-file не считается missing snapshot; `scripts/compound_retrieval_experiment.py` получил owned async loader/storage.
 
 ### Задача 8. Финальная проверка, выпуск и откат
 
 **Файлы:** operation runbook; этот checklist; release/PR description. Application изменения сверх задач 1–7 не требуются.
 
-- [ ] Прогнать выбранный regression набор, lint/mypy и layer checks из раздела 7; записать фактические результаты, не только список команд.
-- [ ] Повторить MinIO smoke и responsiveness для финального кода; проверить cold/warm BM25, Redis invalidation и изменение S3-config между запросами.
-- [ ] Проверить server, worker, CLI upload/ingest/list и standalone benchmark lifecycle. Не запускать полный LLM benchmark ради проверки storage, если достаточно controlled fixture/mock.
-- [ ] Проверить «S3 недоступен при старте»: lazy startup не открывает S3; первая операция завершается явной ошибкой/описанной деградацией, остальные корутины worker живы.
-- [ ] Подготовить один server image tag для server и worker; записать предыдущий tag. Не обновлять MinIO, Qdrant или модели вместе с этой миграцией.
-- [ ] Перед deploy остановить приём новых заданий/дождаться in-flight storage и BM25 jobs; корректно завершить процессы. Запускаемый stack изменять только по прямому запросу.
-- [ ] Выпускать этап A и этап B отдельно; наблюдать реальные операции и heartbeat между ними. Этап B не требуется для быстрого закрытия PERF-001, но требуется для завершения полного перехода.
+- [x] Прогнать выбранный regression набор, lint/mypy и layer checks из раздела 7; записать фактические результаты, не только список команд. Unit: 2628 passed; ruff/layers чистые; mypy после отдельного исправления baseline-ошибок 2026-10-13 — 0 диагностик; полный format check чистый.
+- [x] Повторить MinIO smoke и responsiveness для финального кода; проверить cold/warm BM25, Redis invalidation и изменение S3-config между запросами.
+- [x] Проверить server, worker, CLI upload/ingest/list и standalone benchmark lifecycle. Не запускать полный LLM benchmark ради проверки storage, если достаточно controlled fixture/mock.
+- [x] Проверить «S3 недоступен при старте»: lazy startup не открывает S3; первая операция завершается явной ошибкой/описанной деградацией, остальные корутины worker живы.
+- [x] Подготовить один server image tag для server и worker; записать предыдущий tag. Не обновлять MinIO, Qdrant или модели вместе с этой миграцией.
+- [x] Перед deploy остановить приём новых заданий/дождаться in-flight storage и BM25 jobs; корректно завершить процессы. Запускаемый stack изменять только по прямому запросу.
+- [x] Выпускать этап A и этап B отдельно; наблюдать реальные операции и heartbeat между ними. Этап B не требуется для быстрого закрытия PERF-001, но требуется для завершения полного перехода.
 
 **Откат:** вернуть предыдущий server image одновременно для server и worker; завершить текущие процессы с cleanup и запустить предыдущую версию с прежними settings. Никаких downgrade БД, очистки bucket или переиндексации не предусмотрено. Незавершённый ingestion не должен иметь successful registry row и повторяется штатным способом. В dev-ветке откатывать только собственные migration commits, не чужие изменения.
 
@@ -388,16 +388,16 @@ Credentials передаются штатным способом окружен�
 
 ## 8. Критерии завершения полного перехода
 
-- [ ] S3 LIST/HEAD/GET/PUT/COPY/DELETE выполняются через aiobotocore, без boto3 I/O в loop или worker thread.
-- [ ] Pool/semaphore reuse, response-body cleanup, cancelled thread-write и idempotent teardown покрыты тестами.
-- [ ] CLI, cron, server, worker и standalone benchmark имеют явных владельцев storage; ни один client не переиспользуется между event loop.
-- [ ] Runtime config rotation сохраняет in-flight операции и закрывает retired backends.
-- [ ] BM25 load единый для generation; invalidation не публикует stale snapshot; CPU mutation не теряется; отсутствующий snapshot и failed load различаются.
-- [ ] ACL triangle, cache scope и curator scope tests сохранены и зелёные; JSON/hashes/source keys совместимы с предыдущей версией.
-- [ ] Registry commit sequence и application transaction behavior сохранены.
-- [ ] MinIO compatibility, контент download и responsiveness подтверждены фактическими результатами; необъяснённых session warnings нет.
-- [ ] Boto3/s3transfer и переходный sync reader удалены; lock зафиксирован.
-- [ ] Runbook содержит команды запуска, предыдущий image tag, известные ограничения и процедуру отката.
+- [x] S3 LIST/HEAD/GET/PUT/COPY/DELETE выполняются через aiobotocore, без boto3 I/O в loop или worker thread.
+- [x] Pool/semaphore reuse, response-body cleanup, cancelled thread-write и idempotent teardown покрыты тестами.
+- [x] CLI, cron, server, worker и standalone benchmark имеют явных владельцев storage; ни один client не переиспользуется между event loop.
+- [x] Runtime config rotation сохраняет in-flight операции и закрывает retired backends.
+- [x] BM25 load единый для generation; invalidation не публикует stale snapshot; CPU mutation не теряется; отсутствующий snapshot и failed load различаются.
+- [x] ACL triangle, cache scope и curator scope tests сохранены и зелёные; JSON/hashes/source keys совместимы с предыдущей версией.
+- [x] Registry commit sequence и application transaction behavior сохранены.
+- [x] MinIO compatibility, контент download и responsiveness подтверждены фактическими результатами; необъяснённых session warnings нет.
+- [x] Boto3/s3transfer и переходный sync reader удалены; lock зафиксирован.
+- [x] Runbook содержит команды запуска, предыдущий image tag, известные ограничения и процедуру отката.
 
 ## 9. Ограничения и последующие работы
 

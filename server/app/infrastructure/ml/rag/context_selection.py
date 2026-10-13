@@ -1,6 +1,10 @@
 """Budget selection independent of document/section presentation order."""
 
 from enum import StrEnum
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from langchain_core.documents import Document
 
 from domain.services.rag_policy import sanitize_for_prompt
 from domain.utils import content_hash
@@ -72,7 +76,7 @@ def select_context(docs, budget: int, count_tokens, query_parts: list[str], excl
     )
     # Equal scores still allow coverage to break ties, without altering relevance.
     coverage_weight = CONTEXT_COVERAGE_WEIGHT * score_range
-    chosen = []
+    chosen: list[Document | tuple[Document, float]] = []
     context, selected = "", []
     while remaining:
 

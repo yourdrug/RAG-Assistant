@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass
+from functools import partial
+import logging
 from typing import Protocol
 
 from application.ports.chat_rag_port import ChatRAGPort
@@ -17,7 +19,8 @@ from infrastructure.ml.rag.rag_formatting import format_docs_with_selection
 from infrastructure.benchmark import judge, metrics, retrieval
 from infrastructure.ml.clients.client_registry import MLClientRegistry
 from infrastructure.ml.clients.managed_llm import close_llm_pools
-from infrastructure.storage.file_storage import finish_owned_task
+from infrastructure.storage.file_storage import LazyStorage, finish_owned_task
+from infrastructure.bm25.persistence import BM25LoadError, load_configured_bm25_snapshot
 
 from infrastructure.ml.rag.benchmark_evidence import (
     BenchmarkEvidence,
@@ -30,6 +33,9 @@ from infrastructure.benchmark.case_metrics import (
     extract_usage_from_response,
 )
 from infrastructure.ml.usage_capture import active_llm_usage
+
+
+log = logging.getLogger("default")
 
 
 async def run_owned_sync(function, *args, **kwargs):
@@ -114,7 +120,8 @@ class RagBenchmarkGenerator:
 
 class StandaloneBenchmarkGenerator:
     def __init__(self, top_k: int, fetch_k: int | None, ctx: ChatContext) -> None:
-        self._clients = MLClientRegistry()
+        self._storage = LazyStorage()
+        self._clients = MLClientRegistry(bm25_loader=partial(load_configured_bm25_snapshot, self._storage))
         self._top_k = top_k
         self._fetch_k = fetch_k
         self._access_filter = build_qdrant_filter(
@@ -133,6 +140,11 @@ class StandaloneBenchmarkGenerator:
             settings.llm_model, settings.ollama_base_url, provider=settings.llm_provider
         )
         try:
+            try:
+                snapshot = await self._clients.ensure_bm25_loaded()
+            except BM25LoadError:
+                log.warning("BM25 snapshot unavailable; using dense search", exc_info=True)
+                snapshot = None
             docs = await run_owned_sync(
                 retrieval.retrieve_with_scores_hybrid,
                 question["question"],
@@ -143,6 +155,7 @@ class StandaloneBenchmarkGenerator:
                 user_id=ctx.user_id,
                 user_group_ids=ctx.user_group_ids,
                 ml_clients=self._clients,
+                bm25_index=snapshot,
             )
             context, selected = format_docs_with_selection(docs, max_context_tokens=4000)
             answer, response = await run_owned_sync(
@@ -161,4 +174,7 @@ class StandaloneBenchmarkGenerator:
             await close_llm_pools(llm)
 
     async def close(self) -> None:
-        await self._clients.close()
+        try:
+            await self._clients.close()
+        finally:
+            await self._storage.aclose()

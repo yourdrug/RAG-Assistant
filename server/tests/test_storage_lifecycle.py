@@ -1,11 +1,14 @@
 """Storage rotation and container teardown preserve in-flight requests."""
 
 import asyncio
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from config import settings
+from domain.events.config_events import ConfigParameterChanged
+from domain.value_objects.config_value_type import ConfigValueType
+from infrastructure.ml.config.config_subscribers import apply_to_settings, invalidate_storage_cache
 from infrastructure.storage.file_storage import LazyStorage
 from test_s3_storage_async import client_harness
 from test_s3_storage_download import Body
@@ -13,12 +16,18 @@ from test_s3_storage_download import Body
 
 @pytest.mark.asyncio
 async def test_rotation_retains_active_backend_and_closes_all(monkeypatch):
-    first, first_client, first_context, _ = client_harness(monkeypatch)
+    monkeypatch.setattr(settings, "s3_endpoint", "http://old-endpoint:9000")
+    monkeypatch.setattr(settings, "s3_access_key", "old-test-access")
+    monkeypatch.setattr(settings, "s3_secret_key", "old-test-secret")
+    first, first_client, first_context, first_session = client_harness(monkeypatch)
     body = Body([b"old"])
     body.release = asyncio.Event()
     first_client.get_object.return_value = {"Body": body}
     await first.upload_file("init", b"x")
-    second, second_client, second_context, _ = client_harness(monkeypatch)
+    monkeypatch.setattr(settings, "s3_endpoint", "http://new-endpoint:9000")
+    monkeypatch.setattr(settings, "s3_access_key", "new-test-access")
+    monkeypatch.setattr(settings, "s3_secret_key", "new-test-secret")
+    second, second_client, second_context, second_session = client_harness(monkeypatch)
     second.bucket = "new-bucket"
     backends = iter([first, second])
     monkeypatch.setattr("infrastructure.storage.file_storage.create_storage", lambda: next(backends))
@@ -28,6 +37,14 @@ async def test_rotation_retains_active_backend_and_closes_all(monkeypatch):
     storage.invalidate()
     await storage.upload_file("b.txt", b"new")
     second_client.put_object.assert_awaited_once_with(Bucket="new-bucket", Key="b.txt", Body=b"new")
+    for session, endpoint, access_key, secret_key in (
+        (first_session, "http://old-endpoint:9000", "old-test-access", "old-test-secret"),
+        (second_session, "http://new-endpoint:9000", "new-test-access", "new-test-secret"),
+    ):
+        kwargs = session.create_client.call_args.kwargs
+        assert kwargs["endpoint_url"] == endpoint
+        assert kwargs["aws_access_key_id"] == access_key
+        assert kwargs["aws_secret_access_key"] == secret_key
     closing = asyncio.create_task(storage.aclose())
     await asyncio.sleep(0)
     first_context.__aexit__.assert_not_awaited()
@@ -83,17 +100,14 @@ async def test_s3_config_is_snapshotted_per_backend(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_config_event_rotates_storage_and_bm25_reader(monkeypatch):
-    from domain.events.config_events import ConfigParameterChanged
-    from domain.value_objects.config_value_type import ConfigValueType
-    from infrastructure.ml.config.config_subscribers import invalidate_storage_cache
-    from unittest.mock import MagicMock
-
+@pytest.mark.parametrize("key", ["s3_bucket", "s3_endpoint", "s3_access_key", "s3_secret_key", "s3_region"])
+async def test_config_event_rotates_storage_and_bm25_reader(monkeypatch, key):
+    monkeypatch.setattr(settings, key, "old")
     storage = MagicMock()
     clients = MagicMock()
-    event = ConfigParameterChanged(
-        key="s3_bucket", old_value="old", new_value="new", value_type=ConfigValueType.STR
-    )
+    event = ConfigParameterChanged(key=key, old_value="old", new_value="new", value_type=ConfigValueType.STR)
+    apply_to_settings(event)
+    assert getattr(settings, key) == "new"
     invalidate_storage_cache(event, storage=storage, ml_clients=clients)
     storage.invalidate.assert_called_once()
-    clients.invalidate_snapshot_reader.assert_called_once()
+    clients.invalidate_bm25.assert_called_once()

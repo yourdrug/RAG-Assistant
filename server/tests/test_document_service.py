@@ -71,7 +71,7 @@ def _service(uow: FakeUnitOfWork | None = None, file_storage=None):
         uow_factory=factory,
         vector_store_repo=MagicMock(),
         file_storage=fs,
-        bm25_index=MagicMock(),
+        bm25_index=AsyncMock(),
     )
     query = DocumentQueryService(uow_factory=factory)
     return cmd, query, uow, fs
@@ -430,7 +430,7 @@ async def test_delete_document_happy_path():
     assert outbox_entries[0].payload == {"document_id": 1}
 
     # 2. BM25 index: remove called for the chunk's content_hash
-    cmd._delete._bm25_index.remove.assert_called_once_with("hash_abc")
+    cmd._delete._bm25_index.remove.assert_awaited_once_with("hash_abc")
 
     # 3. Summaries cleared (all in the fake)
     for conv in uow.conversations._convs.values():

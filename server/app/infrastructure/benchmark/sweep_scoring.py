@@ -13,6 +13,8 @@ import logging
 from decimal import Decimal
 
 from langchain.schema import Document as LCDocument
+from qdrant_client.models import FieldCondition, Filter, MatchAny
+from infrastructure.ml.rag.rag_retrieval import resolve_hashes_batch
 
 from application.services.retrieval import HybridRetriever
 from config import get_setting, settings
@@ -30,7 +32,6 @@ from domain.value_objects.benchmark_scoring import (
 )
 from infrastructure.ml.rag.rag_reranking import filter_scope_candidates
 from infrastructure.ml.clients import factories
-from infrastructure.storage.file_storage import run_storage_io
 
 
 logger = logging.getLogger("default")
@@ -234,12 +235,14 @@ def score_config_cheap(  # noqa: C901
     return metrics
 
 
-async def load_candidate_snapshot(ml_clients):
+async def load_candidate_snapshot(ml_clients, *, bm25_loader=None):
     """Keep transient snapshot failures retryable while retaining dense fallback."""
     try:
         if ml_clients is not None:
             return await ml_clients.ensure_bm25_loaded()
-        return await run_storage_io(factories.load_bm25_index)
+        if bm25_loader is None:
+            raise ValueError("Sweep requires an explicit BM25 registry or loader")
+        return await bm25_loader()
     except BM25LoadError:
         logger.warning("BM25 snapshot unavailable; using dense search", exc_info=True)
         return None
@@ -253,6 +256,8 @@ async def cache_candidates(
     visibility_conditions=None,
     user_id: int | None = None,
     user_group_ids: list[int] | None = None,
+    *,
+    bm25_loader=None,
 ) -> tuple[dict, dict, dict]:
     """Phase 1: Cache dense + sparse candidates at max fetch_k.
 
@@ -269,7 +274,7 @@ async def cache_candidates(
     else:
         client = factories.create_qdrant_client()
         embeddings = factories.create_embeddings()
-    bm25_index = await load_candidate_snapshot(ml_clients)
+    bm25_index = await load_candidate_snapshot(ml_clients, bm25_loader=bm25_loader)
 
     for q in questions:
         qtext = q["question"]
@@ -312,12 +317,8 @@ async def cache_candidates(
             if access_filter is None:
                 raise RuntimeError("Sweep sparse candidate resolution requires an ACL filter")
             if ml_clients is not None:
-                from infrastructure.ml.rag.rag_retrieval import resolve_hashes_batch
-
                 all_candidates.update(await resolve_hashes_batch(missing, access_filter, ml_clients))
             else:
-                from qdrant_client.models import FieldCondition, Filter, MatchAny
-
                 points, _ = await asyncio.to_thread(
                     client.scroll,
                     collection_name=settings.collection_name,

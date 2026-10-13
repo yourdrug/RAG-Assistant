@@ -9,16 +9,24 @@ import math
 from pathlib import Path
 
 from botocore.exceptions import BotoCoreError, ClientError
+from aiohttp import ClientError as HTTPClientError
+
+from application.ports.file_storage import FileStorage
+from config import settings
 
 from infrastructure.bm25.bm25_index import BM25Index
 from domain.value_objects.visibility import DocumentVisibility
-from infrastructure.storage.file_storage import S3_MISSING_CODES
+from infrastructure.storage.file_storage import S3_MISSING_CODES, run_storage_io
 
 log = logging.getLogger("default")
 
 
 class BM25LoadError(RuntimeError):
     """Snapshot load failed; absence must never mask storage/corruption errors."""
+
+
+class BM25SnapshotNotReady(RuntimeError):
+    """A CPU consumer must prepare the snapshot asynchronously before use."""
 
 
 BM25_S3_KEY = "_system/bm25_index.json"
@@ -50,20 +58,38 @@ async def save_bm25_index_to_s3(index: BM25Index, storage) -> None:
     log.info("BM25 index saved to S3: %d docs -> s3://%s", index.n_docs, BM25_S3_KEY)
 
 
-async def load_bm25_index_from_s3(storage) -> BM25Index | None:
-    """Load BM25 index from S3. Returns None if not found or parse fails."""
+def parse_bm25_snapshot(path: Path) -> BM25Index:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    validate_snapshot(data)
+    return BM25Index.from_dict(data)
+
+
+async def load_bm25_index_from_s3(storage: FileStorage) -> BM25Index | None:
+    """Load and parse off loop; only confirmed absence yields no snapshot."""
     try:
         temp_path = await storage.download_to_temp(BM25_S3_KEY)
+        cancelled = False
         try:
-            data = json.loads(temp_path.read_text(encoding="utf-8"))
-            idx = BM25Index.from_dict(data)
-            log.info("BM25 index loaded from S3: %d docs", idx.n_docs)
-            return idx
+            index = await run_storage_io(parse_bm25_snapshot, temp_path)
+            log.info("BM25 index loaded from S3: %d docs", index.n_docs)
+            return index
+        except asyncio.CancelledError:
+            cancelled = True
+            raise
         finally:
-            temp_path.unlink(missing_ok=True)
-    except Exception as e:
-        log.warning("Failed to load BM25 index from S3: %s", e)
-        return None
+            try:
+                await run_storage_io(temp_path.unlink, missing_ok=True)
+            except OSError:
+                if not cancelled:
+                    raise
+                # Cleanup failure must not replace request cancellation.
+                log.warning("Failed to remove BM25 snapshot after cancellation: %s", temp_path, exc_info=True)
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") in S3_MISSING_CODES:
+            return None
+        raise BM25LoadError("Failed to load BM25 snapshot from S3") from exc
+    except (BotoCoreError, HTTPClientError, OSError, ValueError, KeyError, TypeError) as exc:
+        raise BM25LoadError("Failed to read/parse BM25 snapshot") from exc
 
 
 def validate_snapshot_column(field: str, values, count: int, value_type: type) -> None:
@@ -105,18 +131,8 @@ def validate_snapshot(data) -> None:
             raise ValueError(f"Invalid BM25 snapshot {field} range")
 
 
-def load_bm25_index_from_s3_sync(storage) -> BM25Index | None:
-    """Load BM25 index from S3 synchronously."""
-    try:
-        raw = storage.download_bytes(BM25_S3_KEY)
-        data = json.loads(raw)
-        validate_snapshot(data)
-        idx = BM25Index.from_dict(data)
-        log.info("BM25 index loaded from S3 (sync): %d docs", idx.n_docs)
-        return idx
-    except ClientError as exc:
-        if exc.response.get("Error", {}).get("Code") in S3_MISSING_CODES:
-            return None
-        raise BM25LoadError("Failed to load BM25 snapshot from S3") from exc
-    except (BotoCoreError, OSError, ValueError, KeyError, TypeError) as exc:
-        raise BM25LoadError("Failed to read/parse BM25 snapshot") from exc
+async def load_configured_bm25_snapshot(storage: FileStorage) -> BM25Index | None:
+    """Retain the S3-only sparse capability of the existing runtime registry."""
+    if settings.file_backend != "s3":
+        return None
+    return await load_bm25_index_from_s3(storage)

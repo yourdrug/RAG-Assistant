@@ -13,7 +13,7 @@ from infrastructure.benchmark.checkpoint import (
     import_legacy_configuration,
 )
 from collections.abc import Callable
-from typing import Protocol
+from typing import Protocol, TypedDict, cast
 
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
 from domain.entities.benchmark_sweep import BenchmarkSweep
@@ -65,6 +65,12 @@ class SweepBenchmarkPort(Protocol):
     ) -> dict: ...
 
 
+class SweepResumeOptions(TypedDict, total=False):
+    resume: bool
+    checkpoints: BenchmarkCheckpoints
+    checkpoint_prefix: str
+
+
 class SweepEngine:
     def __init__(
         self,
@@ -114,12 +120,16 @@ class SweepEngine:
         )
         self._checkpoints = (
             self._checkpoint_factory(sweep.id, self._checkpoint_root)
-            if self._checkpoint_factory and sweep.id
+            if self._checkpoint_factory and sweep.id and self._checkpoint_root is not None
             else FileBenchmarkCheckpoints(self._checkpoint_root)
             if self._checkpoint_root
             else None
         )
-        dataset_questions = await self._checkpoints.load("dataset.json") if self._checkpoints else None
+        dataset_questions = (
+            cast(list[dict] | None, await self._checkpoints.load("dataset.json"))
+            if self._checkpoints
+            else None
+        )
         if dataset_questions is None:
             dataset_questions = await self.load_questions(sweep.dataset)
             if self._checkpoints:
@@ -141,7 +151,9 @@ class SweepEngine:
             }
         )
         phase_a_key = f"phase-a-{phase_a_identity}.json"
-        results = await self._checkpoints.load(phase_a_key) if self._checkpoints else None
+        results = (
+            cast(list[dict] | None, await self._checkpoints.load(phase_a_key)) if self._checkpoints else None
+        )
         if results is None:
             results = await self.evaluate_phase_a(
                 sweep, questions, strategy, progress_callback, should_cancel
@@ -287,8 +299,9 @@ class SweepEngine:
                     }
                 )
             )
-        extra = {}
-        if checkpoint_root:
+        checkpoints: BenchmarkCheckpoints | None = getattr(self, "_checkpoints", None)
+        extra: SweepResumeOptions = {}
+        if checkpoint_root and checkpoints is not None:
             config_identity = fingerprint(
                 {
                     "top_k": self._runtime.top_k,
@@ -300,20 +313,20 @@ class SweepEngine:
             # Freeze the namespace on the first attempt. Operational setting
             # changes and worker restarts must not invalidate completed work.
             identity_key = f"config-{config_identity}.json"
-            prefix = await self._checkpoints.load(identity_key)
+            prefix = cast(str | None, await checkpoints.load(identity_key))
             if prefix is None:
                 prefix = fingerprint(
                     {"config": config_identity, "questions": questions, "judge": judge_model}
                 )
-                await self._checkpoints.save(identity_key, prefix)
+                await checkpoints.save(identity_key, prefix)
                 if self._checkpoint_factory:
                     await import_legacy_configuration(
-                        self._checkpoints,
+                        checkpoints,
                         Path(out_dir),
                         prefix,
                         single_config_root=checkpoint_root if self._legacy_single_config else None,
                     )
-            extra = {"resume": True, "checkpoints": self._checkpoints, "checkpoint_prefix": prefix}
+            extra = {"resume": True, "checkpoints": checkpoints, "checkpoint_prefix": prefix}
         return await self._benchmark_service.run(
             questions=questions,
             out_dir=out_dir,
@@ -340,5 +353,5 @@ class SweepEngine:
             if saved_runtime is None:
                 await self._checkpoints.save("runtime.json", runtime_snapshot)
             else:
-                runtime_snapshot = saved_runtime
+                runtime_snapshot = cast(dict, saved_runtime)
         return runtime_snapshot

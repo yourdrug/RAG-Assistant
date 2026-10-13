@@ -11,6 +11,11 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from functools import partial
+
+from infrastructure.bm25.persistence import load_configured_bm25_snapshot
+from infrastructure.ml.clients.client_registry import MLClientRegistry
+from infrastructure.storage import LazyStorage
 from typing import TYPE_CHECKING, Any
 
 from composition.utils import _missing_fields, _require
@@ -37,7 +42,6 @@ if TYPE_CHECKING:
     from infrastructure.events.postgres_config_broadcaster import PostgresConfigBroadcaster
     from infrastructure.events.postgres_config_listener import PostgresConfigListener
     from infrastructure.health.system_health_probe import OllamaProbe, QdrantInfo, SystemHealthProbe
-    from infrastructure.ml.clients.client_registry import MLClientRegistry
     from infrastructure.ml.extraction.extraction_adapter import MLContentExtractor, MLPDFQualityAssessor
     from infrastructure.ml.langchain_document_parser import (
         LangchainDocumentParser,
@@ -51,7 +55,6 @@ if TYPE_CHECKING:
         QdrantVectorStoreRepository,
     )
     from application.services.benchmark_orchestrator import BenchmarkService
-    from infrastructure.storage import LazyStorage
     from infrastructure.uow_factory import UnitOfWorkFactory
     from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
     from infrastructure.events.postgres_outbox_listener import PostgresOutboxListener
@@ -119,7 +122,6 @@ class MLContainer:
         domain_registry: DomainProfileRegistry | None = None,
         domain_settings: DomainSettingsAdapter | None = None,
     ) -> None:
-        from infrastructure.ml.clients.client_registry import MLClientRegistry
         from infrastructure.ml.extraction.extraction_adapter import MLContentExtractor, MLPDFQualityAssessor
         from infrastructure.ml.langchain_document_parser import (
             LangchainDocumentParser,
@@ -133,12 +135,13 @@ class MLContainer:
         )
         from application.services.benchmark_orchestrator import BenchmarkService
         from infrastructure.benchmark.runner_adapter import AsyncBenchmarkRunner
-        from infrastructure.storage import LazyStorage
         from application.services.preview_cache import PreviewCache
 
-        self.ml_clients = MLClientRegistry()
-        self.vector_store_repo = QdrantVectorStoreRepository(ml_clients=self.ml_clients)
         self.file_storage = LazyStorage()
+        self.ml_clients = MLClientRegistry(
+            bm25_loader=partial(load_configured_bm25_snapshot, self.file_storage)
+        )
+        self.vector_store_repo = QdrantVectorStoreRepository(ml_clients=self.ml_clients)
         self.preview_cache = PreviewCache(storage=self.file_storage)
         self.document_parser = LangchainDocumentParser(
             domain_registry=domain_registry,

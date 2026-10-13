@@ -132,12 +132,12 @@ async def enrich_linked_context(docs, question, chunk_search, user):
             doc.metadata.get("act_version_id"),
             doc.metadata.get("chunk_index"),
         )
-        scope = recovered.get(identity)
-        if scope:
+        recovered_scope = recovered.get(identity)
+        if recovered_scope:
             doc = copy(doc)
             parents = list(doc.metadata.get("parent_units", []))
-            if not any(parent.get("content") == scope for parent in parents):
-                parents.append({"content": scope})
+            if not any(parent.get("content") == recovered_scope for parent in parents):
+                parents.append({"content": recovered_scope})
             doc.metadata = {**doc.metadata, "parent_units": parents}
         result.append((doc, score))
     return result

@@ -2,6 +2,7 @@
 
 import sys
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -100,7 +101,7 @@ class TestChunkServiceCursor:
             uow_factory=factory,
             vector_store_repo=MagicMock(),
             chunk_settings=MagicMock(chunk_size=550),
-            bm25_index=MagicMock(),
+            bm25_index=AsyncMock(),
         )
 
     @pytest.mark.asyncio

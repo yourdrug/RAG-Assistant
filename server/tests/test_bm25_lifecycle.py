@@ -1,196 +1,203 @@
-"""Regression tests for load, invalidation and incremental BM25 updates."""
+"""Regression tests for async load, invalidation and incremental BM25 updates."""
 
 import asyncio
 import threading
-from unittest.mock import Mock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from config import settings
 from domain.value_objects.visibility import DocumentVisibility
 from infrastructure.bm25.bm25_index import BM25Index
-from infrastructure.bm25.bm25_updater import bm25_add, bm25_replace, bm25_remove
-from infrastructure.ml.clients import factories
+from infrastructure.bm25.bm25_updater import BM25IndexAdapter
 from infrastructure.ml.clients.client_registry import MLClientRegistry
-
-
-def test_invalidation_reloads_immediately(monkeypatch):
-    loader = Mock(side_effect=[BM25Index(["old"]), BM25Index(["fresh"])])
-    monkeypatch.setattr(factories, "load_bm25_index", loader)
-    registry = MLClientRegistry()
-    registry.bm25_index()
-    registry.invalidate_bm25()
-    assert registry.bm25_index().texts == ["fresh"]
+from infrastructure.storage.file_storage import LazyStorage, run_storage_io
 
 
 @pytest.mark.asyncio
-async def test_invalidation_discards_inflight_snapshot(monkeypatch):
-    started = threading.Event()
-    release = threading.Event()
+async def test_invalidation_reloads_immediately():
+    loader = AsyncMock(side_effect=[BM25Index(["old"]), BM25Index(["fresh"])])
+    registry = MLClientRegistry(bm25_loader=loader)
+    await registry.ensure_bm25_loaded()
+    registry.invalidate_bm25()
+    assert (await registry.ensure_bm25_loaded()).texts == ["fresh"]
+    await registry.close()
+
+
+@pytest.mark.asyncio
+async def test_invalidation_discards_inflight_snapshot():
+    started, release = asyncio.Event(), asyncio.Event()
     calls = 0
 
-    def load(reader=None):
+    async def load():
         nonlocal calls
         calls += 1
         if calls == 1:
             started.set()
-            if not release.wait(5):
-                raise TimeoutError("test did not release loader")
+            await release.wait()
             return BM25Index(["stale"])
         return BM25Index(["fresh"])
 
-    monkeypatch.setattr(factories, "load_bm25_index", load)
-    registry = MLClientRegistry()
+    registry = MLClientRegistry(bm25_loader=load)
     pending = asyncio.create_task(registry.ensure_bm25_loaded())
-    try:
-        assert await asyncio.to_thread(started.wait, 5)
-        registry.invalidate_bm25()
-    finally:
-        release.set()
+    await started.wait()
+    registry.invalidate_bm25()
+    release.set()
     index = await asyncio.wait_for(pending, 5)
     assert index.texts == ["fresh"]
     assert registry.bm25_index() is index
+    await registry.close()
 
 
 @pytest.mark.asyncio
-async def test_sync_update_and_async_load_share_one_snapshot(monkeypatch):
-    started = threading.Event()
-    release = threading.Event()
+async def test_sync_update_and_async_load_share_one_snapshot():
+    started, release = asyncio.Event(), asyncio.Event()
     calls = 0
 
-    def load(reader=None):
+    async def load():
         nonlocal calls
         calls += 1
         started.set()
-        if not release.wait(5):
-            raise TimeoutError("test did not release loader")
+        await release.wait()
         return BM25Index(["original"], hashes=["original-hash"])
 
-    monkeypatch.setattr(factories, "load_bm25_index", load)
-    registry = MLClientRegistry()
+    registry = MLClientRegistry(bm25_loader=load)
     pending = asyncio.create_task(registry.ensure_bm25_loaded())
-    update = None
-    try:
-        assert await asyncio.to_thread(started.wait, 5)
-        update = asyncio.create_task(asyncio.to_thread(bm25_add, registry, "new", "new-hash"))
-        await asyncio.sleep(0)
-    finally:
-        release.set()
-    await asyncio.wait_for(asyncio.gather(pending, update), 5)
-    assert registry.bm25_index().hashes == ["original-hash", "new-hash"]
-    assert calls == 1
-
-
-@pytest.mark.parametrize("operation", ["add", "replace", "remove"])
-def test_updates_after_invalidation_are_applied(monkeypatch, operation):
-    monkeypatch.setattr(
-        factories, "load_bm25_index", lambda reader=None: BM25Index(["old"], hashes=["old-hash"])
+    await started.wait()
+    update = asyncio.create_task(
+        BM25IndexAdapter(registry).add(
+            "new", text_hash="new-hash", visibility=DocumentVisibility.INTERNAL_PRIVATE.value, owner_id=42
+        )
     )
-    registry = MLClientRegistry()
-    registry.bm25_index()
+    release.set()
+    await asyncio.wait_for(asyncio.gather(pending, update), 5)
+    index = registry.bm25_index()
+    assert index.hashes == ["original-hash", "new-hash"]
+    assert index.doc_visibility[-1] == DocumentVisibility.INTERNAL_PRIVATE.value
+    assert index.doc_owner_id[-1] == 42
+    assert calls == 1
+    await registry.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["add", "replace", "remove"])
+async def test_updates_after_invalidation_are_applied(operation):
+    registry = MLClientRegistry(bm25_loader=AsyncMock(return_value=BM25Index(["old"], hashes=["old-hash"])))
+    await registry.ensure_bm25_loaded()
     registry.invalidate_bm25()
+    adapter = BM25IndexAdapter(registry)
     if operation == "add":
-        bm25_add(registry, "new", "new-hash")
+        await adapter.add("new", text_hash="new-hash")
         expected = ["old-hash", "new-hash"]
     elif operation == "replace":
-        bm25_replace(registry, "old-hash", "new", "new-hash")
+        await adapter.replace("old-hash", "new", new_hash="new-hash")
         expected = ["new-hash"]
     else:
-        bm25_remove(registry, "old-hash")
+        await adapter.remove("old-hash")
         expected = []
     assert registry.bm25_index().hashes == expected
+    await registry.close()
 
 
-def test_add_without_snapshot_retains_text_and_acl(monkeypatch):
-    monkeypatch.setattr(factories, "load_bm25_index", lambda reader=None: None)
-    registry = MLClientRegistry()
-    bm25_add(registry, "new", "new-hash", DocumentVisibility.INTERNAL_PRIVATE.value, 42, None)
+@pytest.mark.asyncio
+async def test_add_without_snapshot_retains_text_and_acl():
+    registry = MLClientRegistry(bm25_loader=AsyncMock(return_value=None))
+    await BM25IndexAdapter(registry).add(
+        "new", text_hash="new-hash", visibility=DocumentVisibility.INTERNAL_PRIVATE.value, owner_id=42
+    )
     index = registry.bm25_index()
     assert index is not None
     assert index.hashes == ["new-hash"]
     assert index.doc_visibility == [DocumentVisibility.INTERNAL_PRIVATE.value]
     assert index.doc_owner_id == [42]
+    await registry.close()
 
 
-def test_invalidation_between_selection_and_mutation_retries(monkeypatch):
-    monkeypatch.setattr(
-        factories, "load_bm25_index", lambda reader=None: BM25Index(["old"], hashes=["old-hash"])
-    )
-    registry = MLClientRegistry()
-    original_accessor = registry.bm25_index
+@pytest.mark.asyncio
+async def test_invalidation_between_selection_and_mutation_retries(monkeypatch):
+    registry = MLClientRegistry(bm25_loader=AsyncMock(return_value=BM25Index(["old"], hashes=["old-hash"])))
+    original_ensure = registry.ensure_bm25_loaded
     invalidate = True
 
-    def select_then_invalidate():
+    async def select_then_invalidate():
         nonlocal invalidate
-        index = original_accessor()
+        index = await original_ensure()
         if invalidate:
             invalidate = False
             registry.invalidate_bm25()
         return index
 
-    monkeypatch.setattr(registry, "bm25_index", select_then_invalidate)
-    bm25_add(registry, "new", "new-hash")
-    assert original_accessor().hashes == ["old-hash", "new-hash"]
-
-
-def test_failed_load_can_retry(monkeypatch):
-    loader = Mock(side_effect=[OSError("storage unavailable"), BM25Index(["recovered"])])
-    monkeypatch.setattr(factories, "load_bm25_index", loader)
-    registry = MLClientRegistry()
-    with pytest.raises(OSError, match="storage unavailable"):
-        registry.bm25_index()
-    assert registry.bm25_index().texts == ["recovered"]
-
-
-@pytest.mark.asyncio
-async def test_config_rotation_discards_old_reader_snapshot(monkeypatch):
-    from config import settings
-
-    started, release = threading.Event(), threading.Event()
-    buckets = []
-    monkeypatch.setattr(settings, "s3_bucket", "old-bucket")
-
-    def load(reader):
-        buckets.append(reader.bucket)
-        if len(buckets) == 1:
-            started.set()
-            if not release.wait(5):
-                raise TimeoutError("reader not released")
-        return BM25Index([reader.bucket])
-
-    monkeypatch.setattr(factories, "load_bm25_index", load)
-    registry = MLClientRegistry()
-    pending = asyncio.create_task(registry.ensure_bm25_loaded())
-    try:
-        assert await asyncio.to_thread(started.wait, 5)
-        monkeypatch.setattr(settings, "s3_bucket", "new-bucket")
-        registry.invalidate_snapshot_reader()
-    finally:
-        release.set()
-    index = await asyncio.wait_for(pending, 5)
-    assert buckets == ["old-bucket", "new-bucket"]
-    assert index.texts == ["new-bucket"]
+    monkeypatch.setattr(registry, "ensure_bm25_loaded", select_then_invalidate)
+    await BM25IndexAdapter(registry).add("new", text_hash="new-hash")
+    assert registry.bm25_index().hashes == ["old-hash", "new-hash"]
     await registry.close()
 
 
 @pytest.mark.asyncio
-async def test_registry_shutdown_drains_cancelled_snapshot_load(monkeypatch):
-    from config import settings
-    from unittest.mock import MagicMock
+async def test_failed_load_can_retry():
+    loader = AsyncMock(side_effect=[OSError("storage unavailable"), BM25Index(["recovered"])])
+    registry = MLClientRegistry(bm25_loader=loader)
+    with pytest.raises(OSError, match="storage unavailable"):
+        await registry.ensure_bm25_loaded()
+    assert (await registry.ensure_bm25_loaded()).texts == ["recovered"]
+    await registry.close()
 
+
+@pytest.mark.asyncio
+async def test_config_rotation_discards_old_backend_snapshot(monkeypatch):
+    started, release = asyncio.Event(), asyncio.Event()
+    buckets = []
+    backends = []
+    monkeypatch.setattr(settings, "s3_bucket", "old-bucket")
+
+    def create():
+        backend = SimpleNamespace(bucket=settings.s3_bucket, aclose=AsyncMock())
+        backends.append(backend)
+        return backend
+
+    monkeypatch.setattr("infrastructure.storage.file_storage.create_storage", create)
+    storage = LazyStorage()
+
+    async def load():
+        backend = storage.ensure()
+        buckets.append(backend.bucket)
+        if len(buckets) == 1:
+            started.set()
+            await release.wait()
+        return BM25Index([backend.bucket])
+
+    registry = MLClientRegistry(bm25_loader=load)
+    pending = asyncio.create_task(registry.ensure_bm25_loaded())
+    await started.wait()
+    monkeypatch.setattr(settings, "s3_bucket", "new-bucket")
+    storage.invalidate()
+    registry.invalidate_bm25()
+    release.set()
+    index = await asyncio.wait_for(pending, 5)
+    assert buckets == ["old-bucket", "new-bucket"]
+    assert index.texts == ["new-bucket"]
+    await registry.close()
+    await storage.aclose()
+    assert all(backend.aclose.await_count == 1 for backend in backends)
+
+
+@pytest.mark.asyncio
+async def test_registry_shutdown_drains_cancelled_snapshot_parse():
     started, release = threading.Event(), threading.Event()
-    client = MagicMock()
+    finished = Mock()
 
-    def read():
+    def parse():
         started.set()
         if not release.wait(5):
-            raise TimeoutError("reader not released")
-        return b'{"texts": ["snapshot"], "hashes": ["hash"]}'
+            raise TimeoutError("parse not released")
+        finished()
+        return BM25Index(["snapshot"])
 
-    body = MagicMock(read=read)
-    client.get_object.return_value = {"Body": body}
-    monkeypatch.setattr(settings, "file_backend", "s3")
-    monkeypatch.setattr("infrastructure.bm25.s3_snapshot_reader.boto3.client", lambda *a, **k: client)
-    registry = MLClientRegistry()
+    async def load():
+        return await run_storage_io(parse)
+
+    registry = MLClientRegistry(bm25_loader=load)
     pending = asyncio.create_task(registry.ensure_bm25_loaded())
     closing = None
     try:
@@ -199,11 +206,48 @@ async def test_registry_shutdown_drains_cancelled_snapshot_load(monkeypatch):
         closing = asyncio.create_task(registry.close())
         await asyncio.sleep(0)
         assert not pending.done()
-        client.close.assert_not_called()
+        assert not closing.done()
     finally:
         release.set()
     with pytest.raises(asyncio.CancelledError):
         await asyncio.wait_for(pending, 5)
     await asyncio.wait_for(closing, 5)
-    body.close.assert_called_once()
-    client.close.assert_called_once()
+    finished.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_registry_close_finishes_all_resource_cleanup():
+    started, release = asyncio.Event(), asyncio.Event()
+    events = []
+
+    async def load():
+        started.set()
+        await release.wait()
+        events.append("load")
+        return BM25Index([])
+
+    registry = MLClientRegistry(bm25_loader=load)
+
+    async def close_ml():
+        events.append("ml")
+
+    registry._embeddings = SimpleNamespace(close=AsyncMock(side_effect=close_ml))
+    registry._qdrant_client = SimpleNamespace(close=lambda: events.append("qdrant"))
+    pending = asyncio.create_task(registry.ensure_bm25_loaded())
+    await started.wait()
+    closing = asyncio.create_task(registry.close())
+    try:
+        await asyncio.sleep(0)
+        closing.cancel()
+        await asyncio.sleep(0)
+        closing.cancel()
+        await asyncio.sleep(0)
+        assert not closing.done()
+    finally:
+        release.set()
+    await pending
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(closing, 5)
+    assert events == ["load", "ml", "qdrant"]
+    await registry.close()
+    assert events == ["load", "ml", "qdrant"]

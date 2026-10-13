@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import cast
+from typing import TYPE_CHECKING, cast
+from collections.abc import Awaitable, Callable
+
 
 import httpx
 from application.ports.ml_clients import MLClientPort
@@ -20,6 +22,9 @@ from prometheus_client import Counter, Gauge, Histogram
 from sqlalchemy.pool import QueuePool
 
 from infrastructure.database.database import database
+
+if TYPE_CHECKING:
+    from infrastructure.bm25.bm25_index import BM25Index
 
 log = logging.getLogger("default")
 
@@ -370,15 +375,17 @@ async def _collect_qdrant_metrics(ml_clients: MLClientPort | None) -> None:
     QDRANT_POINTS.set(info.points_count or 0)
 
 
-async def _collect_bm25_metrics(ml_clients: MLClientPort | None) -> None:
+async def collect_bm25_metrics(
+    ml_clients: MLClientPort | None,
+    *,
+    bm25_loader: Callable[[], Awaitable[BM25Index | None]] | None = None,
+) -> None:
     if ml_clients is not None:
-        # First access loads the whole index from S3 (sync boto3) and may
-        # tokenize the full corpus (CPU) — keep both off the event loop.
-        bm25 = await asyncio.to_thread(ml_clients.bm25_index)
+        bm25 = await ml_clients.ensure_bm25_loaded()
+    elif bm25_loader is not None:
+        bm25 = await bm25_loader()
     else:
-        from infrastructure.ml.clients.factories import load_bm25_index
-
-        bm25 = await asyncio.to_thread(load_bm25_index)
+        raise ValueError("BM25 metrics require an explicit registry or loader")
     if bm25 is not None:
         BM25_INDEX_SIZE.set(len(bm25.hashes))
 
@@ -395,7 +402,11 @@ async def _collect_ollama_metrics() -> None:
                 OLLAMA_GPU_MEMORY_BYTES.labels(model=model_name).set(vram)
 
 
-async def collect_infra_metrics(ml_clients: MLClientPort | None = None) -> None:
+async def collect_infra_metrics(
+    ml_clients: MLClientPort | None = None,
+    *,
+    bm25_loader: Callable[[], Awaitable[BM25Index | None]] | None = None,
+) -> None:
     """Update infrastructure gauges. Called periodically from lifespan."""
     try:
         await _collect_db_pool_metrics()
@@ -406,7 +417,7 @@ async def collect_infra_metrics(ml_clients: MLClientPort | None = None) -> None:
     except Exception as e:
         log.warning("Failed to collect Qdrant metrics: [%s] %s", type(e).__name__, e)
     try:
-        await _collect_bm25_metrics(ml_clients)
+        await collect_bm25_metrics(ml_clients, bm25_loader=bm25_loader)
     except Exception as e:
         log.warning("Failed to collect BM25 metrics: [%s] %s", type(e).__name__, e)
     try:

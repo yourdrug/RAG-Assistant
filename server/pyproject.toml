@@ -46,8 +46,8 @@ dependencies = [
     "bcrypt==4.2.1",
     "pyjwt==2.10.1",
     # --- Storage (S3 / MinIO) ---
-    "boto3>=1.34.0",
     "aiobotocore==3.9.2",
+    "aiohttp==3.14.1",
     "botocore>=1.43.101,<1.43.107",
     # --- Queue / Redis ---
     "arq>=0.26.0",

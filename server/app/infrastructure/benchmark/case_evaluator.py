@@ -7,6 +7,7 @@ import time
 from dataclasses import asdict
 from pathlib import Path
 from uuid import uuid4
+from typing import cast
 
 from infrastructure.benchmark.answer_generators import BenchmarkAnswer
 from infrastructure.ml.rag.benchmark_evidence import BenchmarkEvidence
@@ -38,7 +39,7 @@ class BenchmarkCaseEvaluator:
         if path is None:
             return {}
         store = self._checkpoints or FileBenchmarkCheckpoints(path.parent)
-        return await store.load(str(path) if self._checkpoints else path.name) or {}
+        return cast(dict, await store.load(str(path) if self._checkpoints else path.name) or {})
 
     async def save_stages(self, path: Path | None, stages: dict) -> None:
         if path is not None:

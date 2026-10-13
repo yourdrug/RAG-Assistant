@@ -15,6 +15,8 @@ import logging
 import time
 from application.ports.ml_clients import MLClientPort
 from infrastructure.metrics.metrics import BM25_UPDATE_DURATION
+from infrastructure.bm25.persistence import BM25LoadError, BM25SnapshotNotReady
+from infrastructure.storage.file_storage import run_storage_io
 
 log = logging.getLogger("default")
 
@@ -39,6 +41,8 @@ def bm25_add(
                 group_id=group_id,
             )
         log.debug("BM25: added text (hash=%s, n_docs=%d)", text_hash, idx.n_docs)
+    except BM25SnapshotNotReady:
+        raise
     except Exception:
         log.exception("BM25: failed to add text")
     finally:
@@ -82,6 +86,8 @@ def bm25_replace(
                     group_id=group_id,
                 )
                 log.debug("BM25: old hash %s not found, appended new text", old_hash)
+    except BM25SnapshotNotReady:
+        raise
     except Exception:
         log.exception("BM25: failed to replace text for hash %s", old_hash)
     finally:
@@ -103,6 +109,8 @@ def bm25_remove(registry: MLClientPort, old_hash: str) -> None:
                 log.debug("BM25: removed text at pos %d (n_docs=%d)", pos, idx.n_docs)
             else:
                 log.debug("BM25: hash %s not found, skip remove", old_hash)
+    except BM25SnapshotNotReady:
+        raise
     except Exception:
         log.exception("BM25: failed to remove text for hash %s", old_hash)
     finally:
@@ -115,10 +123,23 @@ class BM25IndexAdapter:
     def __init__(self, registry: MLClientPort) -> None:
         self._registry = registry
 
-    def remove(self, content_hash: str) -> None:
-        bm25_remove(self._registry, content_hash)
+    async def mutate(self, function, *args, **kwargs) -> None:
+        while True:
+            try:
+                await self._registry.ensure_bm25_loaded()
+            except BM25LoadError:
+                log.warning("BM25 mutation skipped: snapshot load failed", exc_info=True)
+                return
+            try:
+                await run_storage_io(function, self._registry, *args, **kwargs)
+                return
+            except BM25SnapshotNotReady:
+                continue  # Invalidation between preparation and CPU mutation.
 
-    def add(
+    async def remove(self, content_hash: str) -> None:
+        await self.mutate(bm25_remove, content_hash)
+
+    async def add(
         self,
         text: str,
         *,
@@ -127,8 +148,8 @@ class BM25IndexAdapter:
         owner_id: int | None = None,
         group_id: int | None = None,
     ) -> None:
-        bm25_add(
-            self._registry,
+        await self.mutate(
+            bm25_add,
             text,
             text_hash=text_hash,
             visibility=visibility,
@@ -136,7 +157,7 @@ class BM25IndexAdapter:
             group_id=group_id,
         )
 
-    def replace(
+    async def replace(
         self,
         old_hash: str,
         new_text: str,
@@ -146,8 +167,8 @@ class BM25IndexAdapter:
         owner_id: int | None = None,
         group_id: int | None = None,
     ) -> None:
-        bm25_replace(
-            self._registry,
+        await self.mutate(
+            bm25_replace,
             old_hash,
             new_text,
             new_hash=new_hash,

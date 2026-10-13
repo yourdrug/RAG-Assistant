@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -185,8 +184,7 @@ class ChunkMutationService:
 
         if chunk.content_hash is not None:
             vis = doc.visibility.value if hasattr(doc.visibility, "value") else doc.visibility
-            await asyncio.to_thread(
-                self._bm25_index.replace,
+            await self._bm25_index.replace(
                 chunk.content_hash,
                 content,
                 new_hash=new_hash,
@@ -309,8 +307,7 @@ class ChunkMutationService:
             )
 
         vis = doc.visibility.value if hasattr(doc.visibility, "value") else doc.visibility
-        await asyncio.to_thread(
-            self._bm25_index.add,
+        await self._bm25_index.add(
             content,
             text_hash=new_hash,
             visibility=vis,
@@ -360,5 +357,5 @@ class ChunkMutationService:
             )
 
         if chunk.content_hash is not None:
-            await asyncio.to_thread(self._bm25_index.remove, chunk.content_hash)
+            await self._bm25_index.remove(chunk.content_hash)
         await self._invalidate_answers(document_id)

@@ -61,7 +61,7 @@ def harness(*, versioned=False):
     storage.upload_file = AsyncMock(side_effect=upload)
     storage.copy_file = AsyncMock(side_effect=copy)
     storage.delete_file = AsyncMock(side_effect=delete)
-    bm25 = MagicMock()
+    bm25 = AsyncMock()
     profile = SimpleNamespace(key="legal" if versioned else "general", is_versioned=versioned)
     registry = SimpleNamespace(get=lambda key: profile)
     command = DocumentCommandService(factory, MagicMock(), storage, bm25, domain_registry=registry)
@@ -139,7 +139,7 @@ async def test_write_ownership_is_checked_before_side_effects(operation, owner):
         assert (await h.uow.documents.get_by_id(doc.id)).filename == "report.pdf"
         h.storage.copy_file.assert_not_awaited()
         h.storage.delete_file.assert_not_awaited()
-        h.bm25.remove.assert_not_called()
+        h.bm25.remove.assert_not_awaited()
     else:
         await action
         assert h.factory.events[-2:] == ["commit", "storage_delete"]

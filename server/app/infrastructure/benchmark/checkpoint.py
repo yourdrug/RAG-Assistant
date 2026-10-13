@@ -1,5 +1,6 @@
 """Durable database checkpoints with local export and legacy recovery adapters."""
 
+import asyncio
 import hashlib
 import json
 from pathlib import Path
@@ -29,13 +30,9 @@ class FileBenchmarkCheckpoints:
         self._root = root
 
     async def load(self, key: str) -> object | None:
-        import asyncio
-
         return await asyncio.to_thread(read_checkpoint, self._root / key)
 
     async def save(self, key: str, value: object) -> None:
-        import asyncio
-
         await asyncio.to_thread(write_checkpoint, self._root / key, value)
 
 
@@ -59,12 +56,14 @@ class DatabaseBenchmarkCheckpoints:
         return value
 
     async def load_legacy_phase_a(self) -> object | None:
-        import asyncio
+        root = self._legacy_root
+        if root is None:
+            return None
 
         def read_latest():
             # API sweeps have immutable search_space/dataset. Older namespaces
             # changed with operational settings; reuse the latest actual search.
-            paths = list(self._legacy_root.glob("phase-a-*.json"))
+            paths = list(root.glob("phase-a-*.json"))
             return read_checkpoint(max(paths, key=lambda path: path.stat().st_mtime)) if paths else None
 
         return await asyncio.to_thread(read_latest)
@@ -78,7 +77,6 @@ async def import_legacy_configuration(
     store, root: Path, prefix: str, *, single_config_root: Path | None = None
 ) -> None:
     """Move an unambiguous legacy config namespace into durable stage storage."""
-    import asyncio
 
     def read_legacy() -> list[tuple[str, object]]:
         source = root

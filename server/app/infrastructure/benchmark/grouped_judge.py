@@ -169,7 +169,8 @@ async def judge_batch(
         data = parse_group_response(choice.message.content or "")
         event["returned_metrics"] = [key for key in INSTRUCTIONS if key in data]
         event["unexpected_key_count"] = sum(key not in INSTRUCTIONS for key in data)
-        event["metric_errors"] = {}
+        metric_errors: dict[str, list[str]] = {}
+        event["metric_errors"] = metric_errors
         for key in metrics:
             try:
                 value = data.get(key)
@@ -178,7 +179,7 @@ async def judge_batch(
                 score = JudgeScore.model_validate(value)
                 saved[key] = {"score": score.score, "reason": score.reason}
             except (ValueError, ValidationError) as exc:
-                event["metric_errors"][key] = metric_error_codes(exc)
+                metric_errors[key] = metric_error_codes(exc)
                 # Validation errors can embed model output. Persist only a safe diagnosis.
                 saved[key] = {"score": None, "error": f"Missing or invalid metric: {key}; {diagnostics}"}
                 invalid.append(key)

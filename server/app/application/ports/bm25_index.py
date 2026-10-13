@@ -9,9 +9,9 @@ from typing import Protocol, runtime_checkable
 class BM25IndexPort(Protocol):
     """Protocol for BM25 index mutations (add, remove, replace)."""
 
-    def remove(self, content_hash: str) -> None: ...
+    async def remove(self, content_hash: str) -> None: ...
 
-    def add(
+    async def add(
         self,
         text: str,
         *,
@@ -21,7 +21,7 @@ class BM25IndexPort(Protocol):
         group_id: int | None = None,
     ) -> None: ...
 
-    def replace(
+    async def replace(
         self,
         old_hash: str,
         new_text: str,

@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import logging
 
-from infrastructure.bm25.persistence import load_bm25_index_from_s3_sync
-from infrastructure.bm25.s3_snapshot_reader import S3SnapshotReader
 
 import httpx
 from config import settings
@@ -239,26 +237,6 @@ def create_qdrant_client() -> QdrantClient:
         api_key=settings.qdrant_api_key,
         timeout=settings.qdrant_timeout,
     )
-
-
-# ---------------------------------------------------------------------------
-# BM25 index
-# ---------------------------------------------------------------------------
-
-
-def load_bm25_index(reader: S3SnapshotReader | None = None):
-    """Load via an explicitly owned reader; standalone callers own a short lifetime."""
-    if reader is None:
-        reader = S3SnapshotReader()
-        try:
-            if not reader.enabled:
-                return None
-            return load_bm25_index_from_s3_sync(reader)
-        finally:
-            reader.close()
-    if not reader.enabled:
-        return None
-    return load_bm25_index_from_s3_sync(reader)
 
 
 # ---------------------------------------------------------------------------

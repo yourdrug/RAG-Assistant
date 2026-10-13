@@ -178,9 +178,7 @@ async def delete_document(
         user_id=current_user.id,
         details={"document_id": document_id, "job_id": job_id},
     )
-    return DeleteDocumentResponse(
-        status=BackgroundJobStatus.PENDING.value, document_id=document_id, job_id=job_id
-    )
+    return DeleteDocumentResponse(status=BackgroundJobStatus.PENDING, document_id=document_id, job_id=job_id)
 
 
 @router.get("/documents/{document_id}/deletion/{job_id}", response_model=DeleteDocumentResponse)

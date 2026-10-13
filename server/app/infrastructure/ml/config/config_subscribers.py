@@ -139,7 +139,7 @@ def invalidate_storage_cache(event: ConfigParameterChanged, storage=None, ml_cli
     if storage is not None:
         storage.invalidate()
     if ml_clients is not None:
-        ml_clients.invalidate_snapshot_reader()
+        ml_clients.invalidate_bm25()
     if event.key in SENSITIVE_KEYS:
         log.info("Storage cache invalidated (%s -> %s)", event.key, _mask_value(event.new_value))
     else:

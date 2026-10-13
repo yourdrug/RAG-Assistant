@@ -192,7 +192,9 @@ class ApplicationContainer:
             bm25_index=BM25IndexAdapter(ml),
             domain_registry=infra.domain_registry,
         )
-        self.document_deletion_jobs = DocumentDeletionJobs(uow, infra.services.job_enqueuer)
+        self.document_deletion_jobs = DocumentDeletionJobs(
+            uow, _require(infra.services.job_enqueuer, "job_enqueuer")
+        )
         self.document_query_service = DocumentQueryService(
             uow_factory=uow,
         )

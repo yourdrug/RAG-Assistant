@@ -213,7 +213,7 @@ async def test_bm25_mutates_only_after_successful_commit(monkeypatch, operation,
                 raise OSError("commit failed")
             events.append("committed")
 
-    index = MagicMock()
+    index = AsyncMock()
     getattr(index, index_method).side_effect = lambda *args, **kwargs: events.append("indexed")
     factory = SimpleNamespace(create=lambda **kwargs: Transaction())
     service = ChunkMutationService(factory, SimpleNamespace(chunk_size=100), index)
@@ -236,7 +236,7 @@ async def test_bm25_mutates_only_after_successful_commit(monkeypatch, operation,
         with pytest.raises(OSError, match="commit failed"):
             await action
         assert events == []
-        getattr(index, index_method).assert_not_called()
+        getattr(index, index_method).assert_not_awaited()
     else:
         await action
         assert events == ["committed", "indexed"]

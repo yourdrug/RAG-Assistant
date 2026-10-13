@@ -60,7 +60,7 @@ async def get_job(
 ):
     job = await service.get(job_id)
     return JobResponse(
-        id=job.id,
+        id=job_id,
         job_type=job.job_type,
         status=job.status,
         related_id=job.related_id,

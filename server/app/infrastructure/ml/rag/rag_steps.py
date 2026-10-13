@@ -503,7 +503,7 @@ def step_build_context(
         history = history[2:]
     input_budget = num_ctx - num_predict
     while True:
-        exclusions = []
+        exclusions: list[dict] = []
 
         def count_context(context, current_history=history):
             return count_tokens(

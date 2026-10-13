@@ -133,12 +133,13 @@ async def test_sparse_only_chunks_are_resolved_with_acl_before_reranking(monkeyp
     else:
         monkeypatch.setattr(factories, "create_qdrant_client", lambda: client)
         monkeypatch.setattr(factories, "create_embeddings", lambda: embeddings)
-        monkeypatch.setattr(factories, "load_bm25_index", lambda: bm25)
+
     dense, sparse, candidates = await cache_candidates(
         [{"question": "q"}],
         2,
         ml_clients=clients,
         access_filter=acl,
+        bm25_loader=AsyncMock(return_value=bm25),
     )
     assert client.search.call_args.kwargs["query_filter"] is acl
     assert acl in client.scroll.call_args.kwargs["scroll_filter"].must
@@ -159,11 +160,7 @@ async def test_sparse_resolution_without_acl_fails_closed(monkeypatch):
     monkeypatch.setattr(
         factories, "create_embeddings", lambda: SimpleNamespace(embed_query_sync=lambda q: [])
     )
-    monkeypatch.setattr(
-        factories,
-        "load_bm25_index",
-        lambda: SimpleNamespace(search_with_hashes=lambda *a, **k: [("hash", 1)]),
-    )
+    loader = AsyncMock(return_value=SimpleNamespace(search_with_hashes=lambda *a, **k: [("hash", 1)]))
     with pytest.raises(RuntimeError, match="ACL filter"):
-        await cache_candidates([{"question": "q"}], 2)
+        await cache_candidates([{"question": "q"}], 2, bm25_loader=loader)
     client.scroll.assert_not_called()

@@ -45,7 +45,7 @@ def select_fast_candidates(results: list[dict], budget: int) -> list[dict]:
     if budget <= 0:
         return []
     ranked = sorted(results, key=retrieval_priority, reverse=True)
-    unique = {}
+    unique: dict[str, dict] = {}
     for result in ranked:
         unique.setdefault(json.dumps(result["config"], sort_keys=True), result)
     ranked = list(unique.values())

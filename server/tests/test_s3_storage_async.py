@@ -105,6 +105,28 @@ async def test_list_pagination_sorting_and_request_arguments(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_successful_rename_with_one_slot_copies_before_deleting(monkeypatch):
+    storage, client, _, _ = client_harness(monkeypatch, max_concurrent=1)
+    events = []
+
+    async def copy(**kwargs):
+        assert kwargs == {"Bucket": "bucket", "CopySource": {"Bucket": "bucket", "Key": "old"}, "Key": "new"}
+        events.append("copy")
+
+    async def delete(**kwargs):
+        assert kwargs == {"Bucket": "bucket", "Key": "old"}
+        events.append("delete")
+
+    client.copy_object.side_effect = copy
+    client.delete_object.side_effect = delete
+    try:
+        await asyncio.wait_for(storage.rename_file("old", "new"), 2)
+        assert events == ["copy", "delete"]
+    finally:
+        await storage.aclose()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("code", ["AccessDenied", "NoSuchKey"])
 async def test_copy_failure_never_deletes_source(monkeypatch, code):
     storage, client, _, _ = client_harness(monkeypatch, max_concurrent=1)

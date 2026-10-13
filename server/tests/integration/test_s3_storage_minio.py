@@ -2,15 +2,22 @@
 
 import asyncio
 import hashlib
+import json
 import os
 import resource
 import uuid
+from contextlib import suppress
+from functools import partial
 from pathlib import Path
 
 import pytest
 import pytest_asyncio
 
 from config import settings
+from domain.value_objects.visibility import DocumentVisibility
+from infrastructure.bm25 import bm25_invalidation, persistence
+from infrastructure.ml.clients.client_registry import MLClientRegistry
+from infrastructure.redis.redis_client import redis_client
 from infrastructure.storage.file_storage import S3Storage, LazyStorage
 
 pytestmark = pytest.mark.integration
@@ -96,14 +103,19 @@ async def test_minio_operations_content_pagination_and_cleanup(minio_storage, re
 
 
 @pytest.mark.asyncio
-async def test_repeated_config_rotations_close_retired_pools(minio_storage, record_property):
+async def test_repeated_config_rotations_close_retired_pools(minio_storage, record_property, monkeypatch):
     _, prefix, keys = minio_storage
     before = len(list(Path("/proc/self/fd").iterdir()))
     storage = LazyStorage()
     key = prefix + "rotation.txt"
     keys.append(key)
     try:
-        for _ in range(5):
+        endpoints = [
+            settings.s3_endpoint,
+            os.environ.get("S3_SMOKE_ALTERNATE_ENDPOINT", settings.s3_endpoint),
+        ]
+        for iteration in range(5):
+            monkeypatch.setattr(settings, "s3_endpoint", endpoints[iteration % len(endpoints)])
             await storage.upload_file(key, b"rotation")
             path = await storage.download_to_temp(key)
             try:
@@ -118,3 +130,85 @@ async def test_repeated_config_rotations_close_retired_pools(minio_storage, reco
     record_property("rotation_fds_before", before)
     record_property("rotation_fds_after_close", after)
     assert after <= before + 2
+
+
+@pytest.mark.asyncio
+async def test_bm25_cold_warm_load_and_snapshot_refresh(minio_storage, monkeypatch):
+    storage, prefix, keys = minio_storage
+    key = prefix + "snapshot.json"
+    keys.append(key)
+    monkeypatch.setattr(persistence, "BM25_S3_KEY", key)
+    downloads = []
+    original_download = storage.download_to_temp
+
+    async def download(snapshot_key):
+        downloads.append(snapshot_key)
+        return await original_download(snapshot_key)
+
+    monkeypatch.setattr(storage, "download_to_temp", download)
+    registry = MLClientRegistry(bm25_loader=partial(persistence.load_bm25_index_from_s3, storage))
+    data = {
+        "texts": ["original snapshot"],
+        "hashes": ["original-hash"],
+        "doc_visibility": [DocumentVisibility.INTERNAL_PRIVATE.value],
+        "doc_owner_id": [42],
+        "doc_group_id": [None],
+    }
+    try:
+        await storage.upload_file(key, json.dumps(data).encode())
+        snapshots = await asyncio.gather(*(registry.ensure_bm25_loaded() for _ in range(10)))
+        first = snapshots[0]
+        assert all(snapshot is first for snapshot in snapshots)
+        assert await registry.ensure_bm25_loaded() is first
+        assert downloads == [key]
+        assert first.doc_visibility == [DocumentVisibility.INTERNAL_PRIVATE.value]
+        assert first.doc_owner_id == [42]
+        data["texts"] = ["replacement snapshot"]
+        data["hashes"] = ["replacement-hash"]
+        await storage.upload_file(key, json.dumps(data).encode())
+        registry.invalidate_bm25()
+        second = await registry.ensure_bm25_loaded()
+        assert second is not first
+        assert second.hashes == ["replacement-hash"]
+        assert downloads == [key, key]
+    finally:
+        await registry.close()
+
+
+@pytest.mark.asyncio
+async def test_bm25_redis_invalidation_reloads_real_snapshot(minio_storage, monkeypatch):
+    if os.environ.get("RAG_S3_REDIS_SMOKE") != "1":
+        pytest.skip("Set RAG_S3_REDIS_SMOKE=1 to opt in to isolated Redis pub/sub smoke")
+    storage, prefix, keys = minio_storage
+    key = prefix + "redis-snapshot.json"
+    keys.append(key)
+    channel = prefix + "invalidate"
+    monkeypatch.setattr(persistence, "BM25_S3_KEY", key)
+    monkeypatch.setattr(bm25_invalidation, "_CHANNEL", channel)
+    registry = MLClientRegistry(bm25_loader=partial(persistence.load_bm25_index_from_s3, storage))
+    listener = None
+    try:
+        await redis_client.init()
+        await storage.upload_file(key, b'{"texts":["before"],"hashes":["before-hash"]}')
+        first = await registry.ensure_bm25_loaded()
+        listener = asyncio.create_task(bm25_invalidation.listen_for_bm25_invalidation(registry))
+        await storage.upload_file(key, b'{"texts":["after"],"hashes":["after-hash"]}')
+
+        async def wait_for_reload():
+            while True:
+                # A unique channel keeps running server/worker caches untouched.
+                await bm25_invalidation.publish_bm25_invalidation()
+                await asyncio.sleep(0.05)
+                current = await registry.ensure_bm25_loaded()
+                if current is not first:
+                    return current
+
+        second = await asyncio.wait_for(wait_for_reload(), 5)
+        assert second.hashes == ["after-hash"]
+    finally:
+        if listener is not None:
+            listener.cancel()
+            with suppress(asyncio.CancelledError):
+                await listener
+        await registry.close()
+        await redis_client.aclose()

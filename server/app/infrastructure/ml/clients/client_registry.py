@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
-from collections.abc import Iterator
+from collections.abc import Awaitable, Callable, Iterator
 from contextlib import contextmanager
 from typing import Any
 
@@ -25,9 +25,10 @@ from domain.exceptions.domain_errors import SemaphoreTimeoutError
 from domain.value_objects.llm_provider import LLMProvider
 
 from infrastructure.bm25.bm25_index import BM25Index
-from infrastructure.bm25.s3_snapshot_reader import S3SnapshotReader
-from infrastructure.storage.file_storage import run_storage_io
+from infrastructure.bm25.persistence import BM25SnapshotNotReady
+from infrastructure.storage.file_storage import finish_owned_task, run_storage_io
 from infrastructure.ml.clients import factories
+from infrastructure.ml.clients.instructor_client import create_async_instructor_client
 
 log = logging.getLogger("default")
 
@@ -74,7 +75,7 @@ class MLClientRegistry(MLClientPort):
         invalidate_bm25 → reload on next access
     """
 
-    def __init__(self) -> None:
+    def __init__(self, bm25_loader: Callable[[], Awaitable[BM25Index | None]] | None = None) -> None:
         self._init_lock = threading.Lock()
         self._embeddings: Any = None
         self._retired_clients: list[Any] = []
@@ -83,14 +84,14 @@ class MLClientRegistry(MLClientPort):
         self._fast_llm: Any = None
         self._reranker: Any = None
         self._qdrant_client: Any = None
-        self._bm25_reader = S3SnapshotReader()
-        self._retired_readers: list[S3SnapshotReader] = []
+        self._bm25_loader = bm25_loader
         self._closed = False
+        self._close_task: asyncio.Task[None] | None = None
         self._bm25_index: BM25Index | None = None
         self._bm25_loaded: bool = False
         self._bm25_generation = 0
         self._bm25_state_lock = threading.Lock()
-        self._bm25_load_lock = threading.Lock()
+        self._bm25_load_lock = asyncio.Lock()
         self._instructor: Any = None
 
         # Eager init semaphores — lightweight objects, no race conditions
@@ -127,27 +128,21 @@ class MLClientRegistry(MLClientPort):
         if self._embeddings is None:
             with self._init_lock:
                 if self._embeddings is None:
-                    from infrastructure.ml.clients.factories import create_embeddings
-
-                    self._embeddings = create_embeddings()
+                    self._embeddings = factories.create_embeddings()
         return self._embeddings
 
     def llm(self) -> Any:
         if self._llm is None:
             with self._init_lock:
                 if self._llm is None:
-                    from infrastructure.ml.clients.factories import create_llm
-
-                    self._llm = ManagedLLM(create_llm())
+                    self._llm = ManagedLLM(factories.create_llm())
         return self._llm
 
     def llm_for_breadth(self, breadth: str) -> Any:
         if breadth not in self._llm_breadth_cache:
             with self._init_lock:
                 if breadth not in self._llm_breadth_cache:
-                    from infrastructure.ml.clients.factories import create_llm_for_breadth
-
-                    self._llm_breadth_cache[breadth] = ManagedLLM(create_llm_for_breadth(breadth))
+                    self._llm_breadth_cache[breadth] = ManagedLLM(factories.create_llm_for_breadth(breadth))
         return self._llm_breadth_cache[breadth]
 
     def fast_llm(self) -> Any:
@@ -155,73 +150,74 @@ class MLClientRegistry(MLClientPort):
         if self._fast_llm is None:
             with self._init_lock:
                 if self._fast_llm is None:
-                    from infrastructure.ml.clients.factories import create_fast_llm_for_auxiliary
-
-                    self._fast_llm = ManagedLLM(create_fast_llm_for_auxiliary())
+                    self._fast_llm = ManagedLLM(factories.create_fast_llm_for_auxiliary())
         return self._fast_llm
 
     def reranker(self) -> Any:
         if self._reranker is None:
             with self._init_lock:
                 if self._reranker is None:
-                    from infrastructure.ml.clients.factories import create_reranker
-
-                    self._reranker = create_reranker()
+                    self._reranker = factories.create_reranker()
         return self._reranker
 
     def qdrant_client(self) -> Any:
         if self._qdrant_client is None:
             with self._init_lock:
                 if self._qdrant_client is None:
-                    from infrastructure.ml.clients.factories import create_qdrant_client
-
-                    self._qdrant_client = create_qdrant_client()
+                    self._qdrant_client = factories.create_qdrant_client()
         return self._qdrant_client
 
+    def bm25_state(self) -> tuple[bool, BM25Index | None, int]:
+        with self._bm25_state_lock:
+            return self._bm25_loaded, self._bm25_index, self._bm25_generation
+
+    def publish_bm25_snapshot(self, index: BM25Index | None, generation: int) -> bool:
+        with self._bm25_state_lock:
+            if generation != self._bm25_generation:
+                return False
+            self._bm25_index = index
+            self._bm25_loaded = True
+            return True
+
     async def ensure_bm25_loaded(self) -> BM25Index | None:
-        """Use the same single-flight loader as sync callers, outside the event loop."""
-        return await run_storage_io(self.bm25_index)
+        """One async load per generation, with CPU/state-lock work off the loop."""
+        if self._closed:
+            raise RuntimeError("ML registry is closed")
+        loaded, index, _ = await run_storage_io(self.bm25_state)
+        if loaded:
+            return index
+        async with self._bm25_load_lock:
+            while True:
+                if self._closed:
+                    raise RuntimeError("ML registry is closed")
+                loaded, index, generation = await run_storage_io(self.bm25_state)
+                if loaded:
+                    return index
+                index = await self._bm25_loader() if self._bm25_loader is not None else None
+                if await run_storage_io(self.publish_bm25_snapshot, index, generation):
+                    return index
 
     def bm25_index(self) -> BM25Index | None:
-        """Blocking accessor for worker threads and synchronous consumers."""
+        """Cached-only accessor: preparation belongs to async orchestration."""
         with self._bm25_state_lock:
             if self._closed:
                 raise RuntimeError("ML registry is closed")
-            if self._bm25_loaded:
-                return self._bm25_index
-
-        with self._bm25_load_lock:
-            while True:
-                with self._bm25_state_lock:
-                    if self._bm25_loaded:
-                        return self._bm25_index
-                    if self._closed:
-                        raise RuntimeError("ML registry is closed")
-                    generation = self._bm25_generation
-                    reader = self._bm25_reader
-                index = factories.load_bm25_index(reader)
-                with self._bm25_state_lock:
-                    # Invalidation can run while S3 is loading; discard that snapshot.
-                    if generation != self._bm25_generation:
-                        continue
-                    self._bm25_index = index
-                    self._bm25_loaded = True
-                    return index
+            if not self._bm25_loaded:
+                raise BM25SnapshotNotReady("BM25 snapshot is not ready")
+            return self._bm25_index
 
     @contextmanager
     def bm25_update(self) -> Iterator[BM25Index]:
-        """Keep index selection and mutation atomic with respect to invalidation."""
-        while True:
-            index = self.bm25_index()
-            with self._bm25_state_lock:
-                if not self._bm25_loaded or index is not self._bm25_index:
-                    continue
-                if index is None:
-                    log.warning("BM25 snapshot unavailable — starting an index for incremental updates")
-                    index = BM25Index([])
-                    self._bm25_index = index
-                yield index
-                return
+        """Keep cached snapshot selection and CPU mutation atomic with invalidation."""
+        with self._bm25_state_lock:
+            if self._closed:
+                raise RuntimeError("ML registry is closed")
+            if not self._bm25_loaded:
+                raise BM25SnapshotNotReady("BM25 snapshot is not ready")
+            if self._bm25_index is None:
+                log.warning("BM25 snapshot unavailable — starting an index for incremental updates")
+                self._bm25_index = BM25Index([])
+            yield self._bm25_index
 
     @property
     def instructor_client(self):
@@ -229,10 +225,6 @@ class MLClientRegistry(MLClientPort):
         if self._instructor is None:
             with self._init_lock:
                 if self._instructor is None:
-                    from infrastructure.ml.clients.instructor_client import (
-                        create_async_instructor_client,
-                    )
-
                     if settings.llm_provider == LLMProvider.OPENROUTER:
                         self._instructor = create_async_instructor_client(
                             base_url=settings.openrouter_base_url,
@@ -283,14 +275,6 @@ class MLClientRegistry(MLClientPort):
                 self._reranker = None
         log.info("MLClientRegistry: reranker client cache invalidated")
 
-    def invalidate_snapshot_reader(self) -> None:
-        with self._bm25_state_lock:
-            self._retired_readers.append(self._bm25_reader)
-            self._bm25_reader = S3SnapshotReader()
-            self._bm25_generation += 1
-            self._bm25_index = None
-            self._bm25_loaded = False
-
     def invalidate_bm25(self) -> None:
         """Clear cached BM25 index (reload from disk on next access)."""
         with self._bm25_state_lock:
@@ -303,29 +287,22 @@ class MLClientRegistry(MLClientPort):
     # Lifecycle
     # ------------------------------------------------------------------
 
-    def close_snapshot_readers(self) -> None:
-        error = None
-        with self._bm25_load_lock:
-            with self._bm25_state_lock:
-                readers = [self._bm25_reader, *self._retired_readers]
-                self._retired_readers.clear()
-            for reader in readers:
-                try:
-                    reader.close()
-                except Exception as exc:
-                    if error is None:
-                        error = exc
-        if error is not None:
-            raise error
-
     async def close(self) -> None:
-        """Drain BM25 jobs before closing their owned client pools."""
+        """Finish owned cleanup before propagating caller cancellation."""
         self._closed = True
-        reader_error = None
+        if self._close_task is None:
+            self._close_task = asyncio.create_task(self.close_clients())
         try:
-            await run_storage_io(self.close_snapshot_readers)
-        except Exception as exc:
-            reader_error = exc
+            await asyncio.shield(self._close_task)
+        except asyncio.CancelledError:
+            await finish_owned_task(self._close_task)
+            raise
+
+    async def close_clients(self) -> None:
+        """Drain BM25 jobs before closing their owned client pools."""
+        async with self._bm25_load_lock:
+            # Wait for an admitted load and any in-flight CPU mutation.
+            await run_storage_io(self.bm25_state)
         clients_to_close = [
             self._embeddings,
             self._reranker,
@@ -355,5 +332,3 @@ class MLClientRegistry(MLClientPort):
         self._llm_breadth_cache.clear()
         self._retired_clients.clear()
         log.info("MLClientRegistry: connection pools closed")
-        if reader_error is not None:
-            raise reader_error

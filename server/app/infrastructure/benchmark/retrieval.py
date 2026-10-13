@@ -1,7 +1,7 @@
 """Benchmark retrieval — dense, sparse, hybrid search and reranking."""
 
 import logging
-from infrastructure.bm25.persistence import BM25LoadError
+from infrastructure.bm25.bm25_index import BM25Index
 from pathlib import Path
 
 from config import get_setting, settings
@@ -66,18 +66,19 @@ def search_sparse(
     visibility_conditions=None,
     user_id: int | None = None,
     user_group_ids: list[int] | None = None,
+    *,
+    bm25_index: BM25Index | None,
 ) -> list[tuple[str, float]]:
     """BM25 sparse search via loaded index.
 
     When *visibility_conditions* is provided, candidates are pre-filtered
     by ACL before scoring (defense-in-depth: Qdrant resolve still applies).
     """
-    try:
-        bm25_index = ml_clients.bm25_index()
-    except BM25LoadError:
-        logger.warning("BM25 snapshot unavailable; using dense search", exc_info=True)
-        bm25_index = None
     if bm25_index is not None:
+        if user_id is None:
+            raise RuntimeError(
+                "search_with_hashes() requires visibility_conditions, user_id and user_group_ids."
+            )
         return bm25_index.search_with_hashes(
             question,
             fetch_k,
@@ -135,6 +136,8 @@ def retrieve_with_scores_hybrid(
     visibility_conditions=None,
     user_id: int | None = None,
     user_group_ids: list[int] | None = None,
+    *,
+    bm25_index: BM25Index | None,
 ) -> list[tuple[Document, float]]:
     """Retrieve using the production hybrid pipeline: dense + BM25 + RRF + reranker.
 
@@ -146,6 +149,7 @@ def retrieve_with_scores_hybrid(
         question,
         fetch_k,
         ml_clients,
+        bm25_index=bm25_index,
         visibility_conditions=visibility_conditions,
         user_id=user_id,
         user_group_ids=user_group_ids,
