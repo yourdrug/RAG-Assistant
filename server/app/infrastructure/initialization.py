@@ -22,7 +22,7 @@ from infrastructure.events.in_process_event_bus import event_bus
 logger = logging.getLogger("default")
 
 
-def _param(key, value, vtype, cat, desc, min_v=None, max_v=None, allowed=None, domain_key=None):
+def config_parameter(key, value, vtype, cat, desc, min_v=None, max_v=None, allowed=None, domain_key=None):
     """Build a ConfigParameter entity for seeding from env defaults."""
     return ConfigParameter(
         key=key,
@@ -37,7 +37,7 @@ def _param(key, value, vtype, cat, desc, min_v=None, max_v=None, allowed=None, d
     )
 
 
-def _build_defaults() -> list[ConfigParameter]:
+def build_defaults() -> list[ConfigParameter]:
     """Build all default config parameters from current env settings.
 
     Derived from ``DYNAMIC_PARAMS`` — the single source of truth for
@@ -68,7 +68,7 @@ def _build_defaults() -> list[ConfigParameter]:
             else:
                 value = str(raw)
         result.append(
-            _param(
+            config_parameter(
                 p.key,
                 value,
                 p.type.__name__,
@@ -129,7 +129,7 @@ async def _seed_config_defaults(uow_factory) -> None:
 
             # Cleanup: if a param is now domain-specific but a stale global
             # row (domain_key=NULL) still exists, delete it.
-            defaults = _build_defaults()
+            defaults = build_defaults()
             for stale in existing:
                 if stale.domain_key is None and stale.key in {p.key for p in defaults if p.domain_key}:
                     await uow.config_parameters.delete_by_key_and_domain(stale.key, None)

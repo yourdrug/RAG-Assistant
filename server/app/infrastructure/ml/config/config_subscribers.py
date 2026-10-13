@@ -26,20 +26,9 @@ from domain.utils import parse_bool
 from infrastructure.ml.ingestion import get_paddle_ocr
 
 from domain.value_objects.dynamic_config import DYNAMIC_FIELDS_MAP
+from domain.value_objects.dynamic_config import SECRET_SETTING_KEYS as SENSITIVE_KEYS
 
 log = logging.getLogger("default")
-
-SENSITIVE_KEYS: frozenset[str] = frozenset(
-    {
-        "s3_access_key",
-        "s3_secret_key",
-        "openrouter_api_key",
-        "deepinfra_api_key",
-        "jwt_secret_key",
-        "db_password",
-        "redis_password",
-    }
-)
 
 
 def _mask_value(value: str | None) -> str:

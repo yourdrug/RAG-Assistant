@@ -9,6 +9,181 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from domain.value_objects.doc_domain import DocDomain
+from domain.value_objects.llm_provider import LLMProvider
+
+
+# Target ownership only: these sets do not activate seeding, updates or hot reload.
+# DYNAMIC_PARAMS below remains the legacy registry until each migration stage is ready.
+SECRET_SETTING_KEYS: frozenset[str] = frozenset(
+    {
+        "db_password",
+        "qdrant_api_key",
+        "openrouter_api_key",
+        "deepinfra_api_key",
+        "redis_password",
+        "s3_access_key",
+        "s3_secret_key",
+        "jwt_secret_key",
+        "admin_password",
+    }
+)
+
+STATIC_SETTING_KEYS: frozenset[str] = frozenset(
+    {
+        "db_host",
+        "db_port",
+        "db_user",
+        "db_name",
+        "db_slave_hosts",
+        "db_slave_ports",
+        "db_pool_size",
+        "db_max_overflow",
+        "db_pool_recycle_sec",
+        "db_statement_timeout_ms",
+        "db_idle_in_transaction_timeout_ms",
+        "qdrant_timeout",
+        "qdrant_search_max_concurrent",
+        "qdrant_write_max_concurrent",
+        "rag_retrieval_score_threshold",
+        "llm_max_concurrent",
+        "llm_generation_max_concurrent",
+        "llm_auxiliary_max_concurrent",
+        "llm_request_timeout",
+        "llm_auxiliary_timeout",
+        "embedding_max_concurrent",
+        "ingestion_max_concurrent",
+        "reranker_max_concurrent",
+        "bm25_search_max_concurrent",
+        "semaphore_acquire_timeout",
+        "benchmark_max_concurrent",
+        "benchmark_judge_max_concurrent",
+        "benchmark_judge_grouped_enabled",
+        "benchmark_judge_initial_tokens",
+        "benchmark_judge_retry_tokens",
+        "benchmark_judge_model",
+        "tei_embed_model",
+        "embedding_revision",
+        "document_domain_marker_threshold",
+        "embed_dim",
+        "curator_scope_max_ids",
+        "redis_host",
+        "redis_port",
+        "redis_user",
+        "redis_db",
+        "worker_max_concurrent",
+        "redis_socket_timeout",
+        "redis_max_connections",
+        "file_backend",
+        "s3_endpoint",
+        "s3_bucket",
+        "s3_region",
+        "s3_max_concurrent",
+        "supported_extensions",
+        "data_dir",
+        "uploads_prefix",
+        "allowed_origins",
+        "forwarded_allow_ips",
+        "jwt_algorithm",
+        "jwt_expire_minutes",
+        "admin_email",
+        "timezone",
+        "stage",
+        "rate_limit_redis_prefix",
+        "rate_limit_max_buckets",
+        "llm_breaker_fail_max",
+        "llm_breaker_timeout_duration",
+    }
+)
+
+METADATA_SETTING_KEYS: frozenset[str] = frozenset(
+    {
+        "version",
+        "service_start_datetime",
+    }
+)
+
+TARGET_DYNAMIC_SETTING_KEYS: frozenset[str] = frozenset(
+    {
+        "qdrant_url",
+        "collection_name",
+        "ollama_base_url",
+        "llm_provider",
+        "llm_model",
+        "llm_temperature",
+        "llm_top_p",
+        "llm_num_ctx_narrow",
+        "llm_num_ctx_broad",
+        "llm_num_predict_narrow",
+        "llm_num_predict_broad",
+        "openrouter_base_url",
+        "openrouter_model",
+        "ml_provider",
+        "tei_embed_url",
+        "tei_rerank_url",
+        "deepinfra_base_url",
+        "deepinfra_embed_model",
+        "deepinfra_rerank_model",
+        "embedding_http_max_connections",
+        "rerank_http_max_connections",
+        "embedding_http_max_keepalive_connections",
+        "rerank_http_max_keepalive_connections",
+        "ocr_engine",
+        "ocr_enabled",
+        "ocr_lang_paddle",
+        "ocr_lang_surya",
+        "ocr_dpi",
+        "ocr_min_chars",
+        "retriever_fetch_k",
+        "retriever_top_k",
+        "retriever_fetch_k_broad",
+        "retriever_top_k_broad",
+        "history_window",
+        "rerank_min_score",
+        "rerank_score_gap_ratio",
+        "source_min_score",
+        "citation_filter_enabled",
+        "exact_ref_sparse_boost",
+        "chunk_size",
+        "chunk_overlap",
+        "legal_chunk_size",
+        "legal_chunk_overlap",
+        "decree_chunk_size",
+        "decree_chunk_overlap",
+        "embed_batch_size",
+        "hybrid_enabled",
+        "bm25_fetch_k",
+        "rrf_k",
+        "dense_weight",
+        "sparse_weight",
+        "relevance_gate_enabled",
+        "condense_enabled",
+        "decomposition_enabled",
+        "rolling_summary_enabled",
+        "cache_enabled",
+        "pii_redaction_enabled",
+        "max_upload_size_mb",
+        "job_cleanup_days",
+        "stuck_job_timeout_minutes",
+        "stale_pending_timeout_minutes",
+        "rate_limit_enabled",
+        "rate_limit_fail_open",
+        "rate_limit_login_per_minute",
+        "rate_limit_chat_per_minute",
+        "rate_limit_chat_per_day",
+        "rate_limit_upload_per_hour",
+        "rate_limit_search_per_minute",
+        "rate_limit_write_per_minute",
+        "rate_limit_benchmark_per_hour",
+        "cost_rate_limit_enabled",
+        "cost_hourly_limit",
+        "cost_daily_limit",
+    }
+)
+
+# Legacy pool fields stay in Settings until stage 4 migrates their effective limits.
+LEGACY_POOL_SETTING_KEYS: frozenset[str] = frozenset({"http_pool_max_connections", "http_pool_max_keepalive"})
+
 
 @dataclass(frozen=True)
 class DynamicParam:
@@ -40,7 +215,7 @@ DYNAMIC_PARAMS: list[DynamicParam] = [
         "Legal doc chunk size (chars)",
         100,
         5000,
-        domain_key="legal",
+        domain_key=DocDomain.LEGAL.value,
     ),
     DynamicParam(
         "legal_chunk_overlap",
@@ -49,7 +224,7 @@ DYNAMIC_PARAMS: list[DynamicParam] = [
         "Legal doc chunk overlap (chars)",
         0,
         1000,
-        domain_key="legal",
+        domain_key=DocDomain.LEGAL.value,
     ),
     DynamicParam(
         "decree_chunk_size",
@@ -58,7 +233,7 @@ DYNAMIC_PARAMS: list[DynamicParam] = [
         "Decree doc chunk size (chars)",
         100,
         5000,
-        domain_key="decree",
+        domain_key=DocDomain.DECREE.value,
     ),
     DynamicParam(
         "decree_chunk_overlap",
@@ -67,7 +242,7 @@ DYNAMIC_PARAMS: list[DynamicParam] = [
         "Decree doc chunk overlap (chars)",
         0,
         1000,
-        domain_key="decree",
+        domain_key=DocDomain.DECREE.value,
     ),
     DynamicParam("source_min_score", float, "rag", "Min source relevance score", 0.0, 1.0),
     # ── Hybrid search ───────────────────────────────────────────
@@ -91,7 +266,9 @@ DYNAMIC_PARAMS: list[DynamicParam] = [
     DynamicParam("cache_enabled", bool, "toggles", "Enable response cache"),
     DynamicParam("pii_redaction_enabled", bool, "toggles", "Enable PII redaction"),
     # ── LLM ─────────────────────────────────────────────────────
-    DynamicParam("llm_provider", str, "llm", "LLM provider", allowed=["ollama", "openrouter"]),
+    DynamicParam(
+        "llm_provider", str, "llm", "LLM provider", allowed=[provider.value for provider in LLMProvider]
+    ),
     DynamicParam("llm_model", str, "llm", "LLM model name"),
     DynamicParam("llm_temperature", float, "llm", "LLM temperature", 0.0, 2.0),
     DynamicParam("llm_top_p", float, "llm", "LLM top-p", 0.0, 1.0),

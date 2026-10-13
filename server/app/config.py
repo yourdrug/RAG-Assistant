@@ -1,7 +1,8 @@
 """Application configuration — Pydantic BaseSettings with .env support.
 
-All values come from server/.env. No hardcoded defaults — missing env vars
-cause an immediate startup error, preventing silent misconfiguration.
+Types, defaults and validation live here; deployment values currently come from
+env and supported dynamic values are applied from the database at bootstrap.
+Target ownership is declared in domain.value_objects.dynamic_config.
 """
 
 import logging
@@ -16,6 +17,7 @@ from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from domain.value_objects.app_stage import AppStage
+from domain.value_objects.llm_provider import LLMProvider
 
 _settings_overrides: ContextVar[dict[str, object] | None] = ContextVar("settings_overrides", default=None)
 
@@ -77,8 +79,8 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
 
     # ── LLM ─────────────────────────────────────────────────────────────────
-    llm_provider: str
-    llm_model: str
+    llm_provider: str = LLMProvider.OLLAMA.value
+    llm_model: str = "qwen2.5:7b"
     llm_temperature: float = 0.1
     llm_top_p: float = 0.9
     llm_num_ctx_narrow: int = 8192
@@ -108,7 +110,7 @@ class Settings(BaseSettings):
     openrouter_model: str = "qwen/qwen-2.5-7b-instruct"
 
     # ── Embedding / Reranking provider ──────────────────────────────────────
-    ml_provider: str  # tei | deepinfra
+    ml_provider: str = "tei"  # tei | deepinfra
     tei_embed_url: str = ""
     tei_embed_model: str = "BAAI/bge-m3"
     embedding_revision: str = "v1"
