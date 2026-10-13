@@ -118,12 +118,12 @@ def test_provider_defaults(key, expected):
     assert Settings.model_fields[key].default == expected
 
 
-def test_seed_preserves_legacy_overrides_and_domain_scope(monkeypatch):
+def test_seed_uses_defaults_and_preserves_domain_scope(monkeypatch):
     monkeypatch.setattr(settings, "llm_provider", LLMProvider.OPENROUTER.value)
     monkeypatch.setattr(settings, "llm_model", "existing-deployment-model")
     rows = {(p.key, p.domain_key): p for p in initialization.build_defaults()}
-    assert rows[("llm_provider", None)].value == LLMProvider.OPENROUTER.value
-    assert rows[("llm_model", None)].value == "existing-deployment-model"
+    assert rows[("llm_provider", None)].value == LLMProvider.OLLAMA.value
+    assert rows[("llm_model", None)].value == "qwen2.5:7b"
     assert rows[("legal_chunk_size", DocDomain.LEGAL)].value == str(settings.legal_chunk_size)
     assert ("legal_chunk_size", None) not in rows
 
@@ -138,8 +138,8 @@ async def test_seed_keeps_existing_database_values_and_is_repeatable():
     scoped.value = "1777"
     for row in (model, scoped):
         await factory._uow.config_parameters.save(row)
-    await initialization._seed_config_defaults(factory)
-    await initialization._seed_config_defaults(factory)
+    await initialization.seed_config_defaults(factory)
+    await initialization.seed_config_defaults(factory)
     rows = await factory._uow.config_parameters.get_all()
     assert len(rows) == len(existing)
     values = {(p.key, p.domain_key): p.value for p in rows}

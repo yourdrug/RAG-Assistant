@@ -7,7 +7,6 @@ import pytest
 
 from composition.container import Container
 from config import settings
-from domain.events.config_events import ConfigParameterChanged
 from domain.value_objects.config_value_type import ConfigValueType
 from infrastructure.events.in_process_event_bus import InProcessEventBus
 from infrastructure.ml.clients.client_registry import MLClientRegistry
@@ -21,7 +20,7 @@ from presentation.cli.commands.worker import on_shutdown
 async def test_broad_config_rebuilds_cached_llm(monkeypatch, key):
     bus = InProcessEventBus()
     monkeypatch.setattr("infrastructure.events.in_process_event_bus.event_bus", bus)
-    monkeypatch.setattr(settings, key, 16384)
+    monkeypatch.setattr(settings, key, 8192)
 
     def create_client(breadth):
         return SimpleNamespace(limit=getattr(settings, key), close=AsyncMock())
@@ -30,21 +29,25 @@ async def test_broad_config_rebuilds_cached_llm(monkeypatch, key):
     registry = MLClientRegistry()
     container = Container()
     container.infrastructure.ml.ml_clients = registry
+    from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
+    from domain.entities.config_parameter import ConfigParameter
+
+    monkeypatch.setattr("composition.infrastructure.event_bus", bus)
+    monkeypatch.setattr(settings, "tei_embed_url", "http://tei-embed:80")
+    monkeypatch.setattr(settings, "tei_rerank_url", "http://tei-rerank:80")
+    container.infrastructure.configuration = SettingsProviderConfiguration(bus=bus)
     container.subscribe_config_events()
     try:
         cached = registry.llm_for_breadth("broad")
-        assert cached.limit == 16384
-        bus.publish(
-            ConfigParameterChanged(
-                key=key,
-                old_value="16384",
-                new_value="16896",
-                value_type=ConfigValueType.INT.value,
-            )
+        assert cached.limit == 8192
+        container.infrastructure.configuration.apply(
+            [
+                ConfigParameter(key, "8704", ConfigValueType.INT, "llm"),
+            ]
         )
         current = registry.llm_for_breadth("broad")
         assert current is not cached
-        assert current.limit == getattr(settings, key) == 16896
+        assert current.limit == getattr(settings, key) == 8704
     finally:
         await container.dispose()
 

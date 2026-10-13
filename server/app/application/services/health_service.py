@@ -9,6 +9,7 @@ from domain.value_objects.health_status import HealthStatus
 
 from application.ports.health import ConfigListenerProviderPort, HealthCheckResult, HealthProbePort
 from application.ports.health_settings import HealthSettingsPort
+from application.ports.provider_configuration import ProviderConfigurationPort
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
 
 
@@ -29,11 +30,13 @@ class HealthService:
         probe: HealthProbePort,
         config_listener_provider: ConfigListenerProviderPort,
         health_settings: HealthSettingsPort,
+        configuration: ProviderConfigurationPort | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._probe = probe
         self._config_listener = config_listener_provider
         self._settings = health_settings
+        self._configuration = configuration
 
     async def check(self) -> HealthResponse:
         qdrant, postgres, redis = await asyncio.gather(
@@ -52,8 +55,21 @@ class HealthService:
             status=HealthStatus.OK.value if self._config_listener.is_connected else "error: not connected"
         )
 
+        configuration_status = HealthCheckResult(
+            status=HealthStatus.OK.value
+            if self._configuration is None or self._configuration.status().ready
+            else "error: configuration snapshot not applied"
+        )
         overall = HealthStatus.HEALTHY.value
-        error_checks = (qdrant, llm_check, postgres, redis, config_listener_status, *ml_checks.values())
+        error_checks = (
+            qdrant,
+            llm_check,
+            postgres,
+            redis,
+            config_listener_status,
+            configuration_status,
+            *ml_checks.values(),
+        )
         if any(c.status.startswith("error") for c in error_checks):
             overall = HealthStatus.DEGRADED.value
 
@@ -70,6 +86,7 @@ class HealthService:
                 "postgres": postgres,
                 "redis": redis,
                 "config_listener": config_listener_status,
+                "configuration": configuration_status,
             },
             background_jobs={"running": active_jobs},
         )

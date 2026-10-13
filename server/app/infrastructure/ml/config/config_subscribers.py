@@ -24,14 +24,15 @@ from domain.events.config_events import ConfigParameterChanged
 from domain.utils import parse_bool
 
 from infrastructure.ml.ingestion import get_paddle_ocr
+from infrastructure.ml.guardrails.guardrails import invalidate_pii_detector
 
-from domain.value_objects.dynamic_config import DYNAMIC_FIELDS_MAP
+from domain.value_objects.dynamic_config import DYNAMIC_FIELDS_MAP, STATIC_SETTING_KEYS
 from domain.value_objects.dynamic_config import SECRET_SETTING_KEYS as SENSITIVE_KEYS
 
 log = logging.getLogger("default")
 
 
-def _mask_value(value: str | None) -> str:
+def mask_value(value: str | None) -> str:
     """Return masked representation for sensitive values."""
     if value is None:
         return "None"
@@ -43,7 +44,7 @@ def _mask_value(value: str | None) -> str:
 _DYNAMIC_FIELDS: dict[str, tuple[str, type]] = DYNAMIC_FIELDS_MAP
 
 
-def _coerce_and_set(attr: str, expected_type: type | None, new_value: str) -> None:
+def coerce_and_set(attr: str, expected_type: type | None, new_value: str) -> None:
     """Coerce *new_value* to *expected_type* and set it on the global settings."""
     if expected_type is bool:
         setattr(settings, attr, parse_bool(new_value))
@@ -68,7 +69,7 @@ def _coerce_and_set(attr: str, expected_type: type | None, new_value: str) -> No
 
 def apply_to_settings(event: ConfigParameterChanged) -> None:
     """Применить новое значение к in-memory settings."""
-    if event.key in SENSITIVE_KEYS and event.key not in {"s3_access_key", "s3_secret_key"}:
+    if event.key.lower() in SENSITIVE_KEYS:
         return
     # Domain-specific params don't touch global settings — they live in DomainSettingsPort
     if getattr(event, "domain_key", None) is not None:
@@ -84,7 +85,7 @@ def apply_to_settings(event: ConfigParameterChanged) -> None:
     if not hasattr(settings, attr):
         return
     try:
-        _coerce_and_set(attr, expected_type, event.new_value)
+        coerce_and_set(attr, expected_type, event.new_value)
         if event.key in SENSITIVE_KEYS:
             log.info("Sensitive config applied: %s", event.key)
         else:
@@ -112,57 +113,29 @@ def invalidate_paddle_ocr_cache(event: ConfigParameterChanged) -> None:
 
 def invalidate_storage_cache(event: ConfigParameterChanged, storage=None, ml_clients=None) -> None:
     """Сбросить кэш хранилища при изменении backend или S3-параметров."""
-    storage_keys = {
-        "file_backend",
-        "s3_endpoint",
-        "s3_bucket",
-        "s3_access_key",
-        "s3_secret_key",
-        "s3_region",
-        "s3_max_concurrent",
-        "data_dir",
-    }
-    if event.key not in storage_keys:
-        return
-
-    if storage is not None:
-        storage.invalidate()
-    if ml_clients is not None:
-        ml_clients.invalidate_bm25()
-    if event.key in SENSITIVE_KEYS:
-        log.info("Storage cache invalidated (%s -> %s)", event.key, _mask_value(event.new_value))
-    else:
-        log.info("Storage cache invalidated (%s -> %s)", event.key, event.new_value)
+    # Storage is deployment-owned; legacy DB events cannot rotate credentials.
+    return
 
 
 def audit_log_config_change(event: ConfigParameterChanged) -> None:
     """Независимый аудит-лог — не зависит от settings/кэшей."""
-    if event.key in SENSITIVE_KEYS:
-        log.info(
-            "AUDIT config_change key=%s old=%s new=%s by_user=%s at=%s",
-            event.key,
-            _mask_value(event.old_value),
-            _mask_value(event.new_value),
-            event.changed_by,
-            event.occurred_at,
-        )
-    else:
-        log.info(
-            "AUDIT config_change key=%s old=%r new=%r by_user=%s at=%s",
-            event.key,
-            event.old_value,
-            event.new_value,
-            event.changed_by,
-            event.occurred_at,
-        )
+    if event.key.lower() in SENSITIVE_KEYS | STATIC_SETTING_KEYS:
+        log.info("AUDIT ignored deployment-owned config event key=%s", event.key)
+        return
+    log.info(
+        "AUDIT config_change key=%s old=%r new=%r by_user=%s at=%s",
+        event.key,
+        event.old_value,
+        event.new_value,
+        event.changed_by,
+        event.occurred_at,
+    )
 
 
 def invalidate_pii_detector_cache(event: ConfigParameterChanged) -> None:
     """Сбросить кэш PII-детектора при изменении pii_redaction_enabled."""
     if event.key != "pii_redaction_enabled":
         return
-
-    from infrastructure.ml.guardrails.guardrails import invalidate_pii_detector
 
     invalidate_pii_detector()
     log.info("PII detector cache invalidated (pii_redaction_enabled -> %s)", event.new_value)

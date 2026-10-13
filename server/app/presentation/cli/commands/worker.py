@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import sys
 from collections.abc import Sequence
@@ -114,40 +115,45 @@ def worker(
 
 async def on_startup(ctx: dict) -> None:
     """Initialize database and infrastructure on worker startup."""
-    await database.connect()
-    logger.info("Worker: database connected")
+    try:
+        await database.connect()
+        await redis_client.init()
+        container = Container()
+        ctx["container"] = container
+        container.init(database)
+        await container.infrastructure.bootstrap_configuration()
+        listener = container.infrastructure.events.config_listener
+        if listener is None:
+            raise RuntimeError("Config listener must be initialized in worker")
+        init_breakers(
+            fail_max=settings.llm_breaker_fail_max,
+            timeout_duration=settings.llm_breaker_timeout_duration,
+        )
+        await listener.start()
+        ctx["config_listener"] = listener
+        ctx["config_resync_task"] = asyncio.create_task(
+            periodic_config_resync(listener),
+            name="worker-config-resync",
+        )
+    except BaseException:
+        await on_shutdown(ctx)
+        raise
 
-    await redis_client.init()
-    logger.info("Worker: Redis connected")
 
-    # Build DI container (same as API process)
-    container = Container()
-    container.init(database)
-    ctx["container"] = container
-
-    await container.infrastructure.bootstrap_domain_settings()
-
-    listener = container.infrastructure.events.config_listener
-    if listener is None:
-        raise RuntimeError("Config listener failed to initialize in worker")
-
-    await listener.resync(trigger="worker_startup")
-    logger.info("Worker: config synced from database")
-
-    init_breakers(
-        fail_max=settings.llm_breaker_fail_max,
-        timeout_duration=settings.llm_breaker_timeout_duration,
-    )
-
-    await listener.start()
-    ctx["config_listener"] = listener
-    logger.info("Worker: config listener started")
+async def periodic_config_resync(listener) -> None:
+    while True:
+        await asyncio.sleep(60)
+        await listener.resync(trigger="worker_periodic")
 
 
 async def on_shutdown(ctx: dict) -> None:
     """Cleanup on worker shutdown."""
+    task = ctx.pop("config_resync_task", None)
+    if task is not None:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
     try:
-        container = ctx.get("container")
+        container = ctx.pop("container", None)
         if container is not None:
             await container.dispose()
             logger.info("Worker: container disposed")

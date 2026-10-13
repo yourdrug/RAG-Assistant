@@ -24,7 +24,7 @@ async def test_worker_initializes_breakers_after_config_resync(monkeypatch):
         init=Mock(),
         infrastructure=SimpleNamespace(
             domain_registry=None,
-            bootstrap_domain_settings=AsyncMock(),
+            bootstrap_configuration=AsyncMock(),
             events=SimpleNamespace(config_listener=listener),
         ),
     )
@@ -35,11 +35,11 @@ async def test_worker_initializes_breakers_after_config_resync(monkeypatch):
     monkeypatch.setattr(worker.settings, "llm_breaker_fail_max", 7)
     monkeypatch.setattr(worker.settings, "llm_breaker_timeout_duration", 19)
 
-    async def resync(**kwargs):
+    async def resync():
         # Simulate database settings replacing the startup defaults.
         worker.settings.llm_breaker_fail_max = 9
 
-    listener.resync.side_effect = resync
+    container.infrastructure.bootstrap_configuration.side_effect = resync
 
     async def start():
         for name in ("llm_generate", "llm_auxiliary"):
@@ -52,6 +52,8 @@ async def test_worker_initializes_breakers_after_config_resync(monkeypatch):
     await worker.on_startup(ctx)
     assert ctx["container"] is container
     listener.start.assert_awaited_once()
+    ctx["config_resync_task"].cancel()
+    await asyncio.gather(ctx["config_resync_task"], return_exceptions=True)
 
 
 class SweepFactory:

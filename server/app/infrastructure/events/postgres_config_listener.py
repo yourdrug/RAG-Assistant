@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 import asyncpg
 from application.ports.event_bus import EventBus
 from config import settings
+from infrastructure.initialization import load_config_from_db
 from domain.events.config_events import ConfigParameterChanged
 
 from infrastructure.metrics.metrics import (
@@ -51,10 +52,13 @@ class PostgresConfigListener:
         event_bus: EventBus,
         uow_factory: UnitOfWorkFactory,
         domain_settings: DomainSettingsAdapter | None = None,
+        configuration=None,
     ) -> None:
         self._bus = event_bus
         self._uow_factory = uow_factory
         self._domain_settings = domain_settings
+        self.configuration = configuration
+        self._sync_lock = asyncio.Lock()
         self._conn: asyncpg.Connection | None = None
         self._stopped = False
         self._supervisor_task: asyncio.Task | None = None
@@ -62,12 +66,12 @@ class PostgresConfigListener:
 
     async def start(self) -> None:
         self._stopped = False
-        self._supervisor_task = asyncio.create_task(self._run_forever(), name="pg-config-listener")
+        self._supervisor_task = asyncio.create_task(self.run_forever(), name="pg-config-listener")
 
-    async def _run_forever(self) -> None:
+    async def run_forever(self) -> None:
         while not self._stopped:
             try:
-                await self._connect_and_listen()
+                await self.connect_and_listen()
                 disconnect_event = asyncio.Event()
                 if self._conn is not None:
                     self._conn.add_termination_listener(lambda _c, _de=disconnect_event: _de.set())
@@ -79,12 +83,12 @@ class PostgresConfigListener:
             except Exception:
                 log.exception("Postgres LISTEN connection failed — retrying in %.0fs", _RECONNECT_DELAY_SEC)
             finally:
-                await self._safe_close()
+                await self.safe_close()
 
             if not self._stopped:
                 await asyncio.sleep(_RECONNECT_DELAY_SEC)
 
-    async def _connect_and_listen(self) -> None:
+    async def connect_and_listen(self) -> None:
         self._conn = await asyncpg.connect(
             host=settings.db_host,
             port=int(settings.db_port),
@@ -92,7 +96,7 @@ class PostgresConfigListener:
             password=settings.db_password,
             database=settings.db_name,
         )
-        await self._conn.add_listener(_CHANNEL, self._on_notify)
+        await self._conn.add_listener(_CHANNEL, self.on_notify)
         CONFIG_LISTENER_CONNECTED.set(1)
         log.info("Postgres LISTEN '%s' established", _CHANNEL)
 
@@ -103,9 +107,31 @@ class PostgresConfigListener:
 
         Вызывается при (пере)подключении, периодическим scheduler'ом или вручную.
         """
-        await self._resync_all(trigger=trigger)
+        if self.configuration is not None:
+            try:
+                await self.synchronize()
+                CONFIG_RESYNC_TOTAL.labels(trigger=trigger).inc()
+            except Exception:
+                self.configuration.failed()
+                log.exception("Configuration snapshot resync failed")
+            return
+        await self.resync_all(trigger=trigger)
 
-    async def _resync_all(self, trigger: str = "manual") -> None:
+    async def synchronize(self, *, require_complete=False) -> None:
+        # Lock covers fetch + apply; an older concurrent fetch cannot apply last.
+        async with self._sync_lock:
+            await load_config_from_db(
+                self._uow_factory,
+                self.configuration,
+                require_complete=require_complete,
+            )
+
+    def schedule_sync(self) -> None:
+        task = asyncio.create_task(self.resync(trigger="notify"))
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+
+    async def resync_all(self, trigger: str = "manual") -> None:
         try:
             async with self._uow_factory.create() as uow:
                 rows = await uow.config_parameters.get_all()
@@ -121,7 +147,7 @@ class PostgresConfigListener:
                             cached = self._domain_settings.get(r.key, domain_key)
                         except KeyError:
                             cached = None
-                        if cached is not None and self._values_equal(cached, r.value):
+                        if cached is not None and self.values_equal(cached, r.value):
                             continue
                     self._bus.publish(
                         ConfigParameterChanged(
@@ -135,7 +161,7 @@ class PostgresConfigListener:
                     applied += 1
                     continue
                 current = getattr(settings, r.key, None)
-                if self._values_equal(current, r.value):
+                if self.values_equal(current, r.value):
                     continue
                 # SENSITIVE_KEYS are never hot-reloaded (apply_to_settings skips
                 # them).  If the in-memory value exists, the DB row is stale —
@@ -157,7 +183,7 @@ class PostgresConfigListener:
         except Exception:
             log.exception("Config resync failed — settings may be stale until next successful resync")
 
-    def _on_notify(self, connection: asyncpg.Connection, pid: int, channel: str, payload: str) -> None:
+    def on_notify(self, connection: asyncpg.Connection, pid: int, channel: str, payload: str) -> None:
         CONFIG_NOTIFY_RECEIVED_TOTAL.inc()
         try:
             data = json.loads(payload)
@@ -165,8 +191,12 @@ class PostgresConfigListener:
             log.exception("Malformed config_changed payload: %s", payload)
             return
 
+        if self.configuration is not None:
+            self.schedule_sync()
+            return
+
         if data.get("refetch"):
-            task = asyncio.create_task(self._refetch_and_publish(data["key"], data.get("domain_key")))
+            task = asyncio.create_task(self.refetch_and_publish(data["key"], data.get("domain_key")))
             self._background_tasks.add(task)
             task.add_done_callback(self._background_tasks.discard)
             return
@@ -181,7 +211,7 @@ class PostgresConfigListener:
         )
         self._bus.publish(event)
 
-    async def _refetch_and_publish(self, key: str, domain_key: str | None = None) -> None:
+    async def refetch_and_publish(self, key: str, domain_key: str | None = None) -> None:
         """Fallback для payload'ов, не влезших в лимит pg_notify (8000 байт)."""
         try:
             async with self._uow_factory.create() as uow:
@@ -199,7 +229,7 @@ class PostgresConfigListener:
         except Exception:
             log.exception("Failed to refetch config parameter '%s' after refetch notification", key)
 
-    async def _safe_close(self) -> None:
+    async def safe_close(self) -> None:
         CONFIG_LISTENER_CONNECTED.set(0)
         if self._conn is not None and not self._conn.is_closed():
             try:
@@ -221,7 +251,7 @@ class PostgresConfigListener:
                 task.cancel()
             await asyncio.gather(*self._background_tasks, return_exceptions=True)
             self._background_tasks.clear()
-        await self._safe_close()
+        await self.safe_close()
         log.info("Postgres LISTEN '%s' stopped", _CHANNEL)
 
     @property
@@ -229,7 +259,7 @@ class PostgresConfigListener:
         return self._conn is not None and not self._conn.is_closed()
 
     @staticmethod
-    def _normalize_to_comparable(current: object) -> object:
+    def normalize_to_comparable(current: object) -> object:
         """Normalize a Python object to its JSON-equivalent form for comparison."""
         if isinstance(current, bool):
             return json.loads(json.dumps(current))
@@ -238,7 +268,7 @@ class PostgresConfigListener:
         return json.loads(json.dumps(str(current), ensure_ascii=False))
 
     @staticmethod
-    def _normalize_types(a: object, b: object) -> tuple[object, object]:
+    def normalize_types(a: object, b: object) -> tuple[object, object]:
         """Coerce str<->numeric mismatches so mixed types compare correctly."""
         if isinstance(a, str) and isinstance(b, (int, float)):
             try:
@@ -253,7 +283,7 @@ class PostgresConfigListener:
         return a, b
 
     @staticmethod
-    def _values_equal(current: object, db_value: str | None) -> bool:
+    def values_equal(current: object, db_value: str | None) -> bool:
         """Compare in-memory setting with DB-stored JSON value, ignoring format differences.
 
         DB stores JSON (``["ru","en"]``), while Python objects serialise as repr
@@ -268,6 +298,6 @@ class PostgresConfigListener:
             db_parsed = json.loads(db_value)
         except (json.JSONDecodeError, TypeError):
             return str(current) == db_value
-        current_parsed = PostgresConfigListener._normalize_to_comparable(current)
-        current_normalized, db_normalized = PostgresConfigListener._normalize_types(current_parsed, db_parsed)
+        current_parsed = PostgresConfigListener.normalize_to_comparable(current)
+        current_normalized, db_normalized = PostgresConfigListener.normalize_types(current_parsed, db_parsed)
         return current_normalized == db_normalized

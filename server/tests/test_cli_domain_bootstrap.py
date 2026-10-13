@@ -17,81 +17,103 @@ from infrastructure.events.in_process_event_bus import InProcessEventBus
 from presentation.cli.commands import ingest
 
 
-@pytest.mark.asyncio
-async def test_cli_loads_domain_settings_before_auto_classification(monkeypatch):
+def build_infrastructure(monkeypatch):
+    from config import Settings
+    from fakes import FakeUnitOfWorkFactory
+    from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
+    from infrastructure.events.postgres_config_listener import PostgresConfigListener
+
     adapter = DomainSettingsAdapter()
     registry = DomainProfileRegistry()
     register_all_profiles(registry, adapter)
-    infra = InfrastructureContainer(domain_settings=adapter, domain_registry=registry)
-    infra.init = lambda database: setattr(infra, "_initialized", True)
     bus = InProcessEventBus()
-    monkeypatch.setattr("composition.infrastructure.event_bus", bus, raising=False)
-    row = SimpleNamespace(key="fingerprint_min_articles", domain_key="legal", value="7", normalize=str)
-    uow = AsyncMock()
-    uow.__aenter__.return_value = uow
-    rows = [
-        SimpleNamespace(key=default.key, domain_key=profile.key, value=default.value, normalize=str)
-        for profile in registry.all()
-        for default in profile.config_defaults()
-        if (default.key, profile.key) != (row.key, row.domain_key)
-    ]
-    uow.config_parameters.get_all.return_value = [*rows, row]
-    infra.db.uow_factory = SimpleNamespace(create=lambda **kwargs: uow)
-    monkeypatch.setattr("composition.infrastructure.seed_domain_config_defaults", AsyncMock(), raising=False)
-    monkeypatch.setattr("composition.infrastructure.InfrastructureContainer", lambda: infra)
-    monkeypatch.setattr(ingest, "InfrastructureContainer", lambda: infra, raising=False)
+    monkeypatch.setattr("composition.infrastructure.event_bus", bus)
+    infra = InfrastructureContainer(domain_settings=adapter, domain_registry=registry)
+    infra.db.uow_factory = FakeUnitOfWorkFactory()
+    model = Settings(
+        _env_file=None, tei_embed_url="http://tei-embed:80", tei_rerank_url="http://tei-rerank:80"
+    )
+    infra.configuration = SettingsProviderConfiguration(model, adapter, registry, bus)
+    infra.events.config_listener = PostgresConfigListener(
+        bus, infra.db.uow, configuration=infra.configuration
+    )
+    infra.ml.ml_clients = SimpleNamespace(
+        invalidate_llm=lambda: None,
+        invalidate_bm25=lambda: None,
+        invalidate_embeddings=lambda: None,
+        invalidate_reranker=lambda: None,
+        close=AsyncMock(),
+    )
+    infra.subscribe_config_events()
+    return infra, bus
+
+
+@pytest.mark.asyncio
+async def test_cli_loads_global_and_domain_settings_before_auto_classification(monkeypatch):
+    from domain.entities.config_parameter import ConfigParameter
+
+    infra, bus = build_infrastructure(monkeypatch)
+    infra.init = lambda database: setattr(infra, "_initialized", True)
+    await infra.db.uow_factory._uow.config_parameters.save(
+        ConfigParameter(
+            "fingerprint_min_articles",
+            "7",
+            "int",
+            "domain:legal",
+            domain_key="legal",
+        )
+    )
+    await infra.db.uow_factory._uow.config_parameters.save(
+        ConfigParameter("llm_model", "db-model", "str", "llm")
+    )
+    monkeypatch.setattr(ingest, "InfrastructureContainer", lambda: infra)
     monkeypatch.setattr(database, "connect", AsyncMock())
     monkeypatch.setattr(database, "disconnect", AsyncMock())
     monkeypatch.setattr(redis_client, "init", AsyncMock())
     monkeypatch.setattr(redis_client, "aclose", AsyncMock())
 
     async def classify(infrastructure):
+        assert infrastructure.configuration.settings.llm_model == "db-model"
         assert infrastructure.domain_settings.get("fingerprint_min_articles", "legal") == "7"
-        infrastructure.domain_registry.classify(
-            "An ordinary document without legal articles.", settings=adapter
+        infrastructure.domain_registry.classify("An ordinary document.", settings=infra.domain_settings)
+        await infra.db.uow_factory._uow.config_parameters.update_value(
+            "fingerprint_min_articles", "8", "legal"
         )
         bus.publish(
             ConfigParameterChanged(
-                key=row.key,
-                domain_key=row.domain_key,
+                key="fingerprint_min_articles",
+                domain_key="legal",
                 old_value="7",
                 new_value="8",
                 value_type=ConfigValueType.INT,
             )
         )
-        return infrastructure.domain_settings.get(row.key, row.domain_key)
+        await infra.events.config_listener.resync()
+        return infrastructure.domain_settings.get("fingerprint_min_articles", "legal")
 
-    result = await ingest.run_with_infrastructure(classify)
-    assert result == "8"
+    assert await ingest.run_with_infrastructure(classify) == "8"
     bus.publish(
         ConfigParameterChanged(
-            key=row.key,
-            domain_key=row.domain_key,
+            key="fingerprint_min_articles",
+            domain_key="legal",
             old_value="8",
             new_value="9",
             value_type=ConfigValueType.INT,
         )
     )
-    assert adapter.get(row.key, row.domain_key) == "8"
+    assert infra.domain_settings.get("fingerprint_min_articles", "legal") == "8"
 
 
 @pytest.mark.asyncio
-async def test_domain_bootstrap_is_idempotent_and_releases_only_owned_handler(monkeypatch):
-    adapter = DomainSettingsAdapter()
-    infra = InfrastructureContainer(domain_settings=adapter, domain_registry=DomainProfileRegistry())
-    bus = InProcessEventBus()
+async def test_configuration_bootstrap_is_idempotent_and_releases_only_owned_handlers(monkeypatch):
+    infra, bus = build_infrastructure(monkeypatch)
     observed = []
     bus.subscribe(ConfigParameterChanged, observed.append)
-    monkeypatch.setattr("composition.infrastructure.event_bus", bus)
-    monkeypatch.setattr("composition.infrastructure.seed_domain_config_defaults", AsyncMock())
-    uow = AsyncMock()
-    uow.__aenter__.return_value = uow
-    uow.config_parameters.get_all.return_value = []
-    infra.db.uow_factory = SimpleNamespace(create=lambda **kwargs: uow)
-    await infra.bootstrap_domain_settings()
-    await infra.bootstrap_domain_settings()
-    assert len(bus._handlers[ConfigParameterChanged]) == 2
+    await infra.bootstrap_configuration()
+    await infra.bootstrap_configuration()
+    assert len(bus._handlers[ConfigParameterChanged]) == 6
     await infra.dispose()
+    observed.clear()
     event = ConfigParameterChanged(
         key="fingerprint_min_articles",
         domain_key="legal",
@@ -101,24 +123,17 @@ async def test_domain_bootstrap_is_idempotent_and_releases_only_owned_handler(mo
     )
     bus.publish(event)
     assert observed == [event]
-    with pytest.raises(KeyError):
-        adapter.get(event.key, event.domain_key)
+    assert infra.domain_settings.get(event.key, event.domain_key) != "5"
 
 
 @pytest.mark.asyncio
-async def test_domain_bootstrap_propagates_database_failure_and_can_release_subscription(monkeypatch):
-    infra = InfrastructureContainer(
-        domain_settings=DomainSettingsAdapter(), domain_registry=DomainProfileRegistry()
+async def test_configuration_bootstrap_propagates_database_failure_and_releases_subscription(monkeypatch):
+    infra, bus = build_infrastructure(monkeypatch)
+    infra.db.uow_factory._uow.config_parameters.get_all = AsyncMock(
+        side_effect=RuntimeError("database unavailable")
     )
-    bus = InProcessEventBus()
-    monkeypatch.setattr("composition.infrastructure.event_bus", bus)
-    monkeypatch.setattr("composition.infrastructure.seed_domain_config_defaults", AsyncMock())
-    uow = AsyncMock()
-    uow.__aenter__.return_value = uow
-    uow.config_parameters.get_all.side_effect = RuntimeError("database unavailable")
-    infra.db.uow_factory = SimpleNamespace(create=lambda **kwargs: uow)
     with pytest.raises(RuntimeError, match="database unavailable"):
-        await infra.bootstrap_domain_settings()
+        await infra.bootstrap_configuration()
     await infra.dispose()
     assert not bus._handlers[ConfigParameterChanged]
 

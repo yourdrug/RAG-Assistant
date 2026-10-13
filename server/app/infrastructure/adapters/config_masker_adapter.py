@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from infrastructure.ml.config.config_subscribers import SENSITIVE_KEYS, _mask_value
+from infrastructure.ml.config.config_subscribers import SENSITIVE_KEYS, mask_value
 
 
 class ConfigMaskerAdapter:
@@ -13,4 +13,4 @@ class ConfigMaskerAdapter:
         return SENSITIVE_KEYS
 
     def mask_value(self, value: str | None) -> str:
-        return _mask_value(value)
+        return mask_value(value)

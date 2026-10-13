@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from domain.repositories.config_parameter_repository import ConfigParameter
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.database.models import ConfigParameterModel
@@ -12,6 +12,10 @@ from infrastructure.database.models import ConfigParameterModel
 class SQLAlchemyConfigParameterRepository:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
+
+    async def lock_configuration(self) -> None:
+        # Shared by seed/update: serialize READ → CHECK → WRITE across processes.
+        await self._db.execute(text("SELECT pg_advisory_xact_lock(hashtext('rag:configuration'))"))
 
     async def get_all(self) -> list[ConfigParameter]:
         result = await self._db.execute(

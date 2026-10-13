@@ -48,6 +48,11 @@ class InProcessEventBus:
         self._handlers.clear()
         log.debug("All event handlers removed")
 
+    def publish_strict(self, event: object) -> None:
+        """Propagate required configuration reaction failures to the caller."""
+        for handler in self._handlers.get(type(event), []):
+            handler(event)
+
     def publish(self, event: object) -> None:
         for handler in self._handlers.get(type(event), []):
             try:

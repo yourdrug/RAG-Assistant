@@ -74,7 +74,20 @@ class TestApplicationContainer:
         container.infrastructure = MagicMock()
         with patch("composition.application.create_ingestion_service", return_value=MagicMock()):
             container.application.init(container.infrastructure)
-        container.subscribe_config_events()
+        from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
+        from config import Settings
+
+        configuration = SettingsProviderConfiguration(
+            Settings(
+                _env_file=None, tei_embed_url="http://tei-embed:80", tei_rerank_url="http://tei-rerank:80"
+            ),
+            bus=bus,
+        )
+        # LivePIIRedactor consumes the process singleton, so apply to that instance.
+        configuration.settings = settings
+        monkeypatch.setattr(settings, "tei_embed_url", "http://tei-embed:80")
+        monkeypatch.setattr(settings, "tei_rerank_url", "http://tei-rerank:80")
+        container.infrastructure.configuration = configuration
 
         chat_redactor = container.application.chat_service._pii_redactor
         rag_redactor = container.application.rag_service._pii_redactor
@@ -83,29 +96,20 @@ class TestApplicationContainer:
         assert chat_redactor.redact(text) == text
         assert rag_redactor.scan_and_redact(text) == (text, [])
 
+        from domain.entities.config_parameter import ConfigParameter
+
+        row = ConfigParameter("pii_redaction_enabled", "true", ConfigValueType.BOOL.value, "toggles")
         if update_source == "hot_reload":
-            bus.publish(
-                ConfigParameterChanged(
-                    key="pii_redaction_enabled",
-                    old_value="false",
-                    new_value="true",
-                    value_type=ConfigValueType.BOOL.value,
-                )
-            )
+            configuration.apply([row])
         else:
             uow = AsyncMock()
-            uow.config_parameters.get_all.return_value = [
-                MagicMock(
-                    key="pii_redaction_enabled",
-                    value="true",
-                    value_type=ConfigValueType.BOOL.value,
-                    domain_key=None,
-                )
-            ]
+            uow.config_parameters.get_all.return_value = [row]
             factory = container.infrastructure.db.uow_factory
             factory.create.return_value.__aenter__ = AsyncMock(return_value=uow)
             factory.create.return_value.__aexit__ = AsyncMock(return_value=False)
-            await PostgresConfigListener(bus, factory).resync(trigger="reconnect")
+            await PostgresConfigListener(bus, factory, configuration=configuration).resync(
+                trigger="reconnect"
+            )
 
         assert settings.pii_redaction_enabled is True
         assert chat_redactor.redact(text) == "Контакт: ***"
@@ -194,6 +198,7 @@ class TestContainer:
         call_order = []
         mock_app = AsyncMock()
         mock_infra = AsyncMock()
+        mock_infra.unsubscribe_config_events = MagicMock()
 
         async def track_app():
             call_order.append("app")
@@ -279,15 +284,13 @@ class TestChunkSearchAdapter:
 
 class TestSubscribeConfigEvents:
     def test_subscribes_handlers_to_event_bus(self):
-        from domain.events.config_events import ConfigParameterChanged
-
         c = Container()
         c.infrastructure.ml.ml_clients = MagicMock()
 
-        with patch("infrastructure.events.in_process_event_bus.event_bus") as mock_bus:
+        with patch("composition.infrastructure.event_bus") as mock_bus:
             c.subscribe_config_events()
             # Domain cache subscription belongs to infrastructure bootstrap.
-            assert mock_bus.subscribe.call_count == 8
+            assert mock_bus.subscribe.call_count == 5
             for call_args in mock_bus.subscribe.call_args_list:
                 event_type = call_args[0][0]
                 assert event_type is ConfigParameterChanged
@@ -298,13 +301,12 @@ class TestSubscribeConfigEvents:
         assert c.infrastructure.ml.ml_clients is None
 
     def test_invalidation_handlers_invalidate_on_event(self):
-        from domain.events.config_events import ConfigParameterChanged
-
         c = Container()
         mock_ml = MagicMock()
         c.infrastructure.ml.ml_clients = mock_ml
+        c.infrastructure.configuration = MagicMock(applying=True)
 
-        with patch("infrastructure.events.in_process_event_bus.event_bus") as mock_bus:
+        with patch("composition.infrastructure.event_bus") as mock_bus:
             c.subscribe_config_events()
 
             handlers = [call[0][1] for call in mock_bus.subscribe.call_args_list]

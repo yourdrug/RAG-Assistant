@@ -15,7 +15,7 @@ from composition.container import Container
 from config import settings
 from domain.exceptions import ClientException, ServerException
 from infrastructure.database.database import database
-from infrastructure.initialization import initialize_app
+from infrastructure.initialization import bootstrap_admin
 from infrastructure.logging import logging_config
 from infrastructure.logging.log_buffer import attach_log_buffer
 from infrastructure.metrics.metrics import collect_infra_metrics
@@ -103,8 +103,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
 
         if container.infrastructure.db.uow_factory is None:
             raise RuntimeError("UnitOfWorkFactory failed to initialize")
-        await initialize_app(container.infrastructure.db.uow_factory)
-        await container.infrastructure.bootstrap_domain_settings()
+        await container.infrastructure.bootstrap_configuration()
+        await bootstrap_admin(container.infrastructure.db.uow_factory)
 
         if container.infrastructure.events.config_listener is None:
             raise RuntimeError("ConfigListener failed to initialize")

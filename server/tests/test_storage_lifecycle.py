@@ -101,13 +101,13 @@ async def test_s3_config_is_snapshotted_per_backend(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("key", ["s3_bucket", "s3_endpoint", "s3_access_key", "s3_secret_key", "s3_region"])
-async def test_config_event_rotates_storage_and_bm25_reader(monkeypatch, key):
+async def test_legacy_config_event_preserves_storage_and_bm25_reader(monkeypatch, key):
     monkeypatch.setattr(settings, key, "old")
     storage = MagicMock()
     clients = MagicMock()
     event = ConfigParameterChanged(key=key, old_value="old", new_value="new", value_type=ConfigValueType.STR)
     apply_to_settings(event)
-    assert getattr(settings, key) == "new"
+    assert getattr(settings, key) == "old"
     invalidate_storage_cache(event, storage=storage, ml_clients=clients)
-    storage.invalidate.assert_called_once()
-    clients.invalidate_bm25.assert_called_once()
+    storage.invalidate.assert_not_called()
+    clients.invalidate_bm25.assert_not_called()

@@ -22,7 +22,7 @@ def test_on_notify_publishes_event():
     payload = (
         '{"key": "retriever_top_k", "old_value": "4", "new_value": "8", "value_type": "int", "changed_by": 1}'
     )
-    listener._on_notify(None, None, "config_changed", payload)
+    listener.on_notify(None, None, "config_changed", payload)
 
     bus.publish.assert_called_once()
     event = bus.publish.call_args[0][0]
@@ -38,7 +38,7 @@ def test_on_notify_malformed_payload_does_not_raise():
     bus = MagicMock()
     factory = MagicMock()
     listener = PostgresConfigListener(bus, factory)
-    listener._on_notify(None, None, "config_changed", "not valid json")
+    listener.on_notify(None, None, "config_changed", "not valid json")
     bus.publish.assert_not_called()
 
 
@@ -48,7 +48,7 @@ def test_on_notify_refetch_payload_skips_direct_publish():
     listener = PostgresConfigListener(bus, factory)
 
     payload = '{"key": "chunk_size", "refetch": True}'
-    listener._on_notify(None, None, "config_changed", payload)
+    listener.on_notify(None, None, "config_changed", payload)
     bus.publish.assert_not_called()
 
 
@@ -58,7 +58,7 @@ def test_on_notify_missing_optional_fields():
     listener = PostgresConfigListener(bus, factory)
 
     payload = '{"key": "chunk_size", "new_value": "900", "value_type": "int"}'
-    listener._on_notify(None, None, "config_changed", payload)
+    listener.on_notify(None, None, "config_changed", payload)
 
     bus.publish.assert_called_once()
     event = bus.publish.call_args[0][0]
@@ -82,7 +82,7 @@ async def test_refetch_and_publish_reads_from_db():
     fake_factory.create.return_value.__aexit__ = AsyncMock(return_value=False)
 
     listener = PostgresConfigListener(bus, fake_factory)
-    await listener._refetch_and_publish("chunk_size")
+    await listener.refetch_and_publish("chunk_size")
 
     bus.publish.assert_called_once()
     event = bus.publish.call_args[0][0]
@@ -101,7 +101,7 @@ async def test_refetch_and_publish_param_not_found():
     fake_factory.create.return_value.__aexit__ = AsyncMock(return_value=False)
 
     listener = PostgresConfigListener(bus, fake_factory)
-    await listener._refetch_and_publish("nonexistent")
+    await listener.refetch_and_publish("nonexistent")
 
     bus.publish.assert_not_called()
 
@@ -209,36 +209,36 @@ async def test_resync_logs_failure_without_raising():
 
 class TestValuesEqual:
     def test_none_both(self):
-        assert PostgresConfigListener._values_equal(None, None) is True
+        assert PostgresConfigListener.values_equal(None, None) is True
 
     def test_none_current(self):
-        assert PostgresConfigListener._values_equal(None, "1.0") is False
+        assert PostgresConfigListener.values_equal(None, "1.0") is False
 
     def test_none_db(self):
-        assert PostgresConfigListener._values_equal("1.0", None) is False
+        assert PostgresConfigListener.values_equal("1.0", None) is False
 
     def test_string_vs_string(self):
-        assert PostgresConfigListener._values_equal("2.0", "2.0") is True
+        assert PostgresConfigListener.values_equal("2.0", "2.0") is True
 
     def test_string_vs_number_json(self):
         """Bug fix: '2.0' (str) vs '2.0' (JSON number) should be equal."""
-        assert PostgresConfigListener._values_equal("2.0", "2.0") is True
+        assert PostgresConfigListener.values_equal("2.0", "2.0") is True
 
     def test_int_vs_int(self):
-        assert PostgresConfigListener._values_equal(42, "42") is True
+        assert PostgresConfigListener.values_equal(42, "42") is True
 
     def test_float_vs_float(self):
-        assert PostgresConfigListener._values_equal(3.14, "3.14") is True
+        assert PostgresConfigListener.values_equal(3.14, "3.14") is True
 
     def test_bool_vs_bool(self):
-        assert PostgresConfigListener._values_equal(True, "true") is True
+        assert PostgresConfigListener.values_equal(True, "true") is True
 
     def test_list_vs_list(self):
-        assert PostgresConfigListener._values_equal(["a", "b"], '["a", "b"]') is True
+        assert PostgresConfigListener.values_equal(["a", "b"], '["a", "b"]') is True
 
     def test_different_values(self):
-        assert PostgresConfigListener._values_equal("1.0", "2.0") is False
+        assert PostgresConfigListener.values_equal("1.0", "2.0") is False
 
     def test_int_vs_string(self):
         """42 (int) vs "42" (JSON string) should be considered equal in config context."""
-        assert PostgresConfigListener._values_equal(42, '"42"') is True
+        assert PostgresConfigListener.values_equal(42, '"42"') is True

@@ -11,7 +11,6 @@ from __future__ import annotations
 import dataclasses
 import logging
 from dataclasses import dataclass, field
-from functools import partial
 from typing import TYPE_CHECKING
 
 from composition.application import ApplicationContainer
@@ -54,7 +53,6 @@ class Container:
                 "Container.init() must be called exactly once. Second call detected — this is a bug."
             )
         self.infrastructure.init(database_manager)
-        self.subscribe_config_events()
         try:
             self.application.init(self.infrastructure)
         except Exception:
@@ -101,60 +99,7 @@ class Container:
                 self._initialized = False
 
     def subscribe_config_events(self) -> None:
-        """Subscribe config-change handlers to the event bus."""
-        from domain.events.config_events import ConfigParameterChanged
-        from infrastructure.events.in_process_event_bus import event_bus
-        from infrastructure.ml.config.config_subscribers import (
-            apply_to_settings,
-            audit_log_config_change,
-            invalidate_paddle_ocr_cache,
-            invalidate_pii_detector_cache,
-            invalidate_storage_cache,
-        )
-
-        ml = self.infrastructure.ml.clients  # raises ContainerNotInitializedError if not init'd
-
-        bus = event_bus
-        bus.subscribe(ConfigParameterChanged, apply_to_settings)
-        bus.subscribe(ConfigParameterChanged, invalidate_paddle_ocr_cache)
-        storage = self.infrastructure.ml.file_storage
-        bus.subscribe(
-            ConfigParameterChanged, partial(invalidate_storage_cache, storage=storage, ml_clients=ml)
-        )
-        bus.subscribe(ConfigParameterChanged, invalidate_pii_detector_cache)
-        bus.subscribe(ConfigParameterChanged, audit_log_config_change)
-
-        def invalidate_llm(event: ConfigParameterChanged) -> None:
-            llm_keys = {
-                "llm_provider",
-                "llm_model",
-                "llm_temperature",
-                "llm_top_p",
-                "llm_num_ctx_narrow",
-                "llm_num_predict_narrow",
-                "llm_num_ctx_broad",
-                "llm_num_predict_broad",
-                "openrouter_model",
-            }
-            if event.key in llm_keys:
-                ml.invalidate_llm()
-
-        def invalidate_bm25(event: ConfigParameterChanged) -> None:
-            if event.key == "hybrid_enabled":
-                ml.invalidate_bm25()
-
-        def invalidate_embedding_clients(event: ConfigParameterChanged) -> None:
-            if event.key in {"ml_provider", "deepinfra_embed_model"}:
-                ml.invalidate_embeddings()
-            if event.key in {"ml_provider", "deepinfra_rerank_model"}:
-                ml.invalidate_reranker()
-
-        bus.subscribe(ConfigParameterChanged, invalidate_llm)
-        bus.subscribe(ConfigParameterChanged, invalidate_bm25)
-        bus.subscribe(ConfigParameterChanged, invalidate_embedding_clients)
+        self.infrastructure.subscribe_config_events()
 
     def unsubscribe_config_events(self) -> None:
-        """Remove all config-change handlers from the event bus."""
-        from infrastructure.events.in_process_event_bus import event_bus
-
-        event_bus.unsubscribe_all()
+        self.infrastructure.unsubscribe_config_events()

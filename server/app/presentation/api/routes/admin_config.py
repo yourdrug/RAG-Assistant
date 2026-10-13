@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 
+from application.ports.provider_configuration import ConfigurationStatus
 from application.ports.rate_limit import RateLimitPolicyName
 from application.services.config_admin_service import ConfigAdminService
 from application.services.config_service import ConfigService
@@ -12,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from presentation.api.auth_dependencies import require_admin
 from presentation.api.rate_limit import rate_limit
 from presentation.api.constants import QUESTION_LOG_MAX_CHARS, STATIC_CONFIG_KEYS
+from domain.value_objects.dynamic_config import DYNAMIC_FIELDS_MAP, SECRET_SETTING_KEYS
 from presentation.api.dependencies import (
     create_action_logger,
     create_config_admin_service,
@@ -34,6 +36,15 @@ logger = logging.getLogger("default")
 router = APIRouter(tags=["admin-config"])
 
 
+@router.get("/admin/config/status", response_model=ConfigurationStatus)
+async def configuration_status(
+    admin: CurrentUser = Depends(require_admin),
+    config_service: ConfigService = Depends(create_config_service),
+):
+    """Compare the saved DB snapshot with the snapshot applied by this API process."""
+    return await config_service.configuration_status()
+
+
 @router.get("/admin/config", response_model=list[ConfigParamResponse])
 async def list_config(
     admin: CurrentUser = Depends(require_admin),
@@ -53,7 +64,7 @@ async def list_config(
             domain_key=r.domain_key,
         )
         for r in rows
-        if r.key not in STATIC_CONFIG_KEYS
+        if r.key not in SECRET_SETTING_KEYS and (r.domain_key is not None or r.key in DYNAMIC_FIELDS_MAP)
     ]
 
 

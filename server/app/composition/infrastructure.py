@@ -21,7 +21,16 @@ from typing import TYPE_CHECKING, Any
 from composition.utils import _missing_fields, _require
 from domain.events.config_events import ConfigParameterChanged
 from infrastructure.events.in_process_event_bus import event_bus
-from infrastructure.initialization import seed_domain_config_defaults
+from infrastructure.domain_profile import register_all_profiles
+from domain.domain_profile.registry import DomainProfileRegistry
+from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
+from infrastructure.initialization import seed_domain_config_defaults, seed_config_defaults
+from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
+from infrastructure.ml.config.config_subscribers import (
+    audit_log_config_change,
+    invalidate_paddle_ocr_cache,
+    invalidate_pii_detector_cache,
+)
 
 if TYPE_CHECKING:
     from application.ports.action_logger import ActionLoggerPort
@@ -37,8 +46,6 @@ if TYPE_CHECKING:
     from application.ports.preview_strategy_factory import PreviewStrategyFactoryPort
     from application.services.preview_cache import PreviewCache
     from infrastructure.database.database import DatabaseManager
-    from domain.domain_profile.registry import DomainProfileRegistry
-    from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
     from infrastructure.events.postgres_config_broadcaster import PostgresConfigBroadcaster
     from infrastructure.events.postgres_config_listener import PostgresConfigListener
     from infrastructure.health.system_health_probe import OllamaProbe, QdrantInfo, SystemHealthProbe
@@ -343,7 +350,8 @@ class InfrastructureContainer:
     domain_settings: DomainSettingsAdapter | None = field(default=None, repr=False)
     rate_limit: PyrateRateLimiter | None = field(default=None, repr=False)
     _initialized: bool = field(default=False, repr=False)
-    _domain_settings_subscribed: bool = field(default=False, repr=False)
+    configuration: SettingsProviderConfiguration | None = field(default=None, repr=False)
+    _config_handlers: list = field(default_factory=list, repr=False)
 
     def init(self, database_manager: DatabaseManager) -> None:
         """Create all infrastructure-layer objects.
@@ -351,11 +359,6 @@ class InfrastructureContainer:
         Order matters: domain registry → DB → ML → Services → Events
         (ML parsing/splitting is domain-aware and consumes the registry).
         """
-        from infrastructure.domain_profile import register_all_profiles
-        from domain.domain_profile.registry import DomainProfileRegistry
-        from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
-        from infrastructure.events.in_process_event_bus import event_bus
-
         # Domain profile registry — created first: ML parsing/splitting is domain-aware
         self.domain_settings = DomainSettingsAdapter()
         self.domain_registry = DomainProfileRegistry()
@@ -376,28 +379,74 @@ class InfrastructureContainer:
             cache_invalidator=self.services.cache_invalidator,
         )
         self._init_rate_limit()
+        self.configuration = SettingsProviderConfiguration(
+            domain_settings=self.domain_settings,
+            registry=self.domain_registry,
+            bus=event_bus,
+        )
+        if self.events.config_listener is None:
+            raise RuntimeError("Config listener must be initialized")
+        self.events.config_listener.configuration = self.configuration
+        self.subscribe_config_events()
 
         self._initialized = True
         log.info("Infrastructure container initialized")
 
-    async def bootstrap_domain_settings(self) -> None:
-        """Seed and load domain config before API, worker, or CLI use."""
-        if self.domain_registry is None or self.domain_settings is None:
-            raise RuntimeError("Domain settings must be initialized before bootstrap")
-        if not self._domain_settings_subscribed:
-            event_bus.subscribe(ConfigParameterChanged, self.update_domain_settings_cache)
-            self._domain_settings_subscribed = True
+    async def bootstrap_configuration(self) -> None:
+        """Load required configuration for API, worker and ML CLI."""
+        if self.configuration is None or self.events.config_listener is None:
+            raise RuntimeError("Configuration must be initialized before bootstrap")
+        await seed_config_defaults(self.db.uow)
         await seed_domain_config_defaults(self.db.uow, self.domain_registry)
-        # Read from the writer after seeding; replica lag must not leave config missing.
-        async with self.db.uow.create(master=True) as uow:
-            rows = await uow.config_parameters.get_all()
-        for row in rows:
-            if row.domain_key is not None:
-                self.domain_settings.set(row.key, row.domain_key, row.normalize(row.value))
+        await self.events.config_listener.synchronize(require_complete=True)
 
-    def update_domain_settings_cache(self, event: ConfigParameterChanged) -> None:
-        if event.domain_key is not None and self.domain_settings is not None:
-            self.domain_settings.set(event.key, event.domain_key, event.new_value)
+    def subscribe_config_events(self) -> None:
+        if self._config_handlers:
+            return
+        for handler in (
+            self.request_configuration_sync,
+            self.invalidate_config_clients,
+            invalidate_paddle_ocr_cache,
+            invalidate_pii_detector_cache,
+            audit_log_config_change,
+        ):
+            event_bus.subscribe(ConfigParameterChanged, handler)
+            self._config_handlers.append(handler)
+
+    def unsubscribe_config_events(self) -> None:
+        for handler in self._config_handlers:
+            event_bus.unsubscribe(ConfigParameterChanged, handler)
+        self._config_handlers.clear()
+
+    def request_configuration_sync(self, event: ConfigParameterChanged) -> None:
+        if self.configuration is not None and not self.configuration.applying:
+            if self.events.config_listener is None:
+                raise RuntimeError("Config listener must be initialized")
+            self.events.config_listener.schedule_sync()
+
+    def invalidate_config_clients(self, event: ConfigParameterChanged) -> None:
+        # Only the coordinator's validated snapshot can invalidate resources.
+        if self.configuration is None or not self.configuration.applying:
+            return
+        ml = self.ml.clients
+        if event.key in {
+            "llm_provider",
+            "llm_model",
+            "llm_temperature",
+            "llm_top_p",
+            "llm_num_ctx_narrow",
+            "llm_num_predict_narrow",
+            "llm_num_ctx_broad",
+            "llm_num_predict_broad",
+            "openrouter_model",
+        }:
+            ml.invalidate_llm()
+        if event.key == "hybrid_enabled":
+            ml.invalidate_bm25()
+        if event.key in {"ml_provider", "deepinfra_embed_model"}:
+            ml.invalidate_embeddings()
+        if event.key in {"ml_provider", "deepinfra_rerank_model"}:
+            ml.invalidate_reranker()
 
     def _init_rate_limit(self) -> None:
         """Build the Redis-backed rate limiter (requires an initialized Redis client)."""
@@ -467,8 +516,6 @@ class InfrastructureContainer:
                             await self.ml.file_storage.aclose()
                     finally:
                         self.ml.dispose()
-                        if self._domain_settings_subscribed:
-                            event_bus.unsubscribe(ConfigParameterChanged, self.update_domain_settings_cache)
-                            self._domain_settings_subscribed = False
+                        self.unsubscribe_config_events()
                         self._initialized = False
         log.info("Infrastructure container disposed")

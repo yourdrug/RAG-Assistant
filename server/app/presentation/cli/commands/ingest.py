@@ -38,12 +38,11 @@ async def run_with_infrastructure(action):
         await database.connect()
         database_started = True
         infra.init(database)
-        await infra.bootstrap_domain_settings()
+        await infra.bootstrap_configuration()
         return await action(infra)
     finally:
         try:
-            if infra._initialized:
-                await infra.dispose()
+            await infra.dispose()
         finally:
             try:
                 if database_started:

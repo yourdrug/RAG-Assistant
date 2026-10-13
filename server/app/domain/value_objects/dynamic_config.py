@@ -295,12 +295,6 @@ DYNAMIC_PARAMS: list[DynamicParam] = [
     DynamicParam("ocr_min_chars", int, "ocr", "Min chars to consider page text", 0, 500),
     DynamicParam("ocr_lang_surya", list, "ocr", "Surya OCR languages"),
     DynamicParam("ocr_lang_paddle", str, "ocr", "PaddleOCR language"),
-    # ── Storage ─────────────────────────────────────────────────
-    DynamicParam("s3_endpoint", str, "storage", "S3 endpoint URL"),
-    DynamicParam("s3_bucket", str, "storage", "S3 bucket name"),
-    DynamicParam("s3_region", str, "storage", "S3 region"),
-    DynamicParam("s3_access_key", str, "storage", "S3 access key"),
-    DynamicParam("s3_secret_key", str, "storage", "S3 secret key"),
     # ── Background jobs ─────────────────────────────────────────
     DynamicParam("stuck_job_timeout_minutes", int, "jobs", "Minutes before PROCESSING doc is stuck", 5, 120),
     DynamicParam("stale_pending_timeout_minutes", int, "jobs", "Minutes before PENDING job is stale", 5, 120),

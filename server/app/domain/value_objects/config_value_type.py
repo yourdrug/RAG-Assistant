@@ -10,3 +10,4 @@ class ConfigValueType(StrEnum):
     INT = "int"
     FLOAT = "float"
     STR = "str"
+    LIST = "list"

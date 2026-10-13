@@ -5,7 +5,6 @@ env and supported dynamic values are applied from the database at bootstrap.
 Target ownership is declared in domain.value_objects.dynamic_config.
 """
 
-import logging
 import sys
 from contextvars import ContextVar
 from datetime import UTC, datetime
@@ -14,8 +13,9 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from pydantic import Field, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, SettingsConfigDict, PydanticBaseSettingsSource
 
+from domain.value_objects.dynamic_config import DYNAMIC_PARAMS
 from domain.value_objects.app_stage import AppStage
 from domain.value_objects.llm_provider import LLMProvider
 
@@ -34,7 +34,7 @@ def get_setting(key: str) -> Any:
     return getattr(settings, key)
 
 
-def _read_version() -> str:
+def read_version() -> str:
     version_file = Path(__file__).parent.parent.parent / "VERSION"
     try:
         return version_file.read_text().strip()
@@ -289,32 +289,39 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls,
+        init_settings,
+        env_settings,
+        dotenv_settings,
+        file_secret_settings,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        # Filter before decoding (legacy list values can contain invalid JSON).
+        dynamic_keys = {param.key for param in DYNAMIC_PARAMS}
+        for source in (env_settings, dotenv_settings):
+            source.env_vars = {
+                key: value for key, value in source.env_vars.items() if key.lower() not in dynamic_keys
+            }
+        return init_settings, env_settings, dotenv_settings, file_secret_settings
+
     @model_validator(mode="after")
-    def _post_init(self) -> "Settings":
+    def post_init(self) -> "Settings":
         if not self.version:
-            self.version = _read_version()
+            self.version = read_version()
 
         # Security violations are hard errors in EVERY stage: weak/blank
         # credentials must never reach any environment without warning.
-        security_errors = self._check_security()
+        security_errors = self.check_security()
         if security_errors:
             msg = "Configuration errors:\n" + "\n".join(f"  - {e}" for e in security_errors)
             sys.stderr.write(msg + "\n")
             sys.exit(1)
 
-        # Provider wiring is checked separately; it is fatal only in prod so
-        # that local dev / tests can instantiate Settings without real services.
-        provider_errors = self._check_ml_provider()
-        if provider_errors:
-            msg = "Configuration errors:\n" + "\n".join(f"  - {e}" for e in provider_errors)
-            if self.stage == AppStage.PROD:
-                sys.stderr.write(msg + "\n")
-                sys.exit(1)
-            logging.getLogger("default").warning(msg)
-
         return self
 
-    def _check_security(self) -> list[str]:
+    def check_security(self) -> list[str]:
         errors: list[str] = []
         # Credential hygiene — enforced in ALL stages (weak defaults never pass).
         if not self.jwt_secret_key or self.jwt_secret_key == "change-me-in-production":  # noqa: S105
@@ -345,7 +352,7 @@ class Settings(BaseSettings):
                 errors.append("ALLOWED_ORIGINS must not be '*' in production — list explicit origins")
         return errors
 
-    def _check_ml_provider(self) -> list[str]:
+    def check_ml_provider(self) -> list[str]:
         if self.ml_provider == "tei":
             missing = []
             if not self.tei_embed_url:

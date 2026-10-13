@@ -34,3 +34,10 @@ class DomainSettingsAdapter:
         """Update cached value. Called by config event subscribers."""
         cache_key = (key, domain_key or "")
         self._cache[cache_key] = value
+
+    def snapshot(self) -> dict[tuple[str, str], str]:
+        return dict(self._cache)
+
+    def replace_snapshot(self, values: dict[tuple[str, str], str]) -> None:
+        """Publish a fully validated domain snapshot in one assignment."""
+        self._cache = dict(values)

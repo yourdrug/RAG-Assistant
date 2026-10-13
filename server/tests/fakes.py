@@ -560,6 +560,9 @@ class FakeUserRepository:
 
 
 class FakeConfigParameterRepository:
+    async def lock_configuration(self) -> None:
+        pass
+
     def __init__(self):
         self._params: dict[tuple[str, str | None], object] = {}
 
@@ -577,7 +580,7 @@ class FakeConfigParameterRepository:
         if p:
             p.value = value
 
-    async def update_category(self, key: str, category: str) -> None:
+    async def update_category(self, key: str, category: str, domain_key=None) -> None:
         pass
 
     async def save(self, entity) -> None:

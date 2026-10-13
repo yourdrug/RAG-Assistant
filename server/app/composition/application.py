@@ -209,12 +209,15 @@ class ApplicationContainer:
             uow_factory=uow,
             ingestion_service=self.ingestion_service,
         )
-        self.config_service = ConfigService(uow_factory=uow, event_bus=event_bus)
+        self.config_service = ConfigService(
+            uow_factory=uow, event_bus=event_bus, provider_configuration=infra.configuration
+        )
         self.health_service = HealthService(
             uow_factory=uow,
             probe=health_probe,
             config_listener_provider=config_listener,
             health_settings=LiveHealthSettings(),
+            configuration=infra.configuration,
         )
         self.metrics_service = MetricsService(registry=metrics_registry)
         self.config_admin_service = ConfigAdminService(

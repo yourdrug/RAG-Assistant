@@ -2,7 +2,7 @@
 
 > **Для агента-исполнителя:** прочитать этот файл целиком и AGENTS.md. Реализовывать последовательно по этапам с checkbox-проверками. Применить superpowers:executing-plans или аналогичный workflow текущего окружения; делегирование — только по разрешённым в сессии правилам. Этот документ достаточен без истории диалога.
 
-**Дата:** 2026-10-13. **Статус:** этапы 1–2 реализованы; этапы 3–12 ожидают реализации. Рабочие env, БД и сервисы не изменены.
+**Дата:** 2026-10-13. **Статус:** этапы 1–3 реализованы; этапы 4–12 ожидают реализации. Рабочие env, БД и сервисы не изменены.
 
 **Goal:** сократить env до секретов, bootstrap/deployment-настроек и необходимых статических overrides; перенести управляемые настройки в БД с настоящим применением; убрать обязательное локальное хранение benchmark-истории, отчётов и checkpoints у S3 backend.
 
@@ -177,13 +177,69 @@
 
 **Interfaces:** async `seed_config_defaults(uow_factory)`, `load_config_from_db(uow_factory)`, `InfrastructureContainer.bootstrap_configuration()`; `ProviderConfigurationPort.validate_change(key: str, value: str) -> None`, adapter SettingsProviderConfiguration, DI в ConfigService.
 
-- [ ] Исключать готовые dynamic поля из env/dotenv sources; seed получать из defaults, не из уже мутированного singleton. Constructor kwargs/context overrides для tests/benchmark работают.
-- [ ] Запрет secret/static updates обеспечить в application/domain, не только в HTTP. Legacy DB rows/events не меняют secret env. Не использовать маскированное значение как новый секрет.
-- [ ] Global/domain bootstrap одинаков для API/worker/ML CLI; подписки до применения событий, ML calls после загрузки. Bootstrap admin не запускать из worker/CLI.
-- [ ] Secret/CORS/connection checks при старте сохранить, provider validation перенести после DB load. Обязательные seed/load/apply failures прерывают startup с cleanup.
-- [ ] Применять одну версию snapshot; пропущенный NOTIFY догонять существующим resync. Admin API показывает saved/applied version и ошибку применения без раскрытия credentials; определить минимальную process readiness через существующие heartbeat/health механизмы.
-- [ ] Тесты: DB beats legacy env, defaults при пустой БД, restart сохранения settings, DeepInfra production без TEI URL, missing key, malformed DB rows, lost NOTIFY, concurrent changes, worker/CLI cold start, cleanup после отказа.
-- [ ] Проверка: новые test_configuration_bootstrap.py/test_config_static_boundaries.py + существующие test_postgres_config_listener.py, test_domain_settings_hotreload.py, test_cli_domain_bootstrap.py.
+- [x] Исключать готовые dynamic поля из env/dotenv sources; seed получать из defaults, не из уже мутированного singleton. Constructor kwargs/context overrides для tests/benchmark работают.
+- [x] Запрет secret/static updates обеспечить в application/domain, не только в HTTP. Legacy DB rows/events не меняют secret env. Не использовать маскированное значение как новый секрет.
+- [x] Global/domain bootstrap одинаков для API/worker/ML CLI; подписки до применения событий, ML calls после загрузки. Bootstrap admin не запускать из worker/CLI.
+- [x] Secret/CORS/connection checks при старте сохранить, provider validation перенести после DB load. Обязательные seed/load/apply failures прерывают startup с cleanup.
+- [x] Применять одну версию snapshot; пропущенный NOTIFY догонять существующим resync. Admin API показывает saved/applied version и ошибку применения без раскрытия credentials; определить минимальную process readiness через существующие heartbeat/health механизмы.
+- [x] Тесты: DB beats legacy env, defaults при пустой БД, restart сохранения settings, DeepInfra production без TEI URL, missing key, malformed DB rows, lost NOTIFY, concurrent changes, worker/CLI cold start, cleanup после отказа.
+- [x] Проверка: новые test_configuration_bootstrap.py/test_config_static_boundaries.py + существующие test_postgres_config_listener.py, test_domain_settings_hotreload.py, test_cli_domain_bootstrap.py.
+
+**Результаты этапа 3 (2026-10-13):**
+
+- Общая ветка `configuration-management`. Рабочие env/secret-файлы, БД, Compose
+  services и Qdrant не изменялись. Пользовательские `.gitignore` и
+  `docs/operations/configuration.md` сохранены отдельно.
+- Env/dotenv фильтруются до декодирования для действующих DYNAMIC_PARAMS;
+  constructor kwargs и benchmark context overrides сохранены. Seed получает
+  объявленные defaults независимо от singleton и сохраняет existing DB rows.
+  Endpoints/pools, quotas, upload/retention, cost controls и corpus ожидают своих этапов.
+- S3 connection/credentials исключены из действующего registry. Application
+  запрещает secret/static/pending updates, включая не-HTTP вызовы. Legacy events
+  не меняют credentials/storage и не выводят deployment values в audit log.
+- `seed_config_defaults`, `load_config_from_db` и
+  `InfrastructureContainer.bootstrap_configuration()` объединяют global/domain
+  загрузку API, worker, ingestion CLI и config resync. InfrastructureContainer
+  владеет подписками; bootstrap admin запускается только в API.
+- Security/CORS checks сохранены в Settings. Provider validation — после DB load,
+  до ML, с обязательными API keys. DeepInfra production работает без TEI URL.
+  Обязательные seed/load/validation/reaction failures прерывают startup с cleanup.
+- Snapshot валидируется по каноническим определениям перед синхронным применением
+  global/domain значений без await; обязательные реакции вызываются strict publish.
+  Ошибка сохраняет предыдущие значения/applied version, readiness отрицательная.
+  После bootstrap snapshot обязан быть полным. Версия — SHA-256 управляемых rows,
+  без secrets/static values; новая схема БД не потребовалась.
+- Admin-only `GET /admin/config/status` показывает saved/applied version, ready
+  и безопасную ошибку текущего API-процесса. Это не подтверждение версии всех
+  replicas/worker; координация обслуживающих процессов остаётся этапу 8.
+  API `/ready` учитывает application status; worker проходит bootstrap до завершения
+  Arq on_startup. Live readiness/heartbeat не проверялись.
+- NOTIFY инициирует чтение актуального writer snapshot. Fetch/apply сериализованы
+  asyncio lock, seed/update — общим PostgreSQL transaction advisory lock.
+  DB transaction завершается перед apply/reactions. Сохранён periodic resync API,
+  worker получает periodic resync каждые 60 с.
+- Baseline: из server `.venv/bin/pytest tests/test_configuration_sources.py
+  tests/test_postgres_config_listener.py tests/test_domain_settings_hotreload.py
+  tests/test_cli_domain_bootstrap.py -q` → **46 passed**.
+- RED bootstrap/boundary контрактов → **81 failed, 11 errors** (нет новых интерфейсов,
+  действуют legacy env/update пути). Дополнительные status/domain completeness
+  сценарии подтверждены RED→GREEN. Итоговая выборка новых tests + sources/listener/
+  domain/CLI/container/LLM wiring/worker lifecycle → **189 passed**.
+- Полный `.venv/bin/pytest -q` из server вне sandbox → **2840 passed, 46 skipped,
+  13 существующих warnings**. Sandbox воспроизводит threadpool/asyncio.to_thread
+  таймауты; opt-in PostgreSQL/MinIO/Redis integrations и нагрузка не запускались.
+- `ruff check app tests`, format check 33 затронутых Python-файлов,
+  `git diff --check`, domain/application import checks → без нарушений.
+  `task lint` недоступен из-за snap launcher; его команды выполнены напрямую.
+  `mypy app` → **6 существующих ошибок** в config_migration.py
+  (137, 145, 176, 219, 292, 297). Архив исходного HEAD в /tmp дал те же ошибки;
+  новых ошибок типов в этапе 3 нет.
+- Независимый read-only reviewer нашёл оставшийся legacy config resync.
+  Находка повышена с Minor до Important: ложный успех на malformed DB settings
+  нарушал контракт этапа. Исправлено одним fix pass: два CLI теста
+  **RED (2 failed) → GREEN**, затем полный suite выше. Команда применяет snapshot
+  в собственном процессе и не обещает принудительный resync соседних процессов.
+  Незакрытых находок reviewer нет; повторное ревью не запускалось.
 
 ### Этап 4. Динамические ML endpoints и явно названные HTTP pools
 
@@ -527,4 +583,4 @@
 
 Стартовый запрос исполнителю: «Реализуй этот план по этапам. Начни с проверки текущего checkout и baseline tests. Сохрани production invariants и текущие значения. Не выполняй live migrate-env --apply, переключение Qdrant, deploy или recreate сервисов без авторизации. После каждого этапа записывай проверенные результаты и обновляй checklist. Не добавляй TOML/YAML и не показывай неработающие настройки как действующие».
 
-Этапы 1–2 реализованы и проверены (результаты выше). Код изменён; рабочие БД, env и сервисы не изменены. Этапы 3–12 не выполнялись. Фактические значения конфигурации БД/цены провайдеров/live переключение ещё не проверены.
+Этапы 1–3 реализованы и проверены (результаты выше). Код изменён; рабочие БД, env и сервисы не изменены. Этапы 4–12 не выполнялись. Фактические значения конфигурации БД/цены провайдеров/live переключение ещё не проверены.
