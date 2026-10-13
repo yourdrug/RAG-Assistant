@@ -2,7 +2,7 @@
 
 > **Для агента-исполнителя:** прочитать этот файл целиком и AGENTS.md. Реализовывать последовательно по этапам с checkbox-проверками. Применить superpowers:executing-plans или аналогичный workflow текущего окружения; делегирование — только по разрешённым в сессии правилам. Этот документ достаточен без истории диалога.
 
-**Дата:** 2026-10-13. **Статус:** этап 1 реализован; этапы 2–12 ожидают реализации. Рабочие env, БД и сервисы не изменены.
+**Дата:** 2026-10-13. **Статус:** этапы 1–2 реализованы; этапы 3–12 ожидают реализации. Рабочие env, БД и сервисы не изменены.
 
 **Goal:** сократить env до секретов, bootstrap/deployment-настроек и необходимых статических overrides; перенести управляемые настройки в БД с настоящим применением; убрать обязательное локальное хранение benchmark-истории, отчётов и checkpoints у S3 backend.
 
@@ -113,13 +113,63 @@
 
 **Interface:** `python main.py config migrate-env --env-file PATH` — dry run по умолчанию; `--apply` выполняет перенос. Функция `async migrate_env_configuration(uow_factory, env_file: Path, apply: bool = False) -> None`.
 
-- [ ] Читать старый env установленным dotenv parser, независимо от будущей фильтрации Settings. Выводить имена ключей и действия, не секретные значения.
-- [ ] Existing DB rows сохранять. Отсутствующие rows заполнить валидированными legacy values с правильным domain_key. Для новых динамических адресов/pool/quotas/retention переносить действующие overrides, не заменять defaults.
-- [ ] S3 endpoint/bucket/region/credentials из БД сверить с окружением: несовпадение блокирует очистку с перечислением ключей. Не выбирать автоматически один секрет из двух разных значений.
-- [ ] Удалить согласованные legacy S3 DB rows только после проверки сохранения подключения. Перед правками создать защищённый локальный backup env (0600). DB commit предшествует атомарной замене env; ошибка записи оставляет безопасно повторяемый перенос. Missing credential блокирует apply.
-- [ ] Подготовить COMPOSE_PROFILES из прежнего deployment выбора TEI. Реестр признаёт dynamic ключ только после готовности соответствующего этапа; команда не удаляет env для ещё не внедрённого поведения.
-- [ ] Тесты: dry run без mutations, двойной apply без дублей, env/DB conflict, domain rows, S3 mismatch, commit/file-write failures, отсутствие секретов в logs.
-- [ ] Проверка: `cd server && .venv/bin/pytest tests/test_config_env_migration.py -q`.
+- [x] Читать старый env установленным dotenv parser, независимо от будущей фильтрации Settings. Выводить имена ключей и действия, не секретные значения.
+- [x] Existing DB rows сохранять. Отсутствующие rows заполнить валидированными legacy values с правильным domain_key. Для новых динамических адресов/pool/quotas/retention переносить действующие overrides, не заменять defaults.
+- [x] S3 endpoint/bucket/region/credentials из БД сверить с окружением: несовпадение блокирует очистку с перечислением ключей. Не выбирать автоматически один секрет из двух разных значений.
+- [x] Удалить согласованные legacy S3 DB rows только после проверки сохранения подключения. Перед правками создать защищённый локальный backup env (0600). DB commit предшествует атомарной замене env; ошибка записи оставляет безопасно повторяемый перенос. Missing credential блокирует apply.
+- [x] Подготовить COMPOSE_PROFILES из прежнего deployment выбора TEI. Реестр признаёт dynamic ключ только после готовности соответствующего этапа; команда не удаляет env для ещё не внедрённого поведения.
+- [x] Тесты: dry run без mutations, двойной apply без дублей, env/DB conflict, domain rows, S3 mismatch, commit/file-write failures, отсутствие секретов в logs.
+- [x] Проверка: `cd server && .venv/bin/pytest tests/test_config_env_migration.py -q`.
+
+**Результаты этапа 2 (2026-10-13):**
+
+- Добавлена команда `python main.py config migrate-env --env-file PATH` (из `server/app/`).
+  Без `--apply` выполняются чтение БД и отчёт об именах/действиях; записи,
+  backup и изменения файлов отсутствуют. Команда освобождает DB connection при отказе.
+- Existing `(key, domain_key)` не перезаписываются. Legacy values валидируются по
+  типам Settings и ограничениям DYNAMIC_PARAMS; scoped chunk settings сохраняют
+  legal/decree scope. INSERT использует существующий unique constraint: конкурентная
+  вставка приводит к rollback, а не перезаписи чужого значения.
+- Будущие keys сохраняются с category `migration_pending`, без включения в активный
+  registry; frontend не включает эту категорию в editable tabs. Все dynamic строки
+  env остаются до готовности этапов 3–12. HTTP pools сохраняют старую арифметику
+  `// 2`, включая нечётные overrides; конфликт старого/нового имени блокирует перенос.
+- S3 rows всех scopes удаляются только при точном совпадении с effective env/secrets
+  и наличии обязательных credentials. Сетевой S3 probe не выполняется: проверяется
+  сохранение подключения по значениям, live доступ нужно подтвердить в этапе 12.
+- Секреты из PATH переносятся в соседний `PATH.secrets` (для `.env` — `.env.secrets`).
+  Несовпадения между env, secret-файлом и экспортированным окружением блокируются.
+  Пустой ключ неиспользуемого провайдера разрешён; обязательные DB/Redis/JWT/S3 и
+  provider credentials проверяются по используемой конфигурации, включая DB provider.
+- До DB mutations создаются уникальные соседние `*.backup-*` обоих существующих
+  файлов с mode 0600. После commit выполняются fsync и атомарные замены: сначала
+  secret-файл, затем env. Частичный отказ безопасен для повтора; обнаруженная правка
+  оператора после чтения не перезаписывается. Secret-файл получает mode 0600.
+  Backup/temp patterns добавлены в gitignore.
+- Решения: продолжена общая ветка `configuration-management`; live apply выполняется
+  только в согласованное окно этапа 12 с остановленными старыми writers. До этапа 3
+  старый bootstrap ещё может снова seed S3 rows, поэтому production migration сейчас
+  не запускалась. Dotenv interpolation отключена: unresolved dynamic/secret `${...}`
+  требует явного значения, чтобы не сохранить данные из постороннего окружения.
+- Baseline config/domain: **19 passed**. RED исходного мигратора: **15 failed**;
+  дополнительные RED проверки: source conflict, secret permissions, missing provider,
+  новые pool names, optional blank key и регистронезависимые env-имена.
+  Итоговый migration/CLI набор: **29 passed** (`cd server && .venv/bin/pytest
+  tests/test_config_env_migration.py -q`), 5 существующих deprecation warnings.
+- `UV_OFFLINE=true task lock` обновил uv.lock: уже установленный python-dotenv 1.0.1
+  объявлен прямой зависимостью, новые пакеты не добавлены. Ruff check/format затронутых
+  файлов, `git diff --check`, domain/application import checks — без нарушений.
+- Тесты с asyncio.to_thread внутри sandbox зависали в ожидании callback event loop;
+  разрешённый запуск вне sandbox устранил зависание. Итоговая полная проверка:
+  `cd server && .venv/bin/pytest -q` → **2719 passed, 46 skipped, 13 warnings**.
+  Opt-in PostgreSQL/MinIO/Redis integrations не запускались; live доступ S3/БД
+  и фактические production values не проверены.
+- Отдельный финальный reviewer не запустился из-за usage limit сервиса. Выполнен
+  самостоятельный review, найденные проблемы pool migration, optional credentials
+  и регистронезависимых secret keys покрыты RED→GREEN тестами.
+  Независимый review остаётся непроведённым.
+
+Рабочие env/secret-файлы, БД, Compose services и Qdrant не изменялись.
 
 ### Этап 3. Единая загрузка конфигурации и границы управления
 
@@ -477,4 +527,4 @@
 
 Стартовый запрос исполнителю: «Реализуй этот план по этапам. Начни с проверки текущего checkout и baseline tests. Сохрани production invariants и текущие значения. Не выполняй live migrate-env --apply, переключение Qdrant, deploy или recreate сервисов без авторизации. После каждого этапа записывай проверенные результаты и обновляй checklist. Не добавляй TOML/YAML и не показывай неработающие настройки как действующие».
 
-Этап 1 реализован и проверен (результаты выше). Код изменён; рабочие БД, env и сервисы не изменены. Этапы 2–12 не выполнялись. Фактические значения конфигурации БД/цены провайдеров/live переключение ещё не проверены.
+Этапы 1–2 реализованы и проверены (результаты выше). Код изменён; рабочие БД, env и сервисы не изменены. Этапы 3–12 не выполнялись. Фактические значения конфигурации БД/цены провайдеров/live переключение ещё не проверены.

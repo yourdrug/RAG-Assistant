@@ -11,11 +11,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
+from pathlib import Path
 
 import typer
 from config import settings
 from domain.events.config_events import ConfigParameterChanged
 from infrastructure.database.database import database
+from infrastructure.config_migration import migrate_env_configuration
 from infrastructure.events.in_process_event_bus import event_bus
 from infrastructure.ml.config.config_subscribers import apply_to_settings
 from infrastructure.uow_factory import UnitOfWorkFactory
@@ -23,6 +25,32 @@ from infrastructure.uow_factory import UnitOfWorkFactory
 logger = logging.getLogger("cli")
 
 config_app = typer.Typer(help="Manage dynamic configuration")
+
+
+async def run_env_migration(env_file: Path, apply: bool) -> None:
+    try:
+        await database.connect()
+        await migrate_env_configuration(UnitOfWorkFactory(database=database), env_file, apply)
+    finally:
+        await database.disconnect()
+
+
+@config_app.command("migrate-env")
+def config_migrate_env(
+    env_file: Path = typer.Option(..., "--env-file", exists=True, file_okay=True, dir_okay=False),
+    apply: bool = typer.Option(False, "--apply", help="Commit migration; default is a read-only dry run"),
+) -> None:
+    """Migrate legacy env offline, preserving existing DB values and secrets."""
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    try:
+        asyncio.run(run_env_migration(env_file, apply))
+    except ValueError as exc:
+        logger.error("Config migration blocked: %s", exc)
+        raise typer.Exit(1) from None
+    except Exception:
+        # DB and filesystem exception details can contain credentials/values.
+        logger.error("Config migration failed; env backup retained. Fix the failure and retry.")
+        raise typer.Exit(1) from None
 
 
 @config_app.command("resync")

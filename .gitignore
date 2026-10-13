@@ -57,3 +57,5 @@ loadtest/data/test_users.json
 .deploy/
 .operations.env
 backups/
+*.backup-*
+*.migration-*

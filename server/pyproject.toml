@@ -21,6 +21,7 @@ dependencies = [
     # --- Validation ---
     "pydantic==2.9.2",
     "pydantic-settings==2.6.1",
+    "python-dotenv==1.0.1",  # Existing parser, now used directly by the migration CLI
     "email-validator>=2.0.0",
     # --- Database ---
     "sqlalchemy==2.0.35",
