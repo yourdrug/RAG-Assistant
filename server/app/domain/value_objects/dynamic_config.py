@@ -31,6 +31,7 @@ SECRET_SETTING_KEYS: frozenset[str] = frozenset(
 
 STATIC_SETTING_KEYS: frozenset[str] = frozenset(
     {
+        "ml_internal_allowed_origins",
         "db_host",
         "db_port",
         "db_user",
@@ -181,7 +182,7 @@ TARGET_DYNAMIC_SETTING_KEYS: frozenset[str] = frozenset(
     }
 )
 
-# Legacy pool fields stay in Settings until stage 4 migrates their effective limits.
+# Legacy names are recognized only by the offline migration parser.
 LEGACY_POOL_SETTING_KEYS: frozenset[str] = frozenset({"http_pool_max_connections", "http_pool_max_keepalive"})
 
 
@@ -200,6 +201,15 @@ class DynamicParam:
 
 
 DYNAMIC_PARAMS: list[DynamicParam] = [
+    DynamicParam("ollama_base_url", str, "llm", "Ollama endpoint (deployment-approved origin)"),
+    DynamicParam("openrouter_base_url", str, "openrouter", "OpenRouter endpoint (canonical HTTPS origin)"),
+    DynamicParam("tei_embed_url", str, "ml", "TEI embedding endpoint (same model identity required)"),
+    DynamicParam("tei_rerank_url", str, "ml", "TEI reranker endpoint (deployment-approved origin)"),
+    DynamicParam("deepinfra_base_url", str, "ml", "DeepInfra endpoint (canonical HTTPS origin)"),
+    DynamicParam("embedding_http_max_connections", int, "ml", "Embedding HTTP connections per process", 1),
+    DynamicParam("embedding_http_max_keepalive_connections", int, "ml", "Embedding idle HTTP connections", 0),
+    DynamicParam("rerank_http_max_connections", int, "ml", "Reranker HTTP connections per process", 1),
+    DynamicParam("rerank_http_max_keepalive_connections", int, "ml", "Reranker idle HTTP connections", 0),
     # ── RAG ─────────────────────────────────────────────────────
     DynamicParam("retriever_fetch_k", int, "rag", "Retriever fetch count (narrow)", 1, 200),
     DynamicParam("retriever_top_k", int, "rag", "Retriever top-k (narrow)", 1, 50),

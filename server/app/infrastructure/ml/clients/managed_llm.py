@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
 from langchain_core.runnables import Runnable
+from infrastructure.ml.clients.client_lease import active_client_leases
 from infrastructure.ml.usage_capture import (
     UsageCapturingCompletions,
     active_llm_usage,
@@ -66,14 +67,16 @@ class ManagedLLM(Runnable):
         return getattr(self.client, name)
 
     @asynccontextmanager
-    async def _lease(self):
-        if self._retired:
+    async def lease(self):
+        if self._retired and id(self) not in active_client_leases.get():
             raise RuntimeError("LLM client was retired; acquire the current client from the registry")
+        token = active_client_leases.set(active_client_leases.get() | {id(self)})
         self._active += 1
         self._idle.clear()
         try:
             yield
         finally:
+            active_client_leases.reset(token)
             self._active -= 1
             if self._active == 0:
                 self._idle.set()
@@ -82,7 +85,7 @@ class ManagedLLM(Runnable):
         raise RuntimeError("Managed LLM clients require async invocation")
 
     async def ainvoke(self, input, config=None, **kwargs):
-        async with self._lease():
+        async with self.lease():
             response = await self.client.ainvoke(input, config=config, **kwargs)
             record_model_response(
                 response, model=getattr(self.client, 'model_name', '') or getattr(self.client, 'model', '')
@@ -90,7 +93,7 @@ class ManagedLLM(Runnable):
             return response
 
     async def astream(self, input, config=None, **kwargs):
-        async with self._lease():
+        async with self.lease():
             accumulated = None
             metadata: dict = {}
             raw_response: dict = {}
@@ -120,9 +123,9 @@ class ManagedLLM(Runnable):
         except RuntimeError:
             return  # Shutdown will close it when invalidation came from a sync caller.
         if self._close_task is None:
-            self._close_task = loop.create_task(self._close_when_idle())
+            self._close_task = loop.create_task(self.close_when_idle())
 
-    async def _close_when_idle(self):
+    async def close_when_idle(self):
         await self._idle.wait()
         try:
             await close_llm_pools(self.client)
@@ -141,8 +144,8 @@ class ManagedInstructor(ManagedLLM):
 
     @property
     def chat(self):
-        return SimpleNamespace(completions=SimpleNamespace(create=self._create))
+        return SimpleNamespace(completions=SimpleNamespace(create=self.create))
 
-    async def _create(self, **kwargs):
-        async with self._lease():
+    async def create(self, **kwargs):
+        async with self.lease():
             return await self.client.chat.completions.create(**kwargs)

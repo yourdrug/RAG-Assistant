@@ -79,14 +79,14 @@ class TestApplicationContainer:
 
         configuration = SettingsProviderConfiguration(
             Settings(
-                _env_file=None, tei_embed_url="http://tei-embed:80", tei_rerank_url="http://tei-rerank:80"
+                _env_file=None, tei_embed_url="http://tei-embed:8080", tei_rerank_url="http://tei-rerank:8080"
             ),
             bus=bus,
         )
         # LivePIIRedactor consumes the process singleton, so apply to that instance.
         configuration.settings = settings
-        monkeypatch.setattr(settings, "tei_embed_url", "http://tei-embed:80")
-        monkeypatch.setattr(settings, "tei_rerank_url", "http://tei-rerank:80")
+        monkeypatch.setattr(settings, "tei_embed_url", "http://tei-embed:8080")
+        monkeypatch.setattr(settings, "tei_rerank_url", "http://tei-rerank:8080")
         container.infrastructure.configuration = configuration
 
         chat_redactor = container.application.chat_service._pii_redactor
@@ -304,7 +304,7 @@ class TestSubscribeConfigEvents:
         c = Container()
         mock_ml = MagicMock()
         c.infrastructure.ml.ml_clients = mock_ml
-        c.infrastructure.configuration = MagicMock(applying=True)
+        c.infrastructure.configuration = MagicMock(applying=True, switching_clients=False)
 
         with patch("composition.infrastructure.event_bus") as mock_bus:
             c.subscribe_config_events()

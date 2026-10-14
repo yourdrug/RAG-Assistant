@@ -1,6 +1,7 @@
 """Three independent judge requests with per-metric validation and recovery."""
 
 import asyncio
+import httpx
 import json
 import time
 from uuid import uuid4
@@ -75,6 +76,7 @@ def create_async_judge_client() -> AsyncOpenAI:
         api_key=settings.openrouter_api_key if remote else "ollama",
         timeout=settings.llm_auxiliary_timeout,
         max_retries=0,
+        http_client=httpx.AsyncClient(follow_redirects=False),
     )
 
 

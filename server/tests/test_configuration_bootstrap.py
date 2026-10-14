@@ -29,7 +29,7 @@ def configuration():
     from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
 
     model = Settings(
-        _env_file=None, tei_embed_url="http://tei-embed:80", tei_rerank_url="http://tei-rerank:80"
+        _env_file=None, tei_embed_url="http://tei-embed:8080", tei_rerank_url="http://tei-rerank:8080"
     )
     adapter = DomainSettingsAdapter()
     registry = DomainProfileRegistry()

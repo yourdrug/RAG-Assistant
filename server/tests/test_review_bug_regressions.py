@@ -33,8 +33,8 @@ async def test_broad_config_rebuilds_cached_llm(monkeypatch, key):
     from domain.entities.config_parameter import ConfigParameter
 
     monkeypatch.setattr("composition.infrastructure.event_bus", bus)
-    monkeypatch.setattr(settings, "tei_embed_url", "http://tei-embed:80")
-    monkeypatch.setattr(settings, "tei_rerank_url", "http://tei-rerank:80")
+    monkeypatch.setattr(settings, "tei_embed_url", "http://tei-embed:8080")
+    monkeypatch.setattr(settings, "tei_rerank_url", "http://tei-rerank:8080")
     container.infrastructure.configuration = SettingsProviderConfiguration(bus=bus)
     container.subscribe_config_events()
     try:

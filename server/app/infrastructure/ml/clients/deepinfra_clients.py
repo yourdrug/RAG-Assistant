@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 
 import httpx
+from infrastructure.ml.clients.managed_http import ManagedHTTPPool
 from infrastructure.ml.usage_capture import record_inference_response
 
 log = logging.getLogger("default")
@@ -20,7 +21,7 @@ log = logging.getLogger("default")
 DEEPINFRA_TIMEOUT = 60.0
 
 
-class DeepInfraEmbeddingsClient:
+class DeepInfraEmbeddingsClient(ManagedHTTPPool):
     """Embedding client using DeepInfra OpenAI-compatible /embeddings endpoint."""
 
     embedding_identity: str
@@ -32,15 +33,15 @@ class DeepInfraEmbeddingsClient:
         self._base_url = base_url.rstrip("/")
         self._model = model
         limits = pool_limits or httpx.Limits(max_connections=20, max_keepalive_connections=10)
-        self._client = httpx.AsyncClient(timeout=DEEPINFRA_TIMEOUT, limits=limits)
+        super().__init__(DEEPINFRA_TIMEOUT, limits)
 
-    def _headers(self) -> dict[str, str]:
+    def headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._api_key}"}
 
     async def embed_query(self, text: str) -> list[float]:
-        r = await self._client.post(
+        r = await self.post(
             f"{self._base_url}/embeddings",
-            headers=self._headers(),
+            headers=self.headers(),
             json={"input": text, "model": self._model, "encoding_format": "float"},
         )
         r.raise_for_status()
@@ -51,9 +52,9 @@ class DeepInfraEmbeddingsClient:
     async def embed_documents(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
-        r = await self._client.post(
+        r = await self.post(
             f"{self._base_url}/embeddings",
-            headers=self._headers(),
+            headers=self.headers(),
             json={"input": texts, "model": self._model, "encoding_format": "float"},
         )
         r.raise_for_status()
@@ -66,7 +67,7 @@ class DeepInfraEmbeddingsClient:
         with httpx.Client(timeout=DEEPINFRA_TIMEOUT) as client:
             r = client.post(
                 f"{self._base_url}/embeddings",
-                headers=self._headers(),
+                headers=self.headers(),
                 json={"input": text, "model": self._model, "encoding_format": "float"},
             )
             r.raise_for_status()
@@ -74,11 +75,8 @@ class DeepInfraEmbeddingsClient:
             record_inference_response(data, model=self._model, operation='embedding')
             return data["data"][0]["embedding"]
 
-    async def close(self) -> None:
-        await self._client.aclose()
 
-
-class DeepInfraRerankerClient:
+class DeepInfraRerankerClient(ManagedHTTPPool):
     """Reranking client using DeepInfra native /inference/{model} endpoint.
 
     Interface matches TEIRerankerClient: .predict(pairs) and .predict_sync(pairs).
@@ -91,9 +89,9 @@ class DeepInfraRerankerClient:
         self._base_url = base_url.rstrip("/")
         self._model = model
         limits = pool_limits or httpx.Limits(max_connections=10, max_keepalive_connections=5)
-        self._client = httpx.AsyncClient(timeout=DEEPINFRA_TIMEOUT, limits=limits)
+        super().__init__(DEEPINFRA_TIMEOUT, limits)
 
-    def _headers(self) -> dict[str, str]:
+    def headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._api_key}"}
 
     async def predict(self, pairs: list[tuple[str, str]]) -> list[float]:
@@ -102,9 +100,9 @@ class DeepInfraRerankerClient:
         query = pairs[0][0]
         documents = [p[1] for p in pairs]
         payload = {"queries": [query], "documents": documents}
-        r = await self._client.post(
+        r = await self.post(
             f"{self._base_url}/inference/{self._model}",
-            headers=self._headers(),
+            headers=self.headers(),
             json=payload,
         )
         r.raise_for_status()
@@ -121,13 +119,10 @@ class DeepInfraRerankerClient:
         with httpx.Client(timeout=DEEPINFRA_TIMEOUT) as client:
             r = client.post(
                 f"{self._base_url}/inference/{self._model}",
-                headers=self._headers(),
+                headers=self.headers(),
                 json=payload,
             )
             r.raise_for_status()
             data = r.json()
             record_inference_response(data, model=self._model, operation='reranking')
             return data["scores"]
-
-    async def close(self) -> None:
-        await self._client.aclose()

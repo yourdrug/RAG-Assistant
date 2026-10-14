@@ -2,6 +2,7 @@
 
 import re
 
+from infrastructure.ml.clients.client_lease import client_operation
 from infrastructure.ml.clients.llm_schemas import RelevanceCheck
 from infrastructure.ml.rag.rag_formatting import format_docs
 
@@ -33,25 +34,26 @@ async def check_relevance(ml_clients, question: str, docs: list) -> tuple[bool, 
     client = ml_clients.instructor_client
     model = settings.llm_model if settings.llm_provider == LLMProvider.OLLAMA else settings.openrouter_model
 
-    try:
-        result = await asyncio.wait_for(
-            client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": RELEVANCE_SYSTEM},
-                    {"role": "user", "content": prompt_text},
-                ],
-                response_model=RelevanceCheck,
-                max_retries=1,
-            ),
-            timeout=settings.llm_auxiliary_timeout,
-        )
-    except TimeoutError as exc:
-        raise TimeoutError(
-            f"RAG relevance gate LLM request timed out "
-            f"(provider={settings.llm_provider}, model={model}, "
-            f"LLM_AUXILIARY_TIMEOUT={settings.llm_auxiliary_timeout}s)"
-        ) from exc
+    async with client_operation(client):
+        try:
+            result = await asyncio.wait_for(
+                client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": RELEVANCE_SYSTEM},
+                        {"role": "user", "content": prompt_text},
+                    ],
+                    response_model=RelevanceCheck,
+                    max_retries=1,
+                ),
+                timeout=settings.llm_auxiliary_timeout,
+            )
+        except TimeoutError as exc:
+            raise TimeoutError(
+                f"RAG relevance gate LLM request timed out "
+                f"(provider={settings.llm_provider}, model={model}, "
+                f"LLM_AUXILIARY_TIMEOUT={settings.llm_auxiliary_timeout}s)"
+            ) from exc
 
     return result.is_relevant, result.reason
 

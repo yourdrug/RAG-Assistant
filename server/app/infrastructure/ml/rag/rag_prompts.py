@@ -10,6 +10,7 @@ from domain.services.rag_policy import build_context_message, build_system_promp
 from domain.value_objects.message_role import MessageRole
 from domain.exceptions import ContextBudgetExceededError
 from infrastructure.ml.rag.prompt_budget import estimate_message_tokens
+from infrastructure.ml.clients.client_lease import client_operation
 from infrastructure.ml.clients.llm_schemas import DecompositionCheck
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from tenacity import (
@@ -67,11 +68,12 @@ async def condense_question(llm, question: str, history_messages: list, ml_clien
             timeout=settings.llm_auxiliary_timeout,
         )
 
-    if ml_clients is not None:
-        async with ml_clients.auxiliary_semaphore:
+    async with client_operation(llm):
+        if ml_clients is not None:
+            async with ml_clients.auxiliary_semaphore:
+                result = await _call()
+        else:
             result = await _call()
-    else:
-        result = await _call()
 
     condensed = result.content.strip()
 
@@ -152,11 +154,12 @@ async def decompose_question(
             timeout=_settings.llm_auxiliary_timeout,
         )
 
-    if ml_clients is not None:
-        async with ml_clients.auxiliary_semaphore:
+    async with client_operation(instructor_client):
+        if ml_clients is not None:
+            async with ml_clients.auxiliary_semaphore:
+                result = await _call()
+        else:
             result = await _call()
-    else:
-        result = await _call()
 
     if not result.needs_decomposition or not result.sub_queries:
         log.info("Decomposition not needed; question_chars=%d", len(question))

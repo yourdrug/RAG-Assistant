@@ -18,6 +18,7 @@ from domain.services.evidence_queries import evidence_search_queries
 from langchain.schema import Document as LCDocument
 
 from domain.utils import content_hash
+from infrastructure.ml.clients.client_lease import client_operation
 from infrastructure.ml.clients.llm_schemas import SufficiencyAssessment
 from infrastructure.ml.rag.rag_formatting import format_docs
 from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata
@@ -227,24 +228,25 @@ async def assess_sufficiency(
     breaker = get_breaker("llm_auxiliary")
     breaker.check_open()
 
-    async with ml_clients.auxiliary_semaphore:
-        try:
-            result = await asyncio.wait_for(
-                llm_client.chat.completions.create(
-                    model=model,
-                    messages=[
-                        {"role": "system", "content": SUFFICIENCY_ASSESSMENT_SYSTEM},
-                        {"role": "user", "content": user_msg},
-                    ],
-                    response_model=SufficiencyAssessment,
-                    max_retries=1,
-                ),
-                timeout=settings.llm_auxiliary_timeout,
-            )
-        except Exception:
-            await breaker.report_failure()
-            raise
-        await breaker.report_success()
+    async with client_operation(llm_client):
+        async with ml_clients.auxiliary_semaphore:
+            try:
+                result = await asyncio.wait_for(
+                    llm_client.chat.completions.create(
+                        model=model,
+                        messages=[
+                            {"role": "system", "content": SUFFICIENCY_ASSESSMENT_SYSTEM},
+                            {"role": "user", "content": user_msg},
+                        ],
+                        response_model=SufficiencyAssessment,
+                        max_retries=1,
+                    ),
+                    timeout=settings.llm_auxiliary_timeout,
+                )
+            except Exception:
+                await breaker.report_failure()
+                raise
+            await breaker.report_success()
     return result
 
 

@@ -8,6 +8,7 @@ forwards the event to the broadcaster atomically with the transaction commit.
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 
 from application.ports.event_bus import EventBus
 from application.ports.provider_configuration import ProviderConfigurationPort, ConfigurationStatus
@@ -16,6 +17,7 @@ from domain.events.config_events import ConfigParameterChanged
 from domain.exceptions import EntityNotFound, ValidationError
 from domain.value_objects.dynamic_config import (
     DYNAMIC_FIELDS_MAP,
+    DYNAMIC_PARAMS,
     SECRET_SETTING_KEYS,
     STATIC_SETTING_KEYS,
     METADATA_SETTING_KEYS,
@@ -46,12 +48,25 @@ class ConfigService:
     async def list_parameters(self) -> list[ConfigParameter]:
         async with self._uow_factory.create() as uow:
             rows = await uow.config_parameters.get_all()
-        return [
-            row
-            for row in rows
-            if row.key.lower() not in SECRET_SETTING_KEYS | STATIC_SETTING_KEYS
-            and (row.domain_key is not None or row.key in DYNAMIC_FIELDS_MAP)
-        ]
+        declarations = {(param.key, param.domain_key): param for param in DYNAMIC_PARAMS}
+        result = []
+        for row in rows:
+            if row.key.lower() in SECRET_SETTING_KEYS | STATIC_SETTING_KEYS:
+                continue
+            if row.domain_key is None and row.key not in DYNAMIC_FIELDS_MAP:
+                continue
+            declaration = declarations.get((row.key, row.domain_key))
+            if declaration is not None:
+                row = replace(
+                    row,
+                    category=declaration.category,
+                    description=declaration.description,
+                    min_value=declaration.min_val,
+                    max_value=declaration.max_val,
+                    allowed_values=declaration.allowed,
+                )
+            result.append(row)
+        return result
 
     async def update_parameter(
         self,
@@ -64,20 +79,33 @@ class ConfigService:
             raise ValidationError(f"'{key}' is managed by deployment configuration")
         if domain_key is None and key not in DYNAMIC_FIELDS_MAP:
             raise ValidationError(f"'{key}' is not an active dynamic parameter")
+        validated_version = None
+        if self._provider_configuration is not None:
+            # Network preparation must finish before opening the write transaction.
+            async with self._uow_factory.create(master=True) as uow:
+                rows = await uow.config_parameters.get_all()
+            if not any((row.key, row.domain_key) == (key, domain_key) for row in rows):
+                raise EntityNotFound("ConfigParameter", f"{key}[domain={domain_key or 'global'}]")
+            validated_version = self._provider_configuration.status_for(rows).saved_version
+            await self._provider_configuration.validate_snapshot_change(rows, key, raw_value, domain_key)
         async with self._uow_factory.create(master=True) as uow:
             await uow.config_parameters.lock_configuration()
+            if self._provider_configuration is not None:
+                latest = await uow.config_parameters.get_all()
+                if self._provider_configuration.status_for(latest).saved_version != validated_version:
+                    raise ValidationError("Configuration changed during preparation; reload and retry")
             param = await uow.config_parameters.get_by_key_and_domain(key, domain_key)
             if param is None:
                 raise EntityNotFound("ConfigParameter", f"{key}[domain={domain_key or 'global'}]")
 
             normalized = param.normalize(raw_value)
             param.validate(normalized)
-            if self._provider_configuration is not None:
-                if domain_key is None:
-                    self._provider_configuration.validate_change(key, normalized)
-                else:
-                    self._provider_configuration.validate_domain_change(key, normalized, domain_key)
-            elif key in {"ml_provider", "llm_provider"}:
+            if self._provider_configuration is None and (
+                key in {"ml_provider", "llm_provider", "deepinfra_embed_model", "deepinfra_rerank_model"}
+                or key.endswith("_base_url")
+                or key in {"tei_embed_url", "tei_rerank_url"}
+                or "_http_" in key
+            ):
                 raise ValidationError("Provider configuration validation is required")
             old_value = param.value
 

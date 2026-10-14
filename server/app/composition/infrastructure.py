@@ -26,6 +26,7 @@ from domain.domain_profile.registry import DomainProfileRegistry
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from infrastructure.initialization import seed_domain_config_defaults, seed_config_defaults
 from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
+from infrastructure.benchmark.judge import close_judge_clients
 from infrastructure.ml.config.config_subscribers import (
     audit_log_config_change,
     invalidate_paddle_ocr_cache,
@@ -383,6 +384,7 @@ class InfrastructureContainer:
             domain_settings=self.domain_settings,
             registry=self.domain_registry,
             bus=event_bus,
+            ml_clients=self.ml.clients,
         )
         if self.events.config_listener is None:
             raise RuntimeError("Config listener must be initialized")
@@ -429,6 +431,10 @@ class InfrastructureContainer:
         if self.configuration is None or not self.configuration.applying:
             return
         ml = self.ml.clients
+        if self.configuration.switching_clients:
+            if event.key == "hybrid_enabled":
+                ml.invalidate_bm25()
+            return
         if event.key in {
             "llm_provider",
             "llm_model",
@@ -499,23 +505,26 @@ class InfrastructureContainer:
         the future, add ``self.db.dispose()`` here.
         """
         try:
-            if self.rate_limit is not None:
-                await self.rate_limit.aclose()
-                self.rate_limit = None
+            await close_judge_clients()
         finally:
             try:
-                await self.events.dispose()
+                if self.rate_limit is not None:
+                    await self.rate_limit.aclose()
+                    self.rate_limit = None
             finally:
                 try:
-                    if self.ml.ml_clients is not None:
-                        await self.ml.ml_clients.close()
-                        self.ml.ml_clients = None
+                    await self.events.dispose()
                 finally:
                     try:
-                        if self.ml.file_storage is not None:
-                            await self.ml.file_storage.aclose()
+                        if self.ml.ml_clients is not None:
+                            await self.ml.ml_clients.close()
+                            self.ml.ml_clients = None
                     finally:
-                        self.ml.dispose()
-                        self.unsubscribe_config_events()
-                        self._initialized = False
+                        try:
+                            if self.ml.file_storage is not None:
+                                await self.ml.file_storage.aclose()
+                        finally:
+                            self.ml.dispose()
+                            self.unsubscribe_config_events()
+                            self._initialized = False
         log.info("Infrastructure container disposed")

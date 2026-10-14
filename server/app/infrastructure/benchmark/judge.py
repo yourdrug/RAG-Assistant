@@ -7,6 +7,7 @@ import time
 import json
 
 import instructor
+import httpx
 from instructor.core.exceptions import IncompleteOutputException
 from openai import OpenAI, APIConnectionError, RateLimitError, InternalServerError
 from pydantic import ValidationError
@@ -19,6 +20,9 @@ from domain.value_objects.llm_provider import Breadth, LLMProvider
 from langchain.schema import Document
 
 from infrastructure.ml.clients.llm_schemas import JudgeScore
+from infrastructure.ml.clients.managed_sync_instructor import ManagedSyncInstructor
+from infrastructure.ml.clients.client_lease import sync_client_operation
+from infrastructure.benchmark.token_usage import record_judge_usage
 from infrastructure.ml.rag.rag_formatting import format_docs
 
 from infrastructure.benchmark.judge_rubric import CORRECTNESS_CRITERIA, FAITHFULNESS_CRITERIA
@@ -34,8 +38,9 @@ JUDGE_EXPANDED_OUTPUT_TOKENS = 8192
 # Cached judge client (one connection pool per model, not per call)
 # ---------------------------------------------------------------------------
 
-_judge_client_cache: dict[str, Any] = {}
+_judge_client_cache: dict[tuple[str, str, str], Any] = {}
 _judge_client_lock = threading.Lock()
+RETIRED_JUDGE_CLIENTS: set[ManagedSyncInstructor] = set()
 
 # ---------------------------------------------------------------------------
 # Prompt templates
@@ -166,36 +171,65 @@ def get_judge_client(model: str):
     Thread-safe: first call creates the client, subsequent calls return the cached
     instance.  This avoids creating a new httpx connection pool per benchmark question.
     """
-    cached = _judge_client_cache.get(model)
-    if cached is not None:
-        return cached
+    snapshot = settings.model_copy()
+    remote = snapshot.llm_provider == LLMProvider.OPENROUTER
+    base_url = snapshot.openrouter_base_url if remote else f"{snapshot.ollama_base_url.rstrip('/')}/v1"
+    key = (snapshot.llm_provider, base_url, model)
     with _judge_client_lock:
-        cached = _judge_client_cache.get(model)
+        RETIRED_JUDGE_CLIENTS.difference_update(
+            [client for client in RETIRED_JUDGE_CLIENTS if client.is_closed]
+        )
+        cached = _judge_client_cache.get(key)
         if cached is not None:
             return cached
+        stale = [item for item in _judge_client_cache if item[:2] != key[:2]]
+        for item in stale:
+            retired = _judge_client_cache.pop(item)
+            RETIRED_JUDGE_CLIENTS.add(retired)
+            retired.retire()
         # OpenRouter's Instructor adapter supports JSON, but rejects MD_JSON.
         # Both modes avoid requiring tool calling from the chosen model.
         raw = OpenAI(
-            base_url=settings.openrouter_base_url
-            if settings.llm_provider == LLMProvider.OPENROUTER
-            else f"{settings.ollama_base_url}/v1",
-            api_key=settings.openrouter_api_key
-            if settings.llm_provider == LLMProvider.OPENROUTER
+            base_url=base_url,
+            api_key=snapshot.openrouter_api_key
+            if snapshot.llm_provider == LLMProvider.OPENROUTER
             else "ollama",
-            timeout=settings.llm_auxiliary_timeout,
+            timeout=snapshot.llm_auxiliary_timeout,
             max_retries=0,
+            http_client=httpx.Client(follow_redirects=False),
         )
         mode = (
             instructor.Mode.JSON
-            if settings.llm_provider == LLMProvider.OPENROUTER
+            if snapshot.llm_provider == LLMProvider.OPENROUTER
             else instructor.Mode.MD_JSON
         )
         client = instructor.from_openai(raw, mode=mode)
-        from infrastructure.benchmark.token_usage import record_judge_usage
 
         client.on("completion:response", record_judge_usage)
-        _judge_client_cache[model] = client
-        return client
+        managed = ManagedSyncInstructor(client)
+        _judge_client_cache[key] = managed
+        return managed
+
+
+def retire_judge_clients() -> None:
+    with _judge_client_lock:
+        clients = list(_judge_client_cache.values())
+        _judge_client_cache.clear()
+        RETIRED_JUDGE_CLIENTS.difference_update(
+            [client for client in RETIRED_JUDGE_CLIENTS if client.is_closed]
+        )
+        RETIRED_JUDGE_CLIENTS.update(clients)
+    for client in clients:
+        client.retire()
+
+
+async def close_judge_clients() -> None:
+    retire_judge_clients()
+    with _judge_client_lock:
+        clients = list(RETIRED_JUDGE_CLIENTS)
+    await asyncio.gather(*(client.close() for client in clients))
+    with _judge_client_lock:
+        RETIRED_JUDGE_CLIENTS.difference_update(clients)
 
 
 def judge_with_structured_output(
@@ -208,40 +242,41 @@ def judge_with_structured_output(
     Uses two attempts for transient or validation failures; HTTP 400 is terminal.
     Truncation permits one additional call with a larger output budget and no retries.
     """
-    initial_budget = settings.benchmark_judge_initial_tokens
-    retry_budget = settings.benchmark_judge_retry_tokens
-    for attempt, budget in enumerate((initial_budget, retry_budget)):
-        try:
-            return client.chat.completions.create(
-                model=model,
-                messages=[{"role": "user", "content": prompt}],
-                response_model=JudgeScore,
-                max_tokens=budget,
-                timeout=settings.llm_auxiliary_timeout,
-                max_retries=Retrying(
-                    retry=retry_if_exception_type(
-                        (
-                            APIConnectionError,
-                            RateLimitError,
-                            InternalServerError,
-                            ValidationError,
-                            json.JSONDecodeError,
-                        )
+    with sync_client_operation(client):
+        initial_budget = settings.benchmark_judge_initial_tokens
+        retry_budget = settings.benchmark_judge_retry_tokens
+        for attempt, budget in enumerate((initial_budget, retry_budget)):
+            try:
+                return client.chat.completions.create(
+                    model=model,
+                    messages=[{"role": "user", "content": prompt}],
+                    response_model=JudgeScore,
+                    max_tokens=budget,
+                    timeout=settings.llm_auxiliary_timeout,
+                    max_retries=Retrying(
+                        retry=retry_if_exception_type(
+                            (
+                                APIConnectionError,
+                                RateLimitError,
+                                InternalServerError,
+                                ValidationError,
+                                json.JSONDecodeError,
+                            )
+                        ),
+                        stop=stop_after_attempt(2 if attempt == 0 else 1),
+                        wait=wait_exponential(multiplier=1, max=3),
                     ),
-                    stop=stop_after_attempt(2 if attempt == 0 else 1),
-                    wait=wait_exponential(multiplier=1, max=3),
-                ),
-            )
-        except IncompleteOutputException:
-            if attempt == 1:
-                raise
-            logger.warning(
-                "Judge output truncated for model %s at %d tokens; retrying with %d tokens",
-                model,
-                budget,
-                retry_budget,
-            )
-    raise RuntimeError("Judge output budget exhausted")
+                )
+            except IncompleteOutputException:
+                if attempt == 1:
+                    raise
+                logger.warning(
+                    "Judge output truncated for model %s at %d tokens; retrying with %d tokens",
+                    model,
+                    budget,
+                    retry_budget,
+                )
+        raise RuntimeError("Judge output budget exhausted")
 
 
 # ---------------------------------------------------------------------------
@@ -359,10 +394,11 @@ async def judge_answer_async(
 
     async def judge_one(prompt: str) -> JudgeScore:
         client = get_judge_client(model if settings.llm_provider == LLMProvider.OLLAMA else "")
-        return await asyncio.wait_for(
-            asyncio.to_thread(judge_with_structured_output, client, prompt, model),
-            timeout=settings.llm_auxiliary_timeout * 3 + 3,
-        )
+        with sync_client_operation(client):
+            return await asyncio.wait_for(
+                asyncio.to_thread(judge_with_structured_output, client, prompt, model),
+                timeout=settings.llm_auxiliary_timeout * 3 + 3,
+            )
 
     scores = dict(saved_metrics or {})
     for key, prompt in prompts.items():

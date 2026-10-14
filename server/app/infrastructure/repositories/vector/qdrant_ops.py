@@ -8,6 +8,7 @@ module to keep concerns separated.
 import asyncio
 import logging
 import time
+from infrastructure.ml.clients.client_lease import client_operation
 from collections.abc import Awaitable, Callable
 
 from langchain.schema import Document
@@ -177,6 +178,20 @@ def _tag_embedding_model(chunks, identity):
 
 
 async def upload_to_qdrant(
+    chunks: list[Document],
+    embeddings,
+    client=None,
+    *,
+    write_semaphore=None,
+    should_cancel: Callable[[], Awaitable[bool]] | None = None,
+) -> None:
+    async with client_operation(embeddings):
+        await upload_document_batches(
+            chunks, embeddings, client=client, write_semaphore=write_semaphore, should_cancel=should_cancel
+        )
+
+
+async def upload_document_batches(
     chunks: list[Document],
     embeddings,
     client=None,

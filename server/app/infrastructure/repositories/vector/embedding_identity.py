@@ -7,13 +7,7 @@ import hashlib
 from qdrant_client.models import Distance, VectorParams
 
 from config import settings
-
-
-def configured_embedding_identity() -> str:
-    model = (
-        settings.deepinfra_embed_model if settings.ml_provider == "deepinfra" else settings.tei_embed_model
-    )
-    return f"{settings.ml_provider}:{model}:{settings.embedding_revision}"
+from infrastructure.ml.config.embedding_identity import configured_embedding_identity
 
 
 def ensure_embedding_identity(client, identity: str | None = None) -> str:

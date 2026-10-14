@@ -19,6 +19,11 @@ from domain.value_objects.config_value_type import ConfigValueType
 from infrastructure.events.in_process_event_bus import event_bus, InProcessEventBus
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from domain.domain_profile.registry import DomainProfileRegistry
+from infrastructure.ml.config.endpoint_policy import validate_endpoints, validate_pools
+from infrastructure.ml.config.client_switch import prepare_clients, dispose_clients
+from infrastructure.ml.config.client_switch import LLM_CLIENT_KEYS
+from infrastructure.benchmark.judge import retire_judge_clients
+from infrastructure.ml.config.embedding_identity import configured_embedding_identity
 
 
 def decode_parameter(param: ConfigParameter, value: str):
@@ -47,10 +52,13 @@ class SettingsProviderConfiguration:
         domain_settings: DomainSettingsAdapter | None = None,
         registry: DomainProfileRegistry | None = None,
         bus: InProcessEventBus = event_bus,
+        ml_clients=None,
     ) -> None:
         self.settings = model
         self.domain_settings = domain_settings
         self.bus = bus
+        self.ml_clients = ml_clients
+        self.switching_clients = False
         self.definitions = {}
         for declaration in DYNAMIC_PARAMS:
             self.definitions[(declaration.key, declaration.domain_key)] = ConfigParameter(
@@ -105,6 +113,13 @@ class SettingsProviderConfiguration:
         )
 
     def validate_provider(self, candidate: Settings) -> None:
+        validate_endpoints(candidate)
+        validate_pools(candidate)
+        if (
+            self._status.applied_version is not None
+            or (self.ml_clients is not None and self.ml_clients._embeddings is not None)
+        ) and configured_embedding_identity(candidate) != configured_embedding_identity(self.settings):
+            raise ValidationError("Embedding identity changes require the corpus migration workflow")
         errors = candidate.check_ml_provider()
         if candidate.llm_provider == LLMProvider.OPENROUTER.value and not candidate.openrouter_api_key:
             errors.append("OPENROUTER_API_KEY required when LLM_PROVIDER=openrouter")
@@ -132,6 +147,23 @@ class SettingsProviderConfiguration:
             raise ValidationError(f"Invalid configuration parameter '{key}'") from exc
         candidate = self.settings.model_copy(update={key: decoded})
         self.validate_provider(candidate)
+
+    async def validate_snapshot_change(self, rows, key: str, value: str, domain_key: str | None) -> None:
+        active = [row for row in rows if (row.key, row.domain_key) in self.definitions]
+        target = next((row for row in active if (row.key, row.domain_key) == (key, domain_key)), None)
+        if target is None:
+            raise ValidationError("Configuration parameter is not initialized")
+        candidate_rows = [replace(row, value=value) if row is target else row for row in active]
+        updates, _, events = self.prepare_snapshot(candidate_rows, False)
+        if self.ml_clients is not None:
+            prepared = await prepare_clients(
+                self.ml_clients,
+                self.settings.model_copy(),
+                self.settings.model_copy(update=updates),
+                {event.key for event in events},
+                applied=self._status.applied_version is not None,
+            )
+            await dispose_clients(prepared)
 
     def prepare_snapshot(self, active: list[ConfigParameter], require_complete: bool):
         pairs = [(row.key, row.domain_key) for row in active]
@@ -170,7 +202,49 @@ class SettingsProviderConfiguration:
         self.validate_provider(self.settings.model_copy(update=updates))
         return updates, domain_updates, events
 
-    def apply(self, rows: list[ConfigParameter], *, require_complete: bool = False) -> None:
+    async def apply_async(
+        self, rows: list[ConfigParameter], *, require_complete: bool = False, verify=None
+    ) -> None:
+        if self.ml_clients is None:
+            self.apply(rows, require_complete=require_complete)
+            return
+        prepared = {}
+        try:
+            previous_version = self._status.applied_version
+            current = self.settings.model_copy()
+            active = [row for row in rows if (row.key, row.domain_key) in self.definitions]
+            updates, _, events = self.prepare_snapshot(active, require_complete or self.require_complete)
+            candidate = self.settings.model_copy(update=updates)
+            prepared = await prepare_clients(
+                self.ml_clients,
+                current,
+                candidate,
+                {event.key for event in events},
+                applied=self._status.applied_version is not None,
+            )
+            if verify is not None and not await verify():
+                raise ValidationError("Configuration changed during ML preparation; retry synchronization")
+            if self._status.applied_version != previous_version:
+                raise ValidationError(
+                    "Applied configuration changed during preparation; retry synchronization"
+                )
+            self.switching_clients = True
+            self.apply(rows, require_complete=require_complete, prepared=prepared)
+        except BaseException:
+            await dispose_clients(prepared)
+            self._status = replace(
+                self._status,
+                saved_version=self.snapshot_version(rows),
+                ready=False,
+                error="ML configuration preparation or application failed",
+            )
+            raise
+        finally:
+            self.switching_clients = False
+
+    def apply(self, rows: list[ConfigParameter], *, require_complete: bool = False, prepared=None) -> None:
+        if self.ml_clients is not None and prepared is None:
+            raise RuntimeError("ML resource snapshots require async preparation")
         require_complete = require_complete or self.require_complete
         active = [
             row
@@ -192,6 +266,11 @@ class SettingsProviderConfiguration:
             self.applying = True
             for event in events:
                 self.bus.publish_strict(event)
+            # Publication is the last synchronous action; no old pool is retired on a failed reaction.
+            if self.ml_clients is not None:
+                self.ml_clients.install_clients(prepared)
+                if any(event.key in LLM_CLIENT_KEYS for event in events):
+                    retire_judge_clients()
             self._status = ConfigurationStatus(version, version, True, None)
             self.require_complete = require_complete
         except Exception:

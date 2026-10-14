@@ -111,18 +111,27 @@ class Settings(BaseSettings):
 
     # ── Embedding / Reranking provider ──────────────────────────────────────
     ml_provider: str = "tei"  # tei | deepinfra
-    tei_embed_url: str = ""
+    tei_embed_url: str = "http://tei-embed:8080"
     tei_embed_model: str = "BAAI/bge-m3"
     embedding_revision: str = "v1"
-    tei_rerank_url: str = ""
+    tei_rerank_url: str = "http://tei-rerank:8080"
     deepinfra_api_key: str = ""
     deepinfra_base_url: str = "https://api.deepinfra.com/v1"
     deepinfra_embed_model: str = "BAAI/bge-m3"
     deepinfra_rerank_model: str = "BAAI/bge-reranker-v2-m3"
 
     # ── HTTP pools ──────────────────────────────────────────────────────────
-    http_pool_max_connections: int = 40
-    http_pool_max_keepalive: int = 20
+    embedding_http_max_connections: int = Field(default=40, gt=0)
+    embedding_http_max_keepalive_connections: int = Field(default=20, ge=0)
+    rerank_http_max_connections: int = Field(default=20, gt=0)
+    rerank_http_max_keepalive_connections: int = Field(default=10, ge=0)
+    # Deployment controls the trust boundary; database writers cannot expand it.
+    ml_internal_allowed_origins: list[str] = [
+        "http://localhost:11434",
+        "http://ollama:11434",
+        "http://tei-embed:8080",
+        "http://tei-rerank:8080",
+    ]
 
     # ── OCR ─────────────────────────────────────────────────────────────────
     ocr_engine: str = "paddleocr"
@@ -308,6 +317,9 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def post_init(self) -> "Settings":
+        pool_errors = self.check_http_pools()
+        if pool_errors:
+            raise ValueError("; ".join(pool_errors))
         if not self.version:
             self.version = read_version()
 
@@ -320,6 +332,15 @@ class Settings(BaseSettings):
             sys.exit(1)
 
         return self
+
+    def check_http_pools(self) -> list[str]:
+        errors = []
+        for prefix in ("embedding", "rerank"):
+            maximum = getattr(self, f"{prefix}_http_max_connections")
+            keepalive = getattr(self, f"{prefix}_http_max_keepalive_connections")
+            if maximum <= 0 or keepalive < 0 or keepalive > maximum:
+                errors.append(f"Invalid {prefix} HTTP pool: 0 <= keepalive <= positive connections required")
+        return errors
 
     def check_security(self) -> list[str]:
         errors: list[str] = []

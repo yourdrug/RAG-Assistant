@@ -36,6 +36,7 @@ POOL_KEYS = {
     "embedding_http_max_keepalive_connections": ("http_pool_max_keepalive", 1),
     "rerank_http_max_keepalive_connections": ("http_pool_max_keepalive", 2),
 }
+LEGACY_POOL_DEFAULTS = {"http_pool_max_connections": 40, "http_pool_max_keepalive": 20}
 
 
 @dataclass(frozen=True)
@@ -171,7 +172,7 @@ def migration_parameter(key: str, raw: str) -> ConfigParameter:
 def legacy_pool_limits(values: dict[str, str | None]) -> dict[str, int]:
     limits = {}
     for source in {key for key, divisor in POOL_KEYS.values()}:
-        raw = values.get(source.upper(), str(Settings.model_fields[source].default))
+        raw = values.get(source.upper(), str(LEGACY_POOL_DEFAULTS[source]))
         try:
             limits[source] = int(raw)
         except (ValueError, TypeError):

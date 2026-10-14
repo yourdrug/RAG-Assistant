@@ -85,16 +85,13 @@ def test_source_identity_does_not_merge_same_basename_without_document_ids():
 
 
 @pytest.mark.asyncio
-async def test_tei_sorted_response_selects_the_actually_relevant_document():
-    reranker = TEIRerankerClient("http://tei")
-    await reranker.close()
-    reranker._client = httpx.AsyncClient(
-        transport=httpx.MockTransport(
-            lambda request: httpx.Response(
-                200, json=[{"index": 1, "score": 0.99}, {"index": 0, "score": 0.01}]
-            )
-        )
+async def test_tei_sorted_response_selects_the_actually_relevant_document(monkeypatch):
+    real_client = httpx.AsyncClient
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(200, json=[{"index": 1, "score": 0.99}, {"index": 0, "score": 0.01}])
     )
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: real_client(transport=transport, **kwargs))
+    reranker = TEIRerankerClient("http://tei")
     try:
         selected = await rerank_documents("Q", [doc("irrelevant", 1), doc("relevant", 2)], 1, reranker)
         assert selected[0][0].metadata["document_id"] == 2
@@ -114,7 +111,7 @@ async def test_tei_sorted_response_selects_the_actually_relevant_document():
 )
 def test_tei_malformed_response_fails_instead_of_misranking(response):
     with pytest.raises(ValueError):
-        TEIRerankerClient._ordered_scores(response, 2)
+        TEIRerankerClient.ordered_scores(response, 2)
 
 
 def test_complete_prompt_budget_trims_old_history_and_keeps_summary():

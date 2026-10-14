@@ -225,14 +225,15 @@ class MLClientRegistry(MLClientPort):
         if self._instructor is None:
             with self._init_lock:
                 if self._instructor is None:
-                    if settings.llm_provider == LLMProvider.OPENROUTER:
+                    model = settings.model_copy()
+                    if model.llm_provider == LLMProvider.OPENROUTER:
                         self._instructor = create_async_instructor_client(
-                            base_url=settings.openrouter_base_url,
-                            api_key=settings.openrouter_api_key,
+                            base_url=model.openrouter_base_url,
+                            api_key=model.openrouter_api_key,
                         )
                     else:
                         self._instructor = create_async_instructor_client(
-                            base_url=f"{settings.ollama_base_url}/v1",
+                            base_url=f"{model.ollama_base_url}/v1",
                             api_key="ollama",
                         )
                     self._instructor = ManagedInstructor(self._instructor)
@@ -241,6 +242,32 @@ class MLClientRegistry(MLClientPort):
     # ------------------------------------------------------------------
     # Invalidation (with dependency cascades)
     # ------------------------------------------------------------------
+
+    def retire_client(self, client) -> None:
+        self._retired_clients.append(client)
+        if hasattr(client, "retire"):
+            client.retire()
+            task = getattr(client, "_close_task", None)
+            if task is not None:
+                task.add_done_callback(lambda completed: self.release_retired_client(client, completed))
+
+    def release_retired_client(self, client, task) -> None:
+        if task.cancelled() or task.exception() is not None:
+            log.error("Retired ML pool cleanup failed; retained for shutdown retry")
+            return
+        if client in self._retired_clients:
+            self._retired_clients.remove(client)
+
+    def install_clients(self, prepared: dict) -> None:
+        retired: list[Any] = []
+        with self._init_lock:
+            for attr, value in prepared.items():
+                old = getattr(self, attr)
+                retired.extend(old.values() if isinstance(old, dict) else [old])
+                setattr(self, attr, value)
+        for client in retired:
+            if client is not None:
+                self.retire_client(client)
 
     def invalidate_llm(self) -> None:
         """Clear cached LLM instance (model/provider/params changed).
@@ -251,8 +278,7 @@ class MLClientRegistry(MLClientPort):
             clients = [self._llm, self._fast_llm, self._instructor, *self._llm_breadth_cache.values()]
             for client in clients:
                 if client is not None:
-                    client.retire()
-                    self._retired_clients.append(client)
+                    self.retire_client(client)
             self._llm = None
             self._llm_breadth_cache.clear()
             self._fast_llm = None
@@ -263,7 +289,7 @@ class MLClientRegistry(MLClientPort):
         """Replace the embedding adapter on the next access."""
         with self._init_lock:
             if self._embeddings is not None:
-                self._retired_clients.append(self._embeddings)
+                self.retire_client(self._embeddings)
                 self._embeddings = None
         log.info("MLClientRegistry: embedding client cache invalidated")
 
@@ -271,7 +297,7 @@ class MLClientRegistry(MLClientPort):
         """Replace the reranker adapter on the next access."""
         with self._init_lock:
             if self._reranker is not None:
-                self._retired_clients.append(self._reranker)
+                self.retire_client(self._reranker)
                 self._reranker = None
         log.info("MLClientRegistry: reranker client cache invalidated")
 

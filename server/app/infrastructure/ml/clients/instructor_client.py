@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 
 import instructor
+import httpx
 from openai import AsyncOpenAI, OpenAI
 
 from config import settings
@@ -26,7 +27,7 @@ def create_instructor_client(base_url: str, api_key: str = "ollama", model: str 
     The returned client supports ``client.chat.completions.create()``
     with ``response_model=<Pydantic model>`` for structured output.
     """
-    raw_client = OpenAI(base_url=base_url, api_key=api_key)
+    raw_client = OpenAI(base_url=base_url, api_key=api_key, http_client=httpx.Client(follow_redirects=False))
     client = instructor.from_openai(raw_client)
     client.on('completion:response', record_model_response)
     return client
@@ -37,7 +38,9 @@ def create_async_instructor_client(base_url: str, api_key: str = "ollama", model
 
     Cached in MLClientRegistry to avoid creating new TCP connections per call.
     """
-    raw_client = AsyncOpenAI(base_url=base_url, api_key=api_key)
+    raw_client = AsyncOpenAI(
+        base_url=base_url, api_key=api_key, http_client=httpx.AsyncClient(follow_redirects=False)
+    )
     client = instructor.from_openai(raw_client)
     client.on('completion:response', record_model_response)
     return client

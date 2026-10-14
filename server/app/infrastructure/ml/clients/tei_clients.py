@@ -12,15 +12,17 @@ Each client exposes both async and sync methods:
 from __future__ import annotations
 
 import logging
+import math
 
 import httpx
+from infrastructure.ml.clients.managed_http import ManagedHTTPPool
 
 log = logging.getLogger("default")
 
 TEI_TIMEOUT = 60.0
 
 
-class TEIEmbeddingsClient:
+class TEIEmbeddingsClient(ManagedHTTPPool):
     """Embedding client that calls a TEI /embed endpoint over HTTP."""
 
     embedding_identity: str
@@ -28,17 +30,17 @@ class TEIEmbeddingsClient:
     def __init__(self, base_url: str, pool_limits: httpx.Limits | None = None) -> None:
         self._base_url = base_url.rstrip("/")
         limits = pool_limits or httpx.Limits(max_connections=20, max_keepalive_connections=10)
-        self._client = httpx.AsyncClient(timeout=TEI_TIMEOUT, limits=limits)
+        super().__init__(TEI_TIMEOUT, limits)
 
     async def embed_query(self, text: str) -> list[float]:
-        r = await self._client.post(f"{self._base_url}/embed", json={"inputs": text})
+        r = await self.post(f"{self._base_url}/embed", json={"inputs": text})
         r.raise_for_status()
         return r.json()[0]
 
     async def embed_documents(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
-        r = await self._client.post(f"{self._base_url}/embed", json={"inputs": texts})
+        r = await self.post(f"{self._base_url}/embed", json={"inputs": texts})
         r.raise_for_status()
         data = r.json()
         if not isinstance(data, list):
@@ -58,17 +60,14 @@ class TEIEmbeddingsClient:
             r.raise_for_status()
             return r.json()[0]
 
-    async def close(self) -> None:
-        await self._client.aclose()
 
-
-class TEIRerankerClient:
+class TEIRerankerClient(ManagedHTTPPool):
     """Reranking client that calls a TEI /rerank endpoint over HTTP."""
 
     def __init__(self, base_url: str, pool_limits: httpx.Limits | None = None) -> None:
         self._base_url = base_url.rstrip("/")
         limits = pool_limits or httpx.Limits(max_connections=10, max_keepalive_connections=5)
-        self._client = httpx.AsyncClient(timeout=TEI_TIMEOUT, limits=limits)
+        super().__init__(TEI_TIMEOUT, limits)
 
     async def predict(self, pairs: list[tuple[str, str]]) -> list[float]:
         if not pairs:
@@ -76,10 +75,10 @@ class TEIRerankerClient:
         query = pairs[0][0]
         texts = [p[1] for p in pairs]
         payload = {"query": query, "texts": texts}
-        r = await self._client.post(f"{self._base_url}/rerank", json=payload)
+        r = await self.post(f"{self._base_url}/rerank", json=payload)
         r.raise_for_status()
         data = r.json()
-        return self._ordered_scores(data, len(texts))
+        return self.ordered_scores(data, len(texts))
 
     def predict_sync(self, pairs: list[tuple[str, str]]) -> list[float]:
         if not pairs:
@@ -91,13 +90,11 @@ class TEIRerankerClient:
             r = client.post(f"{self._base_url}/rerank", json=payload)
             r.raise_for_status()
             data = r.json()
-            return self._ordered_scores(data, len(texts))
+            return self.ordered_scores(data, len(texts))
 
     @staticmethod
-    def _ordered_scores(data: list[dict], count: int) -> list[float]:
+    def ordered_scores(data: list[dict], count: int) -> list[float]:
         """TEI ranks results; its index identifies the original input text."""
-        import math
-
         scores: dict[int, float] = {}
         for item in data:
             index = item.get("index")
@@ -110,6 +107,3 @@ class TEIRerankerClient:
         if len(scores) != count:
             raise ValueError("Incomplete TEI rerank response")
         return [scores[index] for index in range(count)]
-
-    async def close(self) -> None:
-        await self._client.aclose()

@@ -19,6 +19,15 @@ from infrastructure.ml.rag.rag_formatting import format_docs_with_selection
 from infrastructure.benchmark import judge, metrics, retrieval
 from infrastructure.ml.clients.client_registry import MLClientRegistry
 from infrastructure.ml.clients.managed_llm import close_llm_pools
+from infrastructure.ml.config.client_switch import (
+    prepare_clients,
+    dispose_clients,
+    LLM_CLIENT_KEYS,
+    EMBEDDING_CLIENT_KEYS,
+    RERANK_CLIENT_KEYS,
+)
+from infrastructure.ml.config.endpoint_policy import validate_endpoints, validate_pools
+from domain.exceptions import ValidationError
 from infrastructure.storage.file_storage import LazyStorage, finish_owned_task
 from infrastructure.bm25.persistence import BM25LoadError, load_configured_bm25_snapshot
 
@@ -36,6 +45,7 @@ from infrastructure.ml.usage_capture import active_llm_usage
 
 
 log = logging.getLogger("default")
+ML_REFRESH_MAX_ATTEMPTS = 3
 
 
 async def run_owned_sync(function, *args, **kwargs):
@@ -122,6 +132,8 @@ class StandaloneBenchmarkGenerator:
     def __init__(self, top_k: int, fetch_k: int | None, ctx: ChatContext) -> None:
         self._storage = LazyStorage()
         self._clients = MLClientRegistry(bm25_loader=partial(load_configured_bm25_snapshot, self._storage))
+        self._ml_settings = settings.model_copy()
+        self._ml_refresh_lock = asyncio.Lock()
         self._top_k = top_k
         self._fetch_k = fetch_k
         self._access_filter = build_qdrant_filter(
@@ -135,7 +147,31 @@ class StandaloneBenchmarkGenerator:
             user_role=UserRole.ADMIN,
         )
 
+    async def refresh_ml_clients(self) -> None:
+        client_keys = LLM_CLIENT_KEYS | EMBEDDING_CLIENT_KEYS | RERANK_CLIENT_KEYS
+        async with self._ml_refresh_lock:
+            for _ in range(ML_REFRESH_MAX_ATTEMPTS):
+                candidate = settings.model_copy()
+                keys = {
+                    key for key in client_keys if getattr(candidate, key) != getattr(self._ml_settings, key)
+                }
+                if not keys:
+                    return
+                validate_endpoints(candidate)
+                validate_pools(candidate)
+                prepared = await prepare_clients(
+                    self._clients, self._ml_settings, candidate, keys, applied=True
+                )
+                if any(getattr(settings, key) != getattr(candidate, key) for key in client_keys):
+                    await dispose_clients(prepared)
+                    continue
+                self._clients.install_clients(prepared)
+                self._ml_settings = candidate
+                return
+        raise ValidationError("ML configuration changed during benchmark preparation; retry the operation")
+
     async def generate(self, question: dict, ctx: ChatContext) -> BenchmarkAnswer:
+        await self.refresh_ml_clients()
         llm = retrieval.build_llm(
             settings.llm_model, settings.ollama_base_url, provider=settings.llm_provider
         )

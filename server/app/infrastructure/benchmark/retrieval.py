@@ -1,6 +1,7 @@
 """Benchmark retrieval — dense, sparse, hybrid search and reranking."""
 
 import logging
+import httpx
 from infrastructure.bm25.bm25_index import BM25Index
 from pathlib import Path
 
@@ -182,6 +183,8 @@ def build_llm(model: str, base_url: str, provider: str = LLMProvider.OLLAMA):
             openai_api_key=SecretStr(settings.openrouter_api_key) if settings.openrouter_api_key else None,
             openai_api_base=settings.openrouter_base_url,
             temperature=0.0,
+            http_client=httpx.Client(follow_redirects=False),
+            http_async_client=httpx.AsyncClient(follow_redirects=False),
         )
     return ChatOllama(
         model=model,

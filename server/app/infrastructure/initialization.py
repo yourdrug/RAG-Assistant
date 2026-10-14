@@ -105,4 +105,12 @@ async def load_config_from_db(uow_factory, configuration=None, *, require_comple
         registry = DomainProfileRegistry()
         register_all_profiles(registry, domain_settings)
         configuration = SettingsProviderConfiguration(domain_settings=domain_settings, registry=registry)
-    configuration.apply(rows, require_complete=require_complete)
+
+    version = configuration.snapshot_version(rows)
+
+    async def verify_snapshot():
+        async with uow_factory.create(master=True) as uow:
+            latest = await uow.config_parameters.get_all()
+        return configuration.snapshot_version(latest) == version
+
+    await configuration.apply_async(rows, require_complete=require_complete, verify=verify_snapshot)

@@ -16,9 +16,7 @@ from infrastructure.ml.config.config_subscribers import apply_to_settings, inval
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "key", sorted(SECRET_SETTING_KEYS | STATIC_SETTING_KEYS | {"tei_embed_url", "collection_name"})
-)
+@pytest.mark.parametrize("key", sorted(SECRET_SETTING_KEYS | STATIC_SETTING_KEYS | {"collection_name"}))
 async def test_direct_service_cannot_update_deployment_or_pending_keys(key):
     factory = FakeUnitOfWorkFactory()
     row = ConfigParameter(key, "original", ConfigValueType.STR, "legacy")

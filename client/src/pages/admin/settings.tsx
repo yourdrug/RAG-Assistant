@@ -22,6 +22,13 @@ interface ConfigParam {
   domain_key: string | null;
 }
 
+interface ConfigurationStatus {
+  saved_version: string | null;
+  applied_version: string | null;
+  ready: boolean;
+  error: string | null;
+}
+
 interface OpenRouterModel {
   id: string;
   name: string;
@@ -176,6 +183,15 @@ function DomainSubTabs({
 export function AdminSettingsPage() {
   const queryClient = useQueryClient();
   const [edits, setEdits] = useState<Record<string, string>>({});
+  const {
+    data: status,
+    isError: statusUnavailable,
+    refetch: refreshStatus,
+  } = useQuery({
+    queryKey: ["admin", "config-status"],
+    queryFn: async () => (await apiClient.get<ConfigurationStatus>("/admin/config/status")).data,
+    refetchInterval: 3000,
+  });
 
   const { data: params, isLoading } = useQuery({
     queryKey: ["admin", "config"],
@@ -211,6 +227,7 @@ export function AdminSettingsPage() {
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["admin", "config"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "config-status"] });
       queryClient.invalidateQueries({ queryKey: ["admin", "models"] });
       queryClient.invalidateQueries({ queryKey: ["admin", "openrouter-models"] });
       setEdits((prev) => {
@@ -218,10 +235,10 @@ export function AdminSettingsPage() {
         delete next[variables.key];
         return next;
       });
-      toast.success(`"${variables.key}" updated`);
+      toast.success(`"${variables.key}" saved; checking application`);
     },
     onError: (error: any) => {
-      toast.error(error.response?.data?.detail || "Update failed");
+      toast.error(error.response?.data?.message || error.response?.data?.detail || "Update failed");
     },
   });
 
@@ -414,8 +431,32 @@ export function AdminSettingsPage() {
       <div>
         <h1 className="text-2xl font-bold">Settings</h1>
         <p className="text-muted-foreground">
-          All dynamic configuration parameters (changes apply instantly)
+          Manage dynamic configuration. Changes apply after validation; active requests finish with
+          their current clients.
         </p>
+      </div>
+
+      <div className="space-y-2 text-sm" role="status" aria-live="polite">
+        <p className={status?.error ? "text-destructive" : "text-muted-foreground"}>
+          {statusUnavailable
+            ? "Application status unavailable. Saved settings may still be pending."
+            : !status
+              ? "Checking application status…"
+              : status.error
+                ? "Settings could not be applied. The API continues to use its previous configuration. Correct the saved values and retry."
+                : status.ready
+                  ? "Saved settings are applied on this API process."
+                  : "Saved settings are waiting to be applied on this API process."}
+        </p>
+        {status && (
+          <p className="break-all text-muted-foreground">
+            Saved: {status.saved_version?.slice(0, 12) ?? "none"} · Applied:{" "}
+            {status.applied_version?.slice(0, 12) ?? "none"}
+          </p>
+        )}
+        <Button variant="outline" size="sm" onClick={() => refreshStatus()}>
+          Refresh application status
+        </Button>
       </div>
 
       <Tabs defaultValue={availableTabs[0]?.id}>

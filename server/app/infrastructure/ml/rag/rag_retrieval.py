@@ -103,7 +103,8 @@ async def qdrant_dense_search(
     )
 
     async with ml_clients.embedding_semaphore:
-        query_vector = await embeddings.embed_query(query)
+        # Admission can wait through a pool switch; identity is unchanged by endpoint/pool updates.
+        query_vector = await ml_clients.embeddings().embed_query(query)
 
     raw_threshold = (
         score_threshold

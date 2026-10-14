@@ -2,7 +2,7 @@
 
 > **Для агента-исполнителя:** прочитать этот файл целиком и AGENTS.md. Реализовывать последовательно по этапам с checkbox-проверками. Применить superpowers:executing-plans или аналогичный workflow текущего окружения; делегирование — только по разрешённым в сессии правилам. Этот документ достаточен без истории диалога.
 
-**Дата:** 2026-10-13. **Статус:** этапы 1–3 реализованы; этапы 4–12 ожидают реализации. Рабочие env, БД и сервисы не изменены.
+**Дата:** 2026-10-13. **Статус:** этапы 1–4 реализованы и проверены; этапы 5–12 ожидают реализации. Рабочие env, БД и сервисы не изменены.
 
 **Goal:** сократить env до секретов, bootstrap/deployment-настроек и необходимых статических overrides; перенести управляемые настройки в БД с настоящим применением; убрать обязательное локальное хранение benchmark-истории, отчётов и checkpoints у S3 backend.
 
@@ -247,12 +247,79 @@
 
 **Target keys:** ollama_base_url, openrouter_base_url, tei_embed_url, tei_rerank_url, deepinfra_base_url; embedding_http_max_connections/embedding_http_max_keepalive_connections; rerank_http_max_connections/rerank_http_max_keepalive_connections.
 
-- [ ] Сохранить effective pool defaults 40/20 и 20/10. Валидировать positive max connections, nonnegative keepalive и keepalive <= connections. Убрать магическое деление /2 из factories.
-- [ ] Добавить в registry/DB/UI только вместе с реакциями. Endpoint change валидирует адрес/credential origin и подготавливает новый клиент. Cached health/auxiliary/benchmark clients тоже обновляются.
-- [ ] После успешного snapshot switch новые операции берут новый клиент, старые завершаются со старым; retired clients закрываются после освобождения, а не только на shutdown. Не закрыть async client в середине stream.
-- [ ] TEI embedding URL change проверяет identity обслуживаемой модели; смена модели/provider не смешивает вектора существующего индекса. Изменение адреса само по себе не означает разрешение переиндексации.
-- [ ] Тесты: URL/pool change реально меняет следующий request, active request survives, failures retain previous applied resource, repeated changes не копят connections; old pool migration preserves overrides; SSRF/credential-origin rejection.
-- [ ] Проверка: новые test_dynamic_ml_configuration.py; существующие tests для managed LLM, TEI/DeepInfra и client lifecycle.
+- [x] Сохранить effective pool defaults 40/20 и 20/10. Валидировать positive max connections, nonnegative keepalive и keepalive <= connections. Убрать магическое деление /2 из factories.
+- [x] Добавить в registry/DB/UI только вместе с реакциями. Endpoint change валидирует адрес/credential origin и подготавливает новый клиент. Cached health/auxiliary/benchmark clients тоже обновляются.
+- [x] После успешного snapshot switch новые операции берут новый клиент, старые завершаются со старым; retired clients закрываются после освобождения, а не только на shutdown. Не закрыть async client в середине stream.
+- [x] TEI embedding URL change проверяет identity обслуживаемой модели; смена модели/provider не смешивает вектора существующего индекса. Изменение адреса само по себе не означает разрешение переиндексации.
+- [x] Тесты: URL/pool change реально меняет следующий request, active request survives, failures retain previous applied resource, repeated changes не копят connections; old pool migration preserves overrides; SSRF/credential-origin rejection.
+- [x] Проверка: новые test_dynamic_ml_configuration.py; существующие tests для managed LLM, TEI/DeepInfra и client lifecycle.
+
+**Результаты этапа 4 (2026-10-14):**
+
+- Ветка `configuration-management`; рабочие env/secret-файлы, БД и сервисы
+  не изменены. Пользовательские `.gitignore` и `docs/operations/configuration.md`
+  сохранены отдельно. Следующий этап — 5 (rate limiting).
+- Пять ML endpoints и четыре HTTP pool ключа включены в действующий registry,
+  bootstrap/seed, DB validation и админку. Env/dotenv больше не управляют ими;
+  явные Settings kwargs сохраняются. Defaults TEI — Docker адреса `:8080`.
+  Эффективные pools сохранены: embedding **40/20**, reranker **20/10**;
+  деление на 2 осталось только в offline legacy migration. Старые поля Settings
+  удалены, parser миграции по-прежнему принимает их и сохраняет odd overrides.
+- `ML_INTERNAL_ALLOWED_ORIGINS` — новый deployment-owned allowlist (статический
+  env, не админка). У нового внутреннего endpoint должен совпадать exact origin;
+  custom origins требуется явно включить **до bootstrap**. Облачные credentials
+  разрешены только canonical HTTPS origins OpenRouter/DeepInfra. URLs с userinfo,
+  query/fragment, недопустимой схемой и неизвестным origin отклоняются до сети.
+  HTTP/SDK clients не следуют redirects. Каталог актуализирован: **147 полей**.
+- Admin update сначала готовит/probes кандидат вне DB transaction, затем сверяет
+  snapshot под configuration lock перед короткой записью. Resync повторно читает
+  writer version после probes. Settings/domain и подготовленные resources
+  публикуются без await; ошибка подготовки/reaction сохраняет прежние ресурсы.
+  Constructors читают один copy snapshot, включая provider/endpoint/API key.
+- Обновляется вся cached LLM family (generation/breadth/auxiliary/Instructor),
+  embedding/reranker, private standalone benchmark registry и sync judge cache.
+  Health probes читают применённые Settings. Private benchmark refresh
+  сериализован, stale preparation освобождается и повторяется с новым snapshot
+  (не более трёх попыток); старая generation не устанавливается после новой.
+- Retired inference/LLM pools закрываются после освобождения leases, удаляются
+  из retired registry и не ждут общего shutdown. Lease защищает active streams,
+  auxiliary queue/wait_for, все embedding batches одной ingestion operation и
+  sync judge admission/retries. Queued retrieval получает клиент после admission.
+  Shutdown дожидается owned benchmark cleanup; pending cleanup tasks не остаются.
+- TEI embedding endpoint проверяется через `/info` (model_id/model_sha/dtype/pooling)
+  и настоящий embedding probe (configured dimension, finite values). При смене
+  действующего endpoint immutable metadata должны совпасть с прежним сервером.
+  Local weights с отсутствующим model_sha или несовпадающим configured model_id
+  **не разрешают endpoint rotation**: нужны проверяемые serving metadata, а не
+  догадка по имени каталога. Реальные модели/endpoints не проверялись.
+  Изменение активной embedding identity/provider требует отдельной corpus migration,
+  новый индекс автоматически не создаётся и ACL не меняется.
+- Админка различает saved/applied/failed для текущего API process, обновляет status
+  и показывает безопасную ошибку. Metadata глобальных/scoped declarations
+  накладываются при listing поверх мигрированных rows, сохраняя DB values:
+  действующие параметры не показывают старую надпись pending и получают min/max.
+  Applied status не объявляется подтверждением всех replicas/worker (этап 8).
+- Baseline config/bootstrap/migration/client lifecycle → **197 passed**;
+  новые endpoint/pool/resource сценарии **RED: 23 failed, 8 passed → GREEN**.
+  Characterization до изменения benchmark judge → **72 passed**, standalone
+  generator/worker paths → **27 passed**. Отдельно подтверждены RED→GREEN:
+  failed admin probe без commit, cached judge URL switch, stale writer version,
+  ingestion batches, semaphore/threadpool admission, constructor snapshot/credentials,
+  ожидание benchmark cleanup на shutdown. Итоговая focused выборка → **77 passed**.
+- Независимый read-only reviewer: Important — stale concurrent standalone refresh;
+  Minor — pending metadata в админке. Metadata повышена до Important по контракту
+  корректного показа действующих controls. Обе находки воспроизведены
+  **RED (2 failed) → GREEN**, исправлены одним pass. Повторное ревью не запускалось;
+  отложенных findings нет. Model/corpus switching и live deploy относятся к другим
+  этапам и не исключены из общего плана.
+- Полный `.venv/bin/pytest -q` из server: **2890 passed, 46 skipped, 13 существующих warnings**.
+  Тесты запускались вне sandbox из-за воспроизводимых threadpool stalls в sandbox.
+  Opt-in live PostgreSQL/MinIO/Redis integrations и нагрузка не запускались.
+- Ruff check `app tests`, format check всех затронутых Python-файлов,
+  `npm run check` (Biome + TypeScript), `git diff --check`, обязательные
+  domain/application import checks — без нарушений. `mypy app`: только **6
+  существующих ошибок** в config_migration.py (138, 146, 177, 220, 293, 298),
+  новых ошибок этапа 4 нет. Browser/live UI и реальные provider probes не запускались.
 
 ### Этап 5. Rate limiting через БД с настоящим обновлением
 
@@ -407,18 +474,19 @@
 | openrouter_base_url | БД | `https://openrouter.ai/api/v1` | Замена LLM-клиентов (этап 4) | Перенести существующее значение; убрать env только после реализации этапа |
 | openrouter_model | БД | `qwen/qwen-2.5-7b-instruct` | Hot reload¹ | Управлять через админку; убрать из env после сверки |
 | ml_provider | БД | `tei` (реализовано на этапе 1) | Hot reload¹ + проверка embedding identity² | Управлять через админку; убрать из env после сверки |
-| tei_embed_url | БД | `""`; для нового Docker-окружения предлагается `http://tei-embed:8080` | Замена клиента; проверка embedding identity (этап 4) | Перенести существующее значение; убрать env только после реализации этапа |
+| tei_embed_url | БД | `http://tei-embed:8080` (этап 4) | Замена клиента; проверка embedding identity (этап 4) | Перенести существующее значение; убрать env только после реализации этапа |
 | TEI_EMBED_MODEL | env | `BAAI/bge-m3` | Пересоздать потребителей; миграция индекса при смене² | Default в коде; env только при необходимом переопределении |
 | EMBEDDING_REVISION | env | `v1` | Пересоздать потребителей; миграция индекса при смене² | Default в коде; env только при необходимом переопределении |
-| tei_rerank_url | БД | `""`; для нового Docker-окружения предлагается `http://tei-rerank:8080` | Замена reranker-клиента (этап 4) | Перенести существующее значение; убрать env только после реализации этапа |
+| tei_rerank_url | БД | `http://tei-rerank:8080` (этап 4) | Замена reranker-клиента (этап 4) | Перенести существующее значение; убрать env только после реализации этапа |
 | DEEPINFRA_API_KEY | secrets | Нет рабочего default; задать секрет | Пересоздать потребителей | Оставить только в secrets; не помещать в БД |
+| ML_INTERNAL_ALLOWED_ORIGINS | env | `["http://localhost:11434", "http://ollama:11434", "http://tei-embed:8080", "http://tei-rerank:8080"]` | Пересоздать потребителей | Deployment allowlist для внутренних ML origins. До миграции добавить нестандартные origins явно; админка не может расширить список |
 | deepinfra_base_url | БД | `https://api.deepinfra.com/v1` | Замена embedding/reranker-клиентов (этап 4) | Перенести существующее значение; убрать env только после реализации этапа |
 | deepinfra_embed_model | БД | `BAAI/bge-m3` | Hot reload¹ + проверка embedding identity² | Управлять через админку; убрать из env после сверки |
 | deepinfra_rerank_model | БД | `BAAI/bge-reranker-v2-m3` | Hot reload¹ | Управлять через админку; убрать из env после сверки |
-| embedding_http_max_connections | БД | Предлагается `40`; сохраняет текущий эффективный лимит | Замена HTTP-клиента (этап 4) | Заменяет HTTP_POOL_MAX_CONNECTIONS; убрать неявное деление reranker на 2 |
-| rerank_http_max_connections | БД | Предлагается `20`; сохраняет текущий эффективный лимит | Замена HTTP-клиента (этап 4) | Заменяет HTTP_POOL_MAX_CONNECTIONS; убрать неявное деление reranker на 2 |
-| embedding_http_max_keepalive_connections | БД | Предлагается `20`; сохраняет текущий эффективный лимит | Замена HTTP-клиента (этап 4) | Заменяет HTTP_POOL_MAX_KEEPALIVE; убрать неявное деление reranker на 2 |
-| rerank_http_max_keepalive_connections | БД | Предлагается `10`; сохраняет текущий эффективный лимит | Замена HTTP-клиента (этап 4) | Заменяет HTTP_POOL_MAX_KEEPALIVE; убрать неявное деление reranker на 2 |
+| embedding_http_max_connections | БД | `40`; сохраняет текущий эффективный лимит | Замена HTTP-клиента (этап 4) | Заменяет HTTP_POOL_MAX_CONNECTIONS; убрать неявное деление reranker на 2 |
+| rerank_http_max_connections | БД | `20`; сохраняет текущий эффективный лимит | Замена HTTP-клиента (этап 4) | Заменяет HTTP_POOL_MAX_CONNECTIONS; убрать неявное деление reranker на 2 |
+| embedding_http_max_keepalive_connections | БД | `20`; сохраняет текущий эффективный лимит | Замена HTTP-клиента (этап 4) | Заменяет HTTP_POOL_MAX_KEEPALIVE; убрать неявное деление reranker на 2 |
+| rerank_http_max_keepalive_connections | БД | `10`; сохраняет текущий эффективный лимит | Замена HTTP-клиента (этап 4) | Заменяет HTTP_POOL_MAX_KEEPALIVE; убрать неявное деление reranker на 2 |
 | ocr_engine | БД | `paddleocr` | Hot reload¹ | Управлять через админку; убрать из env после сверки |
 | ocr_enabled | БД | `true` | Hot reload¹ | Управлять через админку; убрать из env после сверки |
 | ocr_lang_paddle | БД | `ru` | Hot reload¹ | Управлять через админку; убрать из env после сверки |
@@ -583,4 +651,4 @@
 
 Стартовый запрос исполнителю: «Реализуй этот план по этапам. Начни с проверки текущего checkout и baseline tests. Сохрани production invariants и текущие значения. Не выполняй live migrate-env --apply, переключение Qdrant, deploy или recreate сервисов без авторизации. После каждого этапа записывай проверенные результаты и обновляй checklist. Не добавляй TOML/YAML и не показывай неработающие настройки как действующие».
 
-Этапы 1–3 реализованы и проверены (результаты выше). Код изменён; рабочие БД, env и сервисы не изменены. Этапы 4–12 не выполнялись. Фактические значения конфигурации БД/цены провайдеров/live переключение ещё не проверены.
+Этапы 1–4 реализованы и проверены (результаты выше). Код изменён; рабочие БД, env и сервисы не изменены. Этапы 5–12 не выполнялись. Фактические значения конфигурации БД/цены провайдеров/live переключение ещё не проверены.
