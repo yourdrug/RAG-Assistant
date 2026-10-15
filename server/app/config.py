@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict, PydanticBaseSettingsSource
 
-from domain.value_objects.dynamic_config import DYNAMIC_PARAMS
+from domain.value_objects.dynamic_config import MAX_UPLOAD_FILE_MB, DYNAMIC_PARAMS
 from domain.value_objects.app_stage import AppStage
 from domain.value_objects.llm_provider import LLMProvider
 
@@ -67,9 +67,9 @@ class Settings(BaseSettings):
         return [p.strip() for p in self.db_slave_ports.split(",") if p.strip()]
 
     # ── Qdrant ─────────────────────────────────────────────────────────────
-    qdrant_url: str
+    qdrant_url: str = "http://qdrant:6333"
     qdrant_api_key: str = ""
-    collection_name: str
+    collection_name: str = "company_docs"
     qdrant_timeout: int = 10
     qdrant_search_max_concurrent: int = 16  # caps concurrent Qdrant searches (prevents thundering herd)
     qdrant_write_max_concurrent: int = 8  # caps concurrent Qdrant upserts (prevents write contention)
@@ -131,6 +131,8 @@ class Settings(BaseSettings):
         "http://ollama:11434",
         "http://tei-embed:8080",
         "http://tei-rerank:8080",
+        "http://qdrant:6333",
+        "http://localhost:6333",
     ]
 
     # ── OCR ─────────────────────────────────────────────────────────────────
@@ -215,7 +217,7 @@ class Settings(BaseSettings):
     s3_region: str = "us-east-1"
     s3_max_concurrent: int = Field(default=10, ge=1)
     supported_extensions: tuple = (".pdf", ".docx", ".doc", ".rtf", ".md", ".txt")
-    max_upload_size_mb: int = 50
+    max_upload_size_mb: int = Field(default=50, ge=1, le=MAX_UPLOAD_FILE_MB)
 
     # ── Data paths ──────────────────────────────────────────────────────────
     data_dir: str = "/code/project/data"
@@ -264,7 +266,7 @@ class Settings(BaseSettings):
             return 0.0
 
     # ── Background jobs ─────────────────────────────────────────────────────
-    job_cleanup_days: int = 30
+    job_cleanup_days: int = Field(default=30, ge=1)
     stuck_job_timeout_minutes: int = 30
     stale_pending_timeout_minutes: int = 30
 
@@ -272,19 +274,19 @@ class Settings(BaseSettings):
     rate_limit_enabled: bool = True
     rate_limit_fail_open: bool = True  # Redis unavailable → allow traffic (with metric)
     rate_limit_redis_prefix: str = "rag:ratelimit:v1:"
-    rate_limit_login_per_minute: int = 5
-    rate_limit_chat_per_minute: int = 10
-    rate_limit_chat_per_day: int = 100
-    rate_limit_upload_per_hour: int = 20
-    rate_limit_search_per_minute: int = 60
-    rate_limit_write_per_minute: int = 60
-    rate_limit_benchmark_per_hour: int = 60
+    rate_limit_login_per_minute: int = Field(default=5, ge=1)
+    rate_limit_chat_per_minute: int = Field(default=10, ge=1)
+    rate_limit_chat_per_day: int = Field(default=100, ge=1)
+    rate_limit_upload_per_hour: int = Field(default=20, ge=1)
+    rate_limit_search_per_minute: int = Field(default=60, ge=1)
+    rate_limit_write_per_minute: int = Field(default=60, ge=1)
+    rate_limit_benchmark_per_hour: int = Field(default=60, ge=1)
     rate_limit_max_buckets: int = 10000  # LRU cap for per-principal buckets
 
     # ── Cost rate limiting ──────────────────────────────────────────────────
     cost_rate_limit_enabled: bool = False
-    cost_hourly_limit: float = 1.0
-    cost_daily_limit: float = 5.0
+    cost_hourly_limit: float = Field(default=1.0, gt=0, allow_inf_nan=False)
+    cost_daily_limit: float = Field(default=5.0, gt=0, allow_inf_nan=False)
 
     # ── Circuit breaker ────────────────────────────────────────────────────
     llm_breaker_fail_max: int = 5

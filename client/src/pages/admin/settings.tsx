@@ -10,6 +10,8 @@ import { Input } from "@/shared/ui/input";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/shared/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
+import { CorpusControl } from "./corpus-control";
+import { CostRates } from "./cost-rates";
 
 interface ConfigParam {
   key: string;
@@ -27,6 +29,16 @@ interface ConfigurationStatus {
   applied_version: string | null;
   ready: boolean;
   error: string | null;
+}
+
+interface EffectiveParameter {
+  key: string;
+  source: string;
+  configured_value: string | null;
+  applied_value: string | null;
+  application_mode: string;
+  present: boolean | null;
+  domain_key: string | null;
 }
 
 interface OpenRouterModel {
@@ -47,6 +59,9 @@ const CATEGORY_LABELS: Record<string, string> = {
   ml: "ML Provider",
   ocr: "OCR",
   storage: "Storage",
+  rate_limit: "Rate limits",
+  jobs: "Job retention",
+  cost: "USD budgets",
 };
 
 const DOMAIN_LABELS: Record<string, string> = {
@@ -65,10 +80,17 @@ const CATEGORY_ORDER = [
   "ml",
   "ocr",
   "storage",
+  "rate_limit",
+  "jobs",
+  "cost",
 ];
 
 const TAB_GROUPS = [
-  { id: "general", label: "General", categories: ["toggles", "storage"] },
+  {
+    id: "general",
+    label: "General",
+    categories: ["toggles", "storage", "rate_limit", "jobs", "cost"],
+  },
   { id: "rag", label: "RAG", categories: ["rag", "hybrid", "reranker"] },
   { id: "ingestion", label: "Ingestion", categories: ["ingestion"] },
   { id: "llm", label: "LLM", categories: ["llm", "openrouter", "ml"] },
@@ -190,6 +212,13 @@ export function AdminSettingsPage() {
   } = useQuery({
     queryKey: ["admin", "config-status"],
     queryFn: async () => (await apiClient.get<ConfigurationStatus>("/admin/config/status")).data,
+    refetchInterval: 3000,
+  });
+
+  const { data: effective, isError: effectiveUnavailable } = useQuery({
+    queryKey: ["admin", "config-effective"],
+    queryFn: async () =>
+      (await apiClient.get<EffectiveParameter[]>("/admin/config/effective")).data,
     refetchInterval: 3000,
   });
 
@@ -458,6 +487,52 @@ export function AdminSettingsPage() {
           Refresh application status
         </Button>
       </div>
+
+      <CostRates />
+      <CorpusControl />
+      <details className="rounded-lg border p-4">
+        <summary className="cursor-pointer font-medium">
+          Effective configuration on this API process
+        </summary>
+        <p className="my-3 text-sm text-muted-foreground">
+          Database changes apply to the next operation. Job retention applies on the next hourly
+          cleanup; reducing it deletes older completed and failed jobs. Deployment values require
+          container recreation. Uploads share a 64 MiB request ceiling including multipart metadata
+          (maximum 63 MiB per file).
+        </p>
+        {effectiveUnavailable && <p role="alert">Effective configuration is unavailable.</p>}
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Key</TableHead>
+              <TableHead>Source</TableHead>
+              <TableHead>Configured</TableHead>
+              <TableHead>Applied</TableHead>
+              <TableHead>Application</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {effective?.map((p) => (
+              <TableRow key={`${p.domain_key ?? "global"}:${p.key}`}>
+                <TableCell className="font-mono break-all">
+                  {p.key}
+                  {p.domain_key ? ` (${p.domain_key})` : ""}
+                </TableCell>
+                <TableCell>{p.source}</TableCell>
+                <TableCell className="break-all">{p.configured_value ?? "—"}</TableCell>
+                <TableCell className="break-all">
+                  {p.present === null
+                    ? (p.applied_value ?? "—")
+                    : p.present
+                      ? "Present"
+                      : "Missing"}
+                </TableCell>
+                <TableCell>{p.application_mode}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </details>
 
       <Tabs defaultValue={availableTabs[0]?.id}>
         <TabsList>

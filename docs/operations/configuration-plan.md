@@ -2,7 +2,7 @@
 
 > **Для агента-исполнителя:** прочитать этот файл целиком и AGENTS.md. Реализовывать последовательно по этапам с checkbox-проверками. Применить superpowers:executing-plans или аналогичный workflow текущего окружения; делегирование — только по разрешённым в сессии правилам. Этот документ достаточен без истории диалога.
 
-**Дата:** 2026-10-13. **Статус:** этапы 1–4 реализованы и проверены; этапы 5–12 ожидают реализации. Рабочие env, БД и сервисы не изменены.
+**Дата:** 2026-10-13; актуализация после независимого ревью — 2026-10-15. **Статус:** этапы 1–4 и 6 реализованы; код этапа 5 реализован, проверка на настоящем Redis остаётся открытой; этап 7 выполнен частично (текстовый OpenRouter, остальные платные пути блокируются); реализация этапа 8 присутствует с ограничениями приёмки ниже. Этапы 9–11 реализованы и проверены локально; этап 12 ожидает реализации. Рабочие env, БД и сервисы не изменены. Изменения этапов 5–11 пока в рабочем дереве, отдельные reviewable commits не созданы.
 
 **Goal:** сократить env до секретов, bootstrap/deployment-настроек и необходимых статических overrides; перенести управляемые настройки в БД с настоящим применением; убрать обязательное локальное хранение benchmark-истории, отчётов и checkpoints у S3 backend.
 
@@ -325,60 +325,88 @@
 
 **Files:** infrastructure/rate_limit/policies.py, limiter.py, bucket_factory.py, composition/infrastructure.py, config subscribers, admin UI, config.py/DYNAMIC_PARAMS; существующие test_rate_limit_*.py и новый test_rate_limit_hotreload.py.
 
-- [ ] Перенести enabled, fail_open и все *_PER_* quotas в БД. REDIS connection, key prefix и max_buckets пока static. Validate quotas > 0; отключение — через enabled, а не неясную квоту 0.
-- [ ] Реализовать замещение policy snapshot/rebuild кэша limiter без удаления Redis sorted sets. Не раздавать новую полную квоту при каждом изменении настройки.
-- [ ] При увеличении окна rate policy сохранить достаточную историю: текущие minute/hour/day интервалы в этой задаче не менять; только их quota values.
-- [ ] Согласовать значения на API/worker, учитывать запросы во время update. Сохранить каталог policy enum, 429 envelope и headers.
-- [ ] Тесты: lowering quota учитывает прежние запросы, increasing допускает дополнительный остаток, enabled/fail_open переключаются, два процесса разделяют историю, concurrent update/acquire, Redis failure.
-- [ ] Проверка: test_rate_limit_hotreload.py + policies/adapter/dependency/route_coverage и Redis integration в разрешённом test окружении. Load tests не запускать автоматически.
+- [x] Перенести enabled, fail_open и все *_PER_* quotas в БД. REDIS connection, key prefix и max_buckets пока static. Validate quotas > 0; отключение — через enabled, а не неясную квоту 0.
+- [x] Реализовать замещение policy snapshot/rebuild кэша limiter без удаления Redis sorted sets. Не раздавать новую полную квоту при каждом изменении настройки.
+- [x] При увеличении окна rate policy сохранить достаточную историю: текущие minute/hour/day интервалы в этой задаче не менять; только их quota values.
+- [x] Согласовать значения на API/worker, учитывать запросы во время update. Сохранить каталог policy enum, 429 envelope и headers.
+- [x] Unit-проверки: lowering quota учитывает прежние запросы, increasing допускает дополнительный остаток, enabled/fail_open переключаются, два адаптера разделяют историю, concurrent update/acquire, Redis failure. Пройдены test_rate_limit_hotreload.py и policies/adapter/dependency/route_coverage; shared Redis моделируется fakeredis.
+- [ ] Проверка на настоящем Redis в отдельном разрешённом test окружении. Unit-тест с двумя адаптерами не заменяет live multi-process проверку. Load tests не запускать автоматически.
+
+**Результат этапа 5:** DynamicRateLimiter выбирает поколение policy на запрос, сохраняет имена Redis keys и историю при rotation, закрывает старый limiter после завершения его запросов. API/worker используют DB bootstrap и resync; доставка новой конфигурации между процессами асинхронная. Реальная Redis integration в текущем ревью и исправлении не запускалась.
 
 ### Этап 6. Upload и retention, показ фактической конфигурации
 
 **Files:** config.py/DYNAMIC_PARAMS, presentation/api/dependencies.py, routes/documents.py и ingest.py, infrastructure/worker/cron.py; admin schemas/routes/UI; client nginx конфигурация; новые test_dynamic_operational_settings.py.
 
-- [ ] MAX_UPLOAD_SIZE_MB в БД: целое > 0; snapshot лимита на начале upload, без изменения лимита текущего запроса. Проверить реальное ограничение потока, не доверять одному Content-Length.
-- [ ] Согласовать с фиксированным upstream nginx hard ceiling: админка не разрешает значение больше поддерживаемого потолка либо явно требует отдельного deployment изменения. Потолок определить по действующему nginx config, не выдумывать число.
-- [ ] JOB_CLEANUP_DAYS в БД: целое >= 1; следующее cron execution использует новый retention. Active jobs не удаляются; уменьшение retention явно сообщает о последствиях в админке.
-- [ ] CURATOR_SCOPE_MAX_IDS не удалять и не дублировать ACL. DATA_DIR пока static; его дальнейшая судьба — этапы 9–11.
-- [ ] Админке показывать source, configured/applied value, режим применения, состояние/ошибку. Секреты — только наличие/статус. Read-only deployment поля не делать editable ради отображения.
-- [ ] Тесты: следующий upload получает новый лимит, authorized/unauthorized admin change, upload boundary, cleanup cutoff/active jobs, existing curator scope limit и ACL invariants.
+- [x] MAX_UPLOAD_SIZE_MB в БД: целое > 0; snapshot лимита на начале upload, без изменения лимита текущего запроса. Проверяется фактический объём чтения UploadFile, а не один Content-Length.
+- [x] Согласовать с фиксированным upstream nginx hard ceiling: админка не разрешает значение больше поддерживаемого потолка либо явно требует отдельного deployment изменения. Потолок определить по действующему nginx config, не выдумывать число.
+- [x] JOB_CLEANUP_DAYS в БД: целое >= 1; следующее cron execution использует новый retention. Active jobs не удаляются; уменьшение retention явно сообщает о последствиях в админке.
+- [x] CURATOR_SCOPE_MAX_IDS не удалять и не дублировать ACL. DATA_DIR пока static; его дальнейшая судьба — этапы 9–11.
+- [x] Админке показывать source, configured/applied value, режим применения, состояние/ошибку. Секреты — только наличие/статус. Read-only deployment поля не делать editable ради отображения.
+- [x] Проверены test_dynamic_operational_settings.py и существующие config boundaries/ACL/curator tests: новый upload limit, запрет изменения deployment/secret settings, upload boundary, cleanup cutoff/active jobs, curator scope limit и ACL invariants.
+
+**Результат этапа 6:** upload dependency создаёт неизменяемый лимит для обработчика; допустимо 1–63 MiB на файл при консервативном nginx ceiling 64 MiB на запрос с multipart metadata. Cleanup читает новый retention при каждом cron execution и удаляет только старые DONE/FAILED jobs. UI показывает configured/applied values и предупреждает о последствиях уменьшения retention. Browser/live upload через nginx не проверялся.
 
 ### Этап 7. Рабочие cost limits, без фиктивных переключателей
 
+**Статус: частично выполнен.** Работает резервирование и учёт текстовых ManagedLLM-вызовов OpenRouter. Полный accounting embedding/rerank, structured calls и benchmark judges ещё не реализован; при включённых cost limits эти платные пути fail-closed. Их блокировка не считается завершённым учётом расходов.
+
 **Files:** existing infrastructure/ml/usage_capture.py, managed_llm.py и usage metrics; application ports/services для budget, infrastructure Redis budget adapter, необходимые domain DTO/entities/repository и migrations для цен/usage, provider adapters; config registry/API/UI.
 
-- [ ] До реализации зафиксировать в этом разделе контракт: currency USD, scope per authenticated principal, rolling hour/day, операции с платными вызовами chat/auxiliary/embedding/rerank/benchmark. Фоновые задания наследуют инициатора, системные операции имеют явный отдельный principal. Применять в общей точке платного вызова, не только в HTTP chat route.
-- [ ] Добавить управляемые в БД rates по provider/model с версией и единицей цены, используя Decimal/целые денежные единицы, не float arithmetic. Не вшивать изменяемые цены и не считать неизвестную стоимость нулевой. Existing token usage capture использовать как основу; embedding/rerank без usage требуют явного unit accounting.
-- [ ] COST_* defaults сохранить: enabled=false, hour=1 USD, day=5 USD; при enabled=true обе квоты > 0, неизвестная цена/неподдерживаемая тарификация блокирует платный вызов с понятной ошибкой.
-- [ ] Атомарно резервировать верхнюю оценку стоимости до внешнего вызова в shared Redis, затем идемпотентно сверять с фактическим usage. Установить конечный output budget для резерва. Сетевой timeout/cancellation после возможного списания не возвращает резерв как гарантированно бесплатный вызов; сохраняет pending accounting для reconciliation.
-- [ ] Usage ledger/идемпотентные operation IDs в PostgreSQL, recovery после worker retry/Redis restart; при недоступном budget backend включённый cost limiter fail-closed. Rate limiter fail_open не переносить автоматически на денежный лимит.
-- [ ] Полный scope должен отражаться в UI; если провайдер не позволяет получить/ограничить стоимость, не утверждать строгий потолок, сохранить unsupported status и не включать enforcement для такого пути. Этот этап — реальный use case, не перенос трёх чисел.
-- [ ] Тесты: параллельные запросы не резервируют сверх квоты, retry не списывает дважды, accounting всех поддерживаемых платных операций, неизвестная цена/usage, cancellation, quota changes, pending recovery и backend failure.
-- [ ] Если контракт стоимости конкретного provider требует уточнения, продолжать независимые этапы 8–11, но этап 7 не объявлять завершённым и controls не выдавать за работающие.
+- [ ] Полный scope: currency USD, per authenticated principal, rolling hour/day, accounting платных chat/auxiliary/embedding/rerank/benchmark. Principal propagation и общая точка допуска реализованы; для unsupported путей требуется подтверждённый billing contract, bounded reservation и usage reconciliation перед разрешением вызовов.
+- [x] Добавить управляемые в БД rates по provider/model с версией и единицей цены, используя Decimal/целые денежные единицы, не float arithmetic. Не вшивать изменяемые цены и не считать неизвестную стоимость нулевой. Existing token usage capture использовать как основу; embedding/rerank без usage требуют явного unit accounting.
+- [x] COST_* defaults сохранить: enabled=false, hour=1 USD, day=5 USD; при enabled=true обе квоты > 0, неизвестная цена/неподдерживаемая тарификация блокирует платный вызов с понятной ошибкой.
+- [x] Атомарно резервировать верхнюю оценку стоимости до внешнего вызова в shared Redis, затем идемпотентно сверять с фактическим usage. Установить конечный output budget для резерва. Сетевой timeout/cancellation после возможного списания не возвращает резерв как гарантированно бесплатный вызов; сохраняет pending accounting для reconciliation.
+- [x] Usage ledger/идемпотентные operation IDs в PostgreSQL, recovery после worker retry/Redis restart; при недоступном budget backend включённый cost limiter fail-closed. Rate limiter fail_open не переносить автоматически на денежный лимит.
+- [x] Полный scope должен отражаться в UI; если провайдер не позволяет получить/ограничить стоимость, не утверждать строгий потолок, сохранить unsupported status и не включать enforcement для такого пути. Этот этап — реальный use case, не перенос трёх чисел.
+- [x] Тесты: параллельные запросы не резервируют сверх квоты, retry не списывает дважды, accounting всех поддерживаемых платных операций, неизвестная цена/usage, cancellation, quota changes, pending recovery и backend failure.
+- [x] Если контракт стоимости конкретного provider требует уточнения, продолжать независимые этапы 8–11, но этап 7 не объявлять завершённым и controls не выдавать за работающие.
+
+**Реализованный контракт (2026-10-15):** USD, отдельная rolling hour/day квота каждого `user:<id>`; задания наследуют инициатора, CLI использует явный `system:ingest-cli`. Цены — неизменяемые версии provider/model/unit в PostgreSQL, расчёт Decimal и целые nanodollars. PostgreSQL сериализует admission по principal, Redis выполняет атомарную проверку; после Redis restart история восстанавливается из ledger. Pending резерв не протухает до подтверждённого reconciliation. Квоты читаются из БД перед платным вызовом, независимо от доставки NOTIFY.
+
+Поддерживается текстовый OpenRouter через ManagedLLM: проверка context bound по provider model catalogue, конечный output budget, ограничение provider price и одного физического HTTP send на резерв. Фактический usage закрывает резерв, неоднозначный исход сохраняет pending и response ID при наличии. В админке доступны публикация версии тарифа и reconciliation с подтверждающим основанием. Неизвестные цены, raw structured/benchmark judge и DeepInfra embedding/rerank при включённом лимите блокируются **до платного запроса**; их нельзя считать поддерживаемым измерением расходов. Локальные модели бесплатны. Автоматические SDK retries не получают повторного разрешения на тот же резерв.
 
 ### Этап 8. Управляемое переключение Qdrant и корпуса
 
 **Files:** clients/client_registry.py и factories.py; repositories/vector/qdrant_vector_store_repository.py, qdrant_ops.py, embedding_identity.py; rag/rag_retrieval.py; BM25 persistence/invalidation; answer cache; health probes; config service/API/UI и migrations для минимального switch state при необходимости.
 
-- [ ] QDRANT_URL и COLLECTION_NAME в БД; при новой установке defaults Docker http://qdrant:6333 и company_docs, существующие значения мигрируются. Admin UI показывает endpoint/alias/physical collection/embedding identity и применение каждым обслуживающим процессом.
-- [ ] Подготовка проверяет доступ с env QDRANT_API_KEY (новый origin должен быть разрешён), существование выбранного корпуса, размерность, immutable identity, ACL payload и согласованность с document/chunk IDs PostgreSQL. Не выбирать произвольный чужой индекс по наличию коллекции.
-- [ ] Предпочесть стабильный collection alias и атомарное переключение физического корпуса. Первая миграция physical name в alias — отдельное проверенное действие; совпадение имени существующей physical collection не решать разрушительным rename/delete.
-- [ ] Qdrant resource+collection+BM25 scope+answer cache corpus namespace — единый snapshot. Ответы из старого corpus cache не выдавать после switch. Старые in-flight запросы завершаются на прежнем snapshot.
-- [ ] Для API/worker switch установить краткий barrier на новые ingestion writes, дождаться безопасной точки активных записей и readiness обоих процессов; при ошибке/недоступном процессе switch не объявлять успешным. Для CLI mutations выполнять ту же проверку версии/lock; не держать DB transaction во время сети.
-- [ ] Сохранить обе ACL barriers dense/sparse resolve. Новый индекс не создавать/не переиндексировать автоматически ради переключения.
-- [ ] Тесты: old client + new collection не смешиваются; invalid identity/ACL rejects; stale cache отсутствует; concurrent ingestion/switch/NOTIFY loss; failure rollback; ACL property tests.
-- [ ] Здесь не требуется распределённая транзакция между PG/Qdrant; нужен retryable журнал минимального switch состояния и фактическая проверка результата. Сбой посередине восстанавливается без потери writes.
+- [x] QDRANT_URL и COLLECTION_NAME в БД; при новой установке defaults Docker http://qdrant:6333 и company_docs, существующие значения мигрируются. Admin UI показывает endpoint/alias/physical collection/embedding identity и применение каждым обслуживающим процессом.
+- [x] Подготовка проверяет доступ с env QDRANT_API_KEY (новый origin должен быть разрешён), существование выбранного корпуса, размерность, immutable identity, ACL payload и согласованность с document/chunk IDs PostgreSQL. Не выбирать произвольный чужой индекс по наличию коллекции.
+- [x] Предпочесть стабильный collection alias и атомарное переключение физического корпуса. Первая миграция physical name в alias — отдельное проверенное действие; совпадение имени существующей physical collection не решать разрушительным rename/delete.
+- [x] Qdrant resource+collection+BM25 scope+answer cache corpus namespace — единый snapshot. Ответы из старого corpus cache не выдавать после switch. Старые in-flight запросы завершаются на прежнем snapshot.
+- [x] Для API/worker switch установить краткий barrier на новые ingestion writes, дождаться безопасной точки активных записей и readiness обоих процессов; при ошибке/недоступном процессе switch не объявлять успешным. Для CLI mutations выполнять ту же проверку версии/lock; не держать DB transaction во время сети.
+- [x] Сохранить обе ACL barriers dense/sparse resolve. Новый индекс не создавать/не переиндексировать автоматически ради переключения.
+- [x] Тесты: old client + new collection не смешиваются; invalid identity/ACL rejects; stale cache отсутствует; concurrent ingestion/switch/NOTIFY loss; failure rollback; ACL property tests.
+- [x] Здесь не требуется распределённая транзакция между PG/Qdrant; нужен retryable журнал минимального switch состояния и фактическая проверка результата. Сбой посередине восстанавливается без потери writes.
+
+**Реализованное переключение (2026-10-15):** выбирает существующий alias/physical collection, фиксируя физическую коллекцию на поколение; создание/перенацеливание alias и переиндексация остаются отдельными действиями. Новый endpoint должен быть явно внесён в deployment `ML_INTERNAL_ALLOWED_ORIGINS` до передачи API key. Проверяются immutable embedding identity, dimension и полное соответствие point IDs/content/ACL PostgreSQL. Холодный старт проверяет активную привязку и encoder; пустая новая установка допускает создание коллекции штатной ingestion.
+
+Клиент Qdrant, BM25 и cache namespace публикуются одним snapshot; начатый запрос сохраняет прежнее поколение. PostgreSQL advisory barrier и write epoch защищают API/worker/CLI записи; подготовка проверяет фактическую готовность API и worker, финальная короткая транзакция повторно проверяет конфигурацию/корпус. Журнал preparing/committing/active/failed восстанавливается polling даже без NOTIFY; неподтверждённый committed switch блокирует записи до готовности процессов. Ошибка до commit оставляет старое поколение.
+
+Результаты первоначальной реализации (до независимого ревью): полный unit suite — **2917 passed**, PostgreSQL integration — **6 passed**; Ruff check/format, client TypeScript и Biome — passed. На тот момент mypy содержал 7 ошибок в `infrastructure/config_migration.py` и `infrastructure/rate_limit/limiter.py`; они устранены при исправлении ревью ниже. `git diff --check` — passed.
+
+Проверки: `test_cost_budget.py`, `test_corpus_switch.py`, полный unit suite и `tests/integration/test_configuration_cost_corpus_postgres.py` на отдельном PostgreSQL с локальным Qdrant и Redis Lua test adapter. Реальные платные вызовы OpenRouter/DeepInfra, live multi-host Qdrant и production миграции/перезапуски не выполнялись. Перед live вводом нужны применение двух новых Alembic migrations, deployment allowlist и опубликованные проверенные тарифы; strict accounting неподдерживаемых путей не заявляется.
+
+**Исправления независимого ревью (2026-10-15):**
+
+- Холодный полный DB bootstrap проверяет TEI `/info` и реальный embedding даже при совпадении URL с defaults: model_id должен совпадать с настройками, вектор должен иметь настроенную размерность и конечные значения. Ошибка прерывает bootstrap до готовности и запуска corpus control. Схема существующих embedding identity не меняется; это не доказательство соответствия старых векторов произвольно заменённым весам той же модели. Изменение весов/revision по-прежнему требует embedding migration.
+- После BM25 invalidation новый запрос сначала загружает индекс, затем без await фиксирует согласованную пару Qdrant/BM25. Уже начатый запрос сохраняет старый snapshot. Если во время загрузки переключился корпус, stale download отбрасывается; BM25LoadError явно логируется, текущий запрос использует dense, следующий повторяет загрузку.
+- Мигратор учитывает default FILE_BACKEND=s3 и без legacy S3 rows: отсутствие S3_ACCESS_KEY/S3_SECRET_KEY блокирует dry run/apply до backup, DB mutations и изменения env. Тесты переноса отдельных секретов используют явный FILE_BACKEND=local.
+- Регрессионные тесты: **RED — 9 failed** до исправлений; исправления и связанные bootstrap/migration/BM25/rate tests — **198 passed**. Команда: из server `.venv/bin/pytest -q tests/test_dynamic_ml_configuration.py tests/test_corpus_switch.py tests/test_config_env_migration.py tests/test_rate_limit_hotreload.py tests/test_configuration_bootstrap.py tests/test_bm25_async_loading.py tests/test_bm25_lifecycle.py`.
+- `.venv/bin/mypy app` — **Success: no issues found in 543 source files**; `.venv/bin/ruff check app tests` и format check семи изменённых Python-файлов — passed.
+- Расширенная проверка из server: `timeout 120 .venv/bin/pytest -q -m 'not integration and not slow'` — **2913 passed, 89 deselected, 13 существующих deprecation warnings**, exit 0. Расширение до unit suite обосновано изменениями общего bootstrap и admission всех corpus operations; integration/slow в этом запуске исключены явно.
+- Live integration, платные provider calls, env migration, Qdrant switch, deploy/recreate в этом исправлении не выполнялись. Проверка настоящего Redis и multi-host приёмка этапа 8 остаются открытыми; этап 7 остаётся частичным.
 
 ### Этап 9. История и результаты benchmark только в PostgreSQL
 
 **Files:** infrastructure/benchmark/persistence.py, benchmark_history.py, runner.py, runner_adapter.py; application/services/benchmark_result_service.py; application/ports/benchmark_history.py; domain/repositories/benchmark_run_repository.py; repositories/benchmark/sqlalchemy_benchmark_run_repository.py; infrastructure/worker/sweep.py и benchmark worker; presentation/api/routes/benchmark.py/benchmark_admin.py.
 
-- [ ] Использовать существующие benchmark_runs/sweeps и DatabaseBenchmarkCheckpoints, не создавать параллельную таблицу истории. PostgreSQL — source of truth metrics/config/per-question results/baseline.
-- [ ] Отделить сериализацию отчёта от сохранения run: runner возвращает данные и не обязан вызывать локальный save_results/append JSONL. Worker сохраняет через application use case/UoW; retry идемпотентен по существующему run/job/sweep identity.
-- [ ] Regression и history читают DB repository/порт. Baseline выбирается для совместимого dataset/evaluation mode, а не просто последний JSONL record другого корпуса; сохранить существующие правила сравнения метрик и явно фиксировать выбранный run_id.
-- [ ] Импорт legacy JSONL и JSON отчётов: dry run, validation, provenance/hash для дедупликации; сводки без per-question не выдумывают детали. Перенести доступные результаты и baseline, старые файлы сохранять до подтверждения импорта.
-- [ ] Тесты: DB persistence/retry, summaries/history/regression без локального файла, partial legacy records, malformed input отчёт об ошибках, повторный import без дублей, concurrent sweeps не перепутаны.
-- [ ] Проверка существующих test_benchmark*.py/test_sweep*.py и новых test_benchmark_database_history.py. Characterization baseline на затрагиваемые benchmark публичные методы до изменения согласно AGENTS.md.
+- [x] Использовать существующие benchmark_runs/sweeps и DatabaseBenchmarkCheckpoints, не создавать параллельную таблицу истории. PostgreSQL — source of truth metrics/config/per-question results/baseline.
+- [x] Отделить сериализацию отчёта от сохранения run: runner возвращает данные и не обязан вызывать локальный save_results/append JSONL. Worker сохраняет через application use case/UoW; retry идемпотентен по существующему run/job/sweep identity.
+- [x] Regression и history читают DB repository/порт. Baseline выбирается для совместимого dataset/evaluation mode, а не просто последний JSONL record другого корпуса; сохранить существующие правила сравнения метрик и явно фиксировать выбранный run_id.
+- [x] Импорт legacy JSONL и JSON отчётов: dry run, validation, provenance/hash для дедупликации; сводки без per-question не выдумывают детали. Перенести доступные результаты и baseline, старые файлы сохранять до подтверждения импорта.
+- [x] Тесты: DB persistence/retry, summaries/history/regression без локального файла, partial legacy records, malformed input отчёт об ошибках, повторный import без дублей, concurrent sweeps не перепутаны.
+- [x] Проверка существующих test_benchmark*.py/test_sweep*.py и новых test_benchmark_database_history.py. Characterization baseline на затрагиваемые benchmark публичные методы до изменения согласно AGENTS.md.
 
 ### Этап 10. Сохраняемые benchmark-артефакты в S3 и экспорт по запросу
 
@@ -386,23 +414,33 @@
 
 **Interfaces:** endpoint `GET /benchmark/results/{run_id}/export?format=csv|json` под существующим require_admin; CLI `benchmark export RUN_ID --format csv|json --out PATH`. Проверить реальный CLI registry: если команды benchmark отсутствуют, добавить только явный export command, не восстанавливать весь исторический CLI.
 
-- [ ] Для небольших выгрузок сериализовать DB run и отправить bytes/stream без файла в DATA_DIR. Размер/порог определить по текущим допустимым datasets и ограниченному буферу, не загружать неограниченный результат целиком.
-- [ ] Для сохраняемых отчётов/крупных артефактов использовать FileStorage/S3 prefix `benchmarks/runs/{run_id}/`; metadata object key/size/status хранить в DB. Sensitive reports доступны через auth endpoint или краткоживущую разрешённую ссылку, bucket не делать публичным.
-- [ ] DB commit результата предшествует export/upload. S3 сбой не превращает успешно сохранённый benchmark в failed evaluation; report получает failed/pending state и идемпотентный retry. Тот же run/format имеет стабильный ключ, без бесконечных дублей при retry.
-- [ ] Убрать пользовательский out_dir из server enqueue/storage contract. Legacy API out_dir временно принимать только прежнее default значение как deprecated/no-op; нестандартный путь отклонять с понятной ошибкой и новым export workflow. Обновить клиент/схемы; больше не давать HTTP API писать в произвольный каталог сервера.
-- [ ] Локальный файл появляется только по явному CLI --out. Не добавлять автоматические local JSON/CSV/JSONL exports по окончании web run.
-- [ ] Тесты: auth download, CSV/JSON корректность, export без writable DATA_DIR, S3 failure+retry не теряет DB result, legacy API compatibility, memory bounded large export.
+- [x] Для небольших выгрузок сериализовать DB run и отправить bytes/stream без файла в DATA_DIR. Размер/порог определить по текущим допустимым datasets и ограниченному буферу, не загружать неограниченный результат целиком.
+- [x] Для сохраняемых отчётов/крупных артефактов использовать FileStorage/S3 prefix `benchmarks/runs/{run_id}/`; metadata object key/size/status хранить в DB. Sensitive reports доступны через auth endpoint или краткоживущую разрешённую ссылку, bucket не делать публичным.
+- [x] DB commit результата предшествует export/upload. S3 сбой не превращает успешно сохранённый benchmark в failed evaluation; report получает failed/pending state и идемпотентный retry. Тот же run/format имеет стабильный ключ, без бесконечных дублей при retry.
+- [x] Убрать пользовательский out_dir из server enqueue/storage contract. Legacy API out_dir временно принимать только прежнее default значение как deprecated/no-op; нестандартный путь отклонять с понятной ошибкой и новым export workflow. Обновить клиент/схемы; больше не давать HTTP API писать в произвольный каталог сервера.
+- [x] Локальный файл появляется только по явному CLI --out. Не добавлять автоматические local JSON/CSV/JSONL exports по окончании web run.
+- [x] Тесты: auth download, CSV/JSON корректность, export без writable DATA_DIR, S3 failure+retry не теряет DB result, legacy API compatibility, memory bounded large export.
 
 ### Этап 11. Убрать зависимость S3 backend от DATA_DIR
 
 **Files:** config.py, benchmark/sweep_settings.py и sweep_engine.py, checkpoint.py/checkpoint_cleanup.py; worker checkpoint cleanup; routes/helpers/route_configs; storage/file_storage.py и parsing/OCR temp consumers при затрагивании; Docker mounts/env/docs.
 
-- [ ] Web sweep checkpoints остаются в существующей PostgreSQL реализации. Legacy local recovery оставить как явный import path/переходный режим, не обязательный root и не filesystem fallback, скрывающий отсутствие DB checkpoint.
-- [ ] Выделить исключительно локальные CLI export/checkpoint paths из default web runtime. Удалить серверные DATA_DIR consumers history/report/out_dir после этапов 9–10; cleanup управляет DB checkpoint retention и S3 артефактами по их назначению.
-- [ ] Для промежуточного файла использовать TemporaryDirectory/существующий безопасный temp mechanism с cleanup в finally/context, включая exception/cancellation. Если библиотеке не нужен pathname, передавать stream/bytes с bounded size. Blocking IO не выполнять в event loop.
-- [ ] Не переносить все документы/OCR в RAM и не удалять полезные temp файлы из принципа. Они disposable; восстановление после restart опирается на БД/S3, не на temp.
-- [ ] DATA_DIR не требуется при FILE_BACKEND=s3; local backend, если поддерживается, сохраняет статический root. Наличие поля с default не означает необходимость строки env: удалить только ненужные S3 строки/mounts, не volumes PostgreSQL/Qdrant/ML caches.
-- [ ] Тесты: S3 workflow с отсутствующим/readonly DATA_DIR; sweep retry другим worker восстанавливается из DB; exception/cancellation cleans temp; CLI --out работает; supported local storage сохраняет path/ACL validation.
+- [x] Web sweep checkpoints остаются в существующей PostgreSQL реализации. Legacy local recovery оставить как явный import path/переходный режим, не обязательный root и не filesystem fallback, скрывающий отсутствие DB checkpoint.
+- [x] Выделить исключительно локальные CLI export/checkpoint paths из default web runtime. Удалить серверные DATA_DIR consumers history/report/out_dir после этапов 9–10; cleanup управляет DB checkpoint retention и S3 артефактами по их назначению.
+- [x] Для промежуточного файла использовать TemporaryDirectory/существующий безопасный temp mechanism с cleanup в finally/context, включая exception/cancellation. Если библиотеке не нужен pathname, передавать stream/bytes с bounded size. Blocking IO не выполнять в event loop.
+- [x] Не переносить все документы/OCR в RAM и не удалять полезные temp файлы из принципа. Они disposable; восстановление после restart опирается на БД/S3, не на temp.
+- [x] DATA_DIR не требуется при FILE_BACKEND=s3; local backend, если поддерживается, сохраняет статический root. Наличие поля с default не означает необходимость строки env: удалить только ненужные S3 строки/mounts, не volumes PostgreSQL/Qdrant/ML caches.
+- [x] Тесты: S3 workflow с отсутствующим/readonly DATA_DIR; sweep retry другим worker восстанавливается из DB; exception/cancellation cleans temp; CLI --out работает; supported local storage сохраняет path/ACL validation.
+
+**Проверено 2026-10-15 (этапы 9–11):** 352 целевых теста прошли: `test_benchmark*.py`, `test_sweep*.py`, worker/resource lifecycle, async local/S3 storage, `integration/test_benchmark_history_postgres.py` и `integration/test_benchmark_checkpoint_storage.py`. PostgreSQL проверен в отдельном временном кластере, включая конкурентные retry/sweeps, upgrade/downgrade новой миграции и восстановление sweep новым экземпляром worker без DATA_DIR. `task lint` (Ruff + mypy, 548 модулей), TypeScript typecheck, Biome затронутых клиентских файлов и `git diff --check` прошли. Запрещённых обратных импортов в затронутых Domain/Application файлах не найдено. Тесты с файловым I/O/threadpool и сокетами выполнялись вне sandbox: внутри него эти операции зависают/запрещены.
+
+Реализация: миграция `r8h9i0j1k2l3_benchmark_reports` добавляет идентификаторы job/import, metadata артефактов и время обновления DB checkpoint. Regression возвращает `run_id` и `baseline_run_id`, учитывает dataset, evaluation mode и известную идентичность корпуса/dataset. JSON/CSV читают по одному вопросу и отдают блоки до 64 KiB; S3 multipart использует части по 5 MiB. Ошибка артефакта не отменяет сохранённую оценку; повтор — `POST /benchmark/results/{run_id}/artifacts/{csv|json}`. Скачать можно через admin-only `GET /benchmark/results/{run_id}/export?format=csv|json`, кнопки в таблице запусков или явный `benchmark export RUN_ID --format csv|json --out PATH`.
+
+Legacy import: `benchmark import-legacy PATH --dataset DATASET` выполняет dry run; `--apply` сохраняет проверенные записи. Ошибки валидации блокируют apply, файлы не удаляются; дедупликация использует hash содержимого и dataset, provenance сохраняется в run. Размер одного входного файла ограничен 64 MiB. Для JSON без config/timestamp сохраняются доступные вопросы/метрики и mtime файла; неизвестные параметры корпуса не выдумываются. Сводки JSONL остаются без per-question details. Прежнее правило baseline — предыдущий совместимый запуск — сохранено; запись без известного корпуса не сравнивается с записью известного корпуса.
+
+DATA_DIR остаётся статическим root только local backend; в web S3 runtime файловые checkpoints, reports и history не используются. Автоматические bind mounts `/code/project/data` удалены; для persistent local backend добавлен явный `docker-compose.local-storage.yml` (`LOCAL_DATA_DIR` задаёт host path). Web cleanup удаляет DB checkpoints успешных sweeps либо неактивные старше суток под блокировкой sweep; существующие локальные recovery adapters остаются только явно подключаемым переходным режимом. Сохранённые отчёты в S3 не удаляются вместе с disposable checkpoints.
+
+**Границы приёмки:** настоящий S3/MinIO upload/download и live deployment не выполнялись; S3 failure/retry/multipart/cancellation проверены SDK-фейками. Рабочие env/БД/контейнеры не изменялись, новая миграция в рабочую БД не применена. Общая env migration, live приёмка и финальная Docker-проверка относятся к этапу 12. Отдельные commits не создавались, исходные незавершённые правки сохранены.
 
 ### Этап 12. Docker, сокращение env, документация и финальная проверка
 
@@ -651,4 +689,4 @@
 
 Стартовый запрос исполнителю: «Реализуй этот план по этапам. Начни с проверки текущего checkout и baseline tests. Сохрани production invariants и текущие значения. Не выполняй live migrate-env --apply, переключение Qdrant, deploy или recreate сервисов без авторизации. После каждого этапа записывай проверенные результаты и обновляй checklist. Не добавляй TOML/YAML и не показывай неработающие настройки как действующие».
 
-Этапы 1–4 реализованы и проверены (результаты выше). Код изменён; рабочие БД, env и сервисы не изменены. Этапы 5–12 не выполнялись. Фактические значения конфигурации БД/цены провайдеров/live переключение ещё не проверены.
+Текущая передача: этапы 1–4 и 6 реализованы; код этапа 5 готов, настоящая Redis integration ожидает проверки. Этап 7 частичный: supported text OpenRouter работает, unsupported платные пути блокируются. Этап 8 реализован и имеет unit/ранее выполненные локальные PostgreSQL проверки; live multi-host приёмка остаётся открытой. Дефекты независимого ревью исправлены и покрыты регрессиями выше. Этапы 9–11 реализованы; 352 целевых теста, локальный PostgreSQL, Ruff/mypy и frontend проверки прошли, настоящий S3/live приёмка остаются открытыми. Этап 12 не выполнялся. Рабочие БД, env и сервисы не изменены; production values/цены провайдеров/live переключение не проверены. Изменения этапов 5–11 и исправления ревью ещё не оформлены отдельными commits.

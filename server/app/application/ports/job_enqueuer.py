@@ -52,7 +52,6 @@ class JobEnqueuerPort(Protocol):
         self,
         *,
         dataset: str,
-        out_dir: str,
         top_k: int,
         judge_model: str,
         job_id: int,

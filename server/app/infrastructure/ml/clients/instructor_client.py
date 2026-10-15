@@ -11,6 +11,7 @@ import logging
 
 import instructor
 import httpx
+from infrastructure.budget.transport import PaidSyncTransport, PaidAsyncTransport
 from openai import AsyncOpenAI, OpenAI
 
 from config import settings
@@ -27,8 +28,18 @@ def create_instructor_client(base_url: str, api_key: str = "ollama", model: str 
     The returned client supports ``client.chat.completions.create()``
     with ``response_model=<Pydantic model>`` for structured output.
     """
-    raw_client = OpenAI(base_url=base_url, api_key=api_key, http_client=httpx.Client(follow_redirects=False))
-    client = instructor.from_openai(raw_client)
+    raw_client = OpenAI(
+        max_retries=0,
+        base_url=base_url,
+        api_key=api_key,
+        http_client=httpx.Client(
+            follow_redirects=False,
+            transport=PaidSyncTransport() if "openrouter.ai" in base_url else None,
+        ),
+    )
+    client = instructor.from_openai(
+        raw_client, mode=instructor.Mode.JSON if "openrouter.ai" in base_url else instructor.Mode.TOOLS
+    )
     client.on('completion:response', record_model_response)
     return client
 
@@ -39,9 +50,17 @@ def create_async_instructor_client(base_url: str, api_key: str = "ollama", model
     Cached in MLClientRegistry to avoid creating new TCP connections per call.
     """
     raw_client = AsyncOpenAI(
-        base_url=base_url, api_key=api_key, http_client=httpx.AsyncClient(follow_redirects=False)
+        max_retries=0,
+        base_url=base_url,
+        api_key=api_key,
+        http_client=httpx.AsyncClient(
+            follow_redirects=False,
+            transport=PaidAsyncTransport() if "openrouter.ai" in base_url else None,
+        ),
     )
-    client = instructor.from_openai(raw_client)
+    client = instructor.from_openai(
+        raw_client, mode=instructor.Mode.JSON if "openrouter.ai" in base_url else instructor.Mode.TOOLS
+    )
     client.on('completion:response', record_model_response)
     return client
 

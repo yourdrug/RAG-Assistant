@@ -29,6 +29,7 @@ def build_infrastructure(monkeypatch):
     bus = InProcessEventBus()
     monkeypatch.setattr("composition.infrastructure.event_bus", bus)
     infra = InfrastructureContainer(domain_settings=adapter, domain_registry=registry)
+    infra.corpus_control = AsyncMock()
     infra.db.uow_factory = FakeUnitOfWorkFactory()
     model = Settings(
         _env_file=None, tei_embed_url="http://tei-embed:80", tei_rerank_url="http://tei-rerank:80"

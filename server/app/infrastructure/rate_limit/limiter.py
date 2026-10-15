@@ -8,6 +8,7 @@ Fail-open: backend errors are logged/counted and the request is allowed.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from pyrate_limiter import Limiter
@@ -23,6 +24,8 @@ from infrastructure.metrics.metrics import (
     RATE_LIMIT_EXCEEDED_TOTAL,
 )
 from infrastructure.rate_limit.bucket_factory import RedisBucketFactory
+from infrastructure.rate_limit.policies import build_policies
+from config import Settings
 
 if TYPE_CHECKING:
     from redis.asyncio import Redis
@@ -133,3 +136,63 @@ class PyrateRateLimiter:
         except Exception:  # never let diagnostics break the deny path
             logger.debug("Could not resolve violated rate for %s", item_name, exc_info=True)
             return fallback
+
+
+@dataclass(eq=False)
+class LimiterGeneration:
+    limiter: PyrateRateLimiter
+    users: int = 0
+
+
+class DynamicRateLimiter:
+    """Acquire against one applied configuration; retain Redis history on rotation.
+
+    Snapshot selection and lease acquisition have no await, so an in-flight
+    request cannot observe mixed quotas or a closed local limiter. Windows and
+    Redis key names are deployment invariants, only their quotas change.
+    """
+
+    def __init__(self, redis: Redis, settings: Settings) -> None:
+        self._redis = redis
+        self._settings = settings
+        self._signature: tuple | None = None
+        self._current: LimiterGeneration | None = None
+        self._generations: set[LimiterGeneration] = set()
+
+    async def check(self, policy_name: RateLimitPolicyName, principal: str) -> RateLimitDecision:
+        policies = build_policies(self._settings)
+        enabled = self._settings.rate_limit_enabled
+        fail_open = self._settings.rate_limit_fail_open
+        if not enabled:
+            return RateLimitDecision(allowed=True)
+        signature = (tuple(policies.values()), fail_open)
+        if signature != self._signature:
+            new_generation = LimiterGeneration(
+                PyrateRateLimiter(
+                    self._redis,
+                    policies,
+                    key_prefix=self._settings.rate_limit_redis_prefix,
+                    max_buckets=self._settings.rate_limit_max_buckets,
+                    fail_open=fail_open,
+                )
+            )
+            self._current = new_generation
+            self._generations.add(new_generation)
+            self._signature = signature
+        generation = self._current
+        if generation is None:
+            raise RuntimeError("Rate limiter generation unavailable")
+        generation.users += 1
+        try:
+            return await generation.limiter.check(policy_name, principal)
+        finally:
+            generation.users -= 1
+            for retired in tuple(self._generations):
+                if retired is not self._current and retired.users == 0:
+                    self._generations.remove(retired)
+                    await retired.limiter.aclose()
+
+    async def aclose(self) -> None:
+        for generation in tuple(self._generations):
+            await generation.limiter.aclose()
+        self._generations.clear()

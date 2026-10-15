@@ -10,6 +10,10 @@ import logging
 
 
 import httpx
+from infrastructure.corpus.control import corpus_write_guard, raw_corpus_client
+from infrastructure.corpus import snapshot as corpus_snapshot
+from infrastructure.corpus.snapshot import BoundQdrantClient, CorpusSnapshot
+from infrastructure.budget.transport import PaidSyncTransport, PaidAsyncTransport
 from config import Settings, settings
 from domain.value_objects.llm_provider import Breadth, LLMProvider
 from langchain_ollama import ChatOllama
@@ -18,7 +22,6 @@ from pydantic import SecretStr
 from infrastructure.ml.clients.deepinfra_clients import DeepInfraEmbeddingsClient, DeepInfraRerankerClient
 from infrastructure.ml.clients.tei_clients import TEIEmbeddingsClient, TEIRerankerClient
 from infrastructure.ml.config.embedding_identity import configured_embedding_identity
-from qdrant_client import QdrantClient
 
 log = logging.getLogger("default")
 
@@ -156,10 +159,10 @@ def create_openrouter_llm(
         temperature=temperature if temperature is not None else model.llm_temperature,
         max_tokens=max_tokens if max_tokens is not None else model.llm_num_predict_narrow,
         request_timeout=120,
-        max_retries=2,
+        max_retries=0,
         stream_usage=True,
-        http_client=httpx.Client(follow_redirects=False),
-        http_async_client=httpx.AsyncClient(follow_redirects=False),
+        http_client=httpx.Client(follow_redirects=False, transport=PaidSyncTransport()),
+        http_async_client=httpx.AsyncClient(follow_redirects=False, transport=PaidAsyncTransport()),
     )
 
 
@@ -211,10 +214,10 @@ def create_openrouter_llm_for_breadth(
         temperature=temperature if temperature is not None else model.llm_temperature,
         max_tokens=max_tokens,
         request_timeout=120,
-        max_retries=2,
+        max_retries=0,
         stream_usage=True,
-        http_client=httpx.Client(follow_redirects=False),
-        http_async_client=httpx.AsyncClient(follow_redirects=False),
+        http_client=httpx.Client(follow_redirects=False, transport=PaidSyncTransport()),
+        http_async_client=httpx.AsyncClient(follow_redirects=False, transport=PaidAsyncTransport()),
     )
 
 
@@ -238,9 +241,9 @@ def create_fast_llm_for_auxiliary(model: Settings | None = None):
             temperature=0,
             max_tokens=200,
             request_timeout=10,
-            max_retries=1,
-            http_client=httpx.Client(follow_redirects=False),
-            http_async_client=httpx.AsyncClient(follow_redirects=False),
+            max_retries=0,
+            http_client=httpx.Client(follow_redirects=False, transport=PaidSyncTransport()),
+            http_async_client=httpx.AsyncClient(follow_redirects=False, transport=PaidAsyncTransport()),
         )
     return create_ollama_llm(model=model)
 
@@ -250,12 +253,15 @@ def create_fast_llm_for_auxiliary(model: Settings | None = None):
 # ---------------------------------------------------------------------------
 
 
-def create_qdrant_client() -> QdrantClient:
-    return QdrantClient(
-        url=settings.qdrant_url,
-        api_key=settings.qdrant_api_key,
-        timeout=settings.qdrant_timeout,
+def create_qdrant_client() -> BoundQdrantClient:
+    snapshot = corpus_snapshot.installed_corpus or CorpusSnapshot(
+        settings.qdrant_url,
+        settings.collection_name,
+        settings.collection_name,
+        configured_embedding_identity(),
     )
+    raw = raw_corpus_client(snapshot.endpoint)
+    return BoundQdrantClient(raw, snapshot, corpus_write_guard)
 
 
 # ---------------------------------------------------------------------------

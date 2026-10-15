@@ -103,7 +103,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
 
         if container.infrastructure.db.uow_factory is None:
             raise RuntimeError("UnitOfWorkFactory failed to initialize")
-        await container.infrastructure.bootstrap_configuration()
+        await container.infrastructure.bootstrap_configuration(role="api")
         await bootstrap_admin(container.infrastructure.db.uow_factory)
 
         if container.infrastructure.events.config_listener is None:

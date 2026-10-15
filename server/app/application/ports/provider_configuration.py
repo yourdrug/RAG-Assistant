@@ -13,7 +13,21 @@ class ConfigurationStatus:
     error: str | None
 
 
+@dataclass(frozen=True)
+class EffectiveParameter:
+    key: str
+    source: str
+    configured_value: str | None
+    applied_value: str | None
+    editable: bool
+    application_mode: str
+    present: bool | None = None
+    domain_key: str | None = None
+
+
 class ProviderConfigurationPort(Protocol):
+    def effective_parameters(self, rows: list[ConfigParameter]) -> list[EffectiveParameter]: ...
+
     async def validate_snapshot_change(
         self, rows: list[ConfigParameter], key: str, value: str, domain_key: str | None
     ) -> None: ...

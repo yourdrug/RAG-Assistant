@@ -55,7 +55,7 @@ class SweepBenchmarkPort(Protocol):
     async def run(
         self,
         questions: list[dict],
-        out_dir: str,
+        out_dir: str | None,
         top_k: int,
         judge_model: str,
         *,
@@ -80,7 +80,7 @@ class SweepEngine:
         *,
         runtime: SweepSettingsPort | None = None,
         strategies: dict[str, Callable[[dict], SweepSearchStrategy]] | None = None,
-        checkpoint_factory: Callable[[int, Path], BenchmarkCheckpoints] | None = None,
+        checkpoint_factory: Callable[[int, Path | None], BenchmarkCheckpoints] | None = None,
     ) -> None:
         self._runtime = runtime if runtime is not None else LiveSweepSettings()
         self._checkpoint_factory = checkpoint_factory
@@ -116,15 +116,11 @@ class SweepEngine:
         strategy = factory(sweep.search_space)
         await self.check_cancelled(should_cancel, "before sweep preparation")
         self._checkpoint_root = (
-            Path(self._runtime.results_path) / "sweeps" / str(sweep.id) if sweep.id else None
-        )
-        self._checkpoints = (
-            self._checkpoint_factory(sweep.id, self._checkpoint_root)
-            if self._checkpoint_factory and sweep.id and self._checkpoint_root is not None
-            else FileBenchmarkCheckpoints(self._checkpoint_root)
-            if self._checkpoint_root
+            Path(self._runtime.results_path) / "sweeps" / str(sweep.id)
+            if sweep.id and self._runtime.results_path is not None
             else None
         )
+        self._checkpoints = self.create_checkpoints(sweep.id, self._checkpoint_root)
         dataset_questions = (
             cast(list[dict] | None, await self._checkpoints.load("dataset.json"))
             if self._checkpoints
@@ -183,6 +179,15 @@ class SweepEngine:
                 result["scored_config_count"] = 0
                 result["search_config_count"] = len(results)
         return results
+
+    def create_checkpoints(self, sweep_id: int | None, root: Path | None) -> BenchmarkCheckpoints | None:
+        if self._checkpoint_factory and sweep_id:
+            return self._checkpoint_factory(sweep_id, root)
+        if root is not None:
+            return FileBenchmarkCheckpoints(root)
+        if sweep_id:
+            raise RuntimeError("A database checkpoint store is required for web sweeps")
+        return None
 
     async def evaluate_phase_a(
         self,
@@ -301,7 +306,7 @@ class SweepEngine:
             )
         checkpoints: BenchmarkCheckpoints | None = getattr(self, "_checkpoints", None)
         extra: SweepResumeOptions = {}
-        if checkpoint_root and checkpoints is not None:
+        if checkpoints is not None:
             config_identity = fingerprint(
                 {
                     "top_k": self._runtime.top_k,
@@ -319,10 +324,10 @@ class SweepEngine:
                     {"config": config_identity, "questions": questions, "judge": judge_model}
                 )
                 await checkpoints.save(identity_key, prefix)
-                if self._checkpoint_factory:
+                if self._checkpoint_factory and checkpoint_root is not None:
                     await import_legacy_configuration(
                         checkpoints,
-                        Path(out_dir),
+                        Path(cast(str, out_dir)),
                         prefix,
                         single_config_root=checkpoint_root if self._legacy_single_config else None,
                     )
@@ -348,6 +353,7 @@ class SweepEngine:
                 "benchmark_judge_max_concurrent",
             }
         }
+        runtime_snapshot["qdrant_url"] = get_setting("qdrant_url")
         if self._checkpoints:
             saved_runtime = await self._checkpoints.load("runtime.json")
             if saved_runtime is None:

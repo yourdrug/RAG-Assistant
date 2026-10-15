@@ -238,6 +238,7 @@ async def assess_sufficiency(
                             {"role": "system", "content": SUFFICIENCY_ASSESSMENT_SYSTEM},
                             {"role": "user", "content": user_msg},
                         ],
+                        max_tokens=settings.llm_num_predict_narrow,
                         response_model=SufficiencyAssessment,
                         max_retries=1,
                     ),

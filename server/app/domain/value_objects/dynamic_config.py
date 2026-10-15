@@ -200,7 +200,39 @@ class DynamicParam:
     domain_key: str | None = None
 
 
+# nginx allows 64 MiB per request; reserve 1 MiB for multipart metadata.
+UPLOAD_REQUEST_CEILING_MB = 64
+MAX_UPLOAD_FILE_MB = UPLOAD_REQUEST_CEILING_MB - 1
+
 DYNAMIC_PARAMS: list[DynamicParam] = [
+    DynamicParam("qdrant_url", str, "corpus", "Qdrant endpoint; coordinated corpus switch only"),
+    DynamicParam(
+        "collection_name", str, "corpus", "Alias/physical collection; coordinated corpus switch only"
+    ),
+    DynamicParam(
+        "cost_rate_limit_enabled", bool, "cost", "USD per principal; unsupported paid calls blocked"
+    ),
+    DynamicParam(
+        "cost_hourly_limit", float, "cost", "Rolling hour USD; includes pending reservations", 0.000000001
+    ),
+    DynamicParam(
+        "cost_daily_limit", float, "cost", "Rolling day USD; includes pending reservations", 0.000000001
+    ),
+    DynamicParam(
+        "max_upload_size_mb",
+        int,
+        "ingestion",
+        "File limit MiB; nginx request ceiling 64 MiB including multipart",
+        1,
+        MAX_UPLOAD_FILE_MB,
+    ),
+    DynamicParam(
+        "job_cleanup_days",
+        int,
+        "jobs",
+        "Retention days; reducing deletes older completed/failed jobs on next hourly cleanup",
+        1,
+    ),
     DynamicParam("ollama_base_url", str, "llm", "Ollama endpoint (deployment-approved origin)"),
     DynamicParam("openrouter_base_url", str, "openrouter", "OpenRouter endpoint (canonical HTTPS origin)"),
     DynamicParam("tei_embed_url", str, "ml", "TEI embedding endpoint (same model identity required)"),
@@ -305,6 +337,15 @@ DYNAMIC_PARAMS: list[DynamicParam] = [
     DynamicParam("ocr_min_chars", int, "ocr", "Min chars to consider page text", 0, 500),
     DynamicParam("ocr_lang_surya", list, "ocr", "Surya OCR languages"),
     DynamicParam("ocr_lang_paddle", str, "ocr", "PaddleOCR language"),
+    DynamicParam("rate_limit_enabled", bool, "rate_limit", "Enable request rate limits"),
+    DynamicParam("rate_limit_fail_open", bool, "rate_limit", "Allow requests when Redis is unavailable"),
+    DynamicParam("rate_limit_login_per_minute", int, "rate_limit", "login per minute; rolling window", 1),
+    DynamicParam("rate_limit_chat_per_minute", int, "rate_limit", "chat per minute; rolling window", 1),
+    DynamicParam("rate_limit_chat_per_day", int, "rate_limit", "chat per day; rolling window", 1),
+    DynamicParam("rate_limit_upload_per_hour", int, "rate_limit", "upload per hour; rolling window", 1),
+    DynamicParam("rate_limit_search_per_minute", int, "rate_limit", "search per minute; rolling window", 1),
+    DynamicParam("rate_limit_write_per_minute", int, "rate_limit", "write per minute; rolling window", 1),
+    DynamicParam("rate_limit_benchmark_per_hour", int, "rate_limit", "benchmark per hour; rolling window", 1),
     # ── Background jobs ─────────────────────────────────────────
     DynamicParam("stuck_job_timeout_minutes", int, "jobs", "Minutes before PROCESSING doc is stuck", 5, 120),
     DynamicParam("stale_pending_timeout_minutes", int, "jobs", "Minutes before PENDING job is stale", 5, 120),

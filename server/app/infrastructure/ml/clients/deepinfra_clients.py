@@ -13,6 +13,8 @@ from __future__ import annotations
 import logging
 
 import httpx
+from infrastructure.budget.transport import PaidSyncTransport
+from domain.value_objects.cost_budget import BudgetError
 from infrastructure.ml.clients.managed_http import ManagedHTTPPool
 from infrastructure.ml.usage_capture import record_inference_response
 
@@ -30,6 +32,7 @@ class DeepInfraEmbeddingsClient(ManagedHTTPPool):
         self, api_key: str, base_url: str, model: str, pool_limits: httpx.Limits | None = None
     ) -> None:
         self._api_key = api_key
+        self.billable_provider = "DeepInfra embedding/rerank"
         self._base_url = base_url.rstrip("/")
         self._model = model
         limits = pool_limits or httpx.Limits(max_connections=20, max_keepalive_connections=10)
@@ -64,7 +67,7 @@ class DeepInfraEmbeddingsClient(ManagedHTTPPool):
         return [item["embedding"] for item in sorted(data, key=lambda x: x["index"])]
 
     def embed_query_sync(self, text: str) -> list[float]:
-        with httpx.Client(timeout=DEEPINFRA_TIMEOUT) as client:
+        with httpx.Client(timeout=DEEPINFRA_TIMEOUT, transport=PaidSyncTransport()) as client:
             r = client.post(
                 f"{self._base_url}/embeddings",
                 headers=self.headers(),
@@ -86,6 +89,7 @@ class DeepInfraRerankerClient(ManagedHTTPPool):
         self, api_key: str, base_url: str, model: str, pool_limits: httpx.Limits | None = None
     ) -> None:
         self._api_key = api_key
+        self.billable_provider = "DeepInfra embedding/rerank"
         self._base_url = base_url.rstrip("/")
         self._model = model
         limits = pool_limits or httpx.Limits(max_connections=10, max_keepalive_connections=5)
@@ -97,6 +101,8 @@ class DeepInfraRerankerClient(ManagedHTTPPool):
     async def predict(self, pairs: list[tuple[str, str]]) -> list[float]:
         if not pairs:
             return []
+        if any(pair[0] != pairs[0][0] for pair in pairs):
+            raise BudgetError("Reranking pairs must share one query")
         query = pairs[0][0]
         documents = [p[1] for p in pairs]
         payload = {"queries": [query], "documents": documents}
@@ -113,10 +119,12 @@ class DeepInfraRerankerClient(ManagedHTTPPool):
     def predict_sync(self, pairs: list[tuple[str, str]]) -> list[float]:
         if not pairs:
             return []
+        if any(pair[0] != pairs[0][0] for pair in pairs):
+            raise BudgetError("Reranking pairs must share one query")
         query = pairs[0][0]
         documents = [p[1] for p in pairs]
         payload = {"queries": [query], "documents": documents}
-        with httpx.Client(timeout=DEEPINFRA_TIMEOUT) as client:
+        with httpx.Client(timeout=DEEPINFRA_TIMEOUT, transport=PaidSyncTransport()) as client:
             r = client.post(
                 f"{self._base_url}/inference/{self._model}",
                 headers=self.headers(),

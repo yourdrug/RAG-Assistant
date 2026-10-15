@@ -298,7 +298,6 @@ export interface HealthResponse {
 
 export interface BenchmarkRequest {
   dataset?: string;
-  out_dir?: string | null;
   top_k?: number | null;
   judge_model?: string | null;
 }

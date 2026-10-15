@@ -284,3 +284,68 @@ async def test_real_sdk_context_failed_creation_preserves_error_and_allows_retry
     await storage.upload_file("a", b"x")
     await storage.aclose()
     client.__aexit__.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_report_multipart_bounded_and_aborted_on_error_or_cancel(monkeypatch):
+    storage, client, _, _ = client_harness(monkeypatch)
+    client.create_multipart_upload = AsyncMock(return_value={'UploadId': 'upload'})
+    client.upload_part = AsyncMock(return_value={'ETag': 'etag'})
+    client.complete_multipart_upload = AsyncMock()
+    client.abort_multipart_upload = AsyncMock()
+    monkeypatch.setattr(settings, 'data_dir', '/proc/unavailable')
+
+    async def chunks():
+        for _ in range(12):
+            yield b'x' * 1024 * 1024
+
+    await storage.upload_stream('benchmarks/runs/1/report.json', chunks())
+    sizes = [len(call.kwargs['Body']) for call in client.upload_part.call_args_list]
+    assert sizes == [5 * 1024 * 1024, 5 * 1024 * 1024, 2 * 1024 * 1024]
+    client.complete_multipart_upload.assert_awaited_once()
+
+    for error in (OSError('upload failed'), asyncio.CancelledError()):
+
+        async def broken(error=error):
+            yield b'partial'
+            raise error
+
+        with pytest.raises(type(error)):
+            await storage.upload_stream('benchmarks/runs/1/report.json', broken())
+    assert client.abort_multipart_upload.await_count == 2
+    await storage.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("creation_fails", [False, True])
+async def test_cancel_during_multipart_creation_aborts_remote_upload(monkeypatch, creation_fails):
+    storage, client, _, _ = client_harness(monkeypatch)
+    started, release = asyncio.Event(), asyncio.Event()
+
+    async def create(**kwargs):
+        started.set()
+        await release.wait()
+        if creation_fails:
+            raise OSError('create failed')
+        return {'UploadId': 'owned-upload'}
+
+    client.create_multipart_upload = AsyncMock(side_effect=create)
+    client.abort_multipart_upload = AsyncMock()
+
+    async def blocks():
+        yield b'data'
+
+    task = asyncio.create_task(storage.upload_stream('report.json', blocks()))
+    await started.wait()
+    task.cancel()
+    await asyncio.sleep(0)
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    if creation_fails:
+        client.abort_multipart_upload.assert_not_awaited()
+    else:
+        client.abort_multipart_upload.assert_awaited_once_with(
+            Bucket='bucket', Key='report.json', UploadId='owned-upload'
+        )
+    await storage.aclose()

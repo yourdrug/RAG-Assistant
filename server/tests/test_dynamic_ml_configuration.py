@@ -14,6 +14,8 @@ from infrastructure.events.in_process_event_bus import InProcessEventBus
 from infrastructure.ml.clients import factories
 from infrastructure.ml.clients.client_registry import MLClientRegistry
 from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
+from infrastructure.initialization import build_defaults
+from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 
 
 ENDPOINT_KEYS = (
@@ -140,6 +142,42 @@ def successful_response(request):
     if request.url.path == "/rerank":
         return httpx.Response(200, json=[{"index": 0, "score": 0.7}])
     return httpx.Response(200, json={})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('fault', [None, 'wrong-model', 'wrong-dimension', 'offline'])
+async def test_cold_bootstrap_probes_default_encoder_before_readiness(model, monkeypatch, fault):
+    requests = []
+
+    def handler(request):
+        requests.append(request.url.path)
+        if fault == 'offline':
+            return httpx.Response(503)
+        if fault == 'wrong-model' and request.url.path == '/info':
+            return httpx.Response(200, json={'model_id': 'another-model'})
+        if fault == 'wrong-dimension' and request.url.path == '/embed':
+            return httpx.Response(200, json=[[0.1]])
+        return successful_response(request)
+
+    wire_http(monkeypatch, handler)
+    registry = MLClientRegistry()
+    config = SettingsProviderConfiguration(
+        model, DomainSettingsAdapter(), bus=InProcessEventBus(), ml_clients=registry
+    )
+    try:
+        if fault:
+            with pytest.raises((ValidationError, httpx.HTTPError)):
+                await config.apply_async(build_defaults(), require_complete=True)
+            assert not config.status().ready
+            assert config.status().applied_version is None
+            assert registry._embeddings is None
+        else:
+            await config.apply_async(build_defaults(), require_complete=True)
+            assert config.status().ready
+            assert '/info' in requests and '/embed' in requests
+            assert await registry.embeddings().embed_query('query') == [0.25] * 1024
+    finally:
+        await registry.close()
 
 
 @pytest.mark.asyncio

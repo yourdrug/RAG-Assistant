@@ -1,13 +1,9 @@
 """Retention boundaries, reports preservation and cleanup after committed success."""
 
-from datetime import UTC, datetime, timedelta
-from types import SimpleNamespace
 from unittest.mock import AsyncMock
-import os
 
 import pytest
 
-from domain.value_objects.job_status import BackgroundJobStatus
 from domain.value_objects.sweep_status import BenchmarkSweepStatus
 from infrastructure.benchmark.checkpoint_cleanup import (
     cleanup_sweep_checkpoints,
@@ -48,76 +44,21 @@ def test_remove_checkpoints_keeps_reports_and_cleans_abandoned_temporary_files(t
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("status", [BenchmarkSweepStatus.FAILED, BenchmarkSweepStatus.CANCELLED])
-@pytest.mark.parametrize("hours,expired", [(23.99, False), (24, True), (24.01, True)])
-async def test_inactive_retention_is_exactly_one_day(tmp_path, monkeypatch, status, hours, expired):
-    root = make_artifacts(tmp_path)
-    now = datetime(2026, 10, 7, tzinfo=UTC)
-
-    class Clock(datetime):
-        @classmethod
-        def now(cls, tz=None):
-            return now
-
-    monkeypatch.setattr(cron, "datetime", Clock)
-    monkeypatch.setattr(cron.settings, "data_dir", str(tmp_path))
+async def test_web_cleanup_uses_database_without_filesystem(monkeypatch):
     factory = SweepFactory()
-    factory.saved.status = status.value
-    factory.saved.job_id = 2
-    factory.jobs.get_by_id = AsyncMock(
-        return_value=SimpleNamespace(
-            status=BackgroundJobStatus.FAILED.value, finished_at=now - timedelta(hours=hours)
-        )
-    )
+    factory.sweeps.cleanup_checkpoints = AsyncMock()
     await cron.cron_sweep_checkpoint_cleanup(sweep_context(factory))
-    factory.sweeps.get_by_id.assert_awaited_once_with(1, for_update=True)
-    if expired:
-        assert_cleaned(root)
-    else:
-        assert (root / "dataset.json").exists()
+    factory.sweeps.cleanup_checkpoints.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("status", [BenchmarkSweepStatus.PENDING, BenchmarkSweepStatus.RUNNING])
-async def test_active_sweep_keeps_old_checkpoints(tmp_path, monkeypatch, status):
-    root = make_artifacts(tmp_path)
-    for path in root.rglob("*"):
-        os.utime(path, (0, 0))
+async def test_successful_worker_cleans_database_only_after_done_commit(monkeypatch):
     factory = SweepFactory()
-    factory.saved.status = status.value
-    monkeypatch.setattr(cron.settings, "data_dir", str(tmp_path))
-    await cron.cron_sweep_checkpoint_cleanup(sweep_context(factory))
-    assert (root / "dataset.json").exists()
-
-
-@pytest.mark.asyncio
-async def test_cancelled_sweep_with_live_worker_keeps_checkpoints(tmp_path, monkeypatch):
-    root = make_artifacts(tmp_path)
-    factory = SweepFactory()
-    factory.saved.status = BenchmarkSweepStatus.CANCELLED.value
-    factory.saved.job_id = 2
-    factory.jobs.get_by_id = AsyncMock(return_value=SimpleNamespace(status=BackgroundJobStatus.RUNNING.value))
-    monkeypatch.setattr(cron.settings, "data_dir", str(tmp_path))
-    await cron.cron_sweep_checkpoint_cleanup(sweep_context(factory))
-    assert (root / "dataset.json").exists()
-
-
-@pytest.mark.asyncio
-async def test_successful_worker_cleans_only_after_results_commit(tmp_path, monkeypatch):
-    root = make_artifacts(tmp_path)
-    factory = SweepFactory()
-    engine = SimpleNamespace(run_sweep=AsyncMock(return_value=[]))
-    monkeypatch.setattr(worker.settings, "data_dir", str(tmp_path))
-    monkeypatch.setattr(worker, "create_sweep_engine", lambda infra: engine)
+    factory.sweeps.delete_checkpoints = AsyncMock()
     monkeypatch.setattr(worker, "publish_sweep_event", AsyncMock())
-
-    def cleanup(data_dir, sweep_id, *, successful):
-        factory.sweeps.update_status.assert_awaited_with(1, BenchmarkSweepStatus.DONE.value)
-        cleanup_sweep_checkpoints(data_dir, sweep_id, successful=successful)
-
-    monkeypatch.setattr(worker, "cleanup_sweep_checkpoints", cleanup)
-    await worker.run_sweep_task(sweep_context(factory), sweep_id=1, job_id=2)
-    assert_cleaned(root)
+    await worker.complete_sweep(factory, 1, [], None)
+    factory.sweeps.update_status.assert_awaited_with(1, BenchmarkSweepStatus.DONE.value)
+    factory.sweeps.delete_checkpoints.assert_awaited_once_with(1)
 
 
 def test_failed_worker_marks_retention_without_removing_answers(tmp_path):
@@ -141,25 +82,3 @@ def test_cleanup_does_not_follow_sweep_symlink(tmp_path):
     linked.symlink_to(root, target_is_directory=True)
     remove_sweep_checkpoints(linked)
     assert (root / "dataset.json").exists()
-
-
-@pytest.mark.asyncio
-async def test_done_sweep_is_cleaned_by_cron_even_before_retention_expires(tmp_path, monkeypatch):
-    root = make_artifacts(tmp_path)
-    factory = SweepFactory()
-    factory.saved.status = BenchmarkSweepStatus.DONE.value
-    monkeypatch.setattr(cron.settings, "data_dir", str(tmp_path))
-    await cron.cron_sweep_checkpoint_cleanup(sweep_context(factory))
-    assert_cleaned(root)
-
-
-@pytest.mark.asyncio
-async def test_removed_sweep_without_job_uses_artifact_age(tmp_path, monkeypatch):
-    root = make_artifacts(tmp_path)
-    for path in root.rglob("*"):
-        os.utime(path, (0, 0))
-    factory = SweepFactory()
-    factory.sweeps.get_by_id = AsyncMock(return_value=None)
-    monkeypatch.setattr(cron.settings, "data_dir", str(tmp_path))
-    await cron.cron_sweep_checkpoint_cleanup(sweep_context(factory))
-    assert_cleaned(root)

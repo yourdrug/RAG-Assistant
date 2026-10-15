@@ -148,6 +148,7 @@ async def decompose_question(
                     {"role": "system", "content": DECOMPOSE_SYSTEM},
                     {"role": "user", "content": question},
                 ],
+                max_tokens=_settings.llm_num_predict_narrow,
                 response_model=DecompositionCheck,
                 max_retries=2,
             ),

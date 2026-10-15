@@ -10,6 +10,7 @@ Uses AuthService for user lookups — no direct UoW access.
 from __future__ import annotations
 
 import jwt as _jwt
+from application.ports.billing_context import billing_principal
 from application.services.auth_service import AuthService
 from domain.exceptions import AuthenticationError, PermissionDeniedError
 from domain.value_objects.capabilities import Capability, get_role_capabilities
@@ -96,10 +97,14 @@ async def get_current_user(
     scheme, credentials = parsed
 
     if scheme.lower() == AUTH_SCHEME_BEARER:
-        return await _authenticate_via_jwt(credentials, auth_service)
+        user = await _authenticate_via_jwt(credentials, auth_service)
+        billing_principal.set(f"user:{user.id}")
+        return user
 
     if scheme.lower() == AUTH_SCHEME_API_KEY:
-        return await _authenticate_via_api_key(credentials, auth_service, api_key_provider)
+        user = await _authenticate_via_api_key(credentials, auth_service, api_key_provider)
+        billing_principal.set(f"user:{user.id}")
+        return user
 
     raise AuthenticationError("Unsupported authorization scheme")
 

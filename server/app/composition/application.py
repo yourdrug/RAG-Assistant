@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from application.services.benchmark_export_service import BenchmarkExportService
+
 import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -80,6 +82,7 @@ class ApplicationContainer:
     benchmark_question_service: BenchmarkQuestionService | None = field(default=None)
     benchmark_sweep_service: BenchmarkSweepService | None = field(default=None)
     benchmark_run_service: BenchmarkRunService | None = field(default=None)
+    benchmark_export_service: BenchmarkExportService | None = field(default=None)
     benchmark_result_service: BenchmarkResultService | None = field(default=None)
     job_service: JobService | None = field(default=None)
     chat_log_service: ChatLogService | None = field(default=None)
@@ -218,6 +221,7 @@ class ApplicationContainer:
             config_listener_provider=config_listener,
             health_settings=LiveHealthSettings(),
             configuration=infra.configuration,
+            corpus_control=infra.corpus_control,
         )
         self.metrics_service = MetricsService(registry=metrics_registry)
         self.config_admin_service = ConfigAdminService(
@@ -242,6 +246,7 @@ class ApplicationContainer:
         self.benchmark_question_service = BenchmarkQuestionService(uow_factory=uow)
         self.benchmark_sweep_service = BenchmarkSweepService(uow_factory=uow)
         self.benchmark_run_service = BenchmarkRunService(uow_factory=uow)
+        self.benchmark_export_service = BenchmarkExportService(uow, fs)
         self.benchmark_result_service = BenchmarkResultService(uow_factory=uow)
         self.job_service = JobService(uow_factory=uow)
 

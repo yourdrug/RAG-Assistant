@@ -3,8 +3,14 @@
 from __future__ import annotations
 
 import logging
+from decimal import Decimal
+from typing import Literal
+from pydantic import BaseModel, Field
+from domain.value_objects.cost_budget import CostRate
+from application.services.budget_admin_service import BudgetAdminService
+from application.ports.corpus_control import CorpusControlPort
 
-from application.ports.provider_configuration import ConfigurationStatus
+from application.ports.provider_configuration import ConfigurationStatus, EffectiveParameter
 from application.ports.rate_limit import RateLimitPolicyName
 from application.services.config_admin_service import ConfigAdminService
 from application.services.config_service import ConfigService
@@ -16,6 +22,8 @@ from presentation.api.constants import QUESTION_LOG_MAX_CHARS, STATIC_CONFIG_KEY
 from domain.value_objects.dynamic_config import DYNAMIC_FIELDS_MAP, SECRET_SETTING_KEYS
 from presentation.api.dependencies import (
     create_action_logger,
+    create_budget_admin_service,
+    create_corpus_control,
     create_config_admin_service,
     create_config_masker,
     create_config_service,
@@ -34,6 +42,15 @@ from presentation.api.schemas import (
 logger = logging.getLogger("default")
 
 router = APIRouter(tags=["admin-config"])
+
+
+@router.get("/admin/config/effective", response_model=list[EffectiveParameter])
+async def effective_configuration(
+    admin: CurrentUser = Depends(require_admin),
+    config_service: ConfigService = Depends(create_config_service),
+):
+    """Admin-only applied values; secrets expose presence only."""
+    return await config_service.effective_parameters()
 
 
 @router.get("/admin/config/status", response_model=ConfigurationStatus)
@@ -167,3 +184,97 @@ async def vectordb_info(
         active_collection=info.active_collection,
         qdrant_status=info.qdrant_status,
     )
+
+
+class CostRateRequest(BaseModel):
+    provider: Literal['openrouter', 'deepinfra']
+    model: str = Field(min_length=1, max_length=200)
+    version: int = Field(ge=1)
+    unit: Literal['tokens'] = 'tokens'
+    input_usd_per_million: Decimal = Field(ge=0, allow_inf_nan=False)
+    output_usd_per_million: Decimal = Field(ge=0, allow_inf_nan=False)
+    context_tokens: int = Field(ge=1, le=10_000_000)
+
+
+@router.get('/admin/cost/rates', response_model=list[CostRateRequest])
+async def cost_rates(
+    admin: CurrentUser = Depends(require_admin),
+    service: BudgetAdminService = Depends(create_budget_admin_service),
+):
+    return await service.rates()
+
+
+@router.post(
+    '/admin/cost/rates',
+    status_code=201,
+    response_model=CostRateRequest,
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
+)
+async def add_cost_rate(
+    body: CostRateRequest,
+    admin: CurrentUser = Depends(require_admin),
+    service: BudgetAdminService = Depends(create_budget_admin_service),
+):
+    return await service.add_rate(CostRate(**body.model_dump()))
+
+
+@router.get('/admin/cost/usage')
+async def recent_cost_usage(
+    admin: CurrentUser = Depends(require_admin),
+    service: BudgetAdminService = Depends(create_budget_admin_service),
+):
+    return await service.usage()
+
+
+@router.get('/admin/cost/pending')
+async def pending_cost_usage(
+    admin: CurrentUser = Depends(require_admin),
+    service: BudgetAdminService = Depends(create_budget_admin_service),
+):
+    return await service.pending()
+
+
+class CorpusSwitchRequest(BaseModel):
+    endpoint: str = Field(min_length=1, max_length=2048)
+    collection: str = Field(min_length=1, max_length=255)
+    expected_generation: str = Field(min_length=1, max_length=100)
+
+
+@router.get('/admin/corpus/status')
+async def corpus_status(
+    admin: CurrentUser = Depends(require_admin), control: CorpusControlPort = Depends(create_corpus_control)
+):
+    return await control.status()
+
+
+@router.post('/admin/corpus/switch', dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))])
+async def switch_corpus(
+    body: CorpusSwitchRequest,
+    admin: CurrentUser = Depends(require_admin),
+    control: CorpusControlPort = Depends(create_corpus_control),
+    log=Depends(create_action_logger),
+):
+    result = await control.switch(body.endpoint, body.collection, body.expected_generation)
+    log('corpus.switch', user_id=admin.id, details={'generation': result['active']['generation']})
+    return result
+
+
+class CostReconciliationRequest(BaseModel):
+    actual_usd: Decimal = Field(ge=0, allow_inf_nan=False)
+    evidence: str = Field(min_length=1, max_length=512)
+
+
+@router.post(
+    '/admin/cost/pending/{operation_id}/reconcile',
+    status_code=204,
+    dependencies=[Depends(rate_limit(RateLimitPolicyName.WRITE))],
+)
+async def reconcile_cost(
+    operation_id: str,
+    body: CostReconciliationRequest,
+    admin: CurrentUser = Depends(require_admin),
+    service: BudgetAdminService = Depends(create_budget_admin_service),
+    log=Depends(create_action_logger),
+):
+    await service.reconcile(operation_id, str(body.actual_usd), body.evidence)
+    log('cost.reconcile', user_id=admin.id, details={'operation_id': operation_id})

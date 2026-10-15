@@ -323,12 +323,6 @@ services:
       STAGE: ${APP_STAGE:-${STAGE:-development}}
     volumes:
       - type: bind
-        source: ./data
-        target: /code/project/data
-        bind:
-          propagation: rprivate
-          create_host_path: true
-      - type: bind
         source: ./data/paddleocr_cache
         target: /home/raguser/.paddleocr
         bind:

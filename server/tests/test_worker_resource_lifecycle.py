@@ -79,6 +79,11 @@ async def test_concurrent_shutdown_closes_shared_pool_once(monkeypatch, pool_sta
 async def test_worker_benchmark_runs_container_rag_pipeline(monkeypatch):
     rag = object()
     factory = object()
+    monkeypatch.setattr(
+        tasks,
+        "BenchmarkResultService",
+        lambda factory: SimpleNamespace(get_job_result=AsyncMock(return_value=None)),
+    )
     container = SimpleNamespace(
         infrastructure=SimpleNamespace(db=SimpleNamespace(uow_factory=factory)),
         application=SimpleNamespace(rag_service=rag),

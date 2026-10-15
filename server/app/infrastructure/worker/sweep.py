@@ -9,11 +9,12 @@ from typing import Any
 
 from config import settings
 from domain.entities.benchmark_run import BenchmarkRun
+from application.services.benchmark_export_service import BenchmarkExportService
 from domain.services.benchmark_evaluation import EVIDENCE_METRICS
 from domain.value_objects.sweep_status import BenchmarkSweepStatus
 from composition.service_providers import create_sweep_engine
 from infrastructure.benchmark.sweep_engine import SweepCancelled
-from infrastructure.benchmark.checkpoint_cleanup import cleanup_sweep_checkpoints
+from infrastructure.benchmark.checkpoint import fingerprint
 
 from infrastructure.worker.outcomes import IncompleteEvaluation, job_error_message
 
@@ -40,7 +41,6 @@ async def handle_sweep_cancelled(uow_factory, sweep_id: int) -> None:
     logger.info("Sweep %d cancelled — stopping early", sweep_id)
     async with uow_factory.create(master=True) as uow:
         await uow.benchmark_sweeps.update_status(sweep_id, BenchmarkSweepStatus.CANCELLED.value)
-    await asyncio.to_thread(cleanup_sweep_checkpoints, settings.data_dir, sweep_id, successful=False)
     await publish_sweep_event(sweep_id, {"done": True, "cancelled": True})
 
 
@@ -101,6 +101,14 @@ async def save_sweep_run(uow_factory, sweep, sweep_id: int, best: dict) -> int |
         }
     )
     async with uow_factory.create(master=True) as uow:
+        runtime = await uow.benchmark_sweeps.load_checkpoint(sweep_id, "runtime.json")
+        dataset_snapshot = await uow.benchmark_sweeps.load_checkpoint(sweep_id, "dataset.json")
+        if runtime is not None:
+            metrics.update(
+                collection_name=runtime.get("collection_name"), qdrant_url=runtime.get("qdrant_url")
+            )
+        if dataset_snapshot is not None:
+            metrics["dataset_hash"] = fingerprint(dataset_snapshot)
         run_entity = BenchmarkRun(
             sweep_id=sweep_id,
             config_json=config,
@@ -177,6 +185,10 @@ async def run_sweep_task(
             raise
 
         await complete_sweep(uow_factory, sweep_id, results, best_run_id)
+        try:
+            await save_sweep_reports(ctx, uow_factory, sweep_id, len(results))
+        except Exception:
+            logger.exception("Sweep reports deferred: sweep=%s", sweep_id)
 
     await run_tracked_job(
         uow_factory,
@@ -210,7 +222,11 @@ async def complete_sweep(uow_factory, sweep_id: int, results: list[dict], best_r
             await publish_sweep_event(sweep_id, {"done": True, "cancelled": True})
             return
         await uow.benchmark_sweeps.update_status(sweep_id, BenchmarkSweepStatus.DONE.value)
-    await asyncio.to_thread(cleanup_sweep_checkpoints, settings.data_dir, sweep_id, successful=True)
+    try:
+        async with uow_factory.create(master=True) as uow:
+            await uow.benchmark_sweeps.delete_checkpoints(sweep_id)
+    except Exception:
+        logger.exception("Sweep checkpoint cleanup deferred to cron: sweep=%s", sweep_id)
     await publish_sweep_event(
         sweep_id,
         {"done": True, "best_run_id": best_run_id, "total_results": len(results)},
@@ -260,9 +276,17 @@ async def record_sweep_failure(uow_factory, sweep_id: int, message: str) -> bool
         cancelled = current is not None and current.status == BenchmarkSweepStatus.CANCELLED.value
         if not cancelled:
             await uow.benchmark_sweeps.update_status(sweep_id, BenchmarkSweepStatus.FAILED.value)
-    await asyncio.to_thread(cleanup_sweep_checkpoints, settings.data_dir, sweep_id, successful=False)
     event: dict[str, bool | str] = (
         {"done": True, "cancelled": True} if cancelled else {"done": True, "error": message}
     )
     await publish_sweep_event(sweep_id, event)
     return cancelled
+
+
+async def save_sweep_reports(ctx, uow_factory, sweep_id: int, count: int) -> None:
+    export_service = BenchmarkExportService(uow_factory, ctx["container"].infrastructure.ml.file_storage)
+    async with uow_factory.create(master=True) as uow:
+        run_ids = await uow.benchmark_runs.get_sweep_run_ids(sweep_id, limit=count)
+    for run_id in run_ids:
+        for format in ("csv", "json"):
+            await export_service.save_report(run_id, format)

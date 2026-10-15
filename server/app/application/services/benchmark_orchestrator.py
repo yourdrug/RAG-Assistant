@@ -34,7 +34,7 @@ class BenchmarkService:
     async def run(
         self,
         questions: list[dict],
-        out_dir: str,
+        out_dir: str | None,
         top_k: int,
         judge_model: str,
         seed: int | None = None,

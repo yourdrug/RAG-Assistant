@@ -17,6 +17,7 @@ from application.ports.ml_clients import MLClientPort
 from application.ports.document_access import DocumentAccessPort
 
 from config import settings
+from infrastructure.corpus.snapshot import pin_corpus_stream
 from domain.value_objects.rag_result import RagResult
 from domain.utils import compute_reranker_score
 from domain.value_objects.chat_context import ChatContext
@@ -169,6 +170,7 @@ class RagService:
             return []
         return [e async for e in self._yield_events(events)]
 
+    @pin_corpus_stream
     async def stream(  # noqa: C901 — pipeline orchestrator, inherent complexity
         self,
         question: str,

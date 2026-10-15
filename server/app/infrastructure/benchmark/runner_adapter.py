@@ -15,7 +15,7 @@ class AsyncBenchmarkRunner:
     async def run(
         self,
         questions: list[dict],
-        out_dir: str,
+        out_dir: str | None,
         top_k: int,
         judge_model: str,
         max_concurrent: int | None = None,

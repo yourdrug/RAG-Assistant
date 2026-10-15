@@ -313,19 +313,7 @@ class TestSaveResults:
 
         results = [_result()]
         out_dir = str(tmp_path / "bench_out")
-        with patch("infrastructure.benchmark.persistence.settings") as mock_settings:
-            mock_settings.retriever_top_k = 4
-            mock_settings.chunk_size = 500
-            mock_settings.chunk_overlap = 50
-            mock_settings.tei_embed_url = "http://localhost:8080"
-            mock_settings.llm_model = "test-model"
-            mock_settings.hybrid_enabled = False
-            mock_settings.dense_weight = 1.0
-            mock_settings.sparse_weight = 1.0
-            mock_settings.rrf_k = 30
-            mock_settings.data_dir = str(tmp_path)
-            with patch("infrastructure.benchmark.persistence.save_summary_to_history"):
-                save_results(results, out_dir, model_name="test-model")
+        save_results(results, out_dir, model_name="test-model")
 
         out = Path(out_dir)
         json_files = list(out.glob("benchmark_*.json"))
@@ -342,19 +330,7 @@ class TestSaveResults:
 
         results = [_result()]
         out_dir = str(tmp_path / "bench_csv")
-        with patch("infrastructure.benchmark.persistence.settings") as mock_settings:
-            mock_settings.retriever_top_k = 4
-            mock_settings.chunk_size = 500
-            mock_settings.chunk_overlap = 50
-            mock_settings.tei_embed_url = "http://localhost:8080"
-            mock_settings.llm_model = "m"
-            mock_settings.hybrid_enabled = False
-            mock_settings.dense_weight = 1.0
-            mock_settings.sparse_weight = 1.0
-            mock_settings.rrf_k = 30
-            mock_settings.data_dir = str(tmp_path)
-            with patch("infrastructure.benchmark.persistence.save_summary_to_history"):
-                save_results(results, out_dir)
+        save_results(results, out_dir)
 
         csv_path = list(Path(out_dir).glob("benchmark_*.csv"))[0]
         lines = csv_path.read_text().split("\n")

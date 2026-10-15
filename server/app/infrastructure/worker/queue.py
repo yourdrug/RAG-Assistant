@@ -18,11 +18,13 @@ import asyncio
 import hashlib
 import logging
 from typing import Any
+from uuid import uuid4
 
 from arq import create_pool
 from arq.connections import RedisSettings
 from arq.jobs import Job
 from config import settings
+from application.ports.billing_context import billing_principal
 
 logger = logging.getLogger("default")
 
@@ -66,6 +68,9 @@ async def enqueue_arq(
     Returns None when arq refused the enqueue because a job with the same
     ``_job_id`` is already queued or running (duplicate suppression).
     """
+    if billing_principal.get() is not None:
+        kwargs["cost_principal"] = billing_principal.get()
+    kwargs.setdefault('cost_operation_id', str(uuid4()))
     pool = await get_pool()
     job = await pool.enqueue_job(func_name, _queue_name=queue_name, _job_id=arq_job_id, **kwargs)
     if job is None:
@@ -166,7 +171,6 @@ async def enqueue_ingest_file(
 async def enqueue_benchmark(
     *,
     dataset: str,
-    out_dir: str,
     top_k: int,
     judge_model: str,
     job_id: int,
@@ -175,9 +179,8 @@ async def enqueue_benchmark(
     await enqueue_arq(
         QUEUE_NAME,
         "run_benchmark",
-        arq_job_id=deterministic_id("benchmark", dataset, out_dir, top_k, judge_model),
+        arq_job_id=deterministic_id("benchmark", job_id),
         dataset=dataset,
-        out_dir=out_dir,
         top_k=top_k,
         judge_model=judge_model,
         job_id=job_id,

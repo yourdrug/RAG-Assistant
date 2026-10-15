@@ -273,12 +273,11 @@ def test_annotation_copy_does_not_mutate_dataset():
     assert annotations["expected_fragments"][0]["text"] == FRAGMENT["text"]
 
 
-def test_csv_and_history_keep_new_metrics_and_escape_questions(tmp_path, monkeypatch):
+def test_explicit_csv_keeps_metrics_and_never_appends_local_history(tmp_path):
     from infrastructure.benchmark.persistence import save_results
     from infrastructure.benchmark.benchmark_history import load_history
     from application.services.benchmark_orchestrator import compute_summary_from_results
 
-    monkeypatch.setattr("infrastructure.benchmark.persistence.settings.data_dir", str(tmp_path))
     result = {
         "id": "q1",
         "question": 'Вопрос, с "кавычками"\nи переносом',
@@ -295,7 +294,7 @@ def test_csv_and_history_keep_new_metrics_and_escape_questions(tmp_path, monkeyp
     assert row["question"] == result["question"]
     assert row["fragment_recall_at_k"] == "0.5"
     assert row["refusal_score"] == ""
-    assert load_history(str(tmp_path))[0]["metrics"]["avg_fragment_recall_at_k"] == 0.5
+    assert load_history(str(tmp_path)) == []
     assert compute_summary_from_results([result])["avg_fragment_recall_at_k"] == 0.5
 
 

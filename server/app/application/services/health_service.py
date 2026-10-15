@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 
 from domain.value_objects.health_status import HealthStatus
 
+from application.ports.corpus_control import CorpusControlPort
 from application.ports.health import ConfigListenerProviderPort, HealthCheckResult, HealthProbePort
 from application.ports.health_settings import HealthSettingsPort
 from application.ports.provider_configuration import ProviderConfigurationPort
@@ -31,12 +32,14 @@ class HealthService:
         config_listener_provider: ConfigListenerProviderPort,
         health_settings: HealthSettingsPort,
         configuration: ProviderConfigurationPort | None = None,
+        corpus_control: CorpusControlPort | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._probe = probe
         self._config_listener = config_listener_provider
         self._settings = health_settings
         self._configuration = configuration
+        self.corpus_control = corpus_control
 
     async def check(self) -> HealthResponse:
         qdrant, postgres, redis = await asyncio.gather(
@@ -60,6 +63,11 @@ class HealthService:
             if self._configuration is None or self._configuration.status().ready
             else "error: configuration snapshot not applied"
         )
+        corpus_status = HealthCheckResult(
+            status=HealthStatus.OK.value
+            if self.corpus_control is None or await self.corpus_control.is_ready()
+            else "error: corpus generation not ready"
+        )
         overall = HealthStatus.HEALTHY.value
         error_checks = (
             qdrant,
@@ -68,6 +76,7 @@ class HealthService:
             redis,
             config_listener_status,
             configuration_status,
+            corpus_status,
             *ml_checks.values(),
         )
         if any(c.status.startswith("error") for c in error_checks):
@@ -87,6 +96,7 @@ class HealthService:
                 "redis": redis,
                 "config_listener": config_listener_status,
                 "configuration": configuration_status,
+                "corpus": corpus_status,
             },
             background_jobs={"running": active_jobs},
         )

@@ -1,18 +1,8 @@
-"""Adapter for benchmark history — bridges infrastructure.ml.benchmark_history to port."""
+"""Pure metric comparison; runtime history is stored in PostgreSQL."""
 
-from __future__ import annotations
-
-from infrastructure.benchmark.benchmark_history import compare_runs, get_last_baseline, load_history
+from infrastructure.benchmark.benchmark_history import compare_runs
 
 
 class BenchmarkHistoryAdapter:
-    """Concrete implementation of BenchmarkHistoryPort."""
-
-    def get_last_baseline(self, data_dir: str) -> dict | None:
-        return get_last_baseline(data_dir)
-
-    def load_history(self, data_dir: str) -> list[dict]:
-        return load_history(data_dir)
-
     def compare_runs(self, current: dict, baseline: dict) -> dict:
         return compare_runs(current, baseline)

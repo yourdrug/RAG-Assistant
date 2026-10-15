@@ -23,7 +23,11 @@ class BenchmarkRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     dataset: str = Field(default=BenchmarkDataset.MAIN.value, min_length=1, max_length=100)
-    out_dir: str | None = None
+    out_dir: str | None = Field(
+        default=None,
+        deprecated=True,
+        description="Deprecated default only; use GET /benchmark/results/{run_id}/export",
+    )
     top_k: int | None = None
     judge_model: str | None = None
 
@@ -33,6 +37,7 @@ class BenchmarkResponse(BaseModel):
 
 
 class BenchmarkResultSummary(BaseModel):
+    artifacts: dict = Field(default_factory=dict)
     id: int
     config_json: dict
     summary_metrics: dict
@@ -240,6 +245,8 @@ class RegressionCheckResult(BaseModel):
 
 
 class RegressionCheckResponse(BaseModel):
+    run_id: int | None = None
+    baseline_run_id: int | None = None
     passed: bool
     results: list[RegressionCheckResult]
 

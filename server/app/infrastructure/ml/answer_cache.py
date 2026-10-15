@@ -19,6 +19,8 @@ from collections.abc import Awaitable
 from typing import cast
 
 from domain.utils import content_hash
+from config import settings
+from infrastructure.corpus.snapshot import active_corpus
 from infrastructure.redis.redis_client import redis_client
 from domain.value_objects.curator_scope import CuratorScope
 from domain.value_objects.roles import UserRole
@@ -26,7 +28,7 @@ from domain.value_objects.roles import UserRole
 log = logging.getLogger("default")
 
 CACHE_TTL_SECONDS = 7 * 24 * 3600  # 7 days
-CACHE_PREFIX = "rag:cache:v4:"
+CACHE_PREFIX = "rag:cache:v5:"
 CORPUS_REVISION_KEY = "rag:corpus:revision"
 DOC_INDEX_PREFIX = "rag:doc:"
 DOC_INDEX_TTL = CACHE_TTL_SECONDS
@@ -88,7 +90,13 @@ def compute_question_hash(question_text: str, context: dict | None = None) -> st
 
 def _cache_key(question_hash: str, visibility_scope_hash: str) -> str:
     """Build Redis key for cache entry."""
-    return f"{CACHE_PREFIX}{question_hash}:{visibility_scope_hash}"
+    pinned = active_corpus.get()
+    namespace = (
+        pinned[1].snapshot.namespace
+        if pinned is not None
+        else content_hash(f"{settings.qdrant_url}:{settings.collection_name}")
+    )
+    return f"{CACHE_PREFIX}{namespace}:{question_hash}:{visibility_scope_hash}"
 
 
 def _doc_index_key(doc_id: int) -> str:

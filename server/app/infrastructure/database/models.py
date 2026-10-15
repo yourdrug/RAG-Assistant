@@ -8,6 +8,7 @@ from __future__ import annotations
 from datetime import date, datetime
 
 from sqlalchemy import (
+    func,
     JSON,
     Boolean,
     CheckConstraint,
@@ -454,6 +455,8 @@ class BenchmarkRunModel(BaseModel):
     __table_args__ = (
         Index("idx_benchmark_runs_sweep_id", "sweep_id"),
         Index("idx_benchmark_runs_dataset", "dataset"),
+        UniqueConstraint("job_id", name="uq_benchmark_runs_job_id"),
+        UniqueConstraint("legacy_hash", name="uq_benchmark_runs_legacy_hash"),
     )
 
     sweep_id: Mapped[int | None] = mapped_column(
@@ -466,6 +469,9 @@ class BenchmarkRunModel(BaseModel):
     dataset: Mapped[str] = mapped_column(String(100), nullable=False, server_default="main")
     per_question_results: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
     filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    job_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    legacy_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    artifacts: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict, server_default="{}")
 
 
 class VectorStoreOutboxModel(BaseModel):
@@ -531,4 +537,7 @@ class BenchmarkCheckpointModel(LinkedBaseModel):
         ForeignKey("benchmark_sweeps.id", ondelete="CASCADE"), primary_key=True
     )
     key: Mapped[str] = mapped_column(String(512), primary_key=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
     payload: Mapped[dict] = mapped_column(JSON, nullable=False)

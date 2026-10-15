@@ -15,17 +15,19 @@ import asyncio
 import logging
 import threading
 from collections.abc import Awaitable, Callable, Iterator
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from typing import Any
 
 from application.ports.ml_clients import AsyncSemaphorePort, MLClientPort
 from config import settings
+from infrastructure.corpus.snapshot import BoundQdrantClient, CorpusSnapshot, active_corpus
 from infrastructure.ml.clients.managed_llm import ManagedLLM, ManagedInstructor
+from domain.exceptions import ValidationError
 from domain.exceptions.domain_errors import SemaphoreTimeoutError
 from domain.value_objects.llm_provider import LLMProvider
 
 from infrastructure.bm25.bm25_index import BM25Index
-from infrastructure.bm25.persistence import BM25SnapshotNotReady
+from infrastructure.bm25.persistence import BM25LoadError, BM25SnapshotNotReady
 from infrastructure.storage.file_storage import finish_owned_task, run_storage_io
 from infrastructure.ml.clients import factories
 from infrastructure.ml.clients.instructor_client import create_async_instructor_client
@@ -76,6 +78,7 @@ class MLClientRegistry(MLClientPort):
     """
 
     def __init__(self, bm25_loader: Callable[[], Awaitable[BM25Index | None]] | None = None) -> None:
+        self.corpus_readiness: Callable[[], Awaitable[bool]] | None = None
         self._init_lock = threading.Lock()
         self._embeddings: Any = None
         self._retired_clients: list[Any] = []
@@ -84,6 +87,7 @@ class MLClientRegistry(MLClientPort):
         self._fast_llm: Any = None
         self._reranker: Any = None
         self._qdrant_client: Any = None
+        self.retired_corpus_clients: list[BoundQdrantClient] = []
         self._bm25_loader = bm25_loader
         self._closed = False
         self._close_task: asyncio.Task[None] | None = None
@@ -160,7 +164,62 @@ class MLClientRegistry(MLClientPort):
                     self._reranker = factories.create_reranker()
         return self._reranker
 
+    @property
+    def corpus_snapshot(self):
+        snapshot = getattr(self._qdrant_client, 'snapshot', None)
+        return snapshot if isinstance(snapshot, CorpusSnapshot) else None
+
+    def install_corpus(self, client, index):
+        with self._init_lock, self._bm25_state_lock:
+            old = self._qdrant_client
+            self._qdrant_client = client
+            self._bm25_index = index
+            self._bm25_loaded = True
+            self._bm25_generation += 1
+        if old is not None:
+            if isinstance(old, BoundQdrantClient):
+                old.close()
+                if not old.closed or (old.close_task is not None and not old.close_task.done()):
+                    self.retired_corpus_clients.append(old)
+            else:
+                old.close()
+        self.retired_corpus_clients = [
+            c
+            for c in self.retired_corpus_clients
+            if not c.closed or (c.close_task is not None and not c.close_task.done())
+        ]
+
+    @asynccontextmanager
+    async def corpus_operation(self):
+        pinned = active_corpus.get()
+        if pinned is not None and pinned[0] is self:
+            yield
+            return
+        if self.corpus_readiness is not None and not await self.corpus_readiness():
+            raise ValidationError("Corpus generation is not ready; retry after synchronization")
+        client = self.qdrant_client()
+        if not isinstance(client, BoundQdrantClient):
+            yield
+            return
+        if not self.bm25_state()[0]:
+            try:
+                await self.ensure_bm25_loaded()
+            except BM25LoadError:
+                log.warning("BM25 snapshot unavailable; using dense search", exc_info=True)
+        # Loading can span a corpus switch. Select and lease the published pair without awaits.
+        client = self.qdrant_client()
+        with client.lease():
+            loaded, index, _ = self.bm25_state()
+            token = active_corpus.set((self, client, index if loaded else None))
+            try:
+                yield
+            finally:
+                active_corpus.reset(token)
+
     def qdrant_client(self) -> Any:
+        pinned = active_corpus.get()
+        if pinned is not None and pinned[0] is self:
+            return pinned[1]
         if self._qdrant_client is None:
             with self._init_lock:
                 if self._qdrant_client is None:
@@ -181,6 +240,9 @@ class MLClientRegistry(MLClientPort):
 
     async def ensure_bm25_loaded(self) -> BM25Index | None:
         """One async load per generation, with CPU/state-lock work off the loop."""
+        pinned = active_corpus.get()
+        if pinned is not None and pinned[0] is self:
+            return pinned[2]
         if self._closed:
             raise RuntimeError("ML registry is closed")
         loaded, index, _ = await run_storage_io(self.bm25_state)
@@ -346,9 +408,15 @@ class MLClientRegistry(MLClientPort):
                     log.debug("Failed to close ML client during shutdown", exc_info=True)
         if self._qdrant_client is not None and hasattr(self._qdrant_client, "close"):
             try:
-                self._qdrant_client.close()
+                if isinstance(self._qdrant_client, BoundQdrantClient):
+                    await self._qdrant_client.aclose()
+                else:
+                    await asyncio.to_thread(self._qdrant_client.close)
             except Exception:
                 log.debug("Failed to close Qdrant client during shutdown", exc_info=True)
+        for client in self.retired_corpus_clients:
+            await client.aclose()
+        self.retired_corpus_clients.clear()
         self._embeddings = None
         self._reranker = None
         self._instructor = None

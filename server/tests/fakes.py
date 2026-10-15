@@ -691,6 +691,9 @@ class FakeBenchmarkSweepRepository:
 
         self.checkpoints[sweep_id, key] = copy.deepcopy(value)
 
+    async def delete_checkpoints(self, sweep_id: int) -> None:
+        self.checkpoints = {key: value for key, value in self.checkpoints.items() if key[0] != sweep_id}
+
     async def update_progress(self, sweep_id: int, evaluated: int, total: int) -> None:
         self.progress[sweep_id] = (evaluated, total)
 

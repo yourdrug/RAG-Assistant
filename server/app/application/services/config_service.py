@@ -11,7 +11,11 @@ import logging
 from dataclasses import replace
 
 from application.ports.event_bus import EventBus
-from application.ports.provider_configuration import ProviderConfigurationPort, ConfigurationStatus
+from application.ports.provider_configuration import (
+    ProviderConfigurationPort,
+    ConfigurationStatus,
+    EffectiveParameter,
+)
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
 from domain.events.config_events import ConfigParameterChanged
 from domain.exceptions import EntityNotFound, ValidationError
@@ -37,6 +41,13 @@ class ConfigService:
         self._uow_factory = uow_factory
         self._bus = event_bus
         self._provider_configuration = provider_configuration
+
+    async def effective_parameters(self) -> list[EffectiveParameter]:
+        if self._provider_configuration is None:
+            raise ValidationError("Configuration not initialized")
+        async with self._uow_factory.create(master=True) as uow:
+            rows = await uow.config_parameters.get_all()
+        return self._provider_configuration.effective_parameters(rows)
 
     async def configuration_status(self) -> ConfigurationStatus:
         if self._provider_configuration is None:
@@ -75,6 +86,7 @@ class ConfigService:
         changed_by: int | None = None,
         domain_key: str | None = None,
     ) -> ConfigParameter:
+        validate_corpus_update_key(key)
         if key.lower() in SECRET_SETTING_KEYS | STATIC_SETTING_KEYS | METADATA_SETTING_KEYS:
             raise ValidationError(f"'{key}' is managed by deployment configuration")
         if domain_key is None and key not in DYNAMIC_FIELDS_MAP:
@@ -100,6 +112,16 @@ class ConfigService:
 
             normalized = param.normalize(raw_value)
             param.validate(normalized)
+            declaration = next(
+                (p for p in DYNAMIC_PARAMS if (p.key, p.domain_key) == (key, domain_key)), None
+            )
+            if declaration is not None:
+                replace(
+                    param,
+                    min_value=declaration.min_val,
+                    max_value=declaration.max_val,
+                    allowed_values=declaration.allowed,
+                ).validate(normalized)
             if self._provider_configuration is None and (
                 key in {"ml_provider", "llm_provider", "deepinfra_embed_model", "deepinfra_rerank_model"}
                 or key.endswith("_base_url")
@@ -124,3 +146,8 @@ class ConfigService:
 
         self._bus.publish(event)
         return param
+
+
+def validate_corpus_update_key(key: str) -> None:
+    if key in {"qdrant_url", "collection_name"}:
+        raise ValidationError("Use the coordinated corpus switch operation")

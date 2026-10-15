@@ -8,6 +8,7 @@ import json
 
 import instructor
 import httpx
+from infrastructure.budget.transport import PaidSyncTransport
 from instructor.core.exceptions import IncompleteOutputException
 from openai import OpenAI, APIConnectionError, RateLimitError, InternalServerError
 from pydantic import ValidationError
@@ -196,7 +197,9 @@ def get_judge_client(model: str):
             else "ollama",
             timeout=snapshot.llm_auxiliary_timeout,
             max_retries=0,
-            http_client=httpx.Client(follow_redirects=False),
+            http_client=httpx.Client(
+                follow_redirects=False, transport=PaidSyncTransport() if remote else None
+            ),
         )
         mode = (
             instructor.Mode.JSON

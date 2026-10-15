@@ -2,6 +2,7 @@
 
 import asyncio
 import httpx
+from infrastructure.budget.transport import PaidAsyncTransport
 import json
 import time
 from uuid import uuid4
@@ -76,7 +77,9 @@ def create_async_judge_client() -> AsyncOpenAI:
         api_key=settings.openrouter_api_key if remote else "ollama",
         timeout=settings.llm_auxiliary_timeout,
         max_retries=0,
-        http_client=httpx.AsyncClient(follow_redirects=False),
+        http_client=httpx.AsyncClient(
+            follow_redirects=False, transport=PaidAsyncTransport() if remote else None
+        ),
     )
 
 

@@ -22,7 +22,12 @@ def dataset_factory(questions=None, error=None):
     uow = MagicMock()
     uow.__aenter__ = AsyncMock(
         return_value=SimpleNamespace(
-            benchmark_questions=repo, benchmark_runs=SimpleNamespace(create=AsyncMock())
+            benchmark_questions=repo,
+            benchmark_runs=SimpleNamespace(
+                create=AsyncMock(),
+                get_by_job_id=AsyncMock(return_value=None),
+                save_once=AsyncMock(return_value=SimpleNamespace(id=None)),
+            ),
         )
     )
     uow.__aexit__ = AsyncMock(return_value=False)
@@ -161,10 +166,8 @@ async def test_queue_serializes_dataset_and_deduplicates_per_dataset(monkeypatch
 
     enqueue = AsyncMock()
     monkeypatch.setattr(queue, "enqueue_arq", enqueue)
-    for dataset in [BenchmarkDataset.MAIN.value, "custom"]:
-        await queue.enqueue_benchmark(
-            dataset=dataset, out_dir="results", top_k=7, judge_model="judge", job_id=8
-        )
+    for job_id, dataset in enumerate([BenchmarkDataset.MAIN.value, "custom"], 8):
+        await queue.enqueue_benchmark(dataset=dataset, top_k=7, judge_model="judge", job_id=job_id)
     calls = enqueue.await_args_list
     assert [c.kwargs["dataset"] for c in calls] == [BenchmarkDataset.MAIN.value, "custom"]
     assert calls[0].kwargs["arq_job_id"] != calls[1].kwargs["arq_job_id"]

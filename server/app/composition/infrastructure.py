@@ -13,6 +13,15 @@ import logging
 from dataclasses import dataclass, field
 from functools import partial
 
+from config import settings
+from infrastructure.budget.ledger import PostgresRedisBudget
+from application.services.budget_admin_service import BudgetAdminService
+from infrastructure.budget.runtime import budget_runtime
+from infrastructure.budget.provider_catalog import OpenRouterBillingCatalog
+from infrastructure.corpus.control import PostgresCorpusControl
+from infrastructure.rate_limit.limiter import DynamicRateLimiter
+from infrastructure.redis.redis_client import redis_client
+
 from infrastructure.bm25.persistence import load_configured_bm25_snapshot
 from infrastructure.ml.clients.client_registry import MLClientRegistry
 from infrastructure.storage import LazyStorage
@@ -57,7 +66,6 @@ if TYPE_CHECKING:
     )
     from infrastructure.metrics.metrics_adapter import PrometheusMetricsCollector
     from infrastructure.metrics.prometheus_adapter import PrometheusMetricsRegistry
-    from infrastructure.rate_limit.limiter import PyrateRateLimiter
     from infrastructure.ml.extraction.summary_adapter import RollingSummaryUpdater
     from infrastructure.repositories.vector.qdrant_vector_store_repository import (
         QdrantVectorStoreRepository,
@@ -349,8 +357,10 @@ class InfrastructureContainer:
     services: ServiceContainer = field(default_factory=ServiceContainer)
     domain_registry: DomainProfileRegistry | None = field(default=None, repr=False)
     domain_settings: DomainSettingsAdapter | None = field(default=None, repr=False)
-    rate_limit: PyrateRateLimiter | None = field(default=None, repr=False)
+    rate_limit: DynamicRateLimiter | None = field(default=None, repr=False)
     _initialized: bool = field(default=False, repr=False)
+    corpus_control: PostgresCorpusControl | None = field(default=None, repr=False)
+    budget_admin: BudgetAdminService | None = field(default=None, repr=False)
     configuration: SettingsProviderConfiguration | None = field(default=None, repr=False)
     _config_handlers: list = field(default_factory=list, repr=False)
 
@@ -379,7 +389,12 @@ class InfrastructureContainer:
             domain_settings=self.domain_settings,
             cache_invalidator=self.services.cache_invalidator,
         )
-        self._init_rate_limit()
+        self.init_rate_limit()
+        session_factory = partial(database_manager.get_session, master=True)
+        budget_ledger = PostgresRedisBudget(session_factory, redis_client.async_redis)
+        billing_catalog = OpenRouterBillingCatalog()
+        budget_runtime.configure(budget_ledger, session_factory, billing_catalog)
+        self.budget_admin = BudgetAdminService(budget_ledger, billing_catalog)
         self.configuration = SettingsProviderConfiguration(
             domain_settings=self.domain_settings,
             registry=self.domain_registry,
@@ -389,18 +404,31 @@ class InfrastructureContainer:
         if self.events.config_listener is None:
             raise RuntimeError("Config listener must be initialized")
         self.events.config_listener.configuration = self.configuration
+        self.corpus_control = PostgresCorpusControl(
+            session_factory, self.ml.clients, self.events.config_listener
+        )
         self.subscribe_config_events()
 
         self._initialized = True
         log.info("Infrastructure container initialized")
 
-    async def bootstrap_configuration(self) -> None:
+    async def bootstrap_configuration(self, role: str = "cli") -> None:
         """Load required configuration for API, worker and ML CLI."""
         if self.configuration is None or self.events.config_listener is None:
             raise RuntimeError("Configuration must be initialized before bootstrap")
         await seed_config_defaults(self.db.uow)
         await seed_domain_config_defaults(self.db.uow, self.domain_registry)
+        if (
+            self.budget_admin is not None
+            and budget_runtime.service is not None
+            and budget_runtime.service.ledger is self.budget_admin.repository
+        ):
+            budget_runtime.bootstrapped = True
+
         await self.events.config_listener.synchronize(require_complete=True)
+        if self.corpus_control is None:
+            raise RuntimeError("Corpus control must be initialized")
+        await self.corpus_control.start(role)
 
     def subscribe_config_events(self) -> None:
         if self._config_handlers:
@@ -454,26 +482,9 @@ class InfrastructureContainer:
         if event.key in {"ml_provider", "deepinfra_rerank_model"}:
             ml.invalidate_reranker()
 
-    def _init_rate_limit(self) -> None:
-        """Build the Redis-backed rate limiter (requires an initialized Redis client)."""
-        from config import settings
-        from infrastructure.rate_limit.limiter import PyrateRateLimiter
-        from infrastructure.rate_limit.policies import build_policies
-
-        if not settings.rate_limit_enabled:
-            log.info("Rate limiting disabled (RATE_LIMIT_ENABLED=false)")
-            return
-
-        from infrastructure.redis.redis_client import redis_client
-
-        # Raises if redis_client.init() has not run yet — lifespan calls it first.
-        self.rate_limit = PyrateRateLimiter(
-            redis_client.async_redis,
-            build_policies(settings),
-            key_prefix=settings.rate_limit_redis_prefix,
-            max_buckets=settings.rate_limit_max_buckets,
-            fail_open=settings.rate_limit_fail_open,
-        )
+    def init_rate_limit(self) -> None:
+        """Keep an adapter even when disabled so DB settings can enable it later."""
+        self.rate_limit = DynamicRateLimiter(redis_client.async_redis, settings)
         if settings.forwarded_allow_ips.strip() == "127.0.0.1":
             log.warning(
                 "Rate limiting is enabled but FORWARDED_ALLOW_IPS=127.0.0.1 — behind a reverse "
@@ -505,6 +516,14 @@ class InfrastructureContainer:
         the future, add ``self.db.dispose()`` here.
         """
         try:
+            if (
+                self.budget_admin is not None
+                and budget_runtime.service is not None
+                and budget_runtime.service.ledger is self.budget_admin.repository
+            ):
+                budget_runtime.bootstrapped = False
+            if self.corpus_control is not None:
+                await self.corpus_control.close()
             await close_judge_clients()
         finally:
             try:

@@ -57,9 +57,14 @@ async def close_owned_generator(generator, standalone: bool) -> None:
         await generator.close()
 
 
+def validate_output_options(resume, checkpoints, export_files, out_dir) -> None:
+    if (resume and checkpoints is None or export_files) and out_dir is None:
+        raise ValueError("Local checkpoint/export requires an explicit output directory")
+
+
 async def run_benchmark_async(
     questions: list[dict],
-    out_dir: str,
+    out_dir: str | None,
     top_k: int,
     judge_model: str,
     max_concurrent: int | None = None,
@@ -70,7 +75,7 @@ async def run_benchmark_async(
     resume: bool = False,
     checkpoints: BenchmarkCheckpoints | None = None,
     checkpoint_prefix: str | None = None,
-    export_files: bool = True,
+    export_files: bool = False,
     standalone: bool = False,
 ) -> list[dict]:
     """Schedule benchmark cases, aggregate each run and persist the results."""
@@ -120,7 +125,8 @@ async def run_benchmark_async(
         }
     )
     checkpoint_dir = Path("checkpoints") / (checkpoint_prefix or identity) if resume else None
-    store = checkpoints or (FileBenchmarkCheckpoints(Path(out_dir)) if resume else None)
+    validate_output_options(resume, checkpoints, export_files, out_dir)
+    store = checkpoints or (FileBenchmarkCheckpoints(Path(out_dir)) if resume and out_dir else None)
     evaluator = BenchmarkCaseEvaluator(generator, judge_model, checkpoints=store)
     all_results = []
 
@@ -188,7 +194,7 @@ async def run_benchmark_async(
             await asyncio.to_thread(
                 persistence.save_results,
                 all_results,
-                out_dir,
+                cast(str, out_dir),
                 model_name=settings.llm_model,
                 run_id="all" if n_runs > 1 else "",
             )

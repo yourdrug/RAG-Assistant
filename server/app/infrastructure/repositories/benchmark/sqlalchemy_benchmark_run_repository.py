@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from domain.entities.benchmark_run import BenchmarkRun
 from domain.services.benchmark_evaluation import EVIDENCE_METRICS, summarize_evidence
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.database.models import BenchmarkRunModel, BenchmarkSweepModel
@@ -22,6 +23,9 @@ class SQLAlchemyBenchmarkRunRepository:
 
     async def create(self, run: BenchmarkRun) -> BenchmarkRun:
         orm = BenchmarkRunModel(
+            job_id=run.job_id,
+            legacy_hash=run.legacy_hash,
+            artifacts=run.artifacts,
             sweep_id=run.sweep_id,
             config_json=run.config_json,
             summary_metrics=run.summary_metrics,
@@ -35,6 +39,120 @@ class SQLAlchemyBenchmarkRunRepository:
         await self._db.flush()
         await self._db.refresh(orm)
         return self.to_entity(orm)
+
+    async def get_by_job_id(self, job_id: int) -> BenchmarkRun | None:
+        row = await self._db.scalar(select(BenchmarkRunModel).where(BenchmarkRunModel.job_id == job_id))
+        return self.to_entity(row) if row else None
+
+    async def get_by_legacy_hash(self, digest: str) -> BenchmarkRun | None:
+        row = await self._db.scalar(select(BenchmarkRunModel).where(BenchmarkRunModel.legacy_hash == digest))
+        return self.to_entity(row) if row else None
+
+    async def save_once(self, run: BenchmarkRun) -> BenchmarkRun:
+        identity = "job_id" if run.job_id is not None else "legacy_hash"
+        if getattr(run, identity) is None:
+            raise ValueError("A job or legacy import identity is required")
+        values = {
+            name: getattr(run, name)
+            for name in (
+                "job_id",
+                "legacy_hash",
+                "artifacts",
+                "config_json",
+                "summary_metrics",
+                "duration_sec",
+                "llm_evaluated",
+                "dataset",
+                "per_question_results",
+                "filename",
+                "creation_date",
+            )
+        }
+        await self._db.execute(
+            insert(BenchmarkRunModel).values(**values).on_conflict_do_nothing(index_elements=[identity])
+        )
+        row = await self._db.scalar(
+            select(BenchmarkRunModel).where(getattr(BenchmarkRunModel, identity) == getattr(run, identity))
+        )
+        if row is None:
+            raise RuntimeError("Committed benchmark identity was not found")
+        return self.to_entity(row)
+
+    async def get_baseline(self, current: BenchmarkRun) -> BenchmarkRun | None:
+        stmt = select(BenchmarkRunModel).where(
+            BenchmarkRunModel.dataset == current.dataset,
+            BenchmarkRunModel.llm_evaluated == current.llm_evaluated,
+            BenchmarkRunModel.id != current.id,
+            BenchmarkRunModel.creation_date <= current.creation_date,
+        )
+        # Missing legacy corpus metadata is compatible only with equally unknown metadata.
+        mode = current.config_json.get("evaluation_mode", current.summary_metrics.get("evaluation_mode"))
+        mode_expr = func.coalesce(
+            BenchmarkRunModel.config_json["evaluation_mode"].as_string(),
+            BenchmarkRunModel.summary_metrics["evaluation_mode"].as_string(),
+        )
+        stmt = stmt.where(mode_expr.is_(None) if mode is None else mode_expr == mode)
+        for key in ("collection_name", "qdrant_url", "embedding_identity", "dataset_hash"):
+            value = current.config_json.get(key, current.summary_metrics.get(key))
+            expression = func.coalesce(
+                BenchmarkRunModel.config_json[key].as_string(),
+                BenchmarkRunModel.summary_metrics[key].as_string(),
+            )
+            stmt = stmt.where(expression.is_(None) if value is None else expression == str(value))
+        row = await self._db.scalar(
+            stmt.order_by(BenchmarkRunModel.creation_date.desc(), BenchmarkRunModel.id.desc()).limit(1)
+        )
+        return self.to_entity(row) if row else None
+
+    async def export_header(self, run_id: int) -> dict | None:
+        row = (
+            (
+                await self._db.execute(
+                    select(
+                        BenchmarkRunModel.id,
+                        BenchmarkRunModel.dataset,
+                        BenchmarkRunModel.config_json,
+                        BenchmarkRunModel.summary_metrics,
+                        BenchmarkRunModel.llm_evaluated,
+                    ).where(BenchmarkRunModel.id == run_id)
+                )
+            )
+            .mappings()
+            .one_or_none()
+        )
+        return dict(row) if row else None
+
+    async def result_page(self, run_id: int, *, offset: int, limit: int) -> list[dict]:
+        # PostgreSQL expands the JSON array before LIMIT/OFFSET.
+        column = BenchmarkRunModel.per_question_results
+        query = (
+            select(func.json_array_elements(column))
+            .where(BenchmarkRunModel.id == run_id, func.json_typeof(column) == "array")
+            .offset(offset)
+            .limit(limit)
+        )
+        return list((await self._db.scalars(query)).all())
+
+    async def set_artifact(self, run_id: int, format: str, metadata: dict) -> None:
+        artifacts = await self._db.scalar(
+            select(BenchmarkRunModel.artifacts).where(BenchmarkRunModel.id == run_id).with_for_update()
+        )
+        if artifacts is None:
+            raise ValueError("Benchmark result not found")
+        await self._db.execute(
+            update(BenchmarkRunModel)
+            .where(BenchmarkRunModel.id == run_id)
+            .values(artifacts={**artifacts, format: metadata})
+        )
+
+    async def get_sweep_run_ids(self, sweep_id: int, limit: int) -> list[int]:
+        query = (
+            select(BenchmarkRunModel.id)
+            .where(BenchmarkRunModel.sweep_id == sweep_id)
+            .order_by(BenchmarkRunModel.id)
+            .limit(limit)
+        )
+        return list((await self._db.scalars(query)).all())
 
     async def save_for_sweep(self, run: BenchmarkRun) -> BenchmarkRun:
         if run.sweep_id is None:
@@ -138,4 +256,7 @@ class SQLAlchemyBenchmarkRunRepository:
             dataset=orm.dataset,
             per_question_results=orm.per_question_results,
             filename=orm.filename,
+            job_id=orm.job_id,
+            legacy_hash=orm.legacy_hash,
+            artifacts=orm.artifacts or {},
         )

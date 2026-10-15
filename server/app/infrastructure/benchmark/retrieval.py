@@ -2,6 +2,7 @@
 
 import logging
 import httpx
+from infrastructure.budget.transport import PaidSyncTransport, PaidAsyncTransport
 from infrastructure.bm25.bm25_index import BM25Index
 from pathlib import Path
 
@@ -183,8 +184,10 @@ def build_llm(model: str, base_url: str, provider: str = LLMProvider.OLLAMA):
             openai_api_key=SecretStr(settings.openrouter_api_key) if settings.openrouter_api_key else None,
             openai_api_base=settings.openrouter_base_url,
             temperature=0.0,
-            http_client=httpx.Client(follow_redirects=False),
-            http_async_client=httpx.AsyncClient(follow_redirects=False),
+            max_tokens=settings.llm_num_predict_broad,
+            max_retries=0,
+            http_client=httpx.Client(follow_redirects=False, transport=PaidSyncTransport()),
+            http_async_client=httpx.AsyncClient(follow_redirects=False, transport=PaidAsyncTransport()),
         )
     return ChatOllama(
         model=model,

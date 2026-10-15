@@ -35,7 +35,8 @@ async def test_worker_initializes_breakers_after_config_resync(monkeypatch):
     monkeypatch.setattr(worker.settings, "llm_breaker_fail_max", 7)
     monkeypatch.setattr(worker.settings, "llm_breaker_timeout_duration", 19)
 
-    async def resync():
+    async def resync(*, role):
+        assert role == "worker"
         # Simulate database settings replacing the startup defaults.
         worker.settings.llm_breaker_fail_max = 9
 
@@ -63,6 +64,8 @@ class SweepFactory:
             get_by_id=AsyncMock(return_value=self.saved),
             update_status=AsyncMock(),
             update_progress=AsyncMock(),
+            delete_checkpoints=AsyncMock(),
+            load_checkpoint=AsyncMock(return_value=None),
         )
         self.sweeps.set_best_run = AsyncMock()
         self.runs = SimpleNamespace(save_for_sweep=AsyncMock(return_value=SimpleNamespace(id=1)))

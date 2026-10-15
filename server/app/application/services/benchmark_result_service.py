@@ -13,6 +13,7 @@ from application.dto.benchmark_dto import RegressionCheckOutput, RegressionCheck
 from application.ports.benchmark_history import BenchmarkHistoryPort
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
 from domain.value_objects.benchmark_dataset import BenchmarkDataset
+from domain.entities.benchmark_run import BenchmarkRun
 
 logger = logging.getLogger("default")
 
@@ -22,6 +23,7 @@ class BenchmarkResultSummary:
     id: int
     config_json: dict = field(default_factory=dict)
     summary_metrics: dict = field(default_factory=dict)
+    artifacts: dict = field(default_factory=dict)
     duration_sec: float = 0.0
     llm_evaluated: bool = False
     dataset: str = BenchmarkDataset.MAIN.value
@@ -46,6 +48,14 @@ class BenchmarkResultService:
     def __init__(self, uow_factory: UnitOfWorkFactory) -> None:
         self._uow_factory = uow_factory
 
+    async def get_job_result(self, job_id: int) -> BenchmarkRun | None:
+        async with self._uow_factory.create(master=True) as uow:
+            return await uow.benchmark_runs.get_by_job_id(job_id)
+
+    async def record_result(self, run: BenchmarkRun) -> BenchmarkRun:
+        async with self._uow_factory.create(master=True) as uow:
+            return await uow.benchmark_runs.save_once(run)
+
     async def list_results(
         self,
         dataset: str | None = None,
@@ -64,6 +74,7 @@ class BenchmarkResultService:
             BenchmarkResultSummary(
                 id=r.id,
                 config_json=r.config_json,
+                artifacts=r.artifacts,
                 summary_metrics=r.summary_metrics,
                 duration_sec=r.duration_sec,
                 llm_evaluated=r.llm_evaluated,
@@ -88,6 +99,7 @@ class BenchmarkResultService:
         summary = BenchmarkResultSummary(
             id=run.id or 0,
             config_json=run.config_json,
+            artifacts=run.artifacts,
             summary_metrics=run.summary_metrics,
             duration_sec=run.duration_sec,
             llm_evaluated=run.llm_evaluated,
@@ -105,30 +117,27 @@ class BenchmarkResultService:
         self,
         run_id: int | None,
         history_port: BenchmarkHistoryPort,
-        data_dir: str,
     ) -> RegressionCheckOutput:
-        """Check for regression: compare a run (or latest) against the last baseline."""
-        baseline = history_port.get_last_baseline(data_dir)
-        if baseline is None:
-            return RegressionCheckOutput(passed=True, results=[])
-
-        if run_id is not None:
-            detail = await self.get_result(run_id)
-            if detail is None:
-                return RegressionCheckOutput(passed=True, results=[])
-            current = {
-                "metrics": detail.summary.summary_metrics,
-                "config": detail.summary.config_json,
-            }
-        else:
-            history = history_port.load_history(data_dir)
-            if len(history) < 2:
-                return RegressionCheckOutput(passed=True, results=[])
-            current = history[-1]
+        """Compare a DB run with its previous compatible baseline."""
+        async with self._uow_factory.create() as uow:
+            run = (
+                await uow.benchmark_runs.get_by_id(run_id)
+                if run_id is not None
+                else await uow.benchmark_runs.get_latest()
+            )
+            if run is None:
+                return RegressionCheckOutput(passed=True)
+            previous = await uow.benchmark_runs.get_baseline(run)
+        if previous is None:
+            return RegressionCheckOutput(passed=True, run_id=run.id)
+        current = {"metrics": normalize_metrics(run.summary_metrics)}
+        baseline = {"metrics": normalize_metrics(previous.summary_metrics)}
 
         result = history_port.compare_runs(current, baseline)
         return RegressionCheckOutput(
             passed=result["passed"],
+            run_id=run.id,
+            baseline_run_id=previous.id,
             results=[
                 RegressionCheckResult(
                     metric=r["metric"],
@@ -142,3 +151,11 @@ class BenchmarkResultService:
                 for r in result["results"]
             ],
         )
+
+
+def normalize_metrics(metrics: dict) -> dict:
+    result = dict(metrics)
+    for name in ("faithfulness", "relevancy", "correctness"):
+        if name not in result:
+            result[name] = result.get(f"avg_{name}")
+    return result

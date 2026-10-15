@@ -5,6 +5,7 @@ rag_service.py to reduce its size and isolate the retrieval I/O layer.
 """
 
 import asyncio
+from infrastructure.corpus.snapshot import pin_corpus_call
 import logging
 from infrastructure.bm25.persistence import BM25LoadError
 import time
@@ -26,6 +27,7 @@ log = logging.getLogger("default")
 _retriever = HybridRetriever()
 
 
+@pin_corpus_call
 @retry_on_transient
 async def resolve_hashes_batch(
     hashes: list[str],
@@ -81,6 +83,7 @@ async def resolve_hashes_batch(
     return resolved
 
 
+@pin_corpus_call
 @retry_on_transient
 async def qdrant_dense_search(
     query: str,
@@ -135,6 +138,7 @@ async def qdrant_dense_search(
     return docs
 
 
+@pin_corpus_call
 async def run_hybrid_search(
     query: str,
     fetch_k: int,

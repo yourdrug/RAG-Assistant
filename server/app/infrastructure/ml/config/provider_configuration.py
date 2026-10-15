@@ -6,12 +6,15 @@ import hashlib
 import json
 import math
 from dataclasses import replace
+from pyrate_limiter import Rate
+from pyrate_limiter.utils import validate_rate_list
 
-from application.ports.provider_configuration import ConfigurationStatus
+from application.ports.provider_configuration import ConfigurationStatus, EffectiveParameter
 from config import Settings, settings
 from domain.entities.config_parameter import ConfigParameter
 from domain.events.config_events import ConfigParameterChanged
 from domain.exceptions import ValidationError
+from domain.value_objects.cost_budget import usd_units
 from domain.utils import parse_bool
 from domain.value_objects.dynamic_config import DYNAMIC_PARAMS, SECRET_SETTING_KEYS, STATIC_SETTING_KEYS
 from domain.value_objects.llm_provider import LLMProvider
@@ -24,6 +27,7 @@ from infrastructure.ml.config.client_switch import prepare_clients, dispose_clie
 from infrastructure.ml.config.client_switch import LLM_CLIENT_KEYS
 from infrastructure.benchmark.judge import retire_judge_clients
 from infrastructure.ml.config.embedding_identity import configured_embedding_identity
+from infrastructure.rate_limit.policies import build_policies
 
 
 def decode_parameter(param: ConfigParameter, value: str):
@@ -87,6 +91,48 @@ class SettingsProviderConfiguration:
         self.applying = False
         self.require_complete = False
 
+    def effective_parameters(self, rows: list[ConfigParameter]) -> list[EffectiveParameter]:
+        saved = {(row.key, row.domain_key): row for row in rows}
+        result = []
+        for key in sorted(type(self.settings).model_fields):
+            value = getattr(self.settings, key)
+            if key in SECRET_SETTING_KEYS:
+                result.append(EffectiveParameter(key, "secret", None, None, False, "recreate", bool(value)))
+                continue
+            dynamic = (key, None) in self.definitions
+            row = saved.get((key, None)) if dynamic else None
+            # redis_url is computed (and contains credentials), never enumerate computed fields.
+            applied = json.dumps(value, ensure_ascii=False) if not isinstance(value, str) else value
+            result.append(
+                EffectiveParameter(
+                    key,
+                    "database" if dynamic else "deployment",
+                    row.normalize(row.value) if row else (None if dynamic else applied),
+                    applied,
+                    dynamic and key not in {"qdrant_url", "collection_name"},
+                    "corpus_switch"
+                    if key in {"qdrant_url", "collection_name"}
+                    else "next_cron"
+                    if key == "job_cleanup_days"
+                    else ("next_operation" if dynamic else "recreate"),
+                )
+            )
+        if self.domain_settings is not None:
+            for (key, domain), value in self.domain_settings.snapshot().items():
+                row = saved.get((key, domain))
+                result.append(
+                    EffectiveParameter(
+                        key,
+                        "database",
+                        row.normalize(row.value) if row else None,
+                        str(value),
+                        True,
+                        "next_operation",
+                        domain_key=domain,
+                    )
+                )
+        return result
+
     def status(self) -> ConfigurationStatus:
         return self._status
 
@@ -115,11 +161,17 @@ class SettingsProviderConfiguration:
     def validate_provider(self, candidate: Settings) -> None:
         validate_endpoints(candidate)
         validate_pools(candidate)
+        for policy in build_policies(candidate).values():
+            if not validate_rate_list([Rate(spec.limit, spec.interval_ms) for spec in policy.rates]):
+                raise ValidationError(f'Incompatible rate limit quotas for {policy.name.value}')
         if (
             self._status.applied_version is not None
             or (self.ml_clients is not None and self.ml_clients._embeddings is not None)
         ) and configured_embedding_identity(candidate) != configured_embedding_identity(self.settings):
             raise ValidationError("Embedding identity changes require the corpus migration workflow")
+        for key in ("cost_hourly_limit", "cost_daily_limit"):
+            if usd_units(str(getattr(candidate, key))) <= 0:
+                raise ValidationError("USD budgets must be positive")
         errors = candidate.check_ml_provider()
         if candidate.llm_provider == LLMProvider.OPENROUTER.value and not candidate.openrouter_api_key:
             errors.append("OPENROUTER_API_KEY required when LLM_PROVIDER=openrouter")
@@ -199,8 +251,18 @@ class SettingsProviderConfiguration:
                         domain_key=row.domain_key,
                     )
                 )
+        self.validate_corpus_settings(updates)
         self.validate_provider(self.settings.model_copy(update=updates))
         return updates, domain_updates, events
+
+    def validate_corpus_settings(self, updates):
+        if self.ml_clients is not None:
+            snapshot = getattr(self.ml_clients, 'corpus_snapshot', None)
+            if snapshot is not None and (
+                updates.get('qdrant_url', snapshot.endpoint) != snapshot.endpoint
+                or updates.get('collection_name', snapshot.alias) != snapshot.alias
+            ):
+                raise ValidationError('Corpus settings require the coordinated journal to be applied first')
 
     async def apply_async(
         self, rows: list[ConfigParameter], *, require_complete: bool = False, verify=None
@@ -215,11 +277,15 @@ class SettingsProviderConfiguration:
             active = [row for row in rows if (row.key, row.domain_key) in self.definitions]
             updates, _, events = self.prepare_snapshot(active, require_complete or self.require_complete)
             candidate = self.settings.model_copy(update=updates)
+            keys = {event.key for event in events}
+            if previous_version is None and require_complete and candidate.ml_provider == "tei":
+                # Defaults produce no change event, but startup must verify the serving encoder.
+                keys.add("tei_embed_url")
             prepared = await prepare_clients(
                 self.ml_clients,
                 current,
                 candidate,
-                {event.key for event in events},
+                keys,
                 applied=self._status.applied_version is not None,
             )
             if verify is not None and not await verify():

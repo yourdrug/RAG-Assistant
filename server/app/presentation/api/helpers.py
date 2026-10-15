@@ -368,4 +368,5 @@ def summary_to_response(s: Any) -> Any:
         dataset=s.dataset,
         sweep_id=s.sweep_id,
         creation_date=s.creation_date,
+        artifacts=s.artifacts,
     )

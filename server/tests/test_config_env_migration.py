@@ -73,7 +73,7 @@ def migration_env(tmp_path, monkeypatch):
 )
 async def test_secret_transfer_preserves_original_dotenv_binding(migration_env, binding, value):
     path, factory = migration_env
-    path.write_text(binding + "\n")
+    path.write_text('FILE_BACKEND=local\n' + binding + "\n")
     await config_migration.migrate_env_configuration(factory, path, apply=True)
     secret_path = path.with_name(".env.secrets")
     assert dotenv_values(secret_path)["S3_SECRET_KEY"] == value
@@ -100,7 +100,7 @@ async def test_secret_transfer_preserves_compose_credentials(migration_env, bind
     version = subprocess.run([docker, "compose", "version"], capture_output=True, timeout=10)  # noqa: S603
     if version.returncode:
         pytest.skip("Docker Compose parser is unavailable")
-    path.write_text(binding + "\n")
+    path.write_text('FILE_BACKEND=local\n' + binding + "\n")
     await config_migration.migrate_env_configuration(factory, path, apply=True)
     compose_file = path.with_name("compose.yaml")
     compose_file.write_text("services:\n  probe:\n    image: busybox\n    env_file: [.env, .env.secrets]\n")
@@ -167,6 +167,20 @@ async def add_row(factory, key, value, domain_key=None):
     await factory.repository.save(
         ConfigParameter(key, value, ConfigValueType.STR, "test", domain_key=domain_key)
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('apply', [False, True])
+async def test_default_s3_backend_requires_credentials_before_mutations(migration_env, apply):
+    path, factory = migration_env
+    path.write_text('LLM_MODEL=legacy\n')
+    original = path.read_text()
+    with pytest.raises(ValueError, match='S3_ACCESS_KEY.*S3_SECRET_KEY'):
+        await config_migration.migrate_env_configuration(factory, path, apply=apply)
+    assert path.read_text() == original
+    assert not path.with_name('.env.secrets').exists()
+    assert not list(path.parent.glob('*.backup-*'))
+    assert await factory.repository.get_all() == []
 
 
 @pytest.mark.asyncio
@@ -414,7 +428,10 @@ async def test_cli_disconnects_after_migration_failure(migration_env, monkeypatc
 @pytest.mark.asyncio
 async def test_explicit_new_pool_names_are_not_lost(migration_env):
     path, factory = migration_env
-    path.write_text("EMBEDDING_HTTP_MAX_CONNECTIONS=50\nEMBEDDING_HTTP_MAX_KEEPALIVE_CONNECTIONS=25\n")
+    path.write_text(
+        "FILE_BACKEND=local\nEMBEDDING_HTTP_MAX_CONNECTIONS=50\n"
+        "EMBEDDING_HTTP_MAX_KEEPALIVE_CONNECTIONS=25\n"
+    )
     await config_migration.migrate_env_configuration(factory, path, apply=True)
     rows = {row.key: row.value for row in await factory.repository.get_all()}
     assert rows["embedding_http_max_connections"] == "50"
@@ -452,7 +469,7 @@ async def test_lowercase_secret_conflict_is_not_missed(migration_env):
 @pytest.mark.asyncio
 async def test_lowercase_settings_and_secrets_follow_settings_case_rules(migration_env):
     path, factory = migration_env
-    path.write_text("llm_model=legacy-model\ns3_secret_key=lowercase-secret\n")
+    path.write_text("FILE_BACKEND=local\nllm_model=legacy-model\ns3_secret_key=lowercase-secret\n")
     await config_migration.migrate_env_configuration(factory, path, apply=True)
     assert (await factory.repository.get_by_key("llm_model")).value == "legacy-model"
     assert "s3_secret_key" not in dotenv_values(path)

@@ -93,7 +93,12 @@ class SQLAlchemyBackgroundJobRepository:
     async def delete_old(self, days: int) -> int:
         cutoff = datetime.now(tz=UTC) - timedelta(days=days)
         result = await self._db.execute(
-            delete(BackgroundJobModel).where(BackgroundJobModel.creation_date < cutoff)
+            delete(BackgroundJobModel).where(
+                BackgroundJobModel.creation_date < cutoff,
+                BackgroundJobModel.status.in_(
+                    [BackgroundJobStatus.DONE.value, BackgroundJobStatus.FAILED.value]
+                ),
+            )
         )
         await self._db.flush()
         return result.rowcount or 0

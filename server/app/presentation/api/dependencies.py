@@ -315,3 +315,17 @@ def create_document_deletion_jobs(request: Request):
     return _get_or_raise(
         _create_container(request).application.document_deletion_jobs, "DocumentDeletionJobs"
     )
+
+
+def create_budget_admin_service(request: Request):
+    return _get_or_raise(_create_container(request).infrastructure.budget_admin, "BudgetAdminService")
+
+
+def create_corpus_control(request: Request):
+    return _get_or_raise(_create_container(request).infrastructure.corpus_control, 'CorpusControl')
+
+
+def create_benchmark_export_service(request: Request):
+    return _get_or_raise(
+        _create_container(request).application.benchmark_export_service, "BenchmarkExportService"
+    )

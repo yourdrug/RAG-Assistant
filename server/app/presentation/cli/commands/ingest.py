@@ -7,6 +7,7 @@ import logging
 import sys
 from pathlib import Path
 
+from application.ports.billing_context import billing_principal
 from composition.infrastructure import InfrastructureContainer
 from composition.service_providers import create_ingestion_service
 from infrastructure.database.database import database
@@ -38,6 +39,7 @@ async def run_with_infrastructure(action):
         await database.connect()
         database_started = True
         infra.init(database)
+        billing_principal.set("system:ingest-cli")
         await infra.bootstrap_configuration()
         return await action(infra)
     finally:

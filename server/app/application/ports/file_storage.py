@@ -6,6 +6,7 @@ not on the concrete S3/local implementation.
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, runtime_checkable
@@ -27,6 +28,8 @@ class FileStorage(Protocol):
     async def download_to_temp(self, key: str) -> Path: ...
 
     async def upload_file(self, key: str, data: bytes) -> None: ...
+
+    async def upload_stream(self, key: str, blocks: AsyncIterator[bytes]) -> None: ...
 
     async def get_file_info(self, key: str) -> FileItem | None: ...
 

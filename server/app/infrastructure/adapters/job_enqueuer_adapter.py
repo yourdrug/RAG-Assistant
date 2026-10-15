@@ -89,14 +89,12 @@ class JobEnqueuerAdapter:
         self,
         *,
         dataset: str,
-        out_dir: str,
         top_k: int,
         judge_model: str,
         job_id: int,
     ) -> None:
         await _enqueue_benchmark(
             dataset=dataset,
-            out_dir=out_dir,
             top_k=top_k,
             judge_model=judge_model,
             job_id=job_id,

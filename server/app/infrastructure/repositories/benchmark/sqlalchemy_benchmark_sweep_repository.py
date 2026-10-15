@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from domain.entities.benchmark_sweep import BenchmarkSweep
 from domain.exceptions import BusinessRuleViolation
 from domain.value_objects.job_status import BackgroundJobStatus
 from domain.value_objects.sweep_status import BenchmarkSweepStatus
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, or_, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import insert
@@ -219,6 +221,48 @@ class SQLAlchemyBenchmarkSweepRepository:
         await self._db.execute(
             statement.on_conflict_do_update(
                 index_elements=[BenchmarkCheckpointModel.sweep_id, BenchmarkCheckpointModel.key],
-                set_={"payload": statement.excluded.payload},
+                set_={"payload": statement.excluded.payload, "updated_at": func.now()},
             )
         )
+
+    async def delete_checkpoints(self, sweep_id: int) -> None:
+        await self._db.execute(
+            select(BenchmarkSweepModel.id).where(BenchmarkSweepModel.id == sweep_id).with_for_update()
+        )
+        await self._db.execute(
+            delete(BenchmarkCheckpointModel).where(BenchmarkCheckpointModel.sweep_id == sweep_id)
+        )
+
+    async def cleanup_checkpoints(self, cutoff: datetime) -> int:
+        latest = (
+            select(func.max(BenchmarkCheckpointModel.updated_at))
+            .where(BenchmarkCheckpointModel.sweep_id == BenchmarkSweepModel.id)
+            .correlate(BenchmarkSweepModel)
+            .scalar_subquery()
+        )
+        active = (BenchmarkSweepStatus.PENDING.value, BenchmarkSweepStatus.RUNNING.value)
+        query = (
+            select(BenchmarkSweepModel)
+            .where(
+                BenchmarkSweepModel.status.notin_(active),
+                latest.is_not(None),
+                or_(BenchmarkSweepModel.status == BenchmarkSweepStatus.DONE.value, latest <= cutoff),
+            )
+            .order_by(BenchmarkSweepModel.id)
+            .limit(100)
+            .with_for_update(skip_locked=True)
+        )
+        count = 0
+        for sweep in (await self._db.scalars(query)).all():
+            if sweep.job_id is not None:
+                job = await self._db.get(BackgroundJobModel, sweep.job_id)
+                if job is not None and job.status in (
+                    BackgroundJobStatus.PENDING.value,
+                    BackgroundJobStatus.RUNNING.value,
+                ):
+                    continue
+            await self._db.execute(
+                delete(BenchmarkCheckpointModel).where(BenchmarkCheckpointModel.sweep_id == sweep.id)
+            )
+            count += 1
+        return count

@@ -25,6 +25,7 @@ from qdrant_client.models import (
 )
 
 from config import settings
+from infrastructure.corpus.snapshot import collection_for
 from domain.utils import content_hash
 from infrastructure.ml.clients.factories import create_qdrant_client
 from infrastructure.repositories.vector.embedding_identity import ensure_embedding_identity
@@ -52,11 +53,11 @@ def _delete_internal_points(client) -> int:
     Deletes points where owner_id=None AND manual != True.
     Returns the number of points deleted.
     """
-    info = client.get_collection(settings.collection_name)
+    info = client.get_collection(collection_for(client))
     total_before = info.points_count or 0
 
     client.delete(
-        collection_name=settings.collection_name,
+        collection_name=collection_for(client),
         points_selector=Filter(
             must=[
                 IsNullCondition(
@@ -72,7 +73,7 @@ def _delete_internal_points(client) -> int:
         ),
     )
 
-    info_after = client.get_collection(settings.collection_name)
+    info_after = client.get_collection(collection_for(client))
     total_after = info_after.points_count or 0
     deleted = total_before - total_after
     return deleted
@@ -81,21 +82,21 @@ def _delete_internal_points(client) -> int:
 def ensure_collection(client, vector_size: int, reset: bool = False) -> None:
     ensure_embedding_identity(client)
     existing = [c.name for c in client.get_collections().collections]
-    if settings.collection_name in existing:
-        info = client.get_collection(settings.collection_name)
+    if collection_for(client) in existing:
+        info = client.get_collection(collection_for(client))
         # Validate vector dimension matches expected size
         vectors_config = info.config.params.vectors
         existing_dim = vectors_config.size if hasattr(vectors_config, "size") else None
         if existing_dim is not None and existing_dim != vector_size:
             raise ValueError(
-                f"Collection '{settings.collection_name}' has vector dimension {existing_dim}, "
+                f"Collection '{collection_for(client)}' has vector dimension {existing_dim}, "
                 f"but the current embedding model requires {vector_size}. "
                 f"To migrate: create a new collection with the correct dimension and re-ingest documents."
             )
         if reset:
             log.info(
                 "Smart reset: deleting CLI-ingested points (owner_id=None) from collection '%s' ...",
-                settings.collection_name,
+                collection_for(client),
             )
             deleted = _delete_internal_points(client)
             log.info("Deleted %d internal points. API-uploaded points preserved.", deleted)
@@ -104,23 +105,21 @@ def ensure_collection(client, vector_size: int, reset: bool = False) -> None:
             count = info.points_count or 0
             log.info(
                 "Collection '%s' exists — %d points (dim=%d). Adding new documents.",
-                settings.collection_name,
+                collection_for(client),
                 count,
                 existing_dim,
             )
             _ensure_payload_indexes(client)
         return
-    log.info("Creating collection '%s' (dim=%d) ...", settings.collection_name, vector_size)
+    log.info("Creating collection '%s' (dim=%d) ...", collection_for(client), vector_size)
     try:
         client.create_collection(
-            collection_name=settings.collection_name,
+            collection_name=collection_for(client),
             vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
         )
     except Exception as e:
         if "already exists" in str(e):
-            log.info(
-                "Collection '%s' already exists (created by concurrent process)", settings.collection_name
-            )
+            log.info("Collection '%s' already exists (created by concurrent process)", collection_for(client))
         else:
             raise
     _ensure_payload_indexes(client)
@@ -142,7 +141,7 @@ def _ensure_payload_indexes(client) -> None:
     for field_name, field_type in acl_fields:
         try:
             client.create_payload_index(
-                collection_name=settings.collection_name,
+                collection_name=collection_for(client),
                 field_name=field_name,
                 field_schema=field_type,
             )
@@ -160,13 +159,13 @@ async def _upsert_with_semaphore(client, points: list, write_semaphore=None) -> 
         async with write_semaphore:
             await asyncio.to_thread(
                 client.upsert,
-                collection_name=settings.collection_name,
+                collection_name=collection_for(client),
                 points=points,
             )
     else:
         await asyncio.to_thread(
             client.upsert,
-            collection_name=settings.collection_name,
+            collection_name=collection_for(client),
             points=points,
         )
 

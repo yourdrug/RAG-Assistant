@@ -7,6 +7,7 @@ import hashlib
 from qdrant_client.models import Distance, VectorParams
 
 from config import settings
+from infrastructure.corpus.snapshot import CorpusSnapshot
 from infrastructure.ml.config.embedding_identity import configured_embedding_identity
 
 
@@ -17,9 +18,16 @@ def ensure_embedding_identity(client, identity: str | None = None) -> str:
     Collection creation is atomic, including competing worker startups. Existing
     bindings are never overwritten; migration must create a fresh corpus.
     """
-    identity = identity or configured_embedding_identity()
+    snapshot = getattr(client, "snapshot", None)
+    identity = identity or (
+        snapshot.embedding_identity
+        if isinstance(snapshot, CorpusSnapshot)
+        else configured_embedding_identity()
+    )
     fingerprint = hashlib.sha256(identity.encode()).hexdigest()
-    corpus = settings.collection_name
+    corpus = (
+        snapshot.physical_collection if isinstance(snapshot, CorpusSnapshot) else settings.collection_name
+    )
     names = {c.name for c in client.get_collections().collections}
     if corpus not in names:
         aliases = client.get_aliases().aliases

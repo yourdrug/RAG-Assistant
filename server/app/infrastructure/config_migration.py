@@ -11,6 +11,7 @@ import os
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from config import Settings
 from dotenv import dotenv_values
@@ -135,7 +136,9 @@ def migration_parameter(key: str, raw: str) -> ConfigParameter:
     try:
         if "${" in raw:
             raise ValueError("Unresolved interpolation")
-        adapter = TypeAdapter(field.rebuild_annotation() if field else value_type)
+        if value_type is None:
+            raise ValueError("Missing parameter type")
+        adapter: TypeAdapter[Any] = TypeAdapter(field.rebuild_annotation() if field else value_type)
         value = adapter.validate_json(raw) if value_type is list else adapter.validate_python(raw)
         if isinstance(value, float) and not math.isfinite(value):
             raise ValueError("Nonfinite number")
@@ -174,6 +177,8 @@ def legacy_pool_limits(values: dict[str, str | None]) -> dict[str, int]:
     for source in {key for key, divisor in POOL_KEYS.values()}:
         raw = values.get(source.upper(), str(LEGACY_POOL_DEFAULTS[source]))
         try:
+            if raw is None:
+                raise ValueError("Missing pool limit")
             limits[source] = int(raw)
         except (ValueError, TypeError):
             raise ValueError(f"Invalid legacy value: {source.upper()}") from None
@@ -212,16 +217,19 @@ def pool_parameters(values: dict[str, str | None]) -> list[ConfigParameter]:
 
 
 def secret_moves(env: EnvSnapshot, secrets: EnvSnapshot) -> dict[str, str]:
-    moved = {key.upper(): value for key, value in env.values.items() if key.lower() in SECRET_SETTING_KEYS}
     for key in {key.upper() for key in SECRET_SETTING_KEYS}:
         sources = [source[key] for source in (env.values, secrets.values, os.environ) if key in source]
         if sources and (sources[0] is None or "${" in sources[0] or any(v != sources[0] for v in sources)):
             raise ValueError(f"Secret source conflict or missing credential: {key}")
-    return moved
+    return {
+        key.upper(): value
+        for key, value in env.values.items()
+        if key.lower() in SECRET_SETTING_KEYS and value is not None
+    }
 
 
-def compose_updates(env: EnvSnapshot, effective: dict[str, str]) -> dict[str, str]:
-    profiles = [p.strip() for p in effective.get("COMPOSE_PROFILES", "").split(",") if p.strip()]
+def compose_updates(env: EnvSnapshot, effective: dict[str, str | None]) -> dict[str, str]:
+    profiles = [p.strip() for p in (effective.get("COMPOSE_PROFILES") or "").split(",") if p.strip()]
     provider = effective.get("ML_PROVIDER", Settings.model_fields["ml_provider"].default)
     if provider == "tei" and "tei" not in profiles:
         profiles.append("tei")
@@ -230,7 +238,7 @@ def compose_updates(env: EnvSnapshot, effective: dict[str, str]) -> dict[str, st
 
 
 def validate_storage_and_credentials(
-    rows: list[ConfigParameter], effective: dict[str, str]
+    rows: list[ConfigParameter], effective: dict[str, str | None]
 ) -> list[ConfigParameter]:
     s3_rows = [row for row in rows if row.key in S3_CONNECTION_KEYS]
     conflicts = {
@@ -241,7 +249,8 @@ def validate_storage_and_credentials(
     if conflicts:
         raise ValueError("S3 env/DB mismatch: " + ", ".join(sorted(conflicts)))
     required = {"DB_PASSWORD", "REDIS_PASSWORD", "JWT_SECRET_KEY"}
-    if s3_rows or effective.get("FILE_BACKEND") == FileBackend.S3.value:
+    backend = effective.get("FILE_BACKEND", Settings.model_fields["file_backend"].default)
+    if s3_rows or backend == FileBackend.S3.value:
         required.update({"S3_ACCESS_KEY", "S3_SECRET_KEY"})
     providers = {
         key: effective.get(key.upper(), Settings.model_fields[key].default)

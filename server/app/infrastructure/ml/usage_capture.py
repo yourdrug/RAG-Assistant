@@ -109,9 +109,11 @@ def record_inference_response(data: dict, *, model: str, operation: str) -> None
         {
             'model': data.get('model') or model,
             'operation': operation,
-            'input_tokens': usage.get('prompt_tokens', status.get('tokens_input')),
+            'input_tokens': data.get('input_tokens')
+            if operation == 'reranking'
+            else usage.get('prompt_tokens'),
             'output_tokens': 0,
             'cost_usd': usage.get('cost', status.get('cost')),
-            'response_id': None,
+            'response_id': data.get('request_id'),
         }
     )

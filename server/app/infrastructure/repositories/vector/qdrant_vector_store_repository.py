@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from infrastructure.corpus.snapshot import pin_corpus_call
 import logging
 from collections.abc import Awaitable, Callable
 
@@ -41,6 +42,7 @@ class QdrantVectorStoreRepository:
     async def ensure_collection(self, vector_size: int, reset: bool = False) -> None:
         await asyncio.to_thread(ensure_collection, self._get_qdrant_client(), vector_size, reset=reset)
 
+    @pin_corpus_call
     async def upload_documents(
         self,
         chunks: list[Chunk],
@@ -59,6 +61,7 @@ class QdrantVectorStoreRepository:
                 should_cancel=should_cancel,
             )
 
+    @pin_corpus_call
     @retry_on_transient
     async def delete_by_document_id(self, document_id: int) -> None:
         """Delete all vector points for a document."""
@@ -78,6 +81,7 @@ class QdrantVectorStoreRepository:
     async def generate_embeddings(self, text: str) -> list[float]:
         return await self._get_embeddings().embed_query(text)
 
+    @pin_corpus_call
     @retry_on_transient
     async def upsert_point(self, point_id: int, vector: list[float], payload: dict) -> None:
         """Upsert a single point with deterministic ID (chunk.id)."""
@@ -95,6 +99,7 @@ class QdrantVectorStoreRepository:
 
         await asyncio.to_thread(_upsert)
 
+    @pin_corpus_call
     async def get_point_payload(self, point_id: int, access_filter: Filter) -> dict | None:
         """Fetch a single point's payload by ID with mandatory ACL enforcement.
 

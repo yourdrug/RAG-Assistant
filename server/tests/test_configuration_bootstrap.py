@@ -1,6 +1,15 @@
 """Database snapshots are validated before any global/domain state is applied."""
 
 import asyncio
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+from fastapi import Response
+from composition import infrastructure
+from domain.value_objects.cost_budget import BudgetError
+from infrastructure.budget.runtime import BudgetRuntime
+from infrastructure.ml.clients import managed_http
+from presentation.api.routes.health import ready
+from test_cli_domain_bootstrap import build_infrastructure
 from unittest.mock import MagicMock
 
 import pytest
@@ -286,7 +295,8 @@ def test_deepinfra_production_can_construct_before_db_load_and_without_tei_urls(
 
 
 @pytest.mark.asyncio
-async def test_readiness_rejects_failed_configuration_snapshot(configuration):
+@pytest.mark.parametrize("corpus_ready", [None, False, True])
+async def test_readiness_rejects_failed_configuration_snapshot(configuration, corpus_ready):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
     from application.services.health_service import HealthService
@@ -308,10 +318,22 @@ async def test_readiness_rejects_failed_configuration_snapshot(configuration):
             ml_provider="tei", llm_provider=LLMProvider.OLLAMA.value, version="test", uptime_seconds=1
         ),
         configuration=configuration,
+        corpus_control=SimpleNamespace(is_ready=AsyncMock(return_value=corpus_ready))
+        if corpus_ready is not None
+        else None,
     )
+    if corpus_ready is not None:
+        configuration.apply([row("llm_model", "ready-model")])
     result = await service.check()
-    assert result.status == HealthStatus.DEGRADED.value
-    assert result.checks["configuration"].status.startswith("error")
+    if corpus_ready is True:
+        assert result.status == HealthStatus.HEALTHY.value
+    else:
+        assert result.status == HealthStatus.DEGRADED.value
+        check = "corpus" if corpus_ready is False else "configuration"
+        assert result.checks[check].status.startswith("error")
+    response = Response()
+    await ready(response, service)
+    assert response.status_code == (200 if corpus_ready is True else 503)
 
 
 @pytest.mark.asyncio
@@ -393,6 +415,7 @@ async def test_config_cli_resync_uses_same_snapshot_and_reports_invalid_database
     from presentation.cli.commands import config, ingest
 
     infra, bus = build_infrastructure(monkeypatch)
+    infra.corpus_control = AsyncMock()
     infra.init = lambda database: setattr(infra, "_initialized", True)
     await infra.db.uow_factory._uow.config_parameters.save(row("llm_model", "cli-db-model"))
     await infra.db.uow_factory._uow.config_parameters.save(
@@ -417,3 +440,70 @@ async def test_config_cli_resync_uses_same_snapshot_and_reports_invalid_database
         assert infra.domain_settings.get("fingerprint_min_articles", "legal") == "9"
     assert not infra._initialized
     assert not bus._handlers[ConfigParameterChanged]
+
+
+@pytest.mark.parametrize('daily', [5, 10, 14401])
+def test_incompatible_chat_quotas_rejected_before_application(configuration, daily):
+    configuration.settings.rate_limit_chat_per_minute = 10
+    previous = configuration.settings.rate_limit_chat_per_day
+    with pytest.raises(ValidationError, match='quota'):
+        configuration.validate_change('rate_limit_chat_per_day', str(daily))
+    with pytest.raises(ValidationError, match='quota'):
+        configuration.apply([row('rate_limit_chat_per_day', str(daily), ConfigValueType.INT)])
+    assert configuration.settings.rate_limit_chat_per_day == previous
+
+
+@pytest.mark.asyncio
+async def test_config_service_rejects_chat_quota_against_saved_snapshot(configuration):
+    from application.services.config_service import ConfigService
+
+    factory = FakeUnitOfWorkFactory()
+    async with factory.create() as uow:
+        await uow.config_parameters.save(row('rate_limit_chat_per_minute', '10', ConfigValueType.INT))
+        await uow.config_parameters.save(row('rate_limit_chat_per_day', '100', ConfigValueType.INT))
+    # Validation must use durable rows, even when this replica is behind.
+    configuration.settings.rate_limit_chat_per_minute = 1
+    service = ConfigService(factory, configuration.bus, configuration)
+    with pytest.raises(ValidationError, match='quota'):
+        await service.update_parameter('rate_limit_chat_per_day', '5')
+    async with factory.create() as uow:
+        saved = await uow.config_parameters.get_by_key('rate_limit_chat_per_day')
+        assert saved.value == '100'
+
+
+@pytest.mark.asyncio
+async def test_budget_policy_is_durable_before_bootstrap_probes(monkeypatch):
+    infra, _ = build_infrastructure(monkeypatch)
+    runtime = BudgetRuntime()
+    session = AsyncMock()
+    session.execute.return_value = MagicMock()
+    session.execute.return_value.all.return_value = [
+        ('cost_rate_limit_enabled', 'true'),
+        ('cost_hourly_limit', '1'),
+        ('cost_daily_limit', '5'),
+    ]
+    factory = MagicMock()
+    factory.return_value.__aenter__ = AsyncMock(return_value=session)
+    ledger = object()
+    runtime.configure(ledger, factory, None)
+    infra.budget_admin = SimpleNamespace(repository=ledger)
+    monkeypatch.setattr(infrastructure, 'budget_runtime', runtime)
+    monkeypatch.setattr(settings, 'cost_rate_limit_enabled', False)
+
+    monkeypatch.setattr(managed_http, 'budget_runtime', runtime)
+    pool = managed_http.ManagedHTTPPool(10, managed_http.httpx.Limits())
+    pool.billable_provider = 'deepinfra'
+    post = AsyncMock()
+    monkeypatch.setattr(pool._client, 'post', post)
+
+    async def prepare(**kwargs):
+        await pool.post('https://api.deepinfra.com/v1/inference/model/')
+
+    infra.events.config_listener.synchronize = prepare
+    try:
+        with pytest.raises(BudgetError, match='paid call blocked'):
+            await infra.bootstrap_configuration()
+        post.assert_not_awaited()
+        infra.corpus_control.start.assert_not_awaited()
+    finally:
+        await pool.close()

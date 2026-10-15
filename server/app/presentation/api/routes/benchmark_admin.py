@@ -29,7 +29,6 @@ from presentation.api.constants import (
     SSE_MEDIA_TYPE,
 )
 from presentation.api.dependencies import (
-    create_benchmark_config,
     create_benchmark_history_port,
     create_benchmark_question_service,
     create_benchmark_result_service,
@@ -474,13 +473,13 @@ async def regression_check(
     admin: CurrentUser = Depends(require_admin),
     result_service: BenchmarkResultService = Depends(create_benchmark_result_service),
     history_port=Depends(create_benchmark_history_port),
-    bench_cfg=Depends(create_benchmark_config),
 ):
     """Check for regression: compare a run (or latest) against the last baseline."""
-    data_dir = str(bench_cfg.data_dir)
-    output = await result_service.check_regression(run_id, history_port, data_dir)
+    output = await result_service.check_regression(run_id, history_port)
     return RegressionCheckResponse(
         passed=output.passed,
+        run_id=output.run_id,
+        baseline_run_id=output.baseline_run_id,
         results=[
             RegressionCheckResult(
                 metric=r.metric,

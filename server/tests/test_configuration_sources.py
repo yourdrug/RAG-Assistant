@@ -69,7 +69,7 @@ def test_secret_masking_uses_complete_canonical_list():
 def test_new_dynamic_keys_are_not_activated_before_their_implementation():
     active = {param.key for param in dynamic_config.DYNAMIC_PARAMS}
     pending = dynamic_config.TARGET_DYNAMIC_SETTING_KEYS - active
-    assert {"collection_name", "rate_limit_enabled", "cost_rate_limit_enabled"} <= pending
+    assert not pending
     assert not pending & dynamic_config.DYNAMIC_FIELDS_MAP.keys()
 
 

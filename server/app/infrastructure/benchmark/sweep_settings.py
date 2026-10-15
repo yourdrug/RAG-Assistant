@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 from contextlib import AbstractContextManager, contextmanager
-from pathlib import Path
 from typing import Protocol
 
-from config import _settings_overrides, get_setting, settings
+from config import _settings_overrides, get_setting
 
 
 class SweepSettingsPort(Protocol):
@@ -17,7 +16,7 @@ class SweepSettingsPort(Protocol):
     def top_k(self) -> int: ...
 
     @property
-    def results_path(self) -> str: ...
+    def results_path(self) -> str | None: ...
 
     def override(self, config: dict) -> AbstractContextManager[None]: ...
 
@@ -32,8 +31,8 @@ class LiveSweepSettings:
         return int(get_setting("retriever_top_k"))
 
     @property
-    def results_path(self) -> str:
-        return str(Path(settings.data_dir) / "benchmark_results")
+    def results_path(self) -> str | None:
+        return None
 
     @contextmanager
     def override(self, config: dict):

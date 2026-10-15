@@ -4,6 +4,7 @@ import asyncio
 from contextlib import asynccontextmanager
 
 import httpx
+from infrastructure.budget.transport import PaidAsyncTransport
 
 from infrastructure.storage.file_storage import finish_owned_task
 from infrastructure.ml.clients.client_lease import active_client_leases
@@ -11,7 +12,14 @@ from infrastructure.ml.clients.client_lease import active_client_leases
 
 class ManagedHTTPPool:
     def __init__(self, timeout: float, limits: httpx.Limits) -> None:
-        self._client = httpx.AsyncClient(timeout=timeout, limits=limits, follow_redirects=False)
+        self._client = httpx.AsyncClient(
+            timeout=timeout,
+            limits=limits,
+            follow_redirects=False,
+            transport=PaidAsyncTransport(transport=httpx.AsyncHTTPTransport(limits=limits))
+            if getattr(self, "billable_provider", None)
+            else None,
+        )
         self._active = 0
         self._retired = False
         self._idle = asyncio.Event()

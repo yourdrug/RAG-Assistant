@@ -62,4 +62,6 @@ class RegressionCheckOutput:
     """Full regression check output."""
 
     passed: bool
+    run_id: int | None = None
+    baseline_run_id: int | None = None
     results: list[RegressionCheckResult] = field(default_factory=list)

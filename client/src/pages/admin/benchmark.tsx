@@ -1329,6 +1329,31 @@ function LeaderboardTab() {
                         <Button variant="outline" size="sm" onClick={() => handleApply(run)}>
                           Apply
                         </Button>
+                        {(["csv", "json"] as const).map((format) => (
+                          <Button
+                            key={format}
+                            variant="outline"
+                            size="sm"
+                            onClick={async () => {
+                              try {
+                                const response = await apiClient.get(
+                                  `/benchmark/results/${run.id}/export?format=${format}`,
+                                  { responseType: "blob" },
+                                );
+                                const url = URL.createObjectURL(response.data);
+                                const anchor = document.createElement("a");
+                                anchor.href = url;
+                                anchor.download = `benchmark-${run.id}.${format}`;
+                                anchor.click();
+                                URL.revokeObjectURL(url);
+                              } catch {
+                                toast.error("Export failed");
+                              }
+                            }}
+                          >
+                            {format.toUpperCase()}
+                          </Button>
+                        ))}
                       </TableCell>
                     </TableRow>
                     {isExpanded && (

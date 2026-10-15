@@ -7,10 +7,8 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from config import settings
 from domain.services.benchmark_evaluation import EVIDENCE_METRICS
 
-from infrastructure.benchmark.benchmark_history import save_summary_to_history
 from infrastructure.benchmark.metrics import compute_summary_metrics
 
 logger = logging.getLogger("default")
@@ -78,22 +76,6 @@ def save_results(results: list[dict], out_dir: str, model_name: str = "", run_id
     logger.info("Результаты сохранены:")
     logger.info("  JSON: %s", json_path)
     logger.info("  CSV:  %s", csv_path)
-
-    summary = compute_summary_metrics(results)
-
-    config = {
-        "top_k": settings.retriever_top_k,
-        "chunk_size": settings.chunk_size,
-        "chunk_overlap": settings.chunk_overlap,
-        "tei_embed_url": settings.tei_embed_url,
-        "llm_model": model_name or settings.llm_model,
-        "hybrid_enabled": settings.hybrid_enabled,
-        "dense_weight": settings.dense_weight,
-        "sparse_weight": settings.sparse_weight,
-        "rrf_k": settings.rrf_k,
-    }
-
-    save_summary_to_history(summary, config, settings.data_dir)
 
 
 def log_question_result(idx: int, total: int, q: dict, result: dict):

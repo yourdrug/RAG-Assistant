@@ -12,6 +12,7 @@ from arq.cron import cron
 from arq.worker import Function, Worker, func as arq_func
 
 from composition.container import Container
+from infrastructure.budget.job_context import bill_job_to_initiator
 from config import settings
 from infrastructure.database.database import database
 from infrastructure.redis.redis_client import redis_client
@@ -76,6 +77,9 @@ def worker(
             arq_func(cron_bm25_rebuild, timeout=_CRON_TIMEOUT, keep_result=0),
         ]
 
+        for function in functions:
+            function.coroutine = bill_job_to_initiator(function.coroutine)
+
         cron_jobs = [
             cron(cron_sweep_checkpoint_cleanup, minute=set(range(60)), timeout=_CRON_TIMEOUT),
             cron(cron_job_cleanup, hour={1, 13}, timeout=_CRON_TIMEOUT),
@@ -121,7 +125,7 @@ async def on_startup(ctx: dict) -> None:
         container = Container()
         ctx["container"] = container
         container.init(database)
-        await container.infrastructure.bootstrap_configuration()
+        await container.infrastructure.bootstrap_configuration(role="worker")
         listener = container.infrastructure.events.config_listener
         if listener is None:
             raise RuntimeError("Config listener must be initialized in worker")

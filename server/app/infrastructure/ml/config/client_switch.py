@@ -7,6 +7,7 @@ from typing import Any
 import httpx
 
 from config import Settings
+from application.ports.billing_context import billing_principal
 from domain.exceptions import ValidationError
 from domain.value_objects.llm_provider import LLMProvider
 from infrastructure.ml.clients import factories
@@ -146,6 +147,7 @@ async def prepare_clients(
     registry, current: Settings, candidate: Settings, keys: set[str], *, applied: bool
 ) -> dict:
     prepared: dict[str, Any] = {}
+    billing_token = billing_principal.set(billing_principal.get() or 'system:configuration-probe')
     try:
         if keys & LLM_CLIENT_KEYS:
             prepare_llm_clients(registry, candidate, prepared)
@@ -166,3 +168,5 @@ async def prepare_clients(
     except BaseException:
         await dispose_clients(prepared)
         raise
+    finally:
+        billing_principal.reset(billing_token)

@@ -8,6 +8,7 @@ from typing import Any
 from typer import Typer
 
 from presentation.cli.commands.config import config_app
+from presentation.cli.commands.benchmark import benchmark_app
 from presentation.cli.commands.ingest import ingest_app
 from presentation.cli.commands.reconcile import reconcile_app
 from presentation.cli.commands.runserver import runserver
@@ -46,6 +47,7 @@ class CLI:
 
         # Конфигурация
         self.cli.add_typer(config_app, name="config")
+        self.cli.add_typer(benchmark_app, name="benchmark")
 
     def execute_command(self, *args: Any, **kwargs: Any) -> None:
         """Выполнить CLI-команду."""

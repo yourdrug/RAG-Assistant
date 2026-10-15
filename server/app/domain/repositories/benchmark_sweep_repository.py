@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
+from datetime import datetime
 
 from domain.entities.benchmark_sweep import BenchmarkSweep
 
@@ -41,3 +42,7 @@ class BenchmarkSweepRepository(Protocol):
     async def load_checkpoint(self, sweep_id: int, key: str) -> object | None: ...
 
     async def save_checkpoint(self, sweep_id: int, key: str, value: object) -> None: ...
+
+    async def delete_checkpoints(self, sweep_id: int) -> None: ...
+
+    async def cleanup_checkpoints(self, cutoff: datetime) -> int: ...

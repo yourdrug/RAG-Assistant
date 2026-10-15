@@ -8,6 +8,7 @@ import shutil
 import tempfile
 import threading
 from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator
 from typing import Any
 from pathlib import Path
 
@@ -136,6 +137,27 @@ class LocalStorage:
             dest.write_bytes(data)
 
         await asyncio.to_thread(upload)
+
+    async def upload_stream(self, key: str, blocks: AsyncIterator[bytes]) -> None:
+        dest = self.base_dir / key
+        await run_storage_io(dest.parent.mkdir, parents=True, exist_ok=True)
+        # A disposable sibling permits atomic replacement on the local backend.
+        creation = asyncio.create_task(
+            asyncio.to_thread(tempfile.NamedTemporaryFile, dir=dest.parent, delete=False)
+        )
+        try:
+            handle = await asyncio.shield(creation)
+        except asyncio.CancelledError:
+            handle = await finish_owned_task(creation)
+            await run_storage_io(close_download, handle, remove=True)
+            raise
+        try:
+            async for block in blocks:
+                await run_storage_io(handle.write, block)
+            await run_storage_io(handle.close)
+            await run_storage_io(Path(handle.name).replace, dest)
+        finally:
+            await run_storage_io(close_download, handle, remove=True)
 
     async def get_file_info(self, key: str) -> FileItem | None:
         return await asyncio.to_thread(self.get_file_info_sync, key)
@@ -327,6 +349,59 @@ class S3Storage:
         async with self.operation() as client:
             await client.put_object(Bucket=self.bucket, Key=key, Body=data)
 
+    async def upload_stream(self, key: str, blocks: AsyncIterator[bytes]) -> None:
+        # Multipart storage keeps memory bounded without a persistent local spool.
+        async with self.operation() as client:
+            creation = asyncio.create_task(client.create_multipart_upload(Bucket=self.bucket, Key=key))
+            try:
+                created = await asyncio.shield(creation)
+            except asyncio.CancelledError as exc:
+                try:
+                    created = await finish_owned_task(creation)
+                    abort = asyncio.create_task(
+                        client.abort_multipart_upload(
+                            Bucket=self.bucket, Key=key, UploadId=created["UploadId"]
+                        )
+                    )
+                    await finish_owned_task(abort)
+                except Exception:
+                    log.exception("Multipart creation/cleanup failed after cancellation")
+                finally:
+                    raise exc
+            upload_id = created["UploadId"]
+            parts: list[dict] = []
+            buffer = bytearray()
+            part_size = 5 * 1024 * 1024
+            try:
+
+                async def send_part(data):
+                    number = len(parts) + 1
+                    response = await client.upload_part(
+                        Bucket=self.bucket, Key=key, UploadId=upload_id, PartNumber=number, Body=data
+                    )
+                    parts.append({"PartNumber": number, "ETag": response["ETag"]})
+
+                async for block in blocks:
+                    for start in range(0, len(block), part_size):
+                        buffer.extend(block[start : start + part_size])
+                        if len(buffer) >= part_size:
+                            await send_part(bytes(buffer[:part_size]))
+                            del buffer[:part_size]
+                if buffer or not parts:
+                    await send_part(bytes(buffer))
+                await client.complete_multipart_upload(
+                    Bucket=self.bucket, Key=key, UploadId=upload_id, MultipartUpload={"Parts": parts}
+                )
+            except BaseException:
+                abort = asyncio.create_task(
+                    client.abort_multipart_upload(Bucket=self.bucket, Key=key, UploadId=upload_id)
+                )
+                try:
+                    await finish_owned_task(abort)
+                except Exception:
+                    log.exception("Failed to abort report upload")
+                raise
+
     async def delete_file(self, key: str) -> None:
         async with self.operation() as client:
             await client.delete_object(Bucket=self.bucket, Key=key)
@@ -407,6 +482,9 @@ class LazyStorage:
 
     async def upload_file(self, key: str, data: bytes) -> None:
         await self.ensure().upload_file(key, data)
+
+    async def upload_stream(self, key: str, blocks: AsyncIterator[bytes]) -> None:
+        await self.ensure().upload_stream(key, blocks)
 
     async def delete_file(self, key: str) -> None:
         await self.ensure().delete_file(key)

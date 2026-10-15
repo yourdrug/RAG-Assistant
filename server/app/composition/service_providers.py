@@ -32,7 +32,7 @@ def create_sweep_engine(infra: InfrastructureContainer):
         ml_clients=_require(infra.ml.ml_clients, "ml_clients"),
         runtime=LiveSweepSettings(),
         checkpoint_factory=lambda sweep_id, root: DatabaseBenchmarkCheckpoints(
-            _require(infra.db.uow_factory, "uow_factory"), sweep_id, legacy_root=root
+            _require(infra.db.uow_factory, "uow_factory"), sweep_id
         ),
     )
 

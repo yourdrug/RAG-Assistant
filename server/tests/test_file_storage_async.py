@@ -51,3 +51,22 @@ async def test_collect_entries_awaits_metadata_and_preserves_hash_and_counts():
         "отчёт.txt": {"hash": "42_2026-01-01T00:00:00+00:00", "source": source, "chunks": 2, "chars": 80}
     }
     storage.get_file_info.assert_awaited_once_with("docs/отчёт.txt")
+
+
+@pytest.mark.asyncio
+async def test_local_report_stream_cleans_partial_on_exception_and_cancellation(tmp_path):
+    import asyncio
+    from infrastructure.storage.file_storage import LocalStorage
+
+    storage = LocalStorage(str(tmp_path))
+    await storage.upload_file('report.json', b'original')
+    for error in (OSError('failed'), asyncio.CancelledError()):
+
+        async def chunks(error=error):
+            yield b'partial'
+            raise error
+
+        with pytest.raises(type(error)):
+            await storage.upload_stream('report.json', chunks())
+        assert (tmp_path / 'report.json').read_bytes() == b'original'
+        assert list(tmp_path.iterdir()) == [tmp_path / 'report.json']

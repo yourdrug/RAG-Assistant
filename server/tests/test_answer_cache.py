@@ -22,7 +22,7 @@ from infrastructure.ml.answer_cache import CACHE_PREFIX, compute_visibility_scop
 
 class TestCachePrefix:
     def test_prefix_versions_document_citations_and_revision_fence(self):
-        assert CACHE_PREFIX == "rag:cache:v4:"
+        assert CACHE_PREFIX == "rag:cache:v5:"
 
 
 # ---------------------------------------------------------------------------
