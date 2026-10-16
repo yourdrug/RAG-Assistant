@@ -6,19 +6,26 @@ import json
 import os
 import resource
 import uuid
-from contextlib import suppress
+from contextlib import asynccontextmanager, suppress
 from functools import partial
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import pytest_asyncio
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from application.services.benchmark_export_service import BenchmarkExportService
 from config import settings
+from domain.entities.benchmark_run import BenchmarkRun
 from domain.value_objects.visibility import DocumentVisibility
 from infrastructure.bm25 import bm25_invalidation, persistence
 from infrastructure.ml.clients.client_registry import MLClientRegistry
 from infrastructure.redis.redis_client import redis_client
 from infrastructure.storage.file_storage import S3Storage, LazyStorage
+from infrastructure.repositories.benchmark.sqlalchemy_benchmark_run_repository import (
+    SQLAlchemyBenchmarkRunRepository,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -212,3 +219,59 @@ async def test_bm25_redis_invalidation_reloads_real_snapshot(minio_storage, monk
                 await listener
         await registry.close()
         await redis_client.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("format", ["csv", "json"])
+async def test_committed_benchmark_report_survives_s3_failure_and_new_worker(
+    pg_engine, minio_storage, monkeypatch, format
+):
+    storage, prefix, keys = minio_storage
+    monkeypatch.setattr(settings, "data_dir", "/proc/unavailable-benchmark-data")
+    sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
+    results = [{"id": n, "question": "question", "answer": "x" * 100_000} for n in range(60)]
+    async with sessions.begin() as session:
+        run = await SQLAlchemyBenchmarkRunRepository(session).create(
+            BenchmarkRun(per_question_results=results)
+        )
+
+    class Factory:
+        @asynccontextmanager
+        async def create(self, **kwargs):
+            async with sessions.begin() as session:
+                yield SimpleNamespace(benchmark_runs=SQLAlchemyBenchmarkRunRepository(session))
+
+    async def upload(key, blocks):
+        # Prefix every object, including the service's stable report key, for safe cleanup.
+        object_key = prefix + key
+        if object_key not in keys:
+            keys.append(object_key)
+        await storage.upload_stream(object_key, blocks)
+
+    factory = Factory()
+    reports = SimpleNamespace(upload_stream=upload)
+    with monkeypatch.context() as failed_storage:
+        failed_storage.setattr(storage, "bucket", "missing-" + uuid.uuid4().hex)
+        assert not await BenchmarkExportService(factory, reports).save_report(run.id, format)
+    async with sessions() as session:
+        saved = await SQLAlchemyBenchmarkRunRepository(session).get_by_id(run.id)
+        assert saved.per_question_results == results
+        assert saved.artifacts[format]["status"] == "failed"
+
+    # A new service/session factory simulates another worker retrying the committed run.
+    assert await BenchmarkExportService(Factory(), reports).save_report(run.id, format)
+    async with sessions() as session:
+        saved = await SQLAlchemyBenchmarkRunRepository(session).get_by_id(run.id)
+        metadata = saved.artifacts[format]
+    assert metadata["status"] == "ready"
+    assert metadata["size_bytes"] > 5 * 1024 * 1024
+    key = prefix + metadata["key"]
+    assert len(keys) == 1
+    assert (await storage.get_file_info(key)).size_bytes == metadata["size_bytes"]
+    path = await storage.download_to_temp(key)
+    try:
+        assert path.stat().st_size == metadata["size_bytes"]
+        if format == "json":
+            assert json.loads(path.read_bytes())["results"] == results
+    finally:
+        path.unlink()

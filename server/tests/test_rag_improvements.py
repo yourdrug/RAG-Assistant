@@ -90,7 +90,9 @@ async def test_tei_sorted_response_selects_the_actually_relevant_document(monkey
     transport = httpx.MockTransport(
         lambda request: httpx.Response(200, json=[{"index": 1, "score": 0.99}, {"index": 0, "score": 0.01}])
     )
-    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: real_client(transport=transport, **kwargs))
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda **kwargs: real_client(**{**kwargs, "transport": transport})
+    )
     reranker = TEIRerankerClient("http://tei")
     try:
         selected = await rerank_documents("Q", [doc("irrelevant", 1), doc("relevant", 2)], 1, reranker)

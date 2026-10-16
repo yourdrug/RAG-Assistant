@@ -28,18 +28,22 @@ tasks:
       - task: data:create
       - task: data:perms
       - task: build
-      - 'echo "Готово. Дальше:  task up  →  task pull-model  →  task login email=... password=...  →  task ingest  →  task chat -- \"вопрос\""'
+      - 'echo "Готово. Дальше:  task up  →  task pull-model MODEL=qwen2.5:7b  →  task login email=... password=...  →  task ingest  →  task chat -- \"вопрос\""'
       - 'echo "(Для GPU: измените BUILD_TARGET=gpu в server/.env)"'
 
   env:
-    desc: Создать server/.env и client/.env из .env.example, если ещё не созданы
+    desc: Создать env и secret env из шаблонов без перезаписи существующих файлов
     status:
       - test -f server/.env
       - test -f client/.env
+      - test -f server/.env.secrets
+      - test "$(stat -c %a server/.env.secrets)" = 600
     cmds:
       - test -f server/.env || cp server/.env.example server/.env
       - test -f client/.env || cp client/.env.example client/.env
-      - 'echo "server/.env и client/.env готовы"'
+      - test -f server/.env.secrets || install -m 600 server/.env.secrets.example server/.env.secrets
+      - chmod 600 server/.env.secrets
+      - 'echo "server/.env, server/.env.secrets (0600) и client/.env готовы; заполните секреты перед task up"'
 
   data:create:
     desc: Создать все data-директории, необходимые для Docker-сервисов
@@ -69,13 +73,13 @@ tasks:
     desc: Поднять стек
     cmds:
       - task: data:create
-      - "{{.COMPOSE}} -f docker-compose.yml --profile ${ML_PROVIDER:-tei} -f docker-compose.override.yml up -d"
+      - "{{.COMPOSE}} -f docker-compose.yml -f docker-compose.override.yml up -d"
       - task: ps
 
   down:
     desc: Остановить и удалить контейнеры (данные в data/ сохраняются)
     cmds:
-      - "{{.COMPOSE}} --profile ${ML_PROVIDER:-tei} down"
+      - "{{.COMPOSE}} down"
 
   version:bump:
     desc: "Увеличить минорную версию (0.2.0 → 0.3.0) в VERSION и пересобрать образ"
@@ -136,7 +140,7 @@ tasks:
     desc: Остановить стек и удалить data/postgres, data/qdrant_storage, data/ollama_models, data/redis — ОПАСНО
     prompt: Удалить все локальные данные (Postgres/Qdrant/Ollama/Redis)?
     cmds:
-      - "{{.COMPOSE}} --profile ${ML_PROVIDER:-tei} down -v"
+      - "{{.COMPOSE}} down -v"
       - rm -rf data/postgres data/qdrant_storage data/ollama_models data/redis
 
   # -------------------------------------------------------------------------
@@ -144,9 +148,11 @@ tasks:
   # -------------------------------------------------------------------------
 
   pull-model:
-    desc: Скачать LLM в контейнер Ollama (по умолчанию — модель из server/.env / LLM_MODEL)
+    desc: "Скачать LLM в Ollama: task pull-model MODEL=qwen2.5:7b"
+    requires:
+      vars: [MODEL]
     cmds:
-      - "{{.COMPOSE}} exec ollama ollama pull {{.CLI_ARGS | default .LLM_MODEL}}"
+      - '{{.COMPOSE}} exec ollama ollama pull "{{.MODEL}}"'
 
   # -------------------------------------------------------------------------
   # Проверка и использование

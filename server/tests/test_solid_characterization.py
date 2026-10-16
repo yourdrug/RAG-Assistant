@@ -58,11 +58,10 @@ async def test_full_benchmark_preserves_results_repeated_runs_and_cache_scope(be
         )
 
     previous = _settings_overrides.get()
-    await run_benchmark_async(
+    results = await run_benchmark_async(
         questions, "unused", 4, "judge", n_runs=2, rag_service=SimpleNamespace(invoke=invoke)
     )
     assert _settings_overrides.get() == previous
-    results = saved.call_args.args[0]
     assert [r["run"] for r in results] == [1, 2]
     assert [r["id"] for r in results] == ["first", "first"]
     assert results[0]["retriever_metrics"]["hit_rate"] == 1
@@ -71,7 +70,7 @@ async def test_full_benchmark_preserves_results_repeated_runs_and_cache_scope(be
     assert results[0]["input_tokens"] == 20
     assert all(c.user_role == "admin" and c.user_kind == "internal" for c in contexts)
     assert score.call_args.kwargs["context"] == "context"
-    assert saved.call_args.kwargs["run_id"] == "all"
+    saved.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -101,14 +100,15 @@ async def test_standalone_benchmark_keeps_acl_context_and_usage(benchmark_io, mo
         response_metadata={"token_usage": {"prompt_tokens": 30, "completion_tokens": 5}}
     )
     monkeypatch.setattr(judge, "get_rag_answer_with_usage", lambda *a: ("answer", response))
-    await run_benchmark_async(questions, "unused", 4, "judge", fetch_k=12, standalone=True)
+    results = await run_benchmark_async(questions, "unused", 4, "judge", fetch_k=12, standalone=True)
     llm.close.assert_awaited_once()
     clients.close.assert_awaited_once()
     assert retrieve.call_args.kwargs["ml_clients"] is clients
     assert retrieve.call_args.args[1:3] == (4, 12)
     assert retrieve.call_args.kwargs["access_filter"] is not None
     assert retrieve.call_args.kwargs["visibility_conditions"]
-    result = saved.call_args.args[0][0]
+    saved.assert_not_called()
+    result = results[0]
     assert result["input_tokens"] == 30 and result["output_tokens"] == 5
     assert result["breadth"] is None
     assert score.call_args.kwargs["context"] == "[1] report.pdf\ncontext"

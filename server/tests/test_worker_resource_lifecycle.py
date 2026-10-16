@@ -147,6 +147,7 @@ async def test_standalone_closes_llm_when_retrieval_fails(monkeypatch):
     monkeypatch.setattr(retrieval, "retrieve_with_scores_hybrid", fail)
     ctx = ChatContext(user_id=0, user_kind=UserKind.INTERNAL, user_role=UserRole.ADMIN)
     generator = answer_generators.StandaloneBenchmarkGenerator(4, 12, ctx)
+    monkeypatch.setattr(generator._clients, "ensure_bm25_loaded", AsyncMock(return_value=None))
     close = AsyncMock()
     monkeypatch.setattr(generator._clients, "close", close)
     with pytest.raises(RuntimeError, match="retrieval failed"):
@@ -180,6 +181,7 @@ async def test_standalone_cancellation_waits_for_owned_retrieval_before_closing(
     monkeypatch.setattr(retrieval, "retrieve_with_scores_hybrid", retrieve)
     ctx = ChatContext(user_id=0, user_kind=UserKind.INTERNAL, user_role=UserRole.ADMIN)
     generator = answer_generators.StandaloneBenchmarkGenerator(4, 12, ctx)
+    monkeypatch.setattr(generator._clients, "ensure_bm25_loaded", AsyncMock(return_value=None))
     task = asyncio.create_task(generator.generate({"question": "q"}, ctx))
     try:
         await asyncio.to_thread(started.wait, 5)

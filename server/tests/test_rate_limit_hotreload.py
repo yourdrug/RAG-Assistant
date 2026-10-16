@@ -11,6 +11,7 @@ from config import Settings
 from domain.value_objects.dynamic_config import DYNAMIC_FIELDS_MAP
 from application.ports.rate_limit import RateLimitPolicyName
 from infrastructure.rate_limit import limiter as module
+from infrastructure.rate_limit import bucket_factory
 
 
 @pytest.fixture
@@ -111,5 +112,53 @@ async def test_rotation_during_acquire_keeps_old_generation_alive(configuration)
     finally:
         resume.set()
         await old_request
+        await limiter.aclose()
+        await redis.aclose()
+
+
+@pytest.mark.asyncio
+async def test_delayed_request_cannot_ignore_later_admissions(configuration, monkeypatch):
+    entered, resume = asyncio.Event(), asyncio.Event()
+    timestamp = bucket_factory.time_ns()
+
+    class PausedRedis(fakeredis.aioredis.FakeRedis):
+        async def evalsha(self, *args, **kwargs):
+            if not entered.is_set():
+                entered.set()
+                await resume.wait()
+            return await super().evalsha(*args, **kwargs)
+
+    redis = PausedRedis()
+    first = make_limiter(redis, configuration)
+    second = make_limiter(redis, configuration)
+    # Model clock skew or a request delayed after its timestamp was captured.
+    monkeypatch.setattr(bucket_factory, "time_ns", lambda: timestamp - 1_000_000_000)
+    delayed = asyncio.create_task(first.check(RateLimitPolicyName.LOGIN, "ip:1"))
+    try:
+        await entered.wait()
+        monkeypatch.setattr(bucket_factory, "time_ns", lambda: timestamp)
+        for _ in range(3):
+            assert (await second.check(RateLimitPolicyName.LOGIN, "ip:1")).allowed
+        resume.set()
+        assert not (await delayed).allowed
+        assert await redis.zcard(f"{configuration.rate_limit_redis_prefix}login:ip:1") == 3
+    finally:
+        resume.set()
+        await delayed
+        await first.aclose()
+        await second.aclose()
+        await redis.aclose()
+
+
+@pytest.mark.asyncio
+async def test_close_waits_for_background_leak_task(configuration):
+    redis = fakeredis.aioredis.FakeRedis()
+    limiter = make_limiter(redis, configuration)
+    try:
+        await limiter.check(RateLimitPolicyName.LOGIN, "ip:1")
+        task = limiter._current.limiter._factory._leaker.aio_leak_task
+        await limiter.aclose()
+        assert task.done()
+    finally:
         await limiter.aclose()
         await redis.aclose()

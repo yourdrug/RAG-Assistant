@@ -321,7 +321,7 @@ async def test_existing_profiles_preserved(migration_env):
     path, factory = migration_env
     path.write_text(path.read_text() + "COMPOSE_PROFILES=monitoring\n")
     await config_migration.migrate_env_configuration(factory, path, apply=True)
-    assert dotenv_values(path)["COMPOSE_PROFILES"] == "monitoring,tei"
+    assert dotenv_values(path)["COMPOSE_PROFILES"] == "monitoring"
 
 
 @pytest.mark.asyncio
@@ -398,7 +398,7 @@ def test_cli_defaults_to_dry_run_and_accepts_apply(migration_env, monkeypatch, a
     args = ["migrate-env", "--env-file", str(path)] + (["--apply"] if apply else [])
     result = CliRunner().invoke(config_command.config_app, args)
     assert result.exit_code == 0, result.output
-    run.assert_awaited_once_with(path, apply)
+    run.assert_awaited_once_with(path, apply, False)
 
 
 def test_cli_failure_does_not_echo_database_exception(migration_env, monkeypatch, caplog):
@@ -474,3 +474,73 @@ async def test_lowercase_settings_and_secrets_follow_settings_case_rules(migrati
     assert (await factory.repository.get_by_key("llm_model")).value == "legacy-model"
     assert "s3_secret_key" not in dotenv_values(path)
     assert dotenv_values(path.with_name(".env.secrets"))["S3_SECRET_KEY"] == "lowercase-secret"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("apply", [False, True])
+async def test_final_trim_preserves_static_overrides_and_db_values(migration_env, apply):
+    path, factory = migration_env
+    path.write_text(
+        path.read_text() + "DB_POOL_SIZE=73\nREDIS_USER=custom\n"
+        "FORWARDED_ALLOW_IPS=10.2.0.1\nEMBED_MODEL=obsolete\n"
+        "RERANK_MODEL=obsolete\nRERANK_DEVICE=cuda\nCOMPOSE_PROFILES=\n"
+    )
+    original = path.read_text()
+    await factory.repository.save(
+        ConfigParameter(
+            key="llm_model",
+            value="existing-db-model",
+            value_type=ConfigValueType.STR,
+            category="llm",
+        )
+    )
+    await config_migration.migrate_env_configuration(factory, path, apply=apply, trim_env=True)
+    if not apply:
+        assert path.read_text() == original
+        assert not list(path.parent.glob("*.backup-*"))
+        return
+    env = dotenv_values(path)
+    assert env["DB_POOL_SIZE"] == "73"
+    assert env["REDIS_USER"] == "custom"
+    assert env["FORWARDED_ALLOW_IPS"] == "10.2.0.1"
+    assert env["COMPOSE_PROFILES"] == ""
+    assert (
+        not {
+            "LLM_MODEL",
+            "ML_PROVIDER",
+            "LEGAL_CHUNK_SIZE",
+            "RATE_LIMIT_ENABLED",
+            "HTTP_POOL_MAX_CONNECTIONS",
+            "HTTP_POOL_MAX_KEEPALIVE",
+            "EMBED_MODEL",
+            "RERANK_MODEL",
+            "RERANK_DEVICE",
+        }
+        & env.keys()
+    )
+    assert (await factory.repository.get_by_key("llm_model")).value == "existing-db-model"
+    await config_migration.migrate_env_configuration(factory, path, apply=True, trim_env=True)
+    assert (await factory.repository.get_by_key("llm_model")).value == "existing-db-model"
+
+
+@pytest.mark.asyncio
+async def test_final_trim_waits_for_commit(migration_env):
+    path, factory = migration_env
+    original = path.read_text()
+    factory.fail_commit = True
+    with pytest.raises(RuntimeError, match="commit failed"):
+        await config_migration.migrate_env_configuration(factory, path, apply=True, trim_env=True)
+    assert path.read_text() == original
+    assert not path.with_name(".env.secrets").exists()
+    assert await factory.repository.get_all() == []
+
+
+def test_cli_accepts_final_trim_without_applying(migration_env, monkeypatch):
+    path, _ = migration_env
+    run = AsyncMock()
+    monkeypatch.setattr(config_command, "run_env_migration", run)
+    result = CliRunner().invoke(
+        config_command.config_app, ["migrate-env", "--env-file", str(path), "--trim-env"]
+    )
+    assert result.exit_code == 0, result.output
+    run.assert_awaited_once_with(path, False, True)

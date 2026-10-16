@@ -96,12 +96,8 @@ class PyrateRateLimiter:
         return RateLimitDecision(allowed=True, limit=self._tightest_limit[policy_name])
 
     async def aclose(self) -> None:
-        """Close the limiter and all registered buckets.
-
-        ``Limiter.close()`` is synchronous but only clears dicts and sets a
-        threading.Event — cheap and non-blocking, safe to call from the event loop.
-        """
-        self._limiter.close()
+        """Close the factory and await its process-owned background expiry task."""
+        await self._factory.aclose()
 
     async def _refresh_ttl(self, item_name: str) -> None:
         try:
@@ -189,7 +185,7 @@ class DynamicRateLimiter:
             generation.users -= 1
             for retired in tuple(self._generations):
                 if retired is not self._current and retired.users == 0:
-                    self._generations.remove(retired)
+                    self._generations.discard(retired)
                     await retired.limiter.aclose()
 
     async def aclose(self) -> None:

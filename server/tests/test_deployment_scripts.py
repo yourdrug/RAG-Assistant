@@ -17,11 +17,16 @@ from pathlib import Path
 args = sys.argv[1:]
 root = Path(os.environ["DEPLOY_DIR"])
 with (root / "commands.jsonl").open("a") as log:
-    log.write(json.dumps({"args": args, "image": os.environ.get("SERVER_IMAGE")}) + "\n")
+    log.write(json.dumps({"args": args, "image": os.environ.get("SERVER_IMAGE"),
+                          "profiles": os.environ.get("COMPOSE_PROFILES", "")}) + "\n")
 if args[0] == "network":
     print("172.18.0.1")
 elif args[0] == "inspect":
     print("sha256:old-client" if args[-1] == "old-client" else "sha256:old-server")
+elif "config" in args and "--services" in args:
+    print("server\nworker")
+    if "tei" in os.environ.get("COMPOSE_PROFILES", "").split(","):
+        print("tei-embed\ntei-rerank")
 elif "config" in args and "--format" in args:
     print(json.dumps({"services": {"server": {"environment": {"ML_PROVIDER": "tei"}}}}))
 elif "ps" in args:
@@ -57,7 +62,12 @@ def deployment(tmp_path):
     curl = binaries / "curl"
     curl.write_text('#!/bin/bash\n[[ "${FAIL_STAGE:-}" != smoke ]]\n')
     curl.chmod(0o755)
-    env = {**os.environ, "DEPLOY_DIR": str(tmp_path), "PATH": f"{binaries}:{os.environ['PATH']}"}
+    env = {
+        **os.environ,
+        "DEPLOY_DIR": str(tmp_path),
+        "PATH": f"{binaries}:{os.environ['PATH']}",
+        "COMPOSE_PROFILES": "tei",
+    }
 
     def run(**updates):
         result = subprocess.run(  # noqa: S603 -- only repository scripts and controlled test fakes
@@ -67,7 +77,8 @@ def deployment(tmp_path):
             text=True,
             timeout=15,
         )
-        commands = [json.loads(line) for line in (tmp_path / "commands.jsonl").read_text().splitlines()]
+        log = tmp_path / "commands.jsonl"
+        commands = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
         return result, commands
 
     return tmp_path, run
@@ -78,7 +89,8 @@ def test_success_preserves_infrastructure_and_enables_tei(deployment):
     result, commands = run()
     assert result.returncode == 0, result.stderr
     assert not any("down" in command["args"] for command in commands)
-    assert all("--profile" in command["args"] for command in commands if "up" in command["args"])
+    assert all(command["profiles"] == "tei" for command in commands)
+    assert any("tei-embed" in command["args"] for command in commands)
     assert "production-gpu-0.6.0" in (directory / ".deploy/current.env").read_text()
 
 
@@ -117,3 +129,11 @@ def test_deployment_lock_blocks_concurrent_mutations(deployment):
     assert result.returncode != 0
     assert "Another deploy/backup is running" in result.stderr
     assert not any("pull" in command["args"] or "up" in command["args"] for command in commands)
+
+
+def test_cloud_deployment_does_not_start_tei_from_legacy_provider(deployment):
+    _, run = deployment
+    result, commands = run(COMPOSE_PROFILES="", ML_PROVIDER="tei")
+    assert result.returncode == 0, result.stderr
+    assert not any("tei-embed" in command["args"] for command in commands)
+    assert not any("config" in command["args"] and "--format" in command["args"] for command in commands)

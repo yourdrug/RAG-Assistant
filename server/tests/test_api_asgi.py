@@ -145,7 +145,6 @@ async def test_benchmark_launch_enqueues_database_dataset(asgi_client, tmp_path,
     assert response.status_code == 200
     enqueuer.enqueue_benchmark.assert_awaited_once_with(
         dataset=dataset or BenchmarkDataset.MAIN.value,
-        out_dir=str(tmp_path / "benchmark_results"),
         top_k=7,
         judge_model="judge",
         job_id=8,

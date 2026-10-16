@@ -7,6 +7,7 @@ from fastapi import Response
 from composition import infrastructure
 from domain.value_objects.cost_budget import BudgetError
 from infrastructure.budget.runtime import BudgetRuntime
+from infrastructure.budget.transport import PaidAsyncTransport
 from infrastructure.ml.clients import managed_http
 from presentation.api.routes.health import ready
 from test_cli_domain_bootstrap import build_infrastructure
@@ -485,25 +486,35 @@ async def test_budget_policy_is_durable_before_bootstrap_probes(monkeypatch):
     factory = MagicMock()
     factory.return_value.__aenter__ = AsyncMock(return_value=session)
     ledger = object()
-    runtime.configure(ledger, factory, None)
+    catalog = SimpleNamespace(contract=AsyncMock(side_effect=BudgetError('Unknown price; paid call blocked')))
+    runtime.configure(ledger, factory, catalog)
     infra.budget_admin = SimpleNamespace(repository=ledger)
     monkeypatch.setattr(infrastructure, 'budget_runtime', runtime)
     monkeypatch.setattr(settings, 'cost_rate_limit_enabled', False)
 
-    monkeypatch.setattr(managed_http, 'budget_runtime', runtime)
-    pool = managed_http.ManagedHTTPPool(10, managed_http.httpx.Limits())
-    pool.billable_provider = 'deepinfra'
     post = AsyncMock()
-    monkeypatch.setattr(pool._client, 'post', post)
+    monkeypatch.setattr(
+        managed_http,
+        'PaidAsyncTransport',
+        lambda **kwargs: PaidAsyncTransport(
+            runtime=runtime, transport=managed_http.httpx.MockTransport(post)
+        ),
+    )
+
+    class BillablePool(managed_http.ManagedHTTPPool):
+        billable_provider = 'deepinfra'
+
+    pool = BillablePool(10, managed_http.httpx.Limits())
 
     async def prepare(**kwargs):
-        await pool.post('https://api.deepinfra.com/v1/inference/model/')
+        await pool.post('https://api.deepinfra.com/v1/inference/model', json={'queries': ['probe']})
 
     infra.events.config_listener.synchronize = prepare
     try:
         with pytest.raises(BudgetError, match='paid call blocked'):
             await infra.bootstrap_configuration()
         post.assert_not_awaited()
+        catalog.contract.assert_awaited_once_with('deepinfra', 'model')
         infra.corpus_control.start.assert_not_awaited()
     finally:
         await pool.close()

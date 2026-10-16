@@ -513,6 +513,7 @@ class TestCheckRelevance:
                 llm_model="test-model",
                 openrouter_model="test-model",
                 llm_auxiliary_timeout=30,
+                llm_num_predict_narrow=400,
             ),
         )
 

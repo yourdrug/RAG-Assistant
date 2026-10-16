@@ -2,7 +2,7 @@
 
 > **Для агента-исполнителя:** прочитать этот файл целиком и AGENTS.md. Реализовывать последовательно по этапам с checkbox-проверками. Применить superpowers:executing-plans или аналогичный workflow текущего окружения; делегирование — только по разрешённым в сессии правилам. Этот документ достаточен без истории диалога.
 
-**Дата:** 2026-10-13; актуализация после независимого ревью — 2026-10-15. **Статус:** этапы 1–4 и 6 реализованы; код этапа 5 реализован, проверка на настоящем Redis остаётся открытой; этап 7 выполнен частично (текстовый OpenRouter, остальные платные пути блокируются); реализация этапа 8 присутствует с ограничениями приёмки ниже. Этапы 9–11 реализованы и проверены локально; этап 12 ожидает реализации. Рабочие env, БД и сервисы не изменены. Изменения этапов 5–11 пока в рабочем дереве, отдельные reviewable commits не созданы.
+**Дата:** 2026-10-13; актуализация после исправлений и интеграционной проверки — 2026-10-15. **Статус:** код всех 12 этапов присутствует. Проверены настоящий Redis (два процесса и restart), PostgreSQL, MinIO и Qdrant в отдельном временном окружении. Cost accounting охватывает OpenRouter text/structured/judges и поддерживаемые DeepInfra embedding/rerank; сверка списаний закрыта: OpenRouter подтверждён по dashboard, DeepInfra принят пользователем с ограничением точности API. Падения тестов устранены; актуальные результаты финальной проверки приведены в конце этапа 12. Переход локальной рабочей установки выполнен 2026-10-15 с авторизацией пользователя: backup/restore-check, env apply, migrations и recreate; API/worker готовы. OpenRouter billing подтверждён пользователем с точностью отображения; DeepInfra Usage API подтвердил tokens; денежная сверка закрыта по решению пользователя с сохранением ограничения точности API. Межхостовая приёмка неприменима к текущей установке на одном сервере и исключена из текущего объёма по решению пользователя 2026-10-15. Рабочие env, БД и сервисы обновлены; изменения не закоммичены.
 
 **Goal:** сократить env до секретов, bootstrap/deployment-настроек и необходимых статических overrides; перенести управляемые настройки в БД с настоящим применением; убрать обязательное локальное хранение benchmark-истории, отчётов и checkpoints у S3 backend.
 
@@ -330,9 +330,9 @@
 - [x] При увеличении окна rate policy сохранить достаточную историю: текущие minute/hour/day интервалы в этой задаче не менять; только их quota values.
 - [x] Согласовать значения на API/worker, учитывать запросы во время update. Сохранить каталог policy enum, 429 envelope и headers.
 - [x] Unit-проверки: lowering quota учитывает прежние запросы, increasing допускает дополнительный остаток, enabled/fail_open переключаются, два адаптера разделяют историю, concurrent update/acquire, Redis failure. Пройдены test_rate_limit_hotreload.py и policies/adapter/dependency/route_coverage; shared Redis моделируется fakeredis.
-- [ ] Проверка на настоящем Redis в отдельном разрешённом test окружении. Unit-тест с двумя адаптерами не заменяет live multi-process проверку. Load tests не запускать автоматически.
+- [x] Проверка на настоящем Redis в отдельном временном окружении: два OS-процесса, lowering/increasing quotas, disable/enable без сброса истории. Load tests не запускались.
 
-**Результат этапа 5:** DynamicRateLimiter выбирает поколение policy на запрос, сохраняет имена Redis keys и историю при rotation, закрывает старый limiter после завершения его запросов. API/worker используют DB bootstrap и resync; доставка новой конфигурации между процессами асинхронная. Реальная Redis integration в текущем ревью и исправлении не запускалась.
+**Результат этапа 5:** DynamicRateLimiter выбирает поколение policy на запрос, сохраняет имена Redis keys и историю при rotation, закрывает старый limiter после завершения его запросов. API/worker используют DB bootstrap и resync; доставка новой конфигурации между процессами асинхронная. Проверка настоящего Redis двумя процессами обнаружила over-admission при задержанном client timestamp. Admission теперь получает время внутри атомарного Redis Lua script; expiry использует тот же Redis clock. Закрытие limiter дожидается фоновой expiry task. Две unit-регрессии подтверждены RED→GREEN; multi-process Redis проверка прошла.
 
 ### Этап 6. Upload и retention, показ фактической конфигурации
 
@@ -349,11 +349,12 @@
 
 ### Этап 7. Рабочие cost limits, без фиктивных переключателей
 
-**Статус: частично выполнен.** Работает резервирование и учёт текстовых ManagedLLM-вызовов OpenRouter. Полный accounting embedding/rerank, structured calls и benchmark judges ещё не реализован; при включённых cost limits эти платные пути fail-closed. Их блокировка не считается завершённым учётом расходов.
+**Статус: код поддерживаемого scope реализован, live billing приёмка открыта.** Общий transport резервирует и учитывает каждую физическую HTTP-попытку OpenRouter text/structured/judges и DeepInfra BAAI/bge-m3 embedding / Qwen/Qwen3-Reranker-4B reranking. Неизвестные модели/формы тарификации fail-closed при включённых лимитах. Реальные списания аккаунтов провайдеров ещё не сверены; unit/integration тесты не заменяют эту приёмку.
 
 **Files:** existing infrastructure/ml/usage_capture.py, managed_llm.py и usage metrics; application ports/services для budget, infrastructure Redis budget adapter, необходимые domain DTO/entities/repository и migrations для цен/usage, provider adapters; config registry/API/UI.
 
-- [ ] Полный scope: currency USD, per authenticated principal, rolling hour/day, accounting платных chat/auxiliary/embedding/rerank/benchmark. Principal propagation и общая точка допуска реализованы; для unsupported путей требуется подтверждённый billing contract, bounded reservation и usage reconciliation перед разрешением вызовов.
+- [x] Scope кода: currency USD, per authenticated principal, rolling hour/day, accounting платных chat/auxiliary/embedding/rerank/benchmark для поддерживаемых billing contracts. Principal propagation, bounded reservation и reconciliation выполняются на физическом HTTP transport, включая SDK retries; неподдерживаемые контракты блокируются.
+- [ ] Платная приёмка: прогон `server/scripts/check_paid_accounting.py` на согласованном аккаунте/principal с явным USD cap и четырьмя моделями, затем сверка каждой операции с provider confirmations. Harness и его validation tests реализованы; платные вызовы не выполнялись.
 - [x] Добавить управляемые в БД rates по provider/model с версией и единицей цены, используя Decimal/целые денежные единицы, не float arithmetic. Не вшивать изменяемые цены и не считать неизвестную стоимость нулевой. Existing token usage capture использовать как основу; embedding/rerank без usage требуют явного unit accounting.
 - [x] COST_* defaults сохранить: enabled=false, hour=1 USD, day=5 USD; при enabled=true обе квоты > 0, неизвестная цена/неподдерживаемая тарификация блокирует платный вызов с понятной ошибкой.
 - [x] Атомарно резервировать верхнюю оценку стоимости до внешнего вызова в shared Redis, затем идемпотентно сверять с фактическим usage. Установить конечный output budget для резерва. Сетевой timeout/cancellation после возможного списания не возвращает резерв как гарантированно бесплатный вызов; сохраняет pending accounting для reconciliation.
@@ -364,7 +365,7 @@
 
 **Реализованный контракт (2026-10-15):** USD, отдельная rolling hour/day квота каждого `user:<id>`; задания наследуют инициатора, CLI использует явный `system:ingest-cli`. Цены — неизменяемые версии provider/model/unit в PostgreSQL, расчёт Decimal и целые nanodollars. PostgreSQL сериализует admission по principal, Redis выполняет атомарную проверку; после Redis restart история восстанавливается из ledger. Pending резерв не протухает до подтверждённого reconciliation. Квоты читаются из БД перед платным вызовом, независимо от доставки NOTIFY.
 
-Поддерживается текстовый OpenRouter через ManagedLLM: проверка context bound по provider model catalogue, конечный output budget, ограничение provider price и одного физического HTTP send на резерв. Фактический usage закрывает резерв, неоднозначный исход сохраняет pending и response ID при наличии. В админке доступны публикация версии тарифа и reconciliation с подтверждающим основанием. Неизвестные цены, raw structured/benchmark judge и DeepInfra embedding/rerank при включённом лимите блокируются **до платного запроса**; их нельзя считать поддерживаемым измерением расходов. Локальные модели бесплатны. Автоматические SDK retries не получают повторного разрешения на тот же резерв.
+Поддерживаются OpenRouter text/structured calls, sync/async benchmark judges и DeepInfra BAAI/bge-m3 embedding / Qwen/Qwen3-Reranker-4B reranking. Проверяются provider billing contract/context bound, конечный output budget и допустимая форма запроса; на каждый физический HTTP send выделяется собственный резерв. Usage сохраняется до SDK/structured validation, неоднозначный исход оставляет pending и response ID при наличии. В админке доступны публикация версии тарифа и reconciliation с подтверждающим основанием. Неизвестные цены и неподдерживаемые contracts при включённом лимите блокируются **до платного запроса**. Локальные модели бесплатны. При выключенных лимитах paid calls обходят budget reservation/accounting. Настоящая сверка с provider billing остаётся открытой.
 
 ### Этап 8. Управляемое переключение Qdrant и корпуса
 
@@ -440,19 +441,141 @@ Legacy import: `benchmark import-legacy PATH --dataset DATASET` выполняе
 
 DATA_DIR остаётся статическим root только local backend; в web S3 runtime файловые checkpoints, reports и history не используются. Автоматические bind mounts `/code/project/data` удалены; для persistent local backend добавлен явный `docker-compose.local-storage.yml` (`LOCAL_DATA_DIR` задаёт host path). Web cleanup удаляет DB checkpoints успешных sweeps либо неактивные старше суток под блокировкой sweep; существующие локальные recovery adapters остаются только явно подключаемым переходным режимом. Сохранённые отчёты в S3 не удаляются вместе с disposable checkpoints.
 
-**Границы приёмки:** настоящий S3/MinIO upload/download и live deployment не выполнялись; S3 failure/retry/multipart/cancellation проверены SDK-фейками. Рабочие env/БД/контейнеры не изменялись, новая миграция в рабочую БД не применена. Общая env migration, live приёмка и финальная Docker-проверка относятся к этапу 12. Отдельные commits не создавались, исходные незавершённые правки сохранены.
+**Границы приёмки:** первоначальная проверка S3 была ограничена SDK-фейками. Повторная проверка 2026-10-15 выполнена с настоящими временными PostgreSQL/MinIO/Redis: upload/download, BM25 invalidation, report failure из-за отсутствующего bucket, retry новым экземпляром сервиса и CSV/JSON multipart >5 MiB без DATA_DIR прошли. Рабочие env/БД/контейнеры не изменялись; migrations и live приёмка рабочей установки остаются этапу 12. Отдельные commits не создавались, исходные незавершённые правки сохранены.
 
 ### Этап 12. Docker, сокращение env, документация и финальная проверка
 
 **Files:** Taskfile.yml, docker-compose*.yml, scripts/operations/compose.sh, deploy.sh, env templates, client/.env, README.md, AGENTS.md (только устаревшие инструкции), migration CLI и этот файл.
 
-- [ ] Убрать ML_PROVIDER-based profiles из Task и production operations helper; использовать COMPOSE_PROFILES. task pull-model требует явного MODEL и не читает удалённый LLM_MODEL. task env создаёт secret template без перезаписи существующих файлов, secret mode 0600.
-- [ ] Env example содержит обязательный deployment/bootstrap набор, без копии dynamic каталога/defaults. Secret example — единственное место ключей. VITE_API_URL остаётся client build setting.
-- [ ] Сохранить нестандартные static overrides, CORS, FORWARDED_ALLOW_IPS, REDIS_USER, S3 параметры/секреты и Docker image selection. Удалять одинаковые defaults только после проверки всех потребителей. Legacy keys удалить с обновлением README.
-- [ ] Перед live переходом согласовать окно, backup PostgreSQL/S3 и protected env snapshots, остановить старых writers. Dry run migration → сверка conflict → apply → recreate new server/worker → readiness/applied settings/benchmark exports. Не делать deploy/реальные DB mutations без авторизации этой сессии.
-- [ ] Финальная проверка: task lint; ruff format --check затронутых файлов; task test; git diff --check; обязательные domain/application import checks AGENTS.md (пустой результат). Значения секретов и env backups не попадали в diff/logs.
-- [ ] `docker compose config --quiet` с тестовыми env/secrets, profile tei и без него; `task --list`. Не печатать полный rendered compose с secrets. Реальные сервисы/loadtests не запускать автоматически.
-- [ ] В согласованном test/live окружении: динамический update API→worker, client switching с active requests, upload/rate/cost enforcement, прежний S3 corpus, history/regression/export без DATA_DIR. Сохранить фактические результаты и оставшиеся limitations.
+- [x] Убрать ML_PROVIDER-based profiles из Task и production operations helper; использовать COMPOSE_PROFILES. task pull-model требует явного MODEL и не читает удалённый LLM_MODEL. task env создаёт secret template без перезаписи существующих файлов, secret mode 0600.
+- [x] Env example содержит обязательный deployment/bootstrap набор, без копии dynamic каталога/defaults. Secret example — единственное место ключей. VITE_API_URL остаётся client build setting.
+- [x] Сохранить нестандартные static overrides, CORS, FORWARDED_ALLOW_IPS, REDIS_USER, S3 параметры/секреты и Docker image selection. Удалять одинаковые defaults только после проверки всех потребителей. Legacy keys удалить с обновлением README.
+- [x] Перед live переходом согласовать окно, backup PostgreSQL/S3 и protected env snapshots, остановить старых writers. Dry run migration → сверка conflict → apply → recreate new server/worker → readiness/applied settings/benchmark exports. Не делать deploy/реальные DB mutations без авторизации этой сессии.
+- [x] Финальная локальная проверка: task lint; ruff format --check затронутых файлов; task test; git diff --check; обязательные domain/application import checks AGENTS.md (пустой результат). Значения секретов и env backups не попадали в diff/logs.
+- [x] `docker compose config --quiet` с тестовыми env/secrets, profile tei и без него; `task --list`. Не печатать полный rendered compose с secrets. Реальные сервисы/loadtests не запускать автоматически.
+- [x] В согласованном локальном live окружении: динамический update API→worker, client switching с active requests, upload/rate/cost enforcement, прежний S3 corpus, history/regression/export без DATA_DIR. Фактические результаты и ограничения приведены ниже; отдельная multi-host приёмка исключена из текущего объёма по решению пользователя (один сервер).
+
+**Результаты этапа 12 (2026-10-15):**
+
+- Task/operations используют COMPOSE_PROFILES независимо от ML_PROVIDER; deploy определяет TEI по `config --services`, без чтения rendered environment. Проверены пустой профиль, TEI и выбор из env-file, CPU/GPU. Реальные сервисы не запускались.
+- `task env` сохраняет содержимое существующих файлов, создаёт secret env через `install -m 600`, исправляет его права. MODEL обязателен для `task pull-model`. Env template сокращён до bootstrap/deployment/static набора, credentials находятся только в secret template. Рабочие env/secrets и client/.env не менялись; VITE_API_URL остаётся build setting.
+- `config migrate-env --trim-env` — явная финальная очистка dynamic/legacy ключей после commit БД. По умолчанию dry run; без флага прежний режим сохраняет dynamic env. Existing DB values, все static overrides и явно заданный COMPOSE_PROFILES (включая пустой) сохраняются. Нет автоматического удаления static defaults. Проверены dry run, повторный apply, отказ commit и CLI. Live apply не выполнялся.
+- 71 целевой тест прошёл: config_env_migration, deployment_scripts, deployment_operations, configuration_deployment. `task lint` (Ruff/mypy), format check пяти затронутых Python файлов, `git diff --check`, `bash -n`, `task --list` прошли. Domain/Application не изменялись; проверки обратных импортов в задействованных dynamic_config/config_service дали пустой результат.
+- Полный `task test`: 3000 passed, 67 skipped, 13 failed (330.60 s). Контрольный `task test` исходного HEAD в изолированной копии: 2989 passed, 67 skipped, те же 13 failed (327.94 s); множества failing node IDs совпали полностью. Новых падений относительно базы нет; общий gate остаётся открытым. Падения: benchmark launch API (2), budget bootstrap (1), judge checkpoints (1), TEI relevance (1), relevance timeout diagnostics (2), benchmark characterization (2), worker cancellation lifecycle (4). Новые два варианта Compose-профиля из env-file добавлены после старта полного прогона и проверены целевым набором. Live проверки API→worker, реальных Redis/S3, corpus switching и exports остаются открытыми вместе с ограничениями этапов 5/7/8–11.
+- Обновлены README и configuration.md: protected snapshots, backup PostgreSQL/S3, остановка old writers, dry run/сверка/apply/recreate/readiness, повтор при ошибке и ограничения отката. Окно миграции и deploy не согласовывались и не выполнялись.
+
+**Актуальная повторная проверка и исправления (2026-10-15):**
+
+- Записи выше сохраняют историю прежних прогонов; актуальный локальный gate теперь зелёный.
+  До исправлений полный `.venv/bin/pytest -q --tb=short` текущего рабочего дерева:
+  **9 failed, 3006 passed, 67 skipped**. Падения — устаревшие ожидания benchmark
+  out_dir/автоматического save_results/файлового checkpoint cleanup, старый budget
+  hook и неполные HTTP/settings doubles. Контракты тестов обновлены без возврата
+  локального постоянного состояния. Worker cancellation tests изолированы от
+  BM25/S3 загрузки, в том числе при FILE_BACKEND=s3 из Taskfile dotenv.
+- Настоящий Redis с двумя OS-процессами выявил превышение квоты из-за client
+  timestamps: задержанный запрос не учитывал уже записанные более поздние запросы.
+  Admission переведён на Redis TIME внутри атомарной Lua-проверки, expiry использует
+  тот же clock. Закрытие limiter дожидается expiry task. Две детерминированные
+  unit-регрессии: **2 failed до исправления → passed после**.
+- Финальный **`task test`: 3017 passed, 71 skipped, 19 warnings**, exit 0.
+  Opt-in integrations пропускаются в обычном прогоне и проверены отдельно ниже.
+  `task lint` (Ruff + mypy, 548 модулей), format check 14 затронутых Python-файлов,
+  `npm run check` (Biome + TypeScript), `bash -n`, `git diff --check` прошли.
+  Domain/Application исходники не менялись; повторная проверка обратных импортов
+  в dynamic_config/config_service дала пустой результат.
+- Отдельный интеграционный прогон: **33 passed**. Использованы временные контейнеры
+  PostgreSQL 16.4, Redis 7, MinIO RELEASE.2024-09-22 и Qdrant 1.12.1 с отдельными
+  credentials/localhost-портами, без рабочих volumes. Проверены
+  `integration/test_configuration_cost_corpus_postgres.py`,
+  `test_benchmark_history_postgres.py`, `test_benchmark_checkpoint_storage.py`,
+  `test_dynamic_rate_limit_redis.py`, `test_corpus_qdrant.py`,
+  `test_s3_storage_minio.py` и `tests/test_rate_limit_redis_integration.py`.
+  Сценарии включают настоящий Redis restart с восстановлением budget ledger,
+  два процесса limiter с lowering/increasing quotas без сброса истории,
+  PostgreSQL corpus journal/write barrier, Qdrant alias/physical binding и ACL,
+  BM25 Redis invalidation, реальный S3 failure/retry и CSV/JSON multipart >5 MiB
+  новым сервисом без DATA_DIR. Временные контейнеры и их volumes удалены.
+- Статусы cost scope в этом плане и configuration.md синхронизированы с transport
+  и UI: structured/judges и две поддерживаемые DeepInfra модели уже реализованы,
+  прежнее описание «только текстовый OpenRouter» устарело.
+- **Открыто:** реальные платные вызовы и сверка provider confirmations, live multi-host
+  приёмка API/worker и переход рабочей установки (backup, migrations, env apply,
+  recreate/readiness). Для них по-прежнему нужны согласованное окно и параметры
+  платного прогона; они не объявляются выполненными по локальным тестам.
+  Рабочие env/БД/сервисы не менялись, commits не создавались.
+
+**Live-переход локальной рабочей установки (2026-10-15, эта сессия):**
+
+- Пользователь разрешил немедленный переход, неограниченный простой, любого
+  тестового пользователя и бюджет до $1 на OpenRouter и $1 на DeepInfra.
+  Использован существующий `user:37`; admin-проверки выполнены от `user:1`.
+- Writers остановлены. Protected env snapshots, PostgreSQL dump и cold archive
+  PostgreSQL/Qdrant/MinIO/Redis: `backups/configuration-live-20261015T132527Z`.
+  SHA256 и архив проверены; dump успешно восстановлен в изолированном PostgreSQL.
+  Backup локальный, второй независимой копии нет.
+- Новый CLI: dry run, затем `config migrate-env --trim-env --apply`.
+  Существующие DB values сохранены; согласованные legacy S3 rows удалены;
+  dynamic/legacy env keys удалены, static overrides сверены с snapshot.
+  Env/secrets имеют права 0600; `COMPOSE_PROFILES` явно пустой (облачный ML).
+- Alembic обновлён с `m3d4e5f6g7h8` до `r8h9i0j1k2l3`. API/worker используют
+  `rag-server:configuration-live-20261015` с прежними установленными зависимостями
+  и текущим кодом; frontend пересобран. Контейнеры пересозданы. Исходная ошибка
+  startup из-за отсутствия `corpus_control` устранена. `/ready` — 200,
+  saved/applied версии совпадают; API/client healthy, worker работает.
+- Подтверждены API→worker updates pool/rate/upload/cost через LISTEN и worker audit.
+  Временные настройки восстановлены. Проверены HTTP 429 и 413, admin-only
+  endpoints/export возвращают 403 для обычного пользователя. Проверена активная
+  lease реального ML-пула: старый клиент открыт до завершения lease, затем закрыт.
+  Дополнительно выполнен настоящий OpenRouter stream через ManagedLLM: во время
+  выдачи API изменил temperature, новый клиент опубликован, старый продолжил
+  stream и закрылся только после завершения; temperature восстановлена.
+- Старый outbox `id=1` (`dead_letter`, прежняя ошибка `Unknown arguments: ['timeout']`)
+  блокировал corpus switch. Документ 1 и оба его чанка уже отсутствовали;
+  штатный dispatcher завершил устаревшую запись, все 47 outbox entries — done.
+  Переключение generation прежнего `company_docs` прошло с подтверждением
+  API/worker и параллельным export. Новый generation
+  `390fbb79-addb-448f-bc8d-913b90fca994` пережил restart API/worker.
+  Затем создана отдельная локальная копия корпуса и immutable identity; проверены
+  равенство числа points, переход API/worker на неё и возврат на исходный
+  `company_docs`. Временные коллекции удалены после подтверждения возврата.
+  Другой endpoint/физический хост этим прогоном не проверялся.
+- Сохранены 9 документов, 4037 чанков и 13 benchmark runs. History/regression,
+  CSV/JSON exports (включая JSON >5 MiB), запись report в настоящий MinIO и
+  exports после restart прошли без DATA_DIR и без data mount API/worker.
+- Платный прогон 13:31:34–13:31:38 UTC: OpenRouter text/JSON/stream — 3 успешных
+  запроса, ledger **$0.00002096**, cost из provider usage. DeepInfra embedding
+  BAAI/bge-m3 — 10 tokens, **$0.00000010** по тарифу; rerank Qwen3-Reranker-4B —
+  170 tokens, **$0.00000425** из provider response; всего **$0.00000435**.
+  Дополнительный stream с переключением клиента (13:38:44–13:38:48 UTC) —
+  **$0.00006056**; итог OpenRouter за 4 calls — **$0.00008152**.
+  Все 6 reservations settled, pending нет. Использован реальный PaidAsyncTransport
+  с persistent ledger и отдельной политикой $0.50 суммарно на principal.
+  Тарифы опубликованы через admin API по официальному каталогу OpenRouter и
+  страницам моделей DeepInfra. Детали без credentials сохранены в backup directory.
+- Проверена также временно включённая рабочая DB cost policy: превышение квоты
+  отклонено до dispatch, число ledger rows не изменилось. Исходная policy
+  восстановлена: cost limits выключены, hourly $1 / daily $5. Рабочий reranker
+  Qwen3-Reranker-0.6B сохранён; его accounting при включении лимитов не поддержан.
+- Сверка billing (продолжение этой сессии): пользователь предоставил 4 записи
+  OpenRouter; tokens и costs совпали с ledger с учётом отображения последней
+  суммы как $0.0000606 вместо $0.00006056. OpenRouter сверка подтверждена
+  с точностью dashboard. DeepInfra `/payment/usage` и `/payment/usage/tokens`
+  с существующим ключом за 13:31:30–13:31:45 UTC вернули HTTP 200, ровно
+  10 embedding tokens и 170 rerank tokens. Поля cost/total_cost — 0; это не
+  подтверждение отсутствия списания и не точная денежная сверка.
+  Документированный `/v1/request-costs` для сохранённого rerank request ID
+  вернул HTTP 404; точный costNanoUsd получить не удалось. Evidence сохранены
+  в protected backup directory, ключи не выводились. Новых inference calls нет.
+- [x] Денежная сверка DeepInfra закрыта по прямому решению пользователя
+  2026-10-15. Ожидаемая сумма — $0.00000435; ограничение точности API,
+  описанное выше, принято пользователем, точное списание независимо не подтверждено.
+- **Неприменимо к текущей установке:** live multi-host/другой endpoint.
+  Пользователь 2026-10-15 подтвердил размещение на одном сервере и исключил
+  межхостовую приёмку из текущего объёма. Проверка не выполнялась; вернуться
+  к ней перед распределением компонентов между серверами. Полный unit suite в этой live-сессии
+  не повторялся; исходники не
+  менялись, результаты предыдущего полного прогона приведены выше.
 
 ## 6. Полный каталог параметров
 
@@ -671,6 +794,9 @@ DATA_DIR остаётся статическим root только local backend
 
 ## 7. Приёмка и откат
 
+Ниже итоговая приёмка рабочей установки. Локальные unit/integration результаты
+приведены по этапам; они не означают, что рабочие env/БД уже мигрированы.
+
 - [ ] Для каждого поля определён один источник, bootstrap до ML одинаков во всех execution paths.
 - [ ] Dynamic keys удалены из env только после migration; existing DB values и static overrides сохранены.
 - [ ] Нет secrets в config_parameters/admin responses/logs; old DB rows/events не переопределяют credentials.
@@ -689,4 +815,4 @@ DATA_DIR остаётся статическим root только local backend
 
 Стартовый запрос исполнителю: «Реализуй этот план по этапам. Начни с проверки текущего checkout и baseline tests. Сохрани production invariants и текущие значения. Не выполняй live migrate-env --apply, переключение Qdrant, deploy или recreate сервисов без авторизации. После каждого этапа записывай проверенные результаты и обновляй checklist. Не добавляй TOML/YAML и не показывай неработающие настройки как действующие».
 
-Текущая передача: этапы 1–4 и 6 реализованы; код этапа 5 готов, настоящая Redis integration ожидает проверки. Этап 7 частичный: supported text OpenRouter работает, unsupported платные пути блокируются. Этап 8 реализован и имеет unit/ранее выполненные локальные PostgreSQL проверки; live multi-host приёмка остаётся открытой. Дефекты независимого ревью исправлены и покрыты регрессиями выше. Этапы 9–11 реализованы; 352 целевых теста, локальный PostgreSQL, Ruff/mypy и frontend проверки прошли, настоящий S3/live приёмка остаются открытыми. Этап 12 не выполнялся. Рабочие БД, env и сервисы не изменены; production values/цены провайдеров/live переключение не проверены. Изменения этапов 5–11 и исправления ревью ещё не оформлены отдельными commits.
+Текущая передача: реализация всех этапов присутствует; устаревшие ожидания тестов исправлены. Redis admission race и незавершённая expiry task устранены с RED→GREEN регрессиями. Настоящие PostgreSQL/Redis/MinIO/Qdrant integrations прошли в отдельном временном окружении; актуальная финальная проверка — в конце этапа 12. Cost scope включает поддерживаемые OpenRouter text/structured/judges и DeepInfra embedding/rerank. Локальный live-переход выполнен в этой сессии с backup/restore-check, migrations, env apply/recreate и проверкой readiness. Платные вызовы и ledger проверены; OpenRouter billing подтверждён пользователем с точностью dashboard. DeepInfra API подтвердил число tokens; денежная сверка закрыта по прямому решению пользователя с принятым ограничением точности (Usage cost=0, request-costs HTTP 404). Локальные corpus switching и переключение клиента во время реального LLM-stream прошли. Межхостовая приёмка исключена из текущего объёма по решению пользователя: установка работает на одном сервере. Текущий live-переход принят с указанными ограничениями; подробности в live-результатах этапа 12. Рабочие env/БД/сервисы обновлены; изменения не закоммичены.

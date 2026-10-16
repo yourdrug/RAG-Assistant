@@ -256,6 +256,9 @@ class _ExpireFailRedis:
     async def evalsha(self, *a, **kw):
         return await self._inner.evalsha(*a, **kw)
 
+    async def time(self):
+        return await self._inner.time()
+
     async def expire(self, *a, **kw):
         raise RedisError("expire failed")
 

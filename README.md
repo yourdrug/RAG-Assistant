@@ -13,7 +13,10 @@
 curl -fsSL https://raw.githubusercontent.com/yourdrug/RAG-Assistant/main/install.sh | bash
 
 # Или вручную:
-task init && task up && task pull-model
+task init
+# Заполните server/.env.secrets перед запуском.
+task up
+task pull-model MODEL=qwen2.5:7b
 task login email=admin@example.com password=change-me-please
 cp /path/to/docs/* data/docs_sample/
 task ingest
@@ -33,7 +36,7 @@ task chat -- "Вопрос"
 | `task up -- gpu` | Поднять с GPU |
 | `task build` | Пересобрать образы |
 | `task build -- gpu` | Пересобрать с GPU |
-| `task pull-model` | Скачать LLM в Ollama |
+| `task pull-model MODEL=qwen2.5:7b` | Скачать LLM в Ollama |
 | `task login email=... password=...` | Залогиниться → `.auth_token` |
 | `task ingest` | Проиндексировать `data/docs_sample/` [admin] |
 | `task chat -- "вопрос"` | Синхронный запрос |
@@ -48,27 +51,21 @@ task chat -- "Вопрос"
 
 ## Конфигурация
 
-Два `.env` файла:
+`task env` создаёт файлы из шаблонов без перезаписи:
 
-- **`server/.env`** — настройки приложения (БД, LLM, OCR, JWT и т.д.)
-- **`client/.env`** — `VITE_API_URL` (билд Vite)
+- **`server/.env`** — PostgreSQL/Redis bootstrap, CORS, S3 и Docker deployment.
+- **`server/.env.secrets`** — пароли и API-ключи; права `0600`, заполнить до запуска.
+- **`client/.env`** — `VITE_API_URL`, применяется при сборке Vite.
 
-Оба `.env.example` — шаблоны. `task init` создаёт оба из шаблонов.
+LLM/OCR/RAG, ML endpoints, квоты, retention и corpus хранятся в PostgreSQL и
+управляются через админку. Состояние применения проверяйте отдельно от сохранения.
+Для локального TEI задайте `COMPOSE_PROFILES=tei`; для облачного ML оставьте профиль
+пустым. `ML_PROVIDER` в БД выбирает провайдера приложения, а не Docker-сервисы.
+`task pull-model MODEL=...` только скачивает модель; её выбор для запросов задаётся в БД.
 
-Ключевые переменные в `server/.env`:
-
-```bash
-LLM_MODEL=qwen2.5:7b           # или qwen2.5:14b, mistral-nemo:12b
-EMBED_MODEL=BAAI/bge-m3
-RERANK_MODEL=BAAI/bge-reranker-v2-m3
-OCR_ENGINE=paddleocr            # paddleocr | surya | auto
-JWT_SECRET_KEY=change-me        # openssl rand -hex 32
-ADMIN_EMAIL=admin@example.com
-ADMIN_PASSWORD=change-me-please
-ALLOWED_ORIGINS=*               # Указать конкретный домен для прода
-```
-
-Динамические параметры (hot-reload без рестарта) хранятся в БД и управляются через `PUT /admin/config/{key}`.
+Существующий env сокращайте через offline `config migrate-env --trim-env` после
+backup и сверки dry run, сохраняя нестандартные static overrides. Полный порядок,
+ограничения применения и откат: [конфигурация](docs/operations/configuration.md).
 
 ---
 
@@ -132,7 +129,7 @@ curl https://rag.example.com/api/documents \
 `docker compose restart` не применяет изменения публикации портов.
 
 Деплой на сервер: `./deploy.sh 0.6.0` (или `./deploy.sh 0.6.0 --gpu`). Образы тянутся из GHCR.
-Скрипт загружает env-файлы, выбирает профиль TEI, сохраняет работающие контейнеры
+Скрипт загружает env-файлы, использует `COMPOSE_PROFILES`, сохраняет работающие контейнеры
 хранилищ и проверяет `/api/ready` после обновления приложения.
 
 Подготовка сервера, ограничения отката, права на данные, резервное копирование и

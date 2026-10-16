@@ -23,6 +23,7 @@ from domain.exceptions import ValidationError as DomainValidationError
 from domain.value_objects.config_value_type import ConfigValueType
 from domain.value_objects.dynamic_config import (
     DYNAMIC_PARAMS,
+    LEGACY_POOL_SETTING_KEYS,
     SECRET_SETTING_KEYS,
     TARGET_DYNAMIC_SETTING_KEYS,
 )
@@ -229,6 +230,8 @@ def secret_moves(env: EnvSnapshot, secrets: EnvSnapshot) -> dict[str, str]:
 
 
 def compose_updates(env: EnvSnapshot, effective: dict[str, str | None]) -> dict[str, str]:
+    if "COMPOSE_PROFILES" in effective:
+        return {}
     profiles = [p.strip() for p in (effective.get("COMPOSE_PROFILES") or "").split(",") if p.strip()]
     provider = effective.get("ML_PROVIDER", Settings.model_fields["ml_provider"].default)
     if provider == "tei" and "tei" not in profiles:
@@ -270,7 +273,7 @@ def validate_storage_and_credentials(
 def report_actions(candidates, existing, s3_rows, moved, updates) -> None:
     for row in candidates:
         logger.info(
-            "%s %s (scope=%s); retain env",
+            "%s %s (scope=%s)",
             "Preserve DB" if (row.key, row.domain_key) in existing else "Insert",
             row.key.upper(),
             row.domain_key or "global",
@@ -283,11 +286,14 @@ def report_actions(candidates, existing, s3_rows, moved, updates) -> None:
         logger.info("Prepare %s", key)
 
 
-async def migrate_env_configuration(uow_factory, env_file: Path, apply: bool = False) -> None:
+async def migrate_env_configuration(
+    uow_factory, env_file: Path, apply: bool = False, trim_env: bool = False
+) -> None:
     """Preserve DB values; commit before files; default to read-only action reporting.
 
     Run offline with old configuration writers stopped. Future keys are staged,
-    never added to the active registry here. Env removal awaits stages 3-12.
+    never added to the active registry here. Final trimming is explicit and retains
+    every static override; database commit precedes removal of migrated values.
     """
     env = await asyncio.to_thread(read_snapshot, env_file)
     secrets = await asyncio.to_thread(read_snapshot, env_file.with_name(env_file.name + ".secrets"), True)
@@ -300,7 +306,11 @@ async def migrate_env_configuration(uow_factory, env_file: Path, apply: bool = F
     ]
     candidates += pool_parameters(effective)
     updates = compose_updates(env, effective)
-    env_text = rewrite_env(env, set(moved), updates)
+    removed = set(moved)
+    if trim_env:
+        removed.update(key.upper() for key in TARGET_DYNAMIC_SETTING_KEYS | LEGACY_POOL_SETTING_KEYS)
+        removed.update({"EMBED_MODEL", "RERANK_MODEL", "RERANK_DEVICE"})
+    env_text = rewrite_env(env, removed, updates)
     secret_text = rewrite_env(secrets, set(), moved, source=env)
     async with uow_factory.create(master=True) as uow:
         rows = await uow.config_parameters.get_all()
@@ -308,6 +318,8 @@ async def migrate_env_configuration(uow_factory, env_file: Path, apply: bool = F
         existing = {(row.key, row.domain_key) for row in rows}
         additions = [row for row in candidates if (row.key, row.domain_key) not in existing]
         report_actions(candidates, existing, s3_rows, moved, updates)
+        for key in sorted((removed - set(moved)) & env.values.keys()):
+            logger.info("Remove env key after commit: %s", key)
         if apply:
             await asyncio.to_thread(protected_backup, env)
             await asyncio.to_thread(protected_backup, secrets)

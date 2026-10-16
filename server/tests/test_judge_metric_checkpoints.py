@@ -3,7 +3,7 @@
 import asyncio
 import json
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -182,13 +182,11 @@ async def test_worker_retains_partial_sweep_for_resume_and_reports_counts(monkey
     )
     persist = AsyncMock(return_value=None)
     monkeypatch.setattr(sweep, "save_sweep_results", persist)
-    cleanup = Mock()
-    monkeypatch.setattr(sweep, "cleanup_sweep_checkpoints", cleanup)
     monkeypatch.setattr(sweep, "publish_sweep_event", AsyncMock())
     await sweep.run_sweep_task(sweep_context(factory), sweep_id=1, job_id=2)
     persist.assert_awaited_once()
     assert "Оценено 47 из 50, ошибок 3" in factory.jobs.mark_failed.await_args.args[1]
-    cleanup.assert_called_once_with(sweep.settings.data_dir, 1, successful=False)
+    factory.sweeps.delete_checkpoints.assert_not_awaited()
     factory.jobs.mark_done.assert_not_called()
 
 

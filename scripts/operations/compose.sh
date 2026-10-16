@@ -14,10 +14,4 @@ compose_args=(--env-file server/.env)
 compose_args+=(-f docker-compose.yml)
 [[ "$BUILD_TARGET" != gpu ]] || compose_args+=(-f docker-compose.gpu.yml)
 compose() { docker compose "${compose_args[@]}" "$@"; }
-# Parse only the provider, never print resolved configuration or secrets.
-ml_provider=$(compose config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"]["server"]["environment"]["ML_PROVIDER"])')
-case "$ml_provider" in
-  tei) compose_args+=(--profile tei) ;;
-  deepinfra) ;;
-  *) echo "Unsupported ML_PROVIDER: $ml_provider" >&2; exit 1 ;;
-esac
+# Compose reads COMPOSE_PROFILES from the shell or --env-file; ML provider lives in PostgreSQL.

@@ -56,7 +56,8 @@ trap rollback ERR
 # Download every enabled image before touching the application. Preserve old image IDs.
 compose pull
 infra=(postgres redis qdrant ollama minio)
-[[ "$ml_provider" != tei ]] || infra+=(tei-embed tei-rerank)
+enabled_services=$(compose config --services)
+if grep -qx tei-embed <<<"$enabled_services"; then infra+=(tei-embed tei-rerank); fi
 # Infrastructure upgrades are a separate maintenance operation.
 compose up -d --no-recreate --wait --wait-timeout "${DEPLOY_WAIT_TIMEOUT:-600}" "${infra[@]}"
 if [[ -n "$old_server" ]]; then before_schema=$(schema_revision); fi

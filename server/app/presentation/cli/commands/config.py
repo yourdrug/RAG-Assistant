@@ -21,10 +21,12 @@ logger = logging.getLogger("cli")
 config_app = typer.Typer(help="Manage dynamic configuration")
 
 
-async def run_env_migration(env_file: Path, apply: bool) -> None:
+async def run_env_migration(env_file: Path, apply: bool, trim_env: bool = False) -> None:
     try:
         await database.connect()
-        await migrate_env_configuration(UnitOfWorkFactory(database=database), env_file, apply)
+        await migrate_env_configuration(
+            UnitOfWorkFactory(database=database), env_file, apply, trim_env=trim_env
+        )
     finally:
         await database.disconnect()
 
@@ -33,11 +35,12 @@ async def run_env_migration(env_file: Path, apply: bool) -> None:
 def config_migrate_env(
     env_file: Path = typer.Option(..., "--env-file", exists=True, file_okay=True, dir_okay=False),
     apply: bool = typer.Option(False, "--apply", help="Commit migration; default is a read-only dry run"),
+    trim_env: bool = typer.Option(False, "--trim-env", help="Remove migrated dynamic and legacy keys"),
 ) -> None:
     """Migrate legacy env offline, preserving existing DB values and secrets."""
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     try:
-        asyncio.run(run_env_migration(env_file, apply))
+        asyncio.run(run_env_migration(env_file, apply, trim_env))
     except ValueError as exc:
         logger.error("Config migration blocked: %s", exc)
         raise typer.Exit(1) from None
