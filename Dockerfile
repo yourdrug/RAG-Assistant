@@ -1,6 +1,6 @@
 # -----------------------------------------------------------------------------------
 # Python-base stage sets up all shared env vars
-FROM python:3.11-slim AS python-base
+FROM python:3.12-slim AS python-base
 
 # Metadata (author email)
 LABEL author.email="mitkojenia@gmail.com"
@@ -137,7 +137,7 @@ COPY --from=uv-base-cpu $VENV_PATH $VENV_PATH
 #RUN chmod +x $VENV_PATH/bin/python $VENV_PATH/bin/python3
 
 # Copy dependency files (needed for uv sync to verify consistency)
-COPY server/pyproject.toml server/uv.lock ./
+COPY server/pyproject.toml server/uv.lock server/ruff-baseline.toml ./
 
 # Re-sync to add dev dependencies (testing, linting, etc.)
 RUN --mount=type=cache,target=/root/.cache/uv                                       \
@@ -201,7 +201,7 @@ COPY --from=uv-base-gpu $VENV_PATH $VENV_PATH
 #RUN chmod +x $VENV_PATH/bin/python $VENV_PATH/bin/python3
 
 # Copy dependency files
-COPY server/pyproject.toml server/uv.lock ./
+COPY server/pyproject.toml server/uv.lock server/ruff-baseline.toml ./
 
 # Re-sync to add dev dependencies
 RUN --mount=type=cache,target=/root/.cache/uv                                       \

@@ -17,23 +17,24 @@ jobs:
         uses: astral-sh/setup-uv@v4
 
       - name: Set up Python
-        run: uv python install 3.11
+        run: uv python install 3.12
 
       - name: Install dependencies
         working-directory: server
         run: uv sync --frozen --group development --group testing
 
-      - name: Ruff check
+      - name: Python validation (all checks)
         working-directory: server
-        run: uv run ruff check app tests
-
-      - name: Ruff format check
-        working-directory: server
-        run: uv run ruff format --check app tests
-
-      - name: Mypy type check
-        working-directory: server
-        run: uv run mypy app
+        run: |
+          status=0
+          uv run python tools/blank_lines.py --exclude-from blank-lines-baseline.txt --check app tests tools || status=1
+          uv run ruff check app tests tools || status=1
+          uv run ruff format --check app tests tools || status=1
+          uv run mypy || status=1
+          PYTHONPATH=app uv run lint-imports || status=1
+          uv run deptry . || status=1
+          uv run vulture || status=1
+          exit "$status"
 
   test:
     runs-on: ubuntu-latest
@@ -59,7 +60,7 @@ jobs:
         uses: astral-sh/setup-uv@v4
 
       - name: Set up Python
-        run: uv python install 3.11
+        run: uv python install 3.12
 
       - name: Install dependencies
         working-directory: server

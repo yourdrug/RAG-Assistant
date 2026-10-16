@@ -1,46 +1,113 @@
+# Установка:  uv run --frozen --project server --group development --group testing pre-commit install
+# Всё, кроме базовых хуков, запускается через `uv run`, поэтому версии
+# ruff / mypy / import-linter берутся из uv.lock, а не дублируются здесь.
+
+default_install_hook_types: [pre-commit, pre-push]
+default_stages: [pre-commit]
+fail_fast: false
+
 repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0  # обновите: uv run --frozen --project server --group development --group testing pre-commit autoupdate
+    hooks:
+      - id: check-added-large-files
+      - id: check-merge-conflict
+      - id: check-toml
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: detect-private-key
+
   - repo: local
     hooks:
-      # --- Python (server) ---
+      # 1. Расставляет пустые строки вокруг if/for/while (до ruff format).
+      - id: blank-lines
+        name: blank lines around if/for/while
+        entry: uv run --frozen --project server --group development --group testing python server/tools/blank_lines.py --exclude-from server/blank-lines-baseline.txt
+        language: system
+        types: [python]
+        files: ^server/(app|tests|tools)/
+        exclude: ^server/app/infrastructure/database/migrations/versions/
+
+      # 2. Линтер с автофиксами.
       - id: ruff-check
         name: ruff check
-        entry: bash -c 'cd server && uv run ruff check app tests'
+        entry: uv run --frozen --project server --group development --group testing ruff check --fix --exit-non-zero-on-fix
         language: system
-        types: [python]
-        pass_filenames: false
+        types_or: [python, pyi]
+        files: ^server/
 
+      # 3. Форматтер.
       - id: ruff-format
         name: ruff format
-        entry: bash -c 'cd server && uv run ruff format app tests'
+        entry: uv run --frozen --project server --group development --group testing ruff format
+        language: system
+        types_or: [python, pyi]
+        files: ^server/
+
+      # 4. Типы. Весь проект целиком, потому что mypy нужен полный контекст.
+      - id: mypy
+        name: mypy
+        entry: bash -c 'cd server && uv run --frozen --group development --group testing mypy'
         language: system
         types: [python]
+        files: ^server/
         pass_filenames: false
 
-      - id: pytest
-        name: pytest
-        entry: bash -c 'cd server && DATA_DIR=/tmp/rag_test uv run pytest -x -q'
+      # 5. Архитектурные контракты DDD.
+      - id: import-linter
+        name: import-linter (DDD layers)
+        entry: bash -c 'cd server && PYTHONPATH=app uv run --frozen --group development --group testing lint-imports'
         language: system
         types: [python]
+        files: ^server/
         pass_filenames: false
+
+      # Тяжёлые проверки только перед push.
+      - id: pytest
+        name: pytest
+        entry: bash -c 'cd server && DATA_DIR=/tmp/rag_test uv run --frozen --group development --group testing pytest'
+        language: system
+        types: [python]
+        files: ^server/
+        pass_filenames: false
+        stages: [pre-push]
+
+      - id: deptry
+        name: deptry
+        entry: bash -c 'cd server && uv run --frozen --group development --group testing deptry .'
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
+      - id: vulture
+        name: vulture (dead code)
+        entry: bash -c 'cd server && uv run --frozen --group development --group testing vulture'
+        language: system
+        types: [python]
+        files: ^server/
+        pass_filenames: false
+        stages: [pre-push]
 
       # --- Frontend ---
       - id: biome-check
         name: biome check
         entry: bash -c 'cd client && npx biome check --staged --no-errors-on-unmatched'
         language: system
-        types: [javascript, tsx, jsx]
+        types_or: [javascript, ts, tsx, jsx]
         pass_filenames: false
 
       - id: biome-format
         name: biome format
         entry: bash -c 'cd client && npx biome format --write --staged --no-errors-on-unmatched'
         language: system
-        types: [javascript, tsx, jsx]
+        types_or: [javascript, ts, tsx, jsx]
         pass_filenames: false
 
       - id: typecheck
         name: typescript typecheck
         entry: bash -c 'cd client && npx tsc -b --noEmit'
         language: system
-        types: [ts, tsx, jsx]
+        types_or: [ts, tsx, jsx]
         pass_filenames: false

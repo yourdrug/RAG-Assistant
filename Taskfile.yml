@@ -228,19 +228,36 @@ tasks:
     cmds:
       - uv lock
 
+  hooks:install:
+    desc: Установить pre-commit и pre-push hooks (сохраняет существующий Git LFS hook)
+    cmds:
+      - uv run --frozen --project server --group development pre-commit install --hook-type pre-commit --hook-type pre-push
+
   fmt:
-    desc: Отформатировать и подчистить код (ruff)
+    desc: Отформатировать код и пустые строки, применить безопасные исправления Ruff
     dir: server
     cmds:
-      - uv run ruff format app tests
-      - uv run ruff check --fix app tests
+      - |
+        status=0
+        uv run --frozen --group development ruff check --fix app tests tools || status=1
+        uv run --frozen --group development python tools/blank_lines.py --exclude-from blank-lines-baseline.txt app tests tools || status=1
+        uv run --frozen --group development ruff format app tests tools || status=1
+        exit "$status"
 
   lint:
-    desc: Проверить код линтером и типизатором без изменений
+    desc: Все Python-проверки без изменения исходников (выполняет каждую даже при ошибках)
     dir: server
     cmds:
-      - uv run ruff check app tests
-      - uv run mypy app
+      - |
+        status=0
+        uv run --frozen --group development python tools/blank_lines.py --exclude-from blank-lines-baseline.txt --check app tests tools || status=1
+        uv run --frozen --group development ruff check app tests tools || status=1
+        uv run --frozen --group development ruff format --check app tests tools || status=1
+        uv run --frozen --group development --group testing mypy || status=1
+        PYTHONPATH=app uv run --frozen --group development lint-imports || status=1
+        uv run --frozen --group development deptry . || status=1
+        uv run --frozen --group development vulture || status=1
+        exit "$status"
 
   test:
     desc: Прогнать unit-тесты (pytest)

@@ -287,7 +287,7 @@ async def migrate_env_configuration(uow_factory, env_file: Path, apply: bool = F
     """Preserve DB values; commit before files; default to read-only action reporting.
 
     Run offline with old configuration writers stopped. Future keys are staged,
-    never added to the active registry here. Env removal awaits stages 3–12.
+    never added to the active registry here. Env removal awaits stages 3-12.
     """
     env = await asyncio.to_thread(read_snapshot, env_file)
     secrets = await asyncio.to_thread(read_snapshot, env_file.with_name(env_file.name + ".secrets"), True)

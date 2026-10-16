@@ -2,7 +2,7 @@
 name = "rag-api"
 version = "0.1.0"
 
-requires-python = "==3.11.*"
+requires-python = "==3.12.*"
 
 description = "Корпоративный RAG-ассистент — FastAPI + Qdrant + Ollama, локальный стек"
 readme = "../README.md"
@@ -98,9 +98,13 @@ testing = [
 ]
 
 development = [
-    "ruff==0.7.4",
-    "mypy==1.14.1",
+    "ruff>=0.14,<1",
+    "mypy>=1.18,<2",
     "pre-commit>=4.0.0",
+    "import-linter>=2.5,<3",
+    "deptry>=0.23,<1",
+    "vulture>=2.14,<3",
+    "libcst>=1.8,<2",
 ]
 
 # ---------------------------------------------------------------------------
@@ -142,66 +146,714 @@ torch = [
 [tool.uv.extra-build-dependencies]
 grpcio-tools = ["setuptools<81"]
 
-# ---------------------------------------------------------------------------
-# Ruff
-# ---------------------------------------------------------------------------
-
 [tool.ruff]
+extend = "ruff-baseline.toml"
 line-length = 110
-target-version = "py311"
+target-version = "py312"
+src = ["app", "tests", "tools"]
+force-exclude = true
+extend-exclude = ["app/infrastructure/database/migrations/versions"]
+output-format = "grouped"
+show-fixes = true
 
-fix = false
-indent-width = 4
-
-include = ["*.py"]
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+skip-magic-trailing-comma = false
+docstring-code-format = true
+docstring-code-line-length = "dynamic"
 
 [tool.ruff.lint]
-select = ["B", "B9", "C", "D", "E", "F", "S", "W"]
+# Включаем ВСЕ правила и точечно отключаем только то, что конфликтует или бессмысленно.
+select = ["ALL"]
 ignore = [
-    "D1", # missing docstrings (too many to fix now)
-    "D203", # one-blank-line-before-class (incompatible with D211)
-    "D212", # multi-line-summary-first-line (incompatible with D213)
-    "D213", # multi-line-summary-second-line (incompatible with D212)
-    "B008", # function calls in argument defaults (FastAPI Depends/Query pattern)
+    # --- конфликты с форматтером (рекомендация самого ruff) ---
+    "COM812",   # trailing comma: конфликтует с ruff format
+    "ISC001",   # implicit string concat: конфликтует с ruff format
+
+    # --- взаимоисключающие правила pydocstyle ---
+    "D203",     # конфликтует с D211
+    "D213",     # конфликтует с D212
+
+    # --- мета-правила, не про качество кода ---
+    "CPY001",   # copyright header
+    "TD002",    # TODO без автора
+    "TD003",    # TODO без ссылки на issue
+    "FIX002",   # TODO в коде
+
+    # --- докстринги: убрать эти строки, если хотите требовать их везде ---
+    "D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107",
+]
+fixable = ["ALL"]
+unfixable = [
+    "F841",     # не удалять неиспользуемые переменные молча
+    "ERA001",   # не удалять закомментированный код автоматически
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"app/infrastructure/database/migrations/*" = ["E501", "D400", "D415"]
-"app/infrastructure/database/database.py" = ["D"]
-"tests/**" = ["S101", "S105", "S106", "S108", "S110", "D205", "D403"]  # test-specific exemptions
+"tests/**" = [
+    "S101",     # assert
+    "PLR2004",  # magic values в assert
+    "ANN",      # аннотации в тестах
+    "D",        # докстринги
+    "SLF001",   # доступ к приватным атрибутам
+    "ARG001",   # неиспользуемые аргументы (фикстуры)
+    "FBT",      # boolean-аргументы
+    "INP001",   # нет __init__.py
+]
+"app/infrastructure/database/migrations/**" = ["D", "INP001", "E501", "ANN", "ERA001"]
+# FastAPI резолвит типы параметров в рантайме, поэтому импорты нельзя прятать под TYPE_CHECKING
+"app/presentation/**" = ["TC001", "TC002", "TC003"]
+"app/composition/**" = ["TC001", "TC002", "TC003"]
+"__init__.py" = ["F401", "D104"]
 
-[tool.ruff.format]
-indent-style = "space"
-line-ending = "auto"
-quote-style = "preserve"
-skip-magic-trailing-comma = false
+[tool.ruff.lint.flake8-bugbear]
+# Depends/Query/... в дефолтах аргументов не считаются B008.
+# Если используете dishka / dependency-injector, добавьте их маркеры (FromDishka, Provide и т.п.)
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Path",
+    "fastapi.Body",
+    "fastapi.Header",
+    "fastapi.Cookie",
+    "fastapi.Form",
+    "fastapi.File",
+    "fastapi.Security",
+]
 
-# ---------------------------------------------------------------------------
-# Mypy
-# ---------------------------------------------------------------------------
+[tool.ruff.lint.flake8-type-checking]
+strict = true
+# Эти классы читают аннотации в рантайме, импорты типов должны быть обычными.
+runtime-evaluated-base-classes = [
+    "pydantic.BaseModel",
+    "pydantic_settings.BaseSettings",
+    "sqlalchemy.orm.DeclarativeBase",
+    "sqlalchemy.orm.DeclarativeBaseNoMeta",
+]
+runtime-evaluated-decorators = ["pydantic.validate_call"]
+
+[tool.ruff.lint.flake8-annotations]
+allow-star-arg-any = false
+mypy-init-return = true
+suppress-none-returning = false
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.ruff.lint.flake8-pytest-style]
+fixture-parentheses = false
+mark-parentheses = false
+parametrize-names-type = "csv"
+
+[tool.ruff.lint.pep8-naming]
+classmethod-decorators = [
+    "classmethod",
+    "pydantic.field_validator",
+    "pydantic.model_validator",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["application", "composition", "config", "domain", "infrastructure", "presentation", "shared"]
+combine-as-imports = true
+force-sort-within-sections = true
+split-on-trailing-comma = true
+lines-after-imports = 2
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.mccabe]
+max-complexity = 8
+
+[tool.ruff.lint.pylint]
+max-args = 7            # DI-конструкторы часто длинные; не ставьте меньше без нужды
+max-positional-args = 5
+max-branches = 10
+max-returns = 4
+max-statements = 30
+max-public-methods = 15
 
 [tool.mypy]
-python_version = "3.11"
-
-check_untyped_defs = true
-disallow_untyped_defs = false
-ignore_missing_imports = true
-strict_optional = true
-warn_redundant_casts = true
-warn_unused_configs = true
-warn_return_any = false
-
+python_version = "3.12"
+files = ["app", "tests", "tools"]
+exclude = ["app/infrastructure/database/migrations/"]
+mypy_path = "app"
+explicit_package_bases = true
+namespace_packages = true
 plugins = ["pydantic.mypy"]
 
-exclude = [
-    "tests/",
-    "app/infrastructure/database/migrations/",
+strict = true                  # включает disallow_untyped_defs, disallow_any_generics,
+                               # warn_return_any, no_implicit_reexport и т.д.
+disallow_any_unimported = true
+disallow_any_decorated = false # включите, если готовы бороться с декораторами FastAPI
+warn_unreachable = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+local_partial_types = true
+strict_equality = true
+extra_checks = true
+no_implicit_optional = true
+show_error_codes = true
+show_column_numbers = true
+pretty = true
+enable_error_code = [
+    "truthy-bool",
+    "truthy-iterable",
+    "redundant-expr",
+    "possibly-undefined",
+    "ignore-without-code",
+    "unused-awaitable",
+    "redundant-self",
+    "mutable-override",
+    "deprecated",
 ]
 
 [tool.pydantic-mypy]
 init_forbid_extra = true
 init_typed = true
 warn_required_dynamic_aliases = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_decorators = false   # pytest-фикстуры
+disallow_any_decorated = false
+
+[[tool.mypy.overrides]]
+module = "migrations.*"
+ignore_errors = true
+
+# Библиотеки без типов добавляйте сюда:
+# [[tool.mypy.overrides]]
+# module = ["some_lib.*"]
+# ignore_missing_imports = true
+
+
+# Temporary file-specific mypy baseline, 2026-10-16. See ../LINT_DEBT.md.
+[[tool.mypy.overrides]]
+module = [
+    "application.dto.benchmark_dto",
+    "application.dto.chat_dto",
+    "application.dto.versioning_dto",
+    "application.ports.benchmark_history",
+    "application.ports.benchmark_runner",
+    "application.ports.chat_rag_port",
+    "application.ports.chat_support",
+    "application.ports.config_admin",
+    "application.ports.corpus_control",
+    "application.ports.cost_budget",
+    "application.ports.document_processing",
+    "application.ports.pdf_diagnostics",
+    "application.ports.session_protocol",
+    "application.services.act_versioning_service",
+    "application.services.assignment_service",
+    "application.services.auth_service",
+    "application.services.batch_ingestion",
+    "application.services.benchmark_dataset",
+    "application.services.benchmark_export_service",
+    "application.services.benchmark_orchestrator",
+    "application.services.benchmark_result_service",
+    "application.services.benchmark_services",
+    "application.services.budget_admin_service",
+    "application.services.chat_log_service",
+    "application.services.chat_service",
+    "application.services.chunk_mappers",
+    "application.services.chunk_mutation_service",
+    "application.services.config_admin_service",
+    "application.services.config_service",
+    "application.services.conversation_service",
+    "application.services.cost_budget_service",
+    "application.services.document_command_service",
+    "application.services.document_conflict_resolver",
+    "application.services.document_content",
+    "application.services.document_delete_command",
+    "application.services.document_deletion_jobs",
+    "application.services.document_loader",
+    "application.services.document_persistence",
+    "application.services.document_pipeline",
+    "application.services.document_processor",
+    "application.services.document_quality",
+    "application.services.document_query_service",
+    "application.services.document_rename_command",
+    "application.services.document_upload_command",
+    "application.services.domain_classification",
+    "application.services.group_service",
+    "application.services.ingest_service",
+    "application.services.ingestion_orchestrator",
+    "application.services.ingestion_registry",
+    "application.services.ingestion_sync",
+    "application.services.job_service",
+    "application.services.preview_cache",
+    "application.services.quality_service",
+    "application.services.single_file_ingestion",
+    "application.services.sparse_index_builder",
+    "composition.application",
+    "composition.infrastructure",
+    "composition.service_providers",
+    "composition.utils",
+    "config",
+    "domain.domain_profile.base",
+    "domain.domain_profile.profiles.general",
+    "domain.entities.benchmark_question",
+    "domain.entities.benchmark_run",
+    "domain.entities.benchmark_sweep",
+    "domain.entities.chat_log",
+    "domain.entities.chunk",
+    "domain.entities.message",
+    "domain.entities.raw_document",
+    "domain.entities.vector_outbox_entry",
+    "domain.repositories.benchmark_question_repository",
+    "domain.repositories.benchmark_run_repository",
+    "domain.repositories.chunk_repository",
+    "domain.repositories.vector_store_repository",
+    "domain.services.access_control",
+    "domain.services.act_version_policy",
+    "domain.services.benchmark_evaluation",
+    "domain.services.benchmark_judge",
+    "domain.services.benchmark_selection",
+    "domain.services.injection_patterns",
+    "domain.services.retrieval_diversity",
+    "domain.services.token_provider",
+    "domain.utils",
+    "domain.value_objects.base",
+    "domain.value_objects.benchmark_annotations",
+    "domain.value_objects.chunk_context",
+    "domain.value_objects.pii_patterns",
+    "domain.value_objects.rag_result",
+    "domain.value_objects.stream_events",
+    "infrastructure.adapters.chunk_search_adapter",
+    "infrastructure.adapters.config_masker_adapter",
+    "infrastructure.auth.api_key_provider",
+    "infrastructure.auth.jwt_provider",
+    "infrastructure.benchmark.answer_generators",
+    "infrastructure.benchmark.benchmark_history",
+    "infrastructure.benchmark.benchmark_history_adapter",
+    "infrastructure.benchmark.case_evaluator",
+    "infrastructure.benchmark.case_metrics",
+    "infrastructure.benchmark.checkpoint",
+    "infrastructure.benchmark.corpus",
+    "infrastructure.benchmark.evidence_judge",
+    "infrastructure.benchmark.grouped_judge",
+    "infrastructure.benchmark.judge",
+    "infrastructure.benchmark.judge_diagnostics",
+    "infrastructure.benchmark.legacy_import",
+    "infrastructure.benchmark.metrics",
+    "infrastructure.benchmark.persistence",
+    "infrastructure.benchmark.retrieval",
+    "infrastructure.benchmark.runner",
+    "infrastructure.benchmark.runner_adapter",
+    "infrastructure.benchmark.sweep_data",
+    "infrastructure.benchmark.sweep_engine",
+    "infrastructure.benchmark.sweep_full_evaluation",
+    "infrastructure.benchmark.sweep_reranking",
+    "infrastructure.benchmark.sweep_scoring",
+    "infrastructure.benchmark.sweep_settings",
+    "infrastructure.benchmark.sweep_strategies",
+    "infrastructure.benchmark.token_usage",
+    "infrastructure.bm25.bm25_index",
+    "infrastructure.bm25.bm25_invalidation",
+    "infrastructure.bm25.bm25_updater",
+    "infrastructure.bm25.persistence",
+    "infrastructure.budget.job_context",
+    "infrastructure.budget.ledger",
+    "infrastructure.budget.runtime",
+    "infrastructure.budget.transport",
+    "infrastructure.config_migration",
+    "infrastructure.corpus.control",
+    "infrastructure.corpus.snapshot",
+    "infrastructure.corpus.validation",
+    "infrastructure.database.database",
+    "infrastructure.database.models",
+    "infrastructure.events.in_process_event_bus",
+    "infrastructure.events.postgres_config_broadcaster",
+    "infrastructure.events.postgres_config_listener",
+    "infrastructure.events.postgres_outbox_listener",
+    "infrastructure.health.system_health_probe",
+    "infrastructure.initialization",
+    "infrastructure.logging.log_buffer",
+    "infrastructure.metrics.metrics",
+    "infrastructure.ml.answer_cache",
+    "infrastructure.ml.clients.client_lease",
+    "infrastructure.ml.clients.client_registry",
+    "infrastructure.ml.clients.deepinfra_clients",
+    "infrastructure.ml.clients.factories",
+    "infrastructure.ml.clients.instructor_client",
+    "infrastructure.ml.clients.managed_http",
+    "infrastructure.ml.clients.managed_llm",
+    "infrastructure.ml.clients.managed_sync_instructor",
+    "infrastructure.ml.clients.tei_clients",
+    "infrastructure.ml.config.client_switch",
+    "infrastructure.ml.config.config_subscribers",
+    "infrastructure.ml.config.provider_configuration",
+    "infrastructure.ml.config.settings_adapters",
+    "infrastructure.ml.extraction.extraction_adapter",
+    "infrastructure.ml.extraction.summary_adapter",
+    "infrastructure.ml.guardrails.pdf_adapter",
+    "infrastructure.ml.guardrails.text_quality_adapter",
+    "infrastructure.ml.ingestion.amendment_context",
+    "infrastructure.ml.ingestion.docx",
+    "infrastructure.ml.ingestion.docx_numbering",
+    "infrastructure.ml.ingestion.markdown",
+    "infrastructure.ml.ingestion.ocr",
+    "infrastructure.ml.ingestion.pdf",
+    "infrastructure.ml.ingestion.rtf",
+    "infrastructure.ml.ingestion.rtf_walker",
+    "infrastructure.ml.ingestion.splitting",
+    "infrastructure.ml.ingestion.structural_metadata",
+    "infrastructure.ml.ingestion.table_chunks",
+    "infrastructure.ml.ingestion.text_chunks",
+    "infrastructure.ml.ingestion.txt",
+    "infrastructure.ml.langchain_document_parser",
+    "infrastructure.ml.pdf_diag",
+    "infrastructure.ml.preview.docx_preview_strategy",
+    "infrastructure.ml.preview.factory",
+    "infrastructure.ml.rag.applicable_context",
+    "infrastructure.ml.rag.benchmark_evidence",
+    "infrastructure.ml.rag.chunk_metadata",
+    "infrastructure.ml.rag.context_selection",
+    "infrastructure.ml.rag.document_access",
+    "infrastructure.ml.rag.document_sources",
+    "infrastructure.ml.rag.evidence_focus",
+    "infrastructure.ml.rag.field_evidence",
+    "infrastructure.ml.rag.grounded_response",
+    "infrastructure.ml.rag.helpers",
+    "infrastructure.ml.rag.linked_context",
+    "infrastructure.ml.rag.prompt_budget",
+    "infrastructure.ml.rag.rag_cache",
+    "infrastructure.ml.rag.rag_formatting",
+    "infrastructure.ml.rag.rag_postprocess",
+    "infrastructure.ml.rag.rag_prompts",
+    "infrastructure.ml.rag.rag_relevance",
+    "infrastructure.ml.rag.rag_reranking",
+    "infrastructure.ml.rag.rag_retrieval",
+    "infrastructure.ml.rag.rag_sources",
+    "infrastructure.ml.rag.rag_steps",
+    "infrastructure.ml.rag_pipeline",
+    "infrastructure.ml.rag_service",
+    "infrastructure.ml.rtf_decree_parser",
+    "infrastructure.ml.usage_capture",
+    "infrastructure.rate_limit.bucket_factory",
+    "infrastructure.rate_limit.idempotency",
+    "infrastructure.rate_limit.limiter",
+    "infrastructure.redis.redis_client",
+    "infrastructure.repositories.benchmark.sqlalchemy_benchmark_question_repository",
+    "infrastructure.repositories.benchmark.sqlalchemy_benchmark_run_repository",
+    "infrastructure.repositories.chunk.chunk_context",
+    "infrastructure.repositories.chunk.chunk_corpus",
+    "infrastructure.repositories.chunk.chunk_crud",
+    "infrastructure.repositories.chunk.chunk_pagination",
+    "infrastructure.repositories.chunk.chunk_search",
+    "infrastructure.repositories.chunk.sqlalchemy_chunk_repository",
+    "infrastructure.repositories.config.sqlalchemy_config_parameter_repository",
+    "infrastructure.repositories.config.sqlalchemy_vector_outbox_repository",
+    "infrastructure.repositories.conversation.sqlalchemy_chat_log_repository",
+    "infrastructure.repositories.document.sqlalchemy_ingestion_registry_repository",
+    "infrastructure.repositories.misc.sqlalchemy_act_version_repository",
+    "infrastructure.repositories.misc.sqlalchemy_background_job_repository",
+    "infrastructure.repositories.user.sqlalchemy_user_repository",
+    "infrastructure.repositories.vector.acl",
+    "infrastructure.repositories.vector.embedding_identity",
+    "infrastructure.repositories.vector.outbox_dispatcher",
+    "infrastructure.repositories.vector.qdrant_ops",
+    "infrastructure.repositories.vector.qdrant_vector_store_repository",
+    "infrastructure.scheduling.scheduler",
+    "infrastructure.storage",
+    "infrastructure.storage.file_storage",
+    "infrastructure.uow_factory",
+    "infrastructure.utils.async_exception_handler",
+    "infrastructure.worker.admission",
+    "infrastructure.worker.checkpoint_cleanup",
+    "infrastructure.worker.cron",
+    "infrastructure.worker.document_deletion",
+    "infrastructure.worker.queue",
+    "infrastructure.worker.sweep",
+    "infrastructure.worker.tasks",
+    "main",
+    "presentation.api.auth_dependencies",
+    "presentation.api.dependencies",
+    "presentation.api.exception_handlers",
+    "presentation.api.helpers",
+    "presentation.api.idempotency",
+    "presentation.api.routes.admin_act_versions",
+    "presentation.api.routes.admin_chat_logs",
+    "presentation.api.routes.admin_config",
+    "presentation.api.routes.admin_jobs",
+    "presentation.api.routes.admin_logs",
+    "presentation.api.routes.admin_metrics",
+    "presentation.api.routes.admin_quality",
+    "presentation.api.routes.api_keys",
+    "presentation.api.routes.auth",
+    "presentation.api.routes.benchmark",
+    "presentation.api.routes.benchmark_admin",
+    "presentation.api.routes.chat",
+    "presentation.api.routes.chunks",
+    "presentation.api.routes.conversations",
+    "presentation.api.routes.curators",
+    "presentation.api.routes.documents",
+    "presentation.api.routes.groups",
+    "presentation.api.routes.health",
+    "presentation.api.routes.ingest",
+    "presentation.api.routes.search",
+    "presentation.api.schemas.admin_logs",
+    "presentation.api.schemas.admin_quality",
+    "presentation.api.schemas.benchmark",
+    "presentation.api.schemas.chat",
+    "presentation.cli.cli",
+    "presentation.cli.commands.benchmark",
+    "presentation.cli.commands.config",
+    "presentation.cli.commands.ingest",
+    "presentation.cli.commands.worker",
+    "tests.conftest",
+    "tests.fakes",
+    "tests.integration.conftest",
+    "tests.integration.test_benchmark_annotations",
+    "tests.integration.test_benchmark_checkpoint_storage",
+    "tests.integration.test_benchmark_history_postgres",
+    "tests.integration.test_benchmark_sweep_exclusivity",
+    "tests.integration.test_chunk_context",
+    "tests.integration.test_configuration_cost_corpus_postgres",
+    "tests.integration.test_conversation_summary_invalidation",
+    "tests.integration.test_corpus_qdrant",
+    "tests.integration.test_document_filename_slot_migration",
+    "tests.integration.test_dynamic_rate_limit_redis",
+    "tests.integration.test_ingestion_acl_consistency_postgres",
+    "tests.integration.test_manual_chunk_versioning_postgres",
+    "tests.integration.test_postgres_transactions",
+    "tests.integration.test_s3_storage_minio",
+    "tests.integration.test_sweep_evaluation_mode",
+    "tests.integration.test_sweep_judge_model",
+    "tests.integration.test_table_expansion",
+    "tests.test_acl",
+    "tests.test_act_version_timeline",
+    "tests.test_act_versioning",
+    "tests.test_amendment_context",
+    "tests.test_answer_cache",
+    "tests.test_api_asgi",
+    "tests.test_applicable_context",
+    "tests.test_auth",
+    "tests.test_benchmark_characterization",
+    "tests.test_benchmark_checkpoint_cleanup",
+    "tests.test_benchmark_database_dataset",
+    "tests.test_benchmark_database_history",
+    "tests.test_benchmark_dataset_catalog_api",
+    "tests.test_benchmark_evidence",
+    "tests.test_benchmark_exports",
+    "tests.test_benchmark_import_rate_limit",
+    "tests.test_benchmark_judge_rubric",
+    "tests.test_benchmark_judge_selection",
+    "tests.test_benchmark_ml_characterization",
+    "tests.test_benchmark_question_import",
+    "tests.test_benchmark_recovery",
+    "tests.test_benchmark_run_summary",
+    "tests.test_benchmark_runner",
+    "tests.test_benchmark_source_hints",
+    "tests.test_bm25_acl",
+    "tests.test_bm25_async_loading",
+    "tests.test_bm25_consumers_async",
+    "tests.test_bm25_incremental",
+    "tests.test_bm25_lifecycle",
+    "tests.test_bm25_modules",
+    "tests.test_budget_corpus_regressions",
+    "tests.test_chat_security_logging",
+    "tests.test_chunk_context_persistence",
+    "tests.test_chunk_search_acl",
+    "tests.test_chunk_service",
+    "tests.test_chunking_characterization",
+    "tests.test_chunking_edge_cases",
+    "tests.test_chunking_regressions",
+    "tests.test_chunking_remaining_fixes",
+    "tests.test_circuit_breaker",
+    "tests.test_cli_domain_bootstrap",
+    "tests.test_cli_versioning",
+    "tests.test_compare_frozen_generation",
+    "tests.test_compound_retrieval_storage",
+    "tests.test_config_env_migration",
+    "tests.test_config_static_boundaries",
+    "tests.test_configuration_bootstrap",
+    "tests.test_configuration_deployment",
+    "tests.test_configuration_sources",
+    "tests.test_container",
+    "tests.test_content_splitter",
+    "tests.test_context_selection",
+    "tests.test_corpus_switch",
+    "tests.test_cost_budget",
+    "tests.test_curator_role",
+    "tests.test_curator_scope",
+    "tests.test_current_user_schema",
+    "tests.test_cursor_pagination",
+    "tests.test_decompose_instructor",
+    "tests.test_deployment_health",
+    "tests.test_deployment_migrations",
+    "tests.test_deployment_operations",
+    "tests.test_deployment_scripts",
+    "tests.test_document_commands_characterization",
+    "tests.test_document_deletion_jobs",
+    "tests.test_document_filename_slot",
+    "tests.test_document_processor_characterization",
+    "tests.test_document_service",
+    "tests.test_docx_archive_safety",
+    "tests.test_domain_access_control",
+    "tests.test_domain_coverage_gaps",
+    "tests.test_domain_entities",
+    "tests.test_domain_profiles",
+    "tests.test_domain_registry",
+    "tests.test_domain_settings_hotreload",
+    "tests.test_dynamic_ml_configuration",
+    "tests.test_dynamic_operational_settings",
+    "tests.test_evidence_applicability",
+    "tests.test_evidence_repairs",
+    "tests.test_exact_search_pagination",
+    "tests.test_file_storage_async",
+    "tests.test_fixed_generation_reading",
+    "tests.test_generation_completeness_reading",
+    "tests.test_grouped_benchmark_judge",
+    "tests.test_guardrails",
+    "tests.test_hybrid_search",
+    "tests.test_ingest_service_path_guard",
+    "tests.test_ingestion_acl_consistency",
+    "tests.test_ingestion_docx",
+    "tests.test_ingestion_domain_validation",
+    "tests.test_ingestion_markdown",
+    "tests.test_ingestion_new_features",
+    "tests.test_ingestion_parsers",
+    "tests.test_ingestion_service_pipeline",
+    "tests.test_ingestion_text",
+    "tests.test_ingestion_workflows",
+    "tests.test_injection_defense",
+    "tests.test_job_details",
+    "tests.test_judge_client_compatibility",
+    "tests.test_judge_metric_checkpoints",
+    "tests.test_judge_retry",
+    "tests.test_judge_truncation",
+    "tests.test_manual_chunk_versioning",
+    "tests.test_ml_clients_port",
+    "tests.test_paid_acceptance",
+    "tests.test_paid_transport",
+    "tests.test_pdf_ingestion",
+    "tests.test_pii_redactor_adapter",
+    "tests.test_postgres_config_listener",
+    "tests.test_preview_strategies",
+    "tests.test_procedure_evidence_experiment",
+    "tests.test_prompt_injection",
+    "tests.test_qdrant_ops_upload",
+    "tests.test_qdrant_retry",
+    "tests.test_rag_authoritative_access",
+    "tests.test_rag_improvements",
+    "tests.test_rag_logic",
+    "tests.test_rag_measurements",
+    "tests.test_rag_pipeline",
+    "tests.test_rag_policy",
+    "tests.test_rag_policy_characterization",
+    "tests.test_rag_retrieval",
+    "tests.test_rag_service_characterization",
+    "tests.test_rag_service_stream",
+    "tests.test_rate_limit_adapter",
+    "tests.test_rate_limit_dependency",
+    "tests.test_rate_limit_hotreload",
+    "tests.test_rate_limit_policies",
+    "tests.test_rate_limit_redis_integration",
+    "tests.test_rate_limit_route_coverage",
+    "tests.test_registry",
+    "tests.test_reingestion_consistency",
+    "tests.test_retrieval_acl",
+    "tests.test_retrieval_diversity",
+    "tests.test_retry",
+    "tests.test_review_bug_regressions",
+    "tests.test_review_contracts",
+    "tests.test_rtf_decree_parser",
+    "tests.test_rtf_walker",
+    "tests.test_s3_storage_async",
+    "tests.test_s3_storage_download",
+    "tests.test_saga_outbox",
+    "tests.test_saved_judge_calibration",
+    "tests.test_separate_semaphores",
+    "tests.test_solid_characterization",
+    "tests.test_solid_regressions",
+    "tests.test_storage_lifecycle",
+    "tests.test_structured_split",
+    "tests.test_sweep_modes",
+    "tests.test_sweep_modes_characterization",
+    "tests.test_sweep_phase_recovery",
+    "tests.test_sweep_reranking",
+    "tests.test_sweep_scope_filter",
+    "tests.test_sweep_scoring",
+    "tests.test_table_context",
+    "tests.test_temporal_retrieval",
+    "tests.test_temporal_versioning_regressions",
+    "tests.test_text_quality",
+    "tests.test_timeout_semaphore",
+    "tests.test_user_service",
+    "tests.test_validators",
+    "tests.test_worker_job_tracking",
+    "tests.test_worker_resource_lifecycle",
+    "tests.test_worker_sweep_lifecycle",
+    "tests.test_worker_task_registration",
+]
+ignore_errors = true
+
+[tool.importlinter]
+root_packages = ["domain", "application", "infrastructure", "presentation", "composition"]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "DDD layers: dependencies point downwards"
+type = "layers"
+layers = [
+    "composition",
+    "presentation | infrastructure",
+    "application",
+    "domain",
+]
+
+# Temporary exact legacy edges; other imports remain checked. See ../LINT_DEBT.md.
+ignore_imports = [
+    "infrastructure.worker.sweep -> composition.service_providers",
+    "infrastructure.worker.tasks -> composition.service_providers",
+    "presentation.api.dependencies -> composition.container",
+    "presentation.api.schemas.validators -> infrastructure.storage.docx_validation",
+    "presentation.cli.__main__ -> infrastructure.logging.logging_config",
+    "presentation.cli.commands.benchmark -> infrastructure.benchmark.legacy_import",
+    "presentation.cli.commands.benchmark -> infrastructure.database.database",
+    "presentation.cli.commands.benchmark -> infrastructure.storage.file_storage",
+    "presentation.cli.commands.benchmark -> infrastructure.uow_factory",
+    "presentation.cli.commands.config -> infrastructure.config_migration",
+    "presentation.cli.commands.config -> infrastructure.database.database",
+    "presentation.cli.commands.config -> infrastructure.uow_factory",
+    "presentation.cli.commands.ingest -> composition.infrastructure",
+    "presentation.cli.commands.ingest -> composition.service_providers",
+    "presentation.cli.commands.ingest -> infrastructure.database.database",
+    "presentation.cli.commands.ingest -> infrastructure.redis.redis_client",
+    "presentation.cli.commands.reconcile -> infrastructure.database.database",
+    "presentation.cli.commands.reconcile -> infrastructure.ml.clients.factories",
+    "presentation.cli.commands.worker -> composition.container",
+    "presentation.cli.commands.worker -> infrastructure",
+    "presentation.cli.commands.worker -> infrastructure.database.database",
+    "presentation.cli.commands.worker -> infrastructure.redis.redis_client",
+    "presentation.cli.commands.worker -> infrastructure.resilience.circuit_breaker",
+    "presentation.cli.commands.worker -> infrastructure.worker.checkpoint_cleanup",
+    "presentation.cli.commands.worker -> infrastructure.worker.document_deletion",
+    "presentation.cli.commands.worker -> infrastructure.worker.queue",
+    "presentation.cli.commands.worker -> infrastructure.worker.sweep",
+    "presentation.cli.commands.worker -> infrastructure.worker.tasks",
+]
+
+[[tool.importlinter.contracts]]
+name = "Domain is independent of frameworks and configuration"
+type = "forbidden"
+source_modules = ["domain"]
+forbidden_modules = [
+    "config", "fastapi", "starlette", "sqlalchemy", "pydantic", "pydantic_settings",
+    "httpx", "redis", "qdrant_client",
+]
+
+[[tool.importlinter.contracts]]
+name = "Application is independent of framework and client implementations"
+type = "forbidden"
+source_modules = ["application"]
+forbidden_modules = [
+    "config", "fastapi", "starlette", "sqlalchemy", "httpx", "redis", "qdrant_client",
+]
 
 # ---------------------------------------------------------------------------
 # Pytest
@@ -245,3 +897,62 @@ show_missing = true
 
 [tool.coverage.html]
 directory = ".coverage_report"
+
+[tool.deptry]
+known_first_party = ["application", "composition", "config", "domain", "infrastructure", "presentation", "shared"]
+extend_exclude = ["app/infrastructure/database/migrations", "tests", "tools", "scripts"]
+
+[tool.deptry.package_module_name_map]
+"surya-ocr" = "surya"
+
+[tool.deptry.per_rule_ignores]
+# CLI entry points, database/OCR backends, and FastAPI/Pydantic plugins.
+DEP002 = [
+    "uvicorn", "asyncpg", "alembic", "psycopg", "email-validator",
+    "paddlepaddle", "python-multipart", "torch",
+    # Temporary dependency debt; see ../LINT_DEBT.md.
+    "alembic_postgresql_enum", "python-dateutil",
+]   # используются неявно (запуск/драйвер)
+
+# Temporary transitive imports; remove when declared as direct dependencies.
+DEP003 = ["openai", "langchain_core", "numpy", "starlette"]
+
+# ----------------------------------------------------------------------------
+# vulture: мёртвый код
+# ----------------------------------------------------------------------------
+[tool.vulture]
+paths = ["app"]
+# Temporary exact legacy files; see ../LINT_DEBT.md.
+exclude = [
+    "app/infrastructure/database/migrations/",
+    "app/application/ports/base_uow.py",
+    "app/application/ports/ml_clients.py",
+    "app/application/ports/session_protocol.py",
+    "app/application/services/batch_ingestion.py",
+    "app/application/services/chunk_mutation_service.py",
+    "app/application/services/chunk_service.py",
+    "app/application/services/document_loader.py",
+    "app/application/services/sparse_index_builder.py",
+    "app/config.py",
+    "app/domain/services/access_control.py",
+    "app/infrastructure/benchmark/judge.py",
+    "app/infrastructure/benchmark/metrics.py",
+    "app/infrastructure/events/postgres_config_listener.py",
+    "app/infrastructure/events/postgres_outbox_listener.py",
+    "app/infrastructure/ml/clients/client_registry.py",
+    "app/infrastructure/ml/ingestion/splitting.py",
+    "app/presentation/api/schemas/admin_quality.py",
+]
+min_confidence = 80
+ignore_decorators = [
+    "@router.*",
+    "@app.*",
+    "@*.exception_handler",
+    "@*.on_event",
+    "@pydantic.*",
+    "@field_validator",
+    "@model_validator",
+    "@computed_field",
+    "@asynccontextmanager",
+]
+ignore_names = ["model_config", "model_post_init"]
