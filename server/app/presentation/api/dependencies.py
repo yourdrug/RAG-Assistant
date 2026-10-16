@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, TypeVar
 from fastapi import HTTPException, Request
 
 if TYPE_CHECKING:
-    from application.identity import AuthService
+    from application.identity import ApiKeyService, AuthService, UserManagementService
     from application.benchmark import BenchmarkResultService
     from application.benchmark import (
         BenchmarkQuestionService,
@@ -84,6 +84,16 @@ def create_chat_service(request: Request) -> ChatService:
 
 def create_auth_service(request: Request) -> AuthService:
     return _get_or_raise(_create_container(request).application.auth_service, "AuthService")
+
+
+def create_user_management_service(request: Request) -> UserManagementService:
+    return _get_or_raise(
+        _create_container(request).application.user_management_service, "UserManagementService"
+    )
+
+
+def create_api_key_service(request: Request) -> ApiKeyService:
+    return _get_or_raise(_create_container(request).application.api_key_service, "ApiKeyService")
 
 
 def create_document_command_service(request: Request) -> DocumentCommandService:

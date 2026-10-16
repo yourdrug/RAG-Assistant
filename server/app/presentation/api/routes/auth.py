@@ -1,16 +1,20 @@
-"""Auth endpoints — thin wrappers around AuthService."""
+"""Authentication and user administration endpoints."""
 
 from __future__ import annotations
 
 from application.identity import ChangeRoleCommand, CreateUserCommand, LoginCommand
 from application.ports.rate_limit import RateLimitPolicyName
-from application.identity import AuthService
+from application.identity import AuthService, UserManagementService
 from domain.value_objects.roles import UserKind, UserRole
 from fastapi import APIRouter, Depends, Query
 
 from presentation.api.auth_dependencies import get_current_user, require_admin
 from presentation.api.rate_limit import rate_limit
-from presentation.api.dependencies import create_action_logger, create_auth_service
+from presentation.api.dependencies import (
+    create_action_logger,
+    create_auth_service,
+    create_user_management_service,
+)
 from presentation.api.schemas import (
     ChangeRoleRequest,
     CreateUserRequest,
@@ -54,10 +58,10 @@ async def get_me(current_user: CurrentUser = Depends(get_current_user)):
 async def add_user(
     req: CreateUserRequest,
     admin: CurrentUser = Depends(require_admin),
-    auth_service: AuthService = Depends(create_auth_service),
+    user_service: UserManagementService = Depends(create_user_management_service),
     log=Depends(create_action_logger),
 ):
-    result = await auth_service.create_user(
+    result = await user_service.create_user(
         CreateUserCommand(
             email=req.email,
             password=req.password,
@@ -73,12 +77,12 @@ async def add_user(
 @router.get("/users", response_model=UserListResponse)
 async def list_all_users(
     admin: CurrentUser = Depends(require_admin),
-    auth_service: AuthService = Depends(create_auth_service),
+    user_service: UserManagementService = Depends(create_user_management_service),
     log=Depends(create_action_logger),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ):
-    users, total = await auth_service.list_users(limit=limit, offset=offset)
+    users, total = await user_service.list_users(limit=limit, offset=offset)
     log("user.list", user_id=admin.id, details={"limit": limit, "offset": offset})
     response_users = [
         UserResponse(id=u.id, email=u.email, role=u.role, kind=u.kind, is_active=u.is_active) for u in users
@@ -95,10 +99,10 @@ async def toggle_user_active(
     user_id: int,
     is_active: bool,
     admin: CurrentUser = Depends(require_admin),
-    auth_service: AuthService = Depends(create_auth_service),
+    user_service: UserManagementService = Depends(create_user_management_service),
     log=Depends(create_action_logger),
 ):
-    result = await auth_service.toggle_active(user_id, is_active=is_active, admin_id=admin.id)
+    result = await user_service.toggle_active(user_id, is_active=is_active, admin_id=admin.id)
     log("user.toggle_active", user_id=admin.id, details={"target_user": user_id, "is_active": is_active})
     return UserToggleResponse(id=result.id, is_active=result.is_active)
 
@@ -112,10 +116,10 @@ async def change_user_role(
     user_id: int,
     body: ChangeRoleRequest,
     admin: CurrentUser = Depends(require_admin),
-    auth_service: AuthService = Depends(create_auth_service),
+    user_service: UserManagementService = Depends(create_user_management_service),
     log=Depends(create_action_logger),
 ):
-    result = await auth_service.change_role(
+    result = await user_service.change_role(
         ChangeRoleCommand(user_id=user_id, new_role=body.role),
         admin_id=admin.id,
     )

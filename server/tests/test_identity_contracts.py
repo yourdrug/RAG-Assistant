@@ -9,11 +9,12 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from application.identity import (
+    ApiKeyService,
     AssignmentService,
-    AuthService,
     ChangeRoleCommand,
     GroupService,
     UserContextFactory,
+    UserManagementService,
 )
 from domain.entities.user import User
 from domain.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
@@ -142,7 +143,7 @@ async def test_group_membership_accepts_only_internal_users(kind: UserKind) -> N
 async def test_downgrading_curator_clears_assignments() -> None:
     factory, uow = transaction()
     uow.users.get_by_id.return_value = User(id=1, email="curator@example.test", role=UserRole.CURATOR)
-    service = AuthService(factory, AsyncMock(), Mock(), AsyncMock())
+    service = UserManagementService(factory, AsyncMock())
 
     result = await service.change_role(ChangeRoleCommand(1, UserRole.USER), admin_id=2)
 
@@ -156,7 +157,7 @@ async def test_downgrading_curator_clears_assignments() -> None:
 async def test_api_key_invalidation_requires_successful_commit(outcome: str) -> None:
     factory, uow = transaction()
     provider = AsyncMock()
-    service = AuthService(factory, AsyncMock(), Mock(), provider)
+    service = ApiKeyService(factory, provider)
     events = []
 
     async def exit_transaction(*_args: object) -> bool:
@@ -191,7 +192,7 @@ async def test_api_key_invalidation_requires_successful_commit(outcome: str) -> 
 async def test_listing_api_key_without_persisted_id_fails() -> None:
     factory, uow = transaction()
     uow.api_keys.list_for_user.return_value = [SimpleNamespace(id=None)]
-    service = AuthService(factory, AsyncMock(), Mock(), AsyncMock())
+    service = ApiKeyService(factory, AsyncMock())
     with pytest.raises(RuntimeError, match="ApiKey id is None"):
         await service.list_api_keys(1)
 

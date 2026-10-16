@@ -14,6 +14,7 @@ from presentation.api.auth_dependencies import get_current_user
 from presentation.api.dependencies import (
     create_api_key_provider,
     create_auth_service,
+    create_api_key_service,
     create_benchmark_question_service,
 )
 from presentation.api.exception_handlers import handle_client_exception
@@ -29,6 +30,7 @@ def test_dataset_catalog_requires_admin(role):
     app.include_router(router)
     app.add_exception_handler(ClientException, handle_client_exception)
     app.dependency_overrides[create_auth_service] = lambda: None
+    app.dependency_overrides[create_api_key_service] = lambda: None
     app.dependency_overrides[create_api_key_provider] = lambda: None
     app.dependency_overrides[create_benchmark_question_service] = lambda: service
     if role is not None:

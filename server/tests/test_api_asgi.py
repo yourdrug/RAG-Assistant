@@ -29,6 +29,7 @@ async def asgi_client():
     app.dependency_overrides[deps.create_rate_limiter] = lambda: None
     app.dependency_overrides[deps.create_action_logger] = lambda: MagicMock()
     app.dependency_overrides[deps.create_auth_service] = lambda: MagicMock()
+    app.dependency_overrides[deps.create_api_key_service] = lambda: MagicMock()
     app.dependency_overrides[deps.create_api_key_provider] = lambda: MagicMock()
     transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
     try:

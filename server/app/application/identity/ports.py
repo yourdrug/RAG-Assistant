@@ -1,6 +1,6 @@
 """ApiKeyProvider port — abstract interface for API key operations.
 
-Lives in the application layer so that auth_service depends on a port,
+Lives in the application layer so that ApiKeyService depends on a port,
 not on the concrete Redis-backed implementation.
 """
 

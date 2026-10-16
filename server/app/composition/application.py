@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-from application.identity import AssignmentService, AuthService, GroupService
+from application.identity import (
+    ApiKeyService,
+    AssignmentService,
+    AuthService,
+    GroupService,
+    UserManagementService,
+)
 from application.admin import ConfigAdminService, ConfigService
 from application.benchmark import (
     BenchmarkExportService,
@@ -61,6 +67,8 @@ class ApplicationContainer:
     rag_service: RagService | None = field(default=None)
     chat_service: ChatService | None = field(default=None)
     auth_service: AuthService | None = field(default=None)
+    user_management_service: UserManagementService | None = field(default=None)
+    api_key_service: ApiKeyService | None = field(default=None)
     document_command_service: "DocumentCommandService | None" = field(default=None)
     document_query_service: "DocumentQueryService | None" = field(default=None)
     document_deletion_jobs: "DocumentDeletionJobs | None" = field(default=None)
@@ -168,12 +176,14 @@ class ApplicationContainer:
             conversation_service=self.conversation_service,
             pii_redactor=pii_redactor,
         )
+        password_hasher = BCryptPasswordHasher()
         self.auth_service = AuthService(
             uow_factory=uow,
-            password_hasher=BCryptPasswordHasher(),
+            password_hasher=password_hasher,
             token_provider=JWTProvider(),
-            api_key_provider=api_key_provider,
         )
+        self.user_management_service = UserManagementService(uow, password_hasher)
+        self.api_key_service = ApiKeyService(uow, api_key_provider)
         self.document_command_service = DocumentCommandService(
             uow_factory=uow,
             vector_store_repo=vsr,

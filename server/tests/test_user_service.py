@@ -1,4 +1,4 @@
-"""Tests for application/services/auth_service.py -- authentication, user creation, toggle.
+"""Tests for identity authentication and user management.
 
 Tests the application service with mocked UoW factory.
 """
@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 import pytest  # noqa: E402
 from application.identity import CreateUserCommand, LoginCommand  # noqa: E402
-from application.identity import AuthService  # noqa: E402
+from application.identity import AuthService, UserManagementService  # noqa: E402
 from domain.entities.user import User  # noqa: E402
 from domain.exceptions import BusinessRuleViolation, ValidationError  # noqa: E402
 from domain.value_objects.roles import UserKind, UserRole  # noqa: E402
@@ -39,8 +39,13 @@ def auth_service():
         uow_factory=uow_factory,
         password_hasher=hasher,
         token_provider=token_provider,
-        api_key_provider=MagicMock(),
     ), uow
+
+
+@pytest.fixture
+def user_service(auth_service):
+    service, uow = auth_service
+    return UserManagementService(service._uow_factory, service._hasher), uow
 
 
 # ---------------------------------------------------------------------------
@@ -83,6 +88,11 @@ class TestAuthenticate:
 
         with pytest.raises(ValidationError, match="Invalid email or password"):
             await service.authenticate(LoginCommand(email="inactive@test.com", password="password"))
+        service._hasher.verify.assert_awaited_once()
+        password, dummy_hash = service._hasher.verify.await_args.args
+        assert password == "password"
+        assert dummy_hash.startswith("$2b$")
+        service._tokens.create_token.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_unknown_email_raises(self, auth_service):
@@ -91,6 +101,11 @@ class TestAuthenticate:
 
         with pytest.raises(ValidationError, match="Invalid email or password"):
             await service.authenticate(LoginCommand(email="nobody@test.com", password="password"))
+        service._hasher.verify.assert_awaited_once()
+        password, dummy_hash = service._hasher.verify.await_args.args
+        assert password == "password"
+        assert dummy_hash.startswith("$2b$")
+        service._tokens.create_token.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -100,8 +115,8 @@ class TestAuthenticate:
 
 class TestCreateUser:
     @pytest.mark.asyncio
-    async def test_successful_creation(self, auth_service):
-        service, uow = auth_service
+    async def test_successful_creation(self, user_service):
+        service, uow = user_service
         uow.users.get_by_email.return_value = None
         saved = User(id=1, email="new@test.com", role=UserRole.USER, kind=UserKind.INTERNAL)
         uow.users.save.return_value = saved
@@ -112,8 +127,8 @@ class TestCreateUser:
         assert result.id == 1
 
     @pytest.mark.asyncio
-    async def test_invalid_role_raises(self, auth_service):
-        service, uow = auth_service
+    async def test_invalid_role_raises(self, user_service):
+        service, uow = user_service
         with pytest.raises(ValidationError):
             await service.create_user(
                 CreateUserCommand(email="x@x.com", password="pw", role="superadmin", kind="internal")
@@ -127,8 +142,8 @@ class TestCreateUser:
 
 class TestListUsers:
     @pytest.mark.asyncio
-    async def test_delegates_to_use_case(self, auth_service):
-        service, uow = auth_service
+    async def test_delegates_to_use_case(self, user_service):
+        service, uow = user_service
         user = User(id=1, email="a@test.com", role=UserRole.USER, kind=UserKind.INTERNAL)
         uow.users.list_all.return_value = [user]
         uow.users.count_all.return_value = 1
@@ -145,8 +160,8 @@ class TestListUsers:
 
 class TestToggleActive:
     @pytest.mark.asyncio
-    async def test_deactivate_user(self, auth_service):
-        service, uow = auth_service
+    async def test_deactivate_user(self, user_service):
+        service, uow = user_service
         user = User(id=5, email="u@test.com", role=UserRole.USER, kind=UserKind.INTERNAL)
         uow.users.get_by_id.return_value = user
 
@@ -154,8 +169,8 @@ class TestToggleActive:
         assert result.is_active is False
 
     @pytest.mark.asyncio
-    async def test_cannot_deactivate_self(self, auth_service):
-        service, uow = auth_service
+    async def test_cannot_deactivate_self(self, user_service):
+        service, uow = user_service
         user = User(id=1, email="admin@test.com", role=UserRole.ADMIN, kind=UserKind.INTERNAL)
         uow.users.get_by_id.return_value = user
 

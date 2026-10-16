@@ -4,14 +4,14 @@
   - "Bearer <jwt>"    — internal-пользователи, JWT.
   - "Api-Key <key>"   — ТОЛЬКО внешние (kind='client') пользователи, статический ключ.
 
-Uses AuthService for user lookups — no direct UoW access.
+Uses identity services for authentication lookups — no direct UoW access.
 """
 
 from __future__ import annotations
 
 import jwt as _jwt
 from application.budget import billing_principal
-from application.identity import AuthService
+from application.identity import ApiKeyService, AuthService
 from domain.exceptions import AuthenticationError, PermissionDeniedError
 from domain.value_objects.capabilities import Capability, get_role_capabilities
 from domain.value_objects.roles import UserRole
@@ -19,7 +19,7 @@ from fastapi import Depends
 from fastapi.security import APIKeyHeader
 
 from presentation.api.constants import AUTH_SCHEME_API_KEY, AUTH_SCHEME_BEARER
-from presentation.api.dependencies import create_api_key_provider, create_auth_service
+from presentation.api.dependencies import create_api_key_provider, create_api_key_service, create_auth_service
 from presentation.api.schemas import CurrentUser
 
 auth_key_header = APIKeyHeader(
@@ -49,16 +49,18 @@ async def _authenticate_via_jwt(token: str, auth_service: AuthService) -> Curren
     )
 
 
-async def _authenticate_via_api_key(raw_key: str, auth_service: AuthService, api_key_provider) -> CurrentUser:
+async def authenticate_via_api_key(
+    raw_key: str, api_key_service: ApiKeyService, api_key_provider
+) -> CurrentUser:
     key_hash = api_key_provider.hash_key(raw_key)
     cached = await api_key_provider.get_cached(key_hash)
 
     if cached is api_key_provider.MISS:
-        result = await auth_service.get_user_by_api_key_hash(key_hash)
+        result = await api_key_service.get_user_by_api_key_hash(key_hash)
         cache_value = result
         await api_key_provider.set_cached(key_hash, cache_value)
         if result is not None:
-            await auth_service.touch_api_key_last_used(result.api_key_id)
+            await api_key_service.touch_api_key_last_used(result.api_key_id)
     else:
         result = cached
 
@@ -86,6 +88,7 @@ async def get_current_user(
     authorization: str | None = Depends(auth_key_header),
     auth_service: AuthService = Depends(create_auth_service),
     api_key_provider=Depends(create_api_key_provider),
+    api_key_service: ApiKeyService = Depends(create_api_key_service),
 ) -> CurrentUser:
     if authorization is None:
         raise AuthenticationError("Not authenticated")
@@ -102,7 +105,7 @@ async def get_current_user(
         return user
 
     if scheme.lower() == AUTH_SCHEME_API_KEY:
-        user = await _authenticate_via_api_key(credentials, auth_service, api_key_provider)
+        user = await authenticate_via_api_key(credentials, api_key_service, api_key_provider)
         billing_principal.set(f"user:{user.id}")
         return user
 
