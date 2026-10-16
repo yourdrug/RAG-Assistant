@@ -2,7 +2,23 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Protocol, TypedDict, Unpack
+
+
+class DocumentProcessingOptions(TypedDict, total=False):
+    doc_domain: str | None
+    principal_id: int | None
+
+
+class DocumentProcessingRequest(DocumentProcessingOptions):
+    document_id: int
+    storage_key: str
+    filename: str
+    visibility: str
+    owner_id: int | None
+    group_id: int | None
+    replace_id: int | None
+    job_id: int
 
 
 class JobEnqueuerPort(Protocol):
@@ -10,20 +26,7 @@ class JobEnqueuerPort(Protocol):
 
     async def enqueue_document_deletion(self, *, document_id: int, user_id: int, job_id: int) -> None: ...
 
-    async def enqueue_document_processing(
-        self,
-        *,
-        document_id: int,
-        storage_key: str,
-        filename: str,
-        visibility: str,
-        owner_id: int | None,
-        group_id: int | None,
-        replace_id: int | None,
-        job_id: int,
-        doc_domain: str | None = None,
-        principal_id: int | None = None,
-    ) -> None: ...
+    async def enqueue_document_processing(self, **kwargs: Unpack[DocumentProcessingRequest]) -> None: ...
 
     async def enqueue_ingest(
         self,

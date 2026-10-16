@@ -333,9 +333,6 @@ ignore_errors = true
 # Temporary file-specific mypy baseline, 2026-10-16. See ../LINT_DEBT.md.
 [[tool.mypy.overrides]]
 module = [
-    "application.ports.pdf_diagnostics",
-    "application.services.job_service",
-    "application.services.quality_service",
     "composition.application",
     "composition.infrastructure",
     "composition.service_providers",
@@ -1020,7 +1017,6 @@ paths = ["app"]
 # Temporary exact legacy files; see ../LINT_DEBT.md.
 exclude = [
     "app/infrastructure/database/migrations/",
-    "app/application/ports/ml_clients.py",
     "app/config.py",
     "app/domain/services/access_control.py",
     "app/infrastructure/benchmark/judge.py",

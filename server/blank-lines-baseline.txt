@@ -1,9 +1,4 @@
 # Temporary file-specific baseline, 2026-10-16. See ../LINT_DEBT.md.
-app/application/services/health_service.py
-app/application/services/job_service.py
-app/application/services/metrics_service.py
-app/application/services/pdf_diagnostic_service.py
-app/application/services/quality_service.py
 app/composition/application.py
 app/composition/container.py
 app/composition/infrastructure.py

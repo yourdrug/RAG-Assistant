@@ -3,15 +3,23 @@
 from __future__ import annotations
 
 import asyncio
-from domain.value_objects.ml_provider import MLProvider
 from dataclasses import dataclass, field
+import logging
+from typing import TYPE_CHECKING
 
+from application.ports.health import HealthCheckResult
 from domain.value_objects.health_status import HealthStatus
+from domain.value_objects.ml_provider import MLProvider
 
-from application.admin import CorpusControlPort, ProviderConfigurationPort
-from application.ports.health import ConfigListenerProviderPort, HealthCheckResult, HealthProbePort
-from application.ports.health_settings import HealthSettingsPort
-from application.ports.unit_of_work_factory import UnitOfWorkFactory
+
+if TYPE_CHECKING:
+    from application.admin import CorpusControlPort, ProviderConfigurationPort
+    from application.ports.health import ConfigListenerProviderPort, HealthProbePort
+    from application.ports.health_settings import HealthSettingsPort
+    from application.ports.unit_of_work_factory import UnitOfWorkFactory
+
+
+logger = logging.getLogger("default")
 
 
 @dataclass(frozen=True)
@@ -31,6 +39,7 @@ class HealthService:
         probe: HealthProbePort,
         config_listener_provider: ConfigListenerProviderPort,
         health_settings: HealthSettingsPort,
+        *,
         configuration: ProviderConfigurationPort | None = None,
         corpus_control: CorpusControlPort | None = None,
     ) -> None:
@@ -48,9 +57,10 @@ class HealthService:
         ml_checks = (
             await self._probe.check_tei() if self._settings.ml_provider == MLProvider.TEI.value else {}
         )
-        active_jobs = await self._count_active_jobs()
+        active_jobs = await self.count_active_jobs()
 
         llm_provider = self._settings.llm_provider
+
         if llm_provider == "openrouter":
             llm_check = await self._probe.check_openrouter()
         else:
@@ -81,6 +91,7 @@ class HealthService:
             corpus_status,
             *ml_checks.values(),
         )
+
         if any(c.status.startswith("error") for c in error_checks):
             overall = HealthStatus.DEGRADED.value
 
@@ -103,9 +114,10 @@ class HealthService:
             background_jobs={"running": active_jobs},
         )
 
-    async def _count_active_jobs(self) -> int:
+    async def count_active_jobs(self) -> int:
         try:
             async with self._uow_factory.create() as uow:
                 return await uow.background_jobs.count_active()
         except Exception:
+            logger.exception("Failed to count active background jobs during health check")
             return 0

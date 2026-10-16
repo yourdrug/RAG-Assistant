@@ -307,17 +307,19 @@ baseline-исключений и подавлений линтеров не до
 
 | Проверка | Остаток |
 |---|---|
-| Ruff | 11 файлов: пять сервисов и шесть портов, перечисленных ниже |
-| mypy | `ports.pdf_diagnostics`, `services.job_service`, `services.quality_service` |
+| Ruff | Исключений для `application/` нет |
+| mypy | Исключений для `application/` нет |
 | Пустые строки | `services/health_service.py`, `job_service.py`, `metrics_service.py`, `pdf_diagnostic_service.py`, `quality_service.py` |
 | vulture | `ports/ml_clients.py` |
 | Ruff format | Исключений для `application/` нет |
 
-Ruff-исключения остаются для сервисов `health_service.py`, `job_service.py`,
-`metrics_service.py`, `pdf_diagnostic_service.py`, `quality_service.py` и портов
-`event_bus.py`, `file_storage.py`, `job_enqueuer.py`, `ml_clients.py`,
-`pdf_diagnostics.py`, `sparse_index.py`. Эти числа обозначают файлы с исключениями,
-а не количество оставшихся диагностик; повторный замер без baseline не выполнялся.
+Ruff-исключения оставшихся пяти сервисов и шести портов удалены после исправления
+импортов, аннотаций и сложности методов. Удалены три mypy-исключения для
+`ports.pdf_diagnostics`, `services.job_service`, `services.quality_service`.
+Новых подавлений нет. Прошёл 81 целевой тест, включая семь новых проверок
+PDF-рекомендаций и агрегации метрик. Все семь проверок из `task lint` выполнены
+напрямую и прошли; mypy проверил 855 файлов. Выполнен `uv lock --offline`,
+содержимое lock-файла не изменилось. Полный pytest и внешние интеграции не запускались.
 
 Перечисленный остаток относится только к `application/`. Исключения остальных слоёв
 и общие временные исключения import-linter/deptry остаются в соответствующих конфигурациях.

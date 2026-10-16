@@ -210,8 +210,9 @@ HTTP-тесты выполнены вне sandbox после зависания 
 
 ### Остаток общей цели — очистка всего `application/`
 
-- [ ] Снять оставшиеся Ruff-исключения пяти сервисов (`health`, `job`, `metrics`, `pdf_diagnostic`, `quality`) и шести общих портов (`event_bus`, `file_storage`, `job_enqueuer`, `ml_clients`, `pdf_diagnostics`, `sparse_index`).
-- [ ] Снять оставшиеся три mypy-исключения (`ports.pdf_diagnostics`, `services.job_service`, `services.quality_service`), пять исключений проверки пустых строк для перечисленных сервисов и vulture-исключение `ports/ml_clients.py`.
+- [x] Снять оставшиеся Ruff-исключения пяти сервисов (`health`, `job`, `metrics`, `pdf_diagnostic`, `quality`) и шести общих портов (`event_bus`, `file_storage`, `job_enqueuer`, `ml_clients`, `pdf_diagnostics`, `sparse_index`).
+- [x] Снять оставшиеся три mypy-исключения (`ports.pdf_diagnostics`, `services.job_service`, `services.quality_service`).
+- [ ] Снять пять исключений проверки пустых строк для перечисленных сервисов и vulture-исключение `ports/ml_clients.py`.
 
-Исключений Ruff format для `application/` уже нет. Зелёный линт учитывает оставшийся
+Исключений Ruff, mypy и Ruff format для `application/` больше нет. Зелёный линт учитывает оставшийся
 baseline; общая цель полной очистки слоя ещё не завершена. Актуальный перечень — в `LINT_DEBT.md`.

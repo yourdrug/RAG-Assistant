@@ -3,22 +3,33 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from dataclasses import dataclass, field
-from pathlib import Path
+import logging
+from typing import TYPE_CHECKING
 
-from domain.value_objects.pdf_dto import DryRunPageResult
-from application.ports.pdf_diagnostics import (
-    PDFDocumentPort,
-    PDFOcrPort,
-    PDFPageClassifierPort,
-    PDFStoragePort,
-    PDFTextCleanerPort,
-)
-from application.documents import PreviewCache
 from domain.value_objects.page_content_type import PageContentType
+from domain.value_objects.pdf_dto import DryRunPageResult
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from application.documents import PreviewCache
+    from application.ports.pdf_diagnostics import (
+        PDFDocumentPort,
+        PDFOcrPort,
+        PDFPageClassifierPort,
+        PDFStoragePort,
+        PDFTextCleanerPort,
+    )
+
 
 logger = logging.getLogger("default")
+
+GOOD_BAD_PAGE_RATIO = 0.10
+TAIL_BAD_PAGE_RATIO = 0.50
+TARGETED_OCR_BAD_PAGE_RATIO = 0.15
+MAX_SUGGESTED_PAGES = 10
 
 
 @dataclass(frozen=True)
@@ -61,11 +72,11 @@ class PDFDiagnosticService:
     async def diagnose_document(self, document_id: int, source_path: str) -> DocumentDiagnoseResult | None:
         temp_path = await self._storage.download_to_temp(source_path)
         try:
-            return await asyncio.to_thread(self._diagnose_sync, document_id, source_path, temp_path)
+            return await asyncio.to_thread(self.diagnose_sync, document_id, source_path, temp_path)
         finally:
             temp_path.unlink(missing_ok=True)
 
-    def _diagnose_sync(self, document_id: int, source_path: str, temp_path: Path) -> DocumentDiagnoseResult:
+    def diagnose_sync(self, document_id: int, source_path: str, temp_path: Path) -> DocumentDiagnoseResult:
         doc = self._pdf.open(str(temp_path))
         total_pages = self._pdf.get_page_count(doc)
         page_diagnostics = []
@@ -108,10 +119,12 @@ class PDFDiagnosticService:
             chars = len(raw_text.strip())
 
             has_table = False
+
             if page is not None:
                 has_table = self._pdf.find_tables(page)
 
             ptype: str
+
             if has_table:
                 ptype = PageContentType.TABLE
             else:
@@ -129,7 +142,7 @@ class PDFDiagnosticService:
                     content_type=PageContentType.TABLE if has_table else PageContentType.TEXT,
                     chars=chars,
                     preview=cleaned[:200] if cleaned else raw_text[:200],
-                    full_text=cleaned if cleaned else raw_text,
+                    full_text=cleaned or raw_text,
                 )
             )
 
@@ -142,6 +155,7 @@ class PDFDiagnosticService:
         problem_pages = [
             p.page for p in page_results if p.type in (PageContentType.SCAN, PageContentType.EMPTY)
         ]
+
         if not problem_pages:
             return page_results, {}, 0
 
@@ -152,11 +166,15 @@ class PDFDiagnosticService:
         new_types = PageContentType.empty_counts()
         total_chars = 0
 
-        for pr in page_results:
+        for original_page in page_results:
+            pr = original_page
+
             if pr.page in ocr_results:
                 ocr_text = ocr_results[pr.page]
+
                 if ocr_text:
                     ocr_text = self._cleaner.clean(ocr_text)
+
                     if ocr_text:
                         pr = DryRunPageResult(
                             page=pr.page,
@@ -196,6 +214,7 @@ class PDFDiagnosticService:
     @staticmethod
     def suggest_action(page_results: list[DryRunPageResult], types_count: dict[str, int]) -> str:
         total = len(page_results)
+
         if total == 0:
             return "Документ пуст или не удалось извлечь данные."
 
@@ -207,7 +226,7 @@ class PDFDiagnosticService:
         scan_count = types_count.get(PageContentType.SCAN, 0)
         garbled_count = types_count.get(PageContentType.GARBLED, 0)
 
-        if bad_ratio <= 0.10:
+        if bad_ratio <= GOOD_BAD_PAGE_RATIO:
             return (
                 "Качество хорошее — можно индексировать без дополнительных действий. "
                 f"({bad_count} проблемных из {total} страниц)"
@@ -215,27 +234,32 @@ class PDFDiagnosticService:
 
         if garbled_count > scan_count and garbled_count > 0:
             return (
-                "Проблема не в сканировании, а в кодировке или шрифте исходного PDF — "
+                "Причина проблемы: кодировка или шрифт исходного PDF — "
                 "OCR может не помочь. Попробуйте пересохранить документ из источника."
             )
 
+        return PDFDiagnosticService.suggest_ocr_action(bad_pages, bad_ratio, total)
+
+    @staticmethod
+    def suggest_ocr_action(bad_pages: list[DryRunPageResult], bad_ratio: float, total: int) -> str:
+        bad_count = len(bad_pages)
         bad_pages_sorted = sorted(bad_pages, key=lambda p: p.page)
         last_bad = bad_pages_sorted[-1].page
         tail_from = last_bad - bad_count + 1
         is_tail = all(p.page >= tail_from for p in bad_pages_sorted)
 
-        if is_tail and bad_ratio <= 0.50:
+        if is_tail and bad_ratio <= TAIL_BAD_PAGE_RATIO:
             return (
-                f"Похоже, начиная со страницы {tail_from} документ представляет собой скан. "
+                f"Похоже, начиная от страницы {tail_from} документ представляет собой скан. "
                 f"Рекомендуется переконвертировать файл целиком или прогнать OCR по всему хвосту "
                 f"({bad_count} страниц из {total})."
             )
 
-        if bad_ratio <= 0.15:
+        if bad_ratio <= TARGETED_OCR_BAD_PAGE_RATIO:
             return (
                 f"Документ в целом хороший. Рекомендуется точечный OCR по {bad_count} "
-                f"страницам: {', '.join(f'p.{p.page}' for p in bad_pages_sorted[:10])}"
-                + ("..." if bad_count > 10 else "")
+                f"страницам: {', '.join(f'p.{p.page}' for p in bad_pages_sorted[:MAX_SUGGESTED_PAGES])}"
+                + ("..." if bad_count > MAX_SUGGESTED_PAGES else "")
             )
 
         return (

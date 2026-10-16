@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
-from application.ports.metrics_registry import MetricsRegistryPort
+
+if TYPE_CHECKING:
+    from application.ports.metrics_registry import MetricsRegistryPort
 
 
 @dataclass(frozen=True)
@@ -27,6 +30,7 @@ class MetricsService:
 
         # Database pool
         db_pool = {}
+
         for name in ["db_pool_connections_in_use", "db_pool_connections_idle", "db_pool_overflow"]:
             vals = reg.collect_gauge(name)
             db_pool[name.replace("db_pool_", "")] = sum(vals.values()) if vals else 0.0
@@ -42,6 +46,7 @@ class MetricsService:
         # Ollama GPU/RAM
         ollama = []
         gpu_vals = reg.collect_gauge("ollama_gpu_memory_bytes")
+
         for model, gpu_bytes in gpu_vals.items():
             ollama.append(
                 {
@@ -50,19 +55,7 @@ class MetricsService:
                 }
             )
 
-        # RAG metrics
-        rag_queries = reg.collect_counter("rag_queries")
-        rag_latency = reg.collect_histogram("rag_stage_duration_seconds")
-        rag_answer_len = reg.collect_histogram("rag_answer_length_chars")
-        rag_chunks = reg.collect_histogram("rag_retrieved_chunks")
-        rag_not_found = reg.collect_counter("rag_not_found")
-        rag: dict[str, object] = {
-            "queries_total": sum(rag_queries.values()) if rag_queries else 0.0,
-            "not_found_total": sum(rag_not_found.values()) if rag_not_found else 0.0,
-            "stage_latency": rag_latency,
-            "answer_length": rag_answer_len,
-            "retrieved_chunks": rag_chunks,
-        }
+        rag = self.collect_rag()
 
         # Ingestion metrics
         ingest_docs = reg.collect_counter("ingest_documents")
@@ -83,13 +76,12 @@ class MetricsService:
 
         # Per-status breakdown
         ingest_by_status: dict[str, float] = {}
+
         for key, val in ingest_docs.items():
             parts = key.split("_")
-            if len(parts) >= 2:
-                status = parts[-1]
-            else:
-                status = key
+            status = parts[-1] if "_" in key else key
             ingest_by_status[status] = val
+
         ingestion["by_status"] = ingest_by_status
 
         # HTTP requests
@@ -109,3 +101,21 @@ class MetricsService:
             ingestion=ingestion,
             http_requests=http_requests,
         )
+
+    def collect_rag(self) -> dict[str, object]:
+        reg = self._registry
+        # RAG metrics
+        rag_queries = reg.collect_counter("rag_queries")
+        rag_latency = reg.collect_histogram("rag_stage_duration_seconds")
+        rag_answer_len = reg.collect_histogram("rag_answer_length_chars")
+        rag_chunks = reg.collect_histogram("rag_retrieved_chunks")
+        rag_not_found = reg.collect_counter("rag_not_found")
+        rag: dict[str, object] = {
+            "queries_total": sum(rag_queries.values()) if rag_queries else 0.0,
+            "not_found_total": sum(rag_not_found.values()) if rag_not_found else 0.0,
+            "stage_latency": rag_latency,
+            "answer_length": rag_answer_len,
+            "retrieved_chunks": rag_chunks,
+        }
+
+        return rag
