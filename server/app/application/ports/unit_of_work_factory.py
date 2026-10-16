@@ -1,17 +1,6 @@
-"""UnitOfWorkFactory port -- application-layer abstraction for creating UnitOfWork instances.
+"""Compatibility export for the canonical application.uow contract."""
 
-Concrete implementations (SQLAlchemy-backed) live in ``infrastructure.uow_factory``.
-The ``master=True`` flag selects the write session for mutations that must
-bypass read replicas.
-"""
-
-from __future__ import annotations
-
-from typing import AsyncContextManager, Protocol, runtime_checkable
-
-from application.uow import UnitOfWork
+from application.uow.factory import UnitOfWorkFactory
 
 
-@runtime_checkable
-class UnitOfWorkFactory(Protocol):
-    def create(self, master: bool = False) -> AsyncContextManager[UnitOfWork]: ...
+__all__ = ["UnitOfWorkFactory"]

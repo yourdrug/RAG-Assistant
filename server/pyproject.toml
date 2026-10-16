@@ -345,7 +345,6 @@ module = [
     "application.ports.cost_budget",
     "application.ports.document_processing",
     "application.ports.pdf_diagnostics",
-    "application.ports.session_protocol",
     "application.services.act_versioning_service",
     "application.services.assignment_service",
     "application.services.auth_service",
@@ -855,6 +854,15 @@ forbidden_modules = [
     "config", "fastapi", "starlette", "sqlalchemy", "httpx", "redis", "qdrant_client",
 ]
 
+[[tool.importlinter.contracts]]
+name = "UoW is independent of legacy application modules and implementations"
+type = "forbidden"
+source_modules = ["application.uow"]
+forbidden_modules = [
+    "application.services", "application.dto", "application.ports",
+    "infrastructure", "presentation", "composition",
+]
+
 # ---------------------------------------------------------------------------
 # Pytest
 # ---------------------------------------------------------------------------
@@ -925,9 +933,7 @@ paths = ["app"]
 # Temporary exact legacy files; see ../LINT_DEBT.md.
 exclude = [
     "app/infrastructure/database/migrations/",
-    "app/application/ports/base_uow.py",
     "app/application/ports/ml_clients.py",
-    "app/application/ports/session_protocol.py",
     "app/application/services/batch_ingestion.py",
     "app/application/services/chunk_mutation_service.py",
     "app/application/services/chunk_service.py",

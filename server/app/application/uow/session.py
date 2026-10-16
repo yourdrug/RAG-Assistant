@@ -1,0 +1,19 @@
+"""Async Session Protocol -- abstract database session interface.
+
+Defines the ``SessionProtocol`` that both real SQLAlchemy ``AsyncSession``
+and test mock sessions must satisfy.  Lives in the application layer so that
+neither domain nor application depend on concrete infrastructure types.
+"""
+
+from __future__ import annotations
+
+from typing import Protocol, runtime_checkable
+
+
+@runtime_checkable
+class SessionProtocol(Protocol):
+    """Transaction lifecycle required by a Unit of Work."""
+
+    async def commit(self) -> None: ...
+    async def rollback(self) -> None: ...
+    async def close(self) -> None: ...

@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from application.uow import UnitOfWork
+from application.uow import UnitOfWork, UnitOfWorkRepositories
 
 from infrastructure.database.database import DatabaseManager
 from infrastructure.repositories.user.sqlalchemy_api_key_repository import (
@@ -80,28 +80,30 @@ class UnitOfWorkFactory:
         self._config_broadcaster = config_broadcaster
 
     @asynccontextmanager
-    async def create(self, master: bool = False) -> AsyncGenerator[UnitOfWork, None]:
+    async def create(self, *, master: bool = False) -> AsyncGenerator[UnitOfWork, None]:
         session = self._database.get_session(master=master)
         uow = UnitOfWork(
             session=session,
-            users=SQLAlchemyUserRepository(session),
-            conversations=SQLAlchemyConversationRepository(session),
-            messages=SQLAlchemyMessageRepository(session),
-            documents=SQLAlchemyDocumentRepository(session),
-            chunks=SQLAlchemyChunkRepository(session),
-            groups=SQLAlchemyGroupRepository(session),
-            api_keys=SQLAlchemyApiKeyRepository(session),
-            config_parameters=SQLAlchemyConfigParameterRepository(session),
-            background_jobs=SQLAlchemyBackgroundJobRepository(session),
-            chat_logs=SQLAlchemyChatLogRepository(session),
-            benchmark_questions=SQLAlchemyBenchmarkQuestionRepository(session),
-            benchmark_sweeps=SQLAlchemyBenchmarkSweepRepository(session),
-            benchmark_runs=SQLAlchemyBenchmarkRunRepository(session),
-            vector_outbox=SQLAlchemyVectorOutboxRepository(session),
-            regulatory_acts=SQLAlchemyRegulatoryActRepository(session),
-            act_versions=SQLAlchemyActVersionRepository(session),
-            assignments=SQLAlchemyAssignmentRepository(session),
-            ingestion_registry=SQLAlchemyIngestionRegistryRepository(session),
+            repositories=UnitOfWorkRepositories(
+                users=SQLAlchemyUserRepository(session),
+                conversations=SQLAlchemyConversationRepository(session),
+                messages=SQLAlchemyMessageRepository(session),
+                documents=SQLAlchemyDocumentRepository(session),
+                chunks=SQLAlchemyChunkRepository(session),
+                groups=SQLAlchemyGroupRepository(session),
+                api_keys=SQLAlchemyApiKeyRepository(session),
+                config_parameters=SQLAlchemyConfigParameterRepository(session),
+                background_jobs=SQLAlchemyBackgroundJobRepository(session),
+                chat_logs=SQLAlchemyChatLogRepository(session),
+                benchmark_questions=SQLAlchemyBenchmarkQuestionRepository(session),
+                benchmark_sweeps=SQLAlchemyBenchmarkSweepRepository(session),
+                benchmark_runs=SQLAlchemyBenchmarkRunRepository(session),
+                vector_outbox=SQLAlchemyVectorOutboxRepository(session),
+                regulatory_acts=SQLAlchemyRegulatoryActRepository(session),
+                act_versions=SQLAlchemyActVersionRepository(session),
+                assignments=SQLAlchemyAssignmentRepository(session),
+                ingestion_registry=SQLAlchemyIngestionRegistryRepository(session),
+            ),
         )
         if self._config_broadcaster is not None:
             broadcaster = self._config_broadcaster

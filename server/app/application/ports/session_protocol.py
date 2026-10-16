@@ -1,23 +1,6 @@
-"""Async Session Protocol -- abstract database session interface.
+"""Compatibility export for the canonical application.uow contract."""
 
-Defines the ``SessionProtocol`` that both real SQLAlchemy ``AsyncSession``
-and test mock sessions must satisfy.  Lives in the application layer so that
-neither domain nor application depend on concrete infrastructure types.
-"""
-
-from __future__ import annotations
-
-from typing import Protocol, runtime_checkable
+from application.uow.session import SessionProtocol
 
 
-@runtime_checkable
-class SessionProtocol(Protocol):
-    """Abstract session interface matching SQLAlchemy AsyncSession API."""
-
-    async def commit(self) -> None: ...
-    async def rollback(self) -> None: ...
-    async def close(self) -> None: ...
-    async def flush(self) -> None: ...
-    async def execute(self, statement, params=None): ...
-    def add(self, instance) -> None: ...
-    async def delete(self, instance) -> None: ...
+__all__ = ["SessionProtocol"]

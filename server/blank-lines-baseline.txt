@@ -53,7 +53,6 @@ app/application/services/quality_service.py
 app/application/services/retrieval.py
 app/application/services/single_file_ingestion.py
 app/application/services/sparse_index_builder.py
-app/application/uow.py
 app/composition/application.py
 app/composition/container.py
 app/composition/infrastructure.py

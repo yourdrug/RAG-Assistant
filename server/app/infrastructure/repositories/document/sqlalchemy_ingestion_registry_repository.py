@@ -3,20 +3,24 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 
-from application.ports.session_protocol import SessionProtocol
 from domain.repositories.ingestion_registry_repository import (
     IngestionRegistryEntry,
 )
 from infrastructure.database.models import IngestionRegistryModel
 
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+
 log = logging.getLogger("default")
 
 
 class SQLAlchemyIngestionRegistryRepository:
-    def __init__(self, session: SessionProtocol) -> None:
+    def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
     async def get(self, filename: str) -> IngestionRegistryEntry | None:

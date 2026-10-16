@@ -97,3 +97,17 @@
 После полной очистки удалить `server/ruff-baseline.toml`, ссылку `extend` на него,
 временный блок mypy, `server/blank-lines-baseline.txt` и аргументы `--exclude-from`
 в Taskfile, CI и pre-commit, а также временные исключения import-linter, deptry и vulture.
+
+## Выполненная очистка: application.uow
+
+`application.uow` преобразован в пакет без файловых исключений. Старые модули
+`ports/base_uow.py`, `ports/session_protocol.py`, `ports/unit_of_work_factory.py`
+оставлены как явные совместимые экспорты и тоже проверяются без baseline.
+Удалены четыре записи Ruff, одна mypy, одна проверки пустых строк и две vulture.
+Добавлен контракт import-linter, запрещающий UoW зависеть от прежних services,
+dto, ports и реализаций внешних слоёв. Исходные числа выше оставлены как снимок.
+
+Проверки: 107 целевых pytest-тестов прошли, включая 18 новых тестов UoW;
+все семь проверок из `task lint` выполнены напрямую и прошли. `uv lock --offline`
+выполнен; содержимое lock-файла не изменилось. Полный pytest и внешние интеграции
+не запускались.
