@@ -174,8 +174,10 @@ class SQLAlchemyDocumentRepository:
         orm = result.scalar_one_or_none()
         return self._to_entity(orm) if orm else None
 
-    async def find_active_slots_by_filenames(self, filenames: list[str]) -> list[Document]:
-        """Batch prefetch: one query for multiple filenames (owner=None, group=None)."""
+    async def find_active_slots_by_filenames(
+        self, filenames: list[str], *, owner_id: int | None = None, group_id: int | None = None
+    ) -> list[Document]:
+        """Batch prefetch of filename slots within one owner/group scope."""
         if not filenames:
             return []
 
@@ -186,8 +188,8 @@ class SQLAlchemyDocumentRepository:
             )
             .where(
                 DocumentModel.filename.in_(filenames),
-                DocumentModel.owner_id.is_(None),
-                DocumentModel.group_id.is_(None),
+                DocumentModel.owner_id == owner_id,
+                DocumentModel.group_id == group_id,
                 DocumentModel.status.in_(DOCUMENT_SLOT_STATUSES),
             )
             .group_by(DocumentModel.filename)

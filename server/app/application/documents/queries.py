@@ -97,7 +97,27 @@ class DocumentQueryService:
                 )
                 dtos = [DocumentDTO.from_entity(d) for d in docs]
 
-            return [await self.enrich_with_outbox_status(uow, dto) for dto in dtos]
+            indexing_ids = [dto.id for dto in dtos if dto.status == DocumentStatus.INDEXING.value]
+
+            if not indexing_ids:
+                return dtos
+
+            counts = await uow.vector_outbox.count_by_documents(indexing_ids)
+            failed_ids = [did for did, count in counts.items() if count["failed"] > 0]
+            details = (
+                await uow.vector_outbox.get_failed_details_by_documents(failed_ids) if failed_ids else {}
+            )
+            return [
+                replace(
+                    dto,
+                    outbox_pending=counts[dto.id]["pending"],
+                    outbox_failed=counts[dto.id]["failed"],
+                    outbox_failed_details=details.get(dto.id, []) if counts[dto.id]["failed"] else None,
+                )
+                if dto.id in counts
+                else dto
+                for dto in dtos
+            ]
 
     async def get_document(
         self, document_id: int, user_id: int, user_kind: str, user_role: str

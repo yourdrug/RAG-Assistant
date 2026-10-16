@@ -46,13 +46,11 @@ class ActVersionQueries:
 
     async def get_document_filenames(self, document_ids: list[int]) -> dict[int, str]:
         """Fetch filenames for a list of document IDs (for display in admin UI)."""
+        unique_ids = list(dict.fromkeys(document_ids))
+
+        if not unique_ids:
+            return {}
+
         async with self._uow_factory.create() as uow:
-            result: dict[int, str] = {}
-
-            for did in document_ids:
-                doc = await uow.documents.get_by_id(did)
-
-                if doc is not None:
-                    result[did] = doc.filename
-
-            return result
+            documents = await uow.documents.get_by_ids(unique_ids)
+            return {doc.id: doc.filename for doc in documents if doc.id is not None}

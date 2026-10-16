@@ -143,19 +143,21 @@ class DocumentSyncService:
         doc_ids: dict[str, int] = {}
         async with self._uow_factory.create(master=True) as uow:
             await self.validate_client_owner(uow, visibility, owner_id)
+            existing_docs = await uow.documents.find_active_slots_by_filenames(
+                list(registry), owner_id=owner_id, group_id=group_id
+            )
+            existing_by_filename = {doc.filename: doc for doc in existing_docs}
+            missing = [fname for fname in registry if fname not in existing_by_filename]
+
+            if owner_id is not None and missing:
+                # Preserve IDs when privatizing legacy ownerless ingestion rows.
+                legacy_docs = await uow.documents.find_active_slots_by_filenames(
+                    missing, owner_id=None, group_id=group_id
+                )
+                existing_by_filename.update((doc.filename, doc) for doc in legacy_docs)
 
             for fname in registry:
-                existing = await uow.documents.find_active_slot(
-                    owner_id=owner_id,
-                    filename=fname,
-                    group_id=group_id,
-                )
-
-                if existing is None and owner_id is not None:
-                    # Preserve the ID when privatizing a legacy ownerless ingestion row.
-                    existing = await uow.documents.find_active_slot(
-                        owner_id=None, filename=fname, group_id=group_id
-                    )
+                existing = existing_by_filename.get(fname)
 
                 if existing:
                     if existing.id is None:

@@ -51,7 +51,9 @@ class DocumentCrudRepository(Protocol):
         group_id: int | None,
         for_update: bool = False,
     ) -> Document | None: ...
-    async def find_active_slots_by_filenames(self, filenames: list[str]) -> list[Document]: ...
+    async def find_active_slots_by_filenames(
+        self, filenames: list[str], *, owner_id: int | None = None, group_id: int | None = None
+    ) -> list[Document]: ...
     async def list_visible(
         self,
         user_kind: str,

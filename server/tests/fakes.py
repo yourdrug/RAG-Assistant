@@ -391,8 +391,13 @@ class FakeDocumentRepository:
         self._documents[doc.id] = doc
         return doc
 
-    async def find_active_slots_by_filenames(self, filenames: list[str]):
-        return [d for d in self._documents.values() if getattr(d, "filename", None) in filenames]
+    async def find_active_slots_by_filenames(self, filenames: list[str], *, owner_id=None, group_id=None):
+        return [
+            d for d in self._documents.values()
+            if getattr(d, "filename", None) in filenames
+            and getattr(d, "owner_id", None) == owner_id
+            and getattr(d, "group_id", None) == group_id
+        ]
 
     async def find_active_slot(self, owner_id, filename, group_id, for_update=False):
         for d in self._documents.values():
@@ -538,6 +543,27 @@ class FakeVectorOutboxRepository:
 
     async def list_dead_letters(self, limit: int = 50) -> list[VectorOutboxEntry]:
         return [e for e in self._entries.values() if e.status == OutboxStatus.DEAD_LETTER][:limit]
+
+    async def count_by_documents(self, document_ids: list[int]) -> dict[int, dict[str, int]]:
+        return {did: await self.count_by_document(did) for did in document_ids}
+
+    async def get_failed_details(self, document_id: int) -> list[dict[str, object]]:
+        return [
+            {
+                "operation": entry.operation.value,
+                "attempts": entry.attempts,
+                "max_attempts": entry.max_attempts,
+                "last_error": entry.last_error,
+            }
+            for entry in self._entries.values()
+            if entry.aggregate_id == document_id
+            and entry.status in (OutboxStatus.FAILED, OutboxStatus.DEAD_LETTER)
+        ]
+
+    async def get_failed_details_by_documents(
+        self, document_ids: list[int]
+    ) -> dict[int, list[dict[str, object]]]:
+        return {did: await self.get_failed_details(did) for did in document_ids}
 
 
 class FakeUserRepository:

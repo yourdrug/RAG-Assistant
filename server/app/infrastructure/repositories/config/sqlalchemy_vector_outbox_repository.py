@@ -150,54 +150,67 @@ class SQLAlchemyVectorOutboxRepository:
         return result.scalar_one() or 0
 
     async def count_by_document(self, document_id: int) -> dict[str, int]:
-        pending_statuses = ["pending", "failed", "in_progress"]
-        failed_statuses = ["failed", "dead_letter"]
+        return (await self.count_by_documents([document_id]))[document_id]
 
-        pending_result = await self._db.execute(
-            select(func.count())
-            .select_from(VectorStoreOutboxModel)
-            .where(
-                VectorStoreOutboxModel.aggregate_id == document_id,
-                VectorStoreOutboxModel.status.in_(pending_statuses),
-            )
-        )
-        pending = pending_result.scalar_one() or 0
+    async def count_by_documents(self, document_ids: list[int]) -> dict[int, dict[str, int]]:
+        counts = {did: {"pending": 0, "failed": 0} for did in document_ids}
+        if not document_ids:
+            return counts
 
-        failed_result = await self._db.execute(
-            select(func.count())
-            .select_from(VectorStoreOutboxModel)
-            .where(
-                VectorStoreOutboxModel.aggregate_id == document_id,
-                VectorStoreOutboxModel.status.in_(failed_statuses),
-            )
-        )
-        failed = failed_result.scalar_one() or 0
-
-        return {"pending": pending, "failed": failed}
-
-    async def get_failed_details(self, document_id: int) -> list[dict[str, object]]:
-        """Return failed/dead_letter entries with retry info for a document."""
-        failed_statuses = ["failed", "dead_letter"]
         result = await self._db.execute(
             select(
+                VectorStoreOutboxModel.aggregate_id,
+                func.count()
+                .filter(
+                    VectorStoreOutboxModel.status.in_(
+                        [OutboxStatus.PENDING, OutboxStatus.FAILED, OutboxStatus.IN_PROGRESS]
+                    )
+                )
+                .label("pending"),
+                func.count()
+                .filter(VectorStoreOutboxModel.status.in_([OutboxStatus.FAILED, OutboxStatus.DEAD_LETTER]))
+                .label("failed"),
+            )
+            .where(VectorStoreOutboxModel.aggregate_id.in_(document_ids))
+            .group_by(VectorStoreOutboxModel.aggregate_id)
+        )
+        for row in result.mappings().all():
+            counts[row["aggregate_id"]] = {"pending": row["pending"], "failed": row["failed"]}
+        return counts
+
+    async def get_failed_details(self, document_id: int) -> list[dict[str, object]]:
+        return (await self.get_failed_details_by_documents([document_id])).get(document_id, [])
+
+    async def get_failed_details_by_documents(
+        self, document_ids: list[int]
+    ) -> dict[int, list[dict[str, object]]]:
+        """Return failed/dead_letter entries with retry info, grouped by document."""
+        if not document_ids:
+            return {}
+
+        result = await self._db.execute(
+            select(
+                VectorStoreOutboxModel.aggregate_id,
                 VectorStoreOutboxModel.operation,
                 VectorStoreOutboxModel.attempts,
                 VectorStoreOutboxModel.max_attempts,
                 VectorStoreOutboxModel.last_error,
             ).where(
-                VectorStoreOutboxModel.aggregate_id == document_id,
-                VectorStoreOutboxModel.status.in_(failed_statuses),
+                VectorStoreOutboxModel.aggregate_id.in_(document_ids),
+                VectorStoreOutboxModel.status.in_([OutboxStatus.FAILED, OutboxStatus.DEAD_LETTER]),
             )
         )
-        return [
-            {
-                "operation": row.operation,
-                "attempts": row.attempts,
-                "max_attempts": row.max_attempts,
-                "last_error": row.last_error,
-            }
-            for row in result.mappings().all()
-        ]
+        details: dict[int, list[dict[str, object]]] = {}
+        for row in result.mappings().all():
+            details.setdefault(row["aggregate_id"], []).append(
+                {
+                    "operation": row["operation"],
+                    "attempts": row["attempts"],
+                    "max_attempts": row["max_attempts"],
+                    "last_error": row["last_error"],
+                }
+            )
+        return details
 
     async def list_dead_letters(self, limit: int = 50) -> list[VectorOutboxEntry]:
         result = await self._db.execute(

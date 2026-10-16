@@ -64,12 +64,17 @@ async def test_find_active_slot_preserves_each_lifecycle_status(document_session
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("status", list(DocumentStatus))
-async def test_batch_slots_include_indexing_and_exclude_other_scopes(document_session, status):
-    doc = add_document(document_session, status)
-    add_document(document_session, status, owner_id=1)
-    add_document(document_session, status, group_id=2)
+@pytest.mark.parametrize("owner_id,group_id", [(None, None), (1, None), (None, 2), (1, 2)])
+async def test_batch_slots_include_indexing_and_exclude_other_scopes(
+    document_session, status, owner_id, group_id
+):
+    doc = add_document(document_session, status, owner_id=owner_id, group_id=group_id)
+    add_document(document_session, status, owner_id=99, group_id=group_id)
+    add_document(document_session, status, owner_id=owner_id, group_id=99)
     repository = SQLAlchemyDocumentRepository(LocalDocumentSession(document_session))
-    found = await repository.find_active_slots_by_filenames(["report.pdf", "missing.pdf"])
+    found = await repository.find_active_slots_by_filenames(
+        ["report.pdf", "missing.pdf"], owner_id=owner_id, group_id=group_id
+    )
     assert [item.id for item in found] == [doc.id]
     assert await repository.find_active_slots_by_filenames([]) == []
 
