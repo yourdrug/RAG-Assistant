@@ -8,7 +8,7 @@ import fakeredis.aioredis
 import pytest
 from langchain.schema import Document as LCDocument
 
-from application.services.retrieval import HybridRetriever
+from application.search import HybridRetriever
 from domain.entities.document import Document
 from domain.repositories.chunk_repository import ChunkSearchResult
 from infrastructure.ml import answer_cache
@@ -177,7 +177,7 @@ async def test_document_worker_defers_same_owner_and_admits_other_owner():
 )
 @pytest.mark.parametrize("fail_commit", [False, True])
 async def test_bm25_mutates_only_after_successful_commit(monkeypatch, operation, index_method, fail_commit):
-    from application.services.chunk_mutation_service import ChunkMutationService
+    from application.chunks import ChunkMutationService
     from domain.value_objects.document_status import DocumentStatus
 
     events = []
@@ -217,13 +217,13 @@ async def test_bm25_mutates_only_after_successful_commit(monkeypatch, operation,
     getattr(index, index_method).side_effect = lambda *args, **kwargs: events.append("indexed")
     factory = SimpleNamespace(create=lambda **kwargs: Transaction())
     service = ChunkMutationService(factory, SimpleNamespace(chunk_size=100), index)
-    service._update_document_stats = AsyncMock()
+    service.update_document_stats = AsyncMock()
     monkeypatch.setattr(
-        "application.services.chunk_mutation_service.load_doc_for_edit",
+        "application.chunks.mutations.load_doc_for_edit",
         AsyncMock(return_value=(document, None)),
     )
     monkeypatch.setattr(
-        "application.services.chunk_mutation_service.load_doc_for_add",
+        "application.chunks.mutations.load_doc_for_add",
         AsyncMock(return_value=(document, None)),
     )
     if operation == "edit":

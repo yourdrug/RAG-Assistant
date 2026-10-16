@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 
-from application.services.benchmark_orchestrator import compute_summary_from_results
+from application.benchmark import compute_summary_from_results
 from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.roles import UserKind
 from infrastructure.benchmark.answer_generators import BenchmarkAnswer

@@ -160,7 +160,7 @@ def test_provider_change_rejected_before_commit_without_required_key(configurati
 
 @pytest.mark.asyncio
 async def test_service_validates_provider_before_any_database_write(configuration):
-    from application.services.config_service import ConfigService
+    from application.admin import ConfigService
 
     factory = FakeUnitOfWorkFactory()
     saved = row("llm_provider", LLMProvider.OLLAMA.value)
@@ -174,7 +174,7 @@ async def test_service_validates_provider_before_any_database_write(configuratio
 
 @pytest.mark.asyncio
 async def test_status_reports_database_version_ahead_of_local_applied_snapshot(configuration):
-    from application.services.config_service import ConfigService
+    from application.admin import ConfigService
 
     factory = FakeUnitOfWorkFactory()
     saved = row("llm_model", "first")
@@ -341,7 +341,7 @@ async def test_readiness_rejects_failed_configuration_snapshot(configuration, co
 async def test_configuration_status_endpoint_is_admin_only_and_contains_no_secrets(configuration):
     import httpx
     from fastapi import FastAPI, HTTPException
-    from application.services.config_service import ConfigService
+    from application.admin import ConfigService
     from presentation.api.routes.admin_config import router
     from presentation.api.auth_dependencies import require_admin
     from presentation.api.dependencies import create_config_service
@@ -456,7 +456,7 @@ def test_incompatible_chat_quotas_rejected_before_application(configuration, dai
 
 @pytest.mark.asyncio
 async def test_config_service_rejects_chat_quota_against_saved_snapshot(configuration):
-    from application.services.config_service import ConfigService
+    from application.admin import ConfigService
 
     factory = FakeUnitOfWorkFactory()
     async with factory.create() as uow:

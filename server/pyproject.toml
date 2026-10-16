@@ -333,60 +333,9 @@ ignore_errors = true
 # Temporary file-specific mypy baseline, 2026-10-16. See ../LINT_DEBT.md.
 [[tool.mypy.overrides]]
 module = [
-    "application.dto.benchmark_dto",
-    "application.dto.chat_dto",
-    "application.dto.versioning_dto",
-    "application.ports.benchmark_history",
-    "application.ports.benchmark_runner",
-    "application.ports.chat_rag_port",
-    "application.ports.chat_support",
-    "application.ports.config_admin",
-    "application.ports.corpus_control",
-    "application.ports.cost_budget",
-    "application.ports.document_processing",
     "application.ports.pdf_diagnostics",
-    "application.services.act_versioning_service",
-    "application.services.assignment_service",
-    "application.services.auth_service",
-    "application.services.batch_ingestion",
-    "application.services.benchmark_dataset",
-    "application.services.benchmark_export_service",
-    "application.services.benchmark_orchestrator",
-    "application.services.benchmark_result_service",
-    "application.services.benchmark_services",
-    "application.services.budget_admin_service",
-    "application.services.chat_log_service",
-    "application.services.chat_service",
-    "application.services.chunk_mappers",
-    "application.services.chunk_mutation_service",
-    "application.services.config_admin_service",
-    "application.services.config_service",
-    "application.services.conversation_service",
-    "application.services.cost_budget_service",
-    "application.services.document_command_service",
-    "application.services.document_conflict_resolver",
-    "application.services.document_content",
-    "application.services.document_delete_command",
-    "application.services.document_deletion_jobs",
-    "application.services.document_loader",
-    "application.services.document_persistence",
-    "application.services.document_pipeline",
-    "application.services.document_processor",
-    "application.services.document_quality",
-    "application.services.document_query_service",
-    "application.services.document_rename_command",
-    "application.services.document_upload_command",
-    "application.services.domain_classification",
-    "application.services.group_service",
-    "application.services.ingest_service",
-    "application.services.ingestion_orchestrator",
-    "application.services.ingestion_registry",
-    "application.services.ingestion_sync",
     "application.services.job_service",
-    "application.services.preview_cache",
     "application.services.quality_service",
-    "application.services.single_file_ingestion",
-    "application.services.sparse_index_builder",
     "composition.application",
     "composition.infrastructure",
     "composition.service_providers",
@@ -863,6 +812,144 @@ forbidden_modules = [
     "infrastructure", "presentation", "composition",
 ]
 
+[[tool.importlinter.contracts]]
+name = "Budget is independent of legacy application modules and implementations"
+type = "forbidden"
+source_modules = ["application.budget"]
+forbidden_modules = [
+    "application.services", "application.dto", "application.ports",
+    "infrastructure", "presentation", "composition",
+]
+
+[[tool.importlinter.contracts]]
+name = "Admin is independent of legacy application modules and implementations"
+type = "forbidden"
+source_modules = ["application.admin"]
+forbidden_modules = [
+    "application.services", "application.dto", "application.ports",
+    "infrastructure", "presentation", "composition",
+]
+ignore_imports = ["application.admin.config_service -> application.ports.event_bus"]
+
+[[tool.importlinter.contracts]]
+name = "Benchmark is independent of legacy application modules and implementations"
+type = "forbidden"
+source_modules = ["application.benchmark"]
+forbidden_modules = [
+    "application.services", "application.dto", "application.ports",
+    "infrastructure", "presentation", "composition",
+]
+# Shared contracts remain outside individual features.
+ignore_imports = [
+    "application.benchmark.export_service -> application.ports.file_storage",
+    "application.admin.config_service -> application.ports.event_bus",
+]
+
+[[tool.importlinter.contracts]]
+name = "Act versioning is independent of legacy application modules and implementations"
+type = "forbidden"
+source_modules = ["application.act_versioning"]
+forbidden_modules = [
+    "application.services", "application.dto", "application.ports",
+    "infrastructure", "presentation", "composition",
+]
+# Cache invalidation is shared with document and chat scenarios.
+ignore_imports = [
+    "application.act_versioning.answers -> application.ports.cache_invalidator",
+    "application.act_versioning.service -> application.ports.cache_invalidator",
+]
+
+[[tool.importlinter.contracts]]
+name = "Identity is independent of legacy application modules and implementations"
+type = "forbidden"
+source_modules = ["application.identity"]
+forbidden_modules = [
+    "application.services", "application.dto", "application.ports",
+    "infrastructure", "presentation", "composition",
+]
+
+[[tool.importlinter.contracts]]
+name = "Chat is independent of legacy application modules and implementations"
+type = "forbidden"
+source_modules = ["application.chat"]
+forbidden_modules = [
+    "application.services", "application.dto", "application.ports",
+    "infrastructure", "presentation", "composition",
+]
+
+[[tool.importlinter.contracts]]
+name = "Search is independent of legacy application modules and implementations"
+type = "forbidden"
+source_modules = ["application.search"]
+forbidden_modules = [
+    "application.services", "application.dto", "application.ports",
+    "infrastructure", "presentation", "composition",
+]
+
+[[tool.importlinter.contracts]]
+name = "Indexing is independent of legacy application modules and implementations"
+type = "forbidden"
+source_modules = ["application.indexing"]
+forbidden_modules = [
+    "application.services", "application.dto", "application.ports",
+    "application.act_versioning", "infrastructure", "presentation", "composition",
+]
+
+[[tool.importlinter.contracts]]
+name = "Documents is independent of legacy scenarios and implementations"
+type = "forbidden"
+source_modules = ["application.documents"]
+forbidden_modules = [
+    "application.ports.document_access",
+    "application.ports.document_preview",
+    "application.ports.document_processing",
+    "application.ports.preview_strategy_factory",
+    "application.ports.chunk_settings",
+    "application.ports.ingestion_port",
+    "application.ports.ingestion_settings",
+    "application.ports.document_parser",
+
+    "application.services", "application.dto",
+    "infrastructure", "presentation", "composition",
+]
+
+[[tool.importlinter.contracts]]
+name = "Chunks is independent of legacy scenarios and implementations"
+type = "forbidden"
+source_modules = ["application.chunks"]
+forbidden_modules = [
+    "application.ports.document_access",
+    "application.ports.document_preview",
+    "application.ports.document_processing",
+    "application.ports.preview_strategy_factory",
+    "application.ports.chunk_settings",
+    "application.ports.ingestion_port",
+    "application.ports.ingestion_settings",
+    "application.ports.document_parser",
+
+    "application.services", "application.dto",
+    "infrastructure", "presentation", "composition",
+]
+
+[[tool.importlinter.contracts]]
+name = "Ingestion is independent of legacy scenarios and implementations"
+type = "forbidden"
+source_modules = ["application.ingestion"]
+forbidden_modules = [
+    "application.ports.document_access",
+    "application.ports.document_preview",
+    "application.ports.document_processing",
+    "application.ports.preview_strategy_factory",
+    "application.ports.chunk_settings",
+    "application.ports.ingestion_port",
+    "application.ports.ingestion_settings",
+    "application.ports.document_parser",
+
+    "application.services", "application.dto",
+    "infrastructure", "presentation", "composition",
+]
+
+
 # ---------------------------------------------------------------------------
 # Pytest
 # ---------------------------------------------------------------------------
@@ -934,11 +1021,6 @@ paths = ["app"]
 exclude = [
     "app/infrastructure/database/migrations/",
     "app/application/ports/ml_clients.py",
-    "app/application/services/batch_ingestion.py",
-    "app/application/services/chunk_mutation_service.py",
-    "app/application/services/chunk_service.py",
-    "app/application/services/document_loader.py",
-    "app/application/services/sparse_index_builder.py",
     "app/config.py",
     "app/domain/services/access_control.py",
     "app/infrastructure/benchmark/judge.py",

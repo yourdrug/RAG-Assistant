@@ -30,7 +30,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from config import settings
 from domain.exceptions import ValidationError
 from domain.value_objects.cost_budget import BudgetError, CostRate, ModelBillingContract
-from application.services.cost_budget_service import BudgetPolicy
+from application.budget import BudgetPolicy
 from infrastructure.budget.job_context import bill_job_to_initiator
 from infrastructure.budget.runtime import BudgetRuntime
 from infrastructure.budget.transport import PaidAsyncTransport, PaidSyncTransport

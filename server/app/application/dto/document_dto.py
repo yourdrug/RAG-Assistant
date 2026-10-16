@@ -1,76 +1,9 @@
-"""Document-related DTOs -- immutable data-transfer objects for document upload and metadata."""
+"""Compatibility exports; use application.documents."""
 
-from __future__ import annotations
-
-from dataclasses import dataclass
-from datetime import datetime
-from typing import TYPE_CHECKING
-
-from domain.value_objects.doc_domain import DocDomain
-from domain.value_objects.source_type import SourceType
-
-if TYPE_CHECKING:
-    from domain.entities.document import Document
+from application.documents.dto import (
+    ClientInfo,
+    DocumentDTO,
+)
 
 
-@dataclass(frozen=True)
-class DocumentDTO:
-    id: int
-    filename: str
-    visibility: str
-    status: str
-    source_path: str | None = None
-    creation_date: datetime | None = None
-    indexed_at: datetime | None = None
-    error_message: str | None = None
-    warning_message: str | None = None
-    quality_score: float | None = None
-    chunks: int | None = None
-    chars: int | None = None
-    storage_key: str | None = None
-    replace_id: int | None = None
-    owner_id: int | None = None
-    group_id: int | None = None
-    doc_domain: str = DocDomain.GENERAL.value
-    source_type: str = SourceType.FILE.value
-    has_manual_edits: bool = False
-    version_group_id: int | None = None
-    in_search_scope: bool = True
-    outbox_pending: int = 0
-    outbox_failed: int = 0
-    outbox_failed_details: list[dict[str, object]] | None = None
-
-    @classmethod
-    def from_entity(cls, doc: Document, **overrides: object) -> DocumentDTO:
-        if doc.id is None:
-            raise ValueError("Document must have an id to convert to DTO")
-        defaults: dict[str, object] = {
-            "source_path": doc.source_path,
-            "creation_date": doc.creation_date,
-            "indexed_at": doc.indexed_at,
-            "error_message": doc.error_message,
-            "warning_message": doc.warning_message,
-            "quality_score": doc.quality_score,
-            "chunks": doc.chunks,
-            "chars": doc.chars,
-            "owner_id": doc.owner_id,
-            "group_id": doc.group_id,
-            "doc_domain": doc.doc_domain,
-            "source_type": doc.source_type,
-            "has_manual_edits": doc.has_manual_edits,
-            "version_group_id": doc.version_group_id,
-        }
-        defaults.update(overrides)
-        return cls(
-            id=doc.id,
-            filename=doc.filename,
-            visibility=doc.visibility,
-            status=doc.status,
-            **defaults,  # type: ignore[arg-type]
-        )
-
-
-@dataclass(frozen=True)
-class ClientInfo:
-    id: int
-    email: str
+__all__ = ["ClientInfo", "DocumentDTO"]

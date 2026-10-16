@@ -10,8 +10,8 @@ from unittest.mock import AsyncMock, MagicMock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 import pytest  # noqa: E402
-from application.dto.auth_dto import CreateUserCommand, LoginCommand  # noqa: E402
-from application.services.auth_service import AuthService  # noqa: E402
+from application.identity import CreateUserCommand, LoginCommand  # noqa: E402
+from application.identity import AuthService  # noqa: E402
 from domain.entities.user import User  # noqa: E402
 from domain.exceptions import BusinessRuleViolation, ValidationError  # noqa: E402
 from domain.value_objects.roles import UserKind, UserRole  # noqa: E402

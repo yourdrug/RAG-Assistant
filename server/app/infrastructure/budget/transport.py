@@ -10,7 +10,7 @@ from typing import TypeGuard
 
 import httpx
 
-from application.ports.billing_context import billing_principal
+from application.budget import billing_principal
 from domain.value_objects.cost_budget import BudgetError, CostRate, UNDISPATCHED_COST_SOURCE, usd_units
 from infrastructure.budget.job_context import (
     next_operation_id,

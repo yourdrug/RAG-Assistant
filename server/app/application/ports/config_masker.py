@@ -1,14 +1,8 @@
-"""ConfigMaskerPort — masks sensitive config values for display/logging."""
+"""Compatibility exports for application.admin."""
 
-from __future__ import annotations
+from application.admin import (
+    ConfigMaskerPort,
+)
 
-from typing import Protocol
 
-
-class ConfigMaskerPort(Protocol):
-    """Masks sensitive configuration values."""
-
-    @property
-    def sensitive_keys(self) -> frozenset[str]: ...
-
-    def mask_value(self, value: str | None) -> str: ...
+__all__ = ["ConfigMaskerPort"]

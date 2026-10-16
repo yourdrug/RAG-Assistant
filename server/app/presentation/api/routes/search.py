@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 
 from application.ports.rate_limit import RateLimitPolicyName
-from application.services.search_service import SearchService
+from application.search import SearchService
 from domain.value_objects.user_context import UserContext
 from fastapi import APIRouter, Depends
 

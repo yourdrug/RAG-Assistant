@@ -1,23 +1,8 @@
-"""Chunk settings protocol -- abstracts dynamic chunking configuration.
+"""Compatibility exports; use application.chunks."""
 
-Provides read-only access to chunk-related settings that can be hot-reloaded
-via ``/admin/config`` without a process restart.
-"""
-
-from __future__ import annotations
-
-from typing import Protocol
+from application.chunks.settings import (
+    ChunkSettingsPort,
+)
 
 
-class ChunkSettingsPort(Protocol):
-    @property
-    def chunk_size(self) -> int: ...
-
-    @property
-    def chunk_overlap(self) -> int: ...
-
-    @property
-    def legal_chunk_size(self) -> int: ...
-
-    @property
-    def legal_chunk_overlap(self) -> int: ...
+__all__ = ["ChunkSettingsPort"]

@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from application.services.document_loader import S3DocumentLoader
+from application.ingestion import S3DocumentLoader
 from domain.entities.raw_document import RawDocument
 from domain.value_objects.doc_domain import DocDomain
 

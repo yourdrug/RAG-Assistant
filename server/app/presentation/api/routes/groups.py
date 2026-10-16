@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from application.ports.rate_limit import RateLimitPolicyName
-from application.services.group_service import GroupService
+from application.identity import GroupService
 from fastapi import APIRouter, Depends
 
 from presentation.api.auth_dependencies import get_current_user, require_admin

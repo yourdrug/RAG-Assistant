@@ -11,8 +11,8 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
-from application.services.benchmark_export_service import BenchmarkExportService, EXPORT_CHUNK_BYTES
-from application.services.benchmark_import_service import BenchmarkImportService
+from application.benchmark import BenchmarkExportService, EXPORT_CHUNK_BYTES
+from application.benchmark import BenchmarkImportService
 from infrastructure.benchmark.legacy_import import load_legacy_runs
 from presentation.api.routes import benchmark
 from presentation.api.dependencies import create_benchmark_export_service

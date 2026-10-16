@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 from langchain.schema import Document
 
-from application.services.document_pipeline import enrich_chunks_metadata
+from application.indexing import enrich_chunks_metadata
 from domain.domain_profile.profiles.decree import DecreeDomainProfile
 from infrastructure.ml.ingestion import split_documents
 
@@ -81,7 +81,7 @@ def test_process_chunks_persists_versioning_columns(fake_uow_factory):
     """The denormalized columns must actually reach Postgres bulk_insert."""
     import asyncio
 
-    from application.services.document_pipeline import process_chunks
+    from application.indexing import process_chunks
     from domain.entities.raw_document import RawDocument
 
     chunks = [

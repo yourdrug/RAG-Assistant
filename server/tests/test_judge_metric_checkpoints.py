@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 
-from application.services.benchmark_orchestrator import compute_summary_from_results
+from application.benchmark import compute_summary_from_results
 from domain.services.benchmark_judge import judge_coverage
 from domain.value_objects.sweep_evaluation_mode import SweepEvaluationMode
 from infrastructure.benchmark import judge, metrics, evidence_judge

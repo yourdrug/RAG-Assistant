@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+from domain.value_objects.ml_provider import MLProvider
 from dataclasses import dataclass, field
 
 from domain.value_objects.health_status import HealthStatus
 
-from application.ports.corpus_control import CorpusControlPort
+from application.admin import CorpusControlPort, ProviderConfigurationPort
 from application.ports.health import ConfigListenerProviderPort, HealthCheckResult, HealthProbePort
 from application.ports.health_settings import HealthSettingsPort
-from application.ports.provider_configuration import ProviderConfigurationPort
 from application.ports.unit_of_work_factory import UnitOfWorkFactory
 
 
@@ -45,7 +45,9 @@ class HealthService:
         qdrant, postgres, redis = await asyncio.gather(
             self._probe.check_qdrant(), self._probe.check_postgres(), self._probe.check_redis()
         )
-        ml_checks = await self._probe.check_tei() if self._settings.ml_provider == "tei" else {}
+        ml_checks = (
+            await self._probe.check_tei() if self._settings.ml_provider == MLProvider.TEI.value else {}
+        )
         active_jobs = await self._count_active_jobs()
 
         llm_provider = self._settings.llm_provider

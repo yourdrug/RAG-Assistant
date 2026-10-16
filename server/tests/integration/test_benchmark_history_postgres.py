@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from application.services.benchmark_export_service import BenchmarkExportService
+from application.benchmark import BenchmarkExportService
 from domain.entities.benchmark_run import BenchmarkRun
 from domain.entities.benchmark_sweep import BenchmarkSweep
 from infrastructure.database.models import BenchmarkRunModel, BenchmarkCheckpointModel

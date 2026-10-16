@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from application.services.chat_log_service import ChatLogService
-from application.services.assignment_service import AssignmentService
+from application.chat import ChatLogService
+from application.identity import AssignmentService
 from domain.value_objects.capabilities import Capability
 from domain.value_objects.roles import UserRole
 from fastapi import APIRouter, Depends, Query

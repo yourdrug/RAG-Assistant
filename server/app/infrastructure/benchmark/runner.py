@@ -15,7 +15,7 @@ from config import get_setting
 from infrastructure.benchmark.checkpoint import fingerprint, FileBenchmarkCheckpoints
 from infrastructure.benchmark.corpus import benchmark_corpus, corpus_metadata
 from infrastructure.benchmark.judge_rubric import JUDGE_RUBRIC_VERSION
-from application.ports.benchmark_checkpoints import BenchmarkCheckpoints
+from application.benchmark import BenchmarkCheckpoints
 
 from config import settings
 from domain.value_objects.benchmark_annotations import validate_annotations

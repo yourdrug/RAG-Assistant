@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 from langchain_core.documents import Document
 
-from application.services.retrieval import HybridRetriever
+from application.search import HybridRetriever
 from domain.services.retrieval_diversity import prioritize_distinct_provisions
 from infrastructure.ml.rag.rag_reranking import rerank_documents
 

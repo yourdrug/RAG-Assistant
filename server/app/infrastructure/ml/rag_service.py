@@ -14,7 +14,7 @@ from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING
 
 from application.ports.ml_clients import MLClientPort
-from application.ports.document_access import DocumentAccessPort
+from application.documents import DocumentAccessPort
 
 from config import settings
 from infrastructure.corpus.snapshot import pin_corpus_stream
@@ -51,7 +51,7 @@ from infrastructure.repositories.vector.acl import build_qdrant_filter, with_tem
 from shared import request_id_ctx
 
 if TYPE_CHECKING:
-    from application.ports.pii_redactor import PIIRedactorPort
+    from application.chat import PIIRedactorPort
     from domain.domain_profile.registry import DomainProfileRegistry
     from infrastructure.adapters.chunk_search_adapter import ChunkSearchAdapter
 

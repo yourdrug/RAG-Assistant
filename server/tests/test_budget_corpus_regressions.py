@@ -12,8 +12,7 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from application.services.budget_admin_service import BudgetAdminService
-from application.services.cost_budget_service import BudgetPolicy, CostBudgetService
+from application.budget import BudgetAdminService, BudgetPolicy, CostBudgetService
 from domain.entities.benchmark_sweep import BenchmarkSweep
 from domain.value_objects.cost_budget import BudgetError, CostRate
 from infrastructure.benchmark import runner, sweep_scoring

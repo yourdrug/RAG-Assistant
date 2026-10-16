@@ -7,7 +7,7 @@ import logging
 import sys
 from pathlib import Path
 
-from application.ports.billing_context import billing_principal
+from application.budget import billing_principal
 from composition.infrastructure import InfrastructureContainer
 from composition.service_providers import create_ingestion_service
 from infrastructure.database.database import database
@@ -16,7 +16,7 @@ from infrastructure.redis.redis_client import redis_client
 import typer
 from config import settings
 from domain.value_objects.visibility import DocumentVisibility
-from application.services.ingestion_orchestrator import IngestionService
+from application.ingestion import IngestionService
 
 logger = logging.getLogger("cli")
 

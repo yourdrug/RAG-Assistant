@@ -10,8 +10,8 @@ Uses AuthService for user lookups — no direct UoW access.
 from __future__ import annotations
 
 import jwt as _jwt
-from application.ports.billing_context import billing_principal
-from application.services.auth_service import AuthService
+from application.budget import billing_principal
+from application.identity import AuthService
 from domain.exceptions import AuthenticationError, PermissionDeniedError
 from domain.value_objects.capabilities import Capability, get_role_capabilities
 from domain.value_objects.roles import UserRole

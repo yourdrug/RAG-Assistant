@@ -11,7 +11,7 @@ from application.ports.unit_of_work_factory import UnitOfWorkFactory
 from domain.services.access_control import get_visibility_conditions
 from domain.value_objects.roles import UserKind, UserRole
 
-from application.services.benchmark_dataset import load_benchmark_questions
+from application.benchmark import load_benchmark_questions
 from infrastructure.benchmark.sweep_scoring import cache_candidates
 from infrastructure.benchmark.sweep_reranking import cache_reranker_scores
 from infrastructure.benchmark.sweep_strategies import ShouldCancel

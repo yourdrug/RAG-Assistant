@@ -17,7 +17,7 @@ from domain.value_objects.rag_settings import RagSettings
 from domain.value_objects.user_context import UserContext
 
 if TYPE_CHECKING:
-    from application.ports.pii_redactor import PIIRedactorPort
+    from application.chat import PIIRedactorPort
 
 
 @dataclass

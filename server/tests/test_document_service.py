@@ -3,13 +3,13 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from application.services.document_command_service import DocumentCommandService
-from application.services.document_conflict_resolver import (
+from application.documents import DocumentCommandService
+from application.documents import (
     resolve_upload_conflict,
     resolve_upload_version_group,
 )
-from application.services.document_query_service import DocumentQueryService
-from application.services.user_context_factory import UserContextFactory
+from application.documents import DocumentQueryService
+from application.identity import UserContextFactory
 from domain.entities.document import Document
 from domain.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
 from domain.value_objects.document_status import DocumentStatus
@@ -189,7 +189,7 @@ async def test_resolve_version_group_existing_pending():
 
 
 # ---------------------------------------------------------------------------
-# _persist_upload
+# persist_upload
 # ---------------------------------------------------------------------------
 
 
@@ -199,7 +199,7 @@ async def test_persist_upload_success():
     cmd, query, uow, fs = _service()
     doc = _make_doc()
 
-    saved_doc, key = await cmd._upload._persist_upload(
+    saved_doc, key = await cmd._upload.persist_upload(
         uow, doc, b"file-bytes", owner_id=1, effective_group_id=None, filename="test.pdf"
     )
     assert saved_doc.id is not None
@@ -216,7 +216,7 @@ async def test_persist_upload_s3_failure_compensates():
 
     doc = _make_doc()
     with pytest.raises(RuntimeError, match="S3 down"):
-        await cmd._upload._persist_upload(
+        await cmd._upload.persist_upload(
             uow, doc, b"data", owner_id=1, effective_group_id=None, filename="test.pdf"
         )
     fs.delete_file.assert_awaited_once()
@@ -231,7 +231,7 @@ async def test_persist_upload_s3_failure_delete_also_fails():
 
     doc = _make_doc()
     with pytest.raises(RuntimeError, match="S3 down"):
-        await cmd._upload._persist_upload(
+        await cmd._upload.persist_upload(
             uow, doc, b"data", owner_id=1, effective_group_id=None, filename="test.pdf"
         )
     fs.delete_file.assert_awaited_once()

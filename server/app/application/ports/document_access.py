@@ -1,9 +1,8 @@
-"""Authoritative document authorization for evidence and cached answers."""
+"""Compatibility exports; use application.documents."""
 
-from typing import Protocol
+from application.documents.access_port import (
+    DocumentAccessPort,
+)
 
-from domain.value_objects.user_context import UserContext
 
-
-class DocumentAccessPort(Protocol):
-    async def allowed_document_ids(self, document_ids: list[int], user: UserContext) -> set[int]: ...
+__all__ = ["DocumentAccessPort"]

@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from application.services.document_command_service import DocumentCommandService
+from application.documents import DocumentCommandService
 from domain.entities.document import Document
 from domain.exceptions import BusinessRuleViolation, ValidationError
 from domain.value_objects.document_status import DocumentStatus

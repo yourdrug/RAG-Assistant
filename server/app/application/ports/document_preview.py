@@ -1,22 +1,8 @@
-"""Protocol for document preview strategies (PDF, DOCX, RTF)."""
+"""Compatibility exports; use application.documents."""
 
-from __future__ import annotations
-
-from pathlib import Path
-from typing import Protocol, runtime_checkable
-
-from domain.value_objects.pdf_dto import DryRunPageResult
+from application.documents.preview_port import (
+    DocumentPreviewStrategy,
+)
 
 
-@runtime_checkable
-class DocumentPreviewStrategy(Protocol):
-    def supports(self, extension: str) -> bool: ...
-
-    def analyze(self, path: Path) -> tuple[list[DryRunPageResult], dict[str, int], int]: ...
-
-    def ocr_problem_units(
-        self,
-        path: Path,
-        units: list[DryRunPageResult],
-        unit_ids: list[int],
-    ) -> tuple[list[DryRunPageResult], dict[str, int], int]: ...
+__all__ = ["DocumentPreviewStrategy"]

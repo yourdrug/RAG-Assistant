@@ -8,7 +8,7 @@ from langchain.schema import Document
 from pydantic import ValidationError
 
 
-from application.services.benchmark_orchestrator import compute_summary_from_results
+from application.benchmark import compute_summary_from_results
 from domain.entities.benchmark_sweep import BenchmarkSweep
 from domain.services.benchmark_evaluation import evaluate_retrieval, summarize_evidence
 from domain.services.benchmark_selection import select_fast_candidates

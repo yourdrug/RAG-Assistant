@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import Column, Integer, JSON, MetaData, Table, create_engine
 from sqlalchemy.dialects.postgresql import JSONB
 
-from application.services.search_service import SearchService
+from application.search import SearchService
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.roles import UserKind, UserRole
 from domain.value_objects.search_mode import SearchMode

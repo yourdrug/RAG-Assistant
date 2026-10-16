@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from application.services.config_service import ConfigService
+from application.admin import ConfigService
 from config import Settings, settings
 from domain.entities.config_parameter import ConfigParameter
 from domain.events.config_events import ConfigParameterChanged

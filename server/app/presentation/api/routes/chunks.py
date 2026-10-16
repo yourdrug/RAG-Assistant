@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 
 from application.ports.rate_limit import RateLimitPolicyName
-from application.services.chunk_service import ChunkService
+from application.chunks import ChunkService
 from domain.value_objects.capabilities import Capability
 from fastapi import APIRouter, Depends, Query
 

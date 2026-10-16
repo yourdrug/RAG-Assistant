@@ -15,7 +15,8 @@ from functools import partial
 
 from config import settings
 from infrastructure.budget.ledger import PostgresRedisBudget
-from application.services.budget_admin_service import BudgetAdminService
+from application.budget import BudgetAdminService
+from application.benchmark import BenchmarkService
 from infrastructure.budget.runtime import budget_runtime
 from infrastructure.budget.provider_catalog import OpenRouterBillingCatalog
 from infrastructure.corpus.control import PostgresCorpusControl
@@ -44,17 +45,17 @@ from infrastructure.ml.config.config_subscribers import (
 
 if TYPE_CHECKING:
     from application.ports.action_logger import ActionLoggerPort
-    from application.ports.api_key_provider import ApiKeyProviderPort
-    from application.ports.benchmark_history import BenchmarkHistoryPort
+    from application.identity import ApiKeyProviderPort
+    from application.benchmark import BenchmarkHistoryPort
     from application.ports.cache_invalidator import CacheInvalidatorPort
-    from application.ports.config_masker import ConfigMaskerPort
+    from application.admin import ConfigMaskerPort
     from application.ports.event_bus import EventBus
     from application.ports.http_metrics import HttpMetricsPort
     from application.ports.idempotency_store import IdempotencyStorePort
     from application.ports.job_enqueuer import JobEnqueuerPort
     from application.ports.log_buffer import LogBufferPort
-    from application.ports.preview_strategy_factory import PreviewStrategyFactoryPort
-    from application.services.preview_cache import PreviewCache
+    from application.documents import PreviewStrategyFactoryPort
+    from application.documents import PreviewCache
     from infrastructure.database.database import DatabaseManager
     from infrastructure.events.postgres_config_broadcaster import PostgresConfigBroadcaster
     from infrastructure.events.postgres_config_listener import PostgresConfigListener
@@ -70,7 +71,6 @@ if TYPE_CHECKING:
     from infrastructure.repositories.vector.qdrant_vector_store_repository import (
         QdrantVectorStoreRepository,
     )
-    from application.services.benchmark_orchestrator import BenchmarkService
     from infrastructure.uow_factory import UnitOfWorkFactory
     from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
     from infrastructure.events.postgres_outbox_listener import PostgresOutboxListener
@@ -149,9 +149,8 @@ class MLContainer:
         from infrastructure.repositories.vector.qdrant_vector_store_repository import (
             QdrantVectorStoreRepository,
         )
-        from application.services.benchmark_orchestrator import BenchmarkService
         from infrastructure.benchmark.runner_adapter import AsyncBenchmarkRunner
-        from application.services.preview_cache import PreviewCache
+        from application.documents import PreviewCache
 
         self.file_storage = LazyStorage()
         self.ml_clients = MLClientRegistry(

@@ -193,7 +193,7 @@ async def test_failed_bm25_reload_degrades_then_retries_next_request():
 
 @pytest.mark.asyncio
 async def test_generic_config_update_cannot_bypass_corpus_switch():
-    from application.services.config_service import ConfigService
+    from application.admin import ConfigService
     from fakes import FakeUnitOfWorkFactory
 
     service = ConfigService(FakeUnitOfWorkFactory(), Mock())

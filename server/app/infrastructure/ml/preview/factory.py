@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 
-from application.ports.document_preview import DocumentPreviewStrategy
+from application.documents import DocumentPreviewStrategy
 from infrastructure.ml.preview.docx_preview_strategy import DocxPreviewStrategy
 from infrastructure.ml.preview.pdf_preview_strategy import PdfPreviewStrategy
 from infrastructure.ml.preview.rtf_preview_strategy import RtfPreviewStrategy

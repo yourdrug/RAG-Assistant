@@ -12,7 +12,7 @@ import pytest_asyncio
 from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, HumanMessage
 
-from application.services.conversation_service import ConversationService
+from application.chat import ConversationService
 from domain.exceptions import ContextBudgetExceededError
 from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.curator_scope import CuratorScope

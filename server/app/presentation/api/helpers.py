@@ -10,6 +10,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, TypedDict, runtime_checkable
 
+from application.benchmark import BenchmarkQuestionCreateDTO, SweepCreateDTO
 from domain.value_objects.document_status import DocumentStatus
 from fastapi import HTTPException
 
@@ -22,7 +23,7 @@ from presentation.api.constants import (
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-    from application.dto.document_dto import DocumentDTO
+    from application.documents import DocumentDTO
     from application.ports.action_logger import ActionLoggerPort
     from fastapi import UploadFile
 
@@ -262,8 +263,6 @@ def build_dry_run_response(
 
 def question_create_to_dto(body: Any) -> Any:
     """Map ``BenchmarkQuestionCreate`` schema → ``BenchmarkQuestionCreateDTO``."""
-    from application.dto.benchmark_dto import BenchmarkQuestionCreateDTO
-
     return BenchmarkQuestionCreateDTO(
         question=body.question,
         expected_answer=body.expected_answer,
@@ -278,8 +277,6 @@ def question_create_to_dto(body: Any) -> Any:
 
 def sweep_create_to_dto(body: Any) -> Any:
     """Map ``SweepCreateRequest`` schema → ``SweepCreateDTO``."""
-    from application.dto.benchmark_dto import SweepCreateDTO
-
     return SweepCreateDTO(
         strategy=body.strategy,
         search_space=body.search_space,

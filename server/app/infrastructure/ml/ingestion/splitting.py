@@ -22,7 +22,7 @@ from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.page_content_type import PageContentType
 
 if TYPE_CHECKING:
-    from application.ports.chunk_settings import ChunkSettingsPort
+    from application.chunks import ChunkSettingsPort
     from domain.domain_profile.settings_port import DomainSettingsPort
     from domain.domain_profile.protocol import DomainProfile
 

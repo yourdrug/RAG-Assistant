@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from application.ports.rate_limit import RateLimitPolicyName
-from application.services.auth_service import AuthService
+from application.identity import AuthService
 from domain.value_objects.roles import UserKind, UserRole
 from fastapi import APIRouter, Depends, HTTPException
 

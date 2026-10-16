@@ -13,7 +13,7 @@ from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
-from application.services.retrieval import HybridRetriever
+from application.search import HybridRetriever
 from domain.utils import content_hash
 from domain.services.retrieval_diversity import prioritize_distinct_provisions
 from application.ports.ml_clients import MLClientPort

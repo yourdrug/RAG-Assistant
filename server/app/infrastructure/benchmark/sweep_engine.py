@@ -6,7 +6,7 @@ import logging
 from config import get_setting, settings
 from pathlib import Path
 
-from application.ports.benchmark_checkpoints import BenchmarkCheckpoints
+from application.benchmark import BenchmarkCheckpoints
 from infrastructure.benchmark.checkpoint import (
     fingerprint,
     FileBenchmarkCheckpoints,

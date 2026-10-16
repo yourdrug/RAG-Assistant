@@ -7,7 +7,7 @@ import logging
 from fastapi import APIRouter, Depends, Query
 
 from application.ports.rate_limit import RateLimitPolicyName
-from application.services.act_versioning_service import ActVersioningService
+from application.act_versioning import ActVersioningService
 
 from presentation.api.auth_dependencies import require_admin
 from presentation.api.rate_limit import rate_limit

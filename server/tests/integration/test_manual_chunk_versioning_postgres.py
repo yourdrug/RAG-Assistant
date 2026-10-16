@@ -10,7 +10,7 @@ from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from application.services.chunk_mutation_service import ChunkMutationService
+from application.chunks import ChunkMutationService
 from domain.entities.act_version import ActVersion
 from domain.value_objects.document_status import DocumentStatus
 from domain.value_objects.roles import UserKind, UserRole
@@ -163,7 +163,7 @@ async def seed_linked_timeline(sessions):
 
 @pytest.mark.parametrize("new_start", [date(2026, 1, 1), date(2028, 1, 1)])
 async def test_date_correction_updates_postgres_chain_and_search(pg_engine, new_start):
-    from application.services.act_versioning_service import ActVersioningService
+    from application.act_versioning import ActVersioningService
 
     sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
     _, ids = await seed_linked_timeline(sessions)
@@ -185,7 +185,7 @@ async def test_date_correction_updates_postgres_chain_and_search(pg_engine, new_
 async def test_concurrent_date_corrections_serialize_timeline(pg_engine):
     import asyncio
 
-    from application.services.act_versioning_service import ActVersioningService
+    from application.act_versioning import ActVersioningService
 
     sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
     act_id, ids = await seed_linked_timeline(sessions)

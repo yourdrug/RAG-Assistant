@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict
 
+from domain.value_objects.ml_provider import MLProvider
+
 
 class ConfigParamResponse(BaseModel):
     key: str
@@ -33,7 +35,7 @@ class ModelsInfoResponse(BaseModel):
     ocr_enabled: bool
     ollama_models: list[str]
     openrouter_model: str | None = None
-    ml_provider: str = "tei"
+    ml_provider: str = MLProvider.TEI.value
 
 
 class OpenRouterModelInfo(BaseModel):

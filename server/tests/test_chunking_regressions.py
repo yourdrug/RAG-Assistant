@@ -7,9 +7,9 @@ import pytest
 from docx import Document as WordDocument
 from langchain.schema import Document
 
-from application.ports.document_parser import FileMeta, SplitContext
-from application.services.document_loader import S3DocumentLoader
-from application.services.document_content import DocumentContentProcessor
+from application.ingestion import FileMeta, SplitContext
+from application.ingestion import S3DocumentLoader
+from application.documents import DocumentContentProcessor
 from domain.domain_profile.profiles.decree import DecreeDomainProfile
 from domain.domain_profile.profiles.legal import LegalDomainProfile
 from domain.domain_profile.registry import DomainProfileRegistry
@@ -301,7 +301,7 @@ async def test_api_content_processor_and_cli_construct_identical_final_chunks(tm
     )
     filename = "guide_2026-01-15.md"
     extractor = SimpleNamespace(extract_date_from_filename=extract_date_from_filename)
-    processor = DocumentContentProcessor(parser, splitter, extractor, None, None, None)
+    processor = DocumentContentProcessor(parser, splitter, extractor, None, text_assessor=None, metrics=None)
     ctx = SimpleNamespace(
         docs=parser.parse(path), original_filename=filename, doc_domain=DocDomain.GENERAL.value
     )

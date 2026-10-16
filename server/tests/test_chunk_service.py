@@ -5,7 +5,7 @@ import threading
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from application.services.chunk_service import ChunkService
+from application.chunks import ChunkService
 from domain.entities.document import Document
 from domain.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
 from domain.repositories.chunk_repository import ChunkSearchResult, ChunkStats
@@ -141,31 +141,31 @@ class TestChunkServiceValidation:
     def test_validate_chunk_content_empty(self):
         svc = _make_service(AsyncMock())
         with pytest.raises(ValidationError, match="cannot be empty"):
-            svc._mutation._validate_chunk_content("")
+            svc._mutation.validate_chunk_content("")
         with pytest.raises(ValidationError, match="cannot be empty"):
-            svc._mutation._validate_chunk_content("   ")
+            svc._mutation.validate_chunk_content("   ")
 
     def test_validate_chunk_content_too_short(self):
         svc = _make_service(AsyncMock())
         with pytest.raises(ValidationError, match="too short"):
-            svc._mutation._validate_chunk_content("ab")
+            svc._mutation.validate_chunk_content("ab")
 
     def test_validate_chunk_content_too_long(self):
         svc = _make_service(AsyncMock())
         with pytest.raises(ValidationError, match="too long"):
-            svc._mutation._validate_chunk_content("x" * 2000)
+            svc._mutation.validate_chunk_content("x" * 2000)
 
     def test_validate_chunk_content_valid(self):
         svc = _make_service(AsyncMock())
         valid = "This is a valid chunk content with enough text. " * 5
-        svc._mutation._validate_chunk_content(valid)
+        svc._mutation.validate_chunk_content(valid)
 
     def test_validate_chunk_content_manual_relaxed(self):
         svc = _make_service(AsyncMock())
         short_manual = "a" * 27
-        svc._mutation._validate_chunk_content(short_manual, is_manual=True)
+        svc._mutation.validate_chunk_content(short_manual, is_manual=True)
         with pytest.raises(ValidationError, match="too short"):
-            svc._mutation._validate_chunk_content("ab", is_manual=True)
+            svc._mutation.validate_chunk_content("ab", is_manual=True)
 
 
 class TestComputeOwnerAndGroup:
@@ -230,7 +230,7 @@ class TestEditChunk:
         enqueue_call = uow.vector_outbox.enqueue.call_args[0][0]
         assert enqueue_call.operation.value == "upsert_chunks"
         bm25.replace.assert_awaited_once()
-        uow.documents.set_has_manual_edits.assert_awaited_once_with(1, True)
+        uow.documents.set_has_manual_edits.assert_awaited_once_with(1, value=True)
         uow.documents.update_chunk_stats.assert_awaited_once()
 
     @pytest.mark.asyncio
@@ -348,7 +348,7 @@ class TestAddChunk:
         enqueue_call = uow.vector_outbox.enqueue.call_args[0][0]
         assert enqueue_call.operation.value == "upsert_chunks"
         bm25.add.assert_awaited_once()
-        uow.documents.set_has_manual_edits.assert_awaited_once_with(1, True)
+        uow.documents.set_has_manual_edits.assert_awaited_once_with(1, value=True)
         uow.documents.update_chunk_stats.assert_awaited_once()
 
     @pytest.mark.asyncio

@@ -1,6 +1,6 @@
 """Fail-closed authorization of indexed evidence and cache dependencies."""
 
-from application.ports.document_access import DocumentAccessPort
+from application.documents import DocumentAccessPort
 from domain.value_objects.user_context import UserContext
 
 

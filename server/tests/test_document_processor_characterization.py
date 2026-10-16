@@ -27,8 +27,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from application.dto.versioning_dto import VersioningPlan, VersioningResult
-from application.services.document_processor import DocumentProcessor
+from application.act_versioning import VersioningPlan, VersioningResult
+from application.documents import DocumentProcessor
 from domain.domain_profile.registry import ClassificationResult
 from domain.entities.document import Document
 from domain.entities.raw_document import RawDocument
@@ -351,7 +351,7 @@ async def test_happy_path_indexes_document(tmp_path):
     assert h.metrics.has("inc_chunks", 2)
     assert h.metrics.count("observe_duration") == 1
     assert h.storage.deleted == []
-    # temp file is removed in _finalize_processing
+    # temp file is removed in finalize_processing
     assert list(tmp_path.iterdir()) == []
 
 
@@ -706,7 +706,9 @@ async def test_prepared_version_commits_with_chunks_before_cache_invalidation(tm
     events = []
     active_uows = []
 
-    async def create_version(uow, *args):
+    async def create_version(uow, *args, effective_date=None, date_confidence=None):
+        assert effective_date == plan.effective_from
+        assert date_confidence == plan.date_confidence
         assert active_uows == [uow]
         assert uow.chunks._chunks == []
         events.append("version")

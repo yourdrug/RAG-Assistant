@@ -11,7 +11,7 @@ from typing import cast
 
 from infrastructure.benchmark.answer_generators import BenchmarkAnswer
 from infrastructure.ml.rag.benchmark_evidence import BenchmarkEvidence
-from application.ports.benchmark_checkpoints import BenchmarkCheckpoints
+from application.benchmark import BenchmarkCheckpoints
 from infrastructure.benchmark.checkpoint import FileBenchmarkCheckpoints
 from infrastructure.benchmark.judge_rubric import JUDGE_RUBRIC_VERSION
 

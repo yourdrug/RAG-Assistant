@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from application.services.ingestion_sync import DocumentSyncService
+from application.ingestion import DocumentSyncService
 from domain.entities.document import Document
 from domain.entities.raw_document import RawDocument
 from domain.value_objects.roles import UserKind, UserRole

@@ -5,11 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from application.services.benchmark_export_service import BenchmarkExportService
+from application.benchmark import BenchmarkExportService
 from fastapi.responses import StreamingResponse
 
 from application.ports.rate_limit import RateLimitPolicyName
-from application.services.benchmark_result_service import BenchmarkResultService
+from application.benchmark import BenchmarkResultService
 from application.services.job_service import JobService
 from fastapi import APIRouter, Depends, HTTPException, Request
 

@@ -9,9 +9,9 @@ from langchain.schema import Document as SearchDocument
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, Filter, PointStruct, VectorParams
 
-from application.dto.versioning_dto import VersioningResult
-from application.services.act_versioning_service import ActVersioningService
-from application.services.document_persistence import persist_document_result
+from application.act_versioning import VersioningResult
+from application.act_versioning import ActVersioningService
+from application.documents import persist_document_result
 from domain.domain_profile.date_parsing import parse_date_guess
 from domain.domain_profile.profiles.decree import DecreeDomainProfile
 from domain.domain_profile.profiles.legal import LegalDomainProfile
@@ -424,7 +424,7 @@ async def test_same_effective_date_supersedes_old_edition():
 
 @pytest.mark.asyncio
 async def test_backfill_after_future_edition_takes_effect_cannot_become_latest(monkeypatch):
-    from application.services import act_versioning_service
+    from application.act_versioning import service as act_versioning_service
 
     class Clock(date):
         current = date(2026, 1, 1)
@@ -433,7 +433,7 @@ async def test_backfill_after_future_edition_takes_effect_cannot_become_latest(m
         def today(cls):
             return cls.current
 
-    monkeypatch.setattr(act_versioning_service, "date", Clock)
+    monkeypatch.setattr(act_versioning_service, "today", Clock.today)
     factory, service, _ = system()
     for document_id in (1, 2, 3):
         put_document(factory, document_id)

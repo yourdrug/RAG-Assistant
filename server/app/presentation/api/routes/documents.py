@@ -7,8 +7,8 @@ import hashlib
 import asyncio
 
 from application.ports.rate_limit import RateLimitPolicyName
-from application.services.document_command_service import DocumentCommandService
-from application.services.document_query_service import DocumentQueryService
+from application.documents import DocumentCommandService
+from application.documents import DocumentQueryService
 from application.services.job_service import JobService
 from domain.value_objects.capabilities import Capability
 from domain.value_objects.doc_domain import DocDomain

@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from langchain_core.documents import Document as Chunk
 
-from application.services.document_access_service import DocumentAccessService
+from application.documents import DocumentAccessService
 from domain.entities.document import Document
 from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.llm_provider import Breadth

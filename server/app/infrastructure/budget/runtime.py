@@ -10,9 +10,8 @@ import psycopg
 from langchain_core.load.dump import dumpd
 from domain.utils import parse_bool
 
-from application.ports.billing_context import billing_principal
 from infrastructure.budget.job_context import next_operation_id
-from application.services.cost_budget_service import BudgetPolicy, CostBudgetService
+from application.budget import BudgetPolicy, CostBudgetService, billing_principal
 from config import settings
 from domain.value_objects.cost_budget import BudgetError, CostRate
 from infrastructure.ml.usage_capture import active_llm_usage

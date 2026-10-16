@@ -20,7 +20,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import URL
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from application.ports.billing_context import billing_principal
+from application.budget import billing_principal
 from config import settings
 from domain.value_objects.cost_budget import BudgetError, usd_units
 from domain.value_objects.llm_provider import LLMProvider

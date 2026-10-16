@@ -13,9 +13,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 import pytest
 from langchain.schema import Document
 
-from application.services.batch_ingestion import BatchIngestionWorkflow
-from application.services.ingestion_scope import IngestionScope
-from application.services.single_file_ingestion import SingleFileIngestionWorkflow
+from application.ingestion import BatchIngestionWorkflow
+from application.ingestion import IngestionScope
+from application.ingestion import SingleFileIngestionWorkflow
 from domain.value_objects.visibility import DocumentVisibility
 
 
@@ -67,7 +67,9 @@ async def test_batch_workflow_syncs_before_recording_registry_entry(failure):
 
     sparse_index.update = AsyncMock(side_effect=update_sparse)
 
-    workflow = BatchIngestionWorkflow(vector_store, settings, loader, registry, sync, sparse_index)
+    workflow = BatchIngestionWorkflow(
+        vector_store, settings, loader, registry, sync=sync, sparse_index=sparse_index
+    )
     scope = IngestionScope(
         visibility=DocumentVisibility.INTERNAL_GROUP,
         group_id=7,
@@ -153,5 +155,5 @@ async def test_single_file_workflow_syncs_before_recording_registry_entry(sync_f
         registry.upsert.assert_not_awaited()
     else:
         registry.upsert.assert_awaited_once_with(
-            "report.pdf", "42_2026-01-01 00:00:00", "s3://bucket/docs/report.pdf", 1, 11
+            "report.pdf", "42_2026-01-01 00:00:00", "s3://bucket/docs/report.pdf", 1, chars=11
         )

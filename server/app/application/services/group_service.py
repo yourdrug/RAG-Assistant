@@ -1,56 +1,8 @@
-"""Application service for group management with role-based access control."""
+"""Compatibility exports for application.identity."""
 
-from __future__ import annotations
-
-from domain.exceptions import EntityNotFound, ValidationError
-from domain.value_objects.roles import UserKind
-
-from application.ports.unit_of_work_factory import UnitOfWorkFactory
-from application.services.user_context_factory import UserContextFactory
+from application.identity import (
+    GroupService,
+)
 
 
-class GroupService:
-    def __init__(
-        self, uow_factory: UnitOfWorkFactory, user_ctx_factory: UserContextFactory | None = None
-    ) -> None:
-        self._uow_factory = uow_factory
-        self._user_ctx_factory = user_ctx_factory or UserContextFactory()
-
-    async def list_for_user(self, user_id: int, user_role: str, user_kind: str):
-        async with self._uow_factory.create() as uow:
-            ctx = await self._user_ctx_factory.build(uow, user_id, user_kind, user_role)
-            if ctx.is_admin:
-                return await uow.groups.list_all()
-            elif ctx.is_client:
-                return []
-            elif ctx.is_curator:
-                # CURATOR sees own membership groups + managed groups
-                all_group_ids = list(set(ctx.group_ids) | set(ctx.managed_group_ids))
-                return await uow.groups.list_by_ids(all_group_ids) if all_group_ids else []
-            else:
-                return await uow.groups.list_by_ids(list(ctx.group_ids)) if ctx.group_ids else []
-
-    async def create(self, name: str):
-        async with self._uow_factory.create(master=True) as uow:
-            group_id = await uow.groups.create(name)
-            return group_id
-
-    async def list_members(self, group_id: int):
-        async with self._uow_factory.create() as uow:
-            return await uow.groups.list_members(group_id)
-
-    async def add_member(self, group_id: int, user_id: int):
-        async with self._uow_factory.create(master=True) as uow:
-            target = await uow.users.get_by_id(user_id)
-            if target is None:
-                raise EntityNotFound("User", user_id)
-            if target.kind != UserKind.INTERNAL.value:
-                raise ValidationError(
-                    "Only internal employees can be added to groups",
-                    field="user_id",
-                )
-            await uow.groups.add_user(user_id, group_id)
-
-    async def remove_member(self, group_id: int, user_id: int):
-        async with self._uow_factory.create(master=True) as uow:
-            await uow.groups.remove_user(user_id, group_id)
+__all__ = ["GroupService"]

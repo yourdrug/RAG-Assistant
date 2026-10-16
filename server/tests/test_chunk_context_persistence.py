@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from langchain.schema import Document
 
-from application.services.document_pipeline import process_chunks
+from application.indexing import process_chunks
 from domain.entities.raw_document import RawDocument
 from domain.repositories.chunk_repository import ChunkSearchResult
 from domain.value_objects.chunk_context import extract_chunk_context
@@ -68,9 +68,9 @@ async def test_ingestion_context_reaches_sql_search_and_neighbor_prompts():
         "rules.pdf",
         [chunk],
         DocumentVisibility.INTERNAL_PRIVATE.value,
-        12,
-        None,
-        DocDomain.DECREE.value,
+        owner_id=12,
+        group_id=None,
+        doc_domain=DocDomain.DECREE.value,
         _existing_uow=uow,
     )
     assert models[0].context_metadata == context

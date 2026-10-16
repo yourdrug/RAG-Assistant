@@ -10,6 +10,7 @@ import logging
 
 
 import httpx
+from domain.value_objects.ml_provider import MLProvider
 from infrastructure.corpus.control import corpus_write_guard, raw_corpus_client
 from infrastructure.corpus import snapshot as corpus_snapshot
 from infrastructure.corpus.snapshot import BoundQdrantClient, CorpusSnapshot
@@ -37,7 +38,7 @@ def create_embeddings(model: Settings | None = None):
         max_connections=model.embedding_http_max_connections,
         max_keepalive_connections=model.embedding_http_max_keepalive_connections,
     )
-    if model.ml_provider == "deepinfra":
+    if model.ml_provider == MLProvider.DEEPINFRA.value:
         log.info("Creating DeepInfra embeddings client (model=%s) ...", model.deepinfra_embed_model)
         client = DeepInfraEmbeddingsClient(
             api_key=model.deepinfra_api_key,
@@ -67,7 +68,7 @@ def create_reranker(model: Settings | None = None):
         max_connections=model.rerank_http_max_connections,
         max_keepalive_connections=model.rerank_http_max_keepalive_connections,
     )
-    if model.ml_provider == "deepinfra":
+    if model.ml_provider == MLProvider.DEEPINFRA.value:
         log.info("Creating DeepInfra reranker client (model=%s) ...", model.deepinfra_rerank_model)
         return DeepInfraRerankerClient(
             api_key=model.deepinfra_api_key,

@@ -1,13 +1,12 @@
 from decimal import Decimal
 import pytest
 from domain.value_objects.cost_budget import CostRate, BudgetError, usd_units
-from application.services.cost_budget_service import BudgetPolicy, CostBudgetService
+from application.budget import BudgetPolicy, CostBudgetService, billing_principal
 from unittest.mock import AsyncMock
 import asyncio
 from types import SimpleNamespace
 import httpx
 from config import settings
-from application.ports.billing_context import billing_principal
 from infrastructure.budget.runtime import BudgetRuntime, guard_paid_http_async
 from infrastructure.ml.usage_capture import active_llm_usage
 
@@ -170,7 +169,7 @@ async def test_redis_budget_gate_rejects_lowered_quota_and_recovers_after_restar
 
 @pytest.mark.asyncio
 async def test_publishing_tariff_rejects_understated_provider_context():
-    from application.services.budget_admin_service import BudgetAdminService
+    from application.budget import BudgetAdminService
 
     repository, catalog = AsyncMock(), AsyncMock()
     catalog.max_context.return_value = 100

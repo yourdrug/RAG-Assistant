@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.llm_provider import LLMProvider
+from domain.value_objects.ml_provider import MLProvider
 
 
 # Target ownership only: these sets do not activate seeding, updates or hot reload.
@@ -326,7 +327,7 @@ DYNAMIC_PARAMS: list[DynamicParam] = [
         str,
         "ml",
         "ML provider for embedding/reranking",
-        allowed=["tei", "deepinfra"],
+        allowed=[provider.value for provider in MLProvider],
     ),
     DynamicParam("deepinfra_embed_model", str, "ml", "DeepInfra embedding model"),
     DynamicParam("deepinfra_rerank_model", str, "ml", "DeepInfra reranker model"),

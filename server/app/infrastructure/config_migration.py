@@ -9,6 +9,7 @@ import logging
 import math
 import os
 import tempfile
+from domain.value_objects.ml_provider import MLProvider
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -234,7 +235,7 @@ def compose_updates(env: EnvSnapshot, effective: dict[str, str | None]) -> dict[
         return {}
     profiles = [p.strip() for p in (effective.get("COMPOSE_PROFILES") or "").split(",") if p.strip()]
     provider = effective.get("ML_PROVIDER", Settings.model_fields["ml_provider"].default)
-    if provider == "tei" and "tei" not in profiles:
+    if provider == MLProvider.TEI.value and "tei" not in profiles:
         profiles.append("tei")
     joined = ",".join(profiles)
     return {"COMPOSE_PROFILES": joined} if profiles and env.values.get("COMPOSE_PROFILES") != joined else {}
@@ -260,7 +261,7 @@ def validate_storage_and_credentials(
         for key in ("llm_provider", "ml_provider")
     }
     providers.update({row.key: row.value for row in rows if row.domain_key is None and row.key in providers})
-    if providers["ml_provider"] == "deepinfra":
+    if providers["ml_provider"] == MLProvider.DEEPINFRA.value:
         required.add("DEEPINFRA_API_KEY")
     if providers["llm_provider"] == LLMProvider.OPENROUTER.value:
         required.add("OPENROUTER_API_KEY")

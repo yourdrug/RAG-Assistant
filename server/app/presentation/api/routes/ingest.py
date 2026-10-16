@@ -6,9 +6,9 @@ import logging
 import hashlib
 import asyncio
 
-from application.ports.ingestion_port import IngestionPort
+from application.ingestion import IngestionPort
 from application.ports.rate_limit import RateLimitPolicyName
-from application.services.ingest_service import IngestAppService
+from application.ingestion import IngestAppService
 from application.services.job_service import JobService
 from domain.value_objects.visibility import DocumentVisibility
 from domain.value_objects.doc_domain import DocDomainSelection, DomainDetectionMode

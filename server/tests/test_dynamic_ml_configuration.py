@@ -346,7 +346,7 @@ async def test_unproven_local_tei_weights_cannot_be_switched(model, monkeypatch)
 
 @pytest.mark.asyncio
 async def test_admin_endpoint_failure_never_commits_invalid_setting(model, monkeypatch):
-    from application.services.config_service import ConfigService
+    from application.admin import ConfigService
     from fakes import FakeUnitOfWorkFactory
 
     pools = wire_http(monkeypatch, lambda request: httpx.Response(503))
@@ -368,7 +368,7 @@ async def test_admin_endpoint_failure_never_commits_invalid_setting(model, monke
 @pytest.mark.asyncio
 async def test_admin_probe_has_no_open_transaction_and_detects_concurrent_change(model, monkeypatch):
     from contextlib import asynccontextmanager
-    from application.services.config_service import ConfigService
+    from application.admin import ConfigService
     from fakes import FakeUnitOfWorkFactory
 
     factory = FakeUnitOfWorkFactory()
@@ -707,7 +707,7 @@ async def test_concurrent_benchmark_refresh_never_installs_obsolete_endpoint(mod
 
 @pytest.mark.asyncio
 async def test_promoted_migration_rows_show_current_metadata_and_preserve_database_value():
-    from application.services.config_service import ConfigService
+    from application.admin import ConfigService
     from fakes import FakeUnitOfWorkFactory
 
     factory = FakeUnitOfWorkFactory()

@@ -18,7 +18,7 @@ from langchain.schema import Document as LCDocument
 from qdrant_client.models import FieldCondition, Filter, MatchAny
 from infrastructure.ml.rag.rag_retrieval import resolve_hashes_batch
 
-from application.services.retrieval import HybridRetriever
+from application.search import HybridRetriever
 from config import get_setting, settings
 from domain.services.benchmark_evaluation import (
     evaluate_retrieval,
@@ -192,10 +192,10 @@ def score_config_cheap(  # noqa: C901
                 [(h, score) for h, score, _ in dense_trimmed],
                 sparse_trimmed,
                 available,
-                fetch_k,
-                rrf_k,
-                dw,
-                sw,
+                fetch_k=fetch_k,
+                rrf_k=rrf_k,
+                dense_weight=dw,
+                sparse_weight=sw,
             )
             # The reranker cache excludes contradictory scope before inference.
             # Mirror production's post-merge scope filter before reading scores.

@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-from application.ports.benchmark_checkpoints import BenchmarkCheckpoints
+from application.benchmark import BenchmarkCheckpoints
 
 if TYPE_CHECKING:
-    from application.ports.chat_rag_port import ChatRAGPort
+    from application.chat import ChatRAGPort
 
 
 class AsyncBenchmarkRunner:

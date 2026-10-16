@@ -8,15 +8,15 @@ import logging
 from domain.value_objects.sweep_status import BenchmarkSweepStatus
 
 from application.ports.rate_limit import RateLimitPolicyName
-from application.services.benchmark_services import (
+from application.benchmark import (
     BenchmarkQuestionService,
     BenchmarkRunService,
     BenchmarkSweepService,
     HISTORY_CONFIG_KEYS,
 )
-from application.services.benchmark_result_service import BenchmarkResultService
-from application.services.config_service import ConfigService
-from application.services.document_query_service import DocumentQueryService
+from application.benchmark import BenchmarkResultService
+from application.admin import ConfigService
+from application.documents import DocumentQueryService
 from application.services.job_service import JobService
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse

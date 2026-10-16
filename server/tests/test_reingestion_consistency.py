@@ -6,9 +6,9 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from application.services.document_pipeline import process_chunks
-from application.services.single_file_ingestion import SingleFileIngestionWorkflow
-from application.services.ingestion_scope import IngestionScope
+from application.indexing import process_chunks
+from application.ingestion import SingleFileIngestionWorkflow
+from application.ingestion import IngestionScope
 from domain.entities.raw_document import RawDocument
 from domain.entities.vector_outbox_entry import OutboxOperation, OutboxStatus
 from domain.value_objects.doc_domain import DocDomain
@@ -27,9 +27,9 @@ async def index(factory, text):
         "report.txt",
         chunks,
         DocumentVisibility.INTERNAL_PUBLIC.value,
-        None,
-        None,
-        DocDomain.GENERAL.value,
+        owner_id=None,
+        group_id=None,
+        doc_domain=DocDomain.GENERAL.value,
     )
 
 

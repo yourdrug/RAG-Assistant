@@ -2,7 +2,15 @@
 
 from __future__ import annotations
 
-from application.services.benchmark_export_service import BenchmarkExportService
+from application.identity import AssignmentService, AuthService, GroupService
+from application.admin import ConfigAdminService, ConfigService
+from application.benchmark import (
+    BenchmarkExportService,
+    BenchmarkQuestionService,
+    BenchmarkResultService,
+    BenchmarkRunService,
+    BenchmarkSweepService,
+)
 
 import logging
 from dataclasses import dataclass, field
@@ -14,33 +22,22 @@ from infrastructure.adapters.chunk_search_adapter import ChunkSearchAdapter
 from infrastructure.bm25.bm25_updater import BM25IndexAdapter
 
 if TYPE_CHECKING:
-    from application.services.auth_service import AuthService
-    from application.services.benchmark_result_service import BenchmarkResultService
-    from application.services.benchmark_services import (
-        BenchmarkQuestionService,
-        BenchmarkRunService,
-        BenchmarkSweepService,
-    )
-    from application.services.chat_log_service import ChatLogService
-    from application.services.chat_service import ChatService
-    from application.services.chunk_service import ChunkService
-    from application.services.config_admin_service import ConfigAdminService
-    from application.services.config_service import ConfigService
-    from application.services.conversation_service import ConversationService
-    from application.services.assignment_service import AssignmentService
-    from application.services.document_command_service import DocumentCommandService
-    from application.services.document_query_service import DocumentQueryService
-    from application.services.document_deletion_jobs import DocumentDeletionJobs
-    from application.services.group_service import GroupService
+    from application.chat import ChatLogService
+    from application.chat import ChatService
+    from application.chunks import ChunkService
+    from application.chat import ConversationService
+    from application.documents import DocumentCommandService
+    from application.documents import DocumentQueryService
+    from application.documents import DocumentDeletionJobs
     from application.services.health_service import HealthService
-    from application.services.ingest_service import IngestAppService
+    from application.ingestion import IngestAppService
     from application.services.job_service import JobService
     from application.services.metrics_service import MetricsService
     from application.services.pdf_diagnostic_service import PDFDiagnosticService
     from application.services.quality_service import QualityService
-    from application.services.search_service import SearchService
+    from application.search import SearchService
     from infrastructure.ml.rag_service import RagService
-    from application.services.ingestion_orchestrator import IngestionService
+    from application.ingestion import IngestionService
 
     from composition.infrastructure import InfrastructureContainer
 
@@ -93,31 +90,20 @@ class ApplicationContainer:
 
         Raises RuntimeError if InfrastructureContainer has not been initialized.
         """
-        from application.services.auth_service import AuthService
-        from application.services.benchmark_result_service import BenchmarkResultService
-        from application.services.benchmark_services import (
-            BenchmarkQuestionService,
-            BenchmarkRunService,
-            BenchmarkSweepService,
-        )
-        from application.services.chat_log_service import ChatLogService
-        from application.services.chat_service import ChatService
-        from application.services.chunk_service import ChunkService
-        from application.services.config_admin_service import ConfigAdminService
-        from application.services.config_service import ConfigService
-        from application.services.conversation_service import ConversationService
-        from application.services.assignment_service import AssignmentService
-        from application.services.document_command_service import DocumentCommandService
-        from application.services.document_query_service import DocumentQueryService
-        from application.services.document_deletion_jobs import DocumentDeletionJobs
-        from application.services.group_service import GroupService
+        from application.chat import ChatLogService
+        from application.chat import ChatService
+        from application.chunks import ChunkService
+        from application.chat import ConversationService
+        from application.documents import DocumentCommandService
+        from application.documents import DocumentQueryService
+        from application.documents import DocumentDeletionJobs
         from application.services.health_service import HealthService
-        from application.services.ingest_service import IngestAppService
+        from application.ingestion import IngestAppService
         from application.services.job_service import JobService
         from application.services.metrics_service import MetricsService
         from application.services.pdf_diagnostic_service import PDFDiagnosticService
         from application.services.quality_service import QualityService
-        from application.services.search_service import SearchService
+        from application.search import SearchService
         from infrastructure.auth.jwt_provider import JWTProvider
         from infrastructure.auth.password_hasher import BCryptPasswordHasher
         from infrastructure.events.in_process_event_bus import event_bus
@@ -143,7 +129,7 @@ class ApplicationContainer:
         ml = _require(infra.ml.ml_clients, "ml_clients")
 
         chunk_search = ChunkSearchAdapter(uow_factory=uow)
-        from application.services.document_access_service import DocumentAccessService
+        from application.documents import DocumentAccessService
 
         pii_redactor = PIIRedactorAdapter(rag_settings=LiveRagSettings())
         self.rag_service = RagService(

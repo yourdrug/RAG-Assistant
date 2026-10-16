@@ -357,7 +357,7 @@ async def test_run_hybrid_search_empty_conditions_fail_closed(mock_settings, moc
 
 
 @pytest.mark.asyncio
-@patch("application.services.retrieval.rrf_merge")
+@patch("application.search.hybrid.rrf_merge")
 @patch("infrastructure.ml.rag.rag_retrieval.RAG_STAGE_DURATION")
 @patch("infrastructure.ml.rag.rag_retrieval.settings")
 async def test_hybrid_search_uses_rrf_when_bm25_available(mock_settings, mock_metrics, mock_rrf):

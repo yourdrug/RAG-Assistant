@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from application.dto.auth_dto import ChangeRoleCommand, CreateUserCommand, LoginCommand
+from application.identity import ChangeRoleCommand, CreateUserCommand, LoginCommand
 from application.ports.rate_limit import RateLimitPolicyName
-from application.services.auth_service import AuthService
+from application.identity import AuthService
 from domain.value_objects.roles import UserKind, UserRole
 from fastapi import APIRouter, Depends, Query
 
@@ -98,7 +98,7 @@ async def toggle_user_active(
     auth_service: AuthService = Depends(create_auth_service),
     log=Depends(create_action_logger),
 ):
-    result = await auth_service.toggle_active(user_id, is_active, admin.id)
+    result = await auth_service.toggle_active(user_id, is_active=is_active, admin_id=admin.id)
     log("user.toggle_active", user_id=admin.id, details={"target_user": user_id, "is_active": is_active})
     return UserToggleResponse(id=result.id, is_active=result.is_active)
 

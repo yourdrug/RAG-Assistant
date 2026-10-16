@@ -26,11 +26,11 @@ from composition.service_providers import (
     create_ingest_app_service,
 )
 from domain.value_objects.visibility import DocumentVisibility
-from application.services.benchmark_dataset import load_benchmark_questions
-from application.services.benchmark_orchestrator import compute_summary_from_results
+from application.benchmark import load_benchmark_questions
+from application.benchmark import compute_summary_from_results
 from domain.entities.benchmark_run import BenchmarkRun
-from application.services.benchmark_result_service import BenchmarkResultService
-from application.services.benchmark_export_service import BenchmarkExportService
+from application.benchmark import BenchmarkResultService
+from application.benchmark import BenchmarkExportService
 from infrastructure.benchmark.corpus import benchmark_corpus, corpus_metadata
 from infrastructure.benchmark.checkpoint import fingerprint
 from infrastructure.benchmark.runner import run_benchmark_async
@@ -222,7 +222,7 @@ async def run_full_ingest(
 
     async def _action() -> None:
         await service.run_full(
-            resolved_dir, reset, domain=domain, visibility=vis, group_id=group_id, client_id=client_id
+            resolved_dir, reset=reset, domain=domain, visibility=vis, group_id=group_id, client_id=client_id
         )
 
     await run_tracked_job(

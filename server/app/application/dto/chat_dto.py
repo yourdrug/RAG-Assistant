@@ -1,15 +1,6 @@
-"""Chat-related DTOs -- immutable data-transfer objects for the chat API."""
+"""Compatibility exports; use application.chat."""
 
-from __future__ import annotations
-
-from dataclasses import dataclass, field
+from application.chat.dto import ChatResult
 
 
-@dataclass(frozen=True)
-class ChatResult:
-    answer: str
-    conversation_id: int
-    sources: list[dict] = field(default_factory=list)
-    confidence: float | None = None
-    input_tokens: int | None = None
-    output_tokens: int | None = None
+__all__ = ["ChatResult"]

@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from pydantic import ValidationError
 
-from application.services.benchmark_dataset import load_benchmark_questions
+from application.benchmark import load_benchmark_questions
 from domain.entities.benchmark_question import BenchmarkQuestion
 from domain.entities.benchmark_sweep import BenchmarkSweep
 from domain.value_objects.benchmark_dataset import BenchmarkDataset
@@ -176,7 +176,7 @@ async def test_queue_serializes_dataset_and_deduplicates_per_dataset(monkeypatch
 
 @pytest.mark.asyncio
 async def test_dataset_catalog_uses_repository_without_question_pagination():
-    from application.services.benchmark_services import BenchmarkQuestionService
+    from application.benchmark import BenchmarkQuestionService
 
     factory, repo, uow = dataset_factory()
     repo.get_datasets = AsyncMock(return_value=[BenchmarkDataset.MAIN.value, "quick-30", "custom"])

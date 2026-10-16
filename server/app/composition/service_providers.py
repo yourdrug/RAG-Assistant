@@ -47,15 +47,15 @@ def create_ingestion_service(
     Ingestion always requires a UoW because database sync and registry writes
     are part of its correctness contract.
     """
-    from application.services.act_versioning_service import ActVersioningService
-    from application.services.batch_ingestion import BatchIngestionWorkflow
-    from application.services.document_loader import S3DocumentLoader
-    from application.services.ingestion_orchestrator import IngestionService
-    from application.services.ingestion_registry import IngestionRegistry
-    from application.services.ingestion_sync import DocumentSyncService
-    from application.services.ingestion_targets import S3IngestionTargets, S3UploadService
-    from application.services.single_file_ingestion import SingleFileIngestionWorkflow
-    from application.services.sparse_index_builder import SparseIndexBuilder
+    from application.act_versioning import ActVersioningService
+    from application.ingestion import BatchIngestionWorkflow
+    from application.ingestion import S3DocumentLoader
+    from application.ingestion import IngestionService
+    from application.ingestion import IngestionRegistry
+    from application.ingestion import DocumentSyncService
+    from application.ingestion import S3IngestionTargets, S3UploadService
+    from application.ingestion import SingleFileIngestionWorkflow
+    from application.ingestion import SparseIndexBuilder
     from infrastructure.bm25.sparse_index_admin import S3SparseIndexAdmin
     from infrastructure.ingestion.document_parser_adapter import (
         IngestionDocumentParser,
@@ -103,8 +103,8 @@ def create_ingestion_service(
             ingestion_settings,
             loader,
             registry,
-            sync,
-            sparse_index,
+            sync=sync,
+            sparse_index=sparse_index,
         ),
         single_file_workflow=SingleFileIngestionWorkflow(
             file_storage,
@@ -124,8 +124,8 @@ def create_document_processor(
     uow_factory: UnitOfWorkFactory | None = None,
 ):
     """Create a DocumentProcessor using infrastructure singletons."""
-    from application.services.act_versioning_service import ActVersioningService
-    from application.services.document_processor import DocumentProcessor
+    from application.act_versioning import ActVersioningService
+    from application.documents import DocumentProcessor
     from config import settings
     from infrastructure.ml.guardrails.text_quality_adapter import TextQualityAssessorAdapter
 
@@ -170,7 +170,7 @@ def create_ingest_app_service(
     importing ``IngestAppService`` directly, keeping the infrastructure →
     application dependency out of the worker layer.
     """
-    from application.services.ingest_service import IngestAppService
+    from application.ingestion import IngestAppService
 
     uow = _require(
         uow_factory if uow_factory is not None else infra.db.uow_factory,

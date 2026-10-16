@@ -6,7 +6,7 @@ import fitz
 import pytest
 from langchain.schema import Document
 
-from application.ports.document_parser import FileMeta, SplitContext
+from application.ingestion import FileMeta, SplitContext
 from domain.domain_profile.profiles.decree import DecreeDomainProfile
 from domain.domain_profile.profiles.legal import LegalDomainProfile
 from domain.domain_profile.registry import DomainProfileRegistry

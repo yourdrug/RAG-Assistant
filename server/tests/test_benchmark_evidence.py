@@ -276,7 +276,7 @@ def test_annotation_copy_does_not_mutate_dataset():
 def test_explicit_csv_keeps_metrics_and_never_appends_local_history(tmp_path):
     from infrastructure.benchmark.persistence import save_results
     from infrastructure.benchmark.benchmark_history import load_history
-    from application.services.benchmark_orchestrator import compute_summary_from_results
+    from application.benchmark import compute_summary_from_results
 
     result = {
         "id": "q1",

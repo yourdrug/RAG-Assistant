@@ -339,7 +339,7 @@ async def test_legacy_stages_import_preserves_valid_zero_without_local_writes(tm
 
 @pytest.mark.asyncio
 async def test_service_returns_current_results_without_consulting_report_files(tmp_path):
-    from application.services.benchmark_orchestrator import BenchmarkService
+    from application.benchmark import BenchmarkService
 
     result = {
         "id": 1,
@@ -364,7 +364,7 @@ async def test_service_returns_current_results_without_consulting_report_files(t
 
 @pytest.mark.asyncio
 async def test_result_detail_api_serializes_per_question_list():
-    from application.services.benchmark_result_service import BenchmarkResultService
+    from application.benchmark import BenchmarkResultService
     from domain.entities.benchmark_run import BenchmarkRun
     from presentation.api.routes.benchmark import get_benchmark_result
 
@@ -644,7 +644,7 @@ async def test_parallel_cases_keep_separate_log_correlation(monkeypatch, caplog)
 @pytest.mark.asyncio
 @pytest.mark.parametrize("explicit", [None, 2])
 async def test_service_passes_runtime_concurrency_through_instead_of_hardcoding_four(explicit):
-    from application.services.benchmark_orchestrator import BenchmarkService
+    from application.benchmark import BenchmarkService
 
     run = AsyncMock(return_value=[])
     await BenchmarkService(runner=SimpleNamespace(run=run)).run(

@@ -3,18 +3,22 @@
 from __future__ import annotations
 
 import logging
+from domain.value_objects.ml_provider import MLProvider
 from decimal import Decimal
 from typing import Literal
 from pydantic import BaseModel, Field
 from config import settings
 from domain.value_objects.cost_budget import CostRate
-from application.services.budget_admin_service import BudgetAdminService
-from application.ports.corpus_control import CorpusControlPort
+from application.budget import BudgetAdminService
+from application.admin import (
+    ConfigAdminService,
+    ConfigService,
+    ConfigurationStatus,
+    CorpusControlPort,
+    EffectiveParameter,
+)
 
-from application.ports.provider_configuration import ConfigurationStatus, EffectiveParameter
 from application.ports.rate_limit import RateLimitPolicyName
-from application.services.config_admin_service import ConfigAdminService
-from application.services.config_service import ConfigService
 from fastapi import APIRouter, Depends, HTTPException
 
 from presentation.api.auth_dependencies import require_admin
@@ -237,9 +241,9 @@ async def active_cost_models(
     service: BudgetAdminService = Depends(create_budget_admin_service),
 ):
     models = []
-    if settings.ml_provider == 'deepinfra':
+    if settings.ml_provider == MLProvider.DEEPINFRA.value:
         for model in (settings.deepinfra_embed_model, settings.deepinfra_rerank_model):
-            models.append(await service.model_status('deepinfra', model))
+            models.append(await service.model_status(MLProvider.DEEPINFRA.value, model))
     return {'enabled': settings.cost_rate_limit_enabled, 'models': models}
 
 

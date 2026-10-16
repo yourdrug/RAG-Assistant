@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from application.services.conversation_service import ConversationService
+from application.chat import ConversationService
 from fastapi import APIRouter, Depends, Query
 
 from presentation.api.auth_dependencies import get_current_user

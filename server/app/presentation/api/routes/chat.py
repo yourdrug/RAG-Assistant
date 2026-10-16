@@ -7,7 +7,7 @@ import logging
 import uuid
 
 from application.ports.rate_limit import RateLimitPolicyName
-from application.services.chat_service import ChatService
+from application.chat import ChatService
 from domain.exceptions import ContextBudgetExceededError, LLMUnavailableError, SemaphoreTimeoutError
 from domain.value_objects.stream_events import MetaEvent, StatusEvent, TextChunk
 from fastapi import APIRouter, Depends, HTTPException, Request

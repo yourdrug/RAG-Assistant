@@ -4,7 +4,7 @@ from functools import wraps
 from contextvars import ContextVar
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
-from application.ports.billing_context import billing_principal
+from application.budget import billing_principal
 from domain.value_objects.cost_budget import BudgetError
 
 

@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 import pytest
 
-from application.services.act_versioning_service import ActVersioningService
+from application.act_versioning import ActVersioningService
 from domain.domain_profile.protocol import ReferenceMatch
 from domain.entities.act_version import ActVersion
 from domain.entities.document import Document
@@ -240,7 +240,7 @@ async def test_process_document_versioning_low_confidence_date_not_filterable():
 @pytest.mark.asyncio
 async def test_process_document_versioning_skips_unversioned_profile():
     service, _ = make_service()
-    from application.dto.versioning_dto import VersioningResult
+    from application.act_versioning import VersioningResult
     from domain.domain_profile.profiles.general import GeneralDomainProfile
 
     result = await service.process_document_versioning(

@@ -6,6 +6,7 @@ Target ownership is declared in domain.value_objects.dynamic_config.
 """
 
 import sys
+from domain.value_objects.ml_provider import MLProvider
 from contextvars import ContextVar
 from datetime import UTC, datetime
 from pathlib import Path
@@ -110,7 +111,7 @@ class Settings(BaseSettings):
     openrouter_model: str = "qwen/qwen-2.5-7b-instruct"
 
     # ── Embedding / Reranking provider ──────────────────────────────────────
-    ml_provider: str = "tei"  # tei | deepinfra
+    ml_provider: str = MLProvider.TEI.value
     tei_embed_url: str = "http://tei-embed:8080"
     tei_embed_model: str = "BAAI/bge-m3"
     embedding_revision: str = "v1"
@@ -376,7 +377,7 @@ class Settings(BaseSettings):
         return errors
 
     def check_ml_provider(self) -> list[str]:
-        if self.ml_provider == "tei":
+        if self.ml_provider == MLProvider.TEI.value:
             missing = []
             if not self.tei_embed_url:
                 missing.append("TEI_EMBED_URL")
@@ -384,7 +385,7 @@ class Settings(BaseSettings):
                 missing.append("TEI_RERANK_URL")
             if missing:
                 return [f"{', '.join(missing)} required when ML_PROVIDER=tei"]
-        elif self.ml_provider == "deepinfra":
+        elif self.ml_provider == MLProvider.DEEPINFRA.value:
             if not self.deepinfra_api_key:
                 return ["DEEPINFRA_API_KEY required when ML_PROVIDER=deepinfra"]
         else:

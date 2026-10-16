@@ -12,8 +12,8 @@ from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from application.dto.benchmark_dto import SweepCreateDTO
-from application.services.benchmark_services import BenchmarkSweepService
+from application.benchmark import SweepCreateDTO
+from application.benchmark import BenchmarkSweepService
 from domain.entities.benchmark_sweep import BenchmarkSweep
 from domain.exceptions import BusinessRuleViolation
 from domain.value_objects.benchmark_strategy import BenchmarkStrategy

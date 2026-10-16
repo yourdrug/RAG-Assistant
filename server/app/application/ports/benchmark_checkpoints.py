@@ -1,9 +1,8 @@
-"""Durable stage storage for resumable benchmark execution."""
+"""Compatibility exports for application.benchmark."""
 
-from typing import Protocol
+from application.benchmark import (
+    BenchmarkCheckpoints,
+)
 
 
-class BenchmarkCheckpoints(Protocol):
-    async def load(self, key: str) -> object | None: ...
-
-    async def save(self, key: str, value: object) -> None: ...
+__all__ = ["BenchmarkCheckpoints"]

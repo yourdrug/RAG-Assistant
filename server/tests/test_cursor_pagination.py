@@ -8,7 +8,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-from application.services.chunk_service import ChunkService  # noqa: E402
+from application.chunks import ChunkService  # noqa: E402
 from domain.entities.document import Document  # noqa: E402
 from domain.exceptions import ValidationError  # noqa: E402
 from domain.utils import decode_cursor, encode_cursor  # noqa: E402

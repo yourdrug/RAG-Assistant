@@ -17,7 +17,7 @@ from domain.exceptions import BusinessRuleViolation  # noqa: E402
 from domain.value_objects.sweep_status import BenchmarkSweepStatus  # noqa: E402
 from domain.value_objects.sweep_evaluation_mode import SweepEvaluationMode  # noqa: E402
 
-from application.services.benchmark_services import BenchmarkSweepService  # noqa: E402
+from application.benchmark import BenchmarkSweepService  # noqa: E402
 from infrastructure.benchmark.sweep_engine import SweepCancelled, SweepEngine  # noqa: E402
 from infrastructure.worker import tasks as worker_tasks  # noqa: E402
 

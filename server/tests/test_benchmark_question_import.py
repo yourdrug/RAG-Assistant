@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from pydantic import ValidationError
 
-from application.services.benchmark_services import BenchmarkQuestionService
+from application.benchmark import BenchmarkQuestionService
 from domain.entities.benchmark_question import BenchmarkQuestion
 from domain.value_objects.benchmark_dataset import BenchmarkDataset
 from infrastructure.repositories.benchmark.sqlalchemy_benchmark_question_repository import (

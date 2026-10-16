@@ -56,7 +56,7 @@ def test_enqueued_deletion_resolves_to_registered_handler(monkeypatch):
 
 
 def test_enqueued_billing_scope_survives_worker_retry(monkeypatch):
-    from application.ports.billing_context import billing_principal
+    from application.budget import billing_principal
     from infrastructure.budget.job_context import bill_job_to_initiator, next_operation_id, job_operations
 
     pool = Mock(enqueue_job=AsyncMock())

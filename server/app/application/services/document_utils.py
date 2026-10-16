@@ -1,42 +1,9 @@
-"""Document utility functions -- storage key generation and filename resolution."""
+"""Compatibility exports; use application.documents."""
 
-from __future__ import annotations
-
-import logging
-from pathlib import Path
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from domain.repositories.document_repository import DocumentCrudRepository
-
-log = logging.getLogger(__name__)
+from application.documents.utils import (
+    generate_storage_key,
+    resolve_unique_filename,
+)
 
 
-def generate_storage_key(owner_id: int | None, group_id: int | None, document_id: int, filename: str) -> str:
-    """Build the storage key path for a document."""
-    safe_name = Path(filename).name
-    if owner_id is not None:
-        return f"uploads/users/{owner_id}/{document_id}_{safe_name}"
-    if group_id is not None:
-        return f"uploads/groups/{group_id}/{document_id}_{safe_name}"
-    return f"uploads/public/{document_id}_{safe_name}"
-
-
-async def resolve_unique_filename(
-    documents: DocumentCrudRepository,
-    owner_id: int | None,
-    group_id: int | None,
-    filename: str,
-) -> str:
-    """Find a unique filename by appending (N) suffix if needed."""
-    p = Path(filename)
-    stem = p.stem
-    suffix = p.suffix
-    candidate = filename
-    counter = 1
-    while await documents.find_active_slot(owner_id, candidate, group_id) is not None:
-        candidate = f"{stem}({counter}){suffix}"
-        counter += 1
-    if candidate != filename:
-        log.info("Renamed conflict: %s -> %s", filename, candidate)
-    return candidate
+__all__ = ["generate_storage_key", "resolve_unique_filename"]

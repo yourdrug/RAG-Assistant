@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from application.services.document_command_service import DocumentCommandService
+from application.documents import DocumentCommandService
 from domain.entities.document import Document
 from domain.entities.vector_outbox_entry import VectorOutboxEntry
 from domain.exceptions import BusinessRuleViolation

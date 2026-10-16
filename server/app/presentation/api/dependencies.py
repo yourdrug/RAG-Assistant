@@ -14,34 +14,33 @@ from typing import TYPE_CHECKING, TypeVar
 from fastapi import HTTPException, Request
 
 if TYPE_CHECKING:
-    from application.services.auth_service import AuthService
-    from application.services.benchmark_result_service import BenchmarkResultService
-    from application.services.benchmark_services import (
+    from application.identity import AuthService
+    from application.benchmark import BenchmarkResultService
+    from application.benchmark import (
         BenchmarkQuestionService,
         BenchmarkRunService,
         BenchmarkSweepService,
     )
-    from application.services.chat_log_service import ChatLogService
-    from application.services.chat_service import ChatService
-    from application.services.chunk_service import ChunkService
-    from application.services.config_admin_service import ConfigAdminService
-    from application.services.config_service import ConfigService
-    from application.services.conversation_service import ConversationService
-    from application.services.assignment_service import AssignmentService
-    from application.services.document_command_service import DocumentCommandService
-    from application.services.document_query_service import DocumentQueryService
-    from application.services.group_service import GroupService
+    from application.chat import ChatLogService
+    from application.chat import ChatService
+    from application.chunks import ChunkService
+    from application.admin import ConfigAdminService, ConfigService
+    from application.chat import ConversationService
+    from application.identity import AssignmentService
+    from application.documents import DocumentCommandService
+    from application.documents import DocumentQueryService
+    from application.identity import GroupService
     from application.services.health_service import HealthService
-    from application.services.ingest_service import IngestAppService
+    from application.ingestion import IngestAppService
     from application.services.job_service import JobService
     from application.services.metrics_service import MetricsService
     from application.services.pdf_diagnostic_service import PDFDiagnosticService
     from application.services.quality_service import QualityService
-    from application.services.search_service import SearchService
-    from application.ports.api_key_provider import ApiKeyProviderPort
+    from application.search import SearchService
+    from application.identity import ApiKeyProviderPort
     from application.ports.rate_limit import RateLimiterPort
     from composition.container import Container
-    from application.services.ingestion_orchestrator import IngestionService
+    from application.ingestion import IngestionService
 
 log = logging.getLogger("default")
 
@@ -216,7 +215,7 @@ def create_benchmark_history_port(request: Request):
 
 
 def create_act_versioning_service(request: Request):
-    from application.services.act_versioning_service import ActVersioningService
+    from application.act_versioning import ActVersioningService
 
     c = _create_container(request)
     domain_settings = c.infrastructure.domain_settings

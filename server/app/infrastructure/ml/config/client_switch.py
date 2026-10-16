@@ -2,12 +2,13 @@
 
 import asyncio
 import math
+from domain.value_objects.ml_provider import MLProvider
 from typing import Any
 
 import httpx
 
 from config import Settings
-from application.ports.billing_context import billing_principal
+from application.budget import billing_principal
 from domain.exceptions import ValidationError
 from domain.value_objects.llm_provider import LLMProvider
 from infrastructure.ml.clients import factories
@@ -120,7 +121,7 @@ async def probe_llm_endpoint(candidate: Settings, keys: set[str], prepared: dict
 
 
 async def probe_embedding_endpoint(registry, current, candidate, keys, prepared, applied) -> None:
-    if "tei_embed_url" in keys and candidate.ml_provider == "tei":
+    if "tei_embed_url" in keys and candidate.ml_provider == MLProvider.TEI.value:
         info = await tei_model_info(candidate.tei_embed_url)
         if info["model_id"] != candidate.tei_embed_model:
             raise ValidationError("TEI serves a different embedding model")
@@ -136,7 +137,7 @@ async def probe_embedding_endpoint(registry, current, candidate, keys, prepared,
             await prepared["_embeddings"].embed_query("embedding endpoint compatibility probe"),
             candidate.embed_dim,
         )
-    if "deepinfra_base_url" in keys and candidate.ml_provider == "deepinfra":
+    if "deepinfra_base_url" in keys and candidate.ml_provider == MLProvider.DEEPINFRA.value:
         check_embedding_vector(
             await prepared["_embeddings"].embed_query("embedding endpoint compatibility probe"),
             candidate.embed_dim,
@@ -159,9 +160,9 @@ async def prepare_clients(
             prepared["_reranker"] = factories.create_reranker(candidate)
             if (
                 "tei_rerank_url" in keys
-                and candidate.ml_provider == "tei"
+                and candidate.ml_provider == MLProvider.TEI.value
                 or "deepinfra_base_url" in keys
-                and candidate.ml_provider == "deepinfra"
+                and candidate.ml_provider == MLProvider.DEEPINFRA.value
             ):
                 await prepared["_reranker"].predict([("compatibility probe", "compatibility probe")])
         return prepared

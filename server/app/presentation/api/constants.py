@@ -78,7 +78,7 @@ STATIC_CONFIG_KEYS: frozenset[str] = frozenset({"file_backend", "data_dir"})
 
 # ---------------------------------------------------------------------------
 # Benchmark run config → live config parameter mapping
-# (canonical location: application.services.benchmark_services)
+# (canonical location: application.benchmark)
 # ---------------------------------------------------------------------------
 
 

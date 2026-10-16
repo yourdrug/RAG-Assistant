@@ -5,8 +5,8 @@ from copy import deepcopy
 import pytest
 import pytest_asyncio
 
-from application.services.chunk_query_service import ChunkQueryService
-from application.services.ingestion_sync import DocumentSyncService
+from application.chunks import ChunkQueryService
+from application.ingestion import DocumentSyncService
 from domain.entities.document import Document
 from domain.entities.raw_document import RawDocument
 from domain.entities.vector_outbox_entry import OutboxOperation

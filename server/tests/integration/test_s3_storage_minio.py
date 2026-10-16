@@ -15,7 +15,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from application.services.benchmark_export_service import BenchmarkExportService
+from application.benchmark import BenchmarkExportService
 from config import settings
 from domain.entities.benchmark_run import BenchmarkRun
 from domain.value_objects.visibility import DocumentVisibility

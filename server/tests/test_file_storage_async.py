@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from application.services.ingestion_registry import IngestionRegistry
+from application.ingestion import IngestionRegistry
 from infrastructure.storage.file_storage import LocalStorage
 
 

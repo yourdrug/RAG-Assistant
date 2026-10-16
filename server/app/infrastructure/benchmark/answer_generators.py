@@ -9,7 +9,7 @@ from functools import partial
 import logging
 from typing import Protocol
 
-from application.ports.chat_rag_port import ChatRAGPort
+from application.chat import ChatRAGPort
 from config import _settings_overrides, get_setting, settings
 from domain.value_objects.chat_context import ChatContext
 from domain.services.access_control import get_visibility_conditions

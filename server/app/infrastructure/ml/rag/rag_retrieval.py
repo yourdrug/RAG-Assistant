@@ -11,7 +11,7 @@ from infrastructure.bm25.persistence import BM25LoadError
 import time
 
 from application.ports.ml_clients import MLClientPort
-from application.services.retrieval import HybridRetriever
+from application.search import HybridRetriever
 from config import settings
 from domain.value_objects.rag_settings import RagSettings
 from domain.utils import content_hash

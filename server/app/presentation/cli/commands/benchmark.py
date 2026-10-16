@@ -8,8 +8,8 @@ from typing import Literal
 
 import typer
 
-from application.services.benchmark_export_service import BenchmarkExportService
-from application.services.benchmark_import_service import BenchmarkImportService
+from application.benchmark import BenchmarkExportService
+from application.benchmark import BenchmarkImportService
 from infrastructure.benchmark.legacy_import import load_legacy_runs
 from infrastructure.database.database import database
 from infrastructure.uow_factory import UnitOfWorkFactory

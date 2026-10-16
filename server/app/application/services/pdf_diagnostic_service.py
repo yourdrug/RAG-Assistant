@@ -15,7 +15,7 @@ from application.ports.pdf_diagnostics import (
     PDFStoragePort,
     PDFTextCleanerPort,
 )
-from application.services.preview_cache import PreviewCache
+from application.documents import PreviewCache
 from domain.value_objects.page_content_type import PageContentType
 
 logger = logging.getLogger("default")

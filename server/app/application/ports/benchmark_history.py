@@ -1,12 +1,8 @@
-"""Application ports for benchmark history — comparison and baseline loading."""
+"""Compatibility exports for application.benchmark."""
 
-from __future__ import annotations
+from application.benchmark import (
+    BenchmarkHistoryPort,
+)
 
-from typing import Protocol, runtime_checkable
 
-
-@runtime_checkable
-class BenchmarkHistoryPort(Protocol):
-    """Port for benchmark history operations (baseline, comparison)."""
-
-    def compare_runs(self, current: dict, baseline: dict) -> dict: ...
+__all__ = ["BenchmarkHistoryPort"]

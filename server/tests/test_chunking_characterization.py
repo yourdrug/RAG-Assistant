@@ -4,7 +4,7 @@ import pytest
 from docx import Document as WordDocument
 from langchain.schema import Document
 
-from application.ports.document_parser import FileMeta, SplitContext
+from application.ingestion import FileMeta, SplitContext
 from domain.entities.raw_document import RawDocument
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.page_content_type import PageContentType

@@ -7,7 +7,7 @@ import httpx
 import pytest
 import pytest_asyncio
 
-from application.services.conversation_service import ConversationService
+from application.chat import ConversationService
 from domain.entities.message import Message
 from domain.value_objects.message_role import MessageRole
 from domain.value_objects.job_status import BackgroundJobStatus
@@ -232,7 +232,7 @@ async def test_chat_outage_preserves_retry_after(asgi_client):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("user_id,role,status", [(1, "user", 200), (2, "user", 409), (2, "admin", 200)])
 async def test_private_document_ownership_through_real_route(asgi_client, user_id, role, status):
-    from application.services.document_query_service import DocumentQueryService
+    from application.documents import DocumentQueryService
     from domain.entities.document import Document
     from domain.value_objects.visibility import DocumentVisibility
 
@@ -256,7 +256,7 @@ async def test_private_document_ownership_through_real_route(asgi_client, user_i
     "user_id,role,expected", [(1, UserRole.CURATOR, 202), (2, UserRole.CURATOR, 409), (1, UserRole.USER, 403)]
 )
 async def test_document_delete_queues_only_after_authorization(asgi_client, user_id, role, expected):
-    from application.services.document_deletion_jobs import DocumentDeletionJobs
+    from application.documents import DocumentDeletionJobs
     from domain.entities.background_job import BackgroundJob
     from domain.entities.document import Document
     from domain.value_objects.job_type import JobType

@@ -5,11 +5,12 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from domain.value_objects.ml_provider import MLProvider
 from dataclasses import replace
 from pyrate_limiter import Rate
 from pyrate_limiter.utils import validate_rate_list
 
-from application.ports.provider_configuration import ConfigurationStatus, EffectiveParameter
+from application.admin import ConfigurationStatus, EffectiveParameter
 from config import Settings, settings
 from domain.entities.config_parameter import ConfigParameter
 from domain.events.config_events import ConfigParameterChanged
@@ -278,7 +279,11 @@ class SettingsProviderConfiguration:
             updates, _, events = self.prepare_snapshot(active, require_complete or self.require_complete)
             candidate = self.settings.model_copy(update=updates)
             keys = {event.key for event in events}
-            if previous_version is None and require_complete and candidate.ml_provider == "tei":
+            if (
+                previous_version is None
+                and require_complete
+                and candidate.ml_provider == MLProvider.TEI.value
+            ):
                 # Defaults produce no change event, but startup must verify the serving encoder.
                 keys.add("tei_embed_url")
             prepared = await prepare_clients(

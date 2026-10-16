@@ -1,12 +1,6 @@
-"""Chat support ports — abstract interfaces for chat-related infrastructure."""
+"""Compatibility exports; use application.chat."""
 
-from __future__ import annotations
-
-from typing import Protocol, runtime_checkable
+from application.chat.ports import RollingSummaryUpdaterPort
 
 
-@runtime_checkable
-class RollingSummaryUpdaterPort(Protocol):
-    """Updates rolling summaries for conversations."""
-
-    async def update(self, existing_summary: str | None, recent_turns: list[dict]) -> str: ...
+__all__ = ["RollingSummaryUpdaterPort"]

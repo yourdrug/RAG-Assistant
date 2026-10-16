@@ -1,16 +1,9 @@
-"""Config admin ports — abstract interfaces for system info providers."""
+"""Compatibility exports for application.admin."""
 
-from __future__ import annotations
-
-from typing import Protocol, runtime_checkable
-
-
-@runtime_checkable
-class OllamaProbePort(Protocol):
-    async def get_models(self) -> list[str]: ...
+from application.admin import (
+    OllamaProbePort,
+    VectorDBInfoPort,
+)
 
 
-@runtime_checkable
-class VectorDBInfoPort(Protocol):
-    async def get_status(self) -> str: ...
-    async def get_collections(self) -> list[dict]: ...
+__all__ = ["OllamaProbePort", "VectorDBInfoPort"]

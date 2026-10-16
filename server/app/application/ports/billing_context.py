@@ -1,5 +1,6 @@
-"""Explicit identity for paid calls, propagated by request/job entry points."""
+"""Compatibility exports for application.budget."""
 
-from contextvars import ContextVar
+from application.budget import billing_principal
 
-billing_principal: ContextVar[str | None] = ContextVar('billing_principal', default=None)
+
+__all__ = ["billing_principal"]

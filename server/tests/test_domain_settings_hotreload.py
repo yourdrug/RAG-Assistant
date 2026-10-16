@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 import pytest
 
-from application.services.config_service import ConfigService
+from application.admin import ConfigService
 from domain.events.config_events import ConfigParameterChanged
 from domain.domain_profile.profiles.decree import DecreeDomainProfile
 from domain.domain_profile.registry import DomainProfileRegistry

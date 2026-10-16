@@ -11,17 +11,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 import pytest
 from langchain.schema import Document
 
-from application.services.act_versioning_service import ActVersioningService
-from application.services.batch_ingestion import BatchIngestionWorkflow
-from application.services.document_loader import S3DocumentLoader
+from application.act_versioning import ActVersioningService
+from application.ingestion import BatchIngestionWorkflow
+from application.ingestion import S3DocumentLoader
 from domain.domain_profile.profiles.decree import DecreeDomainProfile
 from fakes import FakeUnitOfWorkFactory
-from application.services.ingestion_orchestrator import IngestionService
-from application.services.ingestion_registry import IngestionRegistry
-from application.services.ingestion_sync import DocumentSyncService
-from application.services.ingestion_targets import S3IngestionTargets, S3UploadService
-from application.services.single_file_ingestion import SingleFileIngestionWorkflow
-from application.services.sparse_index_builder import SparseIndexBuilder
+from application.ingestion import IngestionService
+from application.ingestion import IngestionRegistry
+from application.ingestion import DocumentSyncService
+from application.ingestion import S3IngestionTargets, S3UploadService
+from application.ingestion import SingleFileIngestionWorkflow
+from application.ingestion import SparseIndexBuilder
 
 
 class FakeSettings:
@@ -72,8 +72,8 @@ def _make_service():
             settings,
             loader,
             ingestion_registry,
-            sync,
-            SparseIndexBuilder(settings, None),
+            sync=sync,
+            sparse_index=SparseIndexBuilder(settings, None),
         ),
         single_file_workflow=SingleFileIngestionWorkflow(file_storage, loader, ingestion_registry, sync),
         registry=ingestion_registry,

@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from application.services.document_deletion_jobs import DocumentDeletionJobs
+from application.documents import DocumentDeletionJobs
 from domain.entities.background_job import BackgroundJob
 from domain.entities.document import Document
 from domain.entities.user import User

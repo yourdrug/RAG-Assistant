@@ -1,7 +1,7 @@
 """Characterization tests for services/ingestion_service.py main pipeline.
 
 Locks down the orchestration logic (run_full_ingestion, _sync_documents_to_db,
-_handle_s3_file, _load_documents, _parse_file) BEFORE moving the file
+_handle_s3_file, _load_documents, parse_file) BEFORE moving the file
 from infrastructure/ to application/.
 """
 
@@ -17,18 +17,18 @@ from langchain.schema import Document
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 from domain.value_objects.visibility import DocumentVisibility  # noqa: E402
-from application.services.ingestion_orchestrator import (  # noqa: E402
+from application.ingestion import (  # noqa: E402
     IngestionService,
 )
-from application.services.ingestion_registry import s3_file_hash as _s3_file_hash  # noqa: E402
-from application.services.batch_ingestion import BatchIngestionWorkflow  # noqa: E402
-from application.services.document_pipeline import tag_chunks as _tag_chunks, tag_domain as _tag_domain  # noqa: E402
-from application.services.document_loader import S3DocumentLoader  # noqa: E402
-from application.services.ingestion_registry import IngestionRegistry  # noqa: E402
-from application.services.ingestion_sync import DocumentSyncService  # noqa: E402
-from application.services.ingestion_targets import S3IngestionTargets, S3UploadService  # noqa: E402
-from application.services.single_file_ingestion import SingleFileIngestionWorkflow  # noqa: E402
-from application.services.sparse_index_builder import SparseIndexBuilder  # noqa: E402
+from application.ingestion import s3_file_hash as _s3_file_hash  # noqa: E402
+from application.ingestion import BatchIngestionWorkflow  # noqa: E402
+from application.indexing import tag_chunks as _tag_chunks, tag_domain as _tag_domain  # noqa: E402
+from application.ingestion import S3DocumentLoader  # noqa: E402
+from application.ingestion import IngestionRegistry  # noqa: E402
+from application.ingestion import DocumentSyncService  # noqa: E402
+from application.ingestion import S3IngestionTargets, S3UploadService  # noqa: E402
+from application.ingestion import SingleFileIngestionWorkflow  # noqa: E402
+from application.ingestion import SparseIndexBuilder  # noqa: E402
 from fakes import FakeUnitOfWorkFactory  # noqa: E402
 
 
@@ -116,8 +116,10 @@ def _make_service(**overrides):
             defaults["ingestion_settings"],
             loader,
             registry,
-            sync,
-            SparseIndexBuilder(defaults["ingestion_settings"], defaults.get("sparse_index_admin")),
+            sync=sync,
+            sparse_index=SparseIndexBuilder(
+                defaults["ingestion_settings"], defaults.get("sparse_index_admin")
+            ),
         ),
         single_file_workflow=SingleFileIngestionWorkflow(defaults["file_storage"], loader, registry, sync),
         registry=registry,
@@ -170,21 +172,21 @@ class TestS3Helpers:
 
 
 # ---------------------------------------------------------------------------
-# _validate_s3_key
+# validate_s3_key
 # ---------------------------------------------------------------------------
 
 
 class TestValidateS3Key:
     def test_valid_key(self):
-        IngestionService._validate_s3_key("docs/file.pdf")
+        IngestionService.validate_s3_key("docs/file.pdf")
 
     def test_leading_slash_raises(self):
         with pytest.raises(ValueError):
-            IngestionService._validate_s3_key("/docs/file.pdf")
+            IngestionService.validate_s3_key("/docs/file.pdf")
 
     def test_dotdot_raises(self):
         with pytest.raises(ValueError):
-            IngestionService._validate_s3_key("docs/../file.pdf")
+            IngestionService.validate_s3_key("docs/../file.pdf")
 
 
 # ---------------------------------------------------------------------------
@@ -200,37 +202,37 @@ class TestClassifyTextDomain:
 
     def test_auto_calls_classify_domain(self):
         svc = _make_service()
-        with patch("application.services.document_loader.classify_domain", return_value="general"):
+        with patch("application.ingestion.loader.classify_domain", return_value="general"):
             result = svc._batch._loader.classify_text_domain("some text", "auto")
             assert result == "general"
 
 
 # ---------------------------------------------------------------------------
-# _get_profile
+# get_profile
 # ---------------------------------------------------------------------------
 
 
 class TestGetProfile:
     def test_no_registry(self):
         svc = _make_service(domain_registry=None)
-        assert svc._batch._loader._get_profile("legal") is None
+        assert svc._batch._loader.get_profile("legal") is None
 
     def test_existing_profile(self):
         mock_registry = MagicMock()
         mock_profile = MagicMock()
         mock_registry.get.return_value = mock_profile
         svc = _make_service(domain_registry=mock_registry)
-        assert svc._batch._loader._get_profile("legal") is mock_profile
+        assert svc._batch._loader.get_profile("legal") is mock_profile
 
     def test_missing_profile(self):
         mock_registry = MagicMock()
         mock_registry.get.side_effect = KeyError("not found")
         svc = _make_service(domain_registry=mock_registry)
-        assert svc._batch._loader._get_profile("nonexistent") is None
+        assert svc._batch._loader.get_profile("nonexistent") is None
 
 
 # ---------------------------------------------------------------------------
-# _parse_file
+# parse_file
 # ---------------------------------------------------------------------------
 
 
@@ -254,7 +256,7 @@ class TestParseFile:
             RawDocument(page_content="Hello world content for testing.", metadata={"source": "test"})
         ]
         file_item = _make_file_item(extension=".pdf")
-        result = svc._batch._loader._parse_file(file_item, pdf_path)
+        result = svc._batch._loader.parse_file(file_item, pdf_path)
         assert result is not None
         assert len(result) >= 1
 
@@ -262,7 +264,7 @@ class TestParseFile:
         svc = _make_service()
         svc._batch._loader._parser.parse.return_value = []
         file_item = _make_file_item(extension=".xyz")
-        result = svc._batch._loader._parse_file(file_item, Path("/tmp/x.xyz"))
+        result = svc._batch._loader.parse_file(file_item, Path("/tmp/x.xyz"))
         assert result is None
 
     def test_txt_parsing(self, tmp_path):
@@ -279,7 +281,7 @@ class TestParseFile:
             )
         ]
         file_item = _make_file_item(filename="test.txt", extension=".txt")
-        result = svc._batch._loader._parse_file(file_item, txt_path)
+        result = svc._batch._loader.parse_file(file_item, txt_path)
         assert result is not None
         assert len(result) == 1
 
@@ -301,7 +303,7 @@ class TestParseFile:
             )
         ]
         file_item = _make_file_item()
-        result = svc._batch._loader._parse_file(file_item, pdf_path)
+        result = svc._batch._loader.parse_file(file_item, pdf_path)
         assert result is not None
         meta = result[0].metadata
         assert "source" in meta
@@ -312,7 +314,7 @@ class TestParseFile:
         svc = _make_service()
         svc._batch._loader._parser.parse.side_effect = RuntimeError("parse failed")
         file_item = _make_file_item(extension=".pdf")
-        result = svc._batch._loader._parse_file(file_item, tmp_path / "bad.pdf")
+        result = svc._batch._loader.parse_file(file_item, tmp_path / "bad.pdf")
         assert result is None
 
 
@@ -371,7 +373,7 @@ class TestRegistryOperations:
     @pytest.mark.asyncio
     async def test_upsert(self):
         svc = _make_service()
-        await svc._registry.upsert("file.pdf", "hash", "src", 10, 500)
+        await svc._registry.upsert("file.pdf", "hash", "src", 10, chars=500)
 
     @pytest.mark.asyncio
     async def test_is_indexed(self):
@@ -399,8 +401,8 @@ class TestRegistryOperations:
 class TestLogIngestConfig:
     def test_no_error(self):
         svc = _make_service()
-        svc._batch._log_config(reset=True, docs_dir="my-docs/")
-        svc._batch._log_config(reset=False, docs_dir=None)
+        svc._batch.log_config(reset=True, docs_dir="my-docs/")
+        svc._batch.log_config(reset=False, docs_dir=None)
 
 
 # ---------------------------------------------------------------------------
