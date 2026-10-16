@@ -20,6 +20,7 @@ from domain.entities.benchmark_sweep import BenchmarkSweep
 from domain.value_objects.sweep_evaluation_mode import SweepEvaluationMode, validate_sweep_mode
 from domain.value_objects.benchmark_scoring import validate_objective_weights
 
+from infrastructure.benchmark.corpus import benchmark_corpus, corpus_metadata
 from infrastructure.benchmark.sweep_data import SweepDataSource
 from infrastructure.benchmark.sweep_full_evaluation import SweepFullEvaluator
 from infrastructure.benchmark.sweep_scoring import has_retrieval_labels, score_config_cheap
@@ -85,6 +86,7 @@ class SweepEngine:
         self._runtime = runtime if runtime is not None else LiveSweepSettings()
         self._checkpoint_factory = checkpoint_factory
         self._benchmark_service = benchmark_service
+        self._ml_clients = ml_clients
         self._data = SweepDataSource(uow_factory, ml_clients)
         self._full = SweepFullEvaluator(self._runtime)
         self._strategies = strategies if strategies is not None else default_strategy_factories()
@@ -96,89 +98,93 @@ class SweepEngine:
         progress_callback: ProgressCallback | None = None,
         should_cancel: ShouldCancel | None = None,
     ) -> list[dict]:
-        mode = validate_sweep_mode(sweep.evaluation_mode, sweep.strategy)
-        validate_objective_weights(
-            sweep.objective_weights, require_retrieval=mode == SweepEvaluationMode.FAST
-        )
-        if mode == SweepEvaluationMode.FULL and not judge_model:
-            raise ValueError("Full evaluation requires a judge model")
-        unsupported = {
-            key for key in sweep.search_space if not key.startswith("_") and key not in CHEAP_PARAMS
-        }
-        if mode == SweepEvaluationMode.FULL and unsupported:
-            raise ValueError(
-                f"Full evaluation supports retrieval parameters only; unsupported: {sorted(unsupported)}"
+        async with benchmark_corpus(self._ml_clients) as corpus:
+            self.corpus = corpus
+            mode = validate_sweep_mode(sweep.evaluation_mode, sweep.strategy)
+            validate_objective_weights(
+                sweep.objective_weights, require_retrieval=mode == SweepEvaluationMode.FAST
             )
-        try:
-            factory = self._strategies[sweep.strategy]
-        except KeyError as exc:
-            raise ValueError(f"Unknown strategy: {sweep.strategy}") from exc
-        strategy = factory(sweep.search_space)
-        await self.check_cancelled(should_cancel, "before sweep preparation")
-        self._checkpoint_root = (
-            Path(self._runtime.results_path) / "sweeps" / str(sweep.id)
-            if sweep.id and self._runtime.results_path is not None
-            else None
-        )
-        self._checkpoints = self.create_checkpoints(sweep.id, self._checkpoint_root)
-        dataset_questions = (
-            cast(list[dict] | None, await self._checkpoints.load("dataset.json"))
-            if self._checkpoints
-            else None
-        )
-        if dataset_questions is None:
-            dataset_questions = await self.load_questions(sweep.dataset)
-            if self._checkpoints:
-                await self._checkpoints.save("dataset.json", dataset_questions)
-        questions = [q for q in dataset_questions if has_retrieval_labels(q)]
-        runtime_snapshot = await self.load_runtime_snapshot()
-        self._baseline_config = {
-            "top_k": runtime_snapshot["retriever_top_k"],
-            "fetch_k": runtime_snapshot["retriever_fetch_k"],
-            **{name: runtime_snapshot[name] for name in CHEAP_PARAMS - {"top_k", "fetch_k"}},
-        }
-        phase_a_identity = fingerprint(
-            {
-                "questions": questions,
-                "space": sweep.search_space,
-                "strategy": sweep.strategy,
-                "weights": sweep.objective_weights,
-                "settings": runtime_snapshot,
+            if mode == SweepEvaluationMode.FULL and not judge_model:
+                raise ValueError("Full evaluation requires a judge model")
+            unsupported = {
+                key for key in sweep.search_space if not key.startswith("_") and key not in CHEAP_PARAMS
             }
-        )
-        phase_a_key = f"phase-a-{phase_a_identity}.json"
-        results = (
-            cast(list[dict] | None, await self._checkpoints.load(phase_a_key)) if self._checkpoints else None
-        )
-        if results is None:
-            results = await self.evaluate_phase_a(
-                sweep, questions, strategy, progress_callback, should_cancel
+            if mode == SweepEvaluationMode.FULL and unsupported:
+                raise ValueError(
+                    f"Full evaluation supports retrieval parameters only; unsupported: {sorted(unsupported)}"
+                )
+            try:
+                factory = self._strategies[sweep.strategy]
+            except KeyError as exc:
+                raise ValueError(f"Unknown strategy: {sweep.strategy}") from exc
+            strategy = factory(sweep.search_space)
+            await self.check_cancelled(should_cancel, "before sweep preparation")
+            self._checkpoint_root = (
+                Path(self._runtime.results_path) / "sweeps" / str(sweep.id)
+                if sweep.id and self._runtime.results_path is not None
+                else None
             )
-            if self._checkpoints:
-                await self._checkpoints.save(phase_a_key, results)
-        else:
-            logger.info("Sweep %s: restored phase A (%d configurations)", sweep.id, len(results))
-            await report_progress(
-                progress_callback, len(results), len(results), {"phase": "retrieval", "resumed": True}
+            self._checkpoints = self.create_checkpoints(sweep.id, self._checkpoint_root)
+            dataset_questions = (
+                cast(list[dict] | None, await self._checkpoints.load("dataset.json"))
+                if self._checkpoints
+                else None
             )
-        if judge_model and (mode == SweepEvaluationMode.FULL or sweep.top_n_llm > 0):
-            results = await self.run_phase_b(
-                results,
-                sweep.top_n_llm,
-                judge_model,
-                dataset_questions,
-                sweep.objective_weights,
-                should_cancel,
-                evaluation_mode=mode,
-                progress_callback=progress_callback,
+            if dataset_questions is None:
+                dataset_questions = await self.load_questions(sweep.dataset)
+                if self._checkpoints:
+                    await self._checkpoints.save("dataset.json", dataset_questions)
+            questions = [q for q in dataset_questions if has_retrieval_labels(q)]
+            runtime_snapshot = await self.load_runtime_snapshot()
+            self._baseline_config = {
+                "top_k": runtime_snapshot["retriever_top_k"],
+                "fetch_k": runtime_snapshot["retriever_fetch_k"],
+                **{name: runtime_snapshot[name] for name in CHEAP_PARAMS - {"top_k", "fetch_k"}},
+            }
+            phase_a_identity = fingerprint(
+                {
+                    "questions": questions,
+                    "space": sweep.search_space,
+                    "strategy": sweep.strategy,
+                    "weights": sweep.objective_weights,
+                    "settings": runtime_snapshot,
+                }
             )
-        else:
-            for result in results:
-                result["evaluation_mode"] = mode.value
-                result["evaluated_config_count"] = 0
-                result["scored_config_count"] = 0
-                result["search_config_count"] = len(results)
-        return results
+            phase_a_key = f"phase-a-{phase_a_identity}.json"
+            results = (
+                cast(list[dict] | None, await self._checkpoints.load(phase_a_key))
+                if self._checkpoints
+                else None
+            )
+            if results is None:
+                results = await self.evaluate_phase_a(
+                    sweep, questions, strategy, progress_callback, should_cancel
+                )
+                if self._checkpoints:
+                    await self._checkpoints.save(phase_a_key, results)
+            else:
+                logger.info("Sweep %s: restored phase A (%d configurations)", sweep.id, len(results))
+                await report_progress(
+                    progress_callback, len(results), len(results), {"phase": "retrieval", "resumed": True}
+                )
+            if judge_model and (mode == SweepEvaluationMode.FULL or sweep.top_n_llm > 0):
+                results = await self.run_phase_b(
+                    results,
+                    sweep.top_n_llm,
+                    judge_model,
+                    dataset_questions,
+                    sweep.objective_weights,
+                    should_cancel,
+                    evaluation_mode=mode,
+                    progress_callback=progress_callback,
+                )
+            else:
+                for result in results:
+                    result["evaluation_mode"] = mode.value
+                    result["evaluated_config_count"] = 0
+                    result["scored_config_count"] = 0
+                    result["search_config_count"] = len(results)
+            return results
 
     def create_checkpoints(self, sweep_id: int | None, root: Path | None) -> BenchmarkCheckpoints | None:
         if self._checkpoint_factory and sweep_id:
@@ -353,11 +359,15 @@ class SweepEngine:
                 "benchmark_judge_max_concurrent",
             }
         }
-        runtime_snapshot["qdrant_url"] = get_setting("qdrant_url")
+        runtime_snapshot.update(corpus_metadata(getattr(self, "corpus", None)))
         if self._checkpoints:
             saved_runtime = await self._checkpoints.load("runtime.json")
             if saved_runtime is None:
                 await self._checkpoints.save("runtime.json", runtime_snapshot)
             else:
+                if self.corpus is not None and cast(dict, saved_runtime).get(
+                    "corpus_namespace"
+                ) != runtime_snapshot.get("corpus_namespace"):
+                    raise ValueError("Sweep corpus changed; start a new sweep")
                 runtime_snapshot = cast(dict, saved_runtime)
         return runtime_snapshot

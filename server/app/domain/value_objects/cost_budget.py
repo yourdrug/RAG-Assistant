@@ -49,6 +49,10 @@ class CostRate:
             raise BudgetError('Unsupported billing unit or unbounded token budget')
         usd_units(self.input_usd_per_million)
         usd_units(self.output_usd_per_million)
+        if self.input_usd_per_million <= 0 or (
+            self.provider != 'deepinfra' and self.output_usd_per_million <= 0
+        ):
+            raise BudgetError('Paid token tariffs must be positive')
         return usd_units(
             (input_tokens * self.input_usd_per_million + output_tokens * self.output_usd_per_million)
             / 1_000_000

@@ -520,7 +520,7 @@ DATA_DIR остаётся статическим root только local backend
 | ML_INTERNAL_ALLOWED_ORIGINS | env | `["http://localhost:11434", "http://ollama:11434", "http://tei-embed:8080", "http://tei-rerank:8080"]` | Пересоздать потребителей | Deployment allowlist для внутренних ML origins. До миграции добавить нестандартные origins явно; админка не может расширить список |
 | deepinfra_base_url | БД | `https://api.deepinfra.com/v1` | Замена embedding/reranker-клиентов (этап 4) | Перенести существующее значение; убрать env только после реализации этапа |
 | deepinfra_embed_model | БД | `BAAI/bge-m3` | Hot reload¹ + проверка embedding identity² | Управлять через админку; убрать из env после сверки |
-| deepinfra_rerank_model | БД | `BAAI/bge-reranker-v2-m3` | Hot reload¹ | Управлять через админку; убрать из env после сверки |
+| deepinfra_rerank_model | БД | `Qwen/Qwen3-Reranker-0.6B` | Hot reload¹ | Управлять через админку; убрать из env после сверки |
 | embedding_http_max_connections | БД | `40`; сохраняет текущий эффективный лимит | Замена HTTP-клиента (этап 4) | Заменяет HTTP_POOL_MAX_CONNECTIONS; убрать неявное деление reranker на 2 |
 | rerank_http_max_connections | БД | `20`; сохраняет текущий эффективный лимит | Замена HTTP-клиента (этап 4) | Заменяет HTTP_POOL_MAX_CONNECTIONS; убрать неявное деление reranker на 2 |
 | embedding_http_max_keepalive_connections | БД | `20`; сохраняет текущий эффективный лимит | Замена HTTP-клиента (этап 4) | Заменяет HTTP_POOL_MAX_KEEPALIVE; убрать неявное деление reranker на 2 |

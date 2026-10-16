@@ -28,10 +28,10 @@ from composition.service_providers import (
 from domain.value_objects.visibility import DocumentVisibility
 from application.services.benchmark_dataset import load_benchmark_questions
 from application.services.benchmark_orchestrator import compute_summary_from_results
-from config import settings
 from domain.entities.benchmark_run import BenchmarkRun
 from application.services.benchmark_result_service import BenchmarkResultService
 from application.services.benchmark_export_service import BenchmarkExportService
+from infrastructure.benchmark.corpus import benchmark_corpus, corpus_metadata
 from infrastructure.benchmark.checkpoint import fingerprint
 from infrastructure.benchmark.runner import run_benchmark_async
 from infrastructure.worker.admission import one_document_per_principal
@@ -282,36 +282,38 @@ async def run_benchmark(
         service = BenchmarkResultService(uow_factory)
         existing = await service.get_job_result(job_id)
         if existing is None:
-            questions = await load_benchmark_questions(uow_factory, dataset)
-            results = await run_benchmark_async(
-                questions=questions,
-                out_dir=None,
-                top_k=top_k,
-                judge_model=judge_model,
-                export_files=False,
-                rag_service=ctx["container"].application.rag_service,
-            )
-            summary = compute_summary_from_results(results)
-            existing = await service.record_result(
-                BenchmarkRun(
-                    job_id=job_id,
-                    config_json={
-                        "top_k": top_k,
-                        "judge_model": judge_model,
-                        "evaluation_mode": "full",
-                        "dataset_hash": fingerprint(questions),
-                        "collection_name": settings.collection_name,
-                        "qdrant_url": settings.qdrant_url,
-                    },
-                    summary_metrics={key: value for key, value in summary.items() if key != "results"},
-                    per_question_results=[
-                        {**raw, **row} for raw, row in zip(results, summary["results"], strict=True)
-                    ],
-                    duration_sec=summary["total_time_sec"],
-                    dataset=dataset,
-                    llm_evaluated=True,
+            rag_service = ctx["container"].application.rag_service
+            registry = getattr(rag_service, '_ml', None)
+            async with benchmark_corpus(registry) as corpus:
+                questions = await load_benchmark_questions(uow_factory, dataset)
+                results = await run_benchmark_async(
+                    questions=questions,
+                    out_dir=None,
+                    top_k=top_k,
+                    judge_model=judge_model,
+                    export_files=False,
+                    rag_service=rag_service,
                 )
-            )
+                summary = compute_summary_from_results(results)
+                existing = await service.record_result(
+                    BenchmarkRun(
+                        job_id=job_id,
+                        config_json={
+                            "top_k": top_k,
+                            "judge_model": judge_model,
+                            "evaluation_mode": "full",
+                            "dataset_hash": fingerprint(questions),
+                            **corpus_metadata(corpus),
+                        },
+                        summary_metrics={key: value for key, value in summary.items() if key != "results"},
+                        per_question_results=[
+                            {**raw, **row} for raw, row in zip(results, summary["results"], strict=True)
+                        ],
+                        duration_sec=summary["total_time_sec"],
+                        dataset=dataset,
+                        llm_evaluated=True,
+                    )
+                )
         if existing.id is not None:
             exports = BenchmarkExportService(uow_factory, ctx["container"].infrastructure.ml.file_storage)
             for format in ("json", "csv"):

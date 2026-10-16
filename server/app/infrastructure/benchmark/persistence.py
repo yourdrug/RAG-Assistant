@@ -19,7 +19,9 @@ def _sanitize_model_name(model: str) -> str:
     return re.sub(r'[\\/:*?"<>|]', "_", model)
 
 
-def save_results(results: list[dict], out_dir: str, model_name: str = "", run_id: str = ""):
+def save_results(
+    results: list[dict], out_dir: str, model_name: str = "", run_id: str = "", *, corpus: dict | None = None
+):
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
 
@@ -28,7 +30,9 @@ def save_results(results: list[dict], out_dir: str, model_name: str = "", run_id
     run_tag = f"_{run_id}" if run_id else ""
 
     json_path = out / f"benchmark_{ts}{model_tag}{run_tag}.json"
-    json_path.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
+    # Preserve the list format consumed by legacy report readers.
+    export_results = [{**row, 'corpus': corpus} for row in results] if corpus is not None else results
+    json_path.write_text(json.dumps(export_results, ensure_ascii=False, indent=2), encoding="utf-8")
 
     csv_path = out / f"benchmark_{ts}{model_tag}{run_tag}.csv"
     fields = [
@@ -47,6 +51,7 @@ def save_results(results: list[dict], out_dir: str, model_name: str = "", run_id
         "latency_sec",
         *EVIDENCE_METRICS,
         "context_chars",
+        *(corpus or {}),
     ]
     with csv_path.open("w", encoding="utf-8", newline="") as stream:
         writer = csv.DictWriter(stream, fieldnames=fields)
@@ -70,6 +75,7 @@ def save_results(results: list[dict], out_dir: str, model_name: str = "", run_id
                     "latency_sec": round(result["latency_sec"], 2),
                     **{key: result.get("evidence_metrics", {}).get(key) for key in EVIDENCE_METRICS},
                     "context_chars": result.get("evidence", {}).get("context_chars"),
+                    **(corpus or {}),
                 }
             )
 

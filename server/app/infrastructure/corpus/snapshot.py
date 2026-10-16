@@ -161,7 +161,7 @@ def pin_corpus_call(function):
         registry = values.get('ml_clients')
         if registry is None and 'self' in values:
             registry = getattr(values['self'], '_ml_clients', None)
-        if registry is None or not isinstance(getattr(registry, 'corpus_snapshot', None), CorpusSnapshot):
+        if registry is None or not callable(getattr(type(registry), 'corpus_operation', None)):
             return await function(*args, **kwargs)
         async with registry.corpus_operation():
             return await function(*args, **kwargs)

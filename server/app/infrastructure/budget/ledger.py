@@ -205,6 +205,17 @@ class PostgresRedisBudget:
             # Record the debt before surfacing an invalid provider/tariff contract.
             raise BudgetError('Provider charge exceeded reservation; billing contract must be reviewed')
 
+    async def rate_violated(self, provider: str, model: str, version: int) -> bool:
+        async with self.session_factory() as session:
+            return (
+                await session.execute(
+                    text('''SELECT EXISTS(SELECT 1 FROM cost_usage
+                    WHERE provider=:provider AND model=:model AND rate_version=:version
+                    AND actual_units > reserved_units)'''),
+                    {'provider': provider, 'model': model, 'version': version},
+                )
+            ).scalar_one()
+
     async def rates(self):
         async with self.session_factory() as session:
             return (

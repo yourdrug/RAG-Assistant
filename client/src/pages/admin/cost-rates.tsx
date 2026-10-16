@@ -4,6 +4,11 @@ import { apiClient } from "@/shared/api/client";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 
+type ActiveModels = {
+  enabled: boolean;
+  models: { provider: string; model: string; ready: boolean; reason: string | null }[];
+};
+
 export function CostRates() {
   const cache = useQueryClient();
   const [provider, setProvider] = useState("openrouter");
@@ -40,6 +45,11 @@ export function CostRates() {
     queryKey: ["cost-rates"],
     queryFn: async () => (await apiClient.get("/admin/cost/rates")).data,
   });
+  const models = useQuery({
+    queryKey: ["cost-models"],
+    queryFn: async () => (await apiClient.get<ActiveModels>("/admin/cost/models")).data,
+    refetchInterval: 30_000,
+  });
   const usage = useQuery({
     queryKey: ["cost-usage"],
     queryFn: async () => (await apiClient.get("/admin/cost/usage")).data,
@@ -62,6 +72,7 @@ export function CostRates() {
         context_tokens: Number(context),
       });
       await cache.invalidateQueries({ queryKey: ["cost-rates"] });
+      await cache.invalidateQueries({ queryKey: ["cost-models"] });
     } catch {
       setError("Tariff was not saved. Check the values and use a new version.");
     } finally {
@@ -79,10 +90,21 @@ export function CostRates() {
       <p className="my-3 text-sm">
         When limits are enabled, every paid attempt requires a published tariff. When limits are
         disabled, calls bypass budget reservations and accounting. Supported: OpenRouter text and
-        structured calls, BAAI/bge-m3 embeddings and Qwen/Qwen3-Reranker-4B reranking. Local models
-        are not billed. Unit: USD per million tokens. Versions are immutable. Reconciliation records
-        provider cost, tariff calculation or administrative confirmation as its source.
+        structured calls, BAAI/bge-m3 embeddings and Qwen/Qwen3-Reranker-0.6B / 4B reranking. Local
+        models are not billed. Unit: USD per million tokens. Versions are immutable. Reconciliation
+        records provider cost, tariff calculation or administrative confirmation as its source.
       </p>
+      <p className="my-3 text-sm">
+        Limits: {models.data ? (models.data.enabled ? "enabled" : "disabled") : "unavailable"}
+      </p>
+      {models.data?.models.map((item) => (
+        <p key={`${item.provider}/${item.model}`} role={item.ready ? undefined : "alert"}>
+          {item.model}:{" "}
+          {item.ready
+            ? "Contract and tariff available"
+            : `Blocked when limits are enabled: ${item.reason}`}
+        </p>
+      ))}
       <div className="grid gap-2 md:grid-cols-3">
         <select
           aria-label="Provider"
@@ -130,7 +152,7 @@ export function CostRates() {
         </Button>
       </div>
       {error && <p role="alert">{error}</p>}
-      {(rates.isError || pending.isError || usage.isError) && (
+      {(rates.isError || pending.isError || usage.isError || models.isError) && (
         <p role="alert">Budget data is unavailable.</p>
       )}
       <pre className="my-3 overflow-auto text-xs">{JSON.stringify(rates.data ?? [], null, 2)}</pre>

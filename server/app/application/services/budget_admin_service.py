@@ -12,6 +12,26 @@ class BudgetAdminService:
     async def rates(self):
         return await self.repository.rates()
 
+    async def model_status(self, provider: str, model: str):
+        try:
+            context = await self.catalog.max_context(provider, model)
+            rates = [
+                CostRate(**row)
+                for row in await self.repository.rates()
+                if row["provider"] == provider and row["model"] == model
+            ]
+            if not rates:
+                raise BudgetError('No published tariff')
+            rate = max(rates, key=lambda r: r.version)
+            rate.reserve(context, 1)
+            if await self.repository.rate_violated(provider, model, rate.version):
+                raise BudgetError(
+                    'This tariff exceeded its reservation bound; publish a verified new version'
+                )
+            return {'provider': provider, 'model': model, 'ready': True, 'reason': None}
+        except BudgetError as exc:
+            return {'provider': provider, 'model': model, 'ready': False, 'reason': str(exc)}
+
     async def add_rate(self, rate: CostRate):
         rate.reserve(rate.context_tokens, 1)
         if rate.context_tokens < await self.catalog.max_context(rate.provider, rate.model):

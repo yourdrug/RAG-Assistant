@@ -6,6 +6,7 @@ import logging
 from decimal import Decimal
 from typing import Literal
 from pydantic import BaseModel, Field
+from config import settings
 from domain.value_objects.cost_budget import CostRate
 from application.services.budget_admin_service import BudgetAdminService
 from application.ports.corpus_control import CorpusControlPort
@@ -186,7 +187,7 @@ async def vectordb_info(
     )
 
 
-class CostRateRequest(BaseModel):
+class CostRateResponse(BaseModel):
     provider: Literal['openrouter', 'deepinfra']
     model: str = Field(min_length=1, max_length=200)
     version: int = Field(ge=1)
@@ -196,7 +197,11 @@ class CostRateRequest(BaseModel):
     context_tokens: int = Field(ge=1, le=10_000_000)
 
 
-@router.get('/admin/cost/rates', response_model=list[CostRateRequest])
+class CostRateRequest(CostRateResponse):
+    input_usd_per_million: Decimal = Field(gt=0, allow_inf_nan=False)
+
+
+@router.get('/admin/cost/rates', response_model=list[CostRateResponse])
 async def cost_rates(
     admin: CurrentUser = Depends(require_admin),
     service: BudgetAdminService = Depends(create_budget_admin_service),
@@ -224,6 +229,18 @@ async def recent_cost_usage(
     service: BudgetAdminService = Depends(create_budget_admin_service),
 ):
     return await service.usage()
+
+
+@router.get('/admin/cost/models')
+async def active_cost_models(
+    admin: CurrentUser = Depends(require_admin),
+    service: BudgetAdminService = Depends(create_budget_admin_service),
+):
+    models = []
+    if settings.ml_provider == 'deepinfra':
+        for model in (settings.deepinfra_embed_model, settings.deepinfra_rerank_model):
+            models.append(await service.model_status('deepinfra', model))
+    return {'enabled': settings.cost_rate_limit_enabled, 'models': models}
 
 
 @router.get('/admin/cost/pending')

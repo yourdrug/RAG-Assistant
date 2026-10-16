@@ -118,7 +118,7 @@ class Settings(BaseSettings):
     deepinfra_api_key: str = ""
     deepinfra_base_url: str = "https://api.deepinfra.com/v1"
     deepinfra_embed_model: str = "BAAI/bge-m3"
-    deepinfra_rerank_model: str = "BAAI/bge-reranker-v2-m3"
+    deepinfra_rerank_model: str = "Qwen/Qwen3-Reranker-0.6B"
 
     # ── HTTP pools ──────────────────────────────────────────────────────────
     embedding_http_max_connections: int = Field(default=40, gt=0)

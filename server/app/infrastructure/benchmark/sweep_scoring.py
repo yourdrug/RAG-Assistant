@@ -6,6 +6,8 @@ helpers used by the sweep engine; they are NOT part of the public API.
 
 from __future__ import annotations
 
+from infrastructure.corpus.snapshot import pin_corpus_call
+
 import asyncio
 from infrastructure.bm25.persistence import BM25LoadError
 import itertools
@@ -248,6 +250,7 @@ async def load_candidate_snapshot(ml_clients, *, bm25_loader=None):
         return None
 
 
+@pin_corpus_call
 async def cache_candidates(
     questions: list[dict],
     max_fetch_k: int,

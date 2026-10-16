@@ -105,7 +105,11 @@ async def save_sweep_run(uow_factory, sweep, sweep_id: int, best: dict) -> int |
         dataset_snapshot = await uow.benchmark_sweeps.load_checkpoint(sweep_id, "dataset.json")
         if runtime is not None:
             metrics.update(
-                collection_name=runtime.get("collection_name"), qdrant_url=runtime.get("qdrant_url")
+                collection_name=runtime.get("collection_name"),
+                qdrant_url=runtime.get("qdrant_url"),
+                corpus_generation=runtime.get("corpus_generation"),
+                corpus_namespace=runtime.get("corpus_namespace"),
+                embedding_identity=runtime.get("embedding_identity"),
             )
         if dataset_snapshot is not None:
             metrics["dataset_hash"] = fingerprint(dataset_snapshot)

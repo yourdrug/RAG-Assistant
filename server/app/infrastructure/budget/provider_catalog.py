@@ -25,6 +25,13 @@ class OpenRouterBillingCatalog:
                     frozenset({'queries', 'documents'}),
                     'https://deepinfra.com/Qwen/Qwen3-Reranker-4B/api',
                 ),
+                'Qwen/Qwen3-Reranker-0.6B': ModelBillingContract(
+                    'tokens',
+                    'reranking',
+                    32768,
+                    frozenset({'queries', 'documents'}),
+                    'https://deepinfra.com/Qwen/Qwen3-Reranker-0.6B/api',
+                ),
             }
             if model not in contracts:
                 raise BudgetError('Unverified DeepInfra billing contract')

@@ -166,7 +166,9 @@ class MLClientRegistry(MLClientPort):
 
     @property
     def corpus_snapshot(self):
-        snapshot = getattr(self._qdrant_client, 'snapshot', None)
+        pinned = active_corpus.get()
+        client = pinned[1] if pinned is not None and pinned[0] is self else self._qdrant_client
+        snapshot = getattr(client, 'snapshot', None)
         return snapshot if isinstance(snapshot, CorpusSnapshot) else None
 
     def install_corpus(self, client, index):

@@ -5,6 +5,7 @@ then evaluates quality via LLM judge.
 """
 
 import asyncio
+from contextlib import AsyncExitStack
 import logging
 import time
 from pathlib import Path
@@ -12,6 +13,7 @@ from typing import cast
 
 from config import get_setting
 from infrastructure.benchmark.checkpoint import fingerprint, FileBenchmarkCheckpoints
+from infrastructure.benchmark.corpus import benchmark_corpus, corpus_metadata
 from infrastructure.benchmark.judge_rubric import JUDGE_RUBRIC_VERSION
 from application.ports.benchmark_checkpoints import BenchmarkCheckpoints
 
@@ -62,6 +64,19 @@ def validate_output_options(resume, checkpoints, export_files, out_dir) -> None:
         raise ValueError("Local checkpoint/export requires an explicit output directory")
 
 
+async def prepare_checkpoint_corpus(store, checkpoint_dir: Path | None, corpus) -> Path | None:
+    if store is None or checkpoint_dir is None or corpus is None:
+        return checkpoint_dir
+    corpus_dir = checkpoint_dir / corpus.namespace
+    corpus_key = str(corpus_dir / "corpus.json")
+    saved_corpus = await store.load(corpus_key)
+    metadata = corpus_metadata(corpus)
+    if saved_corpus is not None and saved_corpus != metadata:
+        raise ValueError("Benchmark corpus changed; start a new run")
+    await store.save(corpus_key, metadata)
+    return corpus_dir
+
+
 async def run_benchmark_async(
     questions: list[dict],
     out_dir: str | None,
@@ -107,70 +122,76 @@ async def run_benchmark_async(
         if rag_service is not None
         else answer_generators.StandaloneBenchmarkGenerator(top_k, fetch_k, ctx)
     )
-    # Store only a hash of settings: credentials must never enter report files.
-    identity = fingerprint(
-        {
-            "questions": questions,
-            "top_k": top_k,
-            "fetch_k": fetch_k,
-            "judge": judge_model,
-            "seed": seed,
-            "runs": n_runs,
-            "settings": {
-                name: get_setting(name)
-                for name in type(settings).model_fields
-                if not any(part in name for part in ("key", "password", "secret", "url", "dir"))
-                and name not in {"benchmark_judge_initial_tokens", "benchmark_judge_retry_tokens"}
-            },
-        }
-    )
-    checkpoint_dir = Path("checkpoints") / (checkpoint_prefix or identity) if resume else None
-    validate_output_options(resume, checkpoints, export_files, out_dir)
-    store = checkpoints or (FileBenchmarkCheckpoints(Path(out_dir)) if resume and out_dir else None)
-    evaluator = BenchmarkCaseEvaluator(generator, judge_model, checkpoints=store)
-    all_results = []
+    stack = AsyncExitStack()
+    try:
+        stack.push_async_callback(close_owned_generator, generator, standalone)
+        registry = getattr(generator, '_clients', None) if standalone else getattr(rag_service, '_ml', None)
+        corpus = await stack.enter_async_context(benchmark_corpus(registry))
+        # Store only a hash of settings: credentials must never enter report files.
+        identity = fingerprint(
+            {
+                "corpus": corpus_metadata(corpus),
+                "questions": questions,
+                "top_k": top_k,
+                "fetch_k": fetch_k,
+                "judge": judge_model,
+                "seed": seed,
+                "runs": n_runs,
+                "settings": {
+                    name: get_setting(name)
+                    for name in type(settings).model_fields
+                    if not any(part in name for part in ("key", "password", "secret", "url", "dir"))
+                    and name not in {"benchmark_judge_initial_tokens", "benchmark_judge_retry_tokens"}
+                },
+            }
+        )
+        checkpoint_dir = Path("checkpoints") / (checkpoint_prefix or identity) if resume else None
+        validate_output_options(resume, checkpoints, export_files, out_dir)
+        store = checkpoints or (FileBenchmarkCheckpoints(Path(out_dir)) if resume and out_dir else None)
+        checkpoint_dir = await prepare_checkpoint_corpus(store, checkpoint_dir, corpus)
+        evaluator = BenchmarkCaseEvaluator(generator, judge_model, checkpoints=store)
+        all_results = []
 
-    async def process_question(idx: int, question: dict, run_idx: int) -> dict:
-        nonlocal completed
-        async with semaphore:
-            logger.info(
-                "Benchmark question %s started (run %d, slot limit %d)",
-                question.get("id", idx),
-                run_idx,
-                max_concurrent,
-            )
-            path = checkpoint_dir / f"{run_idx}-{idx}.json" if checkpoint_dir else None
-            cached = cast(dict | None, await store.load(str(path))) if path and store else None
-            if cached is not None and cached.get("judge_rubric_version") == JUDGE_RUBRIC_VERSION:
+        async def process_question(idx: int, question: dict, run_idx: int) -> dict:
+            nonlocal completed
+            async with semaphore:
+                logger.info(
+                    "Benchmark question %s started (run %d, slot limit %d)",
+                    question.get("id", idx),
+                    run_idx,
+                    max_concurrent,
+                )
+                path = checkpoint_dir / f"{run_idx}-{idx}.json" if checkpoint_dir else None
+                cached = cast(dict | None, await store.load(str(path))) if path and store else None
+                if cached is not None and cached.get("judge_rubric_version") == JUDGE_RUBRIC_VERSION:
+                    completed += 1
+                    logger.info(
+                        "Benchmark progress: %d/%d completed (restored question=%s)",
+                        completed,
+                        len(questions) * n_runs,
+                        question.get("id", idx),
+                    )
+                    return cached
+                result = await evaluator.evaluate(
+                    idx,
+                    question,
+                    run_idx,
+                    ctx,
+                    **({"checkpoint_path": path.with_suffix(".stages.json")} if path else {}),
+                )
+                diagnostic_errors = bool(result_judge_errors(result))
+                if path and store is not None and not diagnostic_errors:
+                    await store.save(str(path), result)
                 completed += 1
                 logger.info(
-                    "Benchmark progress: %d/%d completed (restored question=%s)",
+                    "Benchmark progress: %d/%d completed; question=%s",
                     completed,
                     len(questions) * n_runs,
                     question.get("id", idx),
                 )
-                return cached
-            result = await evaluator.evaluate(
-                idx,
-                question,
-                run_idx,
-                ctx,
-                **({"checkpoint_path": path.with_suffix(".stages.json")} if path else {}),
-            )
-            diagnostic_errors = bool(result_judge_errors(result))
-            if path and store is not None and not diagnostic_errors:
-                await store.save(str(path), result)
-            completed += 1
-            logger.info(
-                "Benchmark progress: %d/%d completed; question=%s",
-                completed,
-                len(questions) * n_runs,
-                question.get("id", idx),
-            )
-            persistence.log_question_result(idx, len(questions), question, result)
-            return result
+                persistence.log_question_result(idx, len(questions), question, result)
+                return result
 
-    try:
         for run_idx in range(1, n_runs + 1):
             started = time.monotonic()
             # TaskGroup cancels sibling work on failure; gather previously left paid
@@ -197,7 +218,8 @@ async def run_benchmark_async(
                 cast(str, out_dir),
                 model_name=settings.llm_model,
                 run_id="all" if n_runs > 1 else "",
+                corpus=corpus_metadata(corpus),
             )
         return all_results
     finally:
-        await close_owned_generator(generator, standalone)
+        await stack.aclose()
