@@ -23,7 +23,7 @@ from typing import Any
 from arq import Retry
 from composition.service_providers import (
     create_document_processor,
-    create_ingest_app_service,
+    create_ingestion_service,
 )
 from domain.value_objects.visibility import DocumentVisibility
 from application.benchmark import load_benchmark_questions
@@ -216,7 +216,7 @@ async def run_full_ingest(
     infra = ctx["container"].infrastructure
     uow_factory = infra.db.uow_factory
 
-    service = create_ingest_app_service(infra, uow_factory=uow_factory)
+    service = create_ingestion_service(infra, uow_factory=uow_factory)
 
     vis = DocumentVisibility.validate(visibility)
 
@@ -248,7 +248,7 @@ async def run_single_ingest(
     infra = ctx["container"].infrastructure
     uow_factory = infra.db.uow_factory
 
-    service = create_ingest_app_service(infra, uow_factory=uow_factory)
+    service = create_ingestion_service(infra, uow_factory=uow_factory)
 
     vis = DocumentVisibility.validate(visibility)
 

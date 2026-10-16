@@ -1,9 +1,4 @@
-"""IngestionPort -- application-layer abstraction for the S3-only document ingestion pipeline.
-
-Defines the protocol that ``IngestAppService`` depends on.  The concrete
-implementation lives in ``application.ingestion.orchestrator`` and
-uses S3 as the sole file storage backend.
-"""
+"""Public operations of the ingestion feature."""
 
 from __future__ import annotations
 
@@ -15,13 +10,13 @@ from domain.value_objects.visibility import DocumentVisibility
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from application.ingestion.dto import RegistryRecord, UploadFile
+    from application.ingestion.dto import IngestRegistryResult, IngestStatusResult, UploadFile
 
 
 @runtime_checkable
 class IngestionPort(Protocol):
     def resolve_docs_dir(self, docs_dir: str) -> str: ...
-    async def run_full_ingestion(
+    async def run_full(
         self,
         docs_dir: str | None = None,
         *,
@@ -30,16 +25,18 @@ class IngestionPort(Protocol):
         visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC,
         group_id: int | None = None,
         client_id: int | None = None,
-    ) -> None: ...
+    ) -> IngestStatusResult: ...
     def resolve_ingest_target(self, file_path: str) -> str: ...
-    async def run_single_file(
+    async def run_single(
         self,
         file_path: str,
+        *,
+        force: bool = False,
         domain: str = "auto",
         visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC,
         group_id: int | None = None,
         client_id: int | None = None,
-    ) -> None: ...
-    async def get_registry(self) -> dict[str, RegistryRecord]: ...
+    ) -> IngestStatusResult: ...
+    async def get_registry(self) -> IngestRegistryResult: ...
     async def force_reindex(self, filename: str) -> None: ...
     async def upload_files(self, files: Sequence[UploadFile], prefix: str = "docs/") -> list[str]: ...

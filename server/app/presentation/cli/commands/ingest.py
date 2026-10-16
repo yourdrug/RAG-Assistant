@@ -75,7 +75,7 @@ def ingest_run(
     try:
 
         async def run_action(infra) -> None:
-            await create_service(infra).run_full_ingestion(
+            await create_service(infra).run_full(
                 docs_dir=docs_dir,
                 reset=reset,
                 domain=domain,
@@ -112,10 +112,8 @@ def ingest_file(
 
         async def run_action(infra):
             service = create_service(infra)
-            if force:
-                await service.force_reindex(file_path.split("/")[-1])
-            await service.run_single_file(
-                file_path, domain=domain, visibility=vis, group_id=group_id, client_id=client_id
+            await service.run_single(
+                file_path, force=force, domain=domain, visibility=vis, group_id=group_id, client_id=client_id
             )
 
         asyncio.run(run_with_infrastructure(run_action))
@@ -159,20 +157,20 @@ def ingest_list() -> None:
 
         registry = asyncio.run(run_with_infrastructure(run_action))
 
-        if not registry:
+        if not registry.files:
             logger.info("Registry empty — no files indexed.")
             return
 
-        logger.info("Indexed files: %d", len(registry))
+        logger.info("Indexed files: %d", registry.total_files)
         logger.info("%-50s  %6s  %8s  %s", "File", "Chunks", "Chars", "Date")
         logger.info("-" * 85)
-        for name, meta in sorted(registry.items()):
+        for item in registry.files:
             logger.info(
                 "%-50s  %6s  %8s  %s",
-                name[:50],
-                meta.get("chunks", "?"),
-                f"{meta.get('chars', 0):,}",
-                meta.get("indexed_at", "?")[:19] if meta.get("indexed_at") else "?",
+                item.filename[:50],
+                item.chunks,
+                f"{item.chars:,}",
+                item.indexed_at.isoformat()[:19] if item.indexed_at else "?",
             )
     except Exception as exc:
         logger.error("Registry listing error", exc_info=exc)

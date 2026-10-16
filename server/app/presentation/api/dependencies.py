@@ -31,7 +31,6 @@ if TYPE_CHECKING:
     from application.documents import DocumentQueryService
     from application.identity import GroupService
     from application.services.health_service import HealthService
-    from application.ingestion import IngestAppService
     from application.services.job_service import JobService
     from application.services.metrics_service import MetricsService
     from application.services.pdf_diagnostic_service import PDFDiagnosticService
@@ -112,8 +111,8 @@ def create_chunk_service(request: Request) -> ChunkService:
     return _get_or_raise(_create_container(request).application.chunk_service, "ChunkService")
 
 
-def create_ingest_service(request: Request) -> IngestAppService:
-    return _get_or_raise(_create_container(request).application.ingest_app_service, "IngestAppService")
+def create_ingest_service(request: Request) -> IngestionService:
+    return _get_or_raise(_create_container(request).application.ingestion_service, "IngestionService")
 
 
 def create_config_service(request: Request) -> ConfigService:

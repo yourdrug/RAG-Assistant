@@ -11,9 +11,6 @@ from application.ingestion.dto import (
 from application.ingestion.loader import (
     S3DocumentLoader,
 )
-from application.ingestion.orchestrator import (
-    IngestionService,
-)
 from application.ingestion.parser import (
     DocumentParserPort,
     DocumentSplitterPort,
@@ -32,6 +29,7 @@ from application.ingestion.scope import (
 )
 from application.ingestion.service import (
     IngestAppService,
+    IngestionService,
 )
 from application.ingestion.settings import (
     IngestionSettingsPort,

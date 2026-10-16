@@ -1,10 +1,4 @@
-"""Application service for document ingestion orchestration.
-
-Delegates the heavy lifting (parsing, embedding, vector upload) to the
-``IngestionPort`` while managing DB-side concerns: status queries, registry
-lookups, and force-reindex operations.  Each method that touches the
-database opens its own UnitOfWork.
-"""
+"""Unified application facade for S3 document ingestion."""
 
 from __future__ import annotations
 
@@ -15,27 +9,39 @@ from application.ingestion.dto import (
     IngestRegistryResult,
     IngestStatusResult,
 )
+from application.ingestion.scope import IngestionScope
+from application.ingestion.targets import S3IngestionTargets
 from domain.value_objects.visibility import DocumentVisibility
 
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from application.ingestion.batch import BatchIngestionWorkflow
     from application.ingestion.dto import (
         UploadFile,
     )
-    from application.ingestion.port import IngestionPort
-    from application.uow import UnitOfWorkFactory
+    from application.ingestion.registry import IngestionRegistry
+    from application.ingestion.single_file import SingleFileIngestionWorkflow
+    from application.ingestion.targets import S3UploadService
 
 
-class IngestAppService:
+class IngestionService:
+    """Public ingestion operations backed by workflows and storage collaborators."""
+
     def __init__(
         self,
-        uow_factory: UnitOfWorkFactory,
-        ingestion_service: IngestionPort,
+        batch_workflow: BatchIngestionWorkflow,
+        single_file_workflow: SingleFileIngestionWorkflow,
+        registry: IngestionRegistry,
+        targets: S3IngestionTargets,
+        uploads: S3UploadService,
     ) -> None:
-        self._uow_factory = uow_factory
-        self._ingestion = ingestion_service
+        self._batch = batch_workflow
+        self._single_file = single_file_workflow
+        self._registry = registry
+        self._targets = targets
+        self._uploads = uploads
 
     async def run_full(
         self,
@@ -47,14 +53,11 @@ class IngestAppService:
         group_id: int | None = None,
         client_id: int | None = None,
     ) -> IngestStatusResult:
-        resolved = self._ingestion.resolve_docs_dir(docs_dir or "docs/")
-        await self._ingestion.run_full_ingestion(
+        resolved = self._targets.resolve_docs_dir(docs_dir or "docs/")
+        await self._batch.run(
             resolved,
             reset=reset,
-            domain=domain,
-            visibility=visibility,
-            group_id=group_id,
-            client_id=client_id,
+            scope=IngestionScope(domain, visibility, group_id, client_id),
         )
         mode = "RESET + full reindex" if reset else "APPEND (new files only)"
         return IngestStatusResult(status="started", mode=mode, docs_dir=resolved)
@@ -69,14 +72,19 @@ class IngestAppService:
         group_id: int | None = None,
         client_id: int | None = None,
     ) -> IngestStatusResult:
-        resolved = self._ingestion.resolve_ingest_target(file_path)
-        await self._ingestion.run_single_file(
-            resolved, domain=domain, visibility=visibility, group_id=group_id, client_id=client_id
+        resolved = self._targets.resolve_ingest_target(file_path)
+
+        if force:
+            await self.force_reindex(resolved.rsplit("/", 1)[-1])
+
+        await self._single_file.run(
+            resolved,
+            scope=IngestionScope(domain, visibility, group_id, client_id),
         )
         return IngestStatusResult(status="started", file=resolved, force=force)
 
     async def get_registry(self) -> IngestRegistryResult:
-        raw = await self._ingestion.get_registry()
+        raw = await self._registry.list_all()
         items = []
 
         for filename, info in raw.items():
@@ -99,13 +107,24 @@ class IngestAppService:
         )
 
     def resolve_docs_dir(self, prefix: str) -> str:
-        return self._ingestion.resolve_docs_dir(prefix)
+        return self._targets.resolve_docs_dir(prefix)
 
     def resolve_ingest_target(self, file_path: str) -> str:
-        return self._ingestion.resolve_ingest_target(file_path)
+        return self._targets.resolve_ingest_target(file_path)
 
     async def force_reindex(self, filename: str) -> None:
-        await self._ingestion.force_reindex(filename)
+        await self._registry.delete(filename)
 
     async def upload_files(self, files: Sequence[UploadFile], prefix: str = "docs/") -> list[str]:
-        return await self._ingestion.upload_files(files, prefix)
+        return await self._uploads.upload_files(files, prefix)
+
+    @staticmethod
+    def validate_s3_key(key: str) -> None:
+        S3IngestionTargets.validate_key(key)
+
+    # Compatibility with callers of the former workflow facade.
+    run_full_ingestion = run_full
+    run_single_file = run_single
+
+
+IngestAppService = IngestionService

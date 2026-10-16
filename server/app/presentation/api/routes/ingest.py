@@ -1,4 +1,4 @@
-"""Ingestion endpoints — thin wrappers around IngestAppService (S3-only)."""
+"""Ingestion endpoints — thin wrappers around IngestionService (S3-only)."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import asyncio
 
 from application.ingestion import IngestionPort
 from application.ports.rate_limit import RateLimitPolicyName
-from application.ingestion import IngestAppService
+from application.ingestion import IngestionService
 from application.services.job_service import JobService
 from domain.value_objects.visibility import DocumentVisibility
 from domain.value_objects.doc_domain import DocDomainSelection, DomainDetectionMode
@@ -60,7 +60,7 @@ async def ingest_documents(
     group_id: int | None = None,
     client_id: int | None = None,
     admin: CurrentUser = Depends(require_admin),
-    service: IngestAppService = Depends(create_ingest_service),
+    service: IngestionService = Depends(create_ingest_service),
     job_service: JobService = Depends(create_job_service),
     log=Depends(create_action_logger),
     job_enqueuer=Depends(create_job_enqueuer),
@@ -126,7 +126,7 @@ async def ingest_single_file(
     group_id: int | None = None,
     client_id: int | None = None,
     admin: CurrentUser = Depends(require_admin),
-    service: IngestAppService = Depends(create_ingest_service),
+    service: IngestionService = Depends(create_ingest_service),
     job_service: JobService = Depends(create_job_service),
     log=Depends(create_action_logger),
     job_enqueuer=Depends(create_job_enqueuer),
@@ -182,7 +182,7 @@ async def ingest_single_file(
 @router.get("/ingest/registry", response_model=IngestRegistryResponse)
 async def get_ingest_registry(
     admin: CurrentUser = Depends(require_admin),
-    service: IngestAppService = Depends(create_ingest_service),
+    service: IngestionService = Depends(create_ingest_service),
 ):
     result = await service.get_registry()
     return IngestRegistryResponse(

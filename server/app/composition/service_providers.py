@@ -159,22 +159,5 @@ def create_document_processor(
     )
 
 
-def create_ingest_app_service(
-    infra: InfrastructureContainer,
-    uow_factory: UnitOfWorkFactory | None = None,
-):
-    """Create an IngestAppService using infrastructure singletons.
-
-    Composes the IngestionService (from ``create_ingestion_service``) with
-    the application-layer orchestrator.  Worker tasks call this instead of
-    importing ``IngestAppService`` directly, keeping the infrastructure →
-    application dependency out of the worker layer.
-    """
-    from application.ingestion import IngestAppService
-
-    uow = _require(
-        uow_factory if uow_factory is not None else infra.db.uow_factory,
-        "uow_factory",
-    )
-    ingestion_svc = create_ingestion_service(infra, uow_factory=uow)
-    return IngestAppService(uow_factory=uow, ingestion_service=ingestion_svc)
+# Compatibility for integrations using the former application facade factory.
+create_ingest_app_service = create_ingestion_service

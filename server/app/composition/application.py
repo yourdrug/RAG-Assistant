@@ -36,7 +36,6 @@ if TYPE_CHECKING:
     from application.documents import DocumentQueryService
     from application.documents import DocumentDeletionJobs
     from application.services.health_service import HealthService
-    from application.ingestion import IngestAppService
     from application.services.job_service import JobService
     from application.services.metrics_service import MetricsService
     from application.services.pdf_diagnostic_service import PDFDiagnosticService
@@ -73,7 +72,6 @@ class ApplicationContainer:
     document_query_service: "DocumentQueryService | None" = field(default=None)
     document_deletion_jobs: "DocumentDeletionJobs | None" = field(default=None)
     chunk_service: ChunkService | None = field(default=None)
-    ingest_app_service: IngestAppService | None = field(default=None)
     config_service: ConfigService | None = field(default=None)
     health_service: HealthService | None = field(default=None)
     metrics_service: MetricsService | None = field(default=None)
@@ -106,7 +104,6 @@ class ApplicationContainer:
         from application.documents import DocumentQueryService
         from application.documents import DocumentDeletionJobs
         from application.services.health_service import HealthService
-        from application.ingestion import IngestAppService
         from application.services.job_service import JobService
         from application.services.metrics_service import MetricsService
         from application.services.pdf_diagnostic_service import PDFDiagnosticService
@@ -203,10 +200,6 @@ class ApplicationContainer:
             chunk_settings=LiveChunkSettings(),
             bm25_index=BM25IndexAdapter(ml),
             cache_invalidator=infra.services.cache_invalidator,
-        )
-        self.ingest_app_service = IngestAppService(
-            uow_factory=uow,
-            ingestion_service=self.ingestion_service,
         )
         self.config_service = ConfigService(
             uow_factory=uow, event_bus=event_bus, provider_configuration=infra.configuration

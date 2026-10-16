@@ -430,7 +430,9 @@ class TestGetRegistryForceReindex:
     async def test_get_registry(self):
         svc = _make_service()
         result = await svc.get_registry()
-        assert result == {}
+        assert result.total_files == 0
+        assert result.total_chunks == 0
+        assert result.files == []
 
     @pytest.mark.asyncio
     async def test_force_reindex(self):
