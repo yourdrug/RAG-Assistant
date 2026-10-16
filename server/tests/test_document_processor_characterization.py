@@ -23,6 +23,7 @@ import threading
 from contextlib import asynccontextmanager
 from datetime import date
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -36,6 +37,10 @@ from domain.entities.vector_outbox_entry import OutboxOperation
 from domain.value_objects.document_status import DocumentStatus
 from domain.value_objects.pdf_quality_report import PDFQualityReport
 from fakes import FakeDocumentRepository, FakeUnitOfWorkFactory
+from infrastructure.ingestion.document_parser_adapter import IngestionDocumentSplitter
+
+if TYPE_CHECKING:
+    from application.ingestion import FileMeta, SplitContext
 
 # ---------------------------------------------------------------------------
 # Stubs
@@ -66,7 +71,7 @@ class StubParser:
         self._error = error
         self.calls: list = []
 
-    def parse(self, file_path) -> list:
+    def parse(self, file_path, meta: FileMeta) -> list:
         self.calls.append(file_path)
         if self._error is not None:
             raise self._error
@@ -79,8 +84,8 @@ class StubSplitter:
     def __init__(self) -> None:
         self.calls: list[tuple] = []
 
-    def split(self, documents, domain: str = "general") -> list:
-        self.calls.append((tuple(documents), domain))
+    def split(self, documents, context: SplitContext) -> list:
+        self.calls.append((tuple(documents), context.domain))
         return [RawDocument(page_content=d.page_content, metadata=dict(d.metadata)) for d in documents]
 
 
@@ -684,7 +689,7 @@ async def test_section_prefix_added_to_chunks(tmp_path):
     from infrastructure.ml.langchain_document_parser import LangchainDocumentSplitter
 
     docs = [RawDocument(page_content="Текст раздела", metadata={"section": "Глава 1"})]
-    h = build_harness(tmp_path, docs=docs, splitter=LangchainDocumentSplitter())
+    h = build_harness(tmp_path, docs=docs, splitter=IngestionDocumentSplitter(LangchainDocumentSplitter()))
     doc = await seed_document(h.repo)
 
     await run(h, doc)
@@ -813,13 +818,13 @@ async def test_concurrent_processing_bounds_parser_and_keeps_run_state_separate(
     original_parse = h.parser.parse
     thread_ids = []
 
-    def blocking_parse(path):
+    def blocking_parse(path, meta):
         thread_ids.append(threading.get_ident())
         if len(thread_ids) == 1:
             loop.call_soon_threadsafe(entered.set)
             if not release.wait(timeout=5):
                 raise RuntimeError("Parser was not released")
-        return original_parse(path)
+        return original_parse(path, meta)
 
     original_download = h.storage.download_to_temp
 

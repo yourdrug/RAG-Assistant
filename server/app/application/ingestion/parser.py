@@ -1,14 +1,4 @@
-"""Document parser and splitter ports — application-layer abstractions for parsing files.
-
-Consolidates ``DocumentParser``/``DocumentSplitter`` from
-``domain/services/document_parser.py`` into a single application port module.
-The domain module retains re-exports for backward compatibility during the
-transition period.
-
-Ports operate on ``domain.entities.raw_document.RawDocument`` and
-``domain.domain_profile.protocol.DomainProfile`` — no infrastructure types
-leak through the contract.
-"""
+"""Shared parser and splitter contracts for uploads and storage ingestion."""
 
 from __future__ import annotations
 
@@ -49,8 +39,8 @@ class DocumentParserPort(Protocol):
     """Parses a file into domain RawDocuments.
 
     The adapter handles format-specific logic (PARSERS registry, merge_pdf_pages,
-    tuple convention) and returns domain-typed documents.  The caller owns
-    quality policies (e.g. "skip if < 20 chars").
+    tuple convention) and returns domain-typed documents. Callers own
+    workflow-specific quality assessment and error reporting.
     """
 
     def supports(self, extension: str) -> bool: ...

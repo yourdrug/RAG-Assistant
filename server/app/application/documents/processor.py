@@ -22,11 +22,11 @@ from domain.value_objects.document_status import DocumentStatus
 
 if TYPE_CHECKING:
     from application.documents.dto import DocumentProcessorOptions, ProcessOptions
+    from application.ingestion import DocumentParserPort
     from application.ports.file_storage import FileStorage
     from application.uow import UnitOfWorkFactory
     from domain.entities.document import Document
     from domain.repositories.vector_store_repository import VectorStoreRepository
-    from domain.services.document_parser import DocumentParser
 
 log = logging.getLogger("default")
 
@@ -37,7 +37,7 @@ class DocumentProcessor:
         uow_factory: UnitOfWorkFactory,
         vector_store_repo: VectorStoreRepository,
         file_storage: FileStorage,
-        document_parser: DocumentParser,
+        document_parser: DocumentParserPort,
         **options: Unpack[DocumentProcessorOptions],
     ) -> None:
         metrics = options["metrics"]

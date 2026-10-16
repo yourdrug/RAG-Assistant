@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import TYPE_CHECKING, ParamSpec, TypeVar
 
 from application.documents.quality import assess_document_quality
+from application.ingestion import FileMeta, SplitContext
 
 
 if TYPE_CHECKING:
@@ -18,8 +20,8 @@ if TYPE_CHECKING:
         PDFQualityAssessorPort,
         TextQualityAssessorPort,
     )
+    from application.ingestion import DocumentParserPort, DocumentSplitterPort
     from domain.entities.raw_document import RawDocument
-    from domain.services.document_parser import DocumentParser, DocumentSplitter
 
 
 T = TypeVar("T")
@@ -31,8 +33,8 @@ class DocumentContentProcessor:
 
     def __init__(
         self,
-        parser: DocumentParser,
-        splitter: DocumentSplitter,
+        parser: DocumentParserPort,
+        splitter: DocumentSplitterPort,
         extractor: ContentExtractorPort,
         pdf_assessor: PDFQualityAssessorPort,
         *,
@@ -58,7 +60,7 @@ class DocumentContentProcessor:
             msg = "Document content requires a downloaded temporary file"
             raise RuntimeError(msg)
 
-        ctx.docs = await self.offload(self._parser.parse, ctx.temp_path)
+        ctx.docs = await self.offload(self.parse_file, ctx.temp_path, ctx.original_filename)
 
         if not ctx.docs:
             msg = "Текст не извлечён — документ похож на скан, и OCR не смог распознать содержимое."
@@ -78,6 +80,15 @@ class DocumentContentProcessor:
 
         if outcome.warning:
             ctx.warnings.append(outcome.warning)
+
+    def parse_file(self, path: Path, filename: str) -> list[RawDocument]:
+        meta = FileMeta(
+            source_key=filename,
+            filename=filename,
+            extension=Path(filename).suffix.lower(),
+            size_bytes=path.stat().st_size,
+        )
+        return self._parser.parse(path, meta)
 
     async def split(self, ctx: ProcessingContext) -> list[RawDocument]:
         # Attach source/date metadata and delegate final chunk construction.
@@ -102,4 +113,4 @@ class DocumentContentProcessor:
             if doc_date:
                 doc.metadata["doc_date"] = doc_date
 
-        return self._splitter.split(docs, domain=domain)
+        return self._splitter.split(docs, SplitContext(domain=domain))

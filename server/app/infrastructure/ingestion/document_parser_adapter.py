@@ -1,4 +1,4 @@
-"""CLI adapters over the same parser and splitter used by API uploads."""
+"""Shared upload and ingestion adapters over format parsers and splitters."""
 
 from __future__ import annotations
 

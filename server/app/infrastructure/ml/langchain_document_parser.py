@@ -1,8 +1,7 @@
 """LangChain document parser -- bridges RawDocument entities to LangChain Documents.
 
 Wraps the low-level parsers from ``infrastructure.ml.ingestion`` and exposes a
-``DocumentParser`` / ``DocumentSplitter`` pair compatible with the domain
-service layer (``DocumentProcessor``).
+parser/splitter pair used by the shared application-port adapters.
 """
 
 from __future__ import annotations

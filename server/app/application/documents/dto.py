@@ -13,10 +13,10 @@ if TYPE_CHECKING:
         PDFQualityAssessorPort,
         TextQualityAssessorPort,
     )
+    from application.ingestion import DocumentSplitterPort
     from domain.domain_profile.protocol import DomainProfile
     from domain.domain_profile.registry import DomainProfileRegistry
     from domain.domain_profile.settings_port import DomainSettingsPort
-    from domain.services.document_parser import DocumentSplitter
     from domain.value_objects.pdf_quality_report import PDFQualityReport
 
 if TYPE_CHECKING:
@@ -103,7 +103,7 @@ class ClientInfo:
 
 
 class DocumentProcessorOptions(TypedDict):
-    document_splitter: DocumentSplitter
+    document_splitter: DocumentSplitterPort
     content_extractor: ContentExtractorPort
     pdf_quality_assessor: PDFQualityAssessorPort
     text_quality_assessor: TextQualityAssessorPort

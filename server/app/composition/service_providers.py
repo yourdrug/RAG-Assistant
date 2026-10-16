@@ -12,6 +12,10 @@ import logging
 from typing import TYPE_CHECKING
 
 from composition.utils import _require
+from infrastructure.ingestion.document_parser_adapter import (
+    IngestionDocumentParser,
+    IngestionDocumentSplitter,
+)
 
 if TYPE_CHECKING:
     from composition.infrastructure import InfrastructureContainer
@@ -57,10 +61,6 @@ def create_ingestion_service(
     from application.ingestion import SingleFileIngestionWorkflow
     from application.ingestion import SparseIndexBuilder
     from infrastructure.bm25.sparse_index_admin import S3SparseIndexAdmin
-    from infrastructure.ingestion.document_parser_adapter import (
-        IngestionDocumentParser,
-        IngestionDocumentSplitter,
-    )
     from infrastructure.ml.config.settings_adapters import LiveIngestionSettings
 
     uow = _require(
@@ -146,8 +146,10 @@ def create_document_processor(
         uow_factory=uow,
         vector_store_repo=_require(infra.ml.vector_store_repo, "vector_store_repo"),
         file_storage=_require(infra.ml.file_storage, "file_storage"),
-        document_parser=_require(infra.ml.document_parser, "document_parser"),
-        document_splitter=_require(infra.ml.document_splitter, "document_splitter"),
+        document_parser=IngestionDocumentParser(_require(infra.ml.document_parser, "document_parser")),
+        document_splitter=IngestionDocumentSplitter(
+            _require(infra.ml.document_splitter, "document_splitter")
+        ),
         content_extractor=_require(infra.ml.content_extractor, "content_extractor"),
         pdf_quality_assessor=_require(infra.ml.pdf_quality_assessor, "pdf_quality_assessor"),
         text_quality_assessor=TextQualityAssessorAdapter(),

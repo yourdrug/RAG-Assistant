@@ -212,11 +212,22 @@ def test_api_cli_same_chunks_and_structural_metadata(tmp_path, pipeline, extensi
             encoding="utf-8",
         )
     filename = "guide_2026-01-15" + extension
-    api_docs = parser.parse(path)
-    for doc in api_docs:
-        doc.metadata["source"] = filename
+    extractor = SimpleNamespace(extract_date_from_filename=extract_date_from_filename)
+    processor = DocumentContentProcessor(
+        IngestionDocumentParser(parser),
+        IngestionDocumentSplitter(splitter),
+        extractor,
+        None,
+        text_assessor=None,
+        metrics=None,
+    )
+    api_docs = processor.parse_file(path, filename)
+    assert all(d.metadata["source"] == filename for d in api_docs)
+    assert all(d.metadata["filename"] == filename for d in api_docs)
+    assert all(d.metadata["extension"] == extension for d in api_docs)
+    assert all(d.metadata["size_bytes"] == path.stat().st_size for d in api_docs)
     domain = DocDomain.DECREE.value if extension == ".rtf" else DocDomain.GENERAL.value
-    api_chunks = splitter.split(api_docs, domain)
+    api_chunks = processor.attach_metadata_and_split(api_docs, filename, domain)
     meta = FileMeta("s3://bucket/" + filename, filename, extension, path.stat().st_size)
     cli_docs = IngestionDocumentParser(parser).parse(path, meta)
     cli_chunks = IngestionDocumentSplitter(splitter).split(cli_docs, SplitContext(domain=domain))
@@ -301,9 +312,18 @@ async def test_api_content_processor_and_cli_construct_identical_final_chunks(tm
     )
     filename = "guide_2026-01-15.md"
     extractor = SimpleNamespace(extract_date_from_filename=extract_date_from_filename)
-    processor = DocumentContentProcessor(parser, splitter, extractor, None, text_assessor=None, metrics=None)
+    processor = DocumentContentProcessor(
+        IngestionDocumentParser(parser),
+        IngestionDocumentSplitter(splitter),
+        extractor,
+        None,
+        text_assessor=None,
+        metrics=None,
+    )
     ctx = SimpleNamespace(
-        docs=parser.parse(path), original_filename=filename, doc_domain=DocDomain.GENERAL.value
+        docs=processor.parse_file(path, filename),
+        original_filename=filename,
+        doc_domain=DocDomain.GENERAL.value,
     )
     api_chunks = await processor.split(ctx)
     meta = FileMeta("s3://bucket/" + filename, filename, ".md", path.stat().st_size)
