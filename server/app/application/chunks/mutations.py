@@ -1,4 +1,4 @@
-"""ChunkMutationService -- edit, add, delete chunk operations with outbox + BM25."""
+"""ChunkMutationService -- edit, add, delete chunk operations with transactional vector outbox."""
 
 from __future__ import annotations
 
@@ -17,33 +17,31 @@ from domain.value_objects.source_type import SourceType
 
 
 if TYPE_CHECKING:
-    from application.chunks.settings import ChunkSettingsPort
-    from application.ports.bm25_index import BM25IndexPort
+    from application.chunks.ports.settings import ChunkSettingsPort
     from application.ports.cache_invalidator import CacheInvalidatorPort
     from application.uow import UnitOfWork, UnitOfWorkFactory
     from domain.repositories.chunk_repository import ChunkCrudRepository
+    from domain.value_objects.roles import UserRole
 
 log = logging.getLogger(__name__)
 
+CHUNK_MIN_LEN_RATIO = 0.3
+MANUAL_CHUNK_MIN_LEN_RATIO = 0.05
+CHUNK_MAX_LEN_RATIO = 2.0
+
 
 class ChunkMutationService:
-    """Edit, add, delete chunk operations with outbox + BM25 side-effects."""
+    """Edit, add, delete chunk operations with transactional vector outbox side-effects."""
 
     def __init__(
         self,
         uow_factory: UnitOfWorkFactory,
         chunk_settings: ChunkSettingsPort,
-        bm25_index: BM25IndexPort,
-        chunk_min_len_ratio: float = 0.3,
         *,
-        chunk_max_len_ratio: float = 2.0,
         cache_invalidator: CacheInvalidatorPort | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._settings = chunk_settings
-        self._bm25_index = bm25_index
-        self._chunk_min_len_ratio = chunk_min_len_ratio
-        self._chunk_max_len_ratio = chunk_max_len_ratio
         self._cache_invalidator = cache_invalidator
 
     async def invalidate_answers(self, document_id: int) -> None:
@@ -56,9 +54,9 @@ class ChunkMutationService:
             raise ValidationError(msg)
 
         chunk_size = self._settings.chunk_size
-        min_ratio = 0.05 if is_manual else self._chunk_min_len_ratio
+        min_ratio = MANUAL_CHUNK_MIN_LEN_RATIO if is_manual else CHUNK_MIN_LEN_RATIO
         min_len = int(min_ratio * chunk_size)
-        max_len = int(self._chunk_max_len_ratio * chunk_size)
+        max_len = int(CHUNK_MAX_LEN_RATIO * chunk_size)
 
         if len(content) < min_len:
             msg = (
@@ -107,7 +105,7 @@ class ChunkMutationService:
         chunk_id: int,
         content: str,
         user_id: int,
-        user_role: str,
+        user_role: UserRole,
     ) -> EditChunkResult:
         async with self._uow_factory.create(master=True) as uow:
             chunks: ChunkCrudRepository = uow.chunks
@@ -133,6 +131,7 @@ class ChunkMutationService:
             await chunks.update_content(
                 chunk_id=chunk_id,
                 content=content,
+                content_hash=new_hash,
                 edited_at=now,
                 edited_by=user_id,
             )
@@ -192,17 +191,6 @@ class ChunkMutationService:
                 warning=warning,
             )
 
-        if chunk.content_hash is not None:
-            vis = doc.visibility.value if hasattr(doc.visibility, "value") else doc.visibility
-            await self._bm25_index.replace(
-                chunk.content_hash,
-                content,
-                new_hash=new_hash,
-                visibility=vis,
-                owner_id=doc.owner_id,
-                group_id=doc.group_id,
-            )
-
         await self.invalidate_answers(document_id)
         return result
 
@@ -211,7 +199,7 @@ class ChunkMutationService:
         document_id: int,
         content: str,
         user_id: int,
-        user_role: str,
+        user_role: UserRole,
         *,
         page: int | None = None,
         section: str | None = None,
@@ -244,7 +232,7 @@ class ChunkMutationService:
                 chunk_index=next_index,
                 content=content,
                 filename=doc.filename,
-                visibility=doc.visibility.value if hasattr(doc.visibility, "value") else doc.visibility,
+                visibility=doc.visibility.value,
                 doc_domain=doc.doc_domain,
                 owner_id=doc.owner_id,
                 group_id=doc.group_id,
@@ -315,15 +303,6 @@ class ChunkMutationService:
                 warning=warning,
             )
 
-        vis = doc.visibility.value if hasattr(doc.visibility, "value") else doc.visibility
-        await self._bm25_index.add(
-            content,
-            text_hash=new_hash,
-            visibility=vis,
-            owner_id=doc.owner_id,
-            group_id=doc.group_id,
-        )
-
         await self.invalidate_answers(document_id)
         return result
 
@@ -332,7 +311,7 @@ class ChunkMutationService:
         document_id: int,
         chunk_id: int,
         user_id: int,
-        user_role: str,
+        user_role: UserRole,
     ) -> None:
         async with self._uow_factory.create(master=True) as uow:
             chunks: ChunkCrudRepository = uow.chunks
@@ -367,9 +346,6 @@ class ChunkMutationService:
                 document_id,
                 user_id,
             )
-
-        if chunk.content_hash is not None:
-            await self._bm25_index.remove(chunk.content_hash)
 
         await self.invalidate_answers(document_id)
 

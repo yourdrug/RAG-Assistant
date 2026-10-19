@@ -952,7 +952,6 @@ forbidden_modules = [
 ]
 # Only these shared ports are part of this feature boundary.
 ignore_imports = [
-    "application.documents.delete -> application.ports.bm25_index",
     "application.documents.delete -> application.ports.file_storage",
     "application.documents.deletion_jobs -> application.ports.job_enqueuer",
     "application.documents.preview_cache -> application.ports.file_storage",
@@ -975,7 +974,6 @@ forbidden_modules = [
 ]
 # Only these shared ports are part of this feature boundary.
 ignore_imports = [
-    "application.chunks.mutations -> application.ports.bm25_index",
     "application.chunks.mutations -> application.ports.cache_invalidator",
 ]
 

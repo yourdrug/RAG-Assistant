@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 
 if TYPE_CHECKING:
-    from application.documents.preview_port import DocumentPreviewStrategy
+    from application.documents.ports.preview import DocumentPreviewStrategy
 
 
 @runtime_checkable

@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
+from domain.value_objects.doc_domain import DomainDetectionMode
 from domain.value_objects.visibility import DocumentVisibility
 
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from application.ingestion.dto import IngestRegistryResult, IngestStatusResult, UploadFile
+    from application.ingestion.dto import IngestRegistryResult, IngestStatusResult
+    from application.ingestion.ports.upload import UploadFile
 
 
 @runtime_checkable
@@ -21,7 +23,7 @@ class IngestionPort(Protocol):
         docs_dir: str | None = None,
         *,
         reset: bool = False,
-        domain: str = "auto",
+        domain: str = DomainDetectionMode.AUTO.value,
         visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC,
         group_id: int | None = None,
         client_id: int | None = None,
@@ -32,7 +34,7 @@ class IngestionPort(Protocol):
         file_path: str,
         *,
         force: bool = False,
-        domain: str = "auto",
+        domain: str = DomainDetectionMode.AUTO.value,
         visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC,
         group_id: int | None = None,
         client_id: int | None = None,

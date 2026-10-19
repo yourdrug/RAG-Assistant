@@ -73,7 +73,6 @@ async def test_edition_read_failure_aborts_manual_chunk_creation():
         await service.add_chunk(1, "A manual passage. " * 20, 100, UserRole.ADMIN.value)
     uow.chunks.insert_one.assert_not_awaited()
     uow.vector_outbox.enqueue.assert_not_awaited()
-    service._mutation._bm25_index.add.assert_not_called()
 
 
 @pytest.mark.asyncio

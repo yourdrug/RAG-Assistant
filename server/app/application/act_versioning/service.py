@@ -95,6 +95,35 @@ class ActVersioningService:
     ) -> VersioningPlan | None:
         return await self._planner.prepare_document_versioning(profile=profile, full_text=full_text)
 
+    async def apply_versioning_plan(
+        self,
+        uow: UnitOfWork,
+        profile: DomainProfile,
+        document_id: int,
+        plan: VersioningPlan,
+    ) -> VersioningResult:
+        # The caller owns the transaction and cache invalidation after commit.
+        if plan.warning:
+            return VersioningResult(plan.domain_metadata, None, None, plan.effective_from, plan.warning)
+
+        version = await self.create_version_in_uow(
+            uow,
+            profile,
+            document_id,
+            plan.extracted_refs,
+            effective_date=plan.effective_from,
+            date_confidence=plan.date_confidence,
+        )
+        return VersioningResult(
+            plan.domain_metadata,
+            version.id,
+            version.act_id,
+            version.effective_from,
+            None,
+            effective_to=version.effective_to,
+            is_current=version.is_current,
+        )
+
     async def list_pending_review(self) -> list[ActVersion]:
         return await self._queries.list_pending_review()
 

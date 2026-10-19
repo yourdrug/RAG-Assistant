@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 
 if TYPE_CHECKING:
-    from application.admin.metrics_port import MetricsRegistryPort
+    from application.admin.ports.metrics import MetricsRegistryPort
 
 
 @dataclass(frozen=True)

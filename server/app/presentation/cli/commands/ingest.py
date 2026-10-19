@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from domain.value_objects.doc_domain import DomainDetectionMode
+
 import asyncio
 import logging
 import sys
@@ -58,9 +60,11 @@ async def run_with_infrastructure(action):
 def ingest_run(
     docs_dir: str = typer.Option("docs/", "--docs-dir", "-d", help="S3 prefix (default: docs/)"),
     reset: bool = typer.Option(False, "--reset", help="Reset collection and registry, reindex everything"),
-    domain: str = typer.Option("auto", "--domain", help="Document domain: auto, legal, general"),
+    domain: str = typer.Option(
+        DomainDetectionMode.AUTO.value, "--domain", help="Document domain: auto, legal, general"
+    ),
     visibility: str = typer.Option(
-        "internal_public",
+        DocumentVisibility.INTERNAL_PUBLIC.value,
         "--visibility",
         "-v",
         help=f"Document visibility: {', '.join(v.value for v in DocumentVisibility)}",
@@ -94,9 +98,11 @@ def ingest_run(
 def ingest_file(
     file_path: str = typer.Argument(..., help="S3 key (e.g. docs/report.pdf)"),
     force: bool = typer.Option(False, "--force", help="Reindex even if file is already in registry"),
-    domain: str = typer.Option("auto", "--domain", help="Document domain: auto, legal, general"),
+    domain: str = typer.Option(
+        DomainDetectionMode.AUTO.value, "--domain", help="Document domain: auto, legal, general"
+    ),
     visibility: str = typer.Option(
-        "internal_public",
+        DocumentVisibility.INTERNAL_PUBLIC.value,
         "--visibility",
         "-v",
         help=f"Document visibility: {', '.join(v.value for v in DocumentVisibility)}",

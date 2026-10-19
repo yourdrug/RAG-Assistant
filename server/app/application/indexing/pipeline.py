@@ -19,8 +19,8 @@ from domain.value_objects.visibility import DocumentVisibility
 
 
 if TYPE_CHECKING:
-    from application.indexing.classification import LegacyClassifier
     from application.indexing.dto import ChunkProcessingOptions, ChunkWriteOptions, VersionMetadataOptions
+    from application.indexing.ports.classification import LegacyClassifier
     from application.uow import UnitOfWork, UnitOfWorkFactory
     from domain.domain_profile.registry import DomainProfileRegistry
     from domain.domain_profile.settings_port import DomainSettingsPort
@@ -58,7 +58,7 @@ def classify_domain(
     *,
     domain_registry: DomainProfileRegistry | None = None,
     domain_settings: DomainSettingsPort | None = None,
-    fallback_threshold: float = 2.0,
+    fallback_threshold: float,
     legacy_classifier: LegacyClassifier | None = None,
 ) -> str:
     """Shared domain classification with registry → legacy fallback.

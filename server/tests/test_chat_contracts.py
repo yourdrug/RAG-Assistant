@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from application.chat import ChatLogService, ChatService, ConversationService
+from application.chat import ChatLogService, ChatService, ConversationService, CreateChatLogCommand
 from domain.entities.chat_log import ChatLog
 from domain.entities.conversation import Conversation
 from domain.entities.message import Message
@@ -238,15 +238,17 @@ async def test_log_failure_uses_message_transaction_and_stops_summary() -> None:
 async def test_log_creation_without_existing_uow_opens_master_transaction() -> None:
     fixture = chat_fixture()
     await ChatLogService(fixture.factory).create(
-        user_id=1,
-        conv_id=7,
-        question="question",
-        full_answer="answer",
-        sources=[],
-        latency_ms=10,
-        depth=None,
-        retrieval_count=0,
-        reranker_score=None,
+        CreateChatLogCommand(
+            user_id=1,
+            conv_id=7,
+            question="question",
+            full_answer="answer",
+            sources=[],
+            latency_ms=10,
+            depth=None,
+            retrieval_count=0,
+            reranker_score=None,
+        )
     )
     fixture.factory.create.assert_called_once_with(master=True)
     log = fixture.uow.chat_logs.save.await_args.args[0]

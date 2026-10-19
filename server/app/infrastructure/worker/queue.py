@@ -24,6 +24,7 @@ from arq import create_pool
 from arq.connections import RedisSettings
 from arq.jobs import Job
 from config import settings
+from domain.value_objects.visibility import DocumentVisibility
 from application.budget import billing_principal
 
 logger = logging.getLogger("default")
@@ -126,7 +127,7 @@ async def enqueue_ingest(
     reset: bool,
     domain: str,
     job_id: int,
-    visibility: str = "internal_public",
+    visibility: str = DocumentVisibility.INTERNAL_PUBLIC.value,
     group_id: int | None = None,
     client_id: int | None = None,
 ) -> None:
@@ -150,7 +151,7 @@ async def enqueue_ingest_file(
     resolved: str,
     domain: str,
     job_id: int,
-    visibility: str = "internal_public",
+    visibility: str = DocumentVisibility.INTERNAL_PUBLIC.value,
     group_id: int | None = None,
     client_id: int | None = None,
 ) -> None:

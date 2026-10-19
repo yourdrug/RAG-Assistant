@@ -9,6 +9,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import httpx
+from qdrant_client.models import Filter
+
 import pytest
 from pydantic import ValidationError
 
@@ -222,14 +224,16 @@ async def test_candidate_cache_keeps_client_across_switch(monkeypatch):
     registry._embeddings = Mock()
     registry._embeddings.embed_query_sync.return_value = [1.0]
 
-    async def load_snapshot(*args, **kwargs):
+    def search(*args, **kwargs):
         registry.install_corpus(new, None)
-        return None
-
-    monkeypatch.setattr(sweep_scoring, 'load_candidate_snapshot', load_snapshot)
+        return []
+    old.client.search.side_effect = search
     try:
-        await sweep_scoring.cache_candidates([{'question': 'a'}, {'question': 'b'}], 1, ml_clients=registry)
-        assert old.client.search.call_count == 2
+        await sweep_scoring.cache_candidates(
+            [{'question': 'alpha'}, {'question': 'beta'}], 1, ml_clients=registry,
+            access_filter=Filter(), visibility_conditions=[object()], user_id=0, user_group_ids=[],
+        )
+        assert old.client.search.call_count == 4
         new.client.search.assert_not_called()
         assert all(call.kwargs['collection_name'] == 'v1' for call in old.client.search.call_args_list)
     finally:

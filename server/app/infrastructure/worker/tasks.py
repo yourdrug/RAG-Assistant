@@ -25,6 +25,7 @@ from composition.service_providers import (
     create_document_processor,
     create_ingestion_service,
 )
+from application.documents.dto import ProcessDocumentCommand
 from domain.value_objects.visibility import DocumentVisibility
 from application.benchmark import load_benchmark_questions
 from application.benchmark import compute_summary_from_results
@@ -175,16 +176,16 @@ async def process_document(
             document_id,
             job_id,
         )
-        await processor.process(
+        await processor.process(ProcessDocumentCommand(
             document_id=document_id,
             storage_key=storage_key,
             original_filename=filename,
-            visibility=visibility,
+            visibility=DocumentVisibility.validate(visibility),
             owner_id=owner_id,
             group_id=group_id,
             replace_id=replace_id,
             doc_domain=doc_domain,
-        )
+        ))
         logger.info(
             "Worker: background upload completed: %s (doc %d, job %d)",
             filename,
@@ -208,7 +209,7 @@ async def run_full_ingest(
     reset: bool,
     domain: str,
     job_id: int,
-    visibility: str = "internal_public",
+    visibility: str = DocumentVisibility.INTERNAL_PUBLIC.value,
     group_id: int | None = None,
     client_id: int | None = None,
 ) -> None:
@@ -240,7 +241,7 @@ async def run_single_ingest(
     resolved: str,
     domain: str,
     job_id: int,
-    visibility: str = "internal_public",
+    visibility: str = DocumentVisibility.INTERNAL_PUBLIC.value,
     group_id: int | None = None,
     client_id: int | None = None,
 ) -> None:

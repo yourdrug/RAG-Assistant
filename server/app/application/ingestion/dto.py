@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, NotRequired, Protocol
+from typing import TYPE_CHECKING, NotRequired
 
 
 if TYPE_CHECKING:
@@ -40,16 +40,6 @@ class IngestRegistryResult:
     total_files: int
     total_chunks: int
     files: list[IngestRegistryItemDTO] = field(default_factory=list)
-
-
-class UploadFile(Protocol):
-    """File content accepted by ingestion upload operations."""
-
-    @property
-    def filename(self) -> str: ...
-
-    @property
-    def data(self) -> bytes: ...
 
 
 class RegistryRecord(TypedDict):

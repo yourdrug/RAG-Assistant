@@ -12,7 +12,9 @@ from qdrant_client.models import (
     DeleteAlias,
     DeleteAliasOperation,
     Distance,
+    Modifier,
     PointStruct,
+    SparseVectorParams,
     VectorParams,
 )
 
@@ -22,6 +24,7 @@ from domain.value_objects.visibility import DocumentVisibility
 from infrastructure.corpus.snapshot import BoundQdrantClient
 from infrastructure.corpus.validation import validate_corpus
 from infrastructure.repositories.vector.acl import build_qdrant_filter
+from infrastructure.repositories.vector.sparse_vectors import SPARSE_VECTOR_NAME, point_vectors
 
 
 @pytest.mark.integration
@@ -51,7 +54,11 @@ def test_alias_switch_preserves_physical_snapshot_and_private_acl():
     created = []
     try:
         for name in names:
-            client.create_collection(name, vectors_config=VectorParams(size=2, distance=Distance.COSINE))
+            client.create_collection(
+                name,
+                vectors_config=VectorParams(size=2, distance=Distance.COSINE),
+                sparse_vectors_config={SPARSE_VECTOR_NAME: SparseVectorParams(modifier=Modifier.IDF)},
+            )
             created.append(name)
             binding = name + "__embedding_identity"
             client.create_collection(
@@ -63,7 +70,7 @@ def test_alias_switch_preserves_physical_snapshot_and_private_acl():
                 [
                     PointStruct(
                         id=row["id"],
-                        vector=[1.0, 0.0],
+                        vector=point_vectors(row["content"], [1.0, 0.0]),
                         payload={
                             "page_content": row["content"],
                             "metadata": {
@@ -100,7 +107,11 @@ def test_alias_switch_preserves_physical_snapshot_and_private_acl():
             access = build_qdrant_filter(
                 {"id": user_id, "kind": UserKind.INTERNAL, "role": UserRole.USER}, []
             )
-            points = bound.search(collection_name=alias, query_vector=[1.0, 0.0], query_filter=access)
+            points = bound.search(
+                collection_name=alias,
+                query_vector=[1.0, 0.0],
+                query_filter=access,
+            )
             assert [point.id for point in points] == ({7: [1], 8: [2]}.get(user_id, []))
     finally:
         try:

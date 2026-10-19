@@ -15,7 +15,7 @@ from domain.value_objects.ml_provider import MLProvider
 if TYPE_CHECKING:
     from application.admin import CorpusControlPort, ProviderConfigurationPort
     from application.health.ports import ConfigListenerProviderPort, HealthProbePort
-    from application.health.settings import HealthSettingsPort
+    from application.health.ports.settings import HealthSettingsPort
     from application.uow.factory import UnitOfWorkFactory
 
 

@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
+from domain.value_objects.doc_domain import DocDomain
+
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -28,7 +30,7 @@ class FileMeta:
 class SplitContext:
     """Domain-dependent splitting parameters (domain types in a port are acceptable)."""
 
-    domain: str = "general"
+    domain: str = DocDomain.GENERAL.value
     profile: DomainProfile | None = None
     settings: DomainSettingsPort | None = None
     legal_mode: bool = False

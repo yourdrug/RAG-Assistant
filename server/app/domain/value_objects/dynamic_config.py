@@ -82,6 +82,8 @@ STATIC_SETTING_KEYS: frozenset[str] = frozenset(
         "s3_region",
         "s3_max_concurrent",
         "supported_extensions",
+        "preview_max_size_mb",
+        "preview_cache_ttl_seconds",
         "data_dir",
         "uploads_prefix",
         "allowed_origins",

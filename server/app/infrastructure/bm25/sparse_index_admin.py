@@ -12,7 +12,7 @@ import logging
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
-from application.ingestion.sparse_index_port import ChunkRef
+from application.ingestion.ports.sparse_index import ChunkRef
 from infrastructure.bm25.bm25_index import BM25Index
 from infrastructure.bm25.bm25_invalidation import publish_bm25_invalidation
 from infrastructure.bm25.persistence import save_bm25_index_to_s3
@@ -40,7 +40,7 @@ class S3SparseIndexAdmin:
             doc_group_id=[c.group_id for c in chunks],
         )
         await save_bm25_index_to_s3(bm25_index, self._file_storage)
-        await publish_bm25_invalidation()
+        await publish_bm25_invalidation(raise_on_error=True)
         log.info("BM25: rebuild complete — %d docs", len(chunks))
 
     async def extend(self, chunks: Sequence[ChunkRef]) -> None:

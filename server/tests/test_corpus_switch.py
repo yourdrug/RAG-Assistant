@@ -4,16 +4,17 @@ from time import monotonic
 from infrastructure.corpus.control import PostgresCorpusControl
 import pytest
 from infrastructure.corpus.snapshot import CorpusSnapshot, BoundQdrantClient
-from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct
+from qdrant_client import QdrantClient, models
+from config import settings
+from infrastructure.corpus.control import probe_active_corpus
+from qdrant_client.models import Distance, VectorParams, PointStruct, SparseVectorParams, Modifier
+from infrastructure.repositories.vector.sparse_vectors import SPARSE_VECTOR_NAME, point_vectors
 import hashlib
 from dataclasses import replace
 from domain.exceptions import ValidationError
 from infrastructure.corpus.validation import validate_corpus
 from infrastructure.ml.clients.client_registry import MLClientRegistry
 from infrastructure.ml.answer_cache import _cache_key
-from infrastructure.bm25.bm25_index import BM25Index
-from infrastructure.bm25.persistence import BM25LoadError
 
 
 def test_bound_client_never_mixes_new_setting_with_old_collection():
@@ -38,7 +39,10 @@ def test_binding_collection_does_not_get_rewritten():
 def fixture_corpus():
     client = QdrantClient(':memory:')
     identity = 'tei:model:revision'
-    client.create_collection('docs_v1', vectors_config=VectorParams(size=2, distance=Distance.COSINE))
+    client.create_collection(
+        'docs_v1', vectors_config=VectorParams(size=2, distance=Distance.COSINE),
+        sparse_vectors_config={SPARSE_VECTOR_NAME: SparseVectorParams(modifier=Modifier.IDF)},
+    )
     client.create_collection(
         'docs_v1__embedding_identity',
         vectors_config={
@@ -60,7 +64,7 @@ def fixture_corpus():
         [
             PointStruct(
                 id=1,
-                vector=[1.0, 0.0],
+                vector=point_vectors(row['content'], [1.0, 0.0]),
                 payload={
                     'page_content': row['content'],
                     'metadata': {
@@ -124,69 +128,18 @@ async def test_request_keeps_old_client_bm25_and_cache_namespace_until_finished(
 
 
 @pytest.mark.asyncio
-async def test_invalidated_bm25_is_reloaded_before_request_pins_corpus():
-    index = BM25Index(['restored sparse document'])
+async def test_corpus_admission_does_not_load_legacy_bm25():
+    from unittest.mock import AsyncMock
 
-    async def load():
-        return index
-
-    registry = MLClientRegistry(bm25_loader=load)
-    snapshot = CorpusSnapshot('http://qdrant:6333', 'docs', 'v1', 'i', 'g1')
-    registry.install_corpus(BoundQdrantClient(Mock(), snapshot), BM25Index(['old']))
-    try:
-        async with registry.corpus_operation():
-            registry.invalidate_bm25()
-            assert (await registry.ensure_bm25_loaded()).texts == ['old']
-        async with registry.corpus_operation():
-            assert await registry.ensure_bm25_loaded() is index
-            assert registry.qdrant_client().snapshot == snapshot
-    finally:
-        await registry.close()
-
-
-@pytest.mark.asyncio
-async def test_corpus_switch_during_bm25_reload_pins_new_index():
-    registry = MLClientRegistry()
-    old = CorpusSnapshot('http://qdrant:6333', 'docs', 'v1', 'i', 'g1')
-    new = replace(old, physical_collection='v2', generation='g2')
-    current_index = BM25Index(['new corpus'])
-
-    async def load():
-        registry.install_corpus(BoundQdrantClient(Mock(), new), current_index)
-        return BM25Index(['stale download'])
-
-    registry._bm25_loader = load
-    registry.install_corpus(BoundQdrantClient(Mock(), old), BM25Index(['old corpus']))
-    registry.invalidate_bm25()
-    try:
-        async with registry.corpus_operation():
-            assert registry.qdrant_client().snapshot == new
-            assert await registry.ensure_bm25_loaded() is current_index
-    finally:
-        await registry.close()
-
-
-@pytest.mark.asyncio
-async def test_failed_bm25_reload_degrades_then_retries_next_request():
-    calls = 0
-    index = BM25Index(['recovered'])
-
-    async def load():
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            raise BM25LoadError('storage unavailable')
-        return index
-
-    registry = MLClientRegistry(bm25_loader=load)
+    loader = AsyncMock(side_effect=AssertionError("S3 snapshot must not be loaded"))
+    registry = MLClientRegistry(bm25_loader=loader)
     snapshot = CorpusSnapshot('http://qdrant:6333', 'docs', 'v1', 'i', 'g1')
     registry.install_corpus(BoundQdrantClient(Mock(), snapshot), None)
     registry.invalidate_bm25()
     try:
         async with registry.corpus_operation():
-            assert await registry.ensure_bm25_loaded() is None
-        async with registry.corpus_operation():
-            assert await registry.ensure_bm25_loaded() is index
+            assert registry.qdrant_client().snapshot == snapshot
+        loader.assert_not_awaited()
     finally:
         await registry.close()
 
@@ -242,9 +195,7 @@ async def test_poll_catches_up_to_durable_active_generation(monkeypatch, phase, 
     control.chunks = AsyncMock(return_value=[])
     control.heartbeat = AsyncMock()
     control.recover = AsyncMock()
-    index = object()
     monkeypatch.setattr(module, 'raw_corpus_client', Mock(return_value=Mock()))
-    monkeypatch.setattr(module, 'build_corpus_bm25', Mock(return_value=index))
     monkeypatch.setattr(module.corpus_snapshot, 'installed_corpus', None)
     monkeypatch.setattr(settings, 'qdrant_url', old.endpoint)
     monkeypatch.setattr(settings, 'collection_name', old.alias)
@@ -252,7 +203,7 @@ async def test_poll_catches_up_to_durable_active_generation(monkeypatch, phase, 
     try:
         await control.tick()
         assert registry.corpus_snapshot == active
-        assert await registry.ensure_bm25_loaded() is index
+        assert await registry.ensure_bm25_loaded() is None
         listener.synchronize.assert_awaited_once()
         assert control.error is None
         await control.tick()
@@ -295,3 +246,57 @@ async def test_corpus_readiness_fences_stale_replicas(fault):
                     assert registry.qdrant_client().snapshot == durable
     finally:
         await registry.close()
+
+
+@pytest.mark.parametrize(
+    "text,vector,valid",
+    [
+        ("private text", None, False),
+        ("я !", None, False),
+        ("private text", models.SparseVector(indices=[], values=[]), False),
+        ("я !", models.SparseVector(indices=[], values=[]), True),
+    ],
+)
+def test_corpus_requires_sparse_vector(text: str, vector: models.SparseVector | None, valid: bool) -> None:
+    client, identity, row = fixture_corpus()
+    try:
+        row["content"] = text
+        point = client.retrieve("docs_v1", [1], with_payload=True)[0]
+        payload = point.payload
+        payload["page_content"] = text
+        vectors = {"": [1.0, 0.0]}
+        if vector is not None:
+            vectors[SPARSE_VECTOR_NAME] = vector
+        client.upsert("docs_v1", [models.PointStruct(id=1, vector=vectors, payload=payload)])
+        if valid:
+            validate_corpus(client, "http://qdrant:6333", "docs_v1", identity, 2, [row])
+        else:
+            with pytest.raises(ValidationError, match="sparse vector"):
+                validate_corpus(client, "http://qdrant:6333", "docs_v1", identity, 2, [row])
+    finally:
+        client.close()
+
+
+@pytest.mark.parametrize("modifier", ["missing", None, models.Modifier.IDF])
+def test_bootstrap_checks_sparse_config_for_empty_collection(
+    monkeypatch: pytest.MonkeyPatch, modifier,
+) -> None:
+    monkeypatch.setattr(settings, "embed_dim", 2)
+    client = QdrantClient(":memory:")
+    try:
+        client.create_collection(
+            "docs",
+            vectors_config=models.VectorParams(size=2, distance=models.Distance.COSINE),
+            sparse_vectors_config=(
+                None if modifier == "missing"
+                else {SPARSE_VECTOR_NAME: models.SparseVectorParams(modifier=modifier)}
+            ),
+        )
+        snapshot = CorpusSnapshot("http://qdrant:6333", "docs", "docs", "identity")
+        if modifier != models.Modifier.IDF:
+            with pytest.raises(ValidationError, match="sparse index"):
+                probe_active_corpus(client, snapshot, False)
+        else:
+            probe_active_corpus(client, snapshot, False)
+    finally:
+        client.close()

@@ -11,6 +11,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from application.documents import DocumentProcessor
+from application.documents.dto import DocumentProcessingDependencies
 from composition.utils import _require
 from infrastructure.ingestion.document_parser_adapter import (
     IngestionDocumentParser,
@@ -59,8 +61,6 @@ def create_ingestion_service(
     from application.ingestion import DocumentSyncService
     from application.ingestion import S3IngestionTargets, S3UploadService
     from application.ingestion import SingleFileIngestionWorkflow
-    from application.ingestion import SparseIndexBuilder
-    from infrastructure.bm25.sparse_index_admin import S3SparseIndexAdmin
     from infrastructure.ml.config.settings_adapters import LiveIngestionSettings
 
     uow = _require(
@@ -93,10 +93,6 @@ def create_ingestion_service(
         registry=registry,
     )
     targets = S3IngestionTargets()
-    sparse_index = SparseIndexBuilder(
-        ingestion_settings,
-        S3SparseIndexAdmin(file_storage=file_storage, uow_factory=uow),
-    )
     return IngestionService(
         batch_workflow=BatchIngestionWorkflow(
             _require(infra.ml.vector_store_repo, "vector_store_repo"),
@@ -104,14 +100,12 @@ def create_ingestion_service(
             loader,
             registry,
             sync=sync,
-            sparse_index=sparse_index,
         ),
         single_file_workflow=SingleFileIngestionWorkflow(
             file_storage,
             loader,
             registry,
             sync,
-            sparse_index=sparse_index,
         ),
         registry=registry,
         targets=targets,
@@ -125,7 +119,6 @@ def create_document_processor(
 ):
     """Create a DocumentProcessor using infrastructure singletons."""
     from application.act_versioning import ActVersioningService
-    from application.documents import DocumentProcessor
     from config import settings
     from infrastructure.ml.guardrails.text_quality_adapter import TextQualityAssessorAdapter
 
@@ -144,16 +137,17 @@ def create_document_processor(
 
     return DocumentProcessor(
         uow_factory=uow,
-        vector_store_repo=_require(infra.ml.vector_store_repo, "vector_store_repo"),
         file_storage=_require(infra.ml.file_storage, "file_storage"),
-        document_parser=IngestionDocumentParser(_require(infra.ml.document_parser, "document_parser")),
-        document_splitter=IngestionDocumentSplitter(
-            _require(infra.ml.document_splitter, "document_splitter")
+        dependencies=DocumentProcessingDependencies(
+            document_parser=IngestionDocumentParser(_require(infra.ml.document_parser, "document_parser")),
+            document_splitter=IngestionDocumentSplitter(
+                _require(infra.ml.document_splitter, "document_splitter")
+            ),
+            content_extractor=_require(infra.ml.content_extractor, "content_extractor"),
+            pdf_quality_assessor=_require(infra.ml.pdf_quality_assessor, "pdf_quality_assessor"),
+            text_quality_assessor=TextQualityAssessorAdapter(),
+            metrics=_require(infra.ml.metrics_collector, "metrics_collector"),
         ),
-        content_extractor=_require(infra.ml.content_extractor, "content_extractor"),
-        pdf_quality_assessor=_require(infra.ml.pdf_quality_assessor, "pdf_quality_assessor"),
-        text_quality_assessor=TextQualityAssessorAdapter(),
-        metrics=_require(infra.ml.metrics_collector, "metrics_collector"),
         domain_marker_threshold=settings.document_domain_marker_threshold,
         domain_registry=infra.domain_registry,
         domain_settings=infra.domain_settings,

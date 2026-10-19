@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 
 from application.documents.dto import DocumentDTO
 from application.documents.utils import generate_storage_key, resolve_unique_filename
-from application.indexing import build_outbox_metadata
 from domain.entities.vector_outbox_entry import OutboxOperation, VectorOutboxEntry
 from domain.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
 from domain.services import check_ownership
@@ -137,27 +136,10 @@ class DocumentRenameCommand:
         await uow.chunks.update_filename_by_document_id(document_id, new_filename)
         await uow.vector_outbox.enqueue(
             VectorOutboxEntry(
-                operation=OutboxOperation.UPSERT_CHUNKS,
+                operation=OutboxOperation.RENAME_DOCUMENT,
                 aggregate_type="document",
                 aggregate_id=document_id,
-                payload={
-                    "points": [
-                        {
-                            "chunk_id": c.chunk_id,
-                            "page_content": c.content,
-                            "metadata": build_outbox_metadata(
-                                document_id=document_id,
-                                visibility=c.visibility,
-                                owner_id=c.owner_id,
-                                group_id=c.group_id,
-                                filename=new_filename,
-                                doc_domain=c.doc_domain,
-                                content_hash=c.content_hash,
-                            ),
-                        }
-                        for c in (await uow.chunks.list_for_document(document_id, limit=10000))[0]
-                    ]
-                },
+                payload={"document_id": document_id, "filename": new_filename},
             )
         )
         final_doc = await uow.documents.get_by_id(document_id)

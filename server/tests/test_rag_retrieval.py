@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 import pytest
-from qdrant_client.models import FieldCondition, Filter, MatchValue
+from qdrant_client.models import FieldCondition, Filter, MatchValue, NamedSparseVector
 
 from domain.services.access_control import VisibilityCondition
 from domain.value_objects.visibility import DocumentVisibility
@@ -360,7 +360,7 @@ async def test_run_hybrid_search_empty_conditions_fail_closed(mock_settings, moc
 @patch("application.search.hybrid.rrf_merge")
 @patch("infrastructure.ml.rag.rag_retrieval.RAG_STAGE_DURATION")
 @patch("infrastructure.ml.rag.rag_retrieval.settings")
-async def test_hybrid_search_uses_rrf_when_bm25_available(mock_settings, mock_metrics, mock_rrf):
+async def test_hybrid_search_uses_rrf_with_qdrant_sparse(mock_settings, mock_metrics, mock_rrf):
     from domain.value_objects.rag_settings import (
         FeatureToggles,
         HybridSearchConfig,
@@ -392,28 +392,29 @@ async def test_hybrid_search_uses_rrf_when_bm25_available(mock_settings, mock_me
 
     # Dense results
     dense_point = MagicMock()
+    dense_point.id = 1
     dense_point.score = 0.85
     dense_point.payload = {
         "page_content": "dense doc",
         "metadata": {"content_hash": "dense_h1"},
     }
     mock_client = MagicMock()
-    mock_client.search.return_value = [dense_point]
+    sparse_point = MagicMock(id=2, score=1.2)
+    sparse_point.payload = {"page_content": "sparse doc", "metadata": {"chunk_id": 2}}
+    mock_client.search.side_effect = lambda **kwargs: (
+        [sparse_point] if isinstance(kwargs["query_vector"], NamedSparseVector) else [dense_point]
+    )
 
     mock_embeddings = MagicMock()
     mock_embeddings.embed_query = AsyncMock(return_value=[0.1] * 384)
 
-    # BM25 results
-    mock_bm25 = MagicMock()
-    mock_bm25.search_with_hashes.return_value = [("sparse_h1", 0.7)]
-
     # RRF merge returns dense hash first
-    mock_rrf.return_value = ["dense_h1", "sparse_h1"]
+    mock_rrf.return_value = ["1", "2"]
 
     ml_clients = MagicMock()
     ml_clients.qdrant_client.return_value = mock_client
     ml_clients.embeddings.return_value = mock_embeddings
-    ml_clients.ensure_bm25_loaded = AsyncMock(return_value=mock_bm25)
+    ml_clients.ensure_bm25_loaded = AsyncMock(side_effect=AssertionError("obsolete snapshot load"))
 
     _acl_filter = Filter(must=[FieldCondition(key="id", match=MatchValue(value=0))])
     conditions = [VisibilityCondition(visibility=DocumentVisibility.INTERNAL_PUBLIC)]
@@ -428,14 +429,10 @@ async def test_hybrid_search_uses_rrf_when_bm25_available(mock_settings, mock_me
         user_group_ids=[],
     )
 
-    mock_bm25.search_with_hashes.assert_called_once_with(
-        "test",
-        10,
-        visibility_conditions=conditions,
-        user_id=10,
-        user_group_ids=[],
-    )
-    assert _acl_filter in mock_client.scroll.call_args.kwargs["scroll_filter"].must
+    assert mock_client.search.call_count == 2
+    assert all(call.kwargs["query_filter"] is _acl_filter for call in mock_client.search.call_args_list)
+    mock_client.scroll.assert_not_called()
+    ml_clients.ensure_bm25_loaded.assert_not_awaited()
     mock_rrf.assert_called_once()
     assert len(results) >= 1
 
@@ -448,43 +445,22 @@ def mock_embedding_binding(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_failed_bm25_load_keeps_dense_acl_and_next_request_retries(monkeypatch):
-    from types import SimpleNamespace
-    from langchain.schema import Document
-    from infrastructure.bm25.persistence import BM25LoadError
-    from infrastructure.ml.rag.rag_retrieval import run_hybrid_search
-
-    document = Document(page_content="authorized", metadata={"source": "allowed.txt"})
-    dense = AsyncMock(return_value=[("hash", 0.9, document)])
-    monkeypatch.setattr("infrastructure.ml.rag.rag_retrieval.qdrant_dense_search", dense)
-    clients = MagicMock()
-    clients.ensure_bm25_loaded = AsyncMock(side_effect=[BM25LoadError("S3 denied"), None])
-    acl = Filter(must=[FieldCondition(key="owner_id", match=MatchValue(value=42))])
-    conditions = [VisibilityCondition(visibility=DocumentVisibility.INTERNAL_PUBLIC)]
-    rag = SimpleNamespace(hybrid_search=SimpleNamespace(enabled=True))
-    for _ in range(2):
-        assert await run_hybrid_search(
-            "q", 10, acl, rag, clients, visibility_conditions=conditions, user_id=42, user_group_ids=[]
-        ) == [document]
-    assert clients.ensure_bm25_loaded.await_count == 2
-    assert all(call.args[2] is acl for call in dense.await_args_list)
-    clients.qdrant_client.assert_not_called()
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize("error", [ValueError("programming error"), asyncio.CancelledError()])
-async def test_bm25_fallback_does_not_swallow_unrelated_errors(error):
+async def test_sparse_errors_and_cancellation_propagate(monkeypatch, error):
     from types import SimpleNamespace
     from infrastructure.ml.rag.rag_retrieval import run_hybrid_search
 
-    clients = MagicMock(ensure_bm25_loaded=AsyncMock(side_effect=error))
+    monkeypatch.setattr(
+        "infrastructure.ml.rag.rag_retrieval.qdrant_sparse_search", AsyncMock(side_effect=error)
+    )
+    monkeypatch.setattr("infrastructure.ml.rag.rag_retrieval.qdrant_dense_search", AsyncMock(return_value=[]))
     with pytest.raises(type(error)):
         await run_hybrid_search(
-            "q",
+            "query",
             10,
             Filter(must=[]),
-            SimpleNamespace(),
-            clients,
+            SimpleNamespace(hybrid_search=SimpleNamespace(enabled=True, bm25_fetch_k=20)),
+            MagicMock(),
             visibility_conditions=[VisibilityCondition(visibility=DocumentVisibility.INTERNAL_PUBLIC)],
             user_id=42,
             user_group_ids=[],

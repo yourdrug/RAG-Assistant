@@ -16,6 +16,7 @@ from domain.value_objects.visibility import DocumentVisibility
 
 if TYPE_CHECKING:
     from application.uow import UnitOfWorkFactory
+    from domain.value_objects.roles import UserKind, UserRole
 
 log = logging.getLogger(__name__)
 
@@ -32,11 +33,11 @@ class ManualDocumentService:
     async def create_manual_document(
         self,
         title: str,
-        visibility: str,
+        visibility: DocumentVisibility,
         user_id: int,
-        user_kind: str,
+        user_kind: UserKind,
         *,
-        user_role: str,
+        user_role: UserRole,
         group_id: int | None = None,
     ) -> DocumentDTO:
         vis = DocumentVisibility.validate(visibility)

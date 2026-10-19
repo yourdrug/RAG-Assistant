@@ -48,7 +48,7 @@ def make_factory(sessions):
 async def test_manual_chunk_round_trip_and_later_version_updates(pg_engine):
     sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
     document_id, version_id = await seed_edition(sessions)
-    service = ChunkMutationService(make_factory(sessions), SimpleNamespace(chunk_size=100), MagicMock())
+    service = ChunkMutationService(make_factory(sessions), SimpleNamespace(chunk_size=100))
     result = await service.add_chunk(document_id, "Manual regulatory passage. " * 4, 1, UserRole.ADMIN.value)
     user = UserContext(1, UserKind.INTERNAL, UserRole.ADMIN)
     async with sessions() as session:
@@ -97,7 +97,7 @@ async def test_outbox_failure_rolls_back_manual_chunk_and_document_stats(pg_engi
                 yield uow
 
     index = MagicMock()
-    service = ChunkMutationService(FailingFactory(), SimpleNamespace(chunk_size=100), index)
+    service = ChunkMutationService(FailingFactory(), SimpleNamespace(chunk_size=100))
     with pytest.raises(RuntimeError, match="outbox failed"):
         await service.add_chunk(document_id, "Manual regulatory passage. " * 4, 1, UserRole.ADMIN.value)
     async with sessions() as session:

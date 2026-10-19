@@ -8,6 +8,13 @@ import pytest
 import pytest_asyncio
 
 from application.chat import ConversationService
+from application.chunks import AddChunkResult, EditChunkResult
+from domain.value_objects.cursor_page import CursorPage
+from test_chunk_service import _make_chunk, _make_doc, _make_service, _make_uow
+from application.documents import DocumentDTO
+from domain.entities.document import Document
+from domain.value_objects.visibility import DocumentVisibility
+from domain.value_objects.source_type import SourceType
 from domain.entities.message import Message
 from domain.value_objects.message_role import MessageRole
 from domain.value_objects.job_status import BackgroundJobStatus
@@ -234,7 +241,6 @@ async def test_chat_outage_preserves_retry_after(asgi_client):
 @pytest.mark.parametrize("user_id,role,status", [(1, "user", 200), (2, "user", 409), (2, "admin", 200)])
 async def test_private_document_ownership_through_real_route(asgi_client, user_id, role, status):
     from application.documents import DocumentQueryService
-    from domain.entities.document import Document
     from domain.value_objects.visibility import DocumentVisibility
 
     factory = FakeUnitOfWorkFactory()
@@ -259,7 +265,6 @@ async def test_private_document_ownership_through_real_route(asgi_client, user_i
 async def test_document_delete_queues_only_after_authorization(asgi_client, user_id, role, expected):
     from application.documents import DocumentDeletionJobs
     from domain.entities.background_job import BackgroundJob
-    from domain.entities.document import Document
     from domain.value_objects.job_type import JobType
     from domain.value_objects.visibility import DocumentVisibility
 
@@ -302,3 +307,84 @@ async def test_document_delete_queues_only_after_authorization(asgi_client, user
     else:
         jobs.create.assert_not_awaited()
         enqueuer.enqueue_document_deletion.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "method,path,payload,operation",
+    [
+        ("GET", "/documents/1/chunks", None, "list_chunks"),
+        ("GET", "/documents/1/chunks/cursor?limit=1", None, "list_chunks_cursor"),
+        ("POST", "/documents/1/chunks", {"content": "text"}, "add_chunk"),
+        ("PUT", "/documents/1/chunks/10", {"content": "text"}, "edit_chunk"),
+        ("DELETE", "/documents/1/chunks/10", None, "delete_chunk"),
+        (
+            "POST",
+            "/documents/manual",
+            {"title": "Manual", "visibility": "internal_private"},
+            "create_manual_document",
+        ),
+    ],
+)
+async def test_chunk_routes_resolve_composed_services(asgi_client, method, path, payload, operation):
+    query = SimpleNamespace(
+        list_chunks=AsyncMock(return_value=([], 0)),
+        list_chunks_cursor=AsyncMock(return_value=CursorPage(items=[], next_cursor=None, prev_cursor=None)),
+    )
+    mutation = SimpleNamespace(
+        add_chunk=AsyncMock(return_value=AddChunkResult(10, 1, 0, "text", True)),
+        edit_chunk=AsyncMock(return_value=EditChunkResult(10, 1, 0, "text", "2026-01-01T00:00:00", 1, False)),
+        delete_chunk=AsyncMock(),
+    )
+    manual = SimpleNamespace(
+        create_manual_document=AsyncMock(
+            return_value=DocumentDTO(
+                id=1,
+                filename="Manual",
+                visibility="internal_private",
+                status="done",
+                source_type=SourceType.MANUAL.value,
+            )
+        )
+    )
+    app.state.container = SimpleNamespace(
+        application=SimpleNamespace(
+            chunk_query_service=query,
+            chunk_mutation_service=mutation,
+            manual_document_service=manual,
+        )
+    )
+    sign_in(UserRole.ADMIN.value)
+    response = await asgi_client.request(method, path, json=payload)
+    assert response.status_code == 200
+    owner = (
+        query
+        if operation.startswith("list_")
+        else manual
+        if operation == "create_manual_document"
+        else mutation
+    )
+    call = getattr(owner, operation)
+    call.assert_awaited_once()
+    assert call.await_args.kwargs["user_role"] is UserRole.ADMIN
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("user_id,expected", [(1, 200), (2, 409)])
+async def test_chunk_edit_keeps_document_permissions_through_composed_service(asgi_client, user_id, expected):
+    uow = _make_uow(
+        doc=_make_doc(owner_id=1, visibility=DocumentVisibility.INTERNAL_PRIVATE),
+        chunk=_make_chunk(owner_id=1, visibility=DocumentVisibility.INTERNAL_PRIVATE.value),
+    )
+    service = _make_service(uow)
+    app.state.container = SimpleNamespace(application=SimpleNamespace(chunk_mutation_service=service))
+    sign_in(UserRole.CURATOR.value, user_id)
+    response = await asgi_client.put("/documents/1/chunks/10", json={"content": "updated " * 30})
+    assert response.status_code == expected
+
+    if expected == 200:
+        uow.chunks.update_content.assert_awaited_once()
+        uow.vector_outbox.enqueue.assert_awaited_once()
+    else:
+        uow.chunks.update_content.assert_not_awaited()
+        uow.vector_outbox.enqueue.assert_not_awaited()

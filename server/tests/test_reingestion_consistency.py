@@ -68,7 +68,7 @@ async def test_failed_outbox_enqueue_rolls_back_replacement():
 @pytest.mark.asyncio
 async def test_delayed_old_upsert_cannot_restore_replaced_points():
     factory = FakeUnitOfWorkFactory()
-    factory._uow.documents.get_by_id = AsyncMock(return_value=SimpleNamespace(id=1))
+    factory._uow.documents.get_by_id = AsyncMock(return_value=SimpleNamespace(id=1, filename="report.txt"))
     await index(factory, "old text")
     await index(factory, "new text")
     points = {}
@@ -84,6 +84,7 @@ async def test_delayed_old_upsert_cannot_restore_replaced_points():
         ensure_collection=AsyncMock(),
         upload_documents=upload,
         delete_by_ids=delete,
+        update_filename_by_document_id=AsyncMock(),
     )
     dispatcher = OutboxDispatcher(factory, vector)
     entries = list(factory._uow.vector_outbox._entries.values())
@@ -131,7 +132,7 @@ async def test_sparse_refresh_uses_current_sql_corpus_with_acl():
 @pytest.mark.asyncio
 async def test_replacement_during_upload_removes_inflight_old_points():
     factory = FakeUnitOfWorkFactory()
-    factory._uow.documents.get_by_id = AsyncMock(return_value=SimpleNamespace(id=1))
+    factory._uow.documents.get_by_id = AsyncMock(return_value=SimpleNamespace(id=1, filename="report.txt"))
     await index(factory, "old text")
     old_entry = next(iter(factory._uow.vector_outbox._entries.values()))
     points = {}
@@ -148,6 +149,7 @@ async def test_replacement_during_upload_removes_inflight_old_points():
         ensure_collection=AsyncMock(),
         upload_documents=upload,
         delete_by_ids=delete,
+        update_filename_by_document_id=AsyncMock(),
     )
     await OutboxDispatcher(factory, vector)._apply_one(old_entry)
     assert points == {}
@@ -155,17 +157,14 @@ async def test_replacement_during_upload_removes_inflight_old_points():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("sparse_fails", [False, True])
-async def test_single_file_ingestion_refreshes_sparse_before_recording_success(sparse_fails):
+@pytest.mark.parametrize("sync_fails", [False, True])
+async def test_single_file_ingestion_commits_outbox_before_recording_success(sync_fails):
     events = []
 
     async def sync(*args, **kwargs):
         events.append("sync")
-
-    async def refresh(*args, **kwargs):
-        events.append("sparse")
-        if sparse_fails:
-            raise ConnectionError("sparse unavailable")
+        if sync_fails:
+            raise ConnectionError("sync unavailable")
 
     async def record(*args, **kwargs):
         events.append("registry")
@@ -192,20 +191,19 @@ async def test_single_file_ingestion_refreshes_sparse_before_recording_success(s
             upsert=record,
         ),
         SimpleNamespace(sync_documents_to_db=sync),
-        sparse_index=SimpleNamespace(update=refresh),
     )
-    if sparse_fails:
-        with pytest.raises(ConnectionError, match="sparse unavailable"):
+    if sync_fails:
+        with pytest.raises(ConnectionError, match="sync unavailable"):
             await workflow.run("report.txt", scope=IngestionScope())
     else:
         await workflow.run("report.txt", scope=IngestionScope())
-    assert events == (["sync", "sparse"] if sparse_fails else ["sync", "sparse", "registry"])
+    assert events == (["sync"] if sync_fails else ["sync", "registry"])
 
 
 @pytest.mark.asyncio
 async def test_failed_inflight_cleanup_is_retried_even_after_document_deletion():
     factory = FakeUnitOfWorkFactory()
-    factory._uow.documents.get_by_id = AsyncMock(return_value=SimpleNamespace(id=1))
+    factory._uow.documents.get_by_id = AsyncMock(return_value=SimpleNamespace(id=1, filename="report.txt"))
     await index(factory, "old text")
     entry = next(iter(factory._uow.vector_outbox._entries.values()))
     points = {}
@@ -228,6 +226,7 @@ async def test_failed_inflight_cleanup_is_retried_even_after_document_deletion()
         ensure_collection=AsyncMock(),
         upload_documents=upload,
         delete_by_ids=delete,
+        update_filename_by_document_id=AsyncMock(),
     )
     dispatcher = OutboxDispatcher(factory, vector)
     await dispatcher._apply_one(entry)

@@ -3,9 +3,6 @@
 from application.documents.access import (
     DocumentAccessService,
 )
-from application.documents.access_port import (
-    DocumentAccessPort,
-)
 from application.documents.commands import (
     DocumentCommandService,
 )
@@ -23,27 +20,30 @@ from application.documents.diagnostics import (
 from application.documents.dto import (
     ClientInfo,
     DocumentDTO,
-    DocumentProcessorOptions,
-    ProcessOptions,
+    DocumentProcessingDependencies,
+    ProcessDocumentCommand,
     UploadOptions,
 )
 from application.documents.manual import (
     ManualDocumentService,
 )
-from application.documents.preview_cache import (
-    PreviewCache,
+from application.documents.ports.access import (
+    DocumentAccessPort,
 )
-from application.documents.preview_factory import (
-    PreviewStrategyFactoryPort,
-)
-from application.documents.preview_port import (
+from application.documents.ports.preview import (
     DocumentPreviewStrategy,
 )
-from application.documents.processing_ports import (
+from application.documents.ports.preview_factory import (
+    PreviewStrategyFactoryPort,
+)
+from application.documents.ports.processing import (
     ContentExtractorPort,
     MetricsCollectorPort,
     PDFQualityAssessorPort,
     TextQualityAssessorPort,
+)
+from application.documents.preview_cache import (
+    PreviewCache,
 )
 from application.documents.processor import (
     DocumentProcessor,
@@ -73,8 +73,8 @@ __all__ = [
     "DocumentDeletionJobs",
     "DocumentDiagnoseResult",
     "DocumentPreviewStrategy",
+    "DocumentProcessingDependencies",
     "DocumentProcessor",
-    "DocumentProcessorOptions",
     "DocumentQueryService",
     "DocumentRenameCommand",
     "DocumentUploadCommand",
@@ -85,7 +85,7 @@ __all__ = [
     "PageDiagnostic",
     "PreviewCache",
     "PreviewStrategyFactoryPort",
-    "ProcessOptions",
+    "ProcessDocumentCommand",
     "QualityService",
     "TextQualityAssessorPort",
     "UploadOptions",

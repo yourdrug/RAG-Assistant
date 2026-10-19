@@ -72,7 +72,7 @@ def _service(uow: FakeUnitOfWork | None = None, file_storage=None):
     context_factory = UserContextFactory()
     cmd = DocumentCommandService(
         DocumentUploadCommand(factory, fs, context_factory),
-        DocumentDeleteCommand(factory, fs, AsyncMock(), context_factory),
+        DocumentDeleteCommand(factory, fs, context_factory),
         DocumentRenameCommand(factory, fs, context_factory),
     )
     query = DocumentQueryService(uow_factory=factory)
@@ -408,13 +408,13 @@ async def test_upload_unique_constraint_violation_translates_to_conflict():
 
 @pytest.mark.asyncio
 async def test_delete_document_happy_path():
-    """delete_document: outbox enqueued, BM25 removal, summary clear, doc deleted, storage deleted."""
+    """delete_document: outbox enqueued, summary clear, doc deleted, storage deleted."""
     cmd, query, uow, fs = _service()
     fs.copy_file = AsyncMock()
     doc = _make_doc(doc_id=1, source_path="s3://bucket/docs/1/test.pdf")
     await uow.documents.save(doc)
 
-    # Add a chunk with content_hash for BM25 removal verification
+    # Sparse cleanup is deferred to the committed outbox.
     await uow.chunks.bulk_insert(
         document_id=1,
         filename="test.pdf",
@@ -430,9 +430,6 @@ async def test_delete_document_happy_path():
     assert len(outbox_entries) == 1
     assert outbox_entries[0].operation.value == "delete_by_document"
     assert outbox_entries[0].payload == {"document_id": 1}
-
-    # 2. BM25 index: remove called for the chunk's content_hash
-    cmd._delete._bm25_index.remove.assert_awaited_once_with("hash_abc")
 
     # 3. Summaries cleared (all in the fake)
     for conv in uow.conversations._convs.values():
@@ -512,10 +509,10 @@ async def test_rename_document_different_path_copies_and_deletes_old():
     # 2. Document filename updated in DB
     assert dto.filename == "new.pdf"
 
-    # 3. Outbox entry enqueued with UPSERT_CHUNKS
+    # 3. Outbox entry patches source metadata without recomputing vectors
     outbox_entries = list(uow.vector_outbox._entries.values())
     assert len(outbox_entries) == 1
-    assert outbox_entries[0].operation.value == "upsert_chunks"
+    assert outbox_entries[0].operation.value == "rename_document"
 
     # 4. Old source file deleted (after transaction commit)
     fs.delete_file.assert_awaited_once_with("s3://bucket/u/1/1/old.pdf")

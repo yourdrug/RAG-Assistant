@@ -8,7 +8,7 @@ so the transaction boundary lives in one auditable place.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Unpack
+from typing import TYPE_CHECKING
 
 from application.act_versioning import VersioningResult
 from application.documents.conflicts import apply_async_replacement
@@ -17,31 +17,24 @@ from domain.value_objects.document_status import DocumentStatus
 
 
 if TYPE_CHECKING:
-    from application.documents.dto import PersistDocumentResultOptions
-    from application.uow import UnitOfWork, UnitOfWorkFactory
+    from application.act_versioning import ActVersioningService
+    from application.documents.dto import PersistDocumentCommand
+    from application.uow import UnitOfWorkFactory
+    from domain.domain_profile.registry import DomainProfileRegistry
 
 log = logging.getLogger("default")
 
 
 async def persist_document_result(
-    uow_factory: UnitOfWorkFactory, **options: Unpack[PersistDocumentResultOptions]
+    uow_factory: UnitOfWorkFactory,
+    command: PersistDocumentCommand,
+    *,
+    domain_registry: DomainProfileRegistry | None,
+    act_versioning_service: ActVersioningService | None,
 ) -> VersioningResult | None:
-    """Persist chunks inside a single transaction.
-
-    Version creation, chunk persistence, replacement, outbox enqueue and status
-    updates commit together. Returns the final version result, or None if the
-    document was deleted while it was being processed.
-    """
-    document_id = options["document_id"]
-    raw_chunks = options["raw_chunks"]
-    visibility = options["visibility"]
-    owner_id = options["owner_id"]
-    group_id = options["group_id"]
-    doc_domain = options["doc_domain"]
-    replace_id = options["replace_id"]
-    warning_message = options["warning_message"]
-    quality = options["quality"]
-    act_versioning_service = options.get("act_versioning_service")
+    """Commit version, chunks, replacement and outbox together, then invalidate answers."""
+    document_id = command.document_id
+    versioning = VersioningResult(None, None, None, None, None)
     async with uow_factory.create(master=True) as uow:
         existing = await uow.documents.get_by_id(document_id)
 
@@ -49,17 +42,24 @@ async def persist_document_result(
             log.info("Document %d deleted before outbox enqueue — aborting", document_id)
             return None
 
-        versioning = await resolve_persisted_version(uow, options)
+        if command.versioning is not None:
+            if act_versioning_service is None:
+                msg = "Versioning plan requires an act versioning service"
+                raise RuntimeError(msg)
 
-        await uow.documents.set_domain(document_id, doc_domain)
+            versioning = await act_versioning_service.apply_versioning_plan(
+                uow, command.versioning.profile, document_id, command.versioning.plan
+            )
+
+        await uow.documents.set_domain(document_id, command.doc_domain)
 
         enrich_chunks_metadata(
-            raw_chunks,
+            command.raw_chunks,
             document_id,
-            visibility,
-            owner_id,
-            group_id,
-            doc_domain=doc_domain,
+            command.visibility,
+            command.owner_id,
+            command.group_id,
+            doc_domain=command.doc_domain,
             domain_metadata=versioning.domain_metadata,
             act_version_id=versioning.act_version_id,
             act_id=versioning.act_id,
@@ -71,27 +71,27 @@ async def persist_document_result(
         await process_chunks(
             uow_factory=uow_factory,
             document_id=document_id,
-            filename=options["original_filename"],
-            chunks=raw_chunks,
-            visibility=visibility,
-            owner_id=owner_id,
-            group_id=group_id,
-            doc_domain=doc_domain,
+            filename=command.original_filename,
+            chunks=command.raw_chunks,
+            visibility=command.visibility,
+            owner_id=command.owner_id,
+            group_id=command.group_id,
+            doc_domain=command.doc_domain,
             set_indexing=True,
             _existing_uow=uow,
         )
 
-        if replace_id is not None:
+        if command.replace_id is not None:
             await apply_async_replacement(
-                uow, options["domain_registry"], replace_id, doc_domain, options["storage_deletes"]
+                uow, domain_registry, command.replace_id, command.doc_domain, command.storage_deletes
             )
 
-        if warning_message:
+        if command.warning_message:
             await uow.documents.update_status(
                 document_id,
                 DocumentStatus.INDEXING.value,
-                warning=warning_message,
-                quality_score=quality.bad_ratio if quality else None,
+                warning=command.warning_message,
+                quality_score=command.quality.bad_ratio if command.quality else None,
             )
 
     if act_versioning_service is not None:
@@ -99,49 +99,5 @@ async def persist_document_result(
             await act_versioning_service.invalidate_act_answers(versioning.act_id)
         else:
             await act_versioning_service.invalidate_document_answers(document_id)
-
-    return versioning
-
-
-async def resolve_persisted_version(
-    uow: UnitOfWork, options: PersistDocumentResultOptions
-) -> VersioningResult:
-    document_id = options["document_id"]
-    versioning = options["versioning"]
-    versioning_plan = options.get("versioning_plan")
-    versioning_profile = options.get("versioning_profile")
-    act_versioning_service = options.get("act_versioning_service")
-
-    if versioning_plan is not None:
-        if versioning_profile is None or act_versioning_service is None:
-            msg = "Versioning plan requires its profile and service"
-            raise RuntimeError(msg)
-
-        if versioning_plan.warning:
-            versioning = VersioningResult(
-                versioning_plan.domain_metadata,
-                None,
-                None,
-                versioning_plan.effective_from,
-                versioning_plan.warning,
-            )
-        else:
-            act_version = await act_versioning_service.create_version_in_uow(
-                uow,
-                versioning_profile,
-                document_id,
-                versioning_plan.extracted_refs,
-                effective_date=versioning_plan.effective_from,
-                date_confidence=versioning_plan.date_confidence,
-            )
-            versioning = VersioningResult(
-                versioning_plan.domain_metadata,
-                act_version.id,
-                act_version.act_id,
-                act_version.effective_from,
-                None,
-                effective_to=act_version.effective_to,
-                is_current=act_version.is_current,
-            )
 
     return versioning

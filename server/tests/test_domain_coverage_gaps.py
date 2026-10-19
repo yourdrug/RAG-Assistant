@@ -385,7 +385,10 @@ class TestHasExactReference:
 
 class TestClassifyDocumentDomain:
     def test_general_text(self):
-        assert classify_document_domain("Простой текст без юридических терминов") == DocDomain.GENERAL
+        assert (
+            classify_document_domain("Простой текст без юридических терминов", threshold=2.0)
+            == DocDomain.GENERAL
+        )
 
     def test_legal_text_high_density(self):
         text = "\nСтатья 1\n" * 10 + "\nГлава 2\n" * 10
@@ -396,7 +399,7 @@ class TestClassifyDocumentDomain:
         assert classify_document_domain(text, threshold=1.0) == DocDomain.LEGAL
 
     def test_empty_text(self):
-        assert classify_document_domain("") == DocDomain.GENERAL
+        assert classify_document_domain("", threshold=2.0) == DocDomain.GENERAL
 
     def test_custom_threshold(self):
         text = "Федеральный закон"

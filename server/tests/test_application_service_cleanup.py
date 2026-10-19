@@ -8,7 +8,7 @@ from unittest.mock import Mock
 import pytest
 
 from application.admin.metrics import MetricsService
-from application.admin.metrics_port import MetricsRegistryPort
+from application.admin.ports.metrics import MetricsRegistryPort
 from application.documents.diagnostics import PDFDiagnosticService
 from domain.value_objects.page_content_type import PageContentType
 from domain.value_objects.pdf_dto import DryRunPageResult

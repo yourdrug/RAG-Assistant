@@ -7,7 +7,6 @@ rag_service.py to reduce its size and isolate the retrieval I/O layer.
 import asyncio
 from infrastructure.corpus.snapshot import pin_corpus_call
 import logging
-from infrastructure.bm25.persistence import BM25LoadError
 import time
 
 from application.ports.ml_clients import MLClientPort
@@ -16,11 +15,11 @@ from config import settings
 from domain.value_objects.rag_settings import RagSettings
 from domain.utils import content_hash
 from infrastructure.metrics.metrics import RAG_STAGE_DURATION
-from infrastructure.ml.rag.rag_reranking import deduplicate_docs
 from infrastructure.resilience.retry import retry_on_transient
 from infrastructure.repositories.vector.embedding_identity import ensure_embedding_identity
 from langchain.schema import Document as LCDocument
-from qdrant_client.models import FieldCondition, Filter, MatchValue
+from qdrant_client.models import FieldCondition, Filter, MatchValue, ScoredPoint
+from infrastructure.repositories.vector.sparse_vectors import sparse_query
 
 log = logging.getLogger("default")
 
@@ -131,11 +130,50 @@ async def qdrant_dense_search(
     for point in results:
         payload = point.payload or {}
         page_content = payload.get("page_content", "")
-        metadata = payload.get("metadata", {})
+        metadata = {**payload.get("metadata", {}), "chunk_id": point.id}
         h = metadata.get("content_hash") or payload.get("content_hash") or content_hash(page_content)
         doc = LCDocument(page_content=page_content, metadata=metadata)
         docs.append((h, point.score, doc))
     return docs
+
+
+def search_sparse_points(client, query: str, k: int, access_filter) -> list[ScoredPoint]:
+    """Return sparse hits with payload; apply the complete ACL/temporal scope before top-k."""
+    if access_filter is None:
+        raise RuntimeError("Sparse search requires an ACL filter")
+    vector = sparse_query(query)
+    if not vector.vector.indices:
+        return []
+    return client.search(
+        collection_name=settings.collection_name,
+        query_vector=vector,
+        query_filter=access_filter,
+        limit=k,
+        with_payload=True,
+        timeout=settings.qdrant_timeout,
+    )
+
+
+@pin_corpus_call
+@retry_on_transient
+async def qdrant_sparse_search(
+    query: str, k: int, access_filter, ml_clients: MLClientPort
+) -> list[tuple[str, float, LCDocument]]:
+    async with ml_clients.qdrant_search_semaphore:
+        points = await asyncio.to_thread(
+            search_sparse_points, ml_clients.qdrant_client(), query, k, access_filter
+        )
+    return [
+        (
+            str(point.id),
+            point.score,
+            LCDocument(
+                page_content=(point.payload or {}).get("page_content", ""),
+                metadata={**(point.payload or {}).get("metadata", {}), "chunk_id": point.id},
+            ),
+        )
+        for point in points
+    ]
 
 
 @pin_corpus_call
@@ -152,72 +190,33 @@ async def run_hybrid_search(
     user_id: int,
     user_group_ids: list[int],
 ) -> list[LCDocument]:
-    """Run ACL-filtered hybrid dense+BM25 search and return deduplicated candidates."""
+    """Run Qdrant dense+sparse retrieval with identical filters and weighted RRF."""
     if access_filter is None:
         raise RuntimeError("run_hybrid_search() requires access_filter for ACL enforcement.")
     if visibility_conditions is None or user_id is None or user_group_ids is None:
         raise RuntimeError("run_hybrid_search() requires visibility_conditions, user_id and user_group_ids.")
     if not visibility_conditions:
         return []
-
-    try:
-        bm25_index = await ml_clients.ensure_bm25_loaded()
-    except BM25LoadError:
-        log.warning("BM25 snapshot unavailable; using dense search", exc_info=True)
-        bm25_index = None
-
-    if rag.hybrid_search.enabled and bm25_index is not None:
-        t0 = time.monotonic()
-        dense_coro = qdrant_dense_search(query, fetch_k, access_filter, ml_clients)
-
-        async def _bm25_search():
-            async with ml_clients.bm25_search_semaphore:
-                return await asyncio.wait_for(
-                    asyncio.to_thread(
-                        bm25_index.search_with_hashes,
-                        query,
-                        fetch_k,
-                        visibility_conditions=visibility_conditions,
-                        user_id=user_id,
-                        user_group_ids=user_group_ids,
-                    ),
-                    timeout=5,
-                )
-
-        dense_results, sparse_results = await asyncio.gather(dense_coro, _bm25_search())
-        elapsed = time.monotonic() - t0
-        RAG_STAGE_DURATION.labels("hybrid_search").observe(elapsed)
-        dense_by_hash = {h: (score, doc) for h, score, doc in dense_results}
-
-        effective_dense = dense_weight if dense_weight is not None else rag.hybrid_search.dense_weight
-        effective_sparse = sparse_weight if sparse_weight is not None else rag.hybrid_search.sparse_weight
-
-        # Resolve sparse-only candidates with the same ACL filter before RRF.
-        missing_hashes = [h for h, _ in sparse_results if h not in dense_by_hash]
-        if missing_hashes:
-            resolved = await resolve_hashes_batch(missing_hashes, access_filter, ml_clients)
-            dense_by_hash.update({h: (0.0, doc) for h, doc in resolved.items()})
-
-        candidates = _retriever.merge_and_dedup(
-            dense_results=[(h, score) for h, score, _ in dense_results],
-            sparse_results=sparse_results,
-            dense_by_hash=dense_by_hash,
-            fetch_k=fetch_k,
-            rrf_k=rag.hybrid_search.rrf_k,
-            dense_weight=effective_dense,
-            sparse_weight=effective_sparse,
-        )
-
-        log.info(
-            "Hybrid: dense=%d, sparse=%d, merged=%d candidates",
-            len(dense_results),
-            len(sparse_results),
-            len(candidates),
-        )
-    else:
-        t0 = time.monotonic()
-        dense_results = await qdrant_dense_search(query, fetch_k, access_filter, ml_clients)
-        candidates = [doc for _, _, doc in dense_results]
-        RAG_STAGE_DURATION.labels("dense_search").observe(time.monotonic() - t0)
-
-    return deduplicate_docs(candidates)
+    started = time.monotonic()
+    if not rag.hybrid_search.enabled:
+        dense = await qdrant_dense_search(query, fetch_k, access_filter, ml_clients)
+        RAG_STAGE_DURATION.labels("dense_search").observe(time.monotonic() - started)
+        return [doc for _, _, doc in dense]
+    dense, sparse = await asyncio.gather(
+        qdrant_dense_search(query, fetch_k, access_filter, ml_clients),
+        qdrant_sparse_search(query, rag.hybrid_search.bm25_fetch_k, access_filter, ml_clients),
+    )
+    # Merge by point identity; text deduplication happens after rank fusion.
+    dense = [(str(doc.metadata["chunk_id"]), score, doc) for _, score, doc in dense]
+    documents = {key: (score, doc) for key, score, doc in [*sparse, *dense]}
+    candidates = _retriever.merge_and_dedup(
+        dense_results=[(key, score) for key, score, _ in dense],
+        sparse_results=[(key, score) for key, score, _ in sparse],
+        dense_by_hash=documents,
+        fetch_k=fetch_k,
+        rrf_k=rag.hybrid_search.rrf_k,
+        dense_weight=dense_weight if dense_weight is not None else rag.hybrid_search.dense_weight,
+        sparse_weight=sparse_weight if sparse_weight is not None else rag.hybrid_search.sparse_weight,
+    )
+    RAG_STAGE_DURATION.labels("hybrid_search").observe(time.monotonic() - started)
+    return candidates

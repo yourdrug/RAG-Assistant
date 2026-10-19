@@ -1,7 +1,7 @@
 """DocumentSyncService -- two-phase DB sync for CLI ingestion.
 
 Phase 1: resolve/create document rows (single committed transaction).
-Phase 2: per document -- versioning (own tx) + chunks + outbox.
+Phase 2: per document -- versioning + chunks + outbox (one transaction).
 
 Extracted from IngestionService to isolate the Postgres sync concern.
 """
@@ -70,10 +70,9 @@ class DocumentSyncService:
     ) -> None:
         """Sync documents and chunks to Postgres, enqueue outbox for Qdrant.
 
-        Two phases so that act-version rows (created in their own transaction,
-        exactly like the API upload path) can reference committed documents:
+        Two phases: resolve document rows, then persist each document atomically:
           Phase 1: resolve/create document rows (committed).
-          Phase 2: per document -- versioning (own tx) + chunks + outbox.
+          Phase 2: per document -- versioning + chunks + outbox (one transaction).
         """
         del source_chars  # Chunk persistence computes document statistics.
         full_text_by_source = full_text_by_source or {}
@@ -197,9 +196,7 @@ class DocumentSyncService:
         first_chunk = file_chunks[0]
         chunk_domain = first_chunk.metadata.get("doc_domain", DocDomain.GENERAL.value)
 
-        versioning, versioning_plan, profile = await self.prepare_versioning(
-            fname, doc_id, chunk_domain, full_text
-        )
+        versioning, versioning_plan, profile = await self.prepare_versioning(fname, chunk_domain, full_text)
         act_versioning_service = self._act_versioning_service
 
         # The request scope owns ACL; parser metadata must not override it.
@@ -220,27 +217,13 @@ class DocumentSyncService:
             # vector outbox are committed or rolled back together in this UoW.
             await uow.documents.set_acl(doc_id, visibility, owner_id, group_id)
 
-            if versioning_plan is not None and versioning_plan.warning is None:
+            if versioning_plan is not None:
                 if act_versioning_service is None or profile is None:
                     msg = "Versioning plan exists without an act versioning service"
                     raise RuntimeError(msg)
 
-                act_version = await act_versioning_service.create_version_in_uow(
-                    uow,
-                    profile,
-                    doc_id,
-                    versioning_plan.extracted_refs,
-                    effective_date=versioning_plan.effective_from,
-                    date_confidence=versioning_plan.date_confidence,
-                )
-                versioning = VersioningResult(
-                    versioning_plan.domain_metadata,
-                    act_version.id,
-                    act_version.act_id,
-                    act_version.effective_from,
-                    None,
-                    effective_to=act_version.effective_to,
-                    is_current=act_version.is_current,
+                versioning = await act_versioning_service.apply_versioning_plan(
+                    uow, profile, doc_id, versioning_plan
                 )
 
             enrich_chunks_metadata(
@@ -319,7 +302,7 @@ class DocumentSyncService:
                 raise ValidationError(msg)
 
     async def prepare_versioning(
-        self, fname: str, doc_id: int, chunk_domain: str, full_text: str
+        self, fname: str, chunk_domain: str, full_text: str
     ) -> tuple[VersioningResult, VersioningPlan | None, DomainProfile | None]:
         versioning = VersioningResult(
             domain_metadata=None,
@@ -333,22 +316,15 @@ class DocumentSyncService:
         act_versioning_service = self._act_versioning_service
 
         if act_versioning_service is not None and profile is not None:
-            prepare = getattr(act_versioning_service, "prepare_document_versioning", None)
+            versioning_plan = await act_versioning_service.prepare_document_versioning(profile, full_text)
 
-            if prepare is not None:
-                versioning_plan = await prepare(profile, full_text)
-
-                if versioning_plan is not None:
-                    versioning = VersioningResult(
-                        versioning_plan.domain_metadata,
-                        None,
-                        None,
-                        versioning_plan.effective_from,
-                        versioning_plan.warning,
-                    )
-            else:
-                versioning = await act_versioning_service.process_document_versioning(
-                    profile, doc_id, full_text
+            if versioning_plan is not None:
+                versioning = VersioningResult(
+                    versioning_plan.domain_metadata,
+                    None,
+                    None,
+                    versioning_plan.effective_from,
+                    versioning_plan.warning,
                 )
 
             if versioning.warning:

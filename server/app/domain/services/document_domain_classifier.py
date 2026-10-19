@@ -27,7 +27,7 @@ _MARKERS = [
 ]
 
 
-def classify_document_domain(text: str, threshold: float = 1.0) -> str:
+def classify_document_domain(text: str, threshold: float) -> str:
     """Classify document domain by density of legal markers per 1000 chars.
 
     .. deprecated:: Use ``DomainProfileRegistry.classify()`` instead.

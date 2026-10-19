@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass
-from functools import partial
 import logging
 from typing import Protocol
 
@@ -29,7 +28,6 @@ from infrastructure.ml.config.client_switch import (
 from infrastructure.ml.config.endpoint_policy import validate_endpoints, validate_pools
 from domain.exceptions import ValidationError
 from infrastructure.storage.file_storage import LazyStorage, finish_owned_task
-from infrastructure.bm25.persistence import BM25LoadError, load_configured_bm25_snapshot
 
 from infrastructure.ml.rag.benchmark_evidence import (
     BenchmarkEvidence,
@@ -131,7 +129,7 @@ class RagBenchmarkGenerator:
 class StandaloneBenchmarkGenerator:
     def __init__(self, top_k: int, fetch_k: int | None, ctx: ChatContext) -> None:
         self._storage = LazyStorage()
-        self._clients = MLClientRegistry(bm25_loader=partial(load_configured_bm25_snapshot, self._storage))
+        self._clients = MLClientRegistry()
         self._ml_settings = settings.model_copy()
         self._ml_refresh_lock = asyncio.Lock()
         self._top_k = top_k
@@ -176,11 +174,6 @@ class StandaloneBenchmarkGenerator:
             settings.llm_model, settings.ollama_base_url, provider=settings.llm_provider
         )
         try:
-            try:
-                snapshot = await self._clients.ensure_bm25_loaded()
-            except BM25LoadError:
-                log.warning("BM25 snapshot unavailable; using dense search", exc_info=True)
-                snapshot = None
             docs = await run_owned_sync(
                 retrieval.retrieve_with_scores_hybrid,
                 question["question"],
@@ -191,7 +184,6 @@ class StandaloneBenchmarkGenerator:
                 user_id=ctx.user_id,
                 user_group_ids=ctx.user_group_ids,
                 ml_clients=self._clients,
-                bm25_index=snapshot,
             )
             context, selected = format_docs_with_selection(docs, max_context_tokens=4000)
             answer, response = await run_owned_sync(

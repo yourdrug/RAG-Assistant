@@ -17,6 +17,7 @@ from domain.services.act_version_policy import (
     extract_act_number,
     same_document_scope,
 )
+from domain.value_objects.visibility import DocumentVisibility
 
 
 if TYPE_CHECKING:
@@ -72,7 +73,7 @@ class ActVersionCommands:
         act_type: str,
         act_number: str,
         extracted_refs: list[ReferenceMatch],
-        visibility_scope: str = "internal_public",
+        visibility_scope: str = DocumentVisibility.INTERNAL_PUBLIC.value,
     ) -> RegulatoryAct:
         """READ→CHECK→WRITE inside the caller's transaction.
 
@@ -177,7 +178,11 @@ class ActVersionCommands:
 
         if act_number:
             document = await uow.documents.get_by_id(document_id)
-            scope = document_scope_key(document) if document is not None else "internal_public"
+            scope = (
+                document_scope_key(document)
+                if document is not None
+                else DocumentVisibility.INTERNAL_PUBLIC.value
+            )
             act = await self.find_or_create_act_in_uow(uow, profile.key, act_number, extracted_refs, scope)
 
         if act is not None and act.id is not None:

@@ -23,11 +23,11 @@ _CHANNEL = "bm25:invalidate"
 _POLL_TIMEOUT_SEC = 5.0
 
 
-async def publish_bm25_invalidation() -> None:
+async def publish_bm25_invalidation(*, raise_on_error: bool = False) -> None:
     """Notify other processes that the BM25 index was rebuilt/persisted.
 
-    Best-effort: a lost message only delays the reload until the next save
-    or the daily rebuild — never corrupts state.
+    By default failures are logged. Durable outbox callers request propagation
+    so a failed publication is retried.
     """
     try:
         r = redis_client.async_redis
@@ -35,6 +35,8 @@ async def publish_bm25_invalidation() -> None:
         log.info("BM25 invalidation published (%d subscribers)", receivers)
     except Exception:
         log.warning("Failed to publish BM25 invalidation", exc_info=True)
+        if raise_on_error:
+            raise
 
 
 async def listen_for_bm25_invalidation(ml_clients) -> None:

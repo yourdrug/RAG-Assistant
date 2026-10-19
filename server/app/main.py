@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import logging.config
 from collections.abc import AsyncGenerator
@@ -90,7 +89,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     logging.config.dictConfig(logging_config)
 
     container = None
-    bm25_listener_task = None
     try:
         attach_log_buffer()
         await redis_client.init()
@@ -124,14 +122,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
 
         # Ensure Qdrant collection exists
         if container.infrastructure.ml.vector_store_repo is not None:
-            try:
-                await container.infrastructure.ml.vector_store_repo.ensure_collection(
-                    vector_size=settings.embed_dim,
-                    reset=False,
-                )
-                logger.info("Qdrant collection ensured (dim=%d)", settings.embed_dim)
-            except Exception as e:
-                logger.warning("Failed to ensure Qdrant collection: %s", e)
+            await container.infrastructure.ml.vector_store_repo.ensure_collection(
+                vector_size=settings.embed_dim,
+                reset=False,
+            )
+            logger.info("Qdrant collection ensured (dim=%d)", settings.embed_dim)
 
         await scheduler.startup(
             uow_factory=container.infrastructure.db.uow_factory,
@@ -141,19 +136,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
         )
         await collect_infra_metrics(ml_clients=container.infrastructure.ml.ml_clients)
 
-        # reload the in-memory BM25 index after the worker rebuilds/persists it
-        from infrastructure.bm25.bm25_invalidation import listen_for_bm25_invalidation
-
-        bm25_listener_task = asyncio.create_task(
-            listen_for_bm25_invalidation(container.infrastructure.ml.ml_clients),
-            name="bm25-invalidation-listener",
-        )
-
         yield
     finally:
-        if bm25_listener_task is not None:
-            bm25_listener_task.cancel()
-            await asyncio.gather(bm25_listener_task, return_exceptions=True)
         await _shutdown(container, scheduler, database, redis_client)
         app.state.container = None
 

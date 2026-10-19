@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, ParamSpec, TypeVar
 
@@ -13,8 +14,7 @@ from application.ingestion import FileMeta, SplitContext
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from application.documents.processing_context import ProcessingContext
-    from application.documents.processing_ports import (
+    from application.documents.ports.processing import (
         ContentExtractorPort,
         MetricsCollectorPort,
         PDFQualityAssessorPort,
@@ -22,10 +22,18 @@ if TYPE_CHECKING:
     )
     from application.ingestion import DocumentParserPort, DocumentSplitterPort
     from domain.entities.raw_document import RawDocument
+    from domain.value_objects.pdf_quality_report import PDFQualityReport
 
 
 T = TypeVar("T")
 P = ParamSpec("P")
+
+
+@dataclass(frozen=True)
+class ParsedDocumentContent:
+    documents: list[RawDocument]
+    quality: PDFQualityReport | None
+    warning: str | None
 
 
 class DocumentContentProcessor:
@@ -53,33 +61,24 @@ class DocumentContentProcessor:
         async with self._blocking_semaphore:
             return await asyncio.to_thread(function, *args, **kwargs)
 
-    async def parse(self, ctx: ProcessingContext) -> None:
-        # Extract text and assess quality before classification or replacement.
+    async def parse(self, path: Path, filename: str, document_id: int) -> ParsedDocumentContent:
+        documents = await self.offload(self.parse_file, path, filename)
 
-        if ctx.temp_path is None:
-            msg = "Document content requires a downloaded temporary file"
-            raise RuntimeError(msg)
-
-        ctx.docs = await self.offload(self.parse_file, ctx.temp_path, ctx.original_filename)
-
-        if not ctx.docs:
+        if not documents:
             msg = "Текст не извлечён — документ похож на скан, и OCR не смог распознать содержимое."
             raise RuntimeError(msg)
 
         outcome = await self.offload(
             assess_document_quality,
-            ctx.temp_path,
-            ctx.original_filename,
-            ctx.document_id,
-            ctx.docs,
+            path,
+            filename,
+            document_id,
+            documents,
             pdf_assessor=self._pdf_assessor,
             text_quality_assessor=self._text_assessor,
             metrics=self._metrics,
         )
-        ctx.quality = outcome.report
-
-        if outcome.warning:
-            ctx.warnings.append(outcome.warning)
+        return ParsedDocumentContent(documents, outcome.report, outcome.warning)
 
     def parse_file(self, path: Path, filename: str) -> list[RawDocument]:
         meta = FileMeta(
@@ -90,17 +89,8 @@ class DocumentContentProcessor:
         )
         return self._parser.parse(path, meta)
 
-    async def split(self, ctx: ProcessingContext) -> list[RawDocument]:
-        # Attach source/date metadata and delegate final chunk construction.
-
-        if ctx.doc_domain is None:
-            msg = f"domain classification produced no domain for doc {ctx.document_id}"
-            raise RuntimeError(msg)
-
-        ctx.raw_chunks = await self.offload(
-            self.attach_metadata_and_split, ctx.docs, ctx.original_filename, ctx.doc_domain
-        )
-        return ctx.raw_chunks
+    async def split(self, documents: list[RawDocument], filename: str, domain: str) -> list[RawDocument]:
+        return await self.offload(self.attach_metadata_and_split, documents, filename, domain)
 
     def attach_metadata_and_split(
         self, docs: list[RawDocument], filename: str, domain: str

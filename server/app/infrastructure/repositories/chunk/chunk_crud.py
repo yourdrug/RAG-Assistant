@@ -115,6 +115,7 @@ class SQLAlchemyChunkCrudRepository:
         self,
         chunk_id: int,
         content: str,
+        content_hash: str,
         edited_at: datetime,
         edited_by: int,
     ) -> None:
@@ -124,6 +125,7 @@ class SQLAlchemyChunkCrudRepository:
         if orm is None:
             raise ValueError(f"Chunk {chunk_id} not found")
         orm.content = content
+        orm.content_hash = content_hash
         orm.edited_at = edited_at
         orm.edited_by = edited_by
         await self._session.flush()

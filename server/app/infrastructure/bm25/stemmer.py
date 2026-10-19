@@ -16,6 +16,7 @@ _RU_SUFFIXES = [
     "ение",
     "ания",
     "ями",
+    "ами",
     "ого",
     "ать",
     "ить",
@@ -41,9 +42,6 @@ _RU_SUFFIXES = [
     "ем",
     "ах",
     "ях",
-    "ки",
-    "ка",
-    "ик",
     "ов",
     "ев",
     "ые",
@@ -73,6 +71,7 @@ def _stem_russian(word: str) -> str:
 
 def stem_token(token: str) -> str:
     """Apply stemming to a single token."""
+    token = token.replace("ё", "е")
     if token.isascii():
         for suffix in [
             "tion",

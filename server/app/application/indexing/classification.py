@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING
 
 from application.indexing.dto import DomainClassification
+from domain.value_objects.doc_domain import DocDomain
 
 
 if TYPE_CHECKING:
+    from application.indexing.ports.classification import LegacyClassifier
     from domain.domain_profile.registry import DomainProfileRegistry
     from domain.domain_profile.settings_port import DomainSettingsPort
 
@@ -16,22 +18,18 @@ log = logging.getLogger("default")
 MIN_CLASSIFICATION_CONFIDENCE = 0.5
 
 
-class LegacyClassifier(Protocol):
-    def __call__(self, text: str, *, threshold: float) -> str: ...
-
-
 def classify_document_text(
     text: str,
     *,
     domain_registry: DomainProfileRegistry | None = None,
     domain_settings: DomainSettingsPort | None = None,
-    fallback_threshold: float = 2.0,
+    fallback_threshold: float,
     legacy_classifier: LegacyClassifier | None = None,
 ) -> DomainClassification:
     if domain_registry is None or domain_settings is None:
         if legacy_classifier is None:
             log.warning("DomainRegistry unavailable -- no fallback classifier provided")
-            return DomainClassification(domain_key="general")
+            return DomainClassification(domain_key=DocDomain.GENERAL.value)
 
         log.warning("DomainRegistry unavailable -- falling back to legacy classifier")
         return DomainClassification(domain_key=legacy_classifier(text, threshold=fallback_threshold))

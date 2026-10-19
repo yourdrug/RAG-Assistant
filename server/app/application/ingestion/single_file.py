@@ -15,7 +15,6 @@ if TYPE_CHECKING:
     from application.ingestion.loader import S3DocumentLoader
     from application.ingestion.registry import IngestionRegistry
     from application.ingestion.scope import IngestionScope
-    from application.ingestion.sparse_index import SparseIndexBuilder
     from application.ingestion.sync import DocumentSyncService
     from application.ports.file_storage import FileStorage
     from domain.entities.raw_document import RawDocument
@@ -32,13 +31,11 @@ class SingleFileIngestionWorkflow:
         loader: S3DocumentLoader,
         registry: IngestionRegistry,
         sync: DocumentSyncService,
-        sparse_index: SparseIndexBuilder | None = None,
     ) -> None:
         self._file_storage = file_storage
         self._loader = loader
         self._registry = registry
         self._sync = sync
-        self._sparse_index = sparse_index
 
     async def run(self, file_path: str, *, scope: IngestionScope) -> None:
         started_at = time.monotonic()
@@ -115,9 +112,6 @@ class SingleFileIngestionWorkflow:
             group_id=scope.group_id,
             client_id=scope.client_id,
         )
-
-        if self._sparse_index is not None:
-            await self._sparse_index.update(chunks, reset=False)
 
         # Record success only after sparse persistence, so failures remain retryable.
         await self._registry.upsert(file_info.filename, file_hash, source, len(chunks), chars=total_chars)

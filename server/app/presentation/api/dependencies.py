@@ -23,7 +23,8 @@ if TYPE_CHECKING:
     )
     from application.chat import ChatLogService
     from application.chat import ChatService
-    from application.chunks import ChunkService
+    from application.chunks import ChunkMutationService, ChunkQueryService
+    from application.documents import ManualDocumentService
     from application.admin import ConfigAdminService, ConfigService
     from application.chat import ConversationService
     from application.identity import AssignmentService
@@ -107,9 +108,20 @@ def create_document_query_service(request: Request) -> DocumentQueryService:
     )
 
 
-def create_chunk_service(request: Request) -> ChunkService:
-    return _get_or_raise(_create_container(request).application.chunk_service, "ChunkService")
+def create_chunk_query_service(request: Request) -> ChunkQueryService:
+    return _get_or_raise(_create_container(request).application.chunk_query_service, "ChunkQueryService")
 
+
+def create_chunk_mutation_service(request: Request) -> ChunkMutationService:
+    return _get_or_raise(
+        _create_container(request).application.chunk_mutation_service, "ChunkMutationService",
+    )
+
+
+def create_manual_document_service(request: Request) -> ManualDocumentService:
+    return _get_or_raise(
+        _create_container(request).application.manual_document_service, "ManualDocumentService",
+    )
 
 def create_ingest_service(request: Request) -> IngestionService:
     return _get_or_raise(_create_container(request).application.ingestion_service, "IngestionService")

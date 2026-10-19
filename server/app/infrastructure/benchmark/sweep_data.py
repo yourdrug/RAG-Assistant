@@ -2,10 +2,6 @@
 
 from __future__ import annotations
 
-from functools import partial
-from infrastructure.storage.file_storage import LazyStorage
-from infrastructure.bm25.persistence import load_configured_bm25_snapshot
-
 
 from application.uow.factory import UnitOfWorkFactory
 from domain.services.access_control import get_visibility_conditions
@@ -30,27 +26,21 @@ class SweepDataSource:
         access_filter = build_qdrant_filter(
             user={"id": 0, "kind": UserKind.INTERNAL, "role": UserRole.ADMIN}, group_ids=[]
         )
-        storage = LazyStorage() if self._ml_clients is None else None
-        try:
-            return await cache_candidates(
-                questions,
-                max_fetch_k,
-                ml_clients=self._ml_clients,
-                bm25_loader=partial(load_configured_bm25_snapshot, storage) if storage is not None else None,
-                access_filter=access_filter,
-                visibility_conditions=get_visibility_conditions(
-                    user_kind=UserKind.INTERNAL,
-                    user_id=0,
-                    group_ids=[],
-                    for_list=False,
-                    user_role=UserRole.ADMIN,
-                ),
+        return await cache_candidates(
+            questions,
+            max_fetch_k,
+            ml_clients=self._ml_clients,
+            access_filter=access_filter,
+            visibility_conditions=get_visibility_conditions(
+                user_kind=UserKind.INTERNAL,
                 user_id=0,
-                user_group_ids=[],
-            )
-        finally:
-            if storage is not None:
-                await storage.aclose()
+                group_ids=[],
+                for_list=False,
+                user_role=UserRole.ADMIN,
+            ),
+            user_id=0,
+            user_group_ids=[],
+        )
 
     async def cache_reranker_scores(
         self,

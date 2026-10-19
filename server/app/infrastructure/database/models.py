@@ -26,7 +26,13 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from domain.value_objects.document_status import DOCUMENT_SLOT_STATUSES
+from domain.entities.vector_outbox_entry import OutboxStatus
+from domain.value_objects.job_status import BackgroundJobStatus
+from domain.value_objects.visibility import DocumentVisibility
+from domain.value_objects.source_type import SourceType
+from domain.value_objects.doc_domain import DocDomain
+from domain.value_objects.roles import UserRole, UserKind
+from domain.value_objects.document_status import DOCUMENT_SLOT_STATUSES, DocumentStatus
 from domain.value_objects.sweep_status import BenchmarkSweepStatus
 from domain.value_objects.sweep_evaluation_mode import SweepEvaluationMode
 from domain.value_objects.benchmark_strategy import BenchmarkStrategy
@@ -48,8 +54,8 @@ class UserModel(BaseModel):
 
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
-    role: Mapped[str] = mapped_column(String(16), nullable=False, default="user")
-    kind: Mapped[str] = mapped_column(String(16), nullable=False, default="internal")
+    role: Mapped[str] = mapped_column(String(16), nullable=False, default=UserRole.USER.value)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False, default=UserKind.INTERNAL.value)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     groups = relationship("GroupModel", secondary="user_groups", back_populates="members")
@@ -153,9 +159,9 @@ class DocumentModel(BaseModel):
     visibility: Mapped[str] = mapped_column(String(20), nullable=False)
     owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     group_id: Mapped[int | None] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"))
-    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
-    doc_domain: Mapped[str] = mapped_column(String(32), nullable=False, default="general")
-    source_type: Mapped[str] = mapped_column(String(16), nullable=False, server_default="file")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default=DocumentStatus.PENDING.value)
+    doc_domain: Mapped[str] = mapped_column(String(32), nullable=False, default=DocDomain.GENERAL.value)
+    source_type: Mapped[str] = mapped_column(String(16), nullable=False, server_default=SourceType.FILE.value)
     has_manual_edits: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     version_group_id: Mapped[int | None] = mapped_column(
         ForeignKey("documents.id", ondelete="SET NULL"),
@@ -231,7 +237,7 @@ class BackgroundJobModel(BaseModel):
     )
 
     job_type: Mapped[str] = mapped_column(String(50), nullable=False)
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default=BackgroundJobStatus.PENDING.value)
     related_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     request_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -262,7 +268,7 @@ class RegulatoryActModel(BaseModel):
     issuing_authority: Mapped[str | None] = mapped_column(String(255), nullable=True)
     act_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     visibility_scope: Mapped[str] = mapped_column(
-        String(100), nullable=False, server_default="internal_public"
+        String(100), nullable=False, server_default=DocumentVisibility.INTERNAL_PUBLIC.value
     )
 
 
@@ -322,7 +328,7 @@ class ChunkModel(BaseModel):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     filename: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     visibility: Mapped[str] = mapped_column(String(20), nullable=False)
-    doc_domain: Mapped[str] = mapped_column(String(32), nullable=False, default="general")
+    doc_domain: Mapped[str] = mapped_column(String(32), nullable=False, default=DocDomain.GENERAL.value)
     owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     group_id: Mapped[int | None] = mapped_column(ForeignKey("groups.id", ondelete="SET NULL"))
     edited_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -427,7 +433,9 @@ class BenchmarkSweepModel(BaseModel):
         ),
     )
 
-    status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="pending")
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default=BenchmarkSweepStatus.PENDING.value
+    )
     strategy: Mapped[str] = mapped_column(String(50), nullable=False)
     search_space: Mapped[dict] = mapped_column(JSON, nullable=False)
     objective_weights: Mapped[dict] = mapped_column(JSON, nullable=False)
@@ -504,7 +512,7 @@ class VectorStoreOutboxModel(BaseModel):
     aggregate_type: Mapped[str] = mapped_column(String(20), nullable=False, default="document")
     aggregate_id: Mapped[int] = mapped_column(Integer, nullable=False)
     payload: Mapped[dict] = mapped_column(JSON, nullable=False)
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default=OutboxStatus.PENDING.value)
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=8)
     next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

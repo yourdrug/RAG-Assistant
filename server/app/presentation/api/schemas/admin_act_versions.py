@@ -6,6 +6,8 @@ from datetime import date
 
 from pydantic import BaseModel, ConfigDict
 
+from domain.value_objects.visibility import DocumentVisibility
+
 
 class ActVersionReviewItem(BaseModel):
     id: int
@@ -27,7 +29,7 @@ class ActSummary(BaseModel):
     act_number: str | None
     title: str
     act_date: date | None = None
-    visibility_scope: str = "internal_public"
+    visibility_scope: str = DocumentVisibility.INTERNAL_PUBLIC.value
 
 
 class ActVersionListResponse(BaseModel):

@@ -22,6 +22,8 @@ from qdrant_client.models import (
     PayloadSchemaType,
     PointStruct,
     VectorParams,
+    Modifier,
+    SparseVectorParams,
 )
 
 from config import settings
@@ -29,6 +31,8 @@ from infrastructure.corpus.snapshot import collection_for
 from domain.utils import content_hash
 from infrastructure.ml.clients.factories import create_qdrant_client
 from infrastructure.repositories.vector.embedding_identity import ensure_embedding_identity
+
+from infrastructure.repositories.vector.sparse_vectors import SPARSE_VECTOR_NAME, point_vectors
 
 log = logging.getLogger("default")
 
@@ -93,6 +97,10 @@ def ensure_collection(client, vector_size: int, reset: bool = False) -> None:
                 f"but the current embedding model requires {vector_size}. "
                 f"To migrate: create a new collection with the correct dimension and re-ingest documents."
             )
+        sparse = info.config.params.sparse_vectors or {}
+        if SPARSE_VECTOR_NAME not in sparse or sparse[SPARSE_VECTOR_NAME].modifier != Modifier.IDF:
+            msg = "Collection has no compatible BM25 sparse index; recreate it and re-ingest"
+            raise ValueError(msg)
         if reset:
             log.info(
                 "Smart reset: deleting CLI-ingested points (owner_id=None) from collection '%s' ...",
@@ -116,6 +124,7 @@ def ensure_collection(client, vector_size: int, reset: bool = False) -> None:
         client.create_collection(
             collection_name=collection_for(client),
             vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
+            sparse_vectors_config={SPARSE_VECTOR_NAME: SparseVectorParams(modifier=Modifier.IDF)},
         )
     except Exception as e:
         if "already exists" in str(e):
@@ -174,6 +183,18 @@ def _tag_embedding_model(chunks, identity):
     for doc in chunks:
         doc.metadata["embedding_model"] = identity
     return chunks
+
+
+def build_points(chunks: list[Document], vectors: list[list[float]]) -> list[PointStruct]:
+    """Encode sparse vectors off the event loop alongside the supplied dense vectors."""
+    return [
+        PointStruct(
+            id=doc.metadata["chunk_id"],
+            vector=point_vectors(doc.page_content, vector),
+            payload={"page_content": doc.page_content, "metadata": doc.metadata},
+        )
+        for doc, vector in zip(chunks, vectors, strict=True)
+    ]
 
 
 async def upload_to_qdrant(
@@ -260,18 +281,7 @@ async def upload_document_batches(
 
         _validate_embedding_batch(batch_vectors, len(batch_chunks_slice), settings.embed_dim)
 
-        for doc, vector in zip(batch_chunks_slice, batch_vectors, strict=True):
-            point_id = doc.metadata["chunk_id"]
-            pending_points.append(
-                PointStruct(
-                    id=point_id,
-                    vector=vector,
-                    payload={
-                        "page_content": doc.page_content,
-                        "metadata": doc.metadata,
-                    },
-                )
-            )
+        pending_points.extend(await asyncio.to_thread(build_points, batch_chunks_slice, batch_vectors))
 
         # Flush to Qdrant when we have enough for a qdrant_batch or at the end
         while len(pending_points) >= qdrant_batch:

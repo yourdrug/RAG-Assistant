@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from domain.value_objects.visibility import DocumentVisibility
 from infrastructure.worker.queue import (
     enqueue_benchmark as _enqueue_benchmark,
     enqueue_document_deletion,
@@ -52,7 +53,7 @@ class JobEnqueuerAdapter:
         reset: bool,
         domain: str,
         job_id: int,
-        visibility: str = "internal_public",
+        visibility: str = DocumentVisibility.INTERNAL_PUBLIC.value,
         group_id: int | None = None,
         client_id: int | None = None,
     ) -> None:
@@ -72,7 +73,7 @@ class JobEnqueuerAdapter:
         resolved: str,
         domain: str,
         job_id: int,
-        visibility: str = "internal_public",
+        visibility: str = DocumentVisibility.INTERNAL_PUBLIC.value,
         group_id: int | None = None,
         client_id: int | None = None,
     ) -> None:

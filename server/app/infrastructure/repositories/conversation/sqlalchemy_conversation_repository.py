@@ -159,7 +159,7 @@ class SQLAlchemyConversationRepository:
                 MessageModel.conversation_id,
                 func.min(MessageModel.id).label("min_id"),
             )
-            .where(MessageModel.role == "user")
+            .where(MessageModel.role == MessageRole.USER.value)
             .group_by(MessageModel.conversation_id)
             .subquery()
         )

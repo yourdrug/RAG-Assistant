@@ -58,6 +58,7 @@ class TestResolveViolation:
             _policies(),
             key_prefix=_KEY_PREFIX,
             max_buckets=10,
+            fail_open=True,
         )
 
         # Exhaust LOGIN limit (2/min)
@@ -91,6 +92,7 @@ class TestResolveViolation:
             chat_policy,
             key_prefix=_KEY_PREFIX,
             max_buckets=10,
+            fail_open=True,
         )
 
         # 11 requests in <1 minute → exceeds the MINUTE window (10/min)
@@ -114,6 +116,7 @@ class TestResolveViolation:
             _policies(),
             key_prefix=_KEY_PREFIX,
             max_buckets=10,
+            fail_open=True,
         )
 
         # Exhaust LOGIN limit
@@ -140,6 +143,7 @@ class TestPyrateRateLimiter:
             _policies(),
             key_prefix=_KEY_PREFIX,
             max_buckets=10,
+            fail_open=True,
         )
         principal = "ip:10.0.0.1"
 
@@ -161,6 +165,7 @@ class TestPyrateRateLimiter:
             _policies(),
             key_prefix=_KEY_PREFIX,
             max_buckets=10,
+            fail_open=True,
         )
 
         assert (await limiter.check(RateLimitPolicyName.LOGIN, "ip:1")).allowed is True
@@ -177,7 +182,9 @@ class TestPyrateRateLimiter:
     @pytest.mark.asyncio
     async def test_sets_key_ttl_for_widest_window(self):
         redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-        limiter = PyrateRateLimiter(redis, _policies(), key_prefix=_KEY_PREFIX, max_buckets=10)
+        limiter = PyrateRateLimiter(
+            redis, _policies(), key_prefix=_KEY_PREFIX, max_buckets=10, fail_open=True
+        )
 
         await limiter.check(RateLimitPolicyName.LOGIN, "ip:1")
 
@@ -193,6 +200,7 @@ class TestPyrateRateLimiter:
             _policies(),
             key_prefix=_KEY_PREFIX,
             max_buckets=10,
+            fail_open=True,
         )
 
         with pytest.raises(ValueError, match="Unknown rate limit policy"):
@@ -237,11 +245,13 @@ class TestPyrateRateLimiter:
 
     def test_empty_policies_rejected(self):
         with pytest.raises(ValueError, match="policies must not be empty"):
-            PyrateRateLimiter(_BrokenRedis(), {}, key_prefix=_KEY_PREFIX, max_buckets=10)
+            PyrateRateLimiter(_BrokenRedis(), {}, key_prefix=_KEY_PREFIX, max_buckets=10, fail_open=True)
 
     def test_invalid_max_buckets_rejected(self):
         with pytest.raises(ValueError, match="max_buckets"):
-            PyrateRateLimiter(_BrokenRedis(), _policies(), key_prefix=_KEY_PREFIX, max_buckets=0)
+            PyrateRateLimiter(
+                _BrokenRedis(), _policies(), key_prefix=_KEY_PREFIX, max_buckets=0, fail_open=True
+            )
 
 
 class _ExpireFailRedis:
@@ -294,6 +304,7 @@ class TestRefreshTtlException:
             _policies(),
             key_prefix=_KEY_PREFIX,
             max_buckets=10,
+            fail_open=True,
         )
 
         # First request: bucket created, try_acquire succeeds, _refresh_ttl fails
@@ -370,6 +381,7 @@ class TestResolveViolationException:
             _policies(),
             key_prefix=_KEY_PREFIX,
             max_buckets=10,
+            fail_open=True,
         )
 
         # Corrupt buckets to force an exception in _resolve_violation's try block

@@ -29,6 +29,7 @@ class TrackingFactory(FakeUnitOfWorkFactory):
         super().__init__()
         self.events = []
         self.active = False
+        self.commit = MagicMock()
 
     @asynccontextmanager
     async def create(self, master=False):
@@ -37,6 +38,7 @@ class TrackingFactory(FakeUnitOfWorkFactory):
         try:
             async with super().create(master=master) as uow:
                 yield uow
+                self.commit()
         except BaseException:
             self.events.append("rollback")
             raise
@@ -71,7 +73,7 @@ def harness(*, versioned=False):
     context_factory = UserContextFactory()
     command = DocumentCommandService(
         DocumentUploadCommand(factory, storage, context_factory, registry),
-        DocumentDeleteCommand(factory, storage, bm25, context_factory),
+        DocumentDeleteCommand(factory, storage, context_factory),
         DocumentRenameCommand(factory, storage, context_factory),
     )
     return SimpleNamespace(command=command, factory=factory, uow=factory._uow, storage=storage, bm25=bm25)
@@ -233,23 +235,8 @@ async def test_rename_updates_chunks_and_exact_outbox_metadata_before_commit():
     assert dto.source_path == f"uploads/users/1/{doc.id}_new.pdf"
     assert h.uow.chunks._chunks[0]["filename"] == "new.pdf"
     entry = next(iter(h.uow.vector_outbox._entries.values()))
-    assert entry.payload == {
-        "points": [
-            {
-                "chunk_id": 1,
-                "page_content": "text",
-                "metadata": {
-                    "document_id": doc.id,
-                    "visibility": "internal_private",
-                    "owner_id": 1,
-                    "group_id": None,
-                    "source": "new.pdf",
-                    "doc_domain": "legal",
-                    "content_hash": "hash",
-                },
-            }
-        ]
-    }
+    assert entry.operation == "rename_document"
+    assert entry.payload == {"document_id": doc.id, "filename": "new.pdf"}
     assert h.factory.events == [("begin", True), "copy", "commit", "storage_delete"]
 
 
@@ -270,7 +257,7 @@ async def test_delete_db_failure_rolls_back_outbox_and_summaries_without_deletin
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("db_fails", [False, True])
-async def test_delete_removes_bm25_before_commit_and_storage_after_commit(db_fails):
+async def test_delete_defers_bm25_to_outbox_and_storage_until_commit(db_fails):
     h = harness()
     doc = await seed(h)
     await h.uow.chunks.bulk_insert(
@@ -284,19 +271,55 @@ async def test_delete_removes_bm25_before_commit_and_storage_after_commit(db_fai
         content_hashes=["hash"],
     )
 
-    def remove(content_hash):
-        assert h.factory.active
-        assert content_hash == "hash"
-        h.factory.events.append("bm25_remove")
-
-    h.bm25.remove.side_effect = remove
+    h.uow.chunks.list_for_document = AsyncMock(wraps=h.uow.chunks.list_for_document)
     if db_fails:
         h.uow.documents.delete = AsyncMock(side_effect=RuntimeError("DB failure"))
         with pytest.raises(RuntimeError, match="DB failure"):
             await h.command.delete_document(doc.id, 1, UserRole.USER)
-        assert h.factory.events == [("begin", True), "bm25_remove", "rollback"]
+        assert h.factory.events == [("begin", True), "rollback"]
         h.storage.delete_file.assert_not_awaited()
     else:
         await h.command.delete_document(doc.id, 1, UserRole.USER)
-        assert h.factory.events == [("begin", True), "bm25_remove", "commit", "storage_delete"]
+        assert h.factory.events == [("begin", True), "commit", "storage_delete"]
         h.storage.delete_file.assert_awaited_once_with("old-key")
+
+    h.bm25.remove.assert_not_awaited()
+    h.uow.chunks.list_for_document.assert_not_awaited()
+    if db_fails:
+        assert h.uow.vector_outbox._entries == {}
+    else:
+        entry = next(iter(h.uow.vector_outbox._entries.values()))
+        assert entry.operation == "delete_by_document"
+        assert entry.payload == {"document_id": doc.id}
+
+
+@pytest.mark.asyncio
+async def test_rename_enqueues_one_payload_patch_for_large_document():
+    h = harness()
+    doc = await seed(h)
+    count = 10001
+    await h.uow.chunks.bulk_insert(
+        document_id=doc.id,
+        filename=doc.filename,
+        visibility=DocumentVisibility.INTERNAL_PRIVATE.value,
+        owner_id=1,
+        chunks=[f"text {i}" for i in range(count)],
+    )
+    await h.command.rename_document(doc.id, "new.pdf", 1, UserRole.USER)
+    entries = list(h.uow.vector_outbox._entries.values())
+    assert len(entries) == 1
+    assert entries[0].operation == "rename_document"
+    assert entries[0].payload == {"document_id": doc.id, "filename": "new.pdf"}
+
+
+@pytest.mark.asyncio
+async def test_delete_commit_failure_preserves_document_and_sparse_index():
+    h = harness()
+    doc = await seed(h)
+    h.factory.commit.side_effect = RuntimeError("commit failed")
+    with pytest.raises(RuntimeError, match="commit failed"):
+        await h.command.delete_document(doc.id, 1, UserRole.USER)
+    assert await h.uow.documents.get_by_id(doc.id) is not None
+    assert h.uow.vector_outbox._entries == {}
+    h.bm25.remove.assert_not_awaited()
+    h.storage.delete_file.assert_not_awaited()

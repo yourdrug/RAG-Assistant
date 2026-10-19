@@ -1,6 +1,6 @@
 """Interpretation context survives persistence, exact search, neighbors and edits."""
 
-from datetime import date
+from datetime import UTC, date, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -8,6 +8,8 @@ import pytest
 from langchain.schema import Document
 
 from application.indexing import process_chunks
+from domain.utils import content_hash
+from infrastructure.database.models import ChunkModel
 from domain.entities.raw_document import RawDocument
 from domain.repositories.chunk_repository import ChunkSearchResult
 from domain.value_objects.chunk_context import extract_chunk_context
@@ -210,3 +212,64 @@ async def test_manual_chunk_persists_page_and_section_context():
         "page": 5,
         "section": "Manual additions",
     }
+
+
+@pytest.mark.asyncio
+async def test_edit_persists_content_and_hash_in_one_flush():
+    model = ChunkModel(id=10, document_id=1, content="Old text", content_hash=content_hash("Old text"))
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = model
+    snapshots = []
+
+    async def flush():
+        snapshots.append((model.content, model.content_hash, model.edited_at, model.edited_by))
+
+    session = SimpleNamespace(execute=AsyncMock(return_value=result), flush=AsyncMock(side_effect=flush))
+    repository = SQLAlchemyChunkRepository(session)
+    now = datetime.now(UTC)
+
+    for text in ("First edit", "Second edit"):
+        await repository.update_content(10, text, content_hash(text), now, 12)
+
+    assert snapshots == [(text, content_hash(text), now, 12) for text in ("First edit", "Second edit")]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("versioned", [False, True])
+async def test_rename_preserves_chunk_metadata(versioned):
+    from test_document_commands_characterization import harness, seed
+
+    h = harness()
+    doc = await seed(h)
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    context = make_context()
+    chunk = ChunkSearchResult(
+        chunk_id=10,
+        document_id=doc.id,
+        filename=doc.filename,
+        content="Submit the passport.",
+        chunk_index=3,
+        visibility=DocumentVisibility.INTERNAL_PRIVATE.value,
+        owner_id=1,
+        content_hash="original-hash",
+        manual=True,
+        edited_at=now,
+        edited_by=1,
+        act_version_id=9 if versioned else None,
+        effective_from=date(2025, 1, 1) if versioned else None,
+        effective_to=date(2025, 12, 31) if versioned else None,
+        is_current=not versioned,
+        heading="Applications",
+        heading_level=2,
+        content_type="text",
+        doc_title="Rules",
+        doc_type="decree",
+        context_metadata={**context, "owner_id": 999, "act_version_id": 999, "is_current": True},
+    )
+    h.uow.chunks.list_for_document = AsyncMock(return_value=([chunk], 1))
+    await h.command.rename_document(doc.id, "new.pdf", 1, "user")
+    entry = next(iter(h.uow.vector_outbox._entries.values()))
+    assert entry.operation == "rename_document"
+    assert entry.payload == {"document_id": doc.id, "filename": "new.pdf"}
+    assert chunk.context_metadata == {**context, "owner_id": 999, "act_version_id": 999, "is_current": True}
+    assert chunk.act_version_id == (9 if versioned else None)

@@ -10,9 +10,7 @@ from application.admin.dto import (
     VectorDBCollectionInfo,
     VectorDBInfo,
 )
-from application.admin.log_buffer import LogBufferPort
 from application.admin.metrics import MetricsResult, MetricsService
-from application.admin.metrics_port import MetricsRegistryPort
 from application.admin.ports import (
     ConfigMaskerPort,
     CorpusControlPort,
@@ -20,7 +18,9 @@ from application.admin.ports import (
     ProviderConfigurationPort,
     VectorDBInfoPort,
 )
-from application.admin.settings import ConfigAdminSettingsPort
+from application.admin.ports.log_buffer import LogBufferPort
+from application.admin.ports.metrics import MetricsRegistryPort
+from application.admin.ports.settings import ConfigAdminSettingsPort
 
 
 __all__ = [

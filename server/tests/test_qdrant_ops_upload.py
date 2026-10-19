@@ -12,6 +12,7 @@ The fake client mirrors the real ``QdrantClient.upsert`` signature exactly
 from __future__ import annotations
 
 import asyncio
+import threading
 import sys
 from pathlib import Path
 
@@ -21,7 +22,9 @@ import pytest
 from langchain.schema import Document
 
 from config import settings
+from infrastructure.repositories.vector import qdrant_ops
 from infrastructure.repositories.vector.qdrant_ops import upload_to_qdrant
+from infrastructure.repositories.vector.sparse_vectors import SPARSE_VECTOR_NAME
 
 
 class StrictQdrantClient:
@@ -105,3 +108,24 @@ class TestUploadToQdrantUpsertContract:
         flushed = [p for call in client.upsert_calls for p in call["points"]]
         assert len(flushed) == total
         assert sorted(p.id for p in flushed) == list(range(total))
+
+
+@pytest.mark.asyncio
+async def test_sparse_encoding_runs_off_event_loop(monkeypatch):
+    loop_thread = threading.get_ident()
+    threads = []
+    original = qdrant_ops.build_points
+
+    def encode(*args):
+        threads.append(threading.get_ident())
+        return original(*args)
+
+    monkeypatch.setattr(qdrant_ops, "build_points", encode)
+    client = StrictQdrantClient()
+    await upload_to_qdrant(_chunks(3), FakeEmbeddings(), client=client)
+    assert threads
+    assert all(thread != loop_thread for thread in threads)
+
+    for point in client.upsert_calls[0]["points"]:
+        assert set(point.vector) == {"", SPARSE_VECTOR_NAME}
+        assert point.vector[SPARSE_VECTOR_NAME].indices

@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from application.documents import PreviewCache
-    from application.documents.diagnostic_ports import (
+    from application.documents.ports.diagnostics import (
         PDFDocumentPort,
         PDFOcrPort,
         PDFPageClassifierPort,
@@ -58,7 +58,7 @@ class PDFDiagnosticService:
         pdf_doc: PDFDocumentPort,
         storage: PDFStoragePort,
         *,
-        max_dry_run_bytes: int = 50 * 1024 * 1024,
+        max_dry_run_bytes: int,
         preview_cache: PreviewCache | None = None,
     ) -> None:
         self._classifier = classifier

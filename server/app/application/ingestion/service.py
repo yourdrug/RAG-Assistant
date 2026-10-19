@@ -10,7 +10,7 @@ from application.ingestion.dto import (
     IngestStatusResult,
 )
 from application.ingestion.scope import IngestionScope
-from application.ingestion.targets import S3IngestionTargets
+from domain.value_objects.doc_domain import DomainDetectionMode
 from domain.value_objects.visibility import DocumentVisibility
 
 
@@ -18,12 +18,10 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from application.ingestion.batch import BatchIngestionWorkflow
-    from application.ingestion.dto import (
-        UploadFile,
-    )
+    from application.ingestion.ports.upload import UploadFile
     from application.ingestion.registry import IngestionRegistry
     from application.ingestion.single_file import SingleFileIngestionWorkflow
-    from application.ingestion.targets import S3UploadService
+    from application.ingestion.targets import S3IngestionTargets, S3UploadService
 
 
 class IngestionService:
@@ -48,7 +46,7 @@ class IngestionService:
         docs_dir: str | None = None,
         *,
         reset: bool = False,
-        domain: str = "auto",
+        domain: str = DomainDetectionMode.AUTO.value,
         visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC,
         group_id: int | None = None,
         client_id: int | None = None,
@@ -67,7 +65,7 @@ class IngestionService:
         file_path: str,
         *,
         force: bool = False,
-        domain: str = "auto",
+        domain: str = DomainDetectionMode.AUTO.value,
         visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC,
         group_id: int | None = None,
         client_id: int | None = None,
@@ -117,7 +115,3 @@ class IngestionService:
 
     async def upload_files(self, files: Sequence[UploadFile], prefix: str = "docs/") -> list[str]:
         return await self._uploads.upload_files(files, prefix)
-
-    @staticmethod
-    def validate_s3_key(key: str) -> None:
-        S3IngestionTargets.validate_key(key)

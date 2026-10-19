@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from application.admin.ports import OllamaProbePort, VectorDBInfoPort
-    from application.admin.settings import ConfigAdminSettingsPort
+    from application.admin.ports.settings import ConfigAdminSettingsPort
 
 
 class ConfigAdminService:

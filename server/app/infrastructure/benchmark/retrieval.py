@@ -3,7 +3,6 @@
 import logging
 import httpx
 from infrastructure.budget.transport import PaidSyncTransport, PaidAsyncTransport
-from infrastructure.bm25.bm25_index import BM25Index
 from pathlib import Path
 
 from config import get_setting, settings
@@ -13,8 +12,8 @@ from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
+from infrastructure.ml.rag.rag_retrieval import search_sparse_points
 from application.search import HybridRetriever
-from domain.utils import content_hash
 from domain.services.retrieval_diversity import prioritize_distinct_provisions
 from application.ports.ml_clients import MLClientPort
 from infrastructure.repositories.vector.embedding_identity import ensure_embedding_identity
@@ -54,7 +53,7 @@ def search_dense(
         payload = point.payload or {}
         page_content = payload.get("page_content", "")
         metadata = payload.get("metadata", {})
-        h = metadata.get("content_hash") or content_hash(page_content)
+        h = str(point.id)
         doc = Document(page_content=page_content, metadata=metadata)
         dense_docs.append((doc, point.score))
         dense_by_hash[h] = (point.score, doc)
@@ -69,26 +68,24 @@ def search_sparse(
     user_id: int | None = None,
     user_group_ids: list[int] | None = None,
     *,
-    bm25_index: BM25Index | None,
+    access_filter=None,
+    documents=None,
 ) -> list[tuple[str, float]]:
-    """BM25 sparse search via loaded index.
-
-    When *visibility_conditions* is provided, candidates are pre-filtered
-    by ACL before scoring (defense-in-depth: Qdrant resolve still applies).
-    """
-    if bm25_index is not None:
-        if user_id is None:
-            raise RuntimeError(
-                "search_with_hashes() requires visibility_conditions, user_id and user_group_ids."
-            )
-        return bm25_index.search_with_hashes(
-            question,
-            fetch_k,
-            visibility_conditions=visibility_conditions,
-            user_id=user_id,
-            user_group_ids=user_group_ids or [],
-        )
-    return []
+    """Sparse search with the same mandatory Qdrant scope as dense retrieval."""
+    if visibility_conditions is None or user_id is None or user_group_ids is None:
+        raise RuntimeError("Sparse search requires a complete user context")
+    if not visibility_conditions:
+        return []
+    points = search_sparse_points(ml_clients.qdrant_client(), question, fetch_k, access_filter)
+    results = []
+    for point in points:
+        payload = point.payload or {}
+        doc = Document(page_content=payload.get("page_content", ""), metadata=payload.get("metadata", {}))
+        key = str(point.id)
+        if documents is not None:
+            documents[key] = (point.score, doc)
+        results.append((key, point.score))
+    return results
 
 
 def merge_and_dedup(
@@ -138,8 +135,6 @@ def retrieve_with_scores_hybrid(
     visibility_conditions=None,
     user_id: int | None = None,
     user_group_ids: list[int] | None = None,
-    *,
-    bm25_index: BM25Index | None,
 ) -> list[tuple[Document, float]]:
     """Retrieve using the production hybrid pipeline: dense + BM25 + RRF + reranker.
 
@@ -147,16 +142,26 @@ def retrieve_with_scores_hybrid(
     benchmark retrieval respects document visibility.
     """
     _, dense_by_hash = search_dense(question, fetch_k, ml_clients, access_filter=access_filter)
+    dense_ranks = dict(dense_by_hash)
     sparse_results = search_sparse(
         question,
         fetch_k,
         ml_clients,
-        bm25_index=bm25_index,
+        access_filter=access_filter,
+        documents=dense_by_hash,
         visibility_conditions=visibility_conditions,
         user_id=user_id,
         user_group_ids=user_group_ids,
     )
-    candidate_docs = merge_and_dedup(dense_by_hash, sparse_results, fetch_k)
+    candidate_docs = _retriever.merge_and_dedup(
+        dense_results=[(key, score) for key, (score, _) in dense_ranks.items()],
+        sparse_results=sparse_results,
+        dense_by_hash=dense_by_hash,
+        fetch_k=fetch_k,
+        rrf_k=int(get_setting("rag.rrf_k")),
+        dense_weight=float(get_setting("rag.dense_weight")),
+        sparse_weight=float(get_setting("rag.sparse_weight")),
+    )
 
     if not candidate_docs:
         return []

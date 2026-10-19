@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import NotRequired, TypedDict
 
 
 @dataclass(frozen=True)
@@ -52,8 +51,9 @@ class AddChunkResult:
     warning: str | None = None
 
 
-class ListChunksCursorOptions(TypedDict):
-    limit: NotRequired[int]
-    cursor: NotRequired[str | None]
-    direction: NotRequired[str]
-    content_hashes: NotRequired[list[str] | None]
+@dataclass(frozen=True, kw_only=True)
+class ChunkCursorQuery:
+    limit: int = 50
+    cursor: str | None = None
+    direction: str = "next"
+    content_hashes: list[str] | None = None

@@ -24,11 +24,12 @@ from contextlib import asynccontextmanager
 from datetime import date
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
-from application.act_versioning import VersioningPlan, VersioningResult
+from application.act_versioning import ActVersioningService, VersioningPlan, VersioningResult
+from application.documents.dto import DocumentProcessingDependencies, ProcessDocumentCommand
 from application.documents import DocumentProcessor
 from domain.domain_profile.registry import ClassificationResult
 from domain.entities.document import Document
@@ -207,7 +208,7 @@ class VanishingDocumentRepository(RecordingDocumentRepository):
         return await super().get_by_id(doc_id)
 
 
-class FakeActVersioningService:
+class FakeActVersioningService(ActVersioningService):
     def __init__(self, result: VersioningResult | None = None) -> None:
         self.calls: list[dict] = []
         self.invalidated_acts: list[int] = []
@@ -216,11 +217,22 @@ class FakeActVersioningService:
             domain_metadata=None, act_version_id=None, act_id=None, effective_from=None, warning=None
         )
 
-    async def process_document_versioning(
-        self, profile, document_id: int, full_text: str
-    ) -> VersioningResult:
-        self.calls.append({"profile": profile, "document_id": document_id, "full_text": full_text})
-        return self._result
+    async def prepare_document_versioning(self, profile, full_text: str) -> VersioningPlan | None:
+        self.calls.append({"profile": profile, "full_text": full_text})
+        if self._result.domain_metadata is None and self._result.warning is None:
+            return None
+        return VersioningPlan(
+            [], self._result.domain_metadata, None, self._result.effective_from, None, self._result.warning
+        )
+
+    async def create_version_in_uow(self, uow, profile, document_id, extracted_refs, **kwargs):
+        return SimpleNamespace(
+            id=self._result.act_version_id,
+            act_id=self._result.act_id,
+            effective_from=self._result.effective_from,
+            effective_to=self._result.effective_to,
+            is_current=self._result.is_current,
+        )
 
     async def invalidate_act_answers(self, act_id: int) -> None:
         self.invalidated_acts.append(act_id)
@@ -289,14 +301,15 @@ def build_harness(tmp_path, *, docs=None, parse_error=None, repo=None, **overrid
     )
     harness.processor = DocumentProcessor(
         uow_factory=uow_factory,
-        vector_store_repo=MagicMock(),
         file_storage=harness.storage,
-        document_parser=harness.parser,
-        document_splitter=harness.splitter,
-        content_extractor=StubExtractor(),
-        pdf_quality_assessor=harness.pdf_assessor,
-        text_quality_assessor=harness.text_quality,
-        metrics=harness.metrics,
+        dependencies=DocumentProcessingDependencies(
+            document_parser=harness.parser,
+            document_splitter=harness.splitter,
+            content_extractor=StubExtractor(),
+            pdf_quality_assessor=harness.pdf_assessor,
+            text_quality_assessor=harness.text_quality,
+            metrics=harness.metrics,
+        ),
         domain_marker_threshold=1.0,
         domain_registry=harness.registry,
         domain_settings=StubSettings() if harness.registry is not None else None,
@@ -331,7 +344,7 @@ async def run(harness, doc, **kwargs):
     kwargs.setdefault("group_id", None)
     kwargs.setdefault("replace_id", None)
     kwargs.setdefault("doc_domain", "general")
-    await harness.processor.process(document_id=doc.id, **kwargs)
+    await harness.processor.process(ProcessDocumentCommand(document_id=doc.id, **kwargs))
 
 
 # ---------------------------------------------------------------------------
@@ -677,11 +690,11 @@ async def test_versioning_warning_and_metadata_enrichment(tmp_path):
 
     points = upsert_points(h.uow)
     for p in points:
-        assert p["metadata"]["act_version_id"] == 7
-        assert p["metadata"]["act_id"] == 3
+        assert "act_version_id" not in p["metadata"]
+        assert "act_id" not in p["metadata"]
         assert p["metadata"]["effective_from"] == "2026-01-01"
         assert p["metadata"]["domain_metadata"] == {"act_number": "42"}
-    assert act_versioning.calls[0]["document_id"] == doc.id
+    assert act_versioning.calls[0]["profile"] is registry.get("legal")
 
 
 @pytest.mark.asyncio
@@ -755,7 +768,6 @@ async def test_prepared_version_commits_with_chunks_before_cache_invalidation(tm
     service.prepare_document_versioning.assert_awaited_once_with(
         profile, "\n".join(d.page_content for d in _default_docs())
     )
-    assert service.calls == []  # The legacy versioning path must not run as well.
     points = upsert_points(h.uow)
     assert all(p["metadata"]["domain_metadata"] == {"act_number": "42"} for p in points)
     if warning:
@@ -773,20 +785,20 @@ async def test_prepared_version_commits_with_chunks_before_cache_invalidation(tm
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("registered,prepared", [(False, False), (True, False), (True, True)])
-async def test_versioning_without_profile_or_plan_still_indexes(tmp_path, registered, prepared):
+@pytest.mark.parametrize("registered", [False, True])
+async def test_versioning_without_profile_or_plan_still_indexes(tmp_path, registered):
     service = FakeActVersioningService()
-    if prepared:
-        service.prepare_document_versioning = AsyncMock(return_value=None)
+    service.prepare_document_versioning = AsyncMock(return_value=None)
     registry = FakeDomainRegistry(profiles={"general": make_profile()} if registered else {})
     h = build_harness(tmp_path, registry=registry, act_versioning=service)
     doc = await seed_document(h.repo)
     await run(h, doc)
     assert h.metrics.has("inc_documents", "indexing")
     assert all("act_version_id" not in p["metadata"] for p in upsert_points(h.uow))
-    assert len(service.calls) == int(registered and not prepared)
-    if prepared:
+    if registered:
         service.prepare_document_versioning.assert_awaited_once()
+    else:
+        service.prepare_document_versioning.assert_not_awaited()
 
 
 @pytest.mark.asyncio

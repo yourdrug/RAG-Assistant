@@ -412,11 +412,11 @@ def split_documents_legal(
         chunk_overlap = settings.legal_chunk_overlap
     if domain_settings is not None:
         try:
-            chunk_size = int(domain_settings.get("legal_chunk_size", "legal"))
+            chunk_size = int(domain_settings.get("legal_chunk_size", DocDomain.LEGAL.value))
         except (KeyError, ValueError):
             pass
         try:
-            chunk_overlap = int(domain_settings.get("legal_chunk_overlap", "legal"))
+            chunk_overlap = int(domain_settings.get("legal_chunk_overlap", DocDomain.LEGAL.value))
         except (KeyError, ValueError):
             pass
 

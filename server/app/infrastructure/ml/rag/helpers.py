@@ -413,7 +413,7 @@ async def rerank_and_enrich(
     if ctx.as_of_date is not None:
         docs = resolve_temporal_conflicts(docs)
 
-    if query_domain == "legal":
+    if query_domain == DocDomain.LEGAL.value:
         docs = await apply_legal_rerank_fallback(
             query,
             access_filter,

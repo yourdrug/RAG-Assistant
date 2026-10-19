@@ -21,7 +21,6 @@ from application.ingestion import IngestionRegistry
 from application.ingestion import DocumentSyncService
 from application.ingestion import S3IngestionTargets, S3UploadService
 from application.ingestion import SingleFileIngestionWorkflow
-from application.ingestion import SparseIndexBuilder
 
 
 class FakeSettings:
@@ -73,7 +72,6 @@ def _make_service():
             loader,
             ingestion_registry,
             sync=sync,
-            sparse_index=SparseIndexBuilder(settings, None),
         ),
         single_file_workflow=SingleFileIngestionWorkflow(file_storage, loader, ingestion_registry, sync),
         registry=ingestion_registry,

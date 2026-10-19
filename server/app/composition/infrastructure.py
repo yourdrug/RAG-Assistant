@@ -23,7 +23,6 @@ from infrastructure.corpus.control import PostgresCorpusControl
 from infrastructure.rate_limit.limiter import DynamicRateLimiter
 from infrastructure.redis.redis_client import redis_client
 
-from infrastructure.bm25.persistence import load_configured_bm25_snapshot
 from infrastructure.ml.clients.client_registry import MLClientRegistry
 from infrastructure.storage import LazyStorage
 from typing import TYPE_CHECKING, Any
@@ -153,11 +152,11 @@ class MLContainer:
         from application.documents import PreviewCache
 
         self.file_storage = LazyStorage()
-        self.ml_clients = MLClientRegistry(
-            bm25_loader=partial(load_configured_bm25_snapshot, self.file_storage)
-        )
+        self.ml_clients = MLClientRegistry()
         self.vector_store_repo = QdrantVectorStoreRepository(ml_clients=self.ml_clients)
-        self.preview_cache = PreviewCache(storage=self.file_storage)
+        self.preview_cache = PreviewCache(
+            storage=self.file_storage, ttl_seconds=settings.preview_cache_ttl_seconds
+        )
         self.document_parser = LangchainDocumentParser(
             domain_registry=domain_registry,
             domain_settings=domain_settings,

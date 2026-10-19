@@ -9,14 +9,12 @@ from __future__ import annotations
 from infrastructure.corpus.snapshot import pin_corpus_call
 
 import asyncio
-from infrastructure.bm25.persistence import BM25LoadError
 import itertools
 import logging
 from decimal import Decimal
 
 from langchain.schema import Document as LCDocument
-from qdrant_client.models import FieldCondition, Filter, MatchAny
-from infrastructure.ml.rag.rag_retrieval import resolve_hashes_batch
+from infrastructure.ml.rag.rag_retrieval import search_sparse_points
 
 from application.search import HybridRetriever
 from config import get_setting, settings
@@ -26,7 +24,7 @@ from domain.services.benchmark_evaluation import (
     summarize_evidence,
     summarize_retrieval,
 )
-from domain.utils import content_hash, rrf_merge
+from domain.utils import rrf_merge
 from domain.value_objects.benchmark_scoring import (
     DEFAULT_OBJECTIVE_WEIGHTS,
     METRIC_SCALES,
@@ -237,19 +235,6 @@ def score_config_cheap(  # noqa: C901
     return metrics
 
 
-async def load_candidate_snapshot(ml_clients, *, bm25_loader=None):
-    """Keep transient snapshot failures retryable while retaining dense fallback."""
-    try:
-        if ml_clients is not None:
-            return await ml_clients.ensure_bm25_loaded()
-        if bm25_loader is None:
-            raise ValueError("Sweep requires an explicit BM25 registry or loader")
-        return await bm25_loader()
-    except BM25LoadError:
-        logger.warning("BM25 snapshot unavailable; using dense search", exc_info=True)
-        return None
-
-
 @pin_corpus_call
 async def cache_candidates(
     questions: list[dict],
@@ -259,8 +244,6 @@ async def cache_candidates(
     visibility_conditions=None,
     user_id: int | None = None,
     user_group_ids: list[int] | None = None,
-    *,
-    bm25_loader=None,
 ) -> tuple[dict, dict, dict]:
     """Phase 1: Cache dense + sparse candidates at max fetch_k.
 
@@ -277,7 +260,10 @@ async def cache_candidates(
     else:
         client = factories.create_qdrant_client()
         embeddings = factories.create_embeddings()
-    bm25_index = await load_candidate_snapshot(ml_clients, bm25_loader=bm25_loader)
+    if access_filter is None or visibility_conditions is None or user_id is None or user_group_ids is None:
+        raise RuntimeError("Sweep retrieval requires ACL scope and a complete user context")
+    if not visibility_conditions:
+        return dense_cache, sparse_cache, all_candidates
 
     for q in questions:
         qtext = q["question"]
@@ -295,54 +281,25 @@ async def cache_candidates(
             payload = point.payload or {}
             page_content = payload.get("page_content", "")
             metadata = payload.get("metadata", {})
-            h = metadata.get("content_hash") or content_hash(page_content)
+            h = str(point.id)
 
             doc = LCDocument(page_content=page_content, metadata=metadata)
             dense_results.append((h, point.score, doc))
             all_candidates[h] = doc
         dense_cache[qtext] = dense_results
 
-        if bm25_index:
-            sparse_results = await asyncio.to_thread(
-                bm25_index.search_with_hashes,
-                qtext,
-                max_fetch_k,
-                visibility_conditions=visibility_conditions,
-                user_id=user_id,
-                user_group_ids=user_group_ids or [],
+        sparse_points = await asyncio.to_thread(
+            search_sparse_points, client, qtext, max_fetch_k, access_filter
+        )
+        sparse_results = []
+        for point in sparse_points:
+            payload = point.payload or {}
+            key = str(point.id)
+            sparse_results.append((key, point.score))
+            all_candidates[key] = LCDocument(
+                page_content=payload.get("page_content", ""), metadata=payload.get("metadata", {})
             )
-        else:
-            sparse_results = []
         sparse_cache[qtext] = sparse_results
-
-        missing = [h for h, _ in sparse_results if h not in all_candidates]
-        if missing:
-            if access_filter is None:
-                raise RuntimeError("Sweep sparse candidate resolution requires an ACL filter")
-            if ml_clients is not None:
-                all_candidates.update(await resolve_hashes_batch(missing, access_filter, ml_clients))
-            else:
-                points, _ = await asyncio.to_thread(
-                    client.scroll,
-                    collection_name=settings.collection_name,
-                    scroll_filter=Filter(
-                        must=[
-                            access_filter,
-                            FieldCondition(key="metadata.content_hash", match=MatchAny(any=missing)),
-                        ]
-                    ),
-                    limit=len(missing),
-                    with_payload=True,
-                    timeout=settings.qdrant_timeout,
-                )
-                for point in points:
-                    payload = point.payload or {}
-                    metadata = payload.get("metadata", {})
-                    h = metadata.get("content_hash")
-                    if h:
-                        all_candidates[h] = LCDocument(
-                            page_content=payload.get("page_content", ""), metadata=metadata
-                        )
 
     logger.info(
         "Cache built: %d dense, %d sparse, %d unique hashes",

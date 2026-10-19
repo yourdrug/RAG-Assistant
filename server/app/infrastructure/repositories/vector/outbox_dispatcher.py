@@ -1,4 +1,4 @@
-"""Outbox dispatcher — applies pending vector-store operations to Qdrant.
+"""Outbox dispatcher — applies committed operations to Qdrant and BM25.
 
 Reads entries from the vector_store_outbox table and applies them to Qdrant.
 Idempotent: upsert overwrites by deterministic chunk_id, delete on missing is no-op.
@@ -16,6 +16,7 @@ from config import settings
 from domain.entities.chunk import Chunk
 from domain.entities.vector_outbox_entry import OutboxOperation, VectorOutboxEntry
 from domain.repositories.vector_store_repository import VectorStoreRepository
+
 
 log = logging.getLogger("default")
 
@@ -132,6 +133,8 @@ class OutboxDispatcher:
             await self.apply_upsert(entry.payload, document_id=entry.aggregate_id)
         elif entry.operation == OutboxOperation.DELETE_BY_DOCUMENT:
             await self._vector_store.delete_by_document_id(entry.payload["document_id"])
+        elif entry.operation == OutboxOperation.RENAME_DOCUMENT:
+            await self.refresh_document_filename(entry.aggregate_id)
         elif entry.operation == OutboxOperation.DELETE_CHUNKS:
             await self._vector_store.delete_by_ids(entry.payload["chunk_ids"])
         elif entry.operation == OutboxOperation.UPDATE_METADATA:
@@ -146,6 +149,12 @@ class OutboxDispatcher:
             )
         else:
             raise ValueError(f"Unknown outbox operation: {entry.operation}")
+
+    async def refresh_document_filename(self, document_id: int) -> None:
+        async with self._uow_factory.create(master=True) as uow:
+            document = await uow.documents.get_by_id(document_id)
+        if document is not None:
+            await self._vector_store.update_filename_by_document_id(document_id, document.filename)
 
     async def _document_exists(self, document_id: int) -> bool:
         async with self._uow_factory.create() as uow:
@@ -205,6 +214,8 @@ class OutboxDispatcher:
         obsolete_ids = [p["chunk_id"] for p in points if p["chunk_id"] not in current_ids]
         if obsolete_ids:
             await self._vector_store.delete_by_ids(obsolete_ids)
+        # A rename may commit while embeddings are running. Refresh its payload last.
+        await self.refresh_document_filename(document_id)
         # Another ingestion/review may have changed the edition while embedding
         # was running. Do not leave the snapshot in this upsert as the final state.
         version_ids = {chunk.metadata.get("act_version_id") for chunk in chunks}

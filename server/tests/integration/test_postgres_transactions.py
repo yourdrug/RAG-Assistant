@@ -135,7 +135,7 @@ async def test_concurrent_duplicate_upload_hits_real_unique_constraint(pg_engine
     factory = RacingFactory()
     command = DocumentCommandService(
         DocumentUploadCommand(factory, storage, context_factory),
-        DocumentDeleteCommand(factory, storage, MagicMock(), context_factory),
+        DocumentDeleteCommand(factory, storage, context_factory),
         DocumentRenameCommand(factory, storage, context_factory),
     )
 

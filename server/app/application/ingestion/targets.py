@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from application.ingestion.dto import UploadFile
+    from application.ingestion.ports.upload import UploadFile
     from application.ports.file_storage import FileStorage
 
 log = logging.getLogger("default")

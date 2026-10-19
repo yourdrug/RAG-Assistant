@@ -19,7 +19,6 @@ from infrastructure.redis.redis_client import redis_client
 from infrastructure.resilience.circuit_breaker import init_breakers
 from infrastructure.worker.queue import QUEUE_NAME
 from infrastructure.worker.tasks import (
-    cron_bm25_rebuild,
     cron_job_cleanup,
     cron_recover_orphaned_jobs,
     cron_recover_stuck_processing,
@@ -74,7 +73,6 @@ def worker(
             arq_func(cron_job_cleanup, timeout=_CRON_TIMEOUT, keep_result=0),
             arq_func(cron_recover_orphaned_jobs, timeout=_CRON_TIMEOUT, keep_result=0),
             arq_func(cron_recover_stuck_processing, timeout=_CRON_TIMEOUT, keep_result=0),
-            arq_func(cron_bm25_rebuild, timeout=_CRON_TIMEOUT, keep_result=0),
         ]
 
         for function in functions:
@@ -85,7 +83,6 @@ def worker(
             cron(cron_job_cleanup, hour={1, 13}, timeout=_CRON_TIMEOUT),
             cron(cron_recover_orphaned_jobs, minute={0, 15, 30, 45}, timeout=_CRON_TIMEOUT),
             cron(cron_recover_stuck_processing, minute={5, 20, 35, 50}, timeout=_CRON_TIMEOUT),
-            cron(cron_bm25_rebuild, hour=3, minute=0, timeout=_CRON_TIMEOUT),
         ]
 
         if max_jobs is None:

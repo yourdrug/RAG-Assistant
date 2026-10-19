@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Protocol, TypedDict, Unpack
 
+from domain.value_objects.visibility import DocumentVisibility
+
 
 class DocumentProcessingOptions(TypedDict, total=False):
     doc_domain: str | None
@@ -35,7 +37,7 @@ class JobEnqueuerPort(Protocol):
         reset: bool,
         domain: str,
         job_id: int,
-        visibility: str = "internal_public",
+        visibility: str = DocumentVisibility.INTERNAL_PUBLIC.value,
         group_id: int | None = None,
         client_id: int | None = None,
     ) -> None: ...
@@ -46,7 +48,7 @@ class JobEnqueuerPort(Protocol):
         resolved: str,
         domain: str,
         job_id: int,
-        visibility: str = "internal_public",
+        visibility: str = DocumentVisibility.INTERNAL_PUBLIC.value,
         group_id: int | None = None,
         client_id: int | None = None,
     ) -> None: ...

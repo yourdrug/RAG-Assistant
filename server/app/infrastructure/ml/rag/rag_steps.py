@@ -10,7 +10,6 @@ Extracted from ``RagService.stream()`` to eliminate the C901 god-method.
 
 from __future__ import annotations
 
-from infrastructure.bm25.persistence import BM25LoadError
 
 import logging
 import time
@@ -46,7 +45,6 @@ from infrastructure.metrics.metrics import (
     RAG_CACHE_MISSES_TOTAL,
     RAG_RELEVANCE_GATE_TOTAL,
     RAG_SELF_RAG_RETRIES,
-    RAG_SPARSE_SURVIVAL_RATIO,
     RAG_STAGE_DURATION,
     extract_usage_from_langchain,
     record_llm_usage,
@@ -290,15 +288,6 @@ async def step_retrieve(
         user_id=state.user.user_id,
         user_group_ids=ctx.user_group_ids,
     )
-
-    # Record sparse survival ratio per role
-    try:
-        bm25_idx = await ml_clients.ensure_bm25_loaded()
-    except BM25LoadError:
-        log.warning("BM25 snapshot unavailable; using dense search", exc_info=True)
-        bm25_idx = None
-    if bm25_idx is not None and bm25_idx.last_survival_ratio is not None:
-        RAG_SPARSE_SURVIVAL_RATIO.labels(role=ctx.user_role).observe(bm25_idx.last_survival_ratio)
 
     # ── Exact-search integration ─────────────────────────────────────
     if params["use_exact_ref_boost"]:

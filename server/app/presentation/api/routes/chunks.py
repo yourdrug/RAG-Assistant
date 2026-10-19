@@ -5,13 +5,21 @@ from __future__ import annotations
 import logging
 
 from application.ports.rate_limit import RateLimitPolicyName
-from application.chunks import ChunkService
+from application.chunks import ChunkCursorQuery, ChunkMutationService, ChunkQueryService
+from application.documents import ManualDocumentService
+from domain.value_objects.roles import UserKind, UserRole
+from domain.value_objects.visibility import DocumentVisibility
 from domain.value_objects.capabilities import Capability
 from fastapi import APIRouter, Depends, Query
 
 from presentation.api.auth_dependencies import get_current_user, require_capability
 from presentation.api.rate_limit import rate_limit
-from presentation.api.dependencies import create_action_logger, create_chunk_service
+from presentation.api.dependencies import (
+    create_action_logger,
+    create_chunk_query_service,
+    create_chunk_mutation_service,
+    create_manual_document_service,
+)
 from presentation.api.schemas import (
     ChunkCreateRequest,
     ChunkCursorListResponse,
@@ -36,15 +44,15 @@ async def list_chunks(
     offset: int = Query(0, ge=0),
     highlight: str | None = Query(None, description="Comma-separated content_hashes to filter"),
     current_user: CurrentUser = Depends(get_current_user),
-    chunk_service: ChunkService = Depends(create_chunk_service),
+    chunk_service: ChunkQueryService = Depends(create_chunk_query_service),
 ):
     """List chunks for a document. When highlight is set, only matching chunks are returned."""
     content_hashes = [h.strip() for h in highlight.split(",") if h.strip()] if highlight else None
     chunks, total = await chunk_service.list_chunks(
         document_id=document_id,
         user_id=current_user.id,
-        user_kind=current_user.kind,
-        user_role=current_user.role,
+        user_kind=UserKind(current_user.kind),
+        user_role=UserRole(current_user.role),
         limit=limit,
         offset=offset,
         content_hashes=content_hashes,
@@ -89,19 +97,21 @@ async def list_chunks_cursor(
     direction: str = Query("next", pattern="^(next|prev)$"),
     highlight: str | None = Query(None, description="Comma-separated content_hashes to filter"),
     current_user: CurrentUser = Depends(get_current_user),
-    chunk_service: ChunkService = Depends(create_chunk_service),
+    chunk_service: ChunkQueryService = Depends(create_chunk_query_service),
 ):
     """List chunks with cursor-based (keyset) pagination."""
     content_hashes = [h.strip() for h in highlight.split(",") if h.strip()] if highlight else None
     page = await chunk_service.list_chunks_cursor(
         document_id=document_id,
         user_id=current_user.id,
-        user_kind=current_user.kind,
-        user_role=current_user.role,
-        limit=limit,
-        cursor=cursor,
-        direction=direction,
-        content_hashes=content_hashes,
+        user_kind=UserKind(current_user.kind),
+        user_role=UserRole(current_user.role),
+        query=ChunkCursorQuery(
+            limit=limit,
+            cursor=cursor,
+            direction=direction,
+            content_hashes=content_hashes,
+        ),
     )
     chunk_responses = [
         ChunkResponse(
@@ -145,7 +155,7 @@ async def add_chunk(
     document_id: int,
     request: ChunkCreateRequest,
     current_user: CurrentUser = Depends(require_capability(Capability.CHUNKS_MANAGE)),
-    chunk_service: ChunkService = Depends(create_chunk_service),
+    chunk_service: ChunkMutationService = Depends(create_chunk_mutation_service),
     log=Depends(create_action_logger),
 ):
     """Add a new chunk to an existing document."""
@@ -153,7 +163,7 @@ async def add_chunk(
         document_id=document_id,
         content=request.content,
         user_id=current_user.id,
-        user_role=current_user.role,
+        user_role=UserRole(current_user.role),
         page=request.page,
         section=request.section,
     )
@@ -184,7 +194,7 @@ async def edit_chunk(
     chunk_id: int,
     request: ChunkEditRequest,
     current_user: CurrentUser = Depends(require_capability(Capability.CHUNKS_MANAGE)),
-    chunk_service: ChunkService = Depends(create_chunk_service),
+    chunk_service: ChunkMutationService = Depends(create_chunk_mutation_service),
     log=Depends(create_action_logger),
 ):
     """Edit an existing chunk's content with automatic re-embedding."""
@@ -193,7 +203,7 @@ async def edit_chunk(
         chunk_id=chunk_id,
         content=request.content,
         user_id=current_user.id,
-        user_role=current_user.role,
+        user_role=UserRole(current_user.role),
     )
 
     log(
@@ -223,7 +233,7 @@ async def delete_chunk(
     document_id: int,
     chunk_id: int,
     current_user: CurrentUser = Depends(require_capability(Capability.CHUNKS_MANAGE)),
-    chunk_service: ChunkService = Depends(create_chunk_service),
+    chunk_service: ChunkMutationService = Depends(create_chunk_mutation_service),
     log=Depends(create_action_logger),
 ):
     """Delete a single chunk."""
@@ -231,7 +241,7 @@ async def delete_chunk(
         document_id=document_id,
         chunk_id=chunk_id,
         user_id=current_user.id,
-        user_role=current_user.role,
+        user_role=UserRole(current_user.role),
     )
 
     log(
@@ -251,16 +261,16 @@ async def delete_chunk(
 async def create_manual_document(
     request: ManualDocumentRequest,
     current_user: CurrentUser = Depends(require_capability(Capability.CHUNKS_MANAGE)),
-    chunk_service: ChunkService = Depends(create_chunk_service),
+    document_service: ManualDocumentService = Depends(create_manual_document_service),
     log=Depends(create_action_logger),
 ):
     """Create a virtual document container for manual chunks."""
-    result = await chunk_service.create_manual_document(
+    result = await document_service.create_manual_document(
         title=request.title,
-        visibility=request.visibility,
+        visibility=DocumentVisibility.validate(request.visibility),
         user_id=current_user.id,
-        user_kind=current_user.kind,
-        user_role=current_user.role,
+        user_kind=UserKind(current_user.kind),
+        user_role=UserRole(current_user.role),
         group_id=request.group_id,
     )
 

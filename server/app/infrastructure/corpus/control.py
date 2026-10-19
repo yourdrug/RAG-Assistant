@@ -19,6 +19,9 @@ from urllib.parse import urlsplit
 import psycopg
 from sqlalchemy import text
 from qdrant_client import QdrantClient
+from qdrant_client.models import Modifier
+
+from infrastructure.repositories.vector.sparse_vectors import SPARSE_VECTOR_NAME
 
 from config import settings
 from domain.exceptions import ValidationError
@@ -29,7 +32,6 @@ from infrastructure.ml.config.endpoint_policy import endpoint_origin
 from infrastructure.corpus import snapshot as corpus_snapshot
 from infrastructure.corpus.snapshot import BoundQdrantClient, CorpusSnapshot
 from infrastructure.corpus.validation import (
-    build_corpus_bm25,
     corpus_digest,
     validate_corpus,
     validate_corpus_binding,
@@ -165,7 +167,6 @@ class PostgresCorpusControl:
             raise ValidationError('Saved Qdrant settings differ from the durable corpus journal')
         if active.embedding_identity != configured_embedding_identity():
             raise ValidationError('Active corpus embedding identity differs from the configured encoder')
-        rows = await self.chunks()
         raw = raw_corpus_client(active.endpoint)
         try:
             async with self.session_factory() as session:
@@ -177,7 +178,7 @@ class PostgresCorpusControl:
                     )
                 ).scalar_one()
             await asyncio.to_thread(probe_active_corpus, raw, active, completed)
-            index = await asyncio.to_thread(build_corpus_bm25, rows)
+            index = None
         except BaseException:
             await asyncio.to_thread(raw.close)
             raise
@@ -231,7 +232,7 @@ class PostgresCorpusControl:
             )
             if verified.physical_collection != candidate.physical_collection:
                 raise ValidationError('Qdrant alias changed during preparation')
-            index = await asyncio.to_thread(build_corpus_bm25, rows)
+            index = None
             return BoundQdrantClient(raw, candidate, corpus_write_guard), index
         except BaseException:
             await asyncio.to_thread(raw.close)
@@ -274,7 +275,7 @@ class PostgresCorpusControl:
                     if state['phase'] == 'committing':
                         # The durable active journal is the admission proof; the old
                         # preparation digest can be stale after subsequent ingestion.
-                        index = await asyncio.to_thread(build_corpus_bm25, await self.chunks())
+                        index = None
                         self.prepared = BoundQdrantClient(
                             raw_corpus_client(candidate.endpoint), candidate, corpus_write_guard
                         )
@@ -554,6 +555,9 @@ def probe_active_corpus(client, snapshot, completed):
             raise ValidationError('Completed PostgreSQL chunks have no active Qdrant collection')
         return  # Fresh empty deployment; ingestion owns collection creation.
     info = client.get_collection(physical)
+    sparse = info.config.params.sparse_vectors or {}
+    if SPARSE_VECTOR_NAME not in sparse or sparse[SPARSE_VECTOR_NAME].modifier != Modifier.IDF:
+        raise ValidationError('Active corpus has no compatible BM25 sparse index')
     if not info.points_count and physical + '__embedding_identity' not in names:
         if completed or getattr(info.config.params.vectors, 'size', None) != settings.embed_dim:
             raise ValidationError('Active corpus has no compatible immutable identity')

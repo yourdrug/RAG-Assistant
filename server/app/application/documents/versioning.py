@@ -4,57 +4,28 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from application.act_versioning import VersioningResult
-from application.documents.processing_context import empty_versioning_result
+from application.documents.dto import PreparedDocumentVersioning
 
 
 if TYPE_CHECKING:
     from application.act_versioning import ActVersioningService
-    from application.documents.processing_context import ProcessingContext
     from domain.domain_profile.registry import DomainProfileRegistry
 
 
 async def prepare_processing_versioning(
-    ctx: ProcessingContext,
+    doc_domain: str,
     full_text: str,
     *,
     domain_registry: DomainProfileRegistry | None,
     act_versioning_service: ActVersioningService | None,
-) -> None:
-    """Prepare a plan for atomic persistence, or use the legacy service contract.
+) -> PreparedDocumentVersioning | None:
+    if domain_registry is None or act_versioning_service is None:
+        return None
 
-    Version creation for prepared plans stays inside persist_document_result's
-    transaction together with chunk inserts, outbox enqueue and status writes.
-    """
-    result = empty_versioning_result()
+    try:
+        profile = domain_registry.get(doc_domain)
+    except KeyError:
+        return None
 
-    if domain_registry is not None and act_versioning_service is not None:
-        try:
-            profile = domain_registry.get(ctx.doc_domain or "")
-        except KeyError:
-            profile = None
-
-        if profile is not None:
-            prepare = getattr(act_versioning_service, "prepare_document_versioning", None)
-
-            if prepare is not None:
-                ctx.versioning_plan = await prepare(profile, full_text)
-
-                if ctx.versioning_plan is not None:
-                    ctx.versioning_profile = profile
-                    result = VersioningResult(
-                        domain_metadata=ctx.versioning_plan.domain_metadata,
-                        act_version_id=None,
-                        act_id=None,
-                        effective_from=ctx.versioning_plan.effective_from,
-                        warning=ctx.versioning_plan.warning,
-                    )
-            else:
-                result = await act_versioning_service.process_document_versioning(
-                    profile, ctx.document_id, full_text
-                )
-
-    ctx.versioning = result
-
-    if result.warning:
-        ctx.warnings.append(result.warning)
+    plan = await act_versioning_service.prepare_document_versioning(profile, full_text)
+    return PreparedDocumentVersioning(plan, profile) if plan is not None else None

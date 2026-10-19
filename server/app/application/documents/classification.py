@@ -17,8 +17,7 @@ from domain.services.document_domain_classifier import classify_document_domain
 
 
 if TYPE_CHECKING:
-    from application.documents.processing_context import ProcessingContext
-    from application.documents.processing_ports import MetricsCollectorPort
+    from application.documents.ports.processing import MetricsCollectorPort
     from domain.domain_profile.registry import DomainProfileRegistry
     from domain.domain_profile.settings_port import DomainSettingsPort
 
@@ -26,16 +25,17 @@ log = logging.getLogger("default")
 
 
 def classify_processing_document(
-    ctx: ProcessingContext,
+    document_id: int,
     full_text: str,
+    doc_domain: str | None,
     *,
     domain_registry: DomainProfileRegistry | None,
     domain_settings: DomainSettingsPort | None,
     fallback_threshold: float,
     metrics: MetricsCollectorPort,
-) -> None:
-    if ctx.doc_domain is not None:
-        return
+) -> DomainClassification:
+    if doc_domain is not None:
+        return DomainClassification(domain_key=doc_domain)
 
     classification = classify_document_text(
         full_text,
@@ -52,11 +52,10 @@ def classify_processing_document(
 
     if classification.warning:
         metrics.inc_domain_ambiguous(classification.ambiguous_candidates)
-        log.warning("Ambiguous classification for doc %d: %s", ctx.document_id, classification.scores_str)
-        ctx.warnings.append(classification.warning)
+        log.warning("Ambiguous classification for doc %d: %s", document_id, classification.scores_str)
 
-    ctx.doc_domain = classification.domain_key
-    log.info("Auto-detected doc_domain=%s for doc %d", ctx.doc_domain, ctx.document_id)
+    log.info("Auto-detected doc_domain=%s for doc %d", classification.domain_key, document_id)
+    return classification
 
 
-__all__ = ["DomainClassification", "classify_document_text", "classify_processing_document"]
+__all__ = ["classify_processing_document"]

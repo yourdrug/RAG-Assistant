@@ -23,7 +23,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("default")
 
-DEFAULT_TTL_SECONDS = 1800  # 30 minutes
 PREVIEW_PREFIX = "previews/"
 
 
@@ -34,7 +33,7 @@ class PreviewCache:
     automatically evicted after *ttl_seconds*.
     """
 
-    def __init__(self, storage: FileStorage, ttl_seconds: int = DEFAULT_TTL_SECONDS) -> None:
+    def __init__(self, storage: FileStorage, ttl_seconds: int) -> None:
         self._storage = storage
         self._cache: dict[str, tuple[str, float, str | None]] = {}
         # preview_id -> (s3_key, timestamp, original_filename)

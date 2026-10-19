@@ -95,7 +95,7 @@ class ChunkCrudRepository(Protocol):
     async def get_max_chunk_index(self, document_id: int) -> int: ...
 
     async def update_content(
-        self, chunk_id: int, content: str, edited_at: datetime, edited_by: int
+        self, chunk_id: int, content: str, content_hash: str, edited_at: datetime, edited_by: int
     ) -> None: ...
 
     async def insert_one(

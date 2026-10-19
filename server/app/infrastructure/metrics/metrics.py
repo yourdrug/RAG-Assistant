@@ -402,11 +402,7 @@ async def _collect_ollama_metrics() -> None:
                 OLLAMA_GPU_MEMORY_BYTES.labels(model=model_name).set(vram)
 
 
-async def collect_infra_metrics(
-    ml_clients: MLClientPort | None = None,
-    *,
-    bm25_loader: Callable[[], Awaitable[BM25Index | None]] | None = None,
-) -> None:
+async def collect_infra_metrics(ml_clients: MLClientPort | None = None) -> None:
     """Update infrastructure gauges. Called periodically from lifespan."""
     try:
         await _collect_db_pool_metrics()
@@ -416,10 +412,6 @@ async def collect_infra_metrics(
         await _collect_qdrant_metrics(ml_clients)
     except Exception as e:
         log.warning("Failed to collect Qdrant metrics: [%s] %s", type(e).__name__, e)
-    try:
-        await collect_bm25_metrics(ml_clients, bm25_loader=bm25_loader)
-    except Exception as e:
-        log.warning("Failed to collect BM25 metrics: [%s] %s", type(e).__name__, e)
     try:
         await _collect_ollama_metrics()
     except Exception as e:

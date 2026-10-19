@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Unpack
+from typing import TYPE_CHECKING
 
+from application.chunks.dto import ChunkCursorQuery
 from application.chunks.mappers import to_chunk_dto
 from application.identity import UserContextFactory
 from domain.exceptions import BusinessRuleViolation, EntityNotFound
@@ -14,10 +15,11 @@ from domain.value_objects.cursor_page import CursorPage
 
 
 if TYPE_CHECKING:
-    from application.chunks.dto import ChunkItemDTO, ListChunksCursorOptions
+    from application.chunks.dto import ChunkItemDTO
     from application.uow import UnitOfWorkFactory
     from domain.entities.document import Document
     from domain.repositories.chunk_repository import ChunkSearchResult
+    from domain.value_objects.roles import UserKind, UserRole
 
 log = logging.getLogger(__name__)
 
@@ -49,8 +51,8 @@ class ChunkQueryService:
         self,
         document_id: int,
         user_id: int,
-        user_kind: str,
-        user_role: str,
+        user_kind: UserKind,
+        user_role: UserRole,
         *,
         limit: int = 50,
         offset: int = 0,
@@ -81,13 +83,14 @@ class ChunkQueryService:
         self,
         document_id: int,
         user_id: int,
-        user_kind: str,
-        user_role: str,
-        **options: Unpack[ListChunksCursorOptions],
+        user_kind: UserKind,
+        user_role: UserRole,
+        *,
+        query: ChunkCursorQuery | None = None,
     ) -> CursorPage[ChunkItemDTO]:
         """List chunks for a document with cursor-based pagination."""
-        cursor = options.get("cursor")
-        decoded = decode_cursor(cursor) if cursor else None
+        query = query or ChunkCursorQuery()
+        decoded = decode_cursor(query.cursor) if query.cursor else None
 
         async with self._uow_factory.create() as uow:
             doc = await uow.documents.get_by_id(document_id)
@@ -101,10 +104,10 @@ class ChunkQueryService:
 
             page = await uow.chunks.list_for_document_cursor(
                 document_id,
-                limit=options.get("limit", 50),
+                limit=query.limit,
                 cursor=decoded,
-                direction=options.get("direction", "next"),
-                content_hashes=options.get("content_hashes"),
+                direction=query.direction,
+                content_hashes=query.content_hashes,
             )
             validate_chunk_acl(doc, page.items)
 

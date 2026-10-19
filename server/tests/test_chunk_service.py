@@ -1,25 +1,20 @@
-"""Tests for ChunkService business logic."""
+"""Tests for chunk mutations and manual-document creation."""
 
 from dataclasses import dataclass
-import threading
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from application.chunks.mutations import ChunkMutationService
-from application.chunks.queries import ChunkQueryService
 from application.documents import ManualDocumentService
-from application.chunks import ChunkService
 from domain.entities.document import Document
 from domain.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
 from domain.repositories.chunk_repository import ChunkSearchResult, ChunkStats
 from domain.services import compute_owner_and_group
+from domain.utils import content_hash
 from domain.value_objects.document_status import DocumentStatus
 from domain.value_objects.roles import UserRole
 from domain.value_objects.source_type import SourceType
 from domain.value_objects.visibility import DocumentVisibility
-from infrastructure.bm25.bm25_index import BM25Index
-from infrastructure.bm25.bm25_updater import BM25IndexAdapter
-from infrastructure.ml.clients.client_registry import MLClientRegistry
 
 
 # ---------------------------------------------------------------------------
@@ -96,44 +91,27 @@ def _make_uow(doc=None, chunk=None, max_index=0):
     return uow
 
 
-def _make_service(uow, *, chunk_settings=None, bm25_index=None, cache_invalidator=None):
+def _make_service(uow, *, chunk_settings=None, cache_invalidator=None):
     factory = MagicMock()
     factory.create.return_value = AsyncMock(
         __aenter__=AsyncMock(return_value=uow),
         __aexit__=AsyncMock(return_value=False),
     )
 
-    return ChunkService(
-        query_service=ChunkQueryService(factory),
-        mutation_service=ChunkMutationService(
-            factory,
-            chunk_settings or _FakeChunkSettings(),
-            bm25_index or AsyncMock(),
-            cache_invalidator=cache_invalidator,
-        ),
-        manual_document_service=ManualDocumentService(factory),
+    return ChunkMutationService(
+        factory,
+        chunk_settings or _FakeChunkSettings(),
+        cache_invalidator=cache_invalidator,
     )
 
 
-@pytest.mark.asyncio
-async def test_add_chunk_awaits_async_loader_and_offloads_cpu(monkeypatch):
-    loop_thread = threading.get_ident()
-    mutation_threads = []
-    index = BM25Index([])
-    original = index.add_text
-
-    def add(*args, **kwargs):
-        mutation_threads.append(threading.get_ident())
-        return original(*args, **kwargs)
-
-    monkeypatch.setattr(index, "add_text", add)
-    registry = MLClientRegistry(bm25_loader=AsyncMock(return_value=index))
-    service = _make_service(_make_uow(), bm25_index=BM25IndexAdapter(registry))
-    result = await service.add_chunk(document_id=1, content="x" * 300, user_id=100, user_role=UserRole.ADMIN)
-    assert result.id is not None
-    assert registry.bm25_index().texts == ["x" * 300]
-    assert mutation_threads and loop_thread not in mutation_threads
-    await registry.close()
+def make_manual_service(uow):
+    factory = MagicMock()
+    factory.create.return_value = AsyncMock(
+        __aenter__=AsyncMock(return_value=uow),
+        __aexit__=AsyncMock(return_value=False),
+    )
+    return ManualDocumentService(factory)
 
 
 # ---------------------------------------------------------------------------
@@ -142,36 +120,36 @@ async def test_add_chunk_awaits_async_loader_and_offloads_cpu(monkeypatch):
 
 
 class TestChunkServiceValidation:
-    """Tests for ChunkMutationService validation helpers (via ChunkService._mutation)."""
+    """Tests for ChunkMutationService validation helpers."""
 
     def test_validate_chunk_content_empty(self):
         svc = _make_service(AsyncMock())
         with pytest.raises(ValidationError, match="cannot be empty"):
-            svc._mutation.validate_chunk_content("")
+            svc.validate_chunk_content("")
         with pytest.raises(ValidationError, match="cannot be empty"):
-            svc._mutation.validate_chunk_content("   ")
+            svc.validate_chunk_content("   ")
 
     def test_validate_chunk_content_too_short(self):
         svc = _make_service(AsyncMock())
         with pytest.raises(ValidationError, match="too short"):
-            svc._mutation.validate_chunk_content("ab")
+            svc.validate_chunk_content("ab")
 
     def test_validate_chunk_content_too_long(self):
         svc = _make_service(AsyncMock())
         with pytest.raises(ValidationError, match="too long"):
-            svc._mutation.validate_chunk_content("x" * 2000)
+            svc.validate_chunk_content("x" * 2000)
 
     def test_validate_chunk_content_valid(self):
         svc = _make_service(AsyncMock())
         valid = "This is a valid chunk content with enough text. " * 5
-        svc._mutation.validate_chunk_content(valid)
+        svc.validate_chunk_content(valid)
 
     def test_validate_chunk_content_manual_relaxed(self):
         svc = _make_service(AsyncMock())
         short_manual = "a" * 27
-        svc._mutation.validate_chunk_content(short_manual, is_manual=True)
+        svc.validate_chunk_content(short_manual, is_manual=True)
         with pytest.raises(ValidationError, match="too short"):
-            svc._mutation.validate_chunk_content("ab", is_manual=True)
+            svc.validate_chunk_content("ab", is_manual=True)
 
 
 class TestComputeOwnerAndGroup:
@@ -215,10 +193,9 @@ class TestDocumentCanEditChunks:
 class TestEditChunk:
     @pytest.mark.asyncio
     async def test_edit_chunk_success(self):
-        """edit_chunk enqueues outbox UPSERT, calls BM25 replace, updates stats."""
+        """edit_chunk enqueues both retrieval vectors through outbox and updates stats."""
         uow = _make_uow()
-        bm25 = AsyncMock()
-        svc = _make_service(uow, bm25_index=bm25)
+        svc = _make_service(uow)
 
         result = await svc.edit_chunk(
             document_id=1,
@@ -232,10 +209,12 @@ class TestEditChunk:
         assert result.content == "new content " * 20
         assert result.edited_by == 100
         uow.chunks.update_content.assert_awaited_once()
+        new_hash = content_hash(result.content)
+        assert uow.chunks.update_content.call_args.kwargs["content_hash"] == new_hash
         uow.vector_outbox.enqueue.assert_awaited_once()
         enqueue_call = uow.vector_outbox.enqueue.call_args[0][0]
         assert enqueue_call.operation.value == "upsert_chunks"
-        bm25.replace.assert_awaited_once()
+        assert enqueue_call.payload["points"][0]["metadata"]["content_hash"] == new_hash
         uow.documents.set_has_manual_edits.assert_awaited_once_with(1, value=True)
         uow.documents.update_chunk_stats.assert_awaited_once()
 
@@ -308,12 +287,11 @@ class TestEditChunk:
         assert "existing chunk #5" in result.warning
 
     @pytest.mark.asyncio
-    async def test_edit_chunk_no_bm25_when_no_old_hash(self):
-        """When chunk has no old content_hash, BM25 replace is skipped."""
+    async def test_edit_without_old_hash_still_enqueues_vectors(self):
+        """A missing old hash does not prevent replacing both vectors."""
         chunk = _make_chunk(content_hash=None)
         uow = _make_uow(chunk=chunk)
-        bm25 = AsyncMock()
-        svc = _make_service(uow, bm25_index=bm25)
+        svc = _make_service(uow)
 
         await svc.edit_chunk(
             document_id=1,
@@ -322,7 +300,7 @@ class TestEditChunk:
             user_id=100,
             user_role="admin",
         )
-        bm25.replace.assert_not_awaited()
+        uow.vector_outbox.enqueue.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
@@ -335,8 +313,7 @@ class TestAddChunk:
     async def test_add_chunk_success(self):
         """add_chunk inserts, enqueues outbox, calls BM25 add, updates stats."""
         uow = _make_uow(max_index=3)
-        bm25 = AsyncMock()
-        svc = _make_service(uow, bm25_index=bm25)
+        svc = _make_service(uow)
 
         result = await svc.add_chunk(
             document_id=1,
@@ -353,7 +330,6 @@ class TestAddChunk:
         uow.vector_outbox.enqueue.assert_awaited_once()
         enqueue_call = uow.vector_outbox.enqueue.call_args[0][0]
         assert enqueue_call.operation.value == "upsert_chunks"
-        bm25.add.assert_awaited_once()
         uow.documents.set_has_manual_edits.assert_awaited_once_with(1, value=True)
         uow.documents.update_chunk_stats.assert_awaited_once()
 
@@ -452,18 +428,16 @@ class TestAddChunk:
 class TestDeleteChunk:
     @pytest.mark.asyncio
     async def test_delete_chunk_success(self):
-        """delete_chunk removes DB row, enqueues outbox DELETE, calls BM25 remove."""
+        """delete_chunk removes SQL row and enqueues deletion of both vectors."""
         chunk = _make_chunk(content_hash="old_hash_abc")
         uow = _make_uow(chunk=chunk)
-        bm25 = AsyncMock()
-        svc = _make_service(uow, bm25_index=bm25)
+        svc = _make_service(uow)
 
         await svc.delete_chunk(document_id=1, chunk_id=10, user_id=100, user_role="admin")
 
         uow.chunks.delete_one.assert_awaited_once_with(10)
         enqueue_call = uow.vector_outbox.enqueue.call_args[0][0]
         assert enqueue_call.operation.value == "delete_chunks"
-        bm25.remove.assert_awaited_once_with("old_hash_abc")
         uow.documents.update_chunk_stats.assert_awaited_once()
 
     @pytest.mark.asyncio
@@ -494,15 +468,14 @@ class TestDeleteChunk:
             await svc.delete_chunk(document_id=1, chunk_id=10, user_id=100, user_role="admin")
 
     @pytest.mark.asyncio
-    async def test_delete_chunk_no_bm25_when_no_hash(self):
-        """When chunk has no content_hash, BM25 remove is skipped."""
+    async def test_delete_without_hash_still_enqueues_vectors(self):
+        """Point identity supports deletion without a content hash."""
         chunk = _make_chunk(content_hash=None)
         uow = _make_uow(chunk=chunk)
-        bm25 = AsyncMock()
-        svc = _make_service(uow, bm25_index=bm25)
+        svc = _make_service(uow)
 
         await svc.delete_chunk(document_id=1, chunk_id=10, user_id=100, user_role="admin")
-        bm25.remove.assert_not_awaited()
+        uow.vector_outbox.enqueue.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
@@ -517,7 +490,7 @@ class TestCreateManualDocument:
         uow = _make_uow()
         saved_doc = _make_doc(id=42, source_type=SourceType.MANUAL.value, filename="My Manual")
         uow.documents.save = AsyncMock(return_value=saved_doc)
-        svc = _make_service(uow)
+        svc = make_manual_service(uow)
 
         result = await svc.create_manual_document(
             title="My Manual",
@@ -535,7 +508,7 @@ class TestCreateManualDocument:
     async def test_create_manual_document_user_cannot_publish_public(self):
         """Only admin can create internal_public documents."""
         uow = _make_uow()
-        svc = _make_service(uow)
+        svc = make_manual_service(uow)
 
         with pytest.raises(BusinessRuleViolation):
             await svc.create_manual_document(
@@ -550,7 +523,7 @@ class TestCreateManualDocument:
     async def test_create_manual_document_group_requires_group_id(self):
         """Creating a group-visible document without group_id should fail."""
         uow = _make_uow()
-        svc = _make_service(uow)
+        svc = make_manual_service(uow)
 
         with pytest.raises((ValidationError, BusinessRuleViolation)):
             await svc.create_manual_document(

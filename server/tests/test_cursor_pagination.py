@@ -2,16 +2,13 @@
 
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-from application.chunks.mutations import ChunkMutationService
+from application.chunks.dto import ChunkCursorQuery
 from application.chunks.queries import ChunkQueryService
-from application.documents import ManualDocumentService
-from application.chunks import ChunkService  # noqa: E402
 from domain.entities.document import Document  # noqa: E402
 from domain.exceptions import ValidationError  # noqa: E402
 from domain.utils import decode_cursor, encode_cursor  # noqa: E402
@@ -98,13 +95,7 @@ class TestChunkServiceCursor:
 
     @pytest.fixture
     def service(self, factory):
-        from unittest.mock import MagicMock
-
-        return ChunkService(
-            query_service=ChunkQueryService(factory),
-            mutation_service=ChunkMutationService(factory, MagicMock(chunk_size=550), AsyncMock()),
-            manual_document_service=ManualDocumentService(factory),
-        )
+        return ChunkQueryService(factory)
 
     @pytest.mark.asyncio
     async def test_first_page_prev_cursor_is_none(self, service, uow):
@@ -115,7 +106,7 @@ class TestChunkServiceCursor:
             user_id=10,
             user_kind="internal",
             user_role="admin",
-            limit=50,
+            query=ChunkCursorQuery(limit=50),
         )
 
         assert result.prev_cursor is None
@@ -131,7 +122,7 @@ class TestChunkServiceCursor:
             user_id=10,
             user_kind="internal",
             user_role="admin",
-            limit=5,
+            query=ChunkCursorQuery(limit=5),
         )
 
         assert result.next_cursor is None
@@ -145,7 +136,7 @@ class TestChunkServiceCursor:
                 user_id=10,
                 user_kind="internal",
                 user_role="admin",
-                direction="prev",
+                query=ChunkCursorQuery(direction="prev"),
             )
 
     @pytest.mark.asyncio
@@ -183,7 +174,7 @@ class TestChunkServiceCursor:
             user_id=10,
             user_kind="internal",
             user_role="admin",
-            content_hashes=["abc123"],
+            query=ChunkCursorQuery(content_hashes=["abc123"]),
         )
 
         assert len(result.items) == 1
@@ -198,7 +189,7 @@ class TestChunkServiceCursor:
             user_id=10,
             user_kind="internal",
             user_role="admin",
-            limit=2,
+            query=ChunkCursorQuery(limit=2),
         )
         assert len(page1.items) == 2
         assert page1.next_cursor is not None
@@ -209,9 +200,7 @@ class TestChunkServiceCursor:
             user_id=10,
             user_kind="internal",
             user_role="admin",
-            limit=2,
-            cursor=page1.next_cursor,
-            direction="next",
+            query=ChunkCursorQuery(limit=2, cursor=page1.next_cursor, direction="next"),
         )
         assert len(page2.items) == 2
         assert page2.next_cursor is not None
@@ -222,9 +211,7 @@ class TestChunkServiceCursor:
             user_id=10,
             user_kind="internal",
             user_role="admin",
-            limit=2,
-            cursor=page2.next_cursor,
-            direction="next",
+            query=ChunkCursorQuery(limit=2, cursor=page2.next_cursor, direction="next"),
         )
         assert len(page3.items) == 1
         assert page3.next_cursor is None
@@ -239,16 +226,14 @@ class TestChunkServiceCursor:
             user_id=10,
             user_kind="internal",
             user_role="admin",
-            limit=2,
+            query=ChunkCursorQuery(limit=2),
         )
         page2 = await service.list_chunks_cursor(
             document_id=1,
             user_id=10,
             user_kind="internal",
             user_role="admin",
-            limit=2,
-            cursor=page1.next_cursor,
-            direction="next",
+            query=ChunkCursorQuery(limit=2, cursor=page1.next_cursor, direction="next"),
         )
 
         # go back
@@ -257,9 +242,7 @@ class TestChunkServiceCursor:
             user_id=10,
             user_kind="internal",
             user_role="admin",
-            limit=2,
-            cursor=page2.prev_cursor,
-            direction="prev",
+            query=ChunkCursorQuery(limit=2, cursor=page2.prev_cursor, direction="prev"),
         )
         assert len(back.items) == 2
         assert back.items[0].chunk_index == page1.items[0].chunk_index
@@ -274,7 +257,7 @@ class TestChunkServiceCursor:
             user_id=10,
             user_kind="internal",
             user_role="admin",
-            limit=100,
+            query=ChunkCursorQuery(limit=100),
         )
 
         indices = [c.chunk_index for c in result.items]

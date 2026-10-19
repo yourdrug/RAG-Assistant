@@ -22,7 +22,7 @@ class TestStemmer:
     def test_russian_stemming(self):
         stemmed = stem_token("маркировка")
         assert len(stemmed) < len("маркировка")
-        assert stemmed == "маркиров"
+        assert stemmed == "маркировк"
 
     def test_english_stemming(self):
         stemmed = stem_token("classification")

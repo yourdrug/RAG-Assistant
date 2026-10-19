@@ -2,9 +2,13 @@
 
 import hashlib
 
+from qdrant_client.models import Modifier, SparseVector
+
 from domain.exceptions import ValidationError
 from infrastructure.bm25.bm25_index import BM25Index
+from infrastructure.bm25.tokenizer import tokenize
 from infrastructure.corpus.snapshot import CorpusSnapshot
+from infrastructure.repositories.vector.sparse_vectors import SPARSE_VECTOR_NAME
 
 
 ACL_FIELDS = ('document_id', 'visibility', 'owner_id', 'group_id', 'content_hash', 'doc_domain')
@@ -34,7 +38,8 @@ def validate_corpus(client, endpoint, name, identity, dimension, rows) -> Corpus
     offset = None
     while True:
         points, offset = client.scroll(
-            collection_name=physical, offset=offset, limit=256, with_payload=True, with_vectors=False
+            collection_name=physical, offset=offset, limit=256,
+            with_payload=True, with_vectors=[SPARSE_VECTOR_NAME]
         )
         for point in points:
             validate_corpus_point(point, expected, seen, identity)
@@ -57,6 +62,13 @@ def validate_corpus_point(point, expected, seen, identity):
     if metadata.get('embedding_model') != identity or payload.get('page_content') != row['content']:
         raise ValidationError('Selected corpus content or embedding identity differs from PostgreSQL')
 
+    vectors = point.vector
+    sparse = vectors.get(SPARSE_VECTOR_NAME) if isinstance(vectors, dict) else None
+    if not isinstance(sparse, SparseVector):
+        raise ValidationError('Selected corpus chunk has no BM25 sparse vector')
+    if not sparse.indices and tokenize(row['content']):
+        raise ValidationError('Selected corpus chunk has an empty BM25 sparse vector for tokenized content')
+
 
 def validate_corpus_binding(client, endpoint, name, identity, dimension):
     names = {item.name for item in client.get_collections().collections}
@@ -68,6 +80,9 @@ def validate_corpus_binding(client, endpoint, name, identity, dimension):
     vectors = info.config.params.vectors
     if getattr(vectors, 'size', None) != dimension:
         raise ValidationError('Selected corpus has incompatible vector dimension')
+    sparse = info.config.params.sparse_vectors or {}
+    if SPARSE_VECTOR_NAME not in sparse or sparse[SPARSE_VECTOR_NAME].modifier != Modifier.IDF:
+        raise ValidationError("Selected corpus has no compatible BM25 sparse index")
     binding = physical + '__embedding_identity'
     fingerprint = hashlib.sha256(identity.encode()).hexdigest()
     if binding not in names:

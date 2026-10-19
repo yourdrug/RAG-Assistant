@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -686,3 +687,42 @@ class TestNotifyIntegration:
         source = inspect.getsource(SQLAlchemyVectorOutboxRepository.enqueue)
         assert "pg_notify" in source
         assert "vector_outbox_ready" in source
+
+
+@pytest.mark.asyncio
+async def test_delete_retries_without_reading_sql_corpus(fake_uow_factory, mock_vector_store, fake_outbox):
+    from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
+
+    mock_vector_store.delete_by_document_id.side_effect = [RuntimeError("Qdrant unavailable"), None]
+    dispatcher = OutboxDispatcher(fake_uow_factory, mock_vector_store)
+    entry = await fake_outbox.enqueue(
+        VectorOutboxEntry(
+            operation=OutboxOperation.DELETE_BY_DOCUMENT,
+            aggregate_id=42,
+            payload={"document_id": 42},
+        )
+    )
+    await dispatcher._apply_one(entry)
+    assert entry.status == OutboxStatus.FAILED
+    await dispatcher._apply_one(entry)
+    assert entry.status == OutboxStatus.DONE
+    assert mock_vector_store.delete_by_document_id.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_late_rename_uses_current_sql_filename(fake_uow_factory, mock_vector_store, fake_outbox):
+    from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
+
+    document = SimpleNamespace(id=42, filename="latest.pdf")
+    fake_uow_factory._uow.documents.get_by_id = AsyncMock(return_value=document)
+    mock_vector_store.update_filename_by_document_id = AsyncMock()
+    entry = await fake_outbox.enqueue(
+        VectorOutboxEntry(
+            operation=OutboxOperation.RENAME_DOCUMENT,
+            aggregate_id=document.id,
+            payload={"document_id": document.id, "filename": "obsolete.pdf"},
+        )
+    )
+    await OutboxDispatcher(fake_uow_factory, mock_vector_store)._apply_one(entry)
+    mock_vector_store.update_filename_by_document_id.assert_awaited_once_with(document.id, "latest.pdf")
+    mock_vector_store.upload_documents.assert_not_awaited()

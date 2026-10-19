@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from application.chunks import ChunkMutationService, ChunkQueryService, ChunkService
+from config import settings
+
+from application.chunks import ChunkMutationService, ChunkQueryService
 from application.documents import DocumentCommandService, ManualDocumentService
 from application.documents.delete import DocumentDeleteCommand
 from application.documents.rename import DocumentRenameCommand
@@ -31,7 +33,6 @@ from typing import TYPE_CHECKING
 from composition.utils import _missing_fields, _require
 from composition.service_providers import create_ingestion_service
 from infrastructure.adapters.chunk_search_adapter import ChunkSearchAdapter
-from infrastructure.bm25.bm25_updater import BM25IndexAdapter
 
 if TYPE_CHECKING:
     from application.chat import ChatLogService
@@ -75,7 +76,9 @@ class ApplicationContainer:
     document_command_service: "DocumentCommandService | None" = field(default=None)
     document_query_service: "DocumentQueryService | None" = field(default=None)
     document_deletion_jobs: "DocumentDeletionJobs | None" = field(default=None)
-    chunk_service: ChunkService | None = field(default=None)
+    chunk_query_service: ChunkQueryService | None = field(default=None)
+    chunk_mutation_service: ChunkMutationService | None = field(default=None)
+    manual_document_service: ManualDocumentService | None = field(default=None)
     config_service: ConfigService | None = field(default=None)
     health_service: HealthService | None = field(default=None)
     metrics_service: MetricsService | None = field(default=None)
@@ -185,7 +188,7 @@ class ApplicationContainer:
         user_ctx_factory = UserContextFactory()
         self.document_command_service = DocumentCommandService(
             upload_command=DocumentUploadCommand(uow, fs, user_ctx_factory, infra.domain_registry),
-            delete_command=DocumentDeleteCommand(uow, fs, BM25IndexAdapter(ml), user_ctx_factory),
+            delete_command=DocumentDeleteCommand(uow, fs, user_ctx_factory),
             rename_command=DocumentRenameCommand(uow, fs, user_ctx_factory),
         )
         self.document_deletion_jobs = DocumentDeletionJobs(
@@ -194,16 +197,13 @@ class ApplicationContainer:
         self.document_query_service = DocumentQueryService(
             uow_factory=uow,
         )
-        self.chunk_service = ChunkService(
-            query_service=ChunkQueryService(uow),
-            mutation_service=ChunkMutationService(
-                uow,
-                LiveChunkSettings(),
-                BM25IndexAdapter(ml),
-                cache_invalidator=infra.services.cache_invalidator,
-            ),
-            manual_document_service=ManualDocumentService(uow),
+        self.chunk_query_service = ChunkQueryService(uow)
+        self.chunk_mutation_service = ChunkMutationService(
+            uow,
+            LiveChunkSettings(),
+            cache_invalidator=infra.services.cache_invalidator,
         )
+        self.manual_document_service = ManualDocumentService(uow)
         self.config_service = ConfigService(
             uow_factory=uow, event_bus=event_bus, provider_configuration=infra.configuration
         )
@@ -229,6 +229,7 @@ class ApplicationContainer:
             pdf_doc=FitzPDFDocument(),
             storage=fs,
             preview_cache=infra.ml.preview_cache,
+            max_dry_run_bytes=settings.preview_max_size_mb * 1024 * 1024,
         )
 
         self.search_service = SearchService(uow_factory=uow)

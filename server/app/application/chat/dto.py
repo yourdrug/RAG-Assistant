@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict
 
 
 if TYPE_CHECKING:
     from datetime import datetime
 
-    from application.uow import UnitOfWork
     from domain.entities.message import Message
     from domain.value_objects.stream_events import UsageReport
 
@@ -24,7 +23,8 @@ class ChatResult:
     output_tokens: int | None = None
 
 
-class ChatLogCreateOptions(TypedDict):
+@dataclass(frozen=True, kw_only=True)
+class CreateChatLogCommand:
     user_id: int
     conv_id: int
     question: str
@@ -34,11 +34,10 @@ class ChatLogCreateOptions(TypedDict):
     depth: str | None
     retrieval_count: int
     reranker_score: float | None
-    model_used: NotRequired[str | None]
-    domain: NotRequired[str | None]
-    input_tokens: NotRequired[int | None]
-    output_tokens: NotRequired[int | None]
-    _existing_uow: NotRequired[UnitOfWork | None]
+    model_used: str | None = None
+    domain: str | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
 
 
 class ChatLogListOptions(TypedDict, total=False):
@@ -52,7 +51,8 @@ class ChatLogListOptions(TypedDict, total=False):
     offset: int
 
 
-class ChatPersistenceOptions(TypedDict):
+@dataclass(frozen=True, kw_only=True)
+class PersistChatCommand:
     conv_id: int
     user_id: int
     question: str
@@ -61,6 +61,6 @@ class ChatPersistenceOptions(TypedDict):
     latency_ms: int
     depth: str | None
     history: list[Message]
-    usage: NotRequired[UsageReport | None]
-    model_used: NotRequired[str | None]
-    domain: NotRequired[str | None]
+    usage: UsageReport | None = None
+    model_used: str | None = None
+    domain: str | None = None

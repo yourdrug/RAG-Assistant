@@ -12,10 +12,9 @@ from domain.value_objects.doc_domain import DocDomain
 
 if TYPE_CHECKING:
     from application.ingestion.loader import S3DocumentLoader
+    from application.ingestion.ports.settings import IngestionSettingsPort
     from application.ingestion.registry import IngestionRegistry
     from application.ingestion.scope import IngestionScope
-    from application.ingestion.settings import IngestionSettingsPort
-    from application.ingestion.sparse_index import SparseIndexBuilder
     from application.ingestion.sync import DocumentSyncService
     from domain.entities.raw_document import RawDocument
     from domain.repositories.vector_store_repository import VectorStoreRepository
@@ -34,14 +33,12 @@ class BatchIngestionWorkflow:
         registry: IngestionRegistry,
         *,
         sync: DocumentSyncService,
-        sparse_index: SparseIndexBuilder,
     ) -> None:
         self._vector_store = vector_store
         self._settings = settings
         self._loader = loader
         self._registry = registry
         self._sync = sync
-        self._sparse_index = sparse_index
 
     async def run(self, docs_dir: str | None, *, reset: bool, scope: IngestionScope) -> None:
         started_at = time.monotonic()
@@ -92,8 +89,6 @@ class BatchIngestionWorkflow:
             group_id=scope.group_id,
             client_id=scope.client_id,
         )
-        await self._sparse_index.update(chunks, reset=reset)
-        # A sparse-index failure must leave the file eligible for a CLI retry.
         await self._registry.persist_entries(entries)
 
         log.info("=" * 55)

@@ -45,7 +45,7 @@ class PyrateRateLimiter:
         *,
         key_prefix: str,
         max_buckets: int,
-        fail_open: bool = True,
+        fail_open: bool,
     ) -> None:
         if not policies:
             raise ValueError("policies must not be empty")

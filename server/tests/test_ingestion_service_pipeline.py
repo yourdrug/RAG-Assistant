@@ -28,7 +28,6 @@ from application.ingestion import IngestionRegistry  # noqa: E402
 from application.ingestion import DocumentSyncService  # noqa: E402
 from application.ingestion import S3IngestionTargets, S3UploadService  # noqa: E402
 from application.ingestion import SingleFileIngestionWorkflow  # noqa: E402
-from application.ingestion import SparseIndexBuilder  # noqa: E402
 from fakes import FakeUnitOfWorkFactory  # noqa: E402
 
 
@@ -117,9 +116,6 @@ def _make_service(**overrides):
             loader,
             registry,
             sync=sync,
-            sparse_index=SparseIndexBuilder(
-                defaults["ingestion_settings"], defaults.get("sparse_index_admin")
-            ),
         ),
         single_file_workflow=SingleFileIngestionWorkflow(defaults["file_storage"], loader, registry, sync),
         registry=registry,
@@ -172,21 +168,21 @@ class TestS3Helpers:
 
 
 # ---------------------------------------------------------------------------
-# validate_s3_key
+# S3IngestionTargets.validate_key
 # ---------------------------------------------------------------------------
 
 
 class TestValidateS3Key:
     def test_valid_key(self):
-        IngestionService.validate_s3_key("docs/file.pdf")
+        S3IngestionTargets.validate_key("docs/file.pdf")
 
     def test_leading_slash_raises(self):
         with pytest.raises(ValueError):
-            IngestionService.validate_s3_key("/docs/file.pdf")
+            S3IngestionTargets.validate_key("/docs/file.pdf")
 
     def test_dotdot_raises(self):
         with pytest.raises(ValueError):
-            IngestionService.validate_s3_key("docs/../file.pdf")
+            S3IngestionTargets.validate_key("docs/../file.pdf")
 
 
 # ---------------------------------------------------------------------------
@@ -316,52 +312,6 @@ class TestParseFile:
         file_item = _make_file_item(extension=".pdf")
         result = svc._batch._loader.parse_file(file_item, tmp_path / "bad.pdf")
         assert result is None
-
-
-# ---------------------------------------------------------------------------
-# _build_sparse_index
-# ---------------------------------------------------------------------------
-
-
-class TestBuildSparseIndex:
-    @pytest.mark.asyncio
-    async def test_skips_when_hybrid_disabled(self):
-        svc = _make_service()
-        svc._batch._sparse_index._settings.hybrid_enabled = False
-        await svc._batch._sparse_index.update([], reset=False)
-        # No error, just returns
-
-    @pytest.mark.asyncio
-    async def test_skips_when_no_port(self):
-        svc = _make_service()
-        svc._batch._sparse_index._admin = None
-        svc._batch._sparse_index._settings.hybrid_enabled = True
-        await svc._batch._sparse_index.update([], reset=False)
-        # No error, just returns with warning
-
-    @pytest.mark.asyncio
-    async def test_reset_calls_rebuild(self):
-        svc = _make_service()
-        mock_admin = AsyncMock()
-        svc._batch._sparse_index._admin = mock_admin
-        svc._batch._sparse_index._settings.hybrid_enabled = True
-        chunks = [Document(page_content="hello world"), Document(page_content="foo bar")]
-        await svc._batch._sparse_index.update(chunks, reset=True)
-        mock_admin.rebuild.assert_called_once()
-        call_args = mock_admin.rebuild.call_args[0][0]
-        assert len(call_args) == 2
-        assert call_args[0].text == "hello world"
-        assert call_args[1].text == "foo bar"
-
-    @pytest.mark.asyncio
-    async def test_append_calls_extend(self):
-        svc = _make_service()
-        mock_admin = AsyncMock()
-        svc._batch._sparse_index._admin = mock_admin
-        svc._batch._sparse_index._settings.hybrid_enabled = True
-        chunks = [Document(page_content="test content")]
-        await svc._batch._sparse_index.update(chunks, reset=False)
-        mock_admin.extend.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

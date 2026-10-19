@@ -18,6 +18,7 @@ class OutboxOperation(StrEnum):
     UPSERT_CHUNKS = "upsert_chunks"
     DELETE_BY_DOCUMENT = "delete_by_document"
     DELETE_CHUNKS = "delete_chunks"
+    RENAME_DOCUMENT = "rename_document"
     UPDATE_METADATA = "update_metadata"
     SET_DOCUMENT_ID = "set_document_id"
 

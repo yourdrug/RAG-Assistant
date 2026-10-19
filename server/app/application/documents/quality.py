@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 
 if TYPE_CHECKING:
-    from application.documents.processing_ports import (
+    from application.documents.ports.processing import (
         MetricsCollectorPort,
         PDFQualityAssessorPort,
         TextQualityAssessorPort,

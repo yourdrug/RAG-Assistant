@@ -7,6 +7,7 @@ import base64
 import logging
 from pathlib import Path
 
+from domain.value_objects.visibility import DocumentVisibility
 from domain.exceptions import ServerException
 from domain.value_objects.file_backend import FileBackend
 from domain.value_objects.doc_domain import DocDomain
@@ -353,7 +354,7 @@ async def get_page_image(
 )
 async def index_from_preview(
     preview_id: str,
-    visibility: str = Form("internal_public"),
+    visibility: str = Form(DocumentVisibility.INTERNAL_PUBLIC.value),
     group_id: int | None = Form(None),
     client_id: int | None = Form(None),
     doc_domain: DocDomain | None = Form(None),

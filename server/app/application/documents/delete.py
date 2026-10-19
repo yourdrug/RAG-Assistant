@@ -13,9 +13,8 @@ from domain.value_objects.roles import UserKind
 
 if TYPE_CHECKING:
     from application.identity import UserContextFactory
-    from application.ports.bm25_index import BM25IndexPort
     from application.ports.file_storage import FileStorage
-    from application.uow import UnitOfWork, UnitOfWorkFactory
+    from application.uow import UnitOfWorkFactory
 
 
 log = logging.getLogger("default")
@@ -28,20 +27,11 @@ class DocumentDeleteCommand:
         self,
         uow_factory: UnitOfWorkFactory,
         file_storage: FileStorage,
-        bm25_index: BM25IndexPort,
         user_ctx_factory: UserContextFactory,
     ) -> None:
         self._uow_factory = uow_factory
         self._file_storage = file_storage
-        self._bm25_index = bm25_index
         self._user_ctx_factory = user_ctx_factory
-
-    async def remove_document_from_bm25(self, uow: UnitOfWork, document_id: int) -> None:
-        chunks, _ = await uow.chunks.list_for_document(document_id, limit=10000)
-
-        for chunk in chunks:
-            if chunk.content_hash is not None:
-                await self._bm25_index.remove(chunk.content_hash)
 
     async def execute(
         self, document_id: int, user_id: int, user_role: str, user_kind: str = UserKind.INTERNAL
@@ -56,7 +46,6 @@ class DocumentDeleteCommand:
             ctx = await self._user_ctx_factory.build(uow, user_id, user_kind, user_role)
             check_ownership(doc, ctx, "delete")
             await enqueue_delete_by_document(uow, document_id)
-            await self.remove_document_from_bm25(uow, document_id)
             source_path = doc.source_path
             await uow.conversations.clear_summaries_referencing(document_id)
             await uow.documents.delete(document_id)

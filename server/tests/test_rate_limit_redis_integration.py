@@ -49,7 +49,9 @@ async def test_rate_limit_round_trip_on_real_redis():
         await client.aclose()
         pytest.skip(f"real Redis unavailable at {url}: {exc}")
 
-    limiter = PyrateRateLimiter(client, _policies(), key_prefix="test:integration:rl:", max_buckets=10)
+    limiter = PyrateRateLimiter(
+        client, _policies(), key_prefix="test:integration:rl:", max_buckets=10, fail_open=True
+    )
     try:
         await client.flushdb()
         assert (await limiter.check(RateLimitPolicyName.LOGIN, "ip:1")).allowed is True

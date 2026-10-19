@@ -10,7 +10,7 @@ import time
 from typing import TYPE_CHECKING
 
 from application.indexing import classify_domain, tag_chunks, tag_domain
-from application.ingestion.parser import FileMeta, SplitContext
+from application.ingestion.ports.parser import FileMeta, SplitContext
 from application.ingestion.registry import s3_file_hash
 from domain.entities.raw_document import RawDocument
 from domain.services.document_domain_classifier import classify_document_domain
@@ -21,9 +21,9 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from application.ingestion.dto import RegistryRecord
-    from application.ingestion.parser import DocumentParserPort, DocumentSplitterPort
+    from application.ingestion.ports.parser import DocumentParserPort, DocumentSplitterPort
+    from application.ingestion.ports.settings import IngestionSettingsPort
     from application.ingestion.registry import IngestionRegistry
-    from application.ingestion.settings import IngestionSettingsPort
     from application.ports.file_storage import FileItem, FileStorage
     from domain.domain_profile.protocol import DomainProfile
     from domain.domain_profile.registry import DomainProfileRegistry
@@ -71,14 +71,6 @@ class S3DocumentLoader:
             return None
         else:
             return docs or None
-
-    def base_metadata(self, source: FileItem) -> dict[str, str | int]:
-        return {
-            "source": self.s3_source_key(source),
-            "filename": source.filename,
-            "extension": source.extension,
-            "size_bytes": source.size_bytes,
-        }
 
     def split_docs(
         self, docs: list[RawDocument], *, source_domains: dict[str, str] | None = None

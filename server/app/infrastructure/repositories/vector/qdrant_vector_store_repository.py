@@ -16,9 +16,9 @@ from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
 from infrastructure.repositories.vector.qdrant_ops import ensure_collection, upload_to_qdrant
 from infrastructure.resilience.retry import retry_on_transient
 
-log = logging.getLogger("default")
+from infrastructure.repositories.vector.sparse_vectors import point_vectors
 
-_BATCH_SIZE = 100
+log = logging.getLogger("default")
 
 
 class QdrantVectorStoreRepository:
@@ -94,7 +94,9 @@ class QdrantVectorStoreRepository:
             if not isinstance(identity, str) or not identity:
                 raise ValueError("Vector payload must declare its originating embedding_model")
             ensure_embedding_identity(client, identity)
-            point = PointStruct(id=point_id, vector=vector, payload=payload)
+            point = PointStruct(
+                id=point_id, vector=point_vectors(payload["page_content"], vector), payload=payload
+            )
             client.upsert(collection_name=settings.collection_name, points=[point])
 
         await asyncio.to_thread(_upsert)
@@ -188,47 +190,11 @@ class QdrantVectorStoreRepository:
 
     @staticmethod
     def _patch_metadata(client, points_filter: Filter, metadata_updates: dict) -> None:
-        """Read matching points, merge metadata_updates, and write back.
-
-        Includes a 30-second safety timeout to prevent unbounded thread pool occupation.
-        Raises ``RuntimeError`` if the timeout is exceeded before all points are processed.
-        """
-        import time
-
-        _PATCH_TIMEOUT_SEC = 30
-        t_start = time.monotonic()
-        offset = None
-        while True:
-            if time.monotonic() - t_start > _PATCH_TIMEOUT_SEC:
-                log.error(
-                    "_patch_metadata: timed out after %ds — partial update possible",
-                    _PATCH_TIMEOUT_SEC,
-                )
-                raise RuntimeError(
-                    f"_patch_metadata timed out after {_PATCH_TIMEOUT_SEC}s. "
-                    "Some points may not have been updated."
-                )
-            result, offset = client.scroll(
-                collection_name=settings.collection_name,
-                scroll_filter=points_filter,
-                limit=_BATCH_SIZE,
-                offset=offset,
-                with_payload=True,
-                with_vectors=False,
-            )
-            if not result:
-                break
-
-            for point in result:
-                payload = point.payload or {}
-                metadata = payload.get("metadata", {})
-                metadata.update(metadata_updates)
-                payload["metadata"] = metadata
-                client.set_payload(
-                    collection_name=settings.collection_name,
-                    payload=payload,
-                    points=[point.id],
-                )
-
-            if offset is None:
-                break
+        """Patch only selected metadata keys without reading or replacing vectors."""
+        client.set_payload(
+            collection_name=settings.collection_name,
+            payload=metadata_updates,
+            points=points_filter,
+            key="metadata",
+            wait=True,
+        )

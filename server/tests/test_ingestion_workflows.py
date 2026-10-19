@@ -20,7 +20,7 @@ from domain.value_objects.visibility import DocumentVisibility
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("failure", [None, "sync", "sparse"])
+@pytest.mark.parametrize("failure", [None, "sync"])
 async def test_batch_workflow_syncs_before_recording_registry_entry(failure):
     source = "s3://bucket/docs/report.pdf"
     document = Document(page_content="report text", metadata={"source": source})
@@ -58,18 +58,7 @@ async def test_batch_workflow_syncs_before_recording_registry_entry(failure):
             raise ConnectionError("sync unavailable")
 
     sync.sync_documents_to_db = AsyncMock(side_effect=sync_documents)
-    sparse_index = MagicMock()
-
-    async def update_sparse(*args, **kwargs):
-        events.append("sparse")
-        if failure == "sparse":
-            raise ConnectionError("sparse unavailable")
-
-    sparse_index.update = AsyncMock(side_effect=update_sparse)
-
-    workflow = BatchIngestionWorkflow(
-        vector_store, settings, loader, registry, sync=sync, sparse_index=sparse_index
-    )
+    workflow = BatchIngestionWorkflow(vector_store, settings, loader, registry, sync=sync)
     scope = IngestionScope(
         visibility=DocumentVisibility.INTERNAL_GROUP,
         group_id=7,
@@ -85,12 +74,7 @@ async def test_batch_workflow_syncs_before_recording_registry_entry(failure):
     assert chunk.metadata["group_id"] == 7
     assert chunk.metadata["client_id"] == 9
     assert chunk.metadata["doc_domain"] == "general"
-    expected = {"sync": ["sync"], "sparse": ["sync", "sparse"], None: ["sync", "sparse", "registry"]}
-    assert events == expected[failure]
-    if failure == "sync":
-        sparse_index.update.assert_not_awaited()
-    else:
-        sparse_index.update.assert_awaited_once_with([chunk], reset=False)
+    assert events == (["sync"] if failure else ["sync", "registry"])
     if failure:
         registry.persist_entries.assert_not_awaited()
     else:

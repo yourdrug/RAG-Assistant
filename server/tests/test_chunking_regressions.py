@@ -325,7 +325,7 @@ async def test_api_content_processor_and_cli_construct_identical_final_chunks(tm
         original_filename=filename,
         doc_domain=DocDomain.GENERAL.value,
     )
-    api_chunks = await processor.split(ctx)
+    api_chunks = await processor.split(ctx.docs, ctx.original_filename, ctx.doc_domain)
     meta = FileMeta("s3://bucket/" + filename, filename, ".md", path.stat().st_size)
     cli_chunks = IngestionDocumentSplitter(splitter).split(
         IngestionDocumentParser(parser).parse(path, meta), SplitContext()

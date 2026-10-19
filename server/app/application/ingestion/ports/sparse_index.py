@@ -15,6 +15,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
+from domain.value_objects.visibility import DocumentVisibility
+
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -32,7 +34,7 @@ class ChunkRef:
 
     text: str
     content_hash: str
-    visibility: str = field(default="internal_public")
+    visibility: str = field(default=DocumentVisibility.INTERNAL_PUBLIC.value)
     owner_id: int | None = None
     group_id: int | None = None
 

@@ -5,12 +5,13 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from application.ingestion.sparse_index_port import ChunkRef
+from application.ingestion.ports.sparse_index import ChunkRef
+from domain.value_objects.visibility import DocumentVisibility
 
 
 if TYPE_CHECKING:
-    from application.ingestion.settings import IngestionSettingsPort
-    from application.ingestion.sparse_index_port import SparseIndexAdminPort
+    from application.ingestion.ports.settings import IngestionSettingsPort
+    from application.ingestion.ports.sparse_index import SparseIndexAdminPort
     from domain.entities.raw_document import RawDocument
 
 log = logging.getLogger("default")
@@ -39,7 +40,7 @@ class SparseIndexBuilder:
             ChunkRef(
                 text=chunk.page_content,
                 content_hash=chunk.metadata.get("content_hash", ""),
-                visibility=chunk.metadata.get("visibility", "internal_public"),
+                visibility=chunk.metadata.get("visibility", DocumentVisibility.INTERNAL_PUBLIC.value),
                 owner_id=chunk.metadata.get("owner_id"),
                 group_id=chunk.metadata.get("group_id"),
             )

@@ -176,7 +176,7 @@ async def test_document_worker_defers_same_owner_and_admits_other_owner():
     "operation,index_method", [("edit", "replace"), ("add", "add"), ("delete", "remove")]
 )
 @pytest.mark.parametrize("fail_commit", [False, True])
-async def test_bm25_mutates_only_after_successful_commit(monkeypatch, operation, index_method, fail_commit):
+async def test_chunk_vectors_are_deferred_to_outbox(monkeypatch, operation, index_method, fail_commit):
     from application.chunks import ChunkMutationService
     from domain.value_objects.document_status import DocumentStatus
 
@@ -216,7 +216,7 @@ async def test_bm25_mutates_only_after_successful_commit(monkeypatch, operation,
     index = AsyncMock()
     getattr(index, index_method).side_effect = lambda *args, **kwargs: events.append("indexed")
     factory = SimpleNamespace(create=lambda **kwargs: Transaction())
-    service = ChunkMutationService(factory, SimpleNamespace(chunk_size=100), index)
+    service = ChunkMutationService(factory, SimpleNamespace(chunk_size=100))
     service.update_document_stats = AsyncMock()
     monkeypatch.setattr(
         "application.chunks.mutations.load_doc_for_edit",
@@ -239,7 +239,8 @@ async def test_bm25_mutates_only_after_successful_commit(monkeypatch, operation,
         getattr(index, index_method).assert_not_awaited()
     else:
         await action
-        assert events == ["committed", "indexed"]
+        assert events == ["committed"]
+        getattr(index, index_method).assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -411,3 +412,56 @@ class _CacheContractPipeline:
             else:
                 raise AssertionError(f"Unexpected Redis command: {name}")
         return result
+
+
+@pytest.fixture
+def startup_container(monkeypatch):
+    import main
+
+    container = MagicMock()
+    container.dispose = AsyncMock()
+    monkeypatch.setattr(main, "Container", MagicMock(return_value=container))
+    monkeypatch.setattr(main.logging.config, "dictConfig", MagicMock())
+    monkeypatch.setattr(main, "attach_log_buffer", MagicMock())
+    monkeypatch.setattr(main.redis_client, "init", AsyncMock())
+    monkeypatch.setattr(main.redis_client, "aclose", AsyncMock())
+    monkeypatch.setattr(main.database, "connect", AsyncMock())
+    monkeypatch.setattr(main.database, "disconnect", AsyncMock())
+    monkeypatch.setattr(main, "bootstrap_admin", AsyncMock())
+    monkeypatch.setattr(main, "collect_infra_metrics", AsyncMock())
+    monkeypatch.setattr(main.scheduler, "startup", AsyncMock())
+    monkeypatch.setattr(main.scheduler, "shutdown", AsyncMock())
+    monkeypatch.setattr("infrastructure.worker.queue.close_arq_pool", AsyncMock())
+    return container
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("compatible", [False, True])
+async def test_startup_propagates_collection_error_and_disposes_resources(
+    startup_container,
+    compatible: bool,
+) -> None:
+    import main
+
+    container = startup_container
+    infrastructure = container.infrastructure
+    infrastructure.bootstrap_configuration = AsyncMock()
+    infrastructure.events.config_listener.start = AsyncMock()
+    infrastructure.events.outbox_listener.start = AsyncMock()
+    infrastructure.ml.vector_store_repo.ensure_collection = AsyncMock(
+        side_effect=None if compatible else ValueError("incompatible sparse index"),
+    )
+    application = SimpleNamespace(state=SimpleNamespace())
+    if compatible:
+        async with main.lifespan(application):
+            assert application.state.container is container
+        main.scheduler.startup.assert_awaited_once()
+    else:
+        with pytest.raises(ValueError, match="incompatible sparse index"):
+            async with main.lifespan(application):
+                pytest.fail("incompatible collection admitted requests")
+        main.scheduler.startup.assert_not_awaited()
+    container.dispose.assert_awaited_once()
+    main.database.disconnect.assert_awaited_once()
+    main.redis_client.aclose.assert_awaited_once()
+    assert application.state.container is None

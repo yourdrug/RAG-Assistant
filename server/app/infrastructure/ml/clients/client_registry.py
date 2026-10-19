@@ -27,7 +27,7 @@ from domain.exceptions.domain_errors import SemaphoreTimeoutError
 from domain.value_objects.llm_provider import LLMProvider
 
 from infrastructure.bm25.bm25_index import BM25Index
-from infrastructure.bm25.persistence import BM25LoadError, BM25SnapshotNotReady
+from infrastructure.bm25.persistence import BM25SnapshotNotReady
 from infrastructure.storage.file_storage import finish_owned_task, run_storage_io
 from infrastructure.ml.clients import factories
 from infrastructure.ml.clients.instructor_client import create_async_instructor_client
@@ -203,11 +203,6 @@ class MLClientRegistry(MLClientPort):
         if not isinstance(client, BoundQdrantClient):
             yield
             return
-        if not self.bm25_state()[0]:
-            try:
-                await self.ensure_bm25_loaded()
-            except BM25LoadError:
-                log.warning("BM25 snapshot unavailable; using dense search", exc_info=True)
         # Loading can span a corpus switch. Select and lease the published pair without awaits.
         client = self.qdrant_client()
         with client.lease():

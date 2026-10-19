@@ -9,15 +9,18 @@ from langchain.schema import Document as SearchDocument
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, Filter, PointStruct, VectorParams
 
-from application.act_versioning import VersioningResult
 from application.act_versioning import ActVersioningService
+from application.documents.dto import PersistDocumentCommand, PreparedDocumentVersioning
 from application.documents.persistence import persist_document_result
+from application.ingestion import DocumentSyncService
 from domain.domain_profile.date_parsing import parse_date_guess
 from domain.domain_profile.profiles.decree import DecreeDomainProfile
 from domain.domain_profile.profiles.legal import LegalDomainProfile
 from domain.domain_profile.protocol import ReferenceMatch
 from domain.entities.document import Document
 from domain.entities.raw_document import RawDocument
+from domain.entities.vector_outbox_entry import OutboxOperation
+from domain.value_objects.visibility import DocumentVisibility
 from domain.repositories.chunk_repository import ChunkSearchResult
 from domain.exceptions import ValidationError
 from domain.value_objects.stream_events import MetaEvent
@@ -211,21 +214,21 @@ async def persist(factory, service, document_id, text):
     plan = await service.prepare_document_versioning(profile, text)
     return await persist_document_result(
         factory,
-        document_id=document_id,
-        original_filename=f"{document_id}.rtf",
-        raw_chunks=[RawDocument(page_content=text, metadata={})],
-        visibility="internal_public",
-        owner_id=None,
-        group_id=None,
-        doc_domain="decree",
-        replace_id=None,
-        warning_message=None,
-        quality=None,
-        storage_deletes=[],
+        PersistDocumentCommand(
+            document_id=document_id,
+            original_filename=f"{document_id}.rtf",
+            raw_chunks=[RawDocument(page_content=text, metadata={})],
+            visibility=DocumentVisibility.INTERNAL_PUBLIC,
+            owner_id=None,
+            group_id=None,
+            doc_domain="decree",
+            replace_id=None,
+            warning_message=None,
+            quality=None,
+            storage_deletes=[],
+            versioning=PreparedDocumentVersioning(plan, profile) if plan is not None else None,
+        ),
         domain_registry=None,
-        versioning=VersioningResult(None, None, None, None, None),
-        versioning_plan=plan,
-        versioning_profile=profile,
         act_versioning_service=service,
     )
 
@@ -442,3 +445,65 @@ async def test_backfill_after_future_edition_takes_effect_cannot_become_latest(m
     Clock.current = date(2100, 1, 1)
     backfilled = await upload(service, 3, date(2098, 1, 1))
     assert not backfilled.is_current and backfilled.effective_to == date(2099, 1, 1)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", ["upload", "cli"])
+@pytest.mark.parametrize("outbox_failure", [False, True])
+async def test_prepared_edition_and_chunks_share_transaction(path, outbox_failure, monkeypatch):  # noqa: PLR0915
+    factory, service, cache = system()
+    put_document(factory, 1)
+    put_document(factory, 2)
+    original = await upload(service, 1, date(2020, 1, 1))
+    cache.invalidate_by_document_ids.reset_mock()
+    text = "УКАЗ №5 от 1 января 2020 г.\nВступает в силу с 01.01.2024."
+    uow = factory._uow
+    entries_before = dict(uow.vector_outbox._entries)
+    enqueue = uow.vector_outbox.enqueue
+
+    async def enqueue_with_failure(entry):
+        await enqueue(entry)
+        if entry.operation == OutboxOperation.UPSERT_CHUNKS:
+            # The edition already exists when chunk projection fails.
+            assert len(await uow.act_versions.list_by_act(original.act_id)) == 2
+            msg = "chunk outbox failed"
+            raise RuntimeError(msg)
+
+    if outbox_failure:
+        monkeypatch.setattr(uow.vector_outbox, "enqueue", enqueue_with_failure)
+
+    async def execute():
+        if path == "upload":
+            await persist(factory, service, 2, text)
+            return
+        profile = DecreeDomainProfile(settings=Settings())
+        sync = DocumentSyncService(factory, service, SimpleNamespace(get=lambda _key: profile))
+        await sync.sync_one_document(
+            "2.rtf",
+            2,
+            "s3://docs/2.rtf",
+            [RawDocument(page_content=text, metadata={"doc_domain": profile.key})],
+            full_text=text,
+            visibility=DocumentVisibility.INTERNAL_PUBLIC,
+            owner_id=None,
+            group_id=None,
+        )
+
+    if outbox_failure:
+        with pytest.raises(RuntimeError, match="chunk outbox failed"):
+            await execute()
+        assert uow._rolled_back
+        assert len(await uow.act_versions.list_by_act(original.act_id)) == 1
+        restored = await uow.act_versions.get_by_id(original.id)
+        assert restored.effective_to is None and restored.is_current
+        assert uow.chunks._chunks == []
+        assert uow.vector_outbox._entries == entries_before
+        cache.invalidate_by_document_ids.assert_not_awaited()
+    else:
+        await execute()
+        assert uow._committed
+        versions = await uow.act_versions.list_by_act(original.act_id)
+        created = next(v for v in versions if v.document_id == 2)
+        assert created.effective_from == date(2024, 1, 1)
+        assert uow.chunks._chunks[-1]["act_version_id"] == created.id
+        cache.invalidate_by_document_ids.assert_awaited_once()

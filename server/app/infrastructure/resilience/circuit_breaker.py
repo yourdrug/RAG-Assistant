@@ -66,8 +66,8 @@ class LLMCircuitBreaker:
 
     def __init__(
         self,
-        fail_max: int = 5,
-        timeout_duration: int = 300,
+        fail_max: int,
+        timeout_duration: int,
         operation_name: str = "llm",
     ) -> None:
         self._fail_max = fail_max
@@ -206,8 +206,8 @@ def get_breaker(name: str) -> LLMCircuitBreaker:
 
 
 def init_breakers(
-    fail_max: int = 5,
-    timeout_duration: int = 300,
+    fail_max: int,
+    timeout_duration: int,
 ) -> None:
     """Create the standard LLM breakers.  Call once during app startup."""
     _breakers.clear()

@@ -9,20 +9,27 @@ from application.ingestion.dto import (
     IngestStatusResult,
     RegistryRecord,
     SyncOneDocumentOptions,
-    UploadFile,
 )
 from application.ingestion.loader import (
     S3DocumentLoader,
 )
-from application.ingestion.parser import (
+from application.ingestion.ports.ingestion import (
+    IngestionPort,
+)
+from application.ingestion.ports.parser import (
     DocumentParserPort,
     DocumentSplitterPort,
     FileMeta,
     SplitContext,
 )
-from application.ingestion.port import (
-    IngestionPort,
+from application.ingestion.ports.settings import (
+    IngestionSettingsPort,
 )
+from application.ingestion.ports.sparse_index import (
+    ChunkRef,
+    SparseIndexAdminPort,
+)
+from application.ingestion.ports.upload import UploadFile
 from application.ingestion.registry import (
     IngestionRegistry,
 )
@@ -32,18 +39,11 @@ from application.ingestion.scope import (
 from application.ingestion.service import (
     IngestionService,
 )
-from application.ingestion.settings import (
-    IngestionSettingsPort,
-)
 from application.ingestion.single_file import (
     SingleFileIngestionWorkflow,
 )
 from application.ingestion.sparse_index import (
     SparseIndexBuilder,
-)
-from application.ingestion.sparse_index_port import (
-    ChunkRef,
-    SparseIndexAdminPort,
 )
 from application.ingestion.sync import (
     DocumentSyncService,

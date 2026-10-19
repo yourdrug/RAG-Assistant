@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from config import settings
+from domain.value_objects.source_type import SourceType
 from domain.entities.document import Document
 from domain.exceptions import EntityNotFound, UniqueConstraintViolation
 from domain.services import get_visibility_conditions
@@ -313,7 +314,7 @@ class SQLAlchemyDocumentRepository:
         result = await self._db.execute(
             select(DocumentModel).where(
                 DocumentModel.owner_id.is_(None),
-                DocumentModel.source_type != "manual",
+                DocumentModel.source_type != SourceType.MANUAL.value,
             )
         )
         orms = result.scalars().all()

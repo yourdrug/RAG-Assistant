@@ -9,6 +9,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from domain.entities.regulatory_act import RegulatoryAct
+from domain.value_objects.visibility import DocumentVisibility
 from infrastructure.database.models import RegulatoryActModel
 
 
@@ -33,7 +34,7 @@ class SQLAlchemyRegulatoryActRepository:
         act_type: str,
         act_number: str | None,
         act_date: date | None = None,
-        visibility_scope: str = "internal_public",
+        visibility_scope: str = DocumentVisibility.INTERNAL_PUBLIC.value,
     ) -> RegulatoryAct | None:
         stmt = (
             select(RegulatoryActModel)

@@ -9,7 +9,6 @@ from langchain.schema import Document
 from qdrant_client.models import Filter
 
 from domain.value_objects.visibility import DocumentVisibility
-from infrastructure.bm25.bm25_index import BM25Index
 from infrastructure.benchmark.sweep_data import SweepDataSource
 from infrastructure.benchmark.sweep_reranking import cache_reranker_scores
 from infrastructure.benchmark.sweep_scoring import cache_candidates
@@ -17,19 +16,12 @@ from infrastructure.benchmark.sweep_strategies import SweepCancelled
 
 
 @pytest.mark.asyncio
-async def test_sweep_candidates_forward_acl_to_real_bm25():
+async def test_sweep_candidates_forward_acl_to_qdrant_sparse():
     visibilities = list(DocumentVisibility)
-    hashes = [visibility.value for visibility in visibilities]
-    bm25 = BM25Index(
-        texts=["benchmark evidence"] * len(visibilities),
-        hashes=hashes,
-        doc_visibility=hashes,
-        doc_owner_id=[99] * len(visibilities),
-        doc_group_id=[99] * len(visibilities),
-    )
     allowed = set(visibilities) - {DocumentVisibility.CLIENT_PRIVATE}
     points = [
         SimpleNamespace(
+            id=visibility.value,
             score=1.0,
             payload={
                 "page_content": "benchmark evidence",
@@ -42,7 +34,6 @@ async def test_sweep_candidates_forward_acl_to_real_bm25():
     clients = SimpleNamespace(
         qdrant_client=lambda: client,
         embeddings=lambda: SimpleNamespace(embed_query_sync=lambda query: [0.1]),
-        ensure_bm25_loaded=AsyncMock(return_value=bm25),
     )
     data = SweepDataSource(None, clients)
 
@@ -106,28 +97,29 @@ async def test_owned_reranker_is_closed_and_failures_propagate(monkeypatch, fail
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("injected_clients", [False, True])
-async def test_sparse_only_chunks_are_resolved_with_acl_before_reranking(monkeypatch, injected_clients):
+async def test_sparse_only_payload_is_available_for_reranking(monkeypatch, injected_clients):
     from infrastructure.ml.clients import factories
 
     dense_point = SimpleNamespace(
+        id="dense",
         score=0.9,
         payload={"page_content": "article 29", "metadata": {"content_hash": "dense", "source": "law.pdf"}},
     )
     sparse_point = SimpleNamespace(
-        payload={"page_content": "article 17", "metadata": {"content_hash": "sparse", "source": "law.pdf"}}
+        id="sparse",
+        score=1.0,
+        payload={"page_content": "article 17", "metadata": {"content_hash": "sparse", "source": "law.pdf"}},
     )
     client = SimpleNamespace(
-        search=MagicMock(return_value=[dense_point]), scroll=MagicMock(return_value=([sparse_point], None))
+        search=MagicMock(side_effect=[[dense_point], [sparse_point]]), scroll=MagicMock()
     )
     embeddings = SimpleNamespace(embed_query_sync=lambda query: [0.1])
-    bm25 = SimpleNamespace(search_with_hashes=MagicMock(return_value=[("sparse", 1)]))
     acl = Filter(must_not=[])
     clients = None
     if injected_clients:
         clients = SimpleNamespace(
             qdrant_client=lambda: client,
             embeddings=lambda: embeddings,
-            ensure_bm25_loaded=AsyncMock(return_value=bm25),
             qdrant_search_semaphore=asyncio.Semaphore(1),
         )
     else:
@@ -135,20 +127,23 @@ async def test_sparse_only_chunks_are_resolved_with_acl_before_reranking(monkeyp
         monkeypatch.setattr(factories, "create_embeddings", lambda: embeddings)
 
     dense, sparse, candidates = await cache_candidates(
-        [{"question": "q"}],
+        [{"question": "query"}],
         2,
         ml_clients=clients,
         access_filter=acl,
-        bm25_loader=AsyncMock(return_value=bm25),
+        visibility_conditions=[object()],
+        user_id=0,
+        user_group_ids=[],
     )
     assert client.search.call_args.kwargs["query_filter"] is acl
-    assert acl in client.scroll.call_args.kwargs["scroll_filter"].must
+    assert all(call.kwargs["query_filter"] is acl for call in client.search.call_args_list)
+    client.scroll.assert_not_called()
     assert candidates["sparse"].page_content == "article 17"
     predict = AsyncMock(return_value=[0.1, 0.9])
     scores = await cache_reranker_scores(
-        [{"question": "q"}], dense, sparse, candidates, SimpleNamespace(predict=predict)
+        [{"question": "query"}], dense, sparse, candidates, SimpleNamespace(predict=predict)
     )
-    assert scores == {"q": {"dense": 0.1, "sparse": 0.9}}
+    assert scores == {"query": {"dense": 0.1, "sparse": 0.9}}
 
 
 @pytest.mark.asyncio
@@ -160,7 +155,6 @@ async def test_sparse_resolution_without_acl_fails_closed(monkeypatch):
     monkeypatch.setattr(
         factories, "create_embeddings", lambda: SimpleNamespace(embed_query_sync=lambda q: [])
     )
-    loader = AsyncMock(return_value=SimpleNamespace(search_with_hashes=lambda *a, **k: [("hash", 1)]))
-    with pytest.raises(RuntimeError, match="ACL filter"):
-        await cache_candidates([{"question": "q"}], 2, bm25_loader=loader)
+    with pytest.raises(RuntimeError, match="ACL scope"):
+        await cache_candidates([{"question": "q"}], 2)
     client.scroll.assert_not_called()

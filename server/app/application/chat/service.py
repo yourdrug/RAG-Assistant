@@ -11,9 +11,9 @@ from dataclasses import dataclass
 import html
 import logging
 import time
-from typing import TYPE_CHECKING, Any, Unpack
+from typing import TYPE_CHECKING, Any
 
-from application.chat.dto import ChatResult
+from application.chat.dto import ChatResult, CreateChatLogCommand, PersistChatCommand
 from application.identity import UserContextFactory
 from domain.entities.message import Message
 from domain.exceptions import BusinessRuleViolation
@@ -34,7 +34,6 @@ if TYPE_CHECKING:
     from datetime import date
 
     from application.chat.conversations import ConversationService
-    from application.chat.dto import ChatPersistenceOptions
     from application.chat.logs import ChatLogService
     from application.chat.ports import ChatRAGPort, ChatSettingsPort, PIIRedactorPort
     from application.uow import UnitOfWorkFactory
@@ -145,62 +144,55 @@ class ChatService:
         pii_question = self._pii_redactor.redact(question)
         return ChatSetup(conv=conv, history=history, ctx=ctx, pii_question=pii_question)
 
-    async def persist_chat(self, **options: Unpack[ChatPersistenceOptions]) -> None:
-        conv_id = options["conv_id"]
-        user_id = options["user_id"]
-        question = options["question"]
-        full_answer = options["full_answer"]
-        sources = options["sources"]
-        latency_ms = options["latency_ms"]
-        depth = options["depth"]
-        history = options["history"]
-        usage = options.get("usage")
-        model_used = options.get("model_used")
-        domain = options.get("domain")
-        safe_question = html.escape(question)
+    async def persist_chat(self, command: PersistChatCommand) -> None:
+        safe_question = html.escape(command.question)
         async with self._uow_factory.create(master=True) as uow:
             await uow.messages.save(
                 Message(
-                    conversation_id=conv_id,
+                    conversation_id=command.conv_id,
                     role=MessageRole.USER,
                     content=safe_question,
                 )
             )
             await uow.messages.save(
                 Message(
-                    conversation_id=conv_id,
+                    conversation_id=command.conv_id,
                     role=MessageRole.ASSISTANT,
-                    content=full_answer,
-                    sources=sources,
+                    content=command.full_answer,
+                    sources=command.sources,
                 )
             )
             await self._chat_log_service.create(
-                user_id=user_id,
-                conv_id=conv_id,
-                question=question,
-                full_answer=full_answer,
-                sources=sources,
-                latency_ms=latency_ms,
-                depth=depth,
-                retrieval_count=len(sources),
-                reranker_score=compute_reranker_score(sources),
-                model_used=model_used,
-                domain=domain,
-                input_tokens=usage.input_tokens if usage else None,
-                output_tokens=usage.output_tokens if usage else None,
-                _existing_uow=uow,
+                CreateChatLogCommand(
+                    user_id=command.user_id,
+                    conv_id=command.conv_id,
+                    question=command.question,
+                    full_answer=command.full_answer,
+                    sources=command.sources,
+                    latency_ms=command.latency_ms,
+                    depth=command.depth,
+                    retrieval_count=len(command.sources),
+                    reranker_score=compute_reranker_score(command.sources),
+                    model_used=command.model_used,
+                    domain=command.domain,
+                    input_tokens=command.usage.input_tokens if command.usage else None,
+                    output_tokens=command.usage.output_tokens if command.usage else None,
+                ),
+                uow=uow,
             )
 
-        if usage:
+        if command.usage:
             log.info(
                 "chat_token_usage conversation=%d input=%s output=%s model=%s",
-                conv_id,
-                usage.input_tokens,
-                usage.output_tokens,
-                usage.model,
+                command.conv_id,
+                command.usage.input_tokens,
+                command.usage.output_tokens,
+                command.usage.model,
             )
 
-        await self._conversation_service.update_rolling_summary(conv_id, question, full_answer, history)
+        await self._conversation_service.update_rolling_summary(
+            command.conv_id, command.question, command.full_answer, command.history
+        )
 
     # ------------------------------------------------------------------
     # Streaming chat
@@ -255,15 +247,17 @@ class ChatService:
             raise RuntimeError(msg)
 
         await self.persist_chat(
-            conv_id=setup.conv.id,
-            user_id=user_id,
-            question=setup.pii_question,
-            full_answer=full_answer,
-            sources=sources,
-            latency_ms=latency_ms,
-            depth=depth,
-            history=setup.history,
-            usage=usage,
+            PersistChatCommand(
+                conv_id=setup.conv.id,
+                user_id=user_id,
+                question=setup.pii_question,
+                full_answer=full_answer,
+                sources=sources,
+                latency_ms=latency_ms,
+                depth=depth,
+                history=setup.history,
+                usage=usage,
+            ),
         )
 
         yield MetaEvent(
@@ -311,17 +305,19 @@ class ChatService:
             raise RuntimeError(msg)
 
         await self.persist_chat(
-            conv_id=setup.conv.id,
-            user_id=user_id,
-            question=setup.pii_question,
-            full_answer=rag_result.answer,
-            sources=rag_result.sources,
-            latency_ms=latency_ms,
-            depth=None,
-            history=setup.history,
-            usage=None,
-            model_used=rag_result.model_used,
-            domain=rag_result.domain,
+            PersistChatCommand(
+                conv_id=setup.conv.id,
+                user_id=user_id,
+                question=setup.pii_question,
+                full_answer=rag_result.answer,
+                sources=rag_result.sources,
+                latency_ms=latency_ms,
+                depth=None,
+                history=setup.history,
+                usage=None,
+                model_used=rag_result.model_used,
+                domain=rag_result.domain,
+            ),
         )
 
         return ChatResult(

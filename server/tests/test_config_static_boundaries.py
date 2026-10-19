@@ -48,3 +48,18 @@ def test_dynamic_environment_and_dotenv_are_ignored_but_constructor_kwargs_work(
     assert model.llm_model == "qwen2.5:7b"
     assert model.curator_scope_max_ids == 42
     assert Settings(_env_file=env, llm_model="explicit-model").llm_model == "explicit-model"
+
+
+def test_preview_limits_are_static_environment_settings(monkeypatch):
+    monkeypatch.setenv("PREVIEW_MAX_SIZE_MB", "7")
+    monkeypatch.setenv("PREVIEW_CACHE_TTL_SECONDS", "90")
+    model = Settings(_env_file=None)
+    assert model.preview_max_size_mb == 7
+    assert model.preview_cache_ttl_seconds == 90
+    assert {"preview_max_size_mb", "preview_cache_ttl_seconds"} <= STATIC_SETTING_KEYS
+
+
+@pytest.mark.parametrize("key", ["preview_max_size_mb", "preview_cache_ttl_seconds"])
+def test_preview_limits_must_be_positive(key):
+    with pytest.raises(ValueError, match=key):
+        Settings(_env_file=None, **{key: 0})

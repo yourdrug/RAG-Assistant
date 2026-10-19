@@ -2,30 +2,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, NotRequired, TypedDict
-
-
-if TYPE_CHECKING:
-    from application.act_versioning import ActVersioningService, VersioningPlan
-    from application.documents.processing_ports import (
-        ContentExtractorPort,
-        MetricsCollectorPort,
-        PDFQualityAssessorPort,
-        TextQualityAssessorPort,
-    )
-    from application.ingestion import DocumentSplitterPort
-    from domain.domain_profile.protocol import DomainProfile
-    from domain.domain_profile.registry import DomainProfileRegistry
-    from domain.domain_profile.settings_port import DomainSettingsPort
-    from domain.value_objects.pdf_quality_report import PDFQualityReport
-
-if TYPE_CHECKING:
-    from application.act_versioning import VersioningResult
-    from domain.entities.raw_document import RawDocument
-
-
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NotRequired, TypedDict
 
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.source_type import SourceType
@@ -34,7 +12,19 @@ from domain.value_objects.source_type import SourceType
 if TYPE_CHECKING:
     from datetime import datetime
 
+    from application.act_versioning.dto import VersioningPlan
+    from application.documents.ports.processing import (
+        ContentExtractorPort,
+        MetricsCollectorPort,
+        PDFQualityAssessorPort,
+        TextQualityAssessorPort,
+    )
+    from application.ingestion import DocumentParserPort, DocumentSplitterPort
+    from domain.domain_profile.protocol import DomainProfile
     from domain.entities.document import Document
+    from domain.entities.raw_document import RawDocument
+    from domain.value_objects.pdf_quality_report import PDFQualityReport
+    from domain.value_objects.visibility import DocumentVisibility
 
 
 @dataclass(frozen=True)
@@ -102,23 +92,48 @@ class ClientInfo:
     email: str
 
 
-class DocumentProcessorOptions(TypedDict):
+@dataclass(frozen=True, kw_only=True)
+class DocumentProcessingDependencies:
+    document_parser: DocumentParserPort
     document_splitter: DocumentSplitterPort
     content_extractor: ContentExtractorPort
     pdf_quality_assessor: PDFQualityAssessorPort
     text_quality_assessor: TextQualityAssessorPort
     metrics: MetricsCollectorPort
-    domain_marker_threshold: NotRequired[float]
-    domain_registry: NotRequired[DomainProfileRegistry | None]
-    domain_settings: NotRequired[DomainSettingsPort | None]
-    act_versioning_service: NotRequired[ActVersioningService | None]
 
 
-class ProcessOptions(TypedDict):
+@dataclass(frozen=True, kw_only=True)
+class ProcessDocumentCommand:
+    document_id: int
+    storage_key: str
+    original_filename: str
+    visibility: DocumentVisibility
     owner_id: int | None
     group_id: int | None
     replace_id: int | None
-    doc_domain: NotRequired[str | None]
+    doc_domain: str | None = None
+
+
+@dataclass(frozen=True)
+class PreparedDocumentVersioning:
+    plan: VersioningPlan
+    profile: DomainProfile
+
+
+@dataclass(frozen=True, kw_only=True)
+class PersistDocumentCommand:
+    document_id: int
+    original_filename: str
+    raw_chunks: list[RawDocument]
+    visibility: DocumentVisibility
+    owner_id: int | None
+    group_id: int | None
+    doc_domain: str
+    replace_id: int | None
+    warning_message: str | None
+    quality: PDFQualityReport | None
+    storage_deletes: list[str]
+    versioning: PreparedDocumentVersioning | None = None
 
 
 class UploadOptions(TypedDict):
@@ -129,22 +144,3 @@ class UploadOptions(TypedDict):
     rename_on_conflict: NotRequired[bool]
     doc_domain: NotRequired[str | None]
     replaces_document_id: NotRequired[int | None]
-
-
-class PersistDocumentResultOptions(TypedDict):
-    document_id: int
-    original_filename: str
-    raw_chunks: list[RawDocument]
-    visibility: str
-    owner_id: int | None
-    group_id: int | None
-    doc_domain: str
-    replace_id: int | None
-    warning_message: str | None
-    quality: PDFQualityReport | None
-    storage_deletes: list[str]
-    domain_registry: DomainProfileRegistry | None
-    versioning: VersioningResult
-    versioning_plan: NotRequired[VersioningPlan | None]
-    versioning_profile: NotRequired[DomainProfile | None]
-    act_versioning_service: NotRequired[ActVersioningService | None]

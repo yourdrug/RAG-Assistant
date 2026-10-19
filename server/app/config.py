@@ -219,6 +219,8 @@ class Settings(BaseSettings):
     s3_max_concurrent: int = Field(default=10, ge=1)
     supported_extensions: tuple = (".pdf", ".docx", ".doc", ".rtf", ".md", ".txt")
     max_upload_size_mb: int = Field(default=50, ge=1, le=MAX_UPLOAD_FILE_MB)
+    preview_max_size_mb: int = Field(default=50, ge=1, le=MAX_UPLOAD_FILE_MB)
+    preview_cache_ttl_seconds: int = Field(default=1800, ge=1)
 
     # ── Data paths ──────────────────────────────────────────────────────────
     data_dir: str = "/code/project/data"
