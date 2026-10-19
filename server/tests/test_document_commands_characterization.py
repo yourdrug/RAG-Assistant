@@ -11,7 +11,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from application.documents.delete import DocumentDeleteCommand
+from application.documents.rename import DocumentRenameCommand
+from application.documents.upload import DocumentUploadCommand
 from application.documents import DocumentCommandService
+from application.identity import UserContextFactory
 from domain.entities.document import Document
 from domain.exceptions import BusinessRuleViolation, ValidationError
 from domain.value_objects.document_status import DocumentStatus
@@ -64,7 +68,12 @@ def harness(*, versioned=False):
     bm25 = AsyncMock()
     profile = SimpleNamespace(key="legal" if versioned else "general", is_versioned=versioned)
     registry = SimpleNamespace(get=lambda key: profile)
-    command = DocumentCommandService(factory, MagicMock(), storage, bm25, domain_registry=registry)
+    context_factory = UserContextFactory()
+    command = DocumentCommandService(
+        DocumentUploadCommand(factory, storage, context_factory, registry),
+        DocumentDeleteCommand(factory, storage, bm25, context_factory),
+        DocumentRenameCommand(factory, storage, context_factory),
+    )
     return SimpleNamespace(command=command, factory=factory, uow=factory._uow, storage=storage, bm25=bm25)
 
 

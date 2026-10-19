@@ -10,7 +10,7 @@ from fastapi.responses import StreamingResponse
 
 from application.ports.rate_limit import RateLimitPolicyName
 from application.benchmark import BenchmarkResultService
-from application.services.job_service import JobService
+from application.jobs.service import JobService
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from presentation.api.auth_dependencies import require_admin

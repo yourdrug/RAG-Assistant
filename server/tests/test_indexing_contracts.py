@@ -15,28 +15,36 @@ from domain.value_objects.visibility import DocumentVisibility
 
 
 @pytest.mark.parametrize(
-    "name",
+    "public,implementation,name",
     [
-        "build_outbox_metadata",
-        "classify_domain",
-        "enqueue_delete_by_document",
-        "enrich_chunks_metadata",
-        "process_chunks",
-        "process_chunks_in_uow",
-        "tag_chunks",
-        "tag_domain",
+        ("application.indexing", "application.indexing.pipeline", "build_outbox_metadata"),
+        ("application.indexing", "application.indexing.pipeline", "classify_domain"),
+        ("application.indexing", "application.indexing.pipeline", "enqueue_delete_by_document"),
+        ("application.indexing", "application.indexing.pipeline", "enrich_chunks_metadata"),
+        ("application.indexing", "application.indexing.pipeline", "process_chunks"),
+        ("application.indexing", "application.indexing.pipeline", "process_chunks_in_uow"),
+        ("application.indexing", "application.indexing.pipeline", "tag_chunks"),
+        ("application.indexing", "application.indexing.pipeline", "tag_domain"),
     ],
 )
-def test_legacy_pipeline_exports_share_canonical_objects(name: str) -> None:
-    assert getattr(importlib.import_module("application.services.document_pipeline"), name) is getattr(
-        indexing, name
+def test_public_pipeline_exports_share_canonical_objects(public: str, implementation: str, name: str) -> None:
+    assert getattr(importlib.import_module(public), name) is getattr(
+        importlib.import_module(implementation), name
     )
 
 
-@pytest.mark.parametrize("name", ["DomainClassification", "classify_document_text"])
-def test_legacy_classification_exports_share_canonical_objects(name: str) -> None:
-    assert getattr(importlib.import_module("application.services.domain_classification"), name) is getattr(
-        indexing, name
+@pytest.mark.parametrize(
+    "public,implementation,name",
+    [
+        ("application.indexing", "application.indexing.dto", "DomainClassification"),
+        ("application.indexing", "application.indexing.classification", "classify_document_text"),
+    ],
+)
+def test_public_classification_exports_share_canonical_objects(
+    public: str, implementation: str, name: str
+) -> None:
+    assert getattr(importlib.import_module(public), name) is getattr(
+        importlib.import_module(implementation), name
     )
 
 

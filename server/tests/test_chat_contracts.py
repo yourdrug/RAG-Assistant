@@ -201,25 +201,24 @@ async def test_missing_conversation_does_not_load_messages() -> None:
     fixture.uow.messages.list_page.assert_not_awaited()
 
 
-LEGACY_EXPORTS = [
-    ("application.services.chat_service", ("ChatService", "ChatSetup")),
-    ("application.services.chat_log_service", ("ChatLogService",)),
-    ("application.services.conversation_service", ("ConversationService",)),
-    ("application.dto.chat_dto", ("ChatResult",)),
-    ("application.ports.chat_rag_port", ("ChatRAGPort",)),
-    ("application.ports.chat_settings", ("ChatSettingsPort",)),
-    ("application.ports.chat_support", ("RollingSummaryUpdaterPort",)),
-    ("application.ports.pii_redactor", ("PIIRedactorPort",)),
-]
-
-
-@pytest.mark.parametrize("legacy,names", LEGACY_EXPORTS)
-def test_legacy_exports_share_canonical_objects(legacy: str, names: tuple[str, ...]) -> None:
-    old = importlib.import_module(legacy)
-    canonical = importlib.import_module("application.chat")
-
-    for name in names:
-        assert getattr(old, name) is getattr(canonical, name)
+@pytest.mark.parametrize(
+    "public,implementation,name",
+    [
+        ("application.chat", "application.chat.service", "ChatService"),
+        ("application.chat", "application.chat.service", "ChatSetup"),
+        ("application.chat", "application.chat.logs", "ChatLogService"),
+        ("application.chat", "application.chat.conversations", "ConversationService"),
+        ("application.chat", "application.chat.dto", "ChatResult"),
+        ("application.chat", "application.chat.ports", "ChatRAGPort"),
+        ("application.chat", "application.chat.ports", "ChatSettingsPort"),
+        ("application.chat", "application.chat.ports", "RollingSummaryUpdaterPort"),
+        ("application.chat", "application.chat.ports", "PIIRedactorPort"),
+    ],
+)
+def test_public_exports_share_canonical_objects(public: str, implementation: str, name: str) -> None:
+    assert getattr(importlib.import_module(public), name) is getattr(
+        importlib.import_module(implementation), name
+    )
 
 
 @pytest.mark.asyncio

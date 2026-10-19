@@ -16,24 +16,24 @@ if TYPE_CHECKING:
     from application.act_versioning import VersionUpdateOptions
 
 
-LEGACY_EXPORTS = [
-    ("application.dto.versioning_dto", ("VersioningPlan", "VersioningResult")),
-    ("application.services.act_version_answers", ("ActVersionAnswerInvalidator",)),
-    ("application.services.act_version_commands", ("ActVersionCommands",)),
-    ("application.services.act_version_persistence", ("ActVersionPersistence",)),
-    ("application.services.act_version_planner", ("ActVersionPlanner",)),
-    ("application.services.act_version_queries", ("ActVersionQueries", "ActSummary")),
-    ("application.services.act_versioning_service", ("ActVersioningService",)),
-]
-
-
-@pytest.mark.parametrize("legacy,names", LEGACY_EXPORTS)
-def test_legacy_exports_share_canonical_objects(legacy: str, names: tuple[str, ...]) -> None:
-    old = importlib.import_module(legacy)
-    canonical = importlib.import_module("application.act_versioning")
-
-    for name in names:
-        assert getattr(old, name) is getattr(canonical, name)
+@pytest.mark.parametrize(
+    "public,implementation,name",
+    [
+        ("application.act_versioning", "application.act_versioning.dto", "VersioningPlan"),
+        ("application.act_versioning", "application.act_versioning.dto", "VersioningResult"),
+        ("application.act_versioning", "application.act_versioning.answers", "ActVersionAnswerInvalidator"),
+        ("application.act_versioning", "application.act_versioning.commands", "ActVersionCommands"),
+        ("application.act_versioning", "application.act_versioning.persistence", "ActVersionPersistence"),
+        ("application.act_versioning", "application.act_versioning.planner", "ActVersionPlanner"),
+        ("application.act_versioning", "application.act_versioning.queries", "ActVersionQueries"),
+        ("application.act_versioning", "application.act_versioning.dto", "ActSummary"),
+        ("application.act_versioning", "application.act_versioning.service", "ActVersioningService"),
+    ],
+)
+def test_public_exports_share_canonical_objects(public: str, implementation: str, name: str) -> None:
+    assert getattr(importlib.import_module(public), name) is getattr(
+        importlib.import_module(implementation), name
+    )
 
 
 @pytest.mark.asyncio

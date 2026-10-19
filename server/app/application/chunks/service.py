@@ -1,57 +1,32 @@
 """ChunkService -- thin facade for chunk lifecycle management.
 
 Delegates to ChunkQueryService, ChunkMutationService, and ManualDocumentService.
-Each public method opens its own async UnitOfWork via the injected UnitOfWorkFactory.
+The delegated services manage their own async UnitOfWork boundaries.
 """
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Unpack
-
-from application.chunks.mutations import ChunkMutationService
-from application.chunks.queries import ChunkQueryService
-from application.documents import ManualDocumentService
 
 
 if TYPE_CHECKING:
     from application.chunks.dto import AddChunkResult, ChunkItemDTO, EditChunkResult, ListChunksCursorOptions
-    from application.chunks.settings import ChunkSettingsPort
-    from application.documents import DocumentDTO
-    from application.ports.bm25_index import BM25IndexPort
-    from application.ports.cache_invalidator import CacheInvalidatorPort
-    from application.uow import UnitOfWorkFactory
-    from domain.repositories.vector_store_repository import VectorStoreRepository
+    from application.chunks.mutations import ChunkMutationService
+    from application.chunks.queries import ChunkQueryService
+    from application.documents import DocumentDTO, ManualDocumentService
     from domain.value_objects.cursor_page import CursorPage
-
-log = logging.getLogger(__name__)
 
 
 class ChunkService:
     def __init__(
         self,
-        uow_factory: UnitOfWorkFactory,
-        vector_store_repo: VectorStoreRepository,
-        chunk_settings: ChunkSettingsPort,
-        bm25_index: BM25IndexPort,
-        *,
-        chunk_min_len_ratio: float = 0.3,
-        chunk_max_len_ratio: float = 2.0,
-        cache_invalidator: CacheInvalidatorPort | None = None,
+        query_service: ChunkQueryService,
+        mutation_service: ChunkMutationService,
+        manual_document_service: ManualDocumentService,
     ) -> None:
-        self._uow_factory = uow_factory
-        self._vector_store = vector_store_repo
-
-        self._query = ChunkQueryService(uow_factory)
-        self._mutation = ChunkMutationService(
-            uow_factory,
-            chunk_settings,
-            bm25_index,
-            chunk_min_len_ratio=chunk_min_len_ratio,
-            chunk_max_len_ratio=chunk_max_len_ratio,
-            cache_invalidator=cache_invalidator,
-        )
-        self._manual_doc = ManualDocumentService(uow_factory)
+        self._query = query_service
+        self._mutation = mutation_service
+        self._manual_doc = manual_document_service
 
     async def list_chunks(
         self,

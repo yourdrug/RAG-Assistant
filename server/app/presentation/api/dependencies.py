@@ -30,11 +30,11 @@ if TYPE_CHECKING:
     from application.documents import DocumentCommandService
     from application.documents import DocumentQueryService
     from application.identity import GroupService
-    from application.services.health_service import HealthService
-    from application.services.job_service import JobService
-    from application.services.metrics_service import MetricsService
-    from application.services.pdf_diagnostic_service import PDFDiagnosticService
-    from application.services.quality_service import QualityService
+    from application.health.service import HealthService
+    from application.jobs.service import JobService
+    from application.admin.metrics import MetricsService
+    from application.documents.diagnostics import PDFDiagnosticService
+    from application.documents.quality_service import QualityService
     from application.search import SearchService
     from application.identity import ApiKeyProviderPort
     from application.ports.rate_limit import RateLimiterPort

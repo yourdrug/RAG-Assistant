@@ -9,7 +9,6 @@ import pytest
 from starlette.requests import Request
 
 from application.ingestion import (
-    IngestAppService,
     IngestionPort,
     IngestionScope,
     IngestionService,
@@ -132,8 +131,7 @@ async def test_registry_returns_sorted_dto_with_totals(
     )
 
 
-def test_legacy_name_and_api_dependencies_share_one_service(service: IngestionService) -> None:
-    assert IngestAppService is IngestionService
+def test_api_dependencies_share_one_service(service: IngestionService) -> None:
     application = ApplicationContainer(ingestion_service=service)
     request = Request(
         {

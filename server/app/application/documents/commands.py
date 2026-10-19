@@ -4,20 +4,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Unpack
 
-from application.documents.delete import DocumentDeleteCommand
-from application.documents.rename import DocumentRenameCommand
-from application.documents.upload import DocumentUploadCommand
-from application.identity import UserContextFactory
 from domain.value_objects.roles import UserKind
 
 
 if TYPE_CHECKING:
+    from application.documents.delete import DocumentDeleteCommand
     from application.documents.dto import DocumentDTO, UploadOptions
-    from application.ports.bm25_index import BM25IndexPort
-    from application.ports.file_storage import FileStorage
-    from application.uow import UnitOfWorkFactory
-    from domain.domain_profile.registry import DomainProfileRegistry
-    from domain.repositories.vector_store_repository import VectorStoreRepository
+    from application.documents.rename import DocumentRenameCommand
+    from application.documents.upload import DocumentUploadCommand
 
 
 class DocumentCommandService:
@@ -25,20 +19,13 @@ class DocumentCommandService:
 
     def __init__(
         self,
-        uow_factory: UnitOfWorkFactory,
-        vector_store_repo: VectorStoreRepository,
-        file_storage: FileStorage,
-        bm25_index: BM25IndexPort,
-        *,
-        domain_registry: DomainProfileRegistry | None = None,
-        user_ctx_factory: UserContextFactory | None = None,
+        upload_command: DocumentUploadCommand,
+        delete_command: DocumentDeleteCommand,
+        rename_command: DocumentRenameCommand,
     ) -> None:
-        # Keep the vector-store argument for constructor compatibility; writes use the outbox.
-        self._vector_store = vector_store_repo
-        context_factory = user_ctx_factory or UserContextFactory()
-        self._upload = DocumentUploadCommand(uow_factory, file_storage, context_factory, domain_registry)
-        self._delete = DocumentDeleteCommand(uow_factory, file_storage, bm25_index, context_factory)
-        self._rename = DocumentRenameCommand(uow_factory, file_storage, context_factory)
+        self._upload = upload_command
+        self._delete = delete_command
+        self._rename = rename_command
 
     async def upload(
         self,

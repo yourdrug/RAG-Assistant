@@ -12,7 +12,7 @@ from domain.value_objects.preview_unit_kind import PreviewUnitKind
 from domain.value_objects.pdf_dto import DryRunPageResult
 
 if TYPE_CHECKING:
-    from application.services.pdf_diagnostic_service import PDFDiagnosticService
+    from application.documents.diagnostics import PDFDiagnosticService
 
 logger = logging.getLogger("default")
 

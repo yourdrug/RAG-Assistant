@@ -12,13 +12,13 @@ import logging
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
-from application.ports.sparse_index import ChunkRef
+from application.ingestion.sparse_index_port import ChunkRef
 from infrastructure.bm25.bm25_index import BM25Index
 from infrastructure.bm25.bm25_invalidation import publish_bm25_invalidation
 from infrastructure.bm25.persistence import save_bm25_index_to_s3
 
 if TYPE_CHECKING:
-    from application.ports.unit_of_work_factory import UnitOfWorkFactory
+    from application.uow.factory import UnitOfWorkFactory
 
 log = logging.getLogger("default")
 

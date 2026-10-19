@@ -300,8 +300,8 @@ def test_deepinfra_production_can_construct_before_db_load_and_without_tei_urls(
 async def test_readiness_rejects_failed_configuration_snapshot(configuration, corpus_ready):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
-    from application.services.health_service import HealthService
-    from application.ports.health import HealthCheckResult
+    from application.health.service import HealthService
+    from application.health.ports import HealthCheckResult
     from domain.value_objects.health_status import HealthStatus
 
     probes = SimpleNamespace(

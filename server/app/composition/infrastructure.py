@@ -53,7 +53,7 @@ if TYPE_CHECKING:
     from application.ports.http_metrics import HttpMetricsPort
     from application.ports.idempotency_store import IdempotencyStorePort
     from application.ports.job_enqueuer import JobEnqueuerPort
-    from application.ports.log_buffer import LogBufferPort
+    from application.admin import LogBufferPort
     from application.documents import PreviewStrategyFactoryPort
     from application.documents import PreviewCache
     from infrastructure.database.database import DatabaseManager

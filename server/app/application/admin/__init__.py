@@ -10,6 +10,9 @@ from application.admin.dto import (
     VectorDBCollectionInfo,
     VectorDBInfo,
 )
+from application.admin.log_buffer import LogBufferPort
+from application.admin.metrics import MetricsResult, MetricsService
+from application.admin.metrics_port import MetricsRegistryPort
 from application.admin.ports import (
     ConfigMaskerPort,
     CorpusControlPort,
@@ -28,6 +31,10 @@ __all__ = [
     "ConfigurationStatus",
     "CorpusControlPort",
     "EffectiveParameter",
+    "LogBufferPort",
+    "MetricsRegistryPort",
+    "MetricsResult",
+    "MetricsService",
     "ModelsInfo",
     "OllamaProbePort",
     "OpenRouterModelsInfo",

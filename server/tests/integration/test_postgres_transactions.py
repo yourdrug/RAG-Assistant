@@ -10,6 +10,9 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from application.documents.delete import DocumentDeleteCommand
+from application.documents.rename import DocumentRenameCommand
+from application.documents.upload import DocumentUploadCommand
 from application.documents import DocumentCommandService
 from domain.entities.document import Document
 from domain.entities.vector_outbox_entry import VectorOutboxEntry
@@ -129,8 +132,11 @@ async def test_concurrent_duplicate_upload_hits_real_unique_constraint(pg_engine
     storage = MagicMock(supported_extensions=(".pdf",))
     storage.upload_file = AsyncMock()
     storage.delete_file = AsyncMock()
+    factory = RacingFactory()
     command = DocumentCommandService(
-        RacingFactory(), MagicMock(), storage, MagicMock(), user_ctx_factory=context_factory
+        DocumentUploadCommand(factory, storage, context_factory),
+        DocumentDeleteCommand(factory, storage, MagicMock(), context_factory),
+        DocumentRenameCommand(factory, storage, context_factory),
     )
 
     async def upload():

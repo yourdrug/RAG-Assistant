@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import importlib
 from unittest.mock import Mock
 
 import pytest
 
-from application.ports.metrics_registry import MetricsRegistryPort
-from application.services.metrics_service import MetricsService
-from application.services.pdf_diagnostic_service import PDFDiagnosticService
+from application.admin.metrics import MetricsService
+from application.admin.metrics_port import MetricsRegistryPort
+from application.documents.diagnostics import PDFDiagnosticService
 from domain.value_objects.page_content_type import PageContentType
 from domain.value_objects.pdf_dto import DryRunPageResult
 
@@ -68,3 +69,19 @@ def test_metrics_preserve_totals_histograms_and_status_keys() -> None:
     assert result.http_requests == {"total": 7.0, "by_endpoint": {"GET_health": 7.0}}
     assert result.qdrant == {"points": 0.0}
     assert result.bm25 == {"index_size": 0.0}
+
+
+@pytest.mark.parametrize(
+    "feature,implementation,name",
+    [
+        ("health", "health.service", "HealthService"),
+        ("jobs", "jobs.service", "JobService"),
+        ("admin", "admin.metrics", "MetricsService"),
+        ("documents", "documents.diagnostics", "PDFDiagnosticService"),
+        ("documents", "documents.quality_service", "QualityService"),
+    ],
+)
+def test_feature_exports_service_implementation(feature: str, implementation: str, name: str) -> None:
+    assert getattr(importlib.import_module(f"application.{feature}"), name) is getattr(
+        importlib.import_module(f"application.{implementation}"), name
+    )

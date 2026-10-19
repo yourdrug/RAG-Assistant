@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from application.services.job_service import JobService
+from application.jobs.service import JobService
 from fastapi import APIRouter, Depends, Query
 
 from presentation.api.auth_dependencies import require_admin

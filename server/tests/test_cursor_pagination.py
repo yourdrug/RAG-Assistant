@@ -8,6 +8,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
+from application.chunks.mutations import ChunkMutationService
+from application.chunks.queries import ChunkQueryService
+from application.documents import ManualDocumentService
 from application.chunks import ChunkService  # noqa: E402
 from domain.entities.document import Document  # noqa: E402
 from domain.exceptions import ValidationError  # noqa: E402
@@ -98,10 +101,9 @@ class TestChunkServiceCursor:
         from unittest.mock import MagicMock
 
         return ChunkService(
-            uow_factory=factory,
-            vector_store_repo=MagicMock(),
-            chunk_settings=MagicMock(chunk_size=550),
-            bm25_index=AsyncMock(),
+            query_service=ChunkQueryService(factory),
+            mutation_service=ChunkMutationService(factory, MagicMock(chunk_size=550), AsyncMock()),
+            manual_document_service=ManualDocumentService(factory),
         )
 
     @pytest.mark.asyncio

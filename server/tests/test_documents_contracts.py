@@ -1,4 +1,4 @@
-"""Compatibility of legacy exports with the canonical feature package."""
+"""Public feature exports match their implementations."""
 
 import importlib
 
@@ -6,160 +6,68 @@ import pytest
 
 
 @pytest.mark.parametrize(
-    "legacy,canonical,name",
+    "public,implementation,name",
     [
-        (
-            "application.services.document_access_service",
-            "application.documents.access",
-            "DocumentAccessService",
-        ),
-        (
-            "application.services.document_command_service",
-            "application.documents.commands",
-            "DocumentCommandService",
-        ),
-        (
-            "application.services.document_conflict_resolver",
-            "application.documents.conflicts",
-            "resolve_upload_version_group",
-        ),
-        (
-            "application.services.document_conflict_resolver",
-            "application.documents.conflicts",
-            "resolve_upload_conflict",
-        ),
-        (
-            "application.services.document_conflict_resolver",
-            "application.documents.conflicts",
-            "resolve_processing_conflict",
-        ),
-        (
-            "application.services.document_conflict_resolver",
-            "application.documents.conflicts",
-            "resolve_conflict",
-        ),
-        (
-            "application.services.document_conflict_resolver",
-            "application.documents.conflicts",
-            "resolve_conflict_in_uow",
-        ),
-        (
-            "application.services.document_conflict_resolver",
-            "application.documents.conflicts",
-            "apply_async_replacement",
-        ),
-        (
-            "application.services.document_content",
-            "application.documents.content",
-            "DocumentContentProcessor",
-        ),
-        (
-            "application.services.document_delete_command",
-            "application.documents.delete",
-            "DocumentDeleteCommand",
-        ),
-        (
-            "application.services.document_deletion_jobs",
-            "application.documents.deletion_jobs",
-            "DocumentDeletionJobs",
-        ),
-        (
-            "application.services.document_persistence",
-            "application.documents.persistence",
-            "persist_document_result",
-        ),
-        ("application.services.document_processor", "application.documents.processor", "DocumentProcessor"),
-        ("application.services.document_quality", "application.documents.quality", "QualityOutcome"),
-        ("application.services.document_quality", "application.documents.quality", "assess_document_quality"),
-        (
-            "application.services.document_query_service",
-            "application.documents.queries",
-            "DocumentQueryService",
-        ),
-        (
-            "application.services.document_rename_command",
-            "application.documents.rename",
-            "DocumentRenameCommand",
-        ),
-        (
-            "application.services.document_upload_command",
-            "application.documents.upload",
-            "DocumentUploadCommand",
-        ),
-        ("application.services.document_utils", "application.documents.utils", "generate_storage_key"),
-        ("application.services.document_utils", "application.documents.utils", "resolve_unique_filename"),
-        (
-            "application.services.document_versioning",
-            "application.documents.versioning",
-            "prepare_processing_versioning",
-        ),
-        (
-            "application.services.domain_classification",
-            "application.documents.classification",
-            "classify_processing_document",
-        ),
-        (
-            "application.services.domain_classification",
-            "application.documents.classification",
-            "DomainClassification",
-        ),
-        (
-            "application.services.domain_classification",
-            "application.documents.classification",
-            "classify_document_text",
-        ),
-        (
-            "application.services.manual_document_service",
-            "application.documents.manual",
-            "ManualDocumentService",
-        ),
-        ("application.services.preview_cache", "application.documents.preview_cache", "DEFAULT_TTL_SECONDS"),
-        ("application.services.preview_cache", "application.documents.preview_cache", "PREVIEW_PREFIX"),
-        ("application.services.preview_cache", "application.documents.preview_cache", "PreviewCache"),
-        ("application.ports.document_access", "application.documents.access_port", "DocumentAccessPort"),
-        (
-            "application.ports.document_preview",
-            "application.documents.preview_port",
-            "DocumentPreviewStrategy",
-        ),
-        (
-            "application.ports.document_processing",
-            "application.documents.processing_ports",
-            "ContentExtractorPort",
-        ),
-        (
-            "application.ports.document_processing",
-            "application.documents.processing_ports",
-            "PDFQualityAssessorPort",
-        ),
-        (
-            "application.ports.document_processing",
-            "application.documents.processing_ports",
-            "TextQualityAssessorPort",
-        ),
-        (
-            "application.ports.document_processing",
-            "application.documents.processing_ports",
-            "MetricsCollectorPort",
-        ),
-        (
-            "application.ports.preview_strategy_factory",
-            "application.documents.preview_factory",
-            "PreviewStrategyFactoryPort",
-        ),
-        ("application.dto.document_dto", "application.documents.dto", "DocumentDTO"),
-        ("application.dto.document_dto", "application.documents.dto", "ClientInfo"),
-        (
-            "application.dto.document_processing_context",
-            "application.documents.processing_context",
-            "empty_versioning_result",
-        ),
-        (
-            "application.dto.document_processing_context",
-            "application.documents.processing_context",
-            "ProcessingContext",
-        ),
+        ("application.documents", "application.documents.access", "DocumentAccessService"),
+        ("application.documents", "application.documents.commands", "DocumentCommandService"),
+        ("application.documents", "application.documents.delete", "DocumentDeleteCommand"),
+        ("application.documents", "application.documents.deletion_jobs", "DocumentDeletionJobs"),
+        ("application.documents", "application.documents.processor", "DocumentProcessor"),
+        ("application.documents", "application.documents.queries", "DocumentQueryService"),
+        ("application.documents", "application.documents.rename", "DocumentRenameCommand"),
+        ("application.documents", "application.documents.upload", "DocumentUploadCommand"),
+        ("application.documents", "application.documents.manual", "ManualDocumentService"),
+        ("application.documents", "application.documents.preview_cache", "PreviewCache"),
+        ("application.documents", "application.documents.access_port", "DocumentAccessPort"),
+        ("application.documents", "application.documents.preview_port", "DocumentPreviewStrategy"),
+        ("application.documents", "application.documents.processing_ports", "ContentExtractorPort"),
+        ("application.documents", "application.documents.processing_ports", "PDFQualityAssessorPort"),
+        ("application.documents", "application.documents.processing_ports", "TextQualityAssessorPort"),
+        ("application.documents", "application.documents.processing_ports", "MetricsCollectorPort"),
+        ("application.documents", "application.documents.preview_factory", "PreviewStrategyFactoryPort"),
+        ("application.documents", "application.documents.dto", "DocumentDTO"),
+        ("application.documents", "application.documents.dto", "ClientInfo"),
+        ("application.documents", "application.documents.diagnostics", "DocumentDiagnoseResult"),
+        ("application.documents", "application.documents.diagnostics", "PageDiagnostic"),
+        ("application.documents", "application.documents.diagnostics", "PDFDiagnosticService"),
+        ("application.documents", "application.documents.dto", "DocumentProcessorOptions"),
+        ("application.documents", "application.documents.dto", "ProcessOptions"),
+        ("application.documents", "application.documents.dto", "UploadOptions"),
+        ("application.documents", "application.documents.quality_service", "QualityService"),
     ],
 )
-def test_legacy_exports_share_canonical_objects(legacy: str, canonical: str, name: str) -> None:
-    assert getattr(importlib.import_module(legacy), name) is getattr(importlib.import_module(canonical), name)
+def test_public_exports_share_canonical_objects(public: str, implementation: str, name: str) -> None:
+    assert name in importlib.import_module(public).__all__
+    assert getattr(importlib.import_module(public), name) is getattr(
+        importlib.import_module(implementation), name
+    )
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "DEFAULT_TTL_SECONDS",
+        "DocumentContentProcessor",
+        "DomainClassification",
+        "PREVIEW_PREFIX",
+        "PersistDocumentResultOptions",
+        "QualityOutcome",
+        "apply_async_replacement",
+        "assess_document_quality",
+        "classify_document_text",
+        "classify_processing_document",
+        "generate_storage_key",
+        "persist_document_result",
+        "prepare_processing_versioning",
+        "resolve_conflict",
+        "resolve_conflict_in_uow",
+        "resolve_processing_conflict",
+        "resolve_unique_filename",
+        "resolve_upload_conflict",
+        "resolve_upload_version_group",
+    ],
+)
+def test_processing_details_are_not_public_exports(name: str) -> None:
+    public = importlib.import_module("application.documents")
+    assert name not in public.__all__
+    assert not hasattr(public, name)

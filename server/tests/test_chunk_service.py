@@ -5,6 +5,9 @@ import threading
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from application.chunks.mutations import ChunkMutationService
+from application.chunks.queries import ChunkQueryService
+from application.documents import ManualDocumentService
 from application.chunks import ChunkService
 from domain.entities.document import Document
 from domain.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
@@ -101,11 +104,14 @@ def _make_service(uow, *, chunk_settings=None, bm25_index=None, cache_invalidato
     )
 
     return ChunkService(
-        uow_factory=factory,
-        vector_store_repo=AsyncMock(),
-        chunk_settings=chunk_settings or _FakeChunkSettings(),
-        bm25_index=bm25_index or AsyncMock(),
-        cache_invalidator=cache_invalidator,
+        query_service=ChunkQueryService(factory),
+        mutation_service=ChunkMutationService(
+            factory,
+            chunk_settings or _FakeChunkSettings(),
+            bm25_index or AsyncMock(),
+            cache_invalidator=cache_invalidator,
+        ),
+        manual_document_service=ManualDocumentService(factory),
     )
 
 

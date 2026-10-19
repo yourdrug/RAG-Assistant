@@ -12,9 +12,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from application.ports.base_uow import BaseUnitOfWork as LegacyBaseUnitOfWork
-from application.ports.session_protocol import SessionProtocol as LegacySessionProtocol
-from application.ports.unit_of_work_factory import UnitOfWorkFactory as LegacyUnitOfWorkFactory
 from application.uow import (
     BaseUnitOfWork,
     SessionProtocol,
@@ -22,6 +19,9 @@ from application.uow import (
     UnitOfWorkFactory,
     UnitOfWorkRepositories,
 )
+from application.uow.base import BaseUnitOfWork as ImplementationBaseUnitOfWork
+from application.uow.factory import UnitOfWorkFactory as ImplementationUnitOfWorkFactory
+from application.uow.session import SessionProtocol as ImplementationSessionProtocol
 from domain.exceptions import DatabaseError
 from infrastructure.uow_factory import UnitOfWorkFactory as SQLAlchemyUnitOfWorkFactory
 
@@ -203,10 +203,10 @@ def test_repository_attributes_keep_supplied_instances() -> None:
         assert getattr(uow, field.name) is getattr(repositories, field.name)
 
 
-def test_legacy_imports_are_identical_to_canonical_types() -> None:
-    assert LegacyBaseUnitOfWork is BaseUnitOfWork
-    assert LegacySessionProtocol is SessionProtocol
-    assert LegacyUnitOfWorkFactory is UnitOfWorkFactory
+def test_public_exports_are_identical_to_implementation_types() -> None:
+    assert ImplementationBaseUnitOfWork is BaseUnitOfWork
+    assert ImplementationSessionProtocol is SessionProtocol
+    assert ImplementationUnitOfWorkFactory is UnitOfWorkFactory
     assert importlib.import_module("application.uow.unit_of_work").UnitOfWork is UnitOfWork
     assert isinstance(RecordingSession(), SessionProtocol)
     assert isinstance(SQLAlchemyUnitOfWorkFactory(MagicMock()), UnitOfWorkFactory)
@@ -215,9 +215,9 @@ def test_legacy_imports_are_identical_to_canonical_types() -> None:
 @pytest.mark.parametrize(
     "modules",
     [
-        ["application.ports.unit_of_work_factory", "application.uow", "application.ports.base_uow"],
-        ["application.uow.unit_of_work", "application.ports.session_protocol", "application.uow.factory"],
-        ["application.uow.base", "application.uow.factory", "application.ports.unit_of_work_factory"],
+        ["application.uow.factory", "application.uow", "application.uow.base"],
+        ["application.uow.unit_of_work", "application.uow.session", "application.uow.factory"],
+        ["application.uow.base", "application.uow.factory", "application.uow"],
     ],
 )
 def test_import_orders_in_fresh_interpreter(modules: list[str], tmp_path: Path) -> None:
@@ -225,9 +225,9 @@ def test_import_orders_in_fresh_interpreter(modules: list[str], tmp_path: Path) 
         "import importlib, sys\n"
         f"sys.path[:] = {sys.path!r}\n"
         f"for name in {modules!r}: importlib.import_module(name)\n"
-        "from application.ports.unit_of_work_factory import UnitOfWorkFactory as old\n"
+        "from application.uow.factory import UnitOfWorkFactory as implementation\n"
         "from application.uow import UnitOfWorkFactory as new\n"
-        "assert old is new\n"
+        "assert implementation is new\n"
     )
     result = subprocess.run(  # noqa: S603
         [sys.executable, "-c", script], cwd=tmp_path, capture_output=True, text=True, check=False

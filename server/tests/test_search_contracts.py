@@ -13,15 +13,15 @@ from domain.value_objects.user_context import UserContext
 
 
 @pytest.mark.parametrize(
-    "module,name",
+    "public,implementation,name",
     [
-        ("application.services.search_service", "SearchService"),
-        ("application.services.retrieval", "HybridRetriever"),
+        ("application.search", "application.search.service", "SearchService"),
+        ("application.search", "application.search.hybrid", "HybridRetriever"),
     ],
 )
-def test_legacy_exports_share_canonical_objects(module: str, name: str) -> None:
-    assert getattr(importlib.import_module(module), name) is getattr(
-        importlib.import_module("application.search"), name
+def test_public_exports_share_canonical_objects(public: str, implementation: str, name: str) -> None:
+    assert getattr(importlib.import_module(public), name) is getattr(
+        importlib.import_module(implementation), name
     )
 
 

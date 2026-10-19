@@ -3,12 +3,14 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from application.documents import DocumentCommandService
-from application.documents import (
+from application.documents.delete import DocumentDeleteCommand
+from application.documents.rename import DocumentRenameCommand
+from application.documents.upload import DocumentUploadCommand
+from application.documents import DocumentCommandService, DocumentQueryService
+from application.documents.conflicts import (
     resolve_upload_conflict,
     resolve_upload_version_group,
 )
-from application.documents import DocumentQueryService
 from application.identity import UserContextFactory
 from domain.entities.document import Document
 from domain.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
@@ -67,11 +69,11 @@ def _service(uow: FakeUnitOfWork | None = None, file_storage=None):
     fs.supported_extensions = (".pdf", ".docx", ".doc", ".txt", ".md")
     fs.upload_file = AsyncMock()
     fs.delete_file = AsyncMock()
+    context_factory = UserContextFactory()
     cmd = DocumentCommandService(
-        uow_factory=factory,
-        vector_store_repo=MagicMock(),
-        file_storage=fs,
-        bm25_index=AsyncMock(),
+        DocumentUploadCommand(factory, fs, context_factory),
+        DocumentDeleteCommand(factory, fs, AsyncMock(), context_factory),
+        DocumentRenameCommand(factory, fs, context_factory),
     )
     query = DocumentQueryService(uow_factory=factory)
     return cmd, query, uow, fs

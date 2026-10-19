@@ -11,7 +11,7 @@ from qdrant_client.models import Distance, Filter, PointStruct, VectorParams
 
 from application.act_versioning import VersioningResult
 from application.act_versioning import ActVersioningService
-from application.documents import persist_document_result
+from application.documents.persistence import persist_document_result
 from domain.domain_profile.date_parsing import parse_date_guess
 from domain.domain_profile.profiles.decree import DecreeDomainProfile
 from domain.domain_profile.profiles.legal import LegalDomainProfile

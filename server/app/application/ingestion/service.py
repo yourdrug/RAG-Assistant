@@ -121,10 +121,3 @@ class IngestionService:
     @staticmethod
     def validate_s3_key(key: str) -> None:
         S3IngestionTargets.validate_key(key)
-
-    # Compatibility with callers of the former workflow facade.
-    run_full_ingestion = run_full
-    run_single_file = run_single
-
-
-IngestAppService = IngestionService

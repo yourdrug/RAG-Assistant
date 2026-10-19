@@ -7,7 +7,7 @@ from infrastructure.storage.file_storage import LazyStorage
 from infrastructure.bm25.persistence import load_configured_bm25_snapshot
 
 
-from application.ports.unit_of_work_factory import UnitOfWorkFactory
+from application.uow.factory import UnitOfWorkFactory
 from domain.services.access_control import get_visibility_conditions
 from domain.value_objects.roles import UserKind, UserRole
 

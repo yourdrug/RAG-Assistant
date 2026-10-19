@@ -10,23 +10,21 @@ from domain.value_objects.cost_budget import BudgetError
 
 
 @pytest.mark.parametrize(
-    "legacy,names",
+    "public,implementation,name",
     [
-        ("application.ports.billing_context", ("billing_principal",)),
-        (
-            "application.ports.cost_budget",
-            ("BillingCatalogPort", "BudgetAdminRepositoryPort", "CostBudgetPort"),
-        ),
-        ("application.services.cost_budget_service", ("BudgetPolicy", "CostBudgetService")),
-        ("application.services.budget_admin_service", ("BudgetAdminService",)),
+        ("application.budget", "application.budget.context", "billing_principal"),
+        ("application.budget", "application.budget.ports", "BillingCatalogPort"),
+        ("application.budget", "application.budget.ports", "BudgetAdminRepositoryPort"),
+        ("application.budget", "application.budget.ports", "CostBudgetPort"),
+        ("application.budget", "application.budget.dto", "BudgetPolicy"),
+        ("application.budget", "application.budget.cost_budget_service", "CostBudgetService"),
+        ("application.budget", "application.budget.admin_service", "BudgetAdminService"),
     ],
 )
-def test_legacy_exports_share_canonical_objects(legacy: str, names: tuple[str, ...]) -> None:
-    old = importlib.import_module(legacy)
-    canonical = importlib.import_module("application.budget")
-
-    for name in names:
-        assert getattr(old, name) is getattr(canonical, name)
+def test_public_exports_share_canonical_objects(public: str, implementation: str, name: str) -> None:
+    assert getattr(importlib.import_module(public), name) is getattr(
+        importlib.import_module(implementation), name
+    )
 
 
 @pytest.mark.asyncio

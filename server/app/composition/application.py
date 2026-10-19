@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+from application.chunks import ChunkMutationService, ChunkQueryService, ChunkService
+from application.documents import DocumentCommandService, ManualDocumentService
+from application.documents.delete import DocumentDeleteCommand
+from application.documents.rename import DocumentRenameCommand
+from application.documents.upload import DocumentUploadCommand
+from application.identity import UserContextFactory
 from application.identity import (
     ApiKeyService,
     AssignmentService,
@@ -30,16 +36,14 @@ from infrastructure.bm25.bm25_updater import BM25IndexAdapter
 if TYPE_CHECKING:
     from application.chat import ChatLogService
     from application.chat import ChatService
-    from application.chunks import ChunkService
     from application.chat import ConversationService
-    from application.documents import DocumentCommandService
     from application.documents import DocumentQueryService
     from application.documents import DocumentDeletionJobs
-    from application.services.health_service import HealthService
-    from application.services.job_service import JobService
-    from application.services.metrics_service import MetricsService
-    from application.services.pdf_diagnostic_service import PDFDiagnosticService
-    from application.services.quality_service import QualityService
+    from application.health.service import HealthService
+    from application.jobs.service import JobService
+    from application.admin.metrics import MetricsService
+    from application.documents.diagnostics import PDFDiagnosticService
+    from application.documents.quality_service import QualityService
     from application.search import SearchService
     from infrastructure.ml.rag_service import RagService
     from application.ingestion import IngestionService
@@ -98,16 +102,14 @@ class ApplicationContainer:
         """
         from application.chat import ChatLogService
         from application.chat import ChatService
-        from application.chunks import ChunkService
         from application.chat import ConversationService
-        from application.documents import DocumentCommandService
         from application.documents import DocumentQueryService
         from application.documents import DocumentDeletionJobs
-        from application.services.health_service import HealthService
-        from application.services.job_service import JobService
-        from application.services.metrics_service import MetricsService
-        from application.services.pdf_diagnostic_service import PDFDiagnosticService
-        from application.services.quality_service import QualityService
+        from application.health.service import HealthService
+        from application.jobs.service import JobService
+        from application.admin.metrics import MetricsService
+        from application.documents.diagnostics import PDFDiagnosticService
+        from application.documents.quality_service import QualityService
         from application.search import SearchService
         from infrastructure.auth.jwt_provider import JWTProvider
         from infrastructure.auth.password_hasher import BCryptPasswordHasher
@@ -129,7 +131,6 @@ class ApplicationContainer:
         from infrastructure.ml.rag_service import RagService
 
         uow = _require(infra.db.uow_factory, "uow_factory")
-        vsr = _require(infra.ml.vector_store_repo, "vector_store_repo")
         fs = _require(infra.ml.file_storage, "file_storage")
         ml = _require(infra.ml.ml_clients, "ml_clients")
 
@@ -181,12 +182,11 @@ class ApplicationContainer:
         )
         self.user_management_service = UserManagementService(uow, password_hasher)
         self.api_key_service = ApiKeyService(uow, api_key_provider)
+        user_ctx_factory = UserContextFactory()
         self.document_command_service = DocumentCommandService(
-            uow_factory=uow,
-            vector_store_repo=vsr,
-            file_storage=fs,
-            bm25_index=BM25IndexAdapter(ml),
-            domain_registry=infra.domain_registry,
+            upload_command=DocumentUploadCommand(uow, fs, user_ctx_factory, infra.domain_registry),
+            delete_command=DocumentDeleteCommand(uow, fs, BM25IndexAdapter(ml), user_ctx_factory),
+            rename_command=DocumentRenameCommand(uow, fs, user_ctx_factory),
         )
         self.document_deletion_jobs = DocumentDeletionJobs(
             uow, _require(infra.services.job_enqueuer, "job_enqueuer")
@@ -195,11 +195,14 @@ class ApplicationContainer:
             uow_factory=uow,
         )
         self.chunk_service = ChunkService(
-            uow_factory=uow,
-            vector_store_repo=vsr,
-            chunk_settings=LiveChunkSettings(),
-            bm25_index=BM25IndexAdapter(ml),
-            cache_invalidator=infra.services.cache_invalidator,
+            query_service=ChunkQueryService(uow),
+            mutation_service=ChunkMutationService(
+                uow,
+                LiveChunkSettings(),
+                BM25IndexAdapter(ml),
+                cache_invalidator=infra.services.cache_invalidator,
+            ),
+            manual_document_service=ManualDocumentService(uow),
         )
         self.config_service = ConfigService(
             uow_factory=uow, event_bus=event_bus, provider_configuration=infra.configuration

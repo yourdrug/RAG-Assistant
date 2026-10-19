@@ -9,7 +9,7 @@ import asyncio
 from application.ingestion import IngestionPort
 from application.ports.rate_limit import RateLimitPolicyName
 from application.ingestion import IngestionService
-from application.services.job_service import JobService
+from application.jobs.service import JobService
 from domain.value_objects.visibility import DocumentVisibility
 from domain.value_objects.doc_domain import DocDomainSelection, DomainDetectionMode
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile

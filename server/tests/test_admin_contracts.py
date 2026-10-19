@@ -17,35 +17,30 @@ from domain.exceptions import ValidationError
 
 
 @pytest.mark.parametrize(
-    "legacy,names",
+    "public,implementation,name",
     [
-        (
-            "application.services.config_admin_service",
-            (
-                "ConfigAdminService",
-                "ModelsInfo",
-                "VectorDBInfo",
-                "VectorDBCollectionInfo",
-                "OpenRouterModelsInfo",
-            ),
-        ),
-        ("application.services.config_service", ("ConfigService", "validate_corpus_update_key")),
-        ("application.ports.config_admin", ("OllamaProbePort", "VectorDBInfoPort")),
-        ("application.ports.config_admin_settings", ("ConfigAdminSettingsPort",)),
-        ("application.ports.config_masker", ("ConfigMaskerPort",)),
-        ("application.ports.corpus_control", ("CorpusControlPort",)),
-        (
-            "application.ports.provider_configuration",
-            ("ConfigurationStatus", "EffectiveParameter", "ProviderConfigurationPort"),
-        ),
+        ("application.admin", "application.admin.config_admin_service", "ConfigAdminService"),
+        ("application.admin", "application.admin.dto", "ModelsInfo"),
+        ("application.admin", "application.admin.dto", "VectorDBInfo"),
+        ("application.admin", "application.admin.dto", "VectorDBCollectionInfo"),
+        ("application.admin", "application.admin.dto", "OpenRouterModelsInfo"),
+        ("application.admin", "application.admin.config_service", "ConfigService"),
+        ("application.admin", "application.admin.config_service", "validate_corpus_update_key"),
+        ("application.admin", "application.admin.log_buffer", "LogBufferPort"),
+        ("application.admin", "application.admin.ports", "OllamaProbePort"),
+        ("application.admin", "application.admin.ports", "VectorDBInfoPort"),
+        ("application.admin", "application.admin.settings", "ConfigAdminSettingsPort"),
+        ("application.admin", "application.admin.ports", "ConfigMaskerPort"),
+        ("application.admin", "application.admin.ports", "CorpusControlPort"),
+        ("application.admin", "application.admin.dto", "ConfigurationStatus"),
+        ("application.admin", "application.admin.dto", "EffectiveParameter"),
+        ("application.admin", "application.admin.ports", "ProviderConfigurationPort"),
     ],
 )
-def test_legacy_exports_share_canonical_objects(legacy: str, names: tuple[str, ...]) -> None:
-    old = importlib.import_module(legacy)
-    canonical = importlib.import_module("application.admin")
-
-    for name in names:
-        assert getattr(old, name) is getattr(canonical, name)
+def test_public_exports_share_canonical_objects(public: str, implementation: str, name: str) -> None:
+    assert getattr(importlib.import_module(public), name) is getattr(
+        importlib.import_module(implementation), name
+    )
 
 
 @pytest.mark.asyncio

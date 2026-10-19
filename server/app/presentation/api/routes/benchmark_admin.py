@@ -17,7 +17,7 @@ from application.benchmark import (
 from application.benchmark import BenchmarkResultService
 from application.admin import ConfigService
 from application.documents import DocumentQueryService
-from application.services.job_service import JobService
+from application.jobs.service import JobService
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 

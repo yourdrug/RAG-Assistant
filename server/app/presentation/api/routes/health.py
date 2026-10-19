@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from application.services.health_service import HealthService
+from application.health.service import HealthService
 from fastapi import APIRouter, Depends, Response, status
 from domain.value_objects.health_status import HealthStatus
 

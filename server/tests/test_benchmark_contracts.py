@@ -14,61 +14,45 @@ from application.benchmark import BenchmarkService
 if TYPE_CHECKING:
     from application.benchmark import BenchmarkRunOptions
 
-LEGACY_EXPORTS = [
-    (
-        "application.dto.benchmark_dto",
-        (
-            "ApplyConfigResult",
-            "BenchmarkQuestionCreateDTO",
-            "SweepCreateDTO",
-            "RegressionCheckOutput",
-            "RegressionCheckResult",
-        ),
-    ),
-    ("application.ports.benchmark_checkpoints", ("BenchmarkCheckpoints",)),
-    ("application.ports.benchmark_history", ("BenchmarkHistoryPort",)),
-    ("application.ports.benchmark_runner", ("BenchmarkRunnerPort",)),
-    ("application.services.benchmark_dataset", ("load_benchmark_questions",)),
-    (
-        "application.services.benchmark_export_service",
-        ("BenchmarkExportService", "CSV_FIELDS", "EXPORT_CHUNK_BYTES", "encode_json", "encode_csv"),
-    ),
-    ("application.services.benchmark_import_service", ("BenchmarkImportService", "BenchmarkImportResult")),
-    (
-        "application.services.benchmark_orchestrator",
-        ("BenchmarkService", "compute_summary_from_results"),
-    ),
-    (
-        "application.services.benchmark_result_service",
-        (
-            "BenchmarkResultService",
-            "BenchmarkResultSummary",
-            "BenchmarkResultDetail",
-            "BenchmarkResultsList",
-            "normalize_metrics",
-        ),
-    ),
-    (
-        "application.services.benchmark_services",
-        (
-            "BenchmarkQuestionService",
-            "BenchmarkRunService",
-            "BenchmarkSweepService",
-            "RunCompareResult",
-            "RUN_CONFIG_KEY_MAP",
-            "HISTORY_CONFIG_KEYS",
-        ),
-    ),
-]
 
-
-@pytest.mark.parametrize("legacy,names", LEGACY_EXPORTS)
-def test_legacy_exports_share_canonical_objects(legacy: str, names: tuple[str, ...]) -> None:
-    old = importlib.import_module(legacy)
-    canonical = importlib.import_module("application.benchmark")
-
-    for name in names:
-        assert getattr(old, name) is getattr(canonical, name)
+@pytest.mark.parametrize(
+    "public,implementation,name",
+    [
+        ("application.benchmark", "application.benchmark.dto", "ApplyConfigResult"),
+        ("application.benchmark", "application.benchmark.dto", "BenchmarkQuestionCreateDTO"),
+        ("application.benchmark", "application.benchmark.dto", "SweepCreateDTO"),
+        ("application.benchmark", "application.benchmark.dto", "RegressionCheckOutput"),
+        ("application.benchmark", "application.benchmark.dto", "RegressionCheckResult"),
+        ("application.benchmark", "application.benchmark.ports", "BenchmarkCheckpoints"),
+        ("application.benchmark", "application.benchmark.ports", "BenchmarkHistoryPort"),
+        ("application.benchmark", "application.benchmark.ports", "BenchmarkRunnerPort"),
+        ("application.benchmark", "application.benchmark.dataset", "load_benchmark_questions"),
+        ("application.benchmark", "application.benchmark.export_service", "BenchmarkExportService"),
+        ("application.benchmark", "application.benchmark.export_service", "CSV_FIELDS"),
+        ("application.benchmark", "application.benchmark.export_service", "EXPORT_CHUNK_BYTES"),
+        ("application.benchmark", "application.benchmark.export_service", "encode_json"),
+        ("application.benchmark", "application.benchmark.export_service", "encode_csv"),
+        ("application.benchmark", "application.benchmark.import_service", "BenchmarkImportService"),
+        ("application.benchmark", "application.benchmark.dto", "BenchmarkImportResult"),
+        ("application.benchmark", "application.benchmark.orchestrator", "BenchmarkService"),
+        ("application.benchmark", "application.benchmark.orchestrator", "compute_summary_from_results"),
+        ("application.benchmark", "application.benchmark.result_service", "BenchmarkResultService"),
+        ("application.benchmark", "application.benchmark.dto", "BenchmarkResultSummary"),
+        ("application.benchmark", "application.benchmark.dto", "BenchmarkResultDetail"),
+        ("application.benchmark", "application.benchmark.dto", "BenchmarkResultsList"),
+        ("application.benchmark", "application.benchmark.result_service", "normalize_metrics"),
+        ("application.benchmark", "application.benchmark.services", "BenchmarkQuestionService"),
+        ("application.benchmark", "application.benchmark.services", "BenchmarkRunService"),
+        ("application.benchmark", "application.benchmark.services", "BenchmarkSweepService"),
+        ("application.benchmark", "application.benchmark.dto", "RunCompareResult"),
+        ("application.benchmark", "application.benchmark.services", "RUN_CONFIG_KEY_MAP"),
+        ("application.benchmark", "application.benchmark.services", "HISTORY_CONFIG_KEYS"),
+    ],
+)
+def test_public_exports_share_canonical_objects(public: str, implementation: str, name: str) -> None:
+    assert getattr(importlib.import_module(public), name) is getattr(
+        importlib.import_module(implementation), name
+    )
 
 
 @pytest.mark.asyncio

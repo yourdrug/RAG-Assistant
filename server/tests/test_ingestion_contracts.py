@@ -1,4 +1,4 @@
-"""Compatibility of legacy exports with the canonical feature package."""
+"""Public feature exports match their implementations."""
 
 import importlib
 
@@ -6,42 +6,42 @@ import pytest
 
 
 @pytest.mark.parametrize(
-    "legacy,canonical,name",
+    "public,implementation,name",
     [
-        ("application.services.ingest_service", "application.ingestion.service", "IngestAppService"),
-        (
-            "application.services.ingestion_orchestrator",
-            "application.ingestion.orchestrator",
-            "IngestionService",
-        ),
-        ("application.services.batch_ingestion", "application.ingestion.batch", "BatchIngestionWorkflow"),
-        (
-            "application.services.single_file_ingestion",
-            "application.ingestion.single_file",
-            "SingleFileIngestionWorkflow",
-        ),
-        ("application.services.ingestion_registry", "application.ingestion.registry", "s3_file_hash"),
-        ("application.services.ingestion_registry", "application.ingestion.registry", "IngestionRegistry"),
-        ("application.services.ingestion_scope", "application.ingestion.scope", "IngestionScope"),
-        ("application.services.ingestion_sync", "application.ingestion.sync", "DocumentSyncService"),
-        ("application.services.ingestion_targets", "application.ingestion.targets", "S3IngestionTargets"),
-        ("application.services.ingestion_targets", "application.ingestion.targets", "S3UploadService"),
-        ("application.services.document_loader", "application.ingestion.loader", "S3DocumentLoader"),
-        (
-            "application.services.sparse_index_builder",
-            "application.ingestion.sparse_index",
-            "SparseIndexBuilder",
-        ),
-        ("application.ports.ingestion_port", "application.ingestion.port", "IngestionPort"),
-        ("application.ports.ingestion_settings", "application.ingestion.settings", "IngestionSettingsPort"),
-        ("application.ports.document_parser", "application.ingestion.parser", "FileMeta"),
-        ("application.ports.document_parser", "application.ingestion.parser", "SplitContext"),
-        ("application.ports.document_parser", "application.ingestion.parser", "DocumentParserPort"),
-        ("application.ports.document_parser", "application.ingestion.parser", "DocumentSplitterPort"),
-        ("application.dto.ingest_dto", "application.ingestion.dto", "IngestStatusResult"),
-        ("application.dto.ingest_dto", "application.ingestion.dto", "IngestRegistryItemDTO"),
-        ("application.dto.ingest_dto", "application.ingestion.dto", "IngestRegistryResult"),
+        ("application.ingestion", "application.ingestion.service", "IngestionService"),
+        ("application.ingestion", "application.ingestion.batch", "BatchIngestionWorkflow"),
+        ("application.ingestion", "application.ingestion.single_file", "SingleFileIngestionWorkflow"),
+        ("application.ingestion", "application.ingestion.registry", "IngestionRegistry"),
+        ("application.ingestion", "application.ingestion.scope", "IngestionScope"),
+        ("application.ingestion", "application.ingestion.sync", "DocumentSyncService"),
+        ("application.ingestion", "application.ingestion.targets", "S3IngestionTargets"),
+        ("application.ingestion", "application.ingestion.targets", "S3UploadService"),
+        ("application.ingestion", "application.ingestion.loader", "S3DocumentLoader"),
+        ("application.ingestion", "application.ingestion.sparse_index", "SparseIndexBuilder"),
+        ("application.ingestion", "application.ingestion.sparse_index_port", "ChunkRef"),
+        ("application.ingestion", "application.ingestion.sparse_index_port", "SparseIndexAdminPort"),
+        ("application.ingestion", "application.ingestion.port", "IngestionPort"),
+        ("application.ingestion", "application.ingestion.settings", "IngestionSettingsPort"),
+        ("application.ingestion", "application.ingestion.parser", "FileMeta"),
+        ("application.ingestion", "application.ingestion.parser", "SplitContext"),
+        ("application.ingestion", "application.ingestion.parser", "DocumentParserPort"),
+        ("application.ingestion", "application.ingestion.parser", "DocumentSplitterPort"),
+        ("application.ingestion", "application.ingestion.dto", "IngestStatusResult"),
+        ("application.ingestion", "application.ingestion.dto", "IngestRegistryItemDTO"),
+        ("application.ingestion", "application.ingestion.dto", "IngestRegistryResult"),
+        ("application.ingestion", "application.ingestion.dto", "RegistryRecord"),
+        ("application.ingestion", "application.ingestion.dto", "SyncOneDocumentOptions"),
+        ("application.ingestion", "application.ingestion.dto", "UploadFile"),
     ],
 )
-def test_legacy_exports_share_canonical_objects(legacy: str, canonical: str, name: str) -> None:
-    assert getattr(importlib.import_module(legacy), name) is getattr(importlib.import_module(canonical), name)
+def test_public_exports_share_canonical_objects(public: str, implementation: str, name: str) -> None:
+    assert name in importlib.import_module(public).__all__
+    assert getattr(importlib.import_module(public), name) is getattr(
+        importlib.import_module(implementation), name
+    )
+
+
+def test_processing_details_are_not_public_exports() -> None:
+    public = importlib.import_module("application.ingestion")
+    assert "s3_file_hash" not in public.__all__
+    assert not hasattr(public, "s3_file_hash")

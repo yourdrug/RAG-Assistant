@@ -15,7 +15,7 @@ from infrastructure.benchmark.checkpoint import (
 from collections.abc import Callable
 from typing import Protocol, TypedDict, cast
 
-from application.ports.unit_of_work_factory import UnitOfWorkFactory
+from application.uow.factory import UnitOfWorkFactory
 from domain.entities.benchmark_sweep import BenchmarkSweep
 from domain.value_objects.sweep_evaluation_mode import SweepEvaluationMode, validate_sweep_mode
 from domain.value_objects.benchmark_scoring import validate_objective_weights

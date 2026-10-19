@@ -7,7 +7,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from application.services.job_service import JobService
+from application.jobs.service import JobService
 from domain.entities.background_job import BackgroundJob
 from domain.exceptions import ClientException, EntityNotFound
 from domain.value_objects.job_status import BackgroundJobStatus

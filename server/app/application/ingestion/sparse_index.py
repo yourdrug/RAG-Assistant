@@ -5,12 +5,12 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from application.ports.sparse_index import ChunkRef
+from application.ingestion.sparse_index_port import ChunkRef
 
 
 if TYPE_CHECKING:
     from application.ingestion.settings import IngestionSettingsPort
-    from application.ports.sparse_index import SparseIndexAdminPort
+    from application.ingestion.sparse_index_port import SparseIndexAdminPort
     from domain.entities.raw_document import RawDocument
 
 log = logging.getLogger("default")

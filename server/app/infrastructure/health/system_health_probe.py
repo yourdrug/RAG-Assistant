@@ -11,7 +11,7 @@ import asyncio
 import time
 
 import httpx
-from application.ports.health import HealthCheckResult
+from application.health.ports import HealthCheckResult
 from config import settings
 from domain.value_objects.health_status import HealthStatus
 from infrastructure.database.database import database

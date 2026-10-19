@@ -1,6 +1,6 @@
 """Characterization tests for services/ingestion_service.py main pipeline.
 
-Locks down the orchestration logic (run_full_ingestion, _sync_documents_to_db,
+Locks down the orchestration logic (run_full, _sync_documents_to_db,
 _handle_s3_file, _load_documents, parse_file) BEFORE moving the file
 from infrastructure/ to application/.
 """
@@ -20,7 +20,7 @@ from domain.value_objects.visibility import DocumentVisibility  # noqa: E402
 from application.ingestion import (  # noqa: E402
     IngestionService,
 )
-from application.ingestion import s3_file_hash as _s3_file_hash  # noqa: E402
+from application.ingestion.registry import s3_file_hash as _s3_file_hash  # noqa: E402
 from application.ingestion import BatchIngestionWorkflow  # noqa: E402
 from application.indexing import tag_chunks as _tag_chunks, tag_domain as _tag_domain  # noqa: E402
 from application.ingestion import S3DocumentLoader  # noqa: E402
@@ -441,7 +441,7 @@ class TestGetRegistryForceReindex:
 
 
 # ---------------------------------------------------------------------------
-# run_full_ingestion — no documents path
+# run_full — no documents path
 # ---------------------------------------------------------------------------
 
 
@@ -451,13 +451,13 @@ class TestRunFullIngestion:
         svc = _make_service()
         svc._batch._loader._file_storage.list_files = AsyncMock(return_value=[])
         # Should not raise
-        await svc.run_full_ingestion(docs_dir="empty/", reset=False)
+        await svc.run_full(docs_dir="empty/", reset=False)
 
     @pytest.mark.asyncio
     async def test_ensure_collection_called(self):
         svc = _make_service()
         svc._batch._loader._file_storage.list_files = AsyncMock(return_value=[])
-        await svc.run_full_ingestion(docs_dir="empty/", reset=False)
+        await svc.run_full(docs_dir="empty/", reset=False)
         svc._batch._vector_store.ensure_collection.assert_called_once()
 
     @pytest.mark.asyncio
@@ -484,5 +484,5 @@ class TestRunFullIngestion:
         svc = _make_service(uow_factory=mock_factory)
         svc._batch._loader._file_storage.list_files = AsyncMock(return_value=[])
 
-        await svc.run_full_ingestion(docs_dir="empty/", reset=True)
+        await svc.run_full(docs_dir="empty/", reset=True)
         mock_uow.documents.delete_internal_documents.assert_called_once()

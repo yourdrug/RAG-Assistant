@@ -13,8 +13,8 @@ from application.ingestion import (
     IngestionService,
     S3IngestionTargets,
     SingleFileIngestionWorkflow,
-    s3_file_hash,
 )
+from application.ingestion.registry import s3_file_hash
 from application.ports.file_storage import FileItem
 from domain.entities.document import Document
 from domain.entities.raw_document import RawDocument

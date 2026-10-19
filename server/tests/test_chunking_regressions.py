@@ -9,7 +9,7 @@ from langchain.schema import Document
 
 from application.ingestion import FileMeta, SplitContext
 from application.ingestion import S3DocumentLoader
-from application.documents import DocumentContentProcessor
+from application.documents.content import DocumentContentProcessor
 from domain.domain_profile.profiles.decree import DecreeDomainProfile
 from domain.domain_profile.profiles.legal import LegalDomainProfile
 from domain.domain_profile.registry import DomainProfileRegistry

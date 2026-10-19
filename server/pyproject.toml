@@ -800,150 +800,244 @@ forbidden_modules = [
     "config", "fastapi", "starlette", "sqlalchemy", "httpx", "redis", "qdrant_client",
 ]
 
+# Feature dependencies are direct; each target enforces its own boundary.
+# DDD layers above also check indirect paths to implementations.
+
 [[tool.importlinter.contracts]]
-name = "UoW is independent of legacy application modules and implementations"
+name = "UoW: declared application dependencies"
 type = "forbidden"
 source_modules = ["application.uow"]
+allow_indirect_imports = true
+# Allowed features: none.
 forbidden_modules = [
-    "application.services", "application.dto", "application.ports",
-    "infrastructure", "presentation", "composition",
+    "application.budget", "application.admin", "application.benchmark",
+    "application.act_versioning", "application.identity", "application.chat",
+    "application.search", "application.indexing", "application.documents",
+    "application.chunks", "application.ingestion", "application.health",
+    "application.jobs", "application.ports",
 ]
 
 [[tool.importlinter.contracts]]
-name = "Budget is independent of legacy application modules and implementations"
+name = "Budget: declared application dependencies"
 type = "forbidden"
 source_modules = ["application.budget"]
+allow_indirect_imports = true
+# Allowed features: uow.
 forbidden_modules = [
-    "application.services", "application.dto", "application.ports",
-    "infrastructure", "presentation", "composition",
+    "application.admin", "application.benchmark", "application.act_versioning",
+    "application.identity", "application.chat", "application.search",
+    "application.indexing", "application.documents", "application.chunks",
+    "application.ingestion", "application.health", "application.jobs",
+    "application.ports",
 ]
 
 [[tool.importlinter.contracts]]
-name = "Admin is independent of legacy application modules and implementations"
+name = "Admin: declared application dependencies"
 type = "forbidden"
 source_modules = ["application.admin"]
+allow_indirect_imports = true
+# Allowed features: uow.
 forbidden_modules = [
-    "application.services", "application.dto", "application.ports",
-    "infrastructure", "presentation", "composition",
+    "application.budget", "application.benchmark", "application.act_versioning",
+    "application.identity", "application.chat", "application.search",
+    "application.indexing", "application.documents", "application.chunks",
+    "application.ingestion", "application.health", "application.jobs",
+    "application.ports",
 ]
-ignore_imports = ["application.admin.config_service -> application.ports.event_bus"]
-
-[[tool.importlinter.contracts]]
-name = "Benchmark is independent of legacy application modules and implementations"
-type = "forbidden"
-source_modules = ["application.benchmark"]
-forbidden_modules = [
-    "application.services", "application.dto", "application.ports",
-    "infrastructure", "presentation", "composition",
-]
-# Shared contracts remain outside individual features.
+# Only these shared ports are part of this feature boundary.
 ignore_imports = [
-    "application.benchmark.export_service -> application.ports.file_storage",
     "application.admin.config_service -> application.ports.event_bus",
 ]
 
 [[tool.importlinter.contracts]]
-name = "Act versioning is independent of legacy application modules and implementations"
+name = "Benchmark: declared application dependencies"
+type = "forbidden"
+source_modules = ["application.benchmark"]
+allow_indirect_imports = true
+# Allowed features: admin, chat, uow.
+forbidden_modules = [
+    "application.budget", "application.act_versioning", "application.identity",
+    "application.search", "application.indexing", "application.documents",
+    "application.chunks", "application.ingestion", "application.health",
+    "application.jobs", "application.ports",
+]
+# Only these shared ports are part of this feature boundary.
+ignore_imports = [
+    "application.benchmark.export_service -> application.ports.file_storage",
+]
+
+[[tool.importlinter.contracts]]
+name = "Act versioning: declared application dependencies"
 type = "forbidden"
 source_modules = ["application.act_versioning"]
+allow_indirect_imports = true
+# Allowed features: uow.
 forbidden_modules = [
-    "application.services", "application.dto", "application.ports",
-    "infrastructure", "presentation", "composition",
+    "application.budget", "application.admin", "application.benchmark",
+    "application.identity", "application.chat", "application.search",
+    "application.indexing", "application.documents", "application.chunks",
+    "application.ingestion", "application.health", "application.jobs",
+    "application.ports",
 ]
-# Cache invalidation is shared with document and chat scenarios.
+# Only these shared ports are part of this feature boundary.
 ignore_imports = [
     "application.act_versioning.answers -> application.ports.cache_invalidator",
     "application.act_versioning.service -> application.ports.cache_invalidator",
 ]
 
 [[tool.importlinter.contracts]]
-name = "Identity is independent of legacy application modules and implementations"
+name = "Identity: declared application dependencies"
 type = "forbidden"
 source_modules = ["application.identity"]
+allow_indirect_imports = true
+# Allowed features: uow.
 forbidden_modules = [
-    "application.services", "application.dto", "application.ports",
-    "infrastructure", "presentation", "composition",
+    "application.budget", "application.admin", "application.benchmark",
+    "application.act_versioning", "application.chat", "application.search",
+    "application.indexing", "application.documents", "application.chunks",
+    "application.ingestion", "application.health", "application.jobs",
+    "application.ports",
 ]
 
 [[tool.importlinter.contracts]]
-name = "Chat is independent of legacy application modules and implementations"
+name = "Chat: declared application dependencies"
 type = "forbidden"
 source_modules = ["application.chat"]
+allow_indirect_imports = true
+# Allowed features: identity, uow.
 forbidden_modules = [
-    "application.services", "application.dto", "application.ports",
-    "infrastructure", "presentation", "composition",
+    "application.budget", "application.admin", "application.benchmark",
+    "application.act_versioning", "application.search", "application.indexing",
+    "application.documents", "application.chunks", "application.ingestion",
+    "application.health", "application.jobs", "application.ports",
 ]
 
 [[tool.importlinter.contracts]]
-name = "Search is independent of legacy application modules and implementations"
+name = "Search: declared application dependencies"
 type = "forbidden"
 source_modules = ["application.search"]
+allow_indirect_imports = true
+# Allowed features: identity, uow.
 forbidden_modules = [
-    "application.services", "application.dto", "application.ports",
-    "infrastructure", "presentation", "composition",
+    "application.budget", "application.admin", "application.benchmark",
+    "application.act_versioning", "application.chat", "application.indexing",
+    "application.documents", "application.chunks", "application.ingestion",
+    "application.health", "application.jobs", "application.ports",
 ]
 
 [[tool.importlinter.contracts]]
-name = "Indexing is independent of legacy application modules and implementations"
+name = "Indexing: declared application dependencies"
 type = "forbidden"
 source_modules = ["application.indexing"]
+allow_indirect_imports = true
+# Allowed features: uow.
 forbidden_modules = [
-    "application.services", "application.dto", "application.ports",
-    "application.act_versioning", "infrastructure", "presentation", "composition",
+    "application.budget", "application.admin", "application.benchmark",
+    "application.act_versioning", "application.identity", "application.chat",
+    "application.search", "application.documents", "application.chunks",
+    "application.ingestion", "application.health", "application.jobs",
+    "application.ports",
 ]
 
 [[tool.importlinter.contracts]]
-name = "Documents is independent of legacy scenarios and implementations"
+name = "Documents: declared application dependencies"
 type = "forbidden"
 source_modules = ["application.documents"]
+allow_indirect_imports = true
+# Allowed features: act_versioning, identity, indexing, ingestion, uow.
 forbidden_modules = [
-    "application.ports.document_access",
-    "application.ports.document_preview",
-    "application.ports.document_processing",
-    "application.ports.preview_strategy_factory",
-    "application.ports.chunk_settings",
-    "application.ports.ingestion_port",
-    "application.ports.ingestion_settings",
-    "application.ports.document_parser",
-
-    "application.services", "application.dto",
-    "infrastructure", "presentation", "composition",
+    "application.budget", "application.admin", "application.benchmark",
+    "application.chat", "application.search", "application.chunks",
+    "application.health", "application.jobs", "application.ports",
+]
+# Only these shared ports are part of this feature boundary.
+ignore_imports = [
+    "application.documents.delete -> application.ports.bm25_index",
+    "application.documents.delete -> application.ports.file_storage",
+    "application.documents.deletion_jobs -> application.ports.job_enqueuer",
+    "application.documents.preview_cache -> application.ports.file_storage",
+    "application.documents.processor -> application.ports.file_storage",
+    "application.documents.rename -> application.ports.file_storage",
+    "application.documents.upload -> application.ports.file_storage",
 ]
 
 [[tool.importlinter.contracts]]
-name = "Chunks is independent of legacy scenarios and implementations"
+name = "Chunks: declared application dependencies"
 type = "forbidden"
 source_modules = ["application.chunks"]
+allow_indirect_imports = true
+# Allowed features: documents, identity, indexing, uow.
 forbidden_modules = [
-    "application.ports.document_access",
-    "application.ports.document_preview",
-    "application.ports.document_processing",
-    "application.ports.preview_strategy_factory",
-    "application.ports.chunk_settings",
-    "application.ports.ingestion_port",
-    "application.ports.ingestion_settings",
-    "application.ports.document_parser",
-
-    "application.services", "application.dto",
-    "infrastructure", "presentation", "composition",
+    "application.budget", "application.admin", "application.benchmark",
+    "application.act_versioning", "application.chat", "application.search",
+    "application.ingestion", "application.health", "application.jobs",
+    "application.ports",
+]
+# Only these shared ports are part of this feature boundary.
+ignore_imports = [
+    "application.chunks.mutations -> application.ports.bm25_index",
+    "application.chunks.mutations -> application.ports.cache_invalidator",
 ]
 
 [[tool.importlinter.contracts]]
-name = "Ingestion is independent of legacy scenarios and implementations"
+name = "Ingestion: declared application dependencies"
 type = "forbidden"
 source_modules = ["application.ingestion"]
+allow_indirect_imports = true
+# Allowed features: act_versioning, indexing, uow.
 forbidden_modules = [
-    "application.ports.document_access",
-    "application.ports.document_preview",
-    "application.ports.document_processing",
-    "application.ports.preview_strategy_factory",
-    "application.ports.chunk_settings",
-    "application.ports.ingestion_port",
-    "application.ports.ingestion_settings",
-    "application.ports.document_parser",
+    "application.budget", "application.admin", "application.benchmark",
+    "application.identity", "application.chat", "application.search",
+    "application.documents", "application.chunks", "application.health",
+    "application.jobs", "application.ports",
+]
+# Only these shared ports are part of this feature boundary.
+ignore_imports = [
+    "application.ingestion.loader -> application.ports.file_storage",
+    "application.ingestion.registry -> application.ports.file_storage",
+    "application.ingestion.single_file -> application.ports.file_storage",
+    "application.ingestion.targets -> application.ports.file_storage",
+]
 
-    "application.services", "application.dto",
-    "infrastructure", "presentation", "composition",
+[[tool.importlinter.contracts]]
+name = "Health: declared application dependencies"
+type = "forbidden"
+source_modules = ["application.health"]
+allow_indirect_imports = true
+# Allowed features: admin, uow.
+forbidden_modules = [
+    "application.budget", "application.benchmark", "application.act_versioning",
+    "application.identity", "application.chat", "application.search",
+    "application.indexing", "application.documents", "application.chunks",
+    "application.ingestion", "application.jobs", "application.ports",
+]
+
+[[tool.importlinter.contracts]]
+name = "Jobs: declared application dependencies"
+type = "forbidden"
+source_modules = ["application.jobs"]
+allow_indirect_imports = true
+# Allowed features: uow.
+forbidden_modules = [
+    "application.budget", "application.admin", "application.benchmark",
+    "application.act_versioning", "application.identity", "application.chat",
+    "application.search", "application.indexing", "application.documents",
+    "application.chunks", "application.ingestion", "application.health",
+    "application.ports",
+]
+
+[[tool.importlinter.contracts]]
+name = "Shared ports: declared application dependencies"
+type = "forbidden"
+source_modules = ["application.ports"]
+allow_indirect_imports = true
+# Allowed features: none.
+forbidden_modules = [
+    "application.uow", "application.budget", "application.admin",
+    "application.benchmark", "application.act_versioning", "application.identity",
+    "application.chat", "application.search", "application.indexing",
+    "application.documents", "application.chunks", "application.ingestion",
+    "application.health", "application.jobs",
 ]
 
 

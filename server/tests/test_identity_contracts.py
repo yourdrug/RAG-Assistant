@@ -21,36 +21,29 @@ from domain.exceptions import BusinessRuleViolation, EntityNotFound, ValidationE
 from domain.value_objects.roles import UserKind, UserRole
 
 
-LEGACY_EXPORTS = [
-    ("application.services.assignment_service", ("AssignmentService",)),
-    ("application.services.auth_service", ("AuthService",)),
-    ("application.services.group_service", ("GroupService",)),
-    ("application.services.user_context_factory", ("UserContextFactory",)),
-    ("application.ports.api_key_provider", ("ApiKeyProviderPort",)),
-    (
-        "application.dto.auth_dto",
-        (
-            "ApiKeyAuthResult",
-            "ApiKeyInfo",
-            "ChangeRoleCommand",
-            "CreateUserCommand",
-            "IssueApiKeyResult",
-            "LoginCommand",
-            "LoginResult",
-            "ToggleActiveResult",
-            "UserDTO",
-        ),
-    ),
-]
-
-
-@pytest.mark.parametrize("legacy,names", LEGACY_EXPORTS)
-def test_legacy_exports_share_canonical_objects(legacy: str, names: tuple[str, ...]) -> None:
-    old = importlib.import_module(legacy)
-    canonical = importlib.import_module("application.identity")
-
-    for name in names:
-        assert getattr(old, name) is getattr(canonical, name)
+@pytest.mark.parametrize(
+    "public,implementation,name",
+    [
+        ("application.identity", "application.identity.assignment_service", "AssignmentService"),
+        ("application.identity", "application.identity.auth_service", "AuthService"),
+        ("application.identity", "application.identity.group_service", "GroupService"),
+        ("application.identity", "application.identity.user_context_factory", "UserContextFactory"),
+        ("application.identity", "application.identity.ports", "ApiKeyProviderPort"),
+        ("application.identity", "application.identity.dto", "ApiKeyAuthResult"),
+        ("application.identity", "application.identity.dto", "ApiKeyInfo"),
+        ("application.identity", "application.identity.dto", "ChangeRoleCommand"),
+        ("application.identity", "application.identity.dto", "CreateUserCommand"),
+        ("application.identity", "application.identity.dto", "IssueApiKeyResult"),
+        ("application.identity", "application.identity.dto", "LoginCommand"),
+        ("application.identity", "application.identity.dto", "LoginResult"),
+        ("application.identity", "application.identity.dto", "ToggleActiveResult"),
+        ("application.identity", "application.identity.dto", "UserDTO"),
+    ],
+)
+def test_public_exports_share_canonical_objects(public: str, implementation: str, name: str) -> None:
+    assert getattr(importlib.import_module(public), name) is getattr(
+        importlib.import_module(implementation), name
+    )
 
 
 def transaction() -> tuple[Mock, AsyncMock]:

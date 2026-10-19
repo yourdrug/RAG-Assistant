@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from application.services.metrics_service import MetricsService
+from application.admin.metrics import MetricsService
 from fastapi import APIRouter, Depends
 
 from presentation.api.auth_dependencies import require_admin

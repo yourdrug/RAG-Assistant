@@ -13,8 +13,8 @@ from domain.value_objects.doc_domain import DocDomain
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from application.ports.rate_limit import RateLimitPolicyName
-from application.services.pdf_diagnostic_service import PDFDiagnosticService
-from application.services.quality_service import QualityService
+from application.documents.diagnostics import PDFDiagnosticService
+from application.documents.quality_service import QualityService
 
 from presentation.api.auth_dependencies import require_admin
 from presentation.api.rate_limit import rate_limit
