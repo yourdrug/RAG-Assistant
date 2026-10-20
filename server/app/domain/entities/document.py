@@ -23,6 +23,7 @@ class Document:
     id: int | None = None
     filename: str = ""
     source_path: str = ""
+    ingestion_key: str | None = None
     visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC
     owner_id: int | None = None
     group_id: int | None = None

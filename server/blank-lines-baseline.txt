@@ -70,7 +70,6 @@ app/infrastructure/benchmark/sweep_strategies.py
 app/infrastructure/benchmark/token_usage.py
 app/infrastructure/bm25/bm25_index.py
 app/infrastructure/bm25/bm25_invalidation.py
-app/infrastructure/bm25/bm25_updater.py
 app/infrastructure/bm25/persistence.py
 app/infrastructure/bm25/stemmer.py
 app/infrastructure/budget/job_context.py

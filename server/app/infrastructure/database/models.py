@@ -148,12 +148,23 @@ class DocumentModel(BaseModel):
             text("COALESCE(group_id, 0)"),
             "filename",
             unique=True,
-            postgresql_where="status IN ("
+            postgresql_where="ingestion_key IS NULL AND status IN ("
+            + ", ".join(f"'{status.value}'" for status in DOCUMENT_SLOT_STATUSES)
+            + ")",
+        ),
+        Index(
+            "ux_documents_ingestion_slot",
+            "ingestion_key",
+            text("COALESCE(owner_id, 0)"),
+            text("COALESCE(group_id, 0)"),
+            unique=True,
+            postgresql_where="ingestion_key IS NOT NULL AND status IN ("
             + ", ".join(f"'{status.value}'" for status in DOCUMENT_SLOT_STATUSES)
             + ")",
         ),
     )
 
+    ingestion_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
     source_path: Mapped[str] = mapped_column(Text, nullable=False, default="")
     visibility: Mapped[str] = mapped_column(String(20), nullable=False)
@@ -312,6 +323,7 @@ class ChunkModel(BaseModel):
     __tablename__ = "chunks"
     __table_args__ = (
         UniqueConstraint("document_id", "chunk_index", "id", name="ux_chunks_document_chunk_index_id"),
+        UniqueConstraint("document_id", "chunk_index", name="ux_chunks_document_index"),
         Index("ix_chunks_visibility", "visibility"),
         Index("ix_chunks_owner_id", "owner_id"),
         Index("ix_chunks_group_id", "group_id"),
@@ -526,7 +538,9 @@ class IngestionRegistryModel(BaseModel):
     """Tracks which files have been indexed — replaces JSON-file registry."""
 
     __tablename__ = "ingestion_registry"
-    __table_args__ = (Index("idx_ingestion_registry_filename", "filename", unique=True),)
+    __table_args__ = (Index("idx_ingestion_registry_key", "ingestion_key", unique=True),)
+
+    ingestion_key: Mapped[str] = mapped_column(Text, nullable=False)
 
     filename: Mapped[str] = mapped_column(String(500), nullable=False)
     file_hash: Mapped[str] = mapped_column(String(255), nullable=False, server_default="")

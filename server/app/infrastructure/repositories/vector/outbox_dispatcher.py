@@ -143,10 +143,9 @@ class OutboxDispatcher:
                 {k: v for k, v in entry.payload.items() if k != "act_version_id"},
             )
         elif entry.operation == OutboxOperation.SET_DOCUMENT_ID:
-            await self._vector_store.set_document_id_by_source(
-                entry.payload["source"],
-                entry.payload["document_id"],
-            )
+            # Legacy jobs: upserts carry document IDs. A source-wide patch would
+            # steal points belonging to another assignment of the same source.
+            log.debug("Skipping legacy source-wide document ID patch")
         else:
             raise ValueError(f"Unknown outbox operation: {entry.operation}")
 

@@ -17,6 +17,7 @@ class IngestStatusResponse(BaseModel):
 
 class IngestRegistryItem(BaseModel):
     filename: str
+    ingestion_key: str = ""
     chunks: int | None = None
     chars: int | None = None
     indexed_at: datetime | str | None = None

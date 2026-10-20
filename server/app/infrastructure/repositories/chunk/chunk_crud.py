@@ -5,10 +5,12 @@ from __future__ import annotations
 from datetime import date, datetime
 
 from domain.repositories.chunk_repository import ChunkSearchResult, ChunkStats
+from domain.exceptions import BusinessRuleViolation
 from domain.value_objects.cursor_page import CursorPage
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.chunk_context import extract_chunk_context
 from sqlalchemy import delete, func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.database.models import ChunkModel, DocumentModel
@@ -166,7 +168,18 @@ class SQLAlchemyChunkCrudRepository:
             is_current=is_current,
         )
         self._session.add(orm)
-        await self._session.flush()
+        try:
+            await self._session.flush()
+        except IntegrityError as exc:
+            cause = exc.orig.__cause__ if exc.orig is not None else None
+            diag = getattr(exc.orig, "diag", None)
+            constraint = getattr(cause, "constraint_name", None) or getattr(diag, "constraint_name", None)
+
+            if constraint == "ux_chunks_document_index":
+                msg = "Chunk index already exists for this document; retry adding the chunk"
+                raise BusinessRuleViolation(msg) from exc
+
+            raise
         return orm.id
 
     async def delete_one(self, chunk_id: int) -> None:

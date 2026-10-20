@@ -12,7 +12,6 @@ import time
 from typing import TYPE_CHECKING
 
 from application.documents.classification import classify_processing_document
-from application.documents.conflicts import resolve_processing_conflict
 from application.documents.content import DocumentContentProcessor
 from application.documents.dto import PersistDocumentCommand
 from application.documents.persistence import persist_document_result
@@ -116,8 +115,6 @@ class DocumentProcessor:
             )
             ctx.doc_domain = classification.domain_key
             ctx.warnings.extend(warning for warning in (content.warning, classification.warning) if warning)
-
-            await resolve_processing_conflict(self._uow_factory, ctx, self._domain_registry)
 
             raw_chunks = await self._content.split(
                 content.documents, command.original_filename, classification.domain_key

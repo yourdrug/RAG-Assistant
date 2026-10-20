@@ -35,6 +35,7 @@ async def persist_document_result(
     """Commit version, chunks, replacement and outbox together, then invalidate answers."""
     document_id = command.document_id
     versioning = VersioningResult(None, None, None, None, None)
+    storage_deletes: list[str] = []
     async with uow_factory.create(master=True) as uow:
         existing = await uow.documents.get_by_id(document_id)
 
@@ -83,7 +84,7 @@ async def persist_document_result(
 
         if command.replace_id is not None:
             await apply_async_replacement(
-                uow, domain_registry, command.replace_id, command.doc_domain, command.storage_deletes
+                uow, domain_registry, command.replace_id, command.doc_domain, storage_deletes
             )
 
         if command.warning_message:
@@ -93,6 +94,9 @@ async def persist_document_result(
                 warning=command.warning_message,
                 quality_score=command.quality.bad_ratio if command.quality else None,
             )
+
+    # Publish cleanup keys only after commit: a rollback must preserve old files.
+    command.storage_deletes.extend(storage_deletes)
 
     if act_versioning_service is not None:
         if versioning.act_id is not None:

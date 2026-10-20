@@ -398,7 +398,6 @@ module = [
     "infrastructure.benchmark.token_usage",
     "infrastructure.bm25.bm25_index",
     "infrastructure.bm25.bm25_invalidation",
-    "infrastructure.bm25.bm25_updater",
     "infrastructure.bm25.persistence",
     "infrastructure.budget.job_context",
     "infrastructure.budget.ledger",
@@ -989,8 +988,9 @@ forbidden_modules = [
     "application.documents", "application.chunks", "application.health",
     "application.jobs", "application.ports",
 ]
-# Only these shared ports are part of this feature boundary.
+# Shared deletion preserves edition timelines; the remaining exceptions are storage ports.
 ignore_imports = [
+    "application.ingestion.sync -> application.documents.delete",
     "application.ingestion.loader -> application.ports.file_storage",
     "application.ingestion.registry -> application.ports.file_storage",
     "application.ingestion.single_file -> application.ports.file_storage",

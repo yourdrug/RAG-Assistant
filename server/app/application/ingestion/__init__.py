@@ -25,10 +25,6 @@ from application.ingestion.ports.parser import (
 from application.ingestion.ports.settings import (
     IngestionSettingsPort,
 )
-from application.ingestion.ports.sparse_index import (
-    ChunkRef,
-    SparseIndexAdminPort,
-)
 from application.ingestion.ports.upload import UploadFile
 from application.ingestion.registry import (
     IngestionRegistry,
@@ -42,9 +38,6 @@ from application.ingestion.service import (
 from application.ingestion.single_file import (
     SingleFileIngestionWorkflow,
 )
-from application.ingestion.sparse_index import (
-    SparseIndexBuilder,
-)
 from application.ingestion.sync import (
     DocumentSyncService,
 )
@@ -56,7 +49,6 @@ from application.ingestion.targets import (
 
 __all__ = [
     "BatchIngestionWorkflow",
-    "ChunkRef",
     "DocumentParserPort",
     "DocumentSplitterPort",
     "DocumentSyncService",
@@ -74,8 +66,6 @@ __all__ = [
     "S3IngestionTargets",
     "S3UploadService",
     "SingleFileIngestionWorkflow",
-    "SparseIndexAdminPort",
-    "SparseIndexBuilder",
     "SplitContext",
     "SyncOneDocumentOptions",
     "UploadFile",

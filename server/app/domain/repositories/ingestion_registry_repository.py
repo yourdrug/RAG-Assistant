@@ -19,6 +19,7 @@ class IngestionRegistryEntry:
     chunks: int
     chars: int
     indexed_at: datetime | None = None
+    ingestion_key: str = ""
 
 
 @runtime_checkable

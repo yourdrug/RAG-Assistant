@@ -20,6 +20,20 @@ from domain.value_objects.visibility import DocumentVisibility
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("prefix", ["docs/sub/", "other/", "docs/"])
+async def test_empty_reset_prunes_selected_prefix_without_resetting_collection(prefix):
+    vector_store = MagicMock(ensure_collection=AsyncMock())
+    settings = MagicMock(embed_dim=384)
+    loader = MagicMock(load_documents=AsyncMock(return_value=([], 0)))
+    registry = MagicMock(list_all=AsyncMock(return_value={}))
+    sync = MagicMock(delete_missing_sources=AsyncMock())
+    workflow = BatchIngestionWorkflow(vector_store, settings, loader, registry, sync=sync)
+    await workflow.run(prefix, reset=True, scope=IngestionScope())
+    vector_store.ensure_collection.assert_awaited_once_with(384, reset=False)
+    sync.delete_missing_sources.assert_awaited_once_with(prefix, set())
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("failure", [None, "sync"])
 async def test_batch_workflow_syncs_before_recording_registry_entry(failure):
     source = "s3://bucket/docs/report.pdf"
@@ -139,5 +153,5 @@ async def test_single_file_workflow_syncs_before_recording_registry_entry(sync_f
         registry.upsert.assert_not_awaited()
     else:
         registry.upsert.assert_awaited_once_with(
-            "report.pdf", "42_2026-01-01 00:00:00", "s3://bucket/docs/report.pdf", 1, chars=11
+            "docs/report.pdf", "42_2026-01-01 00:00:00", "s3://bucket/docs/report.pdf", 1, chars=11
         )

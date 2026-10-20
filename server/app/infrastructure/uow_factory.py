@@ -10,6 +10,8 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
+from sqlalchemy import text
+
 from application.uow import UnitOfWork, UnitOfWorkRepositories
 
 from infrastructure.database.database import DatabaseManager
@@ -78,6 +80,28 @@ class UnitOfWorkFactory:
     def __init__(self, database: DatabaseManager, config_broadcaster=None) -> None:
         self._database = database
         self._config_broadcaster = config_broadcaster
+
+    @asynccontextmanager
+    async def ingestion_lock(self) -> AsyncGenerator[None, None]:
+        # Pin a physical connection: a session lock must never leak into the pool.
+        async with self._database.get_session(master=True) as session:
+            engine = session.bind
+            if engine is None:
+                msg = "Ingestion requires a bound database engine"
+                raise RuntimeError(msg)
+            async with engine.connect() as connection:
+                try:
+                    await connection.execute(text("SELECT pg_advisory_lock(724193820146)"))
+                    await connection.commit()
+                    yield
+                finally:
+                    try:
+                        await connection.rollback()
+                        await connection.execute(text("SELECT pg_advisory_unlock(724193820146)"))
+                        await connection.commit()
+                    except BaseException:
+                        await connection.invalidate()
+                        raise
 
     @asynccontextmanager
     async def create(self, *, master: bool = False) -> AsyncGenerator[UnitOfWork, None]:

@@ -6,6 +6,7 @@ and storage compensation observable through the existing facade methods.
 
 import asyncio
 from contextlib import asynccontextmanager
+from datetime import date
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -17,6 +18,7 @@ from application.documents.upload import DocumentUploadCommand
 from application.documents import DocumentCommandService
 from application.identity import UserContextFactory
 from domain.entities.document import Document
+from domain.entities.act_version import ActVersion
 from domain.exceptions import BusinessRuleViolation, ValidationError
 from domain.value_objects.document_status import DocumentStatus
 from domain.value_objects.visibility import DocumentVisibility
@@ -48,7 +50,7 @@ class TrackingFactory(FakeUnitOfWorkFactory):
             self.active = False
 
 
-def harness(*, versioned=False):
+def harness():
     factory = TrackingFactory()
 
     async def upload(key, data):
@@ -68,11 +70,9 @@ def harness(*, versioned=False):
     storage.copy_file = AsyncMock(side_effect=copy)
     storage.delete_file = AsyncMock(side_effect=delete)
     bm25 = AsyncMock()
-    profile = SimpleNamespace(key="legal" if versioned else "general", is_versioned=versioned)
-    registry = SimpleNamespace(get=lambda key: profile)
     context_factory = UserContextFactory()
     command = DocumentCommandService(
-        DocumentUploadCommand(factory, storage, context_factory, registry),
+        DocumentUploadCommand(factory, storage, context_factory),
         DocumentDeleteCommand(factory, storage, context_factory),
         DocumentRenameCommand(factory, storage, context_factory),
     )
@@ -109,27 +109,152 @@ async def upload(h, **kwargs):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("domain", [None, "general", "legal"])
 async def test_upload_implicit_conflict_and_cleanup_order(domain):
-    h = harness(versioned=domain == "legal")
+    h = harness()
     old = await seed(h, version_group_id=42)
     dto = await upload(h, doc_domain=domain, rename_on_conflict=False)
     assert dto.filename == "report(1).pdf"
     assert dto.version_group_id == 42
     assert dto.storage_key == f"uploads/users/1/{dto.id}_report(1).pdf"
     assert dto.source_path == dto.storage_key
-    assert dto.replace_id == (old.id if domain is None else None)
-    assert h.factory.events[:3] == [("begin", True), "upload", "commit"]
-    if domain == "general":
-        assert await h.uow.documents.get_by_id(old.id) is None
-        entries = list(h.uow.vector_outbox._entries.values())
-        assert [(e.operation.value, e.payload) for e in entries] == [
-            ("delete_by_document", {"document_id": old.id})
-        ]
-        h.storage.delete_file.assert_awaited_once_with("old-key")
-        assert h.factory.events[-1] == "storage_delete"
+    assert dto.replace_id == old.id
+    assert h.factory.events == [("begin", True), "upload", "commit"]
+    assert await h.uow.documents.get_by_id(old.id) is not None
+    assert h.uow.vector_outbox._entries == {}
+    h.storage.delete_file.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [DocumentStatus.DONE, DocumentStatus.PROCESSING])
+async def test_add_new_preserves_existing_document_and_starts_independent_chain(status):
+    h = harness()
+    old = await seed(h, version_group_id=42)
+    old.status = status
+    dto = await upload(h, doc_domain="general", rename_on_conflict=True)
+    assert dto.filename == "report(1).pdf"
+    assert dto.replace_id is None
+    assert dto.version_group_id is None
+    assert await h.uow.documents.get_by_id(old.id) is not None
+    assert h.uow.vector_outbox._entries == {}
+    h.storage.delete_file.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("owner_id", [1, 2])
+async def test_explicit_replacement_requires_ownership_and_is_deferred(owner_id):
+    h = harness()
+    old = await seed(h, owner_id=owner_id)
+    if owner_id != 1:
+        with pytest.raises(BusinessRuleViolation, match="your own documents"):
+            await upload(h, replaces_document_id=old.id)
+        h.storage.upload_file.assert_not_awaited()
     else:
-        assert await h.uow.documents.get_by_id(old.id) is not None
-        assert h.uow.vector_outbox._entries == {}
-        h.storage.delete_file.assert_not_awaited()
+        dto = await upload(h, replaces_document_id=old.id)
+        assert dto.replace_id == old.id
+        assert dto.version_group_id == old.id
+    assert await h.uow.documents.get_by_id(old.id) is not None
+    h.storage.delete_file.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_explicit_replacement_cannot_change_visibility_scope():
+    h = harness()
+    old = await seed(h)
+    with pytest.raises(BusinessRuleViolation, match="same visibility scope"):
+        await upload(h, replaces_document_id=old.id, visibility="internal_public", user_role="admin")
+    h.storage.upload_file.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_explicit_replacement_rejects_add_new_flag_and_active_target():
+    h = harness()
+    old = await seed(h)
+    with pytest.raises(ValidationError, match="rename_on_conflict"):
+        await upload(h, replaces_document_id=old.id, rename_on_conflict=True)
+    old.status = DocumentStatus.PROCESSING
+    with pytest.raises(BusinessRuleViolation, match="already being processed"):
+        await upload(h, filename="other.pdf", replaces_document_id=old.id)
+    h.storage.upload_file.assert_not_awaited()
+
+
+async def seed_act_timeline(h, deleted_index):
+    docs = [await seed(h) for _ in range(3)]
+    starts = [date(2020, 1, 1), date(2021, 1, 1), date(2022, 1, 1)]
+    versions = []
+    for index, doc in enumerate(docs):
+        version = await h.uow.act_versions.create(
+            ActVersion(
+                id=None,
+                act_id=7,
+                document_id=doc.id,
+                effective_from=starts[index],
+                effective_to=starts[index + 1] if index < 2 else None,
+                is_current=index == 2,
+            )
+        )
+        versions.append(version)
+        await h.uow.chunks.bulk_insert(
+            document_id=doc.id,
+            filename=doc.filename,
+            visibility="internal_private",
+            owner_id=1,
+            group_id=None,
+            doc_domain="legal",
+            chunks=["text"],
+            content_hashes=["hash"],
+            act_version_id=version.id,
+            effective_from=version.effective_from,
+            effective_to=version.effective_to,
+            is_current=version.is_current,
+        )
+
+    original_delete = h.uow.documents.delete
+
+    async def cascade_delete(document_id):
+        await original_delete(document_id)
+        # Match the PostgreSQL foreign key cascade before a survivor is promoted.
+        h.uow.act_versions._versions.pop(versions[deleted_index].id)
+
+    h.uow.documents.delete = cascade_delete
+    h.uow.act_versions.list_by_act = AsyncMock(wraps=h.uow.act_versions.list_by_act)
+    return docs, versions
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("deleted_index", [1, 2])
+async def test_delete_reconnects_act_timeline_and_search_projections(deleted_index):
+    h = harness()
+    docs, _versions = await seed_act_timeline(h, deleted_index)
+
+    await h.command.delete_document(docs[deleted_index].id, 1, "user")
+    h.uow.act_versions.list_by_act.assert_awaited_once_with(7, for_update=True)
+    survivors = await h.uow.act_versions.list_by_act(7)
+    assert len(survivors) == 2
+    assert survivors[-1].is_current is True
+    assert survivors[-1].effective_to is None
+    assert survivors[0].effective_to == survivors[1].effective_from
+    changed = survivors[0] if deleted_index == 1 else survivors[-1]
+    chunk = next(c for c in h.uow.chunks._chunks if c["act_version_id"] == changed.id)
+    assert chunk["is_current"] == changed.is_current
+    assert chunk["effective_to"] == changed.effective_to
+    entries = list(h.uow.vector_outbox._entries.values())
+    assert entries[0].operation == "delete_by_document"
+    assert entries[1].operation == "update_metadata"
+    assert entries[1].payload["act_version_id"] == changed.id
+    h.storage.delete_file.assert_awaited_once_with("old-key")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("deleted_index", [1, 2])
+async def test_failed_timeline_update_rolls_back_deletion(deleted_index):
+    h = harness()
+    docs, _versions = await seed_act_timeline(h, deleted_index)
+    h.uow.act_versions.update = AsyncMock(side_effect=RuntimeError("projection failure"))
+    with pytest.raises(RuntimeError, match="projection failure"):
+        await h.command.delete_document(docs[deleted_index].id, 1, "user")
+    assert await h.uow.documents.get_by_id(docs[deleted_index].id) is not None
+    assert len(await h.uow.act_versions.list_by_act(7)) == 3
+    assert h.uow.vector_outbox._entries == {}
+    h.storage.delete_file.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -322,4 +447,22 @@ async def test_delete_commit_failure_preserves_document_and_sparse_index():
     assert await h.uow.documents.get_by_id(doc.id) is not None
     assert h.uow.vector_outbox._entries == {}
     h.bm25.remove.assert_not_awaited()
+    h.storage.delete_file.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["rename", "delete"])
+async def test_assignment_mutation_preserves_shared_ingestion_source(operation):
+    h = harness()
+    first = await seed(h, ingestion_key="docs/shared.pdf")
+    second = await seed(h, owner_id=2, ingestion_key="docs/shared.pdf")
+    if operation == "rename":
+        dto = await h.command.rename_document(first.id, "display.pdf", 1, "user")
+        assert dto.source_path == "old-key"
+        assert dto.filename == "display.pdf"
+    else:
+        await h.command.delete_document(first.id, 1, "user")
+        assert await h.uow.documents.get_by_id(first.id) is None
+    assert (await h.uow.documents.get_by_id(second.id)).source_path == "old-key"
+    h.storage.copy_file.assert_not_awaited()
     h.storage.delete_file.assert_not_awaited()

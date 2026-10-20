@@ -326,6 +326,7 @@ class TestAddChunk:
         assert result.chunk_index == 4
         assert result.content == "new chunk text " * 20
         assert result.manual is True
+        uow.documents.get_by_id.assert_awaited_once_with(1, for_update=True)
         uow.chunks.insert_one.assert_awaited_once()
         uow.vector_outbox.enqueue.assert_awaited_once()
         enqueue_call = uow.vector_outbox.enqueue.call_args[0][0]

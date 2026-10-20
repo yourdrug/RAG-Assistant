@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 from application.indexing import classify_domain, tag_chunks, tag_domain
 from application.ingestion.ports.parser import FileMeta, SplitContext
+from application.ingestion.profiles import get_domain_profile
 from application.ingestion.registry import s3_file_hash
 from domain.entities.raw_document import RawDocument
 from domain.services.document_domain_classifier import classify_document_domain
@@ -131,13 +132,7 @@ class S3DocumentLoader:
         return source_domain
 
     def get_profile(self, domain: str) -> DomainProfile | None:
-        if self._domain_registry is None:
-            return None
-
-        try:
-            return self._domain_registry.get(domain)
-        except KeyError:
-            return None
+        return get_domain_profile(self._domain_registry, domain)
 
     async def load_documents(
         self,
@@ -155,12 +150,18 @@ class S3DocumentLoader:
         documents, skipped_cached, ok, errors = [], 0, 0, 0
 
         for i, file_item in enumerate(items, 1):
+            if (
+                not file_item.key.startswith(s3_prefix)
+                or file_item.extension.lower() not in self._file_storage.supported_extensions
+            ):
+                continue
+
             tag = f"[{i:>3}/{len(items)}]"
 
             if (
                 not force
                 and self._registry is not None
-                and await self._registry.is_indexed(file_item.filename, s3_file_hash(file_item))
+                and await self._registry.is_indexed(file_item.key, s3_file_hash(file_item))
             ):
                 log.info("%s CACHED  %s", tag, file_item.filename)
                 skipped_cached += 1
@@ -170,11 +171,7 @@ class S3DocumentLoader:
             log.info("%s PARSE   %s  (%.1f KB)", tag, file_item.filename, size_kb)
             t0 = time.monotonic()
 
-            temp_path = await self._file_storage.download_to_temp(file_item.key)
-            try:
-                docs = self.parse_file(file_item, temp_path)
-            finally:
-                temp_path.unlink(missing_ok=True)
+            docs = await self.load_file(file_item)
 
             elapsed = time.monotonic() - t0
 
@@ -192,6 +189,10 @@ class S3DocumentLoader:
                 ok += 1
             else:
                 errors += 1
+
+                if force:
+                    msg = f"Failed to prepare {file_item.key}; reset cancelled"
+                    raise ValueError(msg)
 
         log.info("Parsing complete: %d loaded, %d errors, %d already in registry", ok, errors, skipped_cached)
         return documents, skipped_cached

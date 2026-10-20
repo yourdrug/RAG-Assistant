@@ -244,6 +244,7 @@ async def run_single_ingest(
     visibility: str = DocumentVisibility.INTERNAL_PUBLIC.value,
     group_id: int | None = None,
     client_id: int | None = None,
+    force: bool = False,
 ) -> None:
     """Ingest a single file."""
     infra = ctx["container"].infrastructure
@@ -255,7 +256,7 @@ async def run_single_ingest(
 
     async def _action() -> None:
         await service.run_single(
-            resolved, domain=domain, visibility=vis, group_id=group_id, client_id=client_id
+            resolved, force=force, domain=domain, visibility=vis, group_id=group_id, client_id=client_id
         )
 
     await run_tracked_job(

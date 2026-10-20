@@ -8,9 +8,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from config import settings
-from domain.value_objects.visibility import DocumentVisibility
 from infrastructure.bm25.bm25_index import BM25Index
-from infrastructure.bm25.bm25_updater import BM25IndexAdapter
 from infrastructure.ml.clients.client_registry import MLClientRegistry
 from infrastructure.storage.file_storage import LazyStorage, run_storage_io
 
@@ -47,90 +45,6 @@ async def test_invalidation_discards_inflight_snapshot():
     index = await asyncio.wait_for(pending, 5)
     assert index.texts == ["fresh"]
     assert registry.bm25_index() is index
-    await registry.close()
-
-
-@pytest.mark.asyncio
-async def test_sync_update_and_async_load_share_one_snapshot():
-    started, release = asyncio.Event(), asyncio.Event()
-    calls = 0
-
-    async def load():
-        nonlocal calls
-        calls += 1
-        started.set()
-        await release.wait()
-        return BM25Index(["original"], hashes=["original-hash"])
-
-    registry = MLClientRegistry(bm25_loader=load)
-    pending = asyncio.create_task(registry.ensure_bm25_loaded())
-    await started.wait()
-    update = asyncio.create_task(
-        BM25IndexAdapter(registry).add(
-            "new", text_hash="new-hash", visibility=DocumentVisibility.INTERNAL_PRIVATE.value, owner_id=42
-        )
-    )
-    release.set()
-    await asyncio.wait_for(asyncio.gather(pending, update), 5)
-    index = registry.bm25_index()
-    assert index.hashes == ["original-hash", "new-hash"]
-    assert index.doc_visibility[-1] == DocumentVisibility.INTERNAL_PRIVATE.value
-    assert index.doc_owner_id[-1] == 42
-    assert calls == 1
-    await registry.close()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("operation", ["add", "replace", "remove"])
-async def test_updates_after_invalidation_are_applied(operation):
-    registry = MLClientRegistry(bm25_loader=AsyncMock(return_value=BM25Index(["old"], hashes=["old-hash"])))
-    await registry.ensure_bm25_loaded()
-    registry.invalidate_bm25()
-    adapter = BM25IndexAdapter(registry)
-    if operation == "add":
-        await adapter.add("new", text_hash="new-hash")
-        expected = ["old-hash", "new-hash"]
-    elif operation == "replace":
-        await adapter.replace("old-hash", "new", new_hash="new-hash")
-        expected = ["new-hash"]
-    else:
-        await adapter.remove("old-hash")
-        expected = []
-    assert registry.bm25_index().hashes == expected
-    await registry.close()
-
-
-@pytest.mark.asyncio
-async def test_add_without_snapshot_retains_text_and_acl():
-    registry = MLClientRegistry(bm25_loader=AsyncMock(return_value=None))
-    await BM25IndexAdapter(registry).add(
-        "new", text_hash="new-hash", visibility=DocumentVisibility.INTERNAL_PRIVATE.value, owner_id=42
-    )
-    index = registry.bm25_index()
-    assert index is not None
-    assert index.hashes == ["new-hash"]
-    assert index.doc_visibility == [DocumentVisibility.INTERNAL_PRIVATE.value]
-    assert index.doc_owner_id == [42]
-    await registry.close()
-
-
-@pytest.mark.asyncio
-async def test_invalidation_between_selection_and_mutation_retries(monkeypatch):
-    registry = MLClientRegistry(bm25_loader=AsyncMock(return_value=BM25Index(["old"], hashes=["old-hash"])))
-    original_ensure = registry.ensure_bm25_loaded
-    invalidate = True
-
-    async def select_then_invalidate():
-        nonlocal invalidate
-        index = await original_ensure()
-        if invalidate:
-            invalidate = False
-            registry.invalidate_bm25()
-        return index
-
-    monkeypatch.setattr(registry, "ensure_bm25_loaded", select_then_invalidate)
-    await BM25IndexAdapter(registry).add("new", text_hash="new-hash")
-    assert registry.bm25_index().hashes == ["old-hash", "new-hash"]
     await registry.close()
 
 

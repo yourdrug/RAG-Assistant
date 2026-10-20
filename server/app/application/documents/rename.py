@@ -124,7 +124,12 @@ class DocumentRenameCommand:
                     uow.documents, owner_id, effective_group_id, new_filename
                 )
 
-        new_source_path = generate_storage_key(owner_id, effective_group_id, document_id, new_filename)
+        # Renaming an assignment must not move the shared ingestion source.
+        new_source_path = (
+            doc.source_path
+            if doc.ingestion_key is not None
+            else generate_storage_key(owner_id, effective_group_id, document_id, new_filename)
+        )
         old_source_path: str | None = None
 
         if doc.source_path and doc.source_path != new_source_path:

@@ -7,10 +7,7 @@ from application.documents.delete import DocumentDeleteCommand
 from application.documents.rename import DocumentRenameCommand
 from application.documents.upload import DocumentUploadCommand
 from application.documents import DocumentCommandService, DocumentQueryService
-from application.documents.conflicts import (
-    resolve_upload_conflict,
-    resolve_upload_version_group,
-)
+from application.documents.conflicts import resolve_upload_version_group
 from application.identity import UserContextFactory
 from domain.entities.document import Document
 from domain.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
@@ -108,7 +105,7 @@ async def test_resolve_version_group_explicit_replaces():
         uow, existing=None, replaces_document_id=1, pending_replace_id=None
     )
     assert vgid == 10
-    assert pending is None
+    assert pending == saved.id
     assert existing is saved
 
 
@@ -237,61 +234,6 @@ async def test_persist_upload_s3_failure_delete_also_fails():
             uow, doc, b"data", owner_id=1, effective_group_id=None, filename="test.pdf"
         )
     fs.delete_file.assert_awaited_once()
-
-
-# ---------------------------------------------------------------------------
-# _maybe_resolve_conflict_sync
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_maybe_resolve_conflict_sync_no_domain():
-    """doc_domain is None → no conflict resolution."""
-    cmd, query, uow, _ = _service()
-    storage_deletes = []
-    result = await resolve_upload_conflict(
-        doc=MagicMock(),
-        existing=MagicMock(),
-        pending_replace_id=5,
-        doc_domain=None,
-        uow=uow,
-        storage_deletes=storage_deletes,
-        domain_registry=None,
-    )
-    assert result == 5
-    assert storage_deletes == []
-
-
-@pytest.mark.asyncio
-async def test_maybe_resolve_conflict_sync_no_existing():
-    """existing is None → no conflict resolution."""
-    cmd, query, uow, _ = _service()
-    result = await resolve_upload_conflict(
-        doc=MagicMock(),
-        existing=None,
-        pending_replace_id=5,
-        doc_domain="general",
-        uow=uow,
-        storage_deletes=[],
-        domain_registry=None,
-    )
-    assert result == 5
-
-
-@pytest.mark.asyncio
-async def test_maybe_resolve_conflict_sync_no_pending():
-    """pending_replace_id is None → no conflict resolution."""
-    cmd, query, uow, _ = _service()
-    result = await resolve_upload_conflict(
-        doc=MagicMock(),
-        existing=MagicMock(),
-        pending_replace_id=None,
-        doc_domain="general",
-        uow=uow,
-        storage_deletes=[],
-        domain_registry=None,
-    )
-    assert result is None
 
 
 # ---------------------------------------------------------------------------

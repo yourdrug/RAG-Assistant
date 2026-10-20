@@ -80,10 +80,10 @@ export function AdminIngestPage() {
 
   const columns: ColumnDef<IngestRegistryItem>[] = [
     {
-      accessorKey: "filename",
-      header: "Filename",
+      accessorKey: "ingestion_key",
+      header: "Source key",
       cell: ({ row }) => (
-        <span className="font-medium truncate max-w-xs block">{row.original.filename}</span>
+        <span className="font-medium truncate max-w-xs block">{row.original.ingestion_key}</span>
       ),
     },
     { accessorKey: "chunks", header: "Chunks" },
@@ -223,7 +223,7 @@ export function AdminIngestPage() {
               className="h-4 w-4 rounded border-input accent-primary"
             />
             <RotateCcw className="h-3.5 w-3.5" />
-            Reset mode — re-index all files from scratch
+            Reset selected prefix — preserve existing assignments
           </label>
         </CardContent>
       </Card>
@@ -344,7 +344,7 @@ export function AdminIngestPage() {
           <DataTable
             columns={columns}
             data={registry?.files || []}
-            searchKey="filename"
+            searchKey="ingestion_key"
             searchPlaceholder="Search registry..."
           />
         </CardContent>
@@ -356,12 +356,13 @@ export function AdminIngestPage() {
             <AlertDialogTitle>Reset Ingestion</AlertDialogTitle>
             <AlertDialogDescription className="space-y-2">
               <p>
-                This will <strong>delete all public documents</strong> (both CLI-ingested and
-                UI-uploaded with "Public" visibility) and re-index files from scratch.
+                Re-index files in <strong>{docsDir}</strong> and its subdirectories, preserving
+                existing document IDs and access assignments. Files removed from this prefix will be
+                removed from the index.
               </p>
               <p>
-                Private and group documents will be preserved. Manual documents will not be
-                affected.
+                Other prefixes, user uploads, and manual documents will be preserved. Visibility,
+                client, and group options apply only to new documents.
               </p>
             </AlertDialogDescription>
           </AlertDialogHeader>

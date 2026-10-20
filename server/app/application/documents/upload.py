@@ -1,4 +1,4 @@
-"""Upload command: validate scope, reserve a name, store and resolve replacement."""
+"""Upload command: validate scope, reserve a name and defer replacement to processing."""
 
 from __future__ import annotations
 
@@ -6,10 +6,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Unpack
 
-from application.documents.conflicts import (
-    resolve_upload_conflict,
-    resolve_upload_version_group,
-)
+from application.documents.conflicts import resolve_upload_version_group
 from application.documents.dto import DocumentDTO
 from application.documents.utils import generate_storage_key, resolve_unique_filename
 from domain.entities.document import Document
@@ -19,7 +16,8 @@ from domain.exceptions import (
     UniqueConstraintViolation,
     ValidationError,
 )
-from domain.services import compute_owner_and_group, validate_document_visibility
+from domain.services import check_ownership, compute_owner_and_group, validate_document_visibility
+from domain.services.act_version_policy import same_document_scope
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.document_status import DocumentStatus
 from domain.value_objects.roles import UserKind, UserRole
@@ -31,7 +29,6 @@ if TYPE_CHECKING:
     from application.identity import UserContextFactory
     from application.ports.file_storage import FileStorage
     from application.uow import UnitOfWork, UnitOfWorkFactory
-    from domain.domain_profile.registry import DomainProfileRegistry
     from domain.value_objects.user_context import UserContext
 
 log = logging.getLogger("default")
@@ -45,12 +42,10 @@ class DocumentUploadCommand:
         uow_factory: UnitOfWorkFactory,
         file_storage: FileStorage,
         user_ctx_factory: UserContextFactory,
-        domain_registry: DomainProfileRegistry | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._file_storage = file_storage
         self._user_ctx_factory = user_ctx_factory
-        self._domain_registry = domain_registry
 
     async def resolve_effective_owner_id(
         self,
@@ -148,7 +143,13 @@ class DocumentUploadCommand:
             raise ValidationError(msg)
 
         vis = DocumentVisibility.validate(visibility)
-        storage_deletes: list[str] = []
+        rename_on_conflict = options.get("rename_on_conflict", False)
+        replaces_document_id = options.get("replaces_document_id")
+
+        if rename_on_conflict and replaces_document_id is not None:
+            msg = "Cannot replace a document when rename_on_conflict is enabled"
+            raise ValidationError(msg)
+
         async with self._uow_factory.create(master=True) as uow:
             ctx = await self._user_ctx_factory.build(uow, user_id, user_kind, user_role)
             await self.validate_scope(uow, vis, group_id, ctx)
@@ -162,38 +163,22 @@ class DocumentUploadCommand:
                 managed_client_ids=ctx.managed_client_ids if user_role == UserRole.CURATOR else None,
             )
             owner_id, effective_group_id = compute_owner_and_group(vis, group_id, effective_owner_id)
-            existing = await uow.documents.find_active_slot(
-                owner_id, filename, effective_group_id, for_update=True
-            )
-            self.validate_no_active_processing(existing)
-            version_group_id, pending_replace_id, existing = await resolve_upload_version_group(
-                uow, existing, options.get("replaces_document_id"), None
-            )
-
-            if existing and existing.status in (DocumentStatus.DONE, DocumentStatus.FAILED):
-                filename = await resolve_unique_filename(
-                    uow.documents, owner_id, effective_group_id, filename
-                )
-
             doc = Document(
                 filename=filename,
                 visibility=vis,
                 owner_id=owner_id,
                 group_id=effective_group_id,
                 doc_domain=doc_domain or DocDomain.GENERAL.value,
-                version_group_id=version_group_id,
+            )
+            pending_replace_id = await self.prepare_upload_target(
+                uow,
+                doc,
+                ctx,
+                rename_on_conflict=rename_on_conflict,
+                replaces_document_id=replaces_document_id,
             )
             saved_doc, key = await self.persist_upload(
-                uow, doc, file_data, owner_id, effective_group_id=effective_group_id, filename=filename
-            )
-            pending_replace_id = await resolve_upload_conflict(
-                doc,
-                existing,
-                pending_replace_id,
-                doc_domain,
-                uow=uow,
-                storage_deletes=storage_deletes,
-                domain_registry=self._domain_registry,
+                uow, doc, file_data, owner_id, effective_group_id=effective_group_id, filename=doc.filename
             )
             saved_id = self.require_document_id(saved_doc)
             final_doc = await uow.documents.get_by_id(saved_id)
@@ -202,9 +187,42 @@ class DocumentUploadCommand:
                 msg = "Document"
                 raise EntityNotFound(msg, saved_id)
 
-            dto = DocumentDTO.from_entity(final_doc, storage_key=key, replace_id=pending_replace_id)
-        await self.cleanup_replaced_objects(storage_deletes)
-        return dto
+            return DocumentDTO.from_entity(final_doc, storage_key=key, replace_id=pending_replace_id)
+
+    async def prepare_upload_target(
+        self,
+        uow: UnitOfWork,
+        doc: Document,
+        ctx: UserContext,
+        *,
+        rename_on_conflict: bool,
+        replaces_document_id: int | None,
+    ) -> int | None:
+        existing = await uow.documents.find_active_slot(
+            doc.owner_id, doc.filename, doc.group_id, for_update=True
+        )
+        pending_replace_id = None
+
+        if not rename_on_conflict:
+            self.validate_no_active_processing(existing)
+            doc.version_group_id, pending_replace_id, existing = await resolve_upload_version_group(
+                uow, existing, replaces_document_id, None
+            )
+            self.validate_no_active_processing(existing)
+
+            if existing is not None:
+                check_ownership(existing, ctx, "replace")
+
+                if not same_document_scope(existing, doc):
+                    msg = "Replacement must have the same visibility scope"
+                    raise BusinessRuleViolation(msg)
+
+        if existing:
+            doc.filename = await resolve_unique_filename(
+                uow.documents, doc.owner_id, doc.group_id, doc.filename
+            )
+
+        return pending_replace_id
 
     async def validate_scope(
         self, uow: UnitOfWork, vis: DocumentVisibility, group_id: int | None, ctx: UserContext
@@ -221,13 +239,6 @@ class DocumentUploadCommand:
             if not groups:
                 msg = "Group"
                 raise EntityNotFound(msg, group_id)
-
-    async def cleanup_replaced_objects(self, storage_deletes: list[str]) -> None:
-        for old_key in storage_deletes:
-            try:
-                await self._file_storage.delete_file(old_key)
-            except Exception:
-                log.exception("Failed to delete replaced document object %s from storage — orphaned", old_key)
 
     @staticmethod
     def require_document_id(doc: Document) -> int:

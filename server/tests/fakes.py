@@ -347,7 +347,7 @@ class FakeDocumentRepository:
         self._documents: dict[int, object] = {}
         self._next_id = 1
 
-    async def get_by_id(self, doc_id: int):
+    async def get_by_id(self, doc_id: int, *, for_update: bool = False):
         return self._documents.get(doc_id)
 
     async def get_by_ids(self, document_ids: list[int]):
@@ -390,6 +390,15 @@ class FakeDocumentRepository:
         self._next_id += 1
         self._documents[doc.id] = doc
         return doc
+
+    async def find_ingestion_documents(self, keys):
+        return [d for d in self._documents.values() if d.ingestion_key in keys]
+
+    async def list_ingestion_documents(self, prefix):
+        return [
+            d for d in self._documents.values()
+            if d.ingestion_key is not None and d.ingestion_key.startswith(prefix)
+        ]
 
     async def find_active_slots_by_filenames(self, filenames: list[str], *, owner_id=None, group_id=None):
         return [
@@ -913,7 +922,7 @@ class FakeIngestionRegistryRepository:
         return self._entries.get(filename)
 
     async def upsert(self, entry: IngestionRegistryEntry) -> None:
-        self._entries[entry.filename] = entry
+        self._entries[entry.ingestion_key or entry.filename] = entry
 
     async def delete(self, filename: str) -> None:
         self._entries.pop(filename, None)
@@ -985,6 +994,10 @@ class FakeUnitOfWorkFactory:
 
     def __init__(self, uow: FakeUnitOfWork | None = None) -> None:
         self._uow = uow or FakeUnitOfWork()
+
+    @asynccontextmanager
+    async def ingestion_lock(self):
+        yield
 
     @asynccontextmanager
     async def create(self, master: bool = False) -> AsyncGenerator[FakeUnitOfWork, None]:

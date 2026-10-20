@@ -1,9 +1,10 @@
-"""SEC-001: concurrent ingestion must commit document and chunk ACL together."""
+"""PostgreSQL ingestion locks preserve concurrent assignment changes."""
 
 import asyncio
 from contextlib import asynccontextmanager
 
 import pytest
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from application.ingestion import DocumentSyncService
@@ -19,97 +20,129 @@ from infrastructure.uow_factory import UnitOfWorkFactory
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 
 
-async def test_concurrent_reindex_serializes_acl_and_content_replacement(pg_engine):
+async def test_reindex_reads_concurrent_assignment_after_acquiring_row_lock(pg_engine):
     sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
     async with sessions.begin() as session:
-        clients = [
-            UserModel(
-                email=email,
-                hashed_password="test",
-                role=UserRole.USER.value,
-                kind=UserKind.CLIENT.value,
-            )
-            for email in ("first@example.org", "second@example.org")
-        ]
-        session.add_all(clients)
+        client = UserModel(
+            email="client@example.org",
+            hashed_password="test",
+            role=UserRole.USER.value,
+            kind=UserKind.CLIENT.value,
+        )
+        session.add(client)
         await session.flush()
-        first_client, second_client = [client.id for client in clients]
-        doc = await SQLAlchemyDocumentRepository(session).save(Document(filename="report.md"))
+        client_id = client.id
+        doc = await SQLAlchemyDocumentRepository(session).save(
+            Document(filename="report.md", ingestion_key="docs/report.md")
+        )
         doc_id = doc.id
         await SQLAlchemyChunkRepository(session).bulk_insert(
             doc_id, "report.md", DocumentVisibility.INTERNAL_PUBLIC.value, ["old public text"]
         )
-
-    first_locked = asyncio.Event()
-    release_first = asyncio.Event()
-    second_attempted = asyncio.Event()
-    second_locked = asyncio.Event()
 
     class SessionDatabase:
         def get_session(self, master=False):
             return sessions()
 
     real_factory = UnitOfWorkFactory(SessionDatabase())
+    attempted = asyncio.Event()
+    locked = asyncio.Event()
 
-    class GatedDocumentRepository(SQLAlchemyDocumentRepository):
-        async def set_acl(self, document_id, visibility, owner_id, group_id):
-            if owner_id == second_client:
-                second_attempted.set()
-            await super().set_acl(document_id, visibility, owner_id, group_id)
-            if owner_id == first_client:
-                first_locked.set()
-                await release_first.wait()
-            else:
-                second_locked.set()
+    class GatedRepository(SQLAlchemyDocumentRepository):
+        async def get_by_id(self, document_id, *, for_update=False):
+            if for_update:
+                attempted.set()
+            doc = await super().get_by_id(document_id, for_update=for_update)
+            if for_update:
+                locked.set()
+            return doc
 
     class GatedFactory:
         @asynccontextmanager
         async def create(self, master=False):
             async with real_factory.create(master=master) as uow:
-                uow.documents = GatedDocumentRepository(uow._session)
+                uow.documents = GatedRepository(uow._session)
                 yield uow
 
-    sync = DocumentSyncService(GatedFactory())
-    source = "s3://bucket/docs/report.md"
-
-    async def reindex(client_id, content):
-        await sync.sync_documents_to_db(
-            {"report.md": {"source": source}},
-            {},
-            [RawDocument(page_content=content, metadata={"source": source})],
-            visibility=DocumentVisibility.CLIENT_PRIVATE,
-            client_id=client_id,
+    # Model the UI changing an assignment while reset has already parsed the file.
+    async with sessions.begin() as session:
+        await SQLAlchemyDocumentRepository(session).set_acl(
+            doc_id, DocumentVisibility.CLIENT_PRIVATE, client_id, None
         )
+        indexing = asyncio.create_task(
+            DocumentSyncService(GatedFactory()).sync_documents_to_db(
+                {"docs/report.md": {"source": "s3://bucket/docs/report.md"}},
+                {},
+                [
+                    RawDocument(
+                        page_content="new private text", metadata={"source": "s3://bucket/docs/report.md"}
+                    )
+                ],
+            )
+        )
+        await asyncio.wait_for(attempted.wait(), timeout=5)
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(locked.wait(), timeout=0.1)
+    await asyncio.wait_for(indexing, timeout=5)
+    async with real_factory.create(master=True) as uow:
+        doc = await uow.documents.get_by_id(doc_id)
+        chunks, total = await uow.chunks.list_for_document(doc_id)
+        assert doc.owner_id == client_id
+        assert doc.visibility == DocumentVisibility.CLIENT_PRIVATE
+        assert total == 1
+        assert chunks[0].content == "new private text"
+        assert chunks[0].owner_id == client_id
+        assert chunks[0].visibility == DocumentVisibility.CLIENT_PRIVATE.value
+        entries = await uow.vector_outbox.claim_batch("test", limit=10)
+        point = next(entry.payload["points"][0] for entry in entries if "points" in entry.payload)
+        assert point["metadata"]["owner_id"] == client_id
+        assert point["metadata"]["document_id"] == doc_id
 
-    tasks = [asyncio.create_task(reindex(first_client, "first client's text"))]
+
+async def test_ingestion_session_lock_serializes_without_open_transaction_and_releases_on_cancel(pg_engine):
+    sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
+
+    class SessionDatabase:
+        def get_session(self, master=False):
+            return sessions()
+
+    factory = UnitOfWorkFactory(SessionDatabase())
+    first_locked = asyncio.Event()
+    second_locked = asyncio.Event()
+    release = asyncio.Event()
+
+    async def hold(event):
+        async with factory.ingestion_lock():
+            event.set()
+            await release.wait()
+
+    first = asyncio.create_task(hold(first_locked))
+    second = None
     try:
-        await asyncio.wait_for(first_locked.wait(), timeout=10)
-        tasks.append(asyncio.create_task(reindex(second_client, "second client's text")))
-        await asyncio.wait_for(second_attempted.wait(), timeout=10)
+        await asyncio.wait_for(first_locked.wait(), timeout=5)
+        second = asyncio.create_task(hold(second_locked))
         with pytest.raises(TimeoutError):
             await asyncio.wait_for(second_locked.wait(), timeout=0.1)
-
-        # A separate reader sees the original document and content until commit.
         async with sessions() as session:
-            before = await SQLAlchemyDocumentRepository(session).get_by_id(doc_id)
-            chunks, total = await SQLAlchemyChunkRepository(session).list_for_document(doc_id)
-            assert before.visibility == DocumentVisibility.INTERNAL_PUBLIC
-            assert before.owner_id is None
-            assert total == 1
-            assert chunks[0].visibility == DocumentVisibility.INTERNAL_PUBLIC.value
-            assert chunks[0].content == "old public text"
+            states = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT state FROM pg_stat_activity WHERE pid IN "
+                            "(SELECT pid FROM pg_locks WHERE locktype = 'advisory' AND granted)"
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            assert states == ["idle"]
+        first.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await first
+        await asyncio.wait_for(second_locked.wait(), timeout=5)
     finally:
-        release_first.set()
-        await asyncio.wait_for(asyncio.gather(*tasks), timeout=10)
-
-    async with sessions() as session:
-        after = await SQLAlchemyDocumentRepository(session).get_by_id(doc_id)
-        chunks, total = await SQLAlchemyChunkRepository(session).list_for_document(doc_id)
-        assert after.visibility == DocumentVisibility.CLIENT_PRIVATE
-        assert after.owner_id == second_client
-        assert after.group_id is None
-        assert total == 1
-        assert chunks[0].content == "second client's text"
-        assert chunks[0].visibility == DocumentVisibility.CLIENT_PRIVATE.value
-        assert chunks[0].owner_id == second_client
-        assert chunks[0].group_id is None
+        release.set()
+        await asyncio.gather(*(task for task in (first, second) if task is not None), return_exceptions=True)
+    async with factory.ingestion_lock():
+        pass

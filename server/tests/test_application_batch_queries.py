@@ -89,20 +89,22 @@ async def test_document_listing_batches_outbox_and_keeps_details_and_zero_counts
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("owner_id,group_id", [(None, None), (None, 7), (20, None)])
-async def test_ingestion_prefetches_slots_with_scope_and_legacy_fallback(
+async def test_ingestion_prefetches_sources_and_preserves_existing_assignments(
     owner_id: int | None, group_id: int | None
 ) -> None:
     factory: Any = FakeUnitOfWorkFactory()
     uow = factory._uow
     uow.users.add_user(20, kind="client")
-    own = await uow.documents.save(Document(filename="own.pdf", owner_id=owner_id, group_id=group_id))
-    legacy = await uow.documents.save(Document(filename="legacy.pdf", group_id=group_id))
-    await uow.documents.save(Document(filename="own.pdf", owner_id=99, group_id=group_id))
-    await uow.documents.save(Document(filename="new.pdf", owner_id=99, group_id=group_id))
-    await uow.documents.save(Document(filename="new.pdf", group_id=99))
-    uow.documents.find_active_slots_by_filenames = AsyncMock(
-        wraps=uow.documents.find_active_slots_by_filenames
+    own = await uow.documents.save(
+        Document(filename="own.pdf", ingestion_key="docs/own.pdf", owner_id=owner_id, group_id=group_id)
     )
+    # UI uploads and other source keys are outside ingestion source identity.
+    upload = await uow.documents.save(Document(filename="new.pdf", owner_id=owner_id, group_id=group_id))
+    other = await uow.documents.save(Document(filename="own.pdf", ingestion_key="other/own.pdf", owner_id=99))
+    assigned = await uow.documents.save(
+        Document(filename="own.pdf", ingestion_key="docs/own.pdf", owner_id=99)
+    )
+    uow.documents.find_ingestion_documents = AsyncMock(wraps=uow.documents.find_ingestion_documents)
     uow.documents.find_active_slot = AsyncMock(side_effect=AssertionError("per-document read"))
     visibility = (
         DocumentVisibility.CLIENT_PRIVATE
@@ -110,21 +112,19 @@ async def test_ingestion_prefetches_slots_with_scope_and_legacy_fallback(
         else (DocumentVisibility.INTERNAL_GROUP if group_id else DocumentVisibility.INTERNAL_PUBLIC)
     )
     registry: dict[str, RegistryRecord] = {
-        name: {"hash": "hash", "source": name, "chunks": 1, "chars": 10}
-        for name in ["own.pdf", "legacy.pdf", "new.pdf"]
+        key: {"hash": "hash", "source": key, "chunks": 1, "chars": 10}
+        for key in ["docs/own.pdf", "docs/new.pdf"]
     }
     result = await DocumentSyncService(factory).ensure_document_rows(registry, visibility, group_id, owner_id)
-    assert result["own.pdf"] == own.id
-    assert result["legacy.pdf"] == legacy.id
-    created = await uow.documents.get_by_id(result["new.pdf"])
+    assert result["docs/own.pdf"] == [own.id, assigned.id]
+    assert (assigned.owner_id, assigned.group_id) == (99, None)
+    assert other.id not in result["docs/own.pdf"]
+    assert len(result["docs/new.pdf"]) == 1
+    created = await uow.documents.get_by_id(result["docs/new.pdf"][0])
+    assert created.id != upload.id
+    assert created.ingestion_key == "docs/new.pdf"
     assert (created.owner_id, created.group_id, created.visibility) == (owner_id, group_id, visibility)
-    calls = uow.documents.find_active_slots_by_filenames.await_args_list
-    assert len(calls) == (2 if owner_id else 1)
-    assert calls[0].kwargs == {"owner_id": owner_id, "group_id": group_id}
-
-    if owner_id:
-        assert calls[1].args == (["legacy.pdf", "new.pdf"],)
-        assert calls[1].kwargs == {"owner_id": None, "group_id": group_id}
+    uow.documents.find_ingestion_documents.assert_awaited_once_with(list(registry))
 
 
 @pytest.mark.asyncio
@@ -135,7 +135,7 @@ async def test_run_single_force_reprocesses_an_unchanged_registered_file(force: 
     storage = Mock(supported_extensions=(".pdf",))
     storage.get_file_info = AsyncMock(return_value=file)
     registry = IngestionRegistry(factory, storage)
-    await registry.upsert(file.filename, s3_file_hash(file), file.key, 1, chars=3)
+    await registry.upsert(file.key, s3_file_hash(file), file.key, 1, chars=3)
     loader = Mock()
     loader.load_file = AsyncMock(return_value=[RawDocument(page_content="new text")])
     loader.index_docs.return_value = [RawDocument(page_content="new text")]
@@ -155,4 +155,4 @@ async def test_run_single_force_reprocesses_an_unchanged_registered_file(force: 
     assert result.force is force
     assert loader.load_file.await_count == int(force)
     assert sync.sync_documents_to_db.await_count == int(force)
-    assert await registry.is_indexed(file.filename, s3_file_hash(file))
+    assert await registry.is_indexed(file.key, s3_file_hash(file))

@@ -9,10 +9,8 @@ from unittest.mock import AsyncMock
 import pytest
 from botocore.exceptions import ClientError
 
-from domain.value_objects.visibility import DocumentVisibility
 from infrastructure.bm25 import persistence
 from infrastructure.bm25.bm25_index import BM25Index
-from infrastructure.bm25.bm25_updater import BM25IndexAdapter
 from infrastructure.ml.clients.client_registry import MLClientRegistry
 
 
@@ -115,77 +113,6 @@ async def test_cancelled_first_loader_does_not_poison_waiting_caller():
 
 
 @pytest.mark.asyncio
-async def test_failed_mutation_load_does_not_spin_or_create_empty_snapshot():
-    loader = AsyncMock(side_effect=persistence.BM25LoadError("unavailable"))
-    registry = MLClientRegistry(bm25_loader=loader)
-    adapter = BM25IndexAdapter(registry)
-    await asyncio.wait_for(adapter.add("new", text_hash="hash"), 5)
-    assert loader.await_count == 1
-    with pytest.raises(RuntimeError, match="not ready"):
-        registry.bm25_index()
-    loader.side_effect = None
-    loader.return_value = None
-    await adapter.add(
-        "new", text_hash="hash", visibility=DocumentVisibility.INTERNAL_PRIVATE.value, owner_id=42
-    )
-    index = registry.bm25_index()
-    assert loader.await_count == 2
-    assert index.hashes == ["hash"]
-    assert index.doc_visibility == [DocumentVisibility.INTERNAL_PRIVATE.value]
-    assert index.doc_owner_id == [42]
-    await registry.close()
-
-
-@pytest.mark.asyncio
-async def test_invalidation_between_ensure_and_mutation_retries(monkeypatch):
-    loader = AsyncMock(side_effect=[BM25Index(["stale"]), BM25Index(["fresh"])])
-    registry = MLClientRegistry(bm25_loader=loader)
-    original = registry.ensure_bm25_loaded
-    invalidate = True
-
-    async def ensure():
-        nonlocal invalidate
-        index = await original()
-        if invalidate:
-            invalidate = False
-            registry.invalidate_bm25()
-        return index
-
-    monkeypatch.setattr(registry, "ensure_bm25_loaded", ensure)
-    await BM25IndexAdapter(registry).add("new", text_hash="new-hash")
-    assert registry.bm25_index().texts == ["fresh", "new"]
-    assert loader.await_count == 2
-    await registry.close()
-
-
-@pytest.mark.asyncio
-async def test_cpu_mutation_does_not_block_event_loop(monkeypatch):
-    index = BM25Index([])
-    registry = MLClientRegistry(bm25_loader=AsyncMock(return_value=index))
-    started, release = threading.Event(), threading.Event()
-    original = index.add_text
-
-    def add(*args, **kwargs):
-        started.set()
-        if not release.wait(5):
-            raise TimeoutError("test did not release mutation")
-        return original(*args, **kwargs)
-
-    monkeypatch.setattr(index, "add_text", add)
-    pending = asyncio.create_task(BM25IndexAdapter(registry).add("new", text_hash="hash"))
-    try:
-        assert await asyncio.to_thread(started.wait, 5)
-        reading = asyncio.create_task(registry.ensure_bm25_loaded())
-        await asyncio.sleep(0)
-        assert not pending.done()
-    finally:
-        release.set()
-    await asyncio.wait_for(pending, 5)
-    assert (await reading).hashes == ["hash"]
-    await registry.close()
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize("code", ["NoSuchKey", "404", "NotFound", "AccessDenied", "NoSuchBucket"])
 async def test_async_snapshot_missing_is_distinct_from_failed_load(code):
     failure = ClientError({"Error": {"Code": code}}, "GetObject")
@@ -210,8 +137,7 @@ async def test_async_snapshot_corruption_not_cached_as_missing(tmp_path):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("parse_error", [ValueError, OSError])
-@pytest.mark.parametrize("consumer", ["loader", "mutation"])
-async def test_cancelled_parse_failure_preserves_cancellation(tmp_path, monkeypatch, parse_error, consumer):
+async def test_cancelled_parse_failure_preserves_cancellation(tmp_path, monkeypatch, parse_error):
     path = tmp_path / "snapshot.json"
     path.write_text('{"texts":["snapshot"]}')
     started, release = threading.Event(), threading.Event()
@@ -225,11 +151,7 @@ async def test_cancelled_parse_failure_preserves_cancellation(tmp_path, monkeypa
     monkeypatch.setattr(persistence, "parse_bm25_snapshot", parse)
     storage = AsyncMock(download_to_temp=AsyncMock(return_value=path))
     registry = MLClientRegistry(bm25_loader=lambda: persistence.load_bm25_index_from_s3(storage))
-    operation = (
-        registry.ensure_bm25_loaded()
-        if consumer == "loader"
-        else BM25IndexAdapter(registry).add("new", text_hash="new-hash")
-    )
+    operation = registry.ensure_bm25_loaded()
     pending = asyncio.create_task(operation)
     try:
         assert await asyncio.to_thread(started.wait, 5)
@@ -247,8 +169,7 @@ async def test_cancelled_parse_failure_preserves_cancellation(tmp_path, monkeypa
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("cleanup_error", [PermissionError, OSError])
-@pytest.mark.parametrize("consumer", ["loader", "mutation"])
-async def test_parse_cancellation_survives_cleanup_failure(tmp_path, monkeypatch, cleanup_error, consumer):
+async def test_parse_cancellation_survives_cleanup_failure(tmp_path, monkeypatch, cleanup_error):
     path = tmp_path / "snapshot.json"
     path.write_text('{"texts":["snapshot"]}')
     started, release = threading.Event(), threading.Event()
@@ -273,11 +194,7 @@ async def test_parse_cancellation_survives_cleanup_failure(tmp_path, monkeypatch
     monkeypatch.setattr(Path, "unlink", unlink)
     storage = AsyncMock(download_to_temp=AsyncMock(return_value=path))
     registry = MLClientRegistry(bm25_loader=lambda: persistence.load_bm25_index_from_s3(storage))
-    operation = (
-        persistence.load_bm25_index_from_s3(storage)
-        if consumer == "loader"
-        else BM25IndexAdapter(registry).add("new", text_hash="new-hash")
-    )
+    operation = persistence.load_bm25_index_from_s3(storage)
     pending = asyncio.create_task(operation)
     try:
         assert await asyncio.to_thread(started.wait, 5)

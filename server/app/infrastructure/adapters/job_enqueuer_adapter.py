@@ -76,6 +76,7 @@ class JobEnqueuerAdapter:
         visibility: str = DocumentVisibility.INTERNAL_PUBLIC.value,
         group_id: int | None = None,
         client_id: int | None = None,
+        force: bool = False,
     ) -> None:
         await _enqueue_ingest_file(
             resolved=resolved,
@@ -84,6 +85,7 @@ class JobEnqueuerAdapter:
             visibility=visibility,
             group_id=group_id,
             client_id=client_id,
+            force=force,
         )
 
     async def enqueue_benchmark(

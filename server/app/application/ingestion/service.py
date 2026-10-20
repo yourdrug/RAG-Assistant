@@ -52,12 +52,13 @@ class IngestionService:
         client_id: int | None = None,
     ) -> IngestStatusResult:
         resolved = self._targets.resolve_docs_dir(docs_dir or "docs/")
-        await self._batch.run(
-            resolved,
-            reset=reset,
-            scope=IngestionScope(domain, visibility, group_id, client_id),
-        )
-        mode = "RESET + full reindex" if reset else "APPEND (new files only)"
+        async with self._registry.ingestion_lock():
+            await self._batch.run(
+                resolved,
+                reset=reset,
+                scope=IngestionScope(domain, visibility, group_id, client_id),
+            )
+        mode = "RESET selected prefix (preserve existing assignments)" if reset else "APPEND (new files only)"
         return IngestStatusResult(status="started", mode=mode, docs_dir=resolved)
 
     async def run_single(
@@ -72,13 +73,14 @@ class IngestionService:
     ) -> IngestStatusResult:
         resolved = self._targets.resolve_ingest_target(file_path)
 
-        if force:
-            await self.force_reindex(resolved.rsplit("/", 1)[-1])
+        async with self._registry.ingestion_lock():
+            if force:
+                await self._registry.delete(resolved)
 
-        await self._single_file.run(
-            resolved,
-            scope=IngestionScope(domain, visibility, group_id, client_id),
-        )
+            await self._single_file.run(
+                resolved,
+                scope=IngestionScope(domain, visibility, group_id, client_id),
+            )
         return IngestStatusResult(status="started", file=resolved, force=force)
 
     async def get_registry(self) -> IngestRegistryResult:
@@ -88,7 +90,8 @@ class IngestionService:
         for filename, info in raw.items():
             items.append(
                 IngestRegistryItemDTO(
-                    filename=filename,
+                    filename=info.get("filename", filename.rsplit("/", 1)[-1]),
+                    ingestion_key=filename,
                     chunks=info.get("chunks", 0),
                     chars=info.get("chars", 0),
                     indexed_at=info.get("indexed_at"),
@@ -96,7 +99,7 @@ class IngestionService:
                 )
             )
 
-        items.sort(key=lambda x: x.filename)
+        items.sort(key=lambda x: x.ingestion_key)
         total_chunks = sum(i.chunks for i in items)
         return IngestRegistryResult(
             total_files=len(items),
@@ -111,7 +114,10 @@ class IngestionService:
         return self._targets.resolve_ingest_target(file_path)
 
     async def force_reindex(self, filename: str) -> None:
-        await self._registry.delete(filename)
+        async with self._registry.ingestion_lock():
+            await self._registry.delete(self._targets.resolve_ingest_target(filename))
 
     async def upload_files(self, files: Sequence[UploadFile], prefix: str = "docs/") -> list[str]:
-        return await self._uploads.upload_files(files, prefix)
+        # Keep backups, writes and compensation exclusive across API/worker processes.
+        async with self._registry.ingestion_lock():
+            return await self._uploads.upload_files(files, prefix)

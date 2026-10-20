@@ -1,6 +1,7 @@
 """The public ingestion facade shares orchestration across API, CLI and workers."""
 
 from collections.abc import Awaitable, Callable
+from contextlib import nullcontext
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -25,7 +26,9 @@ from presentation.cli.commands import ingest
 
 @pytest.fixture
 def collaborators() -> SimpleNamespace:
-    return SimpleNamespace(batch=AsyncMock(), single=AsyncMock(), registry=AsyncMock(), uploads=AsyncMock())
+    registry = AsyncMock()
+    registry.ingestion_lock = MagicMock(side_effect=nullcontext)
+    return SimpleNamespace(batch=AsyncMock(), single=AsyncMock(), registry=registry, uploads=AsyncMock())
 
 
 @pytest.fixture
@@ -52,7 +55,9 @@ async def test_full_ingestion_resolves_default_and_preserves_scope(
     )
     assert result.status == "started"
     assert result.docs_dir == "docs/"
-    assert result.mode == ("RESET + full reindex" if reset else "APPEND (new files only)")
+    assert result.mode == (
+        "RESET selected prefix (preserve existing assignments)" if reset else "APPEND (new files only)"
+    )
 
 
 @pytest.mark.asyncio
@@ -70,7 +75,7 @@ async def test_single_ingestion_preserves_scope_and_force_order(
         visibility=DocumentVisibility.CLIENT_PRIVATE,
         client_id=9,
     )
-    assert events == ([("delete", "report.pdf")] if force else []) + [("run", "docs/report.pdf")]
+    assert events == ([("delete", "docs/report.pdf")] if force else []) + [("run", "docs/report.pdf")]
     collaborators.single.run.assert_awaited_once_with(
         "docs/report.pdf", scope=IngestionScope("general", DocumentVisibility.CLIENT_PRIVATE, None, 9)
     )
@@ -125,8 +130,8 @@ async def test_registry_returns_sorted_dto_with_totals(
         2,
         3,
         [
-            IngestRegistryItemDTO("a.pdf", 0, 0),
-            IngestRegistryItemDTO("z.pdf", 3, 30, indexed_at, "docs/z.pdf"),
+            IngestRegistryItemDTO("a.pdf", 0, 0, ingestion_key="a.pdf"),
+            IngestRegistryItemDTO("z.pdf", 3, 30, indexed_at, "docs/z.pdf", "z.pdf"),
         ],
     )
 
@@ -175,7 +180,13 @@ def test_cli_registry_formats_shared_dto(monkeypatch: pytest.MonkeyPatch) -> Non
     service = SimpleNamespace(
         get_registry=AsyncMock(
             return_value=IngestRegistryResult(
-                1, 3, [IngestRegistryItemDTO("report.pdf", 3, 3000, indexed_at, "docs/report.pdf")]
+                1,
+                3,
+                [
+                    IngestRegistryItemDTO(
+                        "report.pdf", 3, 3000, indexed_at, "docs/report.pdf", "docs/report.pdf"
+                    )
+                ],
             )
         )
     )
@@ -189,7 +200,7 @@ def test_cli_registry_formats_shared_dto(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setattr(ingest, "logger", logger)
     ingest.ingest_list()
     logger.info.assert_any_call("Indexed files: %d", 1)
-    logger.info.assert_any_call("%-50s  %6s  %8s  %s", "report.pdf", 3, "3,000", "2026-01-02T03:04:00")
+    logger.info.assert_any_call("%-50s  %6s  %8s  %s", "docs/report.pdf", 3, "3,000", "2026-01-02T03:04:00")
 
 
 @pytest.mark.asyncio
@@ -224,6 +235,7 @@ async def test_worker_uses_shared_factory_and_forwards_scope(
         )
         service.run_single.assert_awaited_once_with(
             "docs/report.pdf",
+            force=False,
             domain="general",
             visibility=DocumentVisibility.CLIENT_PRIVATE,
             group_id=None,

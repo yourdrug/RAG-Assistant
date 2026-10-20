@@ -59,7 +59,9 @@ async def run_with_infrastructure(action):
 @ingest_app.command("run")
 def ingest_run(
     docs_dir: str = typer.Option("docs/", "--docs-dir", "-d", help="S3 prefix (default: docs/)"),
-    reset: bool = typer.Option(False, "--reset", help="Reset collection and registry, reindex everything"),
+    reset: bool = typer.Option(
+        False, "--reset", help="Reindex selected prefix; preserve existing document IDs and assignments"
+    ),
     domain: str = typer.Option(
         DomainDetectionMode.AUTO.value, "--domain", help="Document domain: auto, legal, general"
     ),
@@ -67,7 +69,10 @@ def ingest_run(
         DocumentVisibility.INTERNAL_PUBLIC.value,
         "--visibility",
         "-v",
-        help=f"Document visibility: {', '.join(v.value for v in DocumentVisibility)}",
+        help=(
+            "Visibility for new documents; existing assignments are preserved: "
+            f"{', '.join(v.value for v in DocumentVisibility)}"
+        ),
     ),
     group_id: int = typer.Option(None, "--group-id", help="Group ID (required if visibility=internal_group)"),
     client_id: int = typer.Option(
@@ -105,7 +110,10 @@ def ingest_file(
         DocumentVisibility.INTERNAL_PUBLIC.value,
         "--visibility",
         "-v",
-        help=f"Document visibility: {', '.join(v.value for v in DocumentVisibility)}",
+        help=(
+            "Visibility for new documents; existing assignments are preserved: "
+            f"{', '.join(v.value for v in DocumentVisibility)}"
+        ),
     ),
     group_id: int = typer.Option(None, "--group-id", help="Group ID (required if visibility=internal_group)"),
     client_id: int = typer.Option(
@@ -173,7 +181,7 @@ def ingest_list() -> None:
         for item in registry.files:
             logger.info(
                 "%-50s  %6s  %8s  %s",
-                item.filename[:50],
+                item.ingestion_key,
                 item.chunks,
                 f"{item.chars:,}",
                 item.indexed_at.isoformat()[:19] if item.indexed_at else "?",

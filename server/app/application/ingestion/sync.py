@@ -9,14 +9,16 @@ Extracted from IngestionService to isolate the Postgres sync concern.
 from __future__ import annotations
 
 import logging
+from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Unpack
 
 from application.act_versioning import VersioningResult
+from application.documents.delete import delete_document_in_uow
 from application.indexing import enrich_chunks_metadata, process_chunks, tag_chunks
+from application.ingestion.profiles import get_domain_profile
 from domain.entities.document import Document as DocEntity
 from domain.entities.raw_document import RawDocument
-from domain.entities.vector_outbox_entry import OutboxOperation, VectorOutboxEntry
-from domain.exceptions import ValidationError
+from domain.exceptions import EntityNotFound, ValidationError
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.roles import UserKind
 from domain.value_objects.visibility import DocumentVisibility
@@ -49,13 +51,7 @@ class DocumentSyncService:
         self._domain_settings = domain_settings
 
     def get_profile(self, domain: str) -> DomainProfile | None:
-        if self._domain_registry is None:
-            return None
-
-        try:
-            return self._domain_registry.get(domain)
-        except KeyError:
-            return None
+        return get_domain_profile(self._domain_registry, domain)
 
     async def sync_documents_to_db(
         self,
@@ -78,14 +74,6 @@ class DocumentSyncService:
         full_text_by_source = full_text_by_source or {}
         visibility = DocumentVisibility.validate(visibility)
 
-        if visibility == DocumentVisibility.CLIENT_PRIVATE and client_id is None:
-            msg = "client_id required for client_private ingestion"
-            raise ValidationError(msg)
-
-        if visibility == DocumentVisibility.INTERNAL_GROUP and group_id is None:
-            msg = "group_id required for internal_group ingestion"
-            raise ValidationError(msg)
-
         owner_id = client_id if visibility == DocumentVisibility.CLIENT_PRIVATE else None
         group_id = group_id if visibility == DocumentVisibility.INTERNAL_GROUP else None
 
@@ -100,6 +88,14 @@ class DocumentSyncService:
             fname: info for fname, info in registry.items() if chunks_by_source.get(info.get("source", ""))
         }
 
+        # Finish version preparation before creating or changing any documents.
+        prepared = {}
+
+        for key, info in documents_to_sync.items():
+            source = info["source"]
+            domain = chunks_by_source[source][0].metadata.get("doc_domain", DocDomain.GENERAL.value)
+            prepared[key] = await self.prepare_versioning(key, domain, full_text_by_source.get(source, ""))
+
         # --- Phase 1: document rows (single committed transaction) ---
         doc_ids = await self.ensure_document_rows(
             documents_to_sync, visibility=visibility, group_id=group_id, owner_id=owner_id
@@ -107,9 +103,9 @@ class DocumentSyncService:
 
         # --- Phase 2: versioning + chunks + outbox (per document) ---
         for fname, info in documents_to_sync.items():
-            doc_id = doc_ids.get(fname)
+            ids = doc_ids.get(fname)
 
-            if doc_id is None:
+            if not ids:
                 continue
 
             src = info.get("source", "")
@@ -118,16 +114,18 @@ class DocumentSyncService:
             if not file_chunks:
                 continue
 
-            await self.sync_one_document(
-                fname=fname,
-                doc_id=doc_id,
-                src=src,
-                file_chunks=file_chunks,
-                full_text=full_text_by_source.get(src, ""),
-                visibility=visibility,
-                owner_id=owner_id,
-                group_id=group_id,
-            )
+            for doc_id in ids:
+                await self.sync_one_document(
+                    fname=info.get("filename", PurePosixPath(fname).name),
+                    doc_id=doc_id,
+                    src=src,
+                    file_chunks=file_chunks,
+                    prepared=prepared[fname],
+                    full_text=full_text_by_source.get(src, ""),
+                    visibility=visibility,
+                    owner_id=owner_id,
+                    group_id=group_id,
+                )
 
         log.info("Synced %d documents to database via outbox", len(documents_to_sync))
 
@@ -137,47 +135,40 @@ class DocumentSyncService:
         visibility: DocumentVisibility = DocumentVisibility.INTERNAL_PUBLIC,
         group_id: int | None = None,
         owner_id: int | None = None,
-    ) -> dict[str, int]:
-        """Phase 1: get-or-create document rows for all registry filenames."""
-        doc_ids: dict[str, int] = {}
+    ) -> dict[str, list[int]]:
+        """Resolve sources independently of mutable assignments."""
+        doc_ids: dict[str, list[int]] = {}
         async with self._uow_factory.create(master=True) as uow:
-            await self.validate_client_owner(uow, visibility, owner_id)
-            existing_docs = await uow.documents.find_active_slots_by_filenames(
-                list(registry), owner_id=owner_id, group_id=group_id
-            )
-            existing_by_filename = {doc.filename: doc for doc in existing_docs}
-            missing = [fname for fname in registry if fname not in existing_by_filename]
+            existing_docs = await uow.documents.find_ingestion_documents(list(registry))
 
-            if owner_id is not None and missing:
-                # Preserve IDs when privatizing legacy ownerless ingestion rows.
-                legacy_docs = await uow.documents.find_active_slots_by_filenames(
-                    missing, owner_id=None, group_id=group_id
+            for doc in existing_docs:
+                if doc.id is not None and doc.ingestion_key is not None:
+                    doc_ids.setdefault(doc.ingestion_key, []).append(doc.id)
+
+            missing = [key for key in registry if key not in doc_ids]
+
+            if missing:
+                await self.validate_client_owner(uow, visibility, owner_id)
+
+                if visibility == DocumentVisibility.INTERNAL_GROUP and group_id is None:
+                    msg = "group_id required for internal_group ingestion"
+                    raise ValidationError(msg)
+
+            for key in missing:
+                doc = DocEntity(
+                    filename=registry[key].get("filename", PurePosixPath(key).name),
+                    ingestion_key=key,
+                    visibility=visibility,
+                    owner_id=owner_id,
+                    group_id=group_id,
                 )
-                existing_by_filename.update((doc.filename, doc) for doc in legacy_docs)
+                saved = await uow.documents.save(doc)
 
-            for fname in registry:
-                existing = existing_by_filename.get(fname)
+                if saved.id is None:
+                    msg = f"Document {key} has None id after save"
+                    raise RuntimeError(msg)
 
-                if existing:
-                    if existing.id is None:
-                        msg = f"Document {fname} has None id after find_active_slot"
-                        raise RuntimeError(msg)
-
-                    doc_ids[fname] = existing.id
-                else:
-                    doc = DocEntity(
-                        filename=fname,
-                        visibility=visibility,
-                        owner_id=owner_id,
-                        group_id=group_id,
-                    )
-                    saved = await uow.documents.save(doc)
-
-                    if saved.id is None:
-                        msg = f"Document {fname} has None id after save"
-                        raise RuntimeError(msg)
-
-                    doc_ids[fname] = saved.id
+                doc_ids[key] = [saved.id]
         return doc_ids
 
     async def sync_one_document(
@@ -186,36 +177,40 @@ class DocumentSyncService:
         doc_id: int,
         src: str,
         file_chunks: list[RawDocument],
+        *,
+        prepared: tuple[VersioningResult, VersioningPlan | None, DomainProfile | None] | None = None,
         **options: Unpack[SyncOneDocumentOptions],
     ) -> None:
         """Persist version state, chunks and outbox together for one document."""
         full_text = options["full_text"]
-        visibility = options["visibility"]
-        owner_id = options["owner_id"]
-        group_id = options["group_id"]
         first_chunk = file_chunks[0]
         chunk_domain = first_chunk.metadata.get("doc_domain", DocDomain.GENERAL.value)
 
-        versioning, versioning_plan, profile = await self.prepare_versioning(fname, chunk_domain, full_text)
+        versioning, versioning_plan, profile = prepared or await self.prepare_versioning(
+            fname, chunk_domain, full_text
+        )
         act_versioning_service = self._act_versioning_service
 
-        # The request scope owns ACL; parser metadata must not override it.
-        # Keep the source chunks consistent for the subsequent BM25 projection.
-        tag_chunks(
-            file_chunks,
-            visibility=visibility,
-            owner_id=owner_id,
-            group_id=group_id,
-            client_id=owner_id if visibility == DocumentVisibility.CLIENT_PRIVATE else None,
-        )
-        raw_chunks = [
-            RawDocument(page_content=c.page_content, metadata=dict(c.metadata)) for c in file_chunks
-        ]
-
         async with self._uow_factory.create(master=True) as uow:
-            # The row lock serializes concurrent replacements. ACL, chunks and
-            # vector outbox are committed or rolled back together in this UoW.
-            await uow.documents.set_acl(doc_id, visibility, owner_id, group_id)
+            document = await uow.documents.get_by_id(doc_id, for_update=True)
+
+            if document is None:
+                entity_name = "Document"
+                raise EntityNotFound(entity_name, doc_id)
+
+            visibility, owner_id, group_id = document.visibility, document.owner_id, document.group_id
+            # Copy per target: one source can have several different ACL assignments.
+            raw_chunks = [
+                RawDocument(page_content=c.page_content, metadata={**c.metadata, "source": src})
+                for c in file_chunks
+            ]
+            tag_chunks(
+                raw_chunks,
+                visibility=visibility,
+                owner_id=owner_id,
+                group_id=group_id,
+                client_id=owner_id if visibility == DocumentVisibility.CLIENT_PRIVATE else None,
+            )
 
             if versioning_plan is not None:
                 if act_versioning_service is None or profile is None:
@@ -248,6 +243,8 @@ class DocumentSyncService:
                     warning=versioning.warning,
                 )
 
+            source_key = src.split("/", 3)[3] if src.startswith("s3://") else src
+            await uow.documents.set_source_path(doc_id, source_key)
             await process_chunks(
                 uow_factory=self._uow_factory,
                 document_id=doc_id,
@@ -257,17 +254,7 @@ class DocumentSyncService:
                 owner_id=owner_id,
                 group_id=group_id,
                 doc_domain=chunk_domain,
-                set_indexing=False,  # CLI: done immediately (outbox async)
                 _existing_uow=uow,
-            )
-
-            await uow.vector_outbox.enqueue(
-                VectorOutboxEntry(
-                    operation=OutboxOperation.SET_DOCUMENT_ID,
-                    aggregate_type="document",
-                    aggregate_id=doc_id,
-                    payload={"source": src, "document_id": doc_id},
-                )
             )
 
         if act_versioning_service is not None:
@@ -276,15 +263,25 @@ class DocumentSyncService:
             else:
                 await act_versioning_service.invalidate_document_answers(doc_id)
 
-    async def delete_internal_documents(self) -> None:
-        """Delete all internal documents (owner_id=NULL, non-manual) from DB.
-
-        Called during reset to remove stale document records whose vectors
-        have already been deleted from Qdrant.
-        """
+    async def delete_missing_sources(self, prefix: str, current_keys: set[str]) -> None:
+        """Prune only ingestion sources; SQL, timeline and outbox commit together."""
         async with self._uow_factory.create(master=True) as uow:
-            deleted = await uow.documents.delete_internal_documents()
-            log.info("Deleted %d internal documents from database", deleted)
+            documents = await uow.documents.list_ingestion_documents(prefix)
+
+            for document in documents:
+                if document.ingestion_key in current_keys or document.id is None:
+                    continue
+
+                locked = await uow.documents.get_by_id(document.id, for_update=True)
+
+                if locked is not None and locked.ingestion_key == document.ingestion_key:
+                    await delete_document_in_uow(uow, document.id)
+
+            entries = await uow.ingestion_registry.list_all()
+
+            for key in entries:
+                if key.startswith(prefix) and key not in current_keys:
+                    await uow.ingestion_registry.delete(key)
 
     @staticmethod
     async def validate_client_owner(

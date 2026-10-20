@@ -48,6 +48,8 @@ MAX_UPLOAD_FILES = 20
 
 @router.post(
     "/ingest",
+    description="Reindex the selected prefix recursively. Existing IDs and access assignments are preserved; "
+    "visibility, client and group options apply only to new documents.",
     response_model=IngestStatusResponse,
     dependencies=[Depends(rate_limit(RateLimitPolicyName.UPLOAD))],
 )
@@ -106,7 +108,7 @@ async def ingest_documents(
         group_id=group_id,
         client_id=client_id,
     )
-    mode = "RESET + full reindex" if reset else "APPEND (new files only)"
+    mode = "RESET selected prefix (preserve existing assignments)" if reset else "APPEND (new files only)"
     response = IngestStatusResponse(status="started", mode=mode, docs_dir=resolved)
     await complete_idempotency(idempotency_store, reservation, response.model_dump(mode="json"))
     return response
@@ -155,9 +157,6 @@ async def ingest_single_file(
     if cached is not None:
         return IngestStatusResponse(**cached)
 
-    if force:
-        await service.force_reindex(file_path.split("/")[-1])
-
     job_id = await job_service.create_job(JobType.INGEST, related_id=None)
 
     log(
@@ -173,6 +172,7 @@ async def ingest_single_file(
         visibility=visibility.value,
         group_id=group_id,
         client_id=client_id,
+        force=force,
     )
     response = IngestStatusResponse(status="started", file=resolved, force=force)
     await complete_idempotency(idempotency_store, reservation, response.model_dump(mode="json"))
@@ -191,6 +191,7 @@ async def get_ingest_registry(
         files=[
             IngestRegistryItem(
                 filename=i.filename,
+                ingestion_key=i.ingestion_key,
                 chunks=i.chunks,
                 chars=i.chars,
                 indexed_at=i.indexed_at,

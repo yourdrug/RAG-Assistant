@@ -154,6 +154,7 @@ async def enqueue_ingest_file(
     visibility: str = DocumentVisibility.INTERNAL_PUBLIC.value,
     group_id: int | None = None,
     client_id: int | None = None,
+    force: bool = False,
 ) -> None:
     """Enqueue single-file ingestion via Arq (deduplicated per parameters)."""
     await enqueue_arq(
@@ -166,6 +167,7 @@ async def enqueue_ingest_file(
         visibility=visibility,
         group_id=group_id,
         client_id=client_id,
+        force=force,
     )
 
 

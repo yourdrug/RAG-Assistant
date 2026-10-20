@@ -33,6 +33,7 @@ class IngestRegistryItemDTO:
     chars: int
     indexed_at: datetime | None = None
     source: str = ""
+    ingestion_key: str = ""
 
 
 @dataclass(frozen=True)
@@ -50,6 +51,7 @@ class RegistryRecord(TypedDict):
     chunks: int
     chars: int
     indexed_at: NotRequired[datetime | None]
+    filename: NotRequired[str]
 
 
 class SyncOneDocumentOptions(TypedDict):

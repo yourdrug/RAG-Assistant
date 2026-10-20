@@ -23,7 +23,7 @@ import fakeredis.aioredis
 import pytest
 import pytest_asyncio
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams
+from qdrant_client.models import Distance, Modifier, SparseVectorParams, VectorParams
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -38,6 +38,7 @@ from infrastructure.budget.ledger import PostgresRedisBudget
 from infrastructure.corpus import control
 from infrastructure.corpus.control import PostgresCorpusControl, corpus_write_guard
 from infrastructure.corpus.validation import corpus_digest
+from infrastructure.repositories.vector.sparse_vectors import SPARSE_VECTOR_NAME
 from infrastructure.ml.clients.client_registry import MLClientRegistry
 from infrastructure.ml.config.embedding_identity import configured_embedding_identity
 
@@ -139,7 +140,11 @@ async def corpus_pair(configured_engine, monkeypatch):
         client = QdrantClient(':memory:')
         fingerprint = hashlib.sha256(configured_embedding_identity().encode()).hexdigest()
         for name in ['v1', 'v2']:
-            client.create_collection(name, vectors_config=VectorParams(size=2, distance=Distance.COSINE))
+            client.create_collection(
+                name,
+                vectors_config=VectorParams(size=2, distance=Distance.COSINE),
+                sparse_vectors_config={SPARSE_VECTOR_NAME: SparseVectorParams(modifier=Modifier.IDF)},
+            )
             client.create_collection(
                 name + '__embedding_identity',
                 vectors_config={fingerprint: VectorParams(size=1, distance=Distance.COSINE)},

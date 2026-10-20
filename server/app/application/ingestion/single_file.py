@@ -70,7 +70,7 @@ class SingleFileIngestionWorkflow:
 
         file_hash = s3_file_hash(file_info)
 
-        if await self._registry.is_indexed(file_info.filename, file_hash):
+        if await self._registry.is_indexed(file_info.key, file_hash):
             log.warning("File '%s' already in registry.", file_info.filename)
             return None
 
@@ -87,6 +87,11 @@ class SingleFileIngestionWorkflow:
         log.info("doc_domain=%s for %s", domain, file_info.filename)
 
         chunks = self._loader.index_docs(docs, domain=domain)
+
+        if not chunks:
+            msg = f"No chunks prepared for {file_info.key}"
+            raise ValueError(msg)
+
         tag_chunks(
             chunks,
             visibility=scope.visibility,
@@ -96,7 +101,8 @@ class SingleFileIngestionWorkflow:
         )
         source = self._loader.s3_source_key(file_info)
         entry: dict[str, RegistryRecord] = {
-            file_info.filename: {
+            file_info.key: {
+                "filename": file_info.filename,
                 "hash": file_hash,
                 "source": source,
                 "chunks": len(chunks),
@@ -114,5 +120,5 @@ class SingleFileIngestionWorkflow:
         )
 
         # Record success only after sparse persistence, so failures remain retryable.
-        await self._registry.upsert(file_info.filename, file_hash, source, len(chunks), chars=total_chars)
+        await self._registry.upsert(file_info.key, file_hash, source, len(chunks), chars=total_chars)
         return chunks

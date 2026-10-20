@@ -218,6 +218,7 @@ export interface IngestStatusResponse {
 
 export interface IngestRegistryItem {
   filename: string;
+  ingestion_key: string;
   chunks: number;
   chars: number;
   indexed_at: string;

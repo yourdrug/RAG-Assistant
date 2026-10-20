@@ -187,7 +187,7 @@ class ApplicationContainer:
         self.api_key_service = ApiKeyService(uow, api_key_provider)
         user_ctx_factory = UserContextFactory()
         self.document_command_service = DocumentCommandService(
-            upload_command=DocumentUploadCommand(uow, fs, user_ctx_factory, infra.domain_registry),
+            upload_command=DocumentUploadCommand(uow, fs, user_ctx_factory),
             delete_command=DocumentDeleteCommand(uow, fs, user_ctx_factory),
             rename_command=DocumentRenameCommand(uow, fs, user_ctx_factory),
         )

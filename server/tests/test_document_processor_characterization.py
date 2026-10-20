@@ -1,15 +1,14 @@
 """Characterization tests for DocumentProcessor -- baseline BEFORE refactoring.
 
-Pins the observable behavior of the god-service (parse → quality → classify →
-conflict → split → versioning → persist → cleanup) so the extraction of
+Pins the observable behavior of the service (parse → quality → classify →
+split → versioning → persist → cleanup) so the extraction of
 document_quality / domain_classification / document_persistence modules and the
 ProcessingContext refactor cannot silently change:
 
 - exact warning_message strings and their join order (quality → ambiguous → versioning);
-- transaction ordering (status write → conflict resolve → persist in one UoW);
+- transaction ordering (status write → chunks and replacement in one UoW);
 - outbox operations (exactly one DELETE_BY_DOCUMENT per replaced document);
-- deferred S3 cleanup (delete_file runs after the persist transaction on EVERY
-  exit path, including mid-flight aborts);
+- deferred S3 cleanup (only committed replacements may delete old files);
 - metrics calls and temp-file removal on every exit path.
 
 If a refactor intentionally changes one of these, update the assertion
@@ -532,7 +531,8 @@ async def test_legacy_classifier_fallback_when_registry_missing(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_replace_non_versioned_deletes_old_document(tmp_path):
+@pytest.mark.parametrize("ingestion_key", [None, "docs/shared.pdf"])
+async def test_replace_non_versioned_deletes_old_document(tmp_path, ingestion_key):
     registry = FakeDomainRegistry(
         profiles={"general": make_profile("general", versioned=False)},
         classify_result=ClassificationResult(
@@ -540,7 +540,9 @@ async def test_replace_non_versioned_deletes_old_document(tmp_path):
         ),
     )
     h = build_harness(tmp_path, registry=registry)
-    old = await seed_document(h.repo, filename="old.pdf", source_path="uploads/old.pdf")
+    old = await seed_document(
+        h.repo, filename="old.pdf", source_path="uploads/old.pdf", ingestion_key=ingestion_key
+    )
     new = await seed_document(h.repo, filename="new.pdf", source_path="uploads/new.pdf")
 
     await run(
@@ -552,15 +554,13 @@ async def test_replace_non_versioned_deletes_old_document(tmp_path):
         doc_domain=None,
     )
 
-    # old doc row is gone (deleted inside conflict resolution)
+    # Replacement commits together with the new chunks.
     assert await h.repo.get_by_id(old.id) is None
     # deferred S3 cleanup runs once, after the transaction
-    assert h.storage.deleted == ["uploads/old.pdf"]
-    # exactly one DELETE: apply_async_replacement sees the row already gone
-    # and skips the duplicate outbox entry
+    assert h.storage.deleted == ([] if ingestion_key else ["uploads/old.pdf"])
     assert outbox_ops(h.uow) == [
-        (OutboxOperation.DELETE_BY_DOCUMENT, old.id),
         (OutboxOperation.UPSERT_CHUNKS, new.id),
+        (OutboxOperation.DELETE_BY_DOCUMENT, old.id),
     ]
 
 
@@ -622,15 +622,15 @@ async def test_document_deleted_before_persist_aborts(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_document_deleted_inside_persist_aborts_with_storage_cleanup(tmp_path):
-    """persist sees None -> abort after conflict resolution; S3 cleanup still runs."""
+async def test_document_deleted_inside_persist_preserves_replacement_target(tmp_path):
+    """An aborted replacement must preserve both the old row and its source file."""
     registry = FakeDomainRegistry(
         profiles={"general": make_profile("general", versioned=False)},
         classify_result=ClassificationResult(
             domain_key="general", confidence=0.9, is_ambiguous=False, is_low_signal=False, candidate_scores={}
         ),
     )
-    repo = VanishingDocumentRepository(vanish_id=2, vanish_after=2)
+    repo = VanishingDocumentRepository(vanish_id=2, vanish_after=1)
     h = build_harness(tmp_path, registry=registry, repo=repo)
     old = await seed_document(h.repo, filename="old.pdf", source_path="uploads/old.pdf")
     new = await seed_document(h.repo, filename="new.pdf", source_path="uploads/new.pdf")
@@ -644,14 +644,12 @@ async def test_document_deleted_inside_persist_aborts_with_storage_cleanup(tmp_p
         doc_domain=None,
     )
 
-    # get(new): conflict resolution + current_doc ok, persist aborted (3x new + 1x old)
-    assert repo.get_calls == 4
+    assert repo.get_calls == 2
     assert [c["status"] for c in h.repo.status_calls] == ["processing"]
     assert h.repo.domain_calls == []
-    assert outbox_ops(h.uow) == [(OutboxOperation.DELETE_BY_DOCUMENT, old.id)]
-    # cleanup runs in finally on every exit path -- the replaced S3 object is
-    # not orphaned even though persist aborted
-    assert h.storage.deleted == ["uploads/old.pdf"]
+    assert outbox_ops(h.uow) == []
+    assert h.storage.deleted == []
+    assert await h.repo.get_by_id(old.id) is not None
 
 
 @pytest.mark.asyncio
@@ -864,3 +862,40 @@ async def test_concurrent_processing_bounds_parser_and_keeps_run_state_separate(
     sources = {p["metadata"]["source"] for p in upsert_points(h.uow)}
     assert sources == {"first.pdf", "second.pdf"}
     assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure_stage", ["split", "commit"])
+async def test_failed_replacement_preserves_old_document_and_file(tmp_path, failure_stage):
+    h = build_harness(tmp_path)
+    old = await seed_document(h.repo, filename="old.pdf", source_path="uploads/old.pdf")
+    new = await seed_document(h.repo, filename="new.pdf", source_path="uploads/new.pdf")
+
+    if failure_stage == "split":
+
+        def fail_split(*args):
+            raise RuntimeError("replacement failed")
+
+        h.splitter.split = fail_split
+    else:
+        original_create = h.uow_factory.create
+
+        @asynccontextmanager
+        async def fail_commit(master=False):
+            async with original_create(master=master) as uow:
+                yield uow
+                if any(
+                    e.operation == OutboxOperation.DELETE_BY_DOCUMENT
+                    for e in uow.vector_outbox._entries.values()
+                ):
+                    raise RuntimeError("replacement failed")
+
+        h.uow_factory.create = fail_commit
+
+    with pytest.raises(RuntimeError, match="replacement failed"):
+        await run(h, new, replace_id=old.id)
+
+    assert await h.repo.get_by_id(old.id) is not None
+    assert (await h.repo.get_by_id(new.id)).status == DocumentStatus.FAILED
+    assert h.storage.deleted == []
+    assert outbox_ops(h.uow) == []

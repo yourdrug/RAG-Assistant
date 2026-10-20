@@ -14,8 +14,6 @@ from domain.entities.vector_outbox_entry import OutboxOperation, OutboxStatus
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.visibility import DocumentVisibility
 from fakes import FakeUnitOfWorkFactory
-from infrastructure.bm25.bm25_index import BM25Index
-from infrastructure.bm25.sparse_index_admin import S3SparseIndexAdmin
 from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
 
 
@@ -95,41 +93,6 @@ async def test_delayed_old_upsert_cannot_restore_replaced_points():
 
 
 @pytest.mark.asyncio
-async def test_sparse_refresh_uses_current_sql_corpus_with_acl():
-    factory = FakeUnitOfWorkFactory()
-    await index(factory, "old text")
-    await factory._uow.chunks.bulk_insert(
-        2,
-        "other.txt",
-        DocumentVisibility.INTERNAL_PRIVATE.value,
-        ["other text"],
-        owner_id=9,
-    )
-    await index(factory, "new text")
-    saved = []
-
-    async def save(index, storage):
-        saved.append(BM25Index.from_dict(index.to_dict()))
-
-    with (
-        patch("infrastructure.bm25.sparse_index_admin.save_bm25_index_to_s3", side_effect=save),
-        patch(
-            "infrastructure.bm25.sparse_index_admin.publish_bm25_invalidation",
-            new=AsyncMock(),
-        ),
-    ):
-        admin = S3SparseIndexAdmin(object(), factory)
-        await admin.extend([])
-        await admin.extend([])
-    assert [idx.texts for idx in saved] == [["other text", "new text"]] * 2
-    assert saved[-1].doc_visibility == [
-        DocumentVisibility.INTERNAL_PRIVATE.value,
-        DocumentVisibility.INTERNAL_PUBLIC.value,
-    ]
-    assert saved[-1].doc_owner_id == [9, None]
-
-
-@pytest.mark.asyncio
 async def test_replacement_during_upload_removes_inflight_old_points():
     factory = FakeUnitOfWorkFactory()
     factory._uow.documents.get_by_id = AsyncMock(return_value=SimpleNamespace(id=1, filename="report.txt"))
@@ -172,6 +135,7 @@ async def test_single_file_ingestion_commits_outbox_before_recording_success(syn
     chunk = RawDocument(page_content="new text", metadata={})
     info = SimpleNamespace(
         filename="report.txt",
+        key="report.txt",
         extension=".txt",
         size_bytes=8,
         last_modified=datetime(2026, 1, 1),

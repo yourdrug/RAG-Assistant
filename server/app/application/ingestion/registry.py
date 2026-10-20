@@ -18,6 +18,8 @@ from domain.repositories.ingestion_registry_repository import IngestionRegistryE
 
 
 if TYPE_CHECKING:
+    from contextlib import AbstractAsyncContextManager
+
     from application.ingestion.dto import RegistryRecord
     from application.ports.file_storage import FileItem, FileStorage
     from application.uow import UnitOfWorkFactory
@@ -37,6 +39,9 @@ class IngestionRegistry:
         self._uow_factory = uow_factory
         self._file_storage = file_storage
 
+    def ingestion_lock(self) -> AbstractAsyncContextManager[None]:
+        return self._uow_factory.ingestion_lock()
+
     async def upsert(
         self,
         filename: str,
@@ -49,7 +54,8 @@ class IngestionRegistry:
     ) -> None:
         async with self._uow_factory.create(master=True) as uow:
             entry = IngestionRegistryEntry(
-                filename=filename,
+                filename=Path(filename).name,
+                ingestion_key=filename,
                 file_hash=file_hash_val,
                 source=source,
                 chunks=chunks_count,
@@ -68,6 +74,7 @@ class IngestionRegistry:
             return {
                 name: {
                     "hash": e.file_hash,
+                    "filename": e.filename,
                     "source": e.source,
                     "chunks": e.chunks,
                     "chars": e.chars,
@@ -100,7 +107,17 @@ class IngestionRegistry:
             file_info = await self._file_storage.get_file_info(key)
             h = s3_file_hash(file_info) if file_info else "unknown"
             chunks_count = sum(1 for c in chunks if c.metadata.get("source") == src)
-            entries[fname] = {
+
+            if file_info is None:
+                msg = f"Source disappeared during preparation: {key}"
+                raise ValueError(msg)
+
+            if chunks_count == 0:
+                msg = f"No chunks prepared for {key}"
+                raise ValueError(msg)
+
+            entries[key] = {
+                "filename": fname,
                 "hash": h,
                 "source": src,
                 "chunks": chunks_count,

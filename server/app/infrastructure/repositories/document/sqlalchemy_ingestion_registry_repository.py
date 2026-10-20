@@ -24,7 +24,7 @@ class SQLAlchemyIngestionRegistryRepository:
         self._session = session
 
     async def get(self, filename: str) -> IngestionRegistryEntry | None:
-        stmt = select(IngestionRegistryModel).where(IngestionRegistryModel.filename == filename)
+        stmt = select(IngestionRegistryModel).where(IngestionRegistryModel.ingestion_key == filename)
         result = await self._session.execute(stmt)
         orm = result.scalar_one_or_none()
         if orm is None:
@@ -32,7 +32,9 @@ class SQLAlchemyIngestionRegistryRepository:
         return self._to_entry(orm)
 
     async def upsert(self, entry: IngestionRegistryEntry) -> None:
-        stmt = select(IngestionRegistryModel).where(IngestionRegistryModel.filename == entry.filename)
+        stmt = select(IngestionRegistryModel).where(
+            IngestionRegistryModel.ingestion_key == entry.ingestion_key
+        )
         result = await self._session.execute(stmt)
         orm = result.scalar_one_or_none()
         if orm is not None:
@@ -44,6 +46,7 @@ class SQLAlchemyIngestionRegistryRepository:
         else:
             orm = IngestionRegistryModel(
                 filename=entry.filename,
+                ingestion_key=entry.ingestion_key,
                 file_hash=entry.file_hash,
                 source=entry.source,
                 chunks=entry.chunks,
@@ -54,7 +57,7 @@ class SQLAlchemyIngestionRegistryRepository:
         await self._session.flush()
 
     async def delete(self, filename: str) -> None:
-        stmt = select(IngestionRegistryModel).where(IngestionRegistryModel.filename == filename)
+        stmt = select(IngestionRegistryModel).where(IngestionRegistryModel.ingestion_key == filename)
         result = await self._session.execute(stmt)
         orm = result.scalar_one_or_none()
         if orm is not None:
@@ -65,7 +68,7 @@ class SQLAlchemyIngestionRegistryRepository:
         stmt = select(IngestionRegistryModel).order_by(IngestionRegistryModel.filename)
         result = await self._session.execute(stmt)
         orms = result.scalars().all()
-        return {orm.filename: self._to_entry(orm) for orm in orms}
+        return {orm.ingestion_key: self._to_entry(orm) for orm in orms}
 
     async def is_already_indexed(self, filename: str, file_hash: str) -> bool:
         entry = await self.get(filename)
@@ -77,6 +80,7 @@ class SQLAlchemyIngestionRegistryRepository:
     def _to_entry(orm: IngestionRegistryModel) -> IngestionRegistryEntry:
         return IngestionRegistryEntry(
             filename=orm.filename,
+            ingestion_key=orm.ingestion_key,
             file_hash=orm.file_hash,
             source=orm.source,
             chunks=orm.chunks,

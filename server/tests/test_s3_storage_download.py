@@ -9,7 +9,6 @@ import pytest
 from test_s3_storage_async import client_harness
 from infrastructure.storage import file_storage
 from infrastructure.bm25 import persistence
-from infrastructure.bm25.bm25_updater import BM25IndexAdapter
 from infrastructure.ml.clients.client_registry import MLClientRegistry
 
 
@@ -187,7 +186,7 @@ async def test_cancel_during_successful_close_removes_unreturned_file(monkeypatc
 @pytest.mark.asyncio
 @pytest.mark.parametrize("phase", ["read", "creation"])
 @pytest.mark.parametrize("failure", ["close", "unlink"])
-@pytest.mark.parametrize("consumer", ["storage", "loader", "mutation"])
+@pytest.mark.parametrize("consumer", ["storage", "loader"])
 async def test_download_cancellation_survives_cleanup_failure(
     monkeypatch, tmp_path, phase, failure, consumer
 ):
@@ -230,7 +229,6 @@ async def test_download_cancellation_survives_cleanup_failure(
     operation = {
         "storage": lambda: storage.download_to_temp("report.pdf"),
         "loader": registry.ensure_bm25_loaded,
-        "mutation": lambda: BM25IndexAdapter(registry).add("new", text_hash="new-hash"),
     }[consumer]()
     pending = asyncio.create_task(operation)
     try:

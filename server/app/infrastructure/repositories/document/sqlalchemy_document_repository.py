@@ -27,6 +27,7 @@ class SQLAlchemyDocumentRepository:
     async def save(self, document: Document) -> Document:
         orm = DocumentModel(
             filename=document.filename,
+            ingestion_key=document.ingestion_key,
             source_path=document.source_path,
             visibility=document.visibility.value
             if hasattr(document.visibility, "value")
@@ -50,8 +51,11 @@ class SQLAlchemyDocumentRepository:
         document.id = orm.id
         return document
 
-    async def get_by_id(self, document_id: int) -> Document | None:
-        result = await self._db.execute(select(DocumentModel).where(DocumentModel.id == document_id))
+    async def get_by_id(self, document_id: int, *, for_update: bool = False) -> Document | None:
+        stmt = select(DocumentModel).where(DocumentModel.id == document_id)
+        if for_update:
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
+        result = await self._db.execute(stmt)
         orm = result.scalar_one_or_none()
         return self._to_entity(orm) if orm else None
 
@@ -152,11 +156,33 @@ class SQLAlchemyDocumentRepository:
         except IntegrityError as exc:
             raise UniqueConstraintViolation(detail=str(exc)) from exc
 
+    async def find_ingestion_documents(self, keys: list[str]) -> list[Document]:
+        result = await self._db.execute(
+            select(DocumentModel)
+            .where(
+                DocumentModel.ingestion_key.in_(keys),
+                DocumentModel.status.in_(DOCUMENT_SLOT_STATUSES),
+            )
+            .order_by(DocumentModel.id)
+        )
+        return [self._to_entity(orm) for orm in result.scalars().all()]
+
+    async def list_ingestion_documents(self, prefix: str) -> list[Document]:
+        result = await self._db.execute(
+            select(DocumentModel)
+            .where(
+                func.left(DocumentModel.ingestion_key, len(prefix)).collate("C") == prefix,
+            )
+            .order_by(DocumentModel.id)
+        )
+        return [self._to_entity(orm) for orm in result.scalars().all()]
+
     async def find_active_slot(
         self, owner_id: int | None, filename: str, group_id: int | None, for_update: bool = False
     ) -> Document | None:
         conditions = [
             DocumentModel.filename == filename,
+            DocumentModel.ingestion_key.is_(None),
             DocumentModel.status.in_(DOCUMENT_SLOT_STATUSES),
         ]
         if owner_id is None:
@@ -189,6 +215,7 @@ class SQLAlchemyDocumentRepository:
             )
             .where(
                 DocumentModel.filename.in_(filenames),
+                DocumentModel.ingestion_key.is_(None),
                 DocumentModel.owner_id == owner_id,
                 DocumentModel.group_id == group_id,
                 DocumentModel.status.in_(DOCUMENT_SLOT_STATUSES),
@@ -373,6 +400,7 @@ class SQLAlchemyDocumentRepository:
         return Document(
             id=orm.id,
             filename=orm.filename,
+            ingestion_key=orm.ingestion_key,
             source_path=orm.source_path,
             visibility=DocumentVisibility(orm.visibility),
             owner_id=orm.owner_id,

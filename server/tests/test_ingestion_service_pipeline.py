@@ -208,23 +208,24 @@ class TestClassifyTextDomain:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize("component", ["_loader", "_sync"])
 class TestGetProfile:
-    def test_no_registry(self):
+    def test_no_registry(self, component):
         svc = _make_service(domain_registry=None)
-        assert svc._batch._loader.get_profile("legal") is None
+        assert getattr(svc._batch, component).get_profile("legal") is None
 
-    def test_existing_profile(self):
+    def test_existing_profile(self, component):
         mock_registry = MagicMock()
         mock_profile = MagicMock()
         mock_registry.get.return_value = mock_profile
         svc = _make_service(domain_registry=mock_registry)
-        assert svc._batch._loader.get_profile("legal") is mock_profile
+        assert getattr(svc._batch, component).get_profile("legal") is mock_profile
 
-    def test_missing_profile(self):
+    def test_missing_profile(self, component):
         mock_registry = MagicMock()
         mock_registry.get.side_effect = KeyError("not found")
         svc = _make_service(domain_registry=mock_registry)
-        assert svc._batch._loader.get_profile("nonexistent") is None
+        assert getattr(svc._batch, component).get_profile("nonexistent") is None
 
 
 # ---------------------------------------------------------------------------
@@ -408,31 +409,13 @@ class TestRunFullIngestion:
         svc = _make_service()
         svc._batch._loader._file_storage.list_files = AsyncMock(return_value=[])
         await svc.run_full(docs_dir="empty/", reset=False)
-        svc._batch._vector_store.ensure_collection.assert_called_once()
+        svc._batch._vector_store.ensure_collection.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_reset_deletes_internal_documents(self):
-        mock_session = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = []
-        mock_session.execute = AsyncMock(return_value=mock_result)
-        mock_session.commit = AsyncMock()
-        mock_session.close = AsyncMock()
-
-        mock_uow = MagicMock()
-        mock_uow.documents.delete_internal_documents = AsyncMock(return_value=5)
-        mock_uow._session = mock_session
-        mock_uow.ingestion_registry = MagicMock()
-        mock_uow.ingestion_registry.list_all = AsyncMock(return_value={})
-
-        mock_ctx = AsyncMock()
-        mock_ctx.__aenter__ = AsyncMock(return_value=mock_uow)
-        mock_ctx.__aexit__ = AsyncMock(return_value=False)
-        mock_factory = MagicMock()
-        mock_factory.create = MagicMock(return_value=mock_ctx)
-
-        svc = _make_service(uow_factory=mock_factory)
-        svc._batch._loader._file_storage.list_files = AsyncMock(return_value=[])
-
-        await svc.run_full(docs_dir="empty/", reset=True)
-        mock_uow.documents.delete_internal_documents.assert_called_once()
+    @pytest.mark.parametrize("docs_dir", [None, "", "docs/"])
+    async def test_empty_reset_prunes_ingestion_documents(self, docs_dir):
+        svc = _make_service()
+        svc._batch._sync.delete_missing_sources = AsyncMock()
+        await svc.run_full(docs_dir=docs_dir, reset=True)
+        svc._batch._sync.delete_missing_sources.assert_awaited_once_with("docs/", set())
+        svc._batch._vector_store.ensure_collection.assert_awaited_once_with(384, reset=False)

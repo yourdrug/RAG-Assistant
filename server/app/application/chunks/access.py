@@ -63,7 +63,8 @@ async def load_doc_for_add(
 
     Keep the order: document load, status check, user context, permission check.
     """
-    doc = await uow.documents.get_by_id(document_id)
+    # Serialize index allocation, including documents without an ActVersion.
+    doc = await uow.documents.get_by_id(document_id, for_update=True)
 
     if doc is None:
         msg = "Document"

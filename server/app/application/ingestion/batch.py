@@ -46,14 +46,6 @@ class BatchIngestionWorkflow:
 
         registry = await self._registry.list_all()
 
-        if reset:
-            registry = {}
-
-        await self._vector_store.ensure_collection(self._settings.embed_dim, reset=reset)
-
-        if reset:
-            await self._sync.delete_internal_documents()
-
         docs, cached = await self._loader.load_documents(registry, force=reset, prefix=docs_dir)
 
         if not docs:
@@ -61,6 +53,10 @@ class BatchIngestionWorkflow:
                 log.info("All files already in registry — nothing to index. Use --reset to re-index.")
             else:
                 log.error("No documents loaded. Check S3 prefix and formats.")
+
+            if reset:
+                await self._vector_store.ensure_collection(self._settings.embed_dim, reset=False)
+                await self._sync.delete_missing_sources(docs_dir or "docs/", set())
 
             return
 
@@ -80,6 +76,13 @@ class BatchIngestionWorkflow:
             tag_domain([chunk], source_domains.get(source, DocDomain.GENERAL.value))
 
         entries = await self._registry.collect_entries(docs, chunks, source_chars)
+        await self._vector_store.ensure_collection(self._settings.embed_dim, reset=False)
+
+        if reset:
+            # Invalidated only after preparation: a partial save remains retryable.
+            for key in entries:
+                await self._registry.delete(key)
+
         await self._sync.sync_documents_to_db(
             {**registry, **entries},
             source_chars,
@@ -89,6 +92,10 @@ class BatchIngestionWorkflow:
             group_id=scope.group_id,
             client_id=scope.client_id,
         )
+
+        if reset:
+            await self._sync.delete_missing_sources(docs_dir or "docs/", set(entries))
+
         await self._registry.persist_entries(entries)
 
         log.info("=" * 55)
