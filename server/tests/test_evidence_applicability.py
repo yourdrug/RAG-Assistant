@@ -7,10 +7,10 @@ from types import SimpleNamespace
 import pytest
 from langchain_core.documents import Document
 
-from domain.value_objects.chat_context import ChatContext
-from domain.value_objects.llm_provider import Breadth
+from domain.rag.context import RagContext
+from domain.rag.breadth import Breadth
 from domain.identity.roles import UserKind, UserRole
-from domain.value_objects.evidence_assessment import EvidenceStatus
+from domain.rag.evidence.assessment import EvidenceStatus
 from infrastructure.ml.rag.grounded_response import (
     extractive_procedure_response,
     extractive_table_comparison_response,
@@ -52,7 +52,7 @@ async def test_incomplete_evidence_cannot_escape_to_a_guessing_llm(case):
     docs = [(Document(**item), 0.95) for item in case.get('docs', [])]
     if not docs:
         docs = [(Document(page_content=case['context'], metadata={'source': 'table.docx'}), 0.95)]
-    ctx = ChatContext(1, UserKind.INTERNAL, UserRole.ADMIN)
+    ctx = RagContext(1, UserKind.INTERNAL, UserRole.ADMIN)
     state = RagPipelineState(
         rag=build_rag_settings(),
         t_pipeline_start=0,

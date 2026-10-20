@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from domain.value_objects.llm_provider import Breadth
+from domain.rag.breadth import Breadth
 from infrastructure.ml.rag.rag_prompts import build_prompt
 
 FIXTURE = Path(__file__).parent / "fixtures" / "fixed_generation_reading.json"

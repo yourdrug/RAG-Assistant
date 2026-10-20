@@ -12,8 +12,8 @@ from pydantic import ValidationError
 
 from domain.services.benchmark_evaluation import evaluate_evidence, summarize_evidence
 from domain.value_objects.benchmark_annotations import validate_annotations
-from domain.value_objects.chat_context import ChatContext
-from domain.value_objects.rag_result import RagResult
+from domain.rag.context import RagContext
+from domain.rag.result import RagResult
 from domain.identity.roles import UserKind
 from infrastructure.benchmark.answer_generators import BenchmarkAnswer, RagBenchmarkGenerator
 from infrastructure.benchmark.case_evaluator import BenchmarkCaseEvaluator
@@ -179,7 +179,7 @@ async def test_full_generator_uses_actual_prompt_not_source_listing():
             )
 
     result = await RagBenchmarkGenerator(Rag(), 4, None).generate(
-        {"question": "Q"}, ChatContext(user_id=1, user_kind=UserKind.INTERNAL)
+        {"question": "Q"}, RagContext(user_id=1, user_kind=UserKind.INTERNAL)
     )
     assert result.context == "Фактический контекст с родительскими условиями"
     assert result.evidence.retrieved[0]["content"] == "Полный текст"
@@ -194,7 +194,7 @@ async def test_capture_resets_on_generation_failure():
 
     with pytest.raises(RuntimeError):
         await RagBenchmarkGenerator(Rag(), 4, None).generate(
-            {"question": "Q"}, ChatContext(user_id=1, user_kind=UserKind.INTERNAL)
+            {"question": "Q"}, RagContext(user_id=1, user_kind=UserKind.INTERNAL)
         )
     assert active_evidence.get() is None
 
@@ -231,7 +231,7 @@ async def test_case_output_contains_diagnostics_and_real_evidence(monkeypatch):
         1,
         {"question": "Q", "annotations": {"expected_fragments": [FRAGMENT]}},
         1,
-        ChatContext(user_id=1, user_kind=UserKind.INTERNAL),
+        RagContext(user_id=1, user_kind=UserKind.INTERNAL),
     )
     assert result["evidence_metrics"]["fragment_recall_at_k"] == 1
     assert result["evidence_metrics"]["context_fragment_recall"] == 0
@@ -299,7 +299,7 @@ def test_explicit_csv_keeps_metrics_and_never_appends_local_history(tmp_path):
 
 
 def test_real_prompt_capture_keeps_parent_scope_and_raw_retrieval():
-    from domain.value_objects.llm_provider import Breadth
+    from domain.rag.breadth import Breadth
     from domain.identity.roles import UserRole
     from domain.identity.user_context import UserContext
     from infrastructure.ml.rag.rag_steps import step_build_context
@@ -323,7 +323,7 @@ def test_real_prompt_capture_keeps_parent_scope_and_raw_retrieval():
         rag=_make_rag(),
         t_pipeline_start=0,
         question="Q",
-        ctx=ChatContext(user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.USER),
+        ctx=RagContext(user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.USER),
         user=UserContext(1, UserKind.INTERNAL, UserRole.USER),
         access_filter=None,
         retrieval_filter=None,

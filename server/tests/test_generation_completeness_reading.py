@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from domain.services.rag_policy.evidence_reading import evidence_reading_reminder
+from domain.rag.evidence.reading import evidence_reading_reminder
 from infrastructure.ml.rag.evidence_focus import (
     enumeration_anchors,
     format_generation_messages,

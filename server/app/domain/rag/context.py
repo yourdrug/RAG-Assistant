@@ -1,4 +1,4 @@
-"""ChatContext value object -- encapsulates user access context for RAG retrieval.
+"""RagContext value object -- encapsulates user access context for RAG retrieval.
 
 Bundles the user's identity, group memberships, and assigned client IDs so
 the retriever can build ACL-filtered Qdrant queries without reaching into
@@ -15,7 +15,7 @@ from domain.identity.user_context import CuratorScope, UserContext
 
 
 @dataclass(frozen=True)
-class ChatContext:
+class RagContext:
     """User access context passed to RAG service.
 
     Encapsulates ACL parameters that the RAG pipeline needs to build

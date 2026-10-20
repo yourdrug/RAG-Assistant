@@ -1,8 +1,8 @@
-"""Tests for CuratorScope value object and ChatContext curator_scope field.
+"""Tests for CuratorScope value object and RagContext curator_scope field.
 
 Phase B of curator-scope-and-bm25-acl-implementation-plan.md:
 - B1: CuratorScope VO (frozen, hashable, is_empty)
-- B2: ChatContext.curator_scope default None
+- B2: RagContext.curator_scope default None
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
 
-from domain.value_objects.chat_context import ChatContext
+from domain.rag.context import RagContext
 from domain.identity.user_context import CuratorScope
 
 
@@ -69,33 +69,33 @@ class TestCuratorScope:
 
 
 # ===========================================================================
-# B2: ChatContext.curator_scope default
+# B2: RagContext.curator_scope default
 # ===========================================================================
 
 
-class TestChatContextCuratorScope:
+class TestRagContextCuratorScope:
     def test_default_none(self):
-        ctx = ChatContext(user_id=1, user_kind="internal")
+        ctx = RagContext(user_id=1, user_kind="internal")
         assert ctx.curator_scope is None
 
     def test_explicit_none(self):
-        ctx = ChatContext(user_id=1, user_kind="internal", curator_scope=None)
+        ctx = RagContext(user_id=1, user_kind="internal", curator_scope=None)
         assert ctx.curator_scope is None
 
     def test_explicit_scope(self):
         scope = CuratorScope(managed_client_ids=(100,))
-        ctx = ChatContext(user_id=1, user_kind="internal", curator_scope=scope)
+        ctx = RagContext(user_id=1, user_kind="internal", curator_scope=scope)
         assert ctx.curator_scope is scope
         assert ctx.curator_scope.managed_client_ids == (100,)
 
     def test_frozen_with_scope(self):
         scope = CuratorScope(managed_client_ids=(100,))
-        ctx = ChatContext(user_id=1, user_kind="internal", curator_scope=scope)
+        ctx = RagContext(user_id=1, user_kind="internal", curator_scope=scope)
         with pytest.raises(AttributeError):
             ctx.curator_scope = None
 
     def test_existing_constructors_unaffected(self):
-        ctx = ChatContext(user_id=1, user_kind="internal", user_role="admin", user_group_ids=[10])
+        ctx = RagContext(user_id=1, user_kind="internal", user_role="admin", user_group_ids=[10])
         assert ctx.curator_scope is None
         assert ctx.user_id == 1
         assert ctx.user_group_ids == [10]

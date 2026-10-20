@@ -40,7 +40,7 @@ class UserContext:
 class CuratorScope:
     """Snapshot of curator managed-scope at request time.
 
-    None in ChatContext means the user is not a curator (or has no managed IDs).
+    None in RagContext means the user is not a curator (or has no managed IDs).
     Tuples (not lists) for immutability and hashability.
     """
 

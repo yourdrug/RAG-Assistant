@@ -6,9 +6,15 @@ Rules are ordered explicitly; all matching is independent of retrieval and LLM c
 from __future__ import annotations
 
 import re
+from typing import TYPE_CHECKING
 
 from domain.knowledge.enums import DocDomain
-from domain.value_objects.llm_provider import Breadth
+from domain.rag.breadth import Breadth
+from domain.shared.dates import parse_date_guess
+
+
+if TYPE_CHECKING:
+    from datetime import date
 
 
 _QUANTITATIVE_CONDITIONAL_PATTERNS = [
@@ -181,3 +187,21 @@ def is_out_of_domain(question: str) -> bool:
     This is a pre-retrieval filter -- fast regex check before any LLM call.
     """
     return bool(_OUT_OF_DOMAIN_RE.search(question))
+
+
+_QUESTION_AS_OF_RE = re.compile(
+    r"(?:по состоянию на|на дату|на)\s+"
+    r"(?P<date>\d{4}-\d{2}-\d{2}|\d{1,2}[./]\d{1,2}[./]\d{4}|\d{1,2}\s+[а-яё]+\s+\d{4})",
+    re.IGNORECASE,
+)
+
+
+def explicit_question_date(text: str) -> date | None:
+    """Extract a date explicitly requested as the temporal state of the answer."""
+    match = _QUESTION_AS_OF_RE.search(text)
+    if match is None:
+        return None
+    parsed = parse_date_guess(match.group("date"))
+    if parsed is None:
+        raise ValueError("Invalid date in question")
+    return parsed

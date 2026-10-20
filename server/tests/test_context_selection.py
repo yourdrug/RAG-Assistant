@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from domain.exceptions.domain_errors import ContextBudgetExceededError
+from domain.rag.retrieval import ContextBudgetExceededError
 from infrastructure.ml.rag.benchmark_evidence import (
     BenchmarkEvidence,
     active_evidence,

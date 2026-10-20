@@ -5,17 +5,23 @@ from types import SimpleNamespace
 
 import pytest
 
-from domain.services.rag_policy import (
-    build_context_message,
-    build_system_prompt,
+from domain.rag.breadth import Breadth
+from domain.rag.classification import (
     classify_question_breadth,
-    compute_context_budget,
-    compute_retrieval_params,
-    sanitize_for_prompt,
-    select_final_top_k,
     should_enumerate_cases,
 )
-from domain.value_objects.llm_provider import Breadth
+from domain.rag.guardrails.sanitization import (
+    sanitize_for_prompt,
+)
+from domain.rag.prompts import (
+    build_context_message,
+    build_system_prompt,
+)
+from domain.rag.retrieval import (
+    compute_context_budget,
+    compute_retrieval_params,
+    select_final_top_k,
+)
 
 
 # Digests include the explicit document-level citation instruction.

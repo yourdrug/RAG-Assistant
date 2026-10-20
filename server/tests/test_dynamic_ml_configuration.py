@@ -435,7 +435,7 @@ async def test_health_probe_reads_applied_endpoint(model, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_cached_llm_family_changes_together_and_active_stream_survives(model, monkeypatch):
-    from domain.value_objects.llm_provider import Breadth
+    from domain.rag.breadth import Breadth
 
     model.ollama_base_url = "http://old:11434"
     model.ml_internal_allowed_origins += ["http://old:11434", "http://new:11434"]
@@ -499,14 +499,14 @@ async def test_cached_llm_family_changes_together_and_active_stream_survives(mod
 @pytest.mark.asyncio
 async def test_standalone_benchmark_refreshes_its_private_cached_embedding_pool(model, monkeypatch):
     from infrastructure.benchmark import answer_generators
-    from domain.value_objects.chat_context import ChatContext
+    from domain.rag.context import RagContext
     from domain.identity.roles import UserKind
 
     pools = wire_http(monkeypatch, successful_response)
     monkeypatch.setattr(answer_generators, "settings", model)
     monkeypatch.setattr(factories, "settings", model)
     generator = answer_generators.StandaloneBenchmarkGenerator(
-        4, 12, ChatContext(user_id=7, user_kind=UserKind.INTERNAL)
+        4, 12, RagContext(user_id=7, user_kind=UserKind.INTERNAL)
     )
     old = generator._clients.embeddings()
     model.tei_embed_url = "http://replacement:8080"
@@ -667,7 +667,7 @@ async def test_auxiliary_call_waiting_for_semaphore_keeps_its_original_client(mo
 @pytest.mark.asyncio
 async def test_concurrent_benchmark_refresh_never_installs_obsolete_endpoint(model, monkeypatch):
     from infrastructure.benchmark import answer_generators
-    from domain.value_objects.chat_context import ChatContext
+    from domain.rag.context import RagContext
     from domain.identity.roles import UserKind
 
     started, release = asyncio.Event(), asyncio.Event()
@@ -683,7 +683,7 @@ async def test_concurrent_benchmark_refresh_never_installs_obsolete_endpoint(mod
     monkeypatch.setattr(answer_generators, "settings", model)
     monkeypatch.setattr(factories, "settings", model)
     generator = answer_generators.StandaloneBenchmarkGenerator(
-        4, 12, ChatContext(user_id=7, user_kind=UserKind.INTERNAL)
+        4, 12, RagContext(user_id=7, user_kind=UserKind.INTERNAL)
     )
     old = generator._clients.embeddings()
     model.tei_embed_url = "http://replacement:8080"

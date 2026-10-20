@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from langchain_core.documents import Document
 
-from domain.services.rag_policy import sanitize_for_prompt
+from domain.rag.guardrails.sanitization import sanitize_for_prompt
 from domain.shared.hashing import content_hash
 from infrastructure.bm25.tokenizer import tokenize
 from infrastructure.ml.rag.document_sources import document_identity

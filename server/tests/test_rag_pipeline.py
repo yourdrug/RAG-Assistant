@@ -16,16 +16,16 @@ from unittest.mock import MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-from domain.value_objects.chat_context import ChatContext  # noqa: E402
-from domain.value_objects.llm_provider import Breadth  # noqa: E402
-from domain.value_objects.rag_settings import (  # noqa: E402
+from domain.rag.context import RagContext  # noqa: E402
+from domain.rag.breadth import Breadth  # noqa: E402
+from domain.rag.settings import (  # noqa: E402
     FeatureToggles,
     HybridSearchConfig,
     RagSettings,
     RerankConfig,
     RetrieverConfig,
 )
-from domain.value_objects.not_found_patterns import NOT_FOUND_PATTERNS  # noqa: E402
+from domain.rag.prompt_blocks import NOT_FOUND_PATTERNS  # noqa: E402
 from infrastructure.ml.rag_pipeline import RagPipelineState  # noqa: E402
 from infrastructure.ml.rag.rag_config import build_rag_settings as _build_rag_settings  # noqa: E402
 from infrastructure.ml.rag.rag_postprocess import is_not_found_answer as _is_not_found_answer  # noqa: E402
@@ -80,7 +80,7 @@ class TestRagPipelineState:
             "query_for_search": "test query",
             "question": "test question",
             "history_messages": [],
-            "ctx": ChatContext(user_id=1, user_kind="individual"),
+            "ctx": RagContext(user_id=1, user_kind="individual"),
             "user": {"id": 1, "kind": "individual"},
             "access_filter": None,
             "retrieval_filter": None,
@@ -226,21 +226,21 @@ class TestPrepareHistoryDicts:
 
 class TestResolveBreadth:
     def test_alias_short_is_narrow(self):
-        from domain.services.rag_policy import classify_question_breadth
-        from domain.value_objects.llm_provider import BREADTH_ALIASES
+        from domain.rag.classification import classify_question_breadth
+        from domain.rag.breadth import BREADTH_ALIASES
 
         raw = BREADTH_ALIASES.get("short") or classify_question_breadth("обычный вопрос")
         assert raw == "short" or raw == Breadth.NARROW
 
     def test_alias_detailed_is_broad(self):
-        from domain.services.rag_policy import classify_question_breadth
-        from domain.value_objects.llm_provider import BREADTH_ALIASES
+        from domain.rag.classification import classify_question_breadth
+        from domain.rag.breadth import BREADTH_ALIASES
 
         raw = BREADTH_ALIASES.get("detailed") or classify_question_breadth("широкий вопрос")
         assert raw == "detailed" or raw == Breadth.BROAD
 
     def test_auto_classification(self):
-        from domain.services.rag_policy import classify_question_breadth
+        from domain.rag.classification import classify_question_breadth
 
         result = classify_question_breadth("расскажи подробно обо всех аспектах")
         assert isinstance(result, str)
@@ -253,7 +253,7 @@ class TestResolveBreadth:
 
 class TestComputeEffectiveWeights:
     def test_default_weights(self):
-        from domain.services.rag_policy import compute_retrieval_params
+        from domain.rag.retrieval import compute_retrieval_params
 
         rag = _make_rag()
         params = compute_retrieval_params(Breadth.NARROW, rag, "обычный вопрос", exact_ref_sparse_boost=2.0)
@@ -262,7 +262,7 @@ class TestComputeEffectiveWeights:
         assert params["use_exact_ref_boost"] is False
 
     def test_exact_ref_boost(self):
-        from domain.services.rag_policy import compute_retrieval_params
+        from domain.rag.retrieval import compute_retrieval_params
 
         rag = _make_rag()
         params = compute_retrieval_params(
@@ -279,14 +279,14 @@ class TestComputeEffectiveWeights:
 
 class TestResolveFetchTopK:
     def test_narrow_params(self):
-        from domain.services.rag_policy import compute_retrieval_params
+        from domain.rag.retrieval import compute_retrieval_params
 
         rag = _make_rag()
         params = compute_retrieval_params(Breadth.NARROW, rag, "обычный вопрос")
         assert params["fetch_k"] == 25
 
     def test_broad_params(self):
-        from domain.services.rag_policy import compute_retrieval_params
+        from domain.rag.retrieval import compute_retrieval_params
 
         rag = _make_rag()
         params = compute_retrieval_params(Breadth.BROAD, rag, "широкий вопрос")

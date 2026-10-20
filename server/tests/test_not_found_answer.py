@@ -1,8 +1,7 @@
 """The fallback response is shared by prompts, guardrails and metrics."""
 
-from domain.services.rag_policy.prompt_blocks import NOT_FOUND_ANSWER
-from domain.services.rag_policy.prompts import build_system_prompt
-from domain.value_objects.not_found_patterns import NOT_FOUND_PATTERNS
+from domain.rag.prompt_blocks import NOT_FOUND_ANSWER, NOT_FOUND_PATTERNS
+from domain.rag.prompts import build_system_prompt
 from infrastructure.ml.guardrails.output_scanner import BLOCKED_OUTPUT_MESSAGE
 
 

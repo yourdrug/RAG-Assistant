@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 
-from domain.value_objects.pii_patterns import ALL_PATTERNS
+from domain.rag.guardrails.pii import ALL_PATTERNS
 
 log = logging.getLogger("default")
 

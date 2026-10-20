@@ -13,7 +13,7 @@ from domain.entities.benchmark_sweep import BenchmarkSweep
 from domain.services.benchmark_evaluation import evaluate_retrieval, summarize_evidence
 from domain.services.benchmark_selection import select_fast_candidates
 from domain.value_objects.benchmark_strategy import BenchmarkStrategy
-from domain.value_objects.chat_context import ChatContext
+from domain.rag.context import RagContext
 from domain.identity.roles import UserKind
 from domain.value_objects.sweep_evaluation_mode import SweepEvaluationMode
 from infrastructure.benchmark.answer_generators import BenchmarkAnswer
@@ -254,7 +254,7 @@ async def test_a_and_b_share_fragment_scoring_even_when_legacy_source_is_a_hit(
     answer = BenchmarkAnswer(text, text, {"hit_rate": 1, "mrr": 1}, 1, 1, evidence=evidence)
     evaluated = await BenchmarkCaseEvaluator(
         SimpleNamespace(generate=AsyncMock(return_value=answer)), "judge"
-    ).evaluate(1, case, 1, ChatContext(user_id=1, user_kind=UserKind.INTERNAL))
+    ).evaluate(1, case, 1, RagContext(user_id=1, user_kind=UserKind.INTERNAL))
     summary = compute_summary_from_results([evaluated])
     assert cheap["avg_hit_rate"] == summary["hit_rate"] == expected
     assert cheap["avg_mrr"] == summary["avg_mrr"] == expected
@@ -298,7 +298,7 @@ async def test_prompt_loss_lowers_context_objectives_and_final_score(mock_judges
         answer = BenchmarkAnswer("a", context, {"hit_rate": 1, "mrr": 1}, 1, 1, evidence=evidence)
         return await BenchmarkCaseEvaluator(
             SimpleNamespace(generate=AsyncMock(return_value=answer)), "judge"
-        ).evaluate(1, case, 1, ChatContext(user_id=1, user_kind=UserKind.INTERNAL))
+        ).evaluate(1, case, 1, RagContext(user_id=1, user_kind=UserKind.INTERNAL))
 
     lost, complete = await evaluate([], "other article"), await evaluate(docs, "article 17 30 days")
     assert lost["retriever_metrics"]["mrr"] == 1

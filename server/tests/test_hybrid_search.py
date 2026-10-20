@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 from domain.shared.hashing import content_hash
-from domain.utils import rrf_merge  # noqa: E402
+from domain.rag.retrieval import rrf_merge  # noqa: E402
 from infrastructure.bm25.bm25_index import BM25Index  # noqa: E402
 from infrastructure.bm25.persistence import load_bm25_index, save_bm25_index  # noqa: E402
 from infrastructure.bm25.tokenizer import tokenize, tokenize_raw  # noqa: E402

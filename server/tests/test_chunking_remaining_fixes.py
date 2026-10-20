@@ -11,13 +11,13 @@ from langchain.schema import Document
 from domain.ingestion.profiles.decree import DecreeDomainProfile
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from domain.ingestion.raw_document import RawDocument
-from domain.exceptions.domain_errors import ContextBudgetExceededError
+from domain.rag.retrieval import ContextBudgetExceededError
 from domain.knowledge.enums import DocDomain
-from domain.value_objects.chat_context import ChatContext
-from domain.value_objects.llm_provider import Breadth
+from domain.rag.context import RagContext
+from domain.rag.breadth import Breadth
 from domain.knowledge.enums import PageContentType
 from domain.identity.roles import UserKind, UserRole
-from domain.value_objects.stream_events import StatusEvent
+from domain.rag.stream_events import StatusEvent
 from domain.identity.user_context import UserContext
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from infrastructure.ml.ingestion.pdf import parse_pdf, pymupdf_table_to_markdown
@@ -175,7 +175,7 @@ def test_no_usable_context_stops_before_generation():
         rag=_make_rag(),
         t_pipeline_start=0,
         question="Explain the eligibility rules.",
-        ctx=ChatContext(
+        ctx=RagContext(
             user_id=12, user_kind=UserKind.INTERNAL.value, user_role=UserRole.USER.value, user_group_ids=[]
         ),
         user=UserContext(12, UserKind.INTERNAL, UserRole.USER),

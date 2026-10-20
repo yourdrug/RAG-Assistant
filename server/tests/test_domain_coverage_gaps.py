@@ -20,14 +20,16 @@ from domain.shared.exceptions import (
     ServerException,
     ValidationError,
 )
-from domain.services.rag_policy import (
+from domain.rag.prompts import (
     build_system_prompt,
+)
+from domain.rag.classification import (
     classify_query_domain,
     has_exact_reference,
 )
 from domain.value_objects.config_value_type import ConfigValueType
 from domain.knowledge.enums import DocDomain
-from domain.value_objects.llm_provider import Breadth
+from domain.rag.breadth import Breadth
 
 
 # ===========================================================================

@@ -18,9 +18,9 @@ pytestmark = pytest.mark.slow
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-from domain.value_objects.chat_context import ChatContext  # noqa: E402
-from domain.value_objects.llm_provider import Breadth  # noqa: E402
-from domain.value_objects.stream_events import PipelineMetaEvent, SourcesEvent, StatusEvent, TextChunk  # noqa: E402
+from domain.rag.context import RagContext  # noqa: E402
+from domain.rag.breadth import Breadth  # noqa: E402
+from domain.rag.stream_events import PipelineMetaEvent, SourcesEvent, StatusEvent, TextChunk  # noqa: E402
 from infrastructure.adapters.pii_redactor_adapter import PIIRedactorAdapter  # noqa: E402
 from infrastructure.ml.rag_service import RagService  # noqa: E402
 
@@ -30,7 +30,7 @@ from infrastructure.ml.rag_service import RagService  # noqa: E402
 # ---------------------------------------------------------------------------
 
 
-def _make_context(**overrides) -> ChatContext:
+def _make_context(**overrides) -> RagContext:
     defaults = {
         "user_id": 1,
         "user_kind": "internal",
@@ -41,7 +41,7 @@ def _make_context(**overrides) -> ChatContext:
         "as_of_date": None,
     }
     defaults.update(overrides)
-    return ChatContext(**defaults)
+    return RagContext(**defaults)
 
 
 async def _async_iter(items):
@@ -483,13 +483,13 @@ class TestStreamHelperMethods:
         assert len(result) == 1
 
     def test_classify_question_breadth(self):
-        from domain.services.rag_policy import classify_question_breadth
+        from domain.rag.classification import classify_question_breadth
 
         result = classify_question_breadth("обычный вопрос")
         assert isinstance(result, str)
 
     def test_compute_retrieval_params_narrow(self):
-        from domain.services.rag_policy import compute_retrieval_params
+        from domain.rag.retrieval import compute_retrieval_params
 
         rag = MagicMock()
         rag.retriever.fetch_k = 25
@@ -502,7 +502,7 @@ class TestStreamHelperMethods:
         assert params["fetch_k"] == 25
 
     def test_compute_retrieval_params_broad(self):
-        from domain.services.rag_policy import compute_retrieval_params
+        from domain.rag.retrieval import compute_retrieval_params
 
         rag = MagicMock()
         rag.retriever.fetch_k = 25
@@ -515,7 +515,7 @@ class TestStreamHelperMethods:
         assert params["fetch_k"] == 40
 
     def test_compute_effective_weights_no_exact_ref(self):
-        from domain.services.rag_policy import compute_retrieval_params
+        from domain.rag.retrieval import compute_retrieval_params
 
         rag = MagicMock()
         rag.hybrid_search.dense_weight = 1.5

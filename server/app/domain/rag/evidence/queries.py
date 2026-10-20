@@ -2,14 +2,15 @@
 
 import re
 
+
 TABLE_MESSAGE_ALIASES = {"BLRDLN": "ЭТН", "BLRWBL": "ЭТТН"}
 
 
 def message_types(text: str) -> set[str]:
     types = {
-        alias for code, alias in TABLE_MESSAGE_ALIASES.items() if re.search(rf'\b{code}\b', text.upper())
+        alias for code, alias in TABLE_MESSAGE_ALIASES.items() if re.search(rf"\b{code}\b", text.upper())
     }
-    types.update(re.findall(r'\b(?:ЭТТН|ЭТН)\b', text.upper()))
+    types.update(re.findall(r"\b(?:ЭТТН|ЭТН)\b", text.upper()))
     return types
 
 
@@ -29,11 +30,11 @@ def table_message_matches(question: str, text: str) -> bool:
     requested = message_types(question)
     actual = set(re.findall(r"Теги\s+(ЭТТН|ЭТН)\b", text, re.IGNORECASE))
     codes = {
-        alias for code, alias in TABLE_MESSAGE_ALIASES.items() if re.search(rf'\b{code}\b', text.upper())
+        alias for code, alias in TABLE_MESSAGE_ALIASES.items() if re.search(rf"\b{code}\b", text.upper())
     }
     actual.update(codes)
-    requested_table = re.search(r'таблиц\w*\s+(\d+(?:\.\d+)*)', question, re.IGNORECASE)
-    actual_tables = set(re.findall(r'таблиц\w*\s+(\d+(?:\.\d+)*)', text, re.IGNORECASE))
+    requested_table = re.search(r"таблиц\w*\s+(\d+(?:\.\d+)*)", question, re.IGNORECASE)
+    actual_tables = set(re.findall(r"таблиц\w*\s+(\d+(?:\.\d+)*)", text, re.IGNORECASE))
     if requested_table and actual_tables and actual_tables != {requested_table[1]}:
         return False
     return not requested or not actual or requested == {value.upper() for value in actual}
@@ -43,8 +44,8 @@ def table_scope_confirmed(question: str, text: str) -> bool:
     """Require positive evidence of the requested table and message identity."""
     if not table_message_matches(question, text):
         return False
-    table = re.search(r'таблиц\w*\s+(\d+(?:\.\d+)*)', question, re.IGNORECASE)
-    if table and set(re.findall(r'таблиц\w*\s+(\d+(?:\.\d+)*)', text, re.IGNORECASE)) != {table[1]}:
+    table = re.search(r"таблиц\w*\s+(\d+(?:\.\d+)*)", question, re.IGNORECASE)
+    if table and set(re.findall(r"таблиц\w*\s+(\d+(?:\.\d+)*)", text, re.IGNORECASE)) != {table[1]}:
         return False
     requested = message_types(question)
     if requested and message_types(text) != requested:

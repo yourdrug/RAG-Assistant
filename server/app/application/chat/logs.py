@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Unpack
 
 from domain.entities.chat_log import ChatLog
 from domain.knowledge.enums import DocDomain
-from domain.value_objects.llm_provider import Breadth
+from domain.rag.breadth import Breadth
 
 
 if TYPE_CHECKING:

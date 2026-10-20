@@ -5,7 +5,7 @@ import logging
 from langchain_core.documents import Document
 
 from domain.shared.hashing import content_hash
-from domain.services.evidence_queries import table_message_matches
+from domain.rag.evidence.queries import table_message_matches
 from domain.knowledge.enums import PageContentType
 from domain.knowledge.enums import SearchMode
 from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata

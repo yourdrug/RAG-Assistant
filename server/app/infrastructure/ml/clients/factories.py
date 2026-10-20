@@ -16,7 +16,8 @@ from infrastructure.corpus import snapshot as corpus_snapshot
 from infrastructure.corpus.snapshot import BoundQdrantClient, CorpusSnapshot
 from infrastructure.budget.transport import PaidSyncTransport, PaidAsyncTransport
 from config import Settings, settings
-from domain.value_objects.llm_provider import Breadth, LLMProvider
+from domain.rag.breadth import Breadth
+from domain.value_objects.llm_provider import LLMProvider
 from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr

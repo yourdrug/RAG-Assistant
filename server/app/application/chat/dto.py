@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from domain.entities.message import Message
-    from domain.value_objects.stream_events import UsageReport
+    from domain.rag.stream_events import UsageReport
 
 
 @dataclass(frozen=True)

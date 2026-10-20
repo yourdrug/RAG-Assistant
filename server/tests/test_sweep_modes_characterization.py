@@ -7,7 +7,7 @@ import pytest
 
 
 from application.benchmark import compute_summary_from_results
-from domain.value_objects.chat_context import ChatContext
+from domain.rag.context import RagContext
 from domain.identity.roles import UserKind
 from infrastructure.benchmark.answer_generators import BenchmarkAnswer
 from infrastructure.benchmark.case_evaluator import BenchmarkCaseEvaluator
@@ -51,7 +51,7 @@ async def test_case_evaluator_preserves_question_and_actual_context(monkeypatch)
     }
     result = await BenchmarkCaseEvaluator(
         SimpleNamespace(generate=AsyncMock(return_value=answer)), "judge"
-    ).evaluate(1, question, 2, ChatContext(user_id=1, user_kind=UserKind.INTERNAL))
+    ).evaluate(1, question, 2, RagContext(user_id=1, user_kind=UserKind.INTERNAL))
     assert result["id"] == 17
     assert result["annotations"] == question["annotations"]
     assert result["evidence"]["retrieved"] == documents

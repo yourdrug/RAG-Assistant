@@ -7,14 +7,14 @@ import pytest
 from langchain_core.documents import Document
 
 from domain.knowledge.chunk import ChunkRecord
-from domain.value_objects.chat_context import ChatContext
+from domain.rag.context import RagContext
 from domain.knowledge.enums import PageContentType
 from domain.identity.roles import UserKind, UserRole
 from infrastructure.ml.rag.applicable_context import enrich_applicable_context
 from infrastructure.ml.rag.grounded_response import extractive_timing_response, missing_field_response
 from infrastructure.ml.rag.rag_formatting import content_with_parent_scope
 
-USER = ChatContext(1, UserKind.INTERNAL, UserRole.ADMIN).to_user_context()
+USER = RagContext(1, UserKind.INTERNAL, UserRole.ADMIN).to_user_context()
 QUESTION = 'Формат поля «Код» (позиция 18 таблицы 4.2, BLRDLN)?'
 
 

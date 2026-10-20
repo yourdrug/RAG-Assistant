@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from domain.value_objects.rag_settings import (
+from domain.rag.settings import (
     FeatureToggles,
     HybridSearchConfig,
     RagSettings,

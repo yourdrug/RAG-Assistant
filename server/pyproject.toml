@@ -350,23 +350,22 @@ module = [
     "domain.knowledge.index_sync",
     "domain.repositories.benchmark_question_repository",
     "domain.repositories.benchmark_run_repository",
-    "domain.repositories.chunk_repository",
+    "domain.rag.ports",
     "domain.knowledge.repositories.chunk",
-    "domain.repositories.vector_store_repository",
     "domain.knowledge.access_control",
     "domain.knowledge.acts.policy",
     "domain.services.benchmark_evaluation",
     "domain.services.benchmark_judge",
     "domain.services.benchmark_selection",
-    "domain.services.injection_patterns",
-    "domain.services.retrieval_diversity",
+    "domain.rag.guardrails.injection",
+    "domain.rag.retrieval",
     "domain.identity.ports",
     "domain.utils",
     "domain.shared.enums",
     "domain.value_objects.benchmark_annotations",
-    "domain.value_objects.pii_patterns",
-    "domain.value_objects.rag_result",
-    "domain.value_objects.stream_events",
+    "domain.rag.guardrails.pii",
+    "domain.rag.result",
+    "domain.rag.stream_events",
     "infrastructure.adapters.chunk_search_adapter",
     "infrastructure.adapters.config_masker_adapter",
     "infrastructure.auth.api_key_provider",
@@ -796,7 +795,7 @@ name = "Domain shared kernel is independent of contexts"
 type = "forbidden"
 source_modules = ["domain.shared"]
 forbidden_modules = [
-    "domain.rag", "domain.domain_profile", "domain.entities", "domain.events", "domain.exceptions",
+    "domain.rag", "domain.entities", "domain.events",
     "domain.identity", "domain.knowledge", "domain.ingestion", "domain.repositories", "domain.services", "domain.utils",
     "domain.value_objects",
 ]
@@ -806,7 +805,7 @@ name = "Domain identity depends only on shared"
 type = "forbidden"
 source_modules = ["domain.identity"]
 forbidden_modules = [
-    "domain.rag", "domain.domain_profile", "domain.entities", "domain.events", "domain.exceptions",
+    "domain.rag", "domain.entities", "domain.events",
     "domain.knowledge", "domain.ingestion", "domain.repositories", "domain.services", "domain.utils",
     "domain.value_objects",
 ]
@@ -816,7 +815,7 @@ name = "Domain knowledge depends only on identity and shared"
 type = "forbidden"
 source_modules = ["domain.knowledge"]
 forbidden_modules = [
-    "domain.rag", "domain.domain_profile", "domain.entities", "domain.events", "domain.exceptions",
+    "domain.rag", "domain.entities", "domain.events",
     "domain.ingestion", "domain.repositories", "domain.services", "domain.utils",
     "domain.value_objects",
 ]
@@ -827,10 +826,8 @@ type = "forbidden"
 source_modules = ["domain.ingestion"]
 allow_indirect_imports = true
 forbidden_modules = [
-    "domain.domain_profile",
     "domain.entities",
     "domain.events",
-    "domain.exceptions",
     "domain.identity",
     "domain.rag",
     "domain.repositories",
@@ -840,10 +837,13 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
-name = "Domain RAG does not depend on ingestion"
+name = "Domain RAG depends only on knowledge identity and shared"
 type = "forbidden"
 source_modules = ["domain.rag"]
-forbidden_modules = ["domain.ingestion"]
+forbidden_modules = [
+    "domain.ingestion", "domain.entities", "domain.events", "domain.repositories",
+    "domain.services", "domain.utils", "domain.value_objects",
+]
 
 [[tool.importlinter.contracts]]
 name = "Application is independent of framework and client implementations"

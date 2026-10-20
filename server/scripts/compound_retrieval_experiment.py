@@ -17,8 +17,8 @@ from langchain_core.documents import Document
 
 from domain.identity.roles import UserKind, UserRole
 from domain.knowledge.access_control import get_visibility_conditions
-from domain.utils import content_hash
-from domain.value_objects.chat_context import ChatContext
+from domain.rag.context import RagContext
+from domain.shared.hashing import content_hash
 from infrastructure.bm25.persistence import load_configured_bm25_snapshot
 from infrastructure.ml.clients.client_registry import MLClientRegistry
 from infrastructure.ml.rag.rag_config import build_rag_settings
@@ -56,7 +56,7 @@ async def compare(cases, user_id):
     registry = MLClientRegistry(bm25_loader=partial(load_configured_bm25_snapshot, storage))
     settings = build_rag_settings()
     settings = replace(settings, retriever=replace(settings.retriever, fetch_k=30, top_k=8))
-    user = ChatContext(user_id, UserKind.INTERNAL, UserRole.ADMIN).to_user_context()
+    user = RagContext(user_id, UserKind.INTERNAL, UserRole.ADMIN).to_user_context()
     conditions = get_visibility_conditions(
         UserKind.INTERNAL, user_id, [], for_list=False, user_role=UserRole.ADMIN
     )

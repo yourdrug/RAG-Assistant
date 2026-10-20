@@ -9,13 +9,13 @@ import time
 from collections.abc import AsyncIterator
 from datetime import date as _date
 
-from domain.value_objects.llm_provider import Breadth
+from domain.rag.breadth import Breadth
 from domain.knowledge.chunk import TABLE_CONTEXT_MAX_CHUNKS
 from domain.knowledge.enums import PageContentType
 from infrastructure.ml.rag.table_context import focus_table_rows, requests_table_overview
-from domain.value_objects.not_found_patterns import NOT_FOUND_PATTERNS
-from domain.value_objects.rag_settings import RagSettings
-from domain.value_objects.stream_events import SourcesEvent, StreamEvent, TextChunk
+from domain.rag.prompt_blocks import NOT_FOUND_PATTERNS
+from domain.rag.settings import RagSettings
+from domain.rag.stream_events import SourcesEvent, StreamEvent, TextChunk
 from infrastructure.metrics.metrics import (
     RAG_RELEVANCE_GATE_TOTAL,
     RAG_STAGE_DURATION,

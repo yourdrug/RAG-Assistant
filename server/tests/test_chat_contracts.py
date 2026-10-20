@@ -16,24 +16,24 @@ from domain.entities.conversation import Conversation
 from domain.entities.message import Message
 from domain.identity.roles import UserKind, UserRole
 from domain.knowledge.enums import DocDomain
-from domain.shared.exceptions import BusinessRuleViolation, EntityNotFound, PermissionDeniedError
-from domain.value_objects.llm_provider import Breadth
-from domain.value_objects.message_role import MessageRole
-from domain.value_objects.rag_result import RagResult
-from domain.value_objects.stream_events import (
+from domain.rag.breadth import Breadth
+from domain.rag.result import RagResult
+from domain.rag.stream_events import (
     MetaEvent,
     SourcesEvent,
     StatusEvent,
     TextChunk,
     UsageReport,
 )
+from domain.shared.exceptions import BusinessRuleViolation, EntityNotFound, PermissionDeniedError
+from domain.value_objects.message_role import MessageRole
 
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-    from domain.value_objects.chat_context import ChatContext
-    from domain.value_objects.stream_events import (
+    from domain.rag.context import RagContext
+    from domain.rag.stream_events import (
         StreamEvent,
     )
 
@@ -90,7 +90,7 @@ async def test_sync_loads_scope_and_persists_after_rag(role: UserRole) -> None:
     fixture = chat_fixture()
     as_of = date(2025, 1, 2)
 
-    async def invoke(question: str, history: list[Message], ctx: ChatContext) -> RagResult:
+    async def invoke(question: str, history: list[Message], ctx: RagContext) -> RagResult:
         assert fixture.events == ["enter", "exit"]
         assert ctx.user_group_ids == [2]
         assert ctx.as_of_date == as_of

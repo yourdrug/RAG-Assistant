@@ -2,21 +2,20 @@
 
 from __future__ import annotations
 
-from domain.value_objects.llm_provider import Breadth
-from .evidence_reading import evidence_reading_rules
-
-from .prompt_blocks import (
-    _INTRO,
-    _SCOPE_BLOCK,
-    _CRITICAL_RULES_BLOCK,
-    _LANGUAGE_PRECISION_BLOCK,
-    _CITATION_CONTEXT_HANDLING_BLOCK,
-    _NARROW_FORMATTING,
+from domain.rag.breadth import Breadth
+from domain.rag.evidence.reading import evidence_reading_rules
+from domain.rag.prompt_blocks import (
     _BROAD_FORMATTING,
-    _TABLE_IMAGE_RULES_BLOCK,
+    _CITATION_CONTEXT_HANDLING_BLOCK,
     _CONDITIONAL_RULES_BLOCK,
-    _SOURCE_REFERENCE_STYLE_BLOCK,
+    _CRITICAL_RULES_BLOCK,
     _DOCUMENT_CONTEXT_BLOCK,
+    _INTRO,
+    _LANGUAGE_PRECISION_BLOCK,
+    _NARROW_FORMATTING,
+    _SCOPE_BLOCK,
+    _SOURCE_REFERENCE_STYLE_BLOCK,
+    _TABLE_IMAGE_RULES_BLOCK,
 )
 
 

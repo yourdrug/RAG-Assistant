@@ -7,7 +7,7 @@ from domain.knowledge.repositories.chunk import (
     ChunkCrudRepository,
     ChunkVersioningRepository,
 )
-from domain.repositories.chunk_repository import ChunkRetrievalRepository, ChunkSearchPageRepository
+from domain.rag.ports import ChunkRetrievalRepository, ChunkSearchPageRepository
 
 
 @runtime_checkable

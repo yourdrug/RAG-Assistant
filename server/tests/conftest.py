@@ -105,7 +105,7 @@ def fake_ml_clients():
 
 @pytest.fixture
 def mock_vector_store():
-    """Mock VectorStoreRepository."""
+    """Mock VectorSearch."""
     mock = MagicMock()
     mock.generate_embeddings.return_value = [0.1] * 128
     return mock

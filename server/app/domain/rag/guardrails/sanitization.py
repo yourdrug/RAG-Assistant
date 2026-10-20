@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from domain.services.injection_patterns import normalize_unicode
+from domain.rag.guardrails.injection import normalize_unicode
 
 
 # Replace double brackets before single ones to preserve the visible delimiters.

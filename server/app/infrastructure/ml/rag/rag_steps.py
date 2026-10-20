@@ -17,22 +17,27 @@ from collections.abc import AsyncIterator
 from datetime import date
 from dataclasses import asdict
 from typing import TYPE_CHECKING
-from domain.exceptions.domain_errors import ContextBudgetExceededError
+from domain.rag.retrieval import ContextBudgetExceededError
 from domain.rag.answer_policy import policy_for
 
 
-from domain.services.rag_policy import (
+from domain.rag.classification import (
     classify_query_domain,
     classify_question_breadth,
-    compute_retrieval_params,
     has_exact_reference,  # noqa: F401 — re-exported for test patches
     is_out_of_domain,
     should_enumerate_cases,
+)
+from domain.rag.retrieval import (
+    compute_retrieval_params,
+)
+from domain.rag.prompts import (
     build_system_prompt,
 )
-from domain.value_objects.llm_provider import BREADTH_ALIASES, Breadth, LLMProvider
-from domain.services.rag_policy.prompt_blocks import NOT_FOUND_ANSWER
-from domain.value_objects.stream_events import SourcesEvent, StreamEvent, TextChunk
+from domain.rag.breadth import BREADTH_ALIASES, Breadth
+from domain.value_objects.llm_provider import LLMProvider
+from domain.rag.prompt_blocks import NOT_FOUND_ANSWER
+from domain.rag.stream_events import SourcesEvent, StreamEvent, TextChunk, UsageReport
 
 from config import settings
 from infrastructure.ml.rag.helpers import (
@@ -632,7 +637,6 @@ def step_postprocess(state: RagPipelineState) -> RagPipelineState:
             input_tokens=input_tokens,
             output_tokens=output_tokens,
         )
-        from domain.value_objects.stream_events import UsageReport
 
         usage_report = UsageReport(
             input_tokens=input_tokens,

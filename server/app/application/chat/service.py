@@ -17,16 +17,16 @@ from application.chat.dto import ChatResult, CreateChatLogCommand, PersistChatCo
 from application.identity import UserContextFactory
 from domain.entities.message import Message
 from domain.identity.user_context import CuratorScope
-from domain.shared.exceptions import BusinessRuleViolation
-from domain.utils import compute_reranker_score
-from domain.value_objects.chat_context import ChatContext
-from domain.value_objects.message_role import MessageRole
-from domain.value_objects.stream_events import (
+from domain.rag.context import RagContext
+from domain.rag.retrieval import compute_reranker_score
+from domain.rag.stream_events import (
     MetaEvent,
     SourcesEvent,
     StatusEvent,
     TextChunk,
 )
+from domain.shared.exceptions import BusinessRuleViolation
+from domain.value_objects.message_role import MessageRole
 
 
 if TYPE_CHECKING:
@@ -38,7 +38,7 @@ if TYPE_CHECKING:
     from application.chat.ports import ChatRAGPort, ChatSettingsPort, PIIRedactorPort
     from application.uow import UnitOfWorkFactory
     from domain.entities.conversation import Conversation
-    from domain.value_objects.stream_events import (
+    from domain.rag.stream_events import (
         StreamEvent,
     )
 
@@ -50,7 +50,7 @@ log = logging.getLogger(__name__)
 class ChatSetup:
     conv: Conversation
     history: list[Message]
-    ctx: ChatContext
+    ctx: RagContext
     pii_question: str
 
 
@@ -102,7 +102,7 @@ class ChatService:
             if history and history[-1].role == MessageRole.USER:
                 history = history[:-1]
 
-        ctx = ChatContext(
+        ctx = RagContext(
             user_id=user_id,
             user_kind=user_kind,
             user_role=user_role,

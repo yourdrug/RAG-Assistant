@@ -8,9 +8,9 @@ import uuid
 
 from application.ports.rate_limit import RateLimitPolicyName
 from application.chat import ChatService
-from domain.exceptions.domain_errors import ContextBudgetExceededError
+from domain.rag.retrieval import ContextBudgetExceededError
 from domain.shared.exceptions import LLMUnavailableError, SemaphoreTimeoutError
-from domain.value_objects.stream_events import MetaEvent, StatusEvent, TextChunk
+from domain.rag.stream_events import MetaEvent, StatusEvent, TextChunk
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from shared import request_id_ctx

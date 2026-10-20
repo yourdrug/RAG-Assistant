@@ -28,7 +28,7 @@ from domain.entities.message import Message
 from domain.knowledge.index_sync import OutboxStatus, VectorOutboxEntry
 from domain.shared.exceptions import EntityNotFound
 from domain.ingestion.repositories import IngestionRegistryEntry
-from domain.value_objects.stream_events import SourcesEvent, TextChunk
+from domain.rag.stream_events import SourcesEvent, TextChunk
 from domain.knowledge.enums import DocumentVisibility
 
 # ---------------------------------------------------------------------------
@@ -1039,7 +1039,7 @@ class FakeChatRAGPort:
         yield SourcesEvent(sources=self._sources, confidence=0.9)
 
     async def invoke(self, question: str, history: list, ctx):
-        from domain.value_objects.rag_result import RagResult
+        from domain.rag.result import RagResult
 
         return RagResult(
             answer=self._answer,

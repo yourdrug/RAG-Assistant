@@ -14,10 +14,10 @@ from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, HumanMessage
 
 from application.chat import ConversationService
-from domain.exceptions.domain_errors import ContextBudgetExceededError
-from domain.value_objects.chat_context import ChatContext
+from domain.rag.retrieval import ContextBudgetExceededError
+from domain.rag.context import RagContext
 from domain.identity.user_context import CuratorScope
-from domain.value_objects.llm_provider import Breadth
+from domain.rag.breadth import Breadth
 from domain.value_objects.message_role import MessageRole
 from domain.identity.roles import UserKind, UserRole
 from infrastructure.ml import answer_cache
@@ -41,7 +41,7 @@ def doc(text, document_id, source="same.pdf"):
 
 
 def state_for(docs, **kwargs):
-    ctx = kwargs.pop("ctx", ChatContext(1, UserKind.INTERNAL, UserRole.USER))
+    ctx = kwargs.pop("ctx", RagContext(1, UserKind.INTERNAL, UserRole.USER))
     return RagPipelineState(
         rag=kwargs.pop("rag", _make_rag()),
         t_pipeline_start=0,
@@ -120,7 +120,7 @@ def test_tei_malformed_response_fails_instead_of_misranking(response):
 
 
 def test_complete_prompt_budget_trims_old_history_and_keeps_summary():
-    ctx = ChatContext(1, UserKind.INTERNAL, UserRole.USER, summary="Заказчик — организация.")
+    ctx = RagContext(1, UserKind.INTERNAL, UserRole.USER, summary="Заказчик — организация.")
     state = state_for(
         [(doc("Документ подтверждает условия.", 1), 0.9)],
         ctx=ctx,
@@ -153,7 +153,7 @@ def test_exact_token_counter_is_applied_to_the_complete_formatted_prompt():
 
 def test_all_search_paths_can_receive_the_full_curator_snapshot():
     scope = CuratorScope(managed_internal_ids=(10,), managed_group_ids=(20,), managed_client_ids=(30,))
-    ctx = ChatContext(1, UserKind.INTERNAL, UserRole.CURATOR, [2], scope)
+    ctx = RagContext(1, UserKind.INTERNAL, UserRole.CURATOR, [2], scope)
     service = RagService(MagicMock(), document_access=MagicMock())
     state = service._init_state("Q", [], ctx)
     assert state.user.group_ids == (2,)

@@ -9,8 +9,8 @@ from langchain_core.documents import Document as Chunk
 
 from application.documents import DocumentAccessService
 from domain.knowledge.document import Document
-from domain.value_objects.chat_context import ChatContext
-from domain.value_objects.llm_provider import Breadth
+from domain.rag.context import RagContext
+from domain.rag.breadth import Breadth
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
 from domain.knowledge.enums import DocumentVisibility
@@ -160,7 +160,7 @@ async def test_neighbor_expansion_cannot_reintroduce_forbidden_evidence(database
         helpers, 'enrich_with_neighbors', AsyncMock(return_value=[(visible, 0.9), (hidden, 0.9)])
     )
     ml = SimpleNamespace(reranker_semaphore=__import__('asyncio').Semaphore(1), reranker=lambda: None)
-    ctx = ChatContext(1, UserKind.INTERNAL, UserRole.USER)
+    ctx = RagContext(1, UserKind.INTERNAL, UserRole.USER)
     docs, _, _ = await helpers.rerank_and_enrich(
         'question',
         [visible, hidden],

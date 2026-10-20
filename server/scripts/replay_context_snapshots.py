@@ -15,11 +15,11 @@ from langchain_core.documents import Document
 
 from domain.identity.roles import UserKind, UserRole
 from domain.knowledge.enums import DocDomain
+from domain.rag.breadth import Breadth
+from domain.rag.classification import classify_query_domain
+from domain.rag.context import RagContext
 from domain.services.benchmark_evaluation import evaluate_evidence
-from domain.services.rag_policy import classify_query_domain
-from domain.utils import content_hash
-from domain.value_objects.chat_context import ChatContext
-from domain.value_objects.llm_provider import Breadth
+from domain.shared.hashing import content_hash
 from infrastructure.ml.rag.benchmark_evidence import BenchmarkEvidence, active_evidence, snapshot_documents
 from infrastructure.ml.rag.document_sources import group_by_document
 from infrastructure.ml.rag.helpers import domain_prompt_addendum
@@ -111,7 +111,7 @@ def compact_exclusion(item):
 def replay_question(question: dict, rag, domain_keys) -> dict:
     evidence = question["evidence"]
     candidates = reconstruct_candidates(evidence)
-    ctx = ChatContext(1, UserKind.INTERNAL, UserRole.ADMIN)
+    ctx = RagContext(1, UserKind.INTERNAL, UserRole.ADMIN)
     # Old snapshots did not save the flag. True reproduces all four target contexts.
     enumerate_cases = (evidence.get("prompt_budget") or {}).get("enumerate_cases", True)
     breadth = Breadth.BROAD if enumerate_cases else Breadth(question["breadth"])

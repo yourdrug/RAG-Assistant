@@ -2,8 +2,8 @@
 
 import re
 
-from domain.services.evidence_queries import table_scope_confirmed
-from domain.services.evidence_applicability import (
+from domain.rag.evidence.queries import table_scope_confirmed
+from domain.rag.evidence.applicability import (
     act_numbers,
     evidence_conflicts,
     procedure_assessment,
@@ -11,7 +11,7 @@ from domain.services.evidence_applicability import (
     timing_assessment,
     timing_question,
 )
-from domain.value_objects.evidence_assessment import EvidenceAssessment, EvidenceFragment, EvidenceStatus
+from domain.rag.evidence.assessment import EvidenceAssessment, EvidenceFragment, EvidenceStatus
 from infrastructure.ml.rag.evidence_focus import evidence_reading_map, requested_fields, matching_field_rows
 from infrastructure.ml.rag.rag_formatting import content_with_parent_scope
 

@@ -17,7 +17,7 @@ import infrastructure.ml.rag.rag_formatting as rag_fmt  # noqa: E402
 import infrastructure.ml.rag.rag_reranking as rag_rr  # noqa: E402
 import infrastructure.ml.rag.rag_relevance as rag_rel  # noqa: E402
 import infrastructure.ml.rag.rag_sources as rag_src  # noqa: E402
-from domain.services.rag_policy import classify_question_breadth  # noqa: E402
+from domain.rag.classification import classify_question_breadth  # noqa: E402
 from domain.value_objects.llm_provider import LLMProvider  # noqa: E402
 from infrastructure.ml.rag.rag_prompts import decompose_question  # noqa: E402
 from langchain_core.language_models import FakeListChatModel  # noqa: E402
@@ -374,32 +374,32 @@ class TestClassifyQuestionBreadth:
 
 class TestNeedsDecomposition:
     def test_simple_question_no_decomposition(self):
-        from domain.services.rag_policy import needs_decomposition
+        from domain.rag.classification import needs_decomposition
 
         assert needs_decomposition("Что такое ЭТТН?") is False
 
     def test_compound_with_and(self):
-        from domain.services.rag_policy import needs_decomposition
+        from domain.rag.classification import needs_decomposition
 
         assert needs_decomposition("Расскажи про ЭТТН и про маркировку") is True
 
     def test_compare_question(self):
-        from domain.services.rag_policy import needs_decomposition
+        from domain.rag.classification import needs_decomposition
 
         assert needs_decomposition("Сравни тарифы А и Б") is True
 
     def test_how_and_what(self):
-        from domain.services.rag_policy import needs_decomposition
+        from domain.rag.classification import needs_decomposition
 
         assert needs_decomposition("Как оформить заказ и что для этого нужно?") is True
 
     def test_empty_string(self):
-        from domain.services.rag_policy import needs_decomposition
+        from domain.rag.classification import needs_decomposition
 
         assert needs_decomposition("") is False
 
     def test_single_topic_no_decomposition(self):
-        from domain.services.rag_policy import needs_decomposition
+        from domain.rag.classification import needs_decomposition
 
         assert needs_decomposition("Подробно расскажи про безопасность") is False
 
@@ -411,7 +411,7 @@ class TestNeedsDecomposition:
 
 class TestShouldEnumerateCases:
     def test_two_conditional_chunks_returns_true(self):
-        from domain.services.rag_policy import should_enumerate_cases
+        from domain.rag.classification import should_enumerate_cases
 
         ctx = [
             "Для золотых изделий: не менее 30%, но не менее 100 штук.",
@@ -420,7 +420,7 @@ class TestShouldEnumerateCases:
         assert should_enumerate_cases("Сколько опробовать?", ctx) is True
 
     def test_one_conditional_chunk_returns_false(self):
-        from domain.services.rag_policy import should_enumerate_cases
+        from domain.rag.classification import should_enumerate_cases
 
         ctx = [
             "Для золотых изделий: не менее 30%, но не менее 100 штук.",
@@ -429,7 +429,7 @@ class TestShouldEnumerateCases:
         assert should_enumerate_cases("Сколько опробовать?", ctx) is False
 
     def test_two_chunks_with_markers_returns_true(self):
-        from domain.services.rag_policy import should_enumerate_cases
+        from domain.rag.classification import should_enumerate_cases
 
         ctx = [
             "Для золотых изделий: не менее 30%, но не менее 100 штук.",
@@ -438,18 +438,18 @@ class TestShouldEnumerateCases:
         assert should_enumerate_cases("Сколько опробовать?", ctx) is True
 
     def test_empty_context_returns_false(self):
-        from domain.services.rag_policy import should_enumerate_cases
+        from domain.rag.classification import should_enumerate_cases
 
         assert should_enumerate_cases("Вопрос?", []) is False
 
     def test_single_chunk_returns_false(self):
-        from domain.services.rag_policy import should_enumerate_cases
+        from domain.rag.classification import should_enumerate_cases
 
         ctx = ["Правило: не менее 30% и не менее 100 штук."]
         assert should_enumerate_cases("Вопрос?", ctx) is False
 
     def test_no_markers_returns_false(self):
-        from domain.services.rag_policy import should_enumerate_cases
+        from domain.rag.classification import should_enumerate_cases
 
         ctx = [
             "Партия проверяется полностью.",
@@ -458,7 +458,7 @@ class TestShouldEnumerateCases:
         assert should_enumerate_cases("Как проверяют?", ctx) is False
 
     def test_percentage_markers_count(self):
-        from domain.services.rag_policy import should_enumerate_cases
+        from domain.rag.classification import should_enumerate_cases
 
         ctx = [
             "Норма: 30% от партии.",
@@ -467,7 +467,7 @@ class TestShouldEnumerateCases:
         assert should_enumerate_cases("Сколько?", ctx) is True
 
     def test_none_in_context_handled(self):
-        from domain.services.rag_policy import should_enumerate_cases
+        from domain.rag.classification import should_enumerate_cases
 
         ctx = [
             "Для золотых: не менее 30%.",
@@ -477,13 +477,13 @@ class TestShouldEnumerateCases:
         assert should_enumerate_cases("Сколько?", ctx) is True
 
     def test_all_none_context_returns_false(self):
-        from domain.services.rag_policy import should_enumerate_cases
+        from domain.rag.classification import should_enumerate_cases
 
         ctx = [None, None]
         assert should_enumerate_cases("Сколько?", ctx) is False
 
     def test_empty_string_context_not_counted(self):
-        from domain.services.rag_policy import should_enumerate_cases
+        from domain.rag.classification import should_enumerate_cases
 
         ctx = [
             "Правило: не менее 30%.",
@@ -911,8 +911,8 @@ class TestPromptMetricsSync:
     def test_not_found_phrase_covered_by_metrics_patterns(self):
         import re
 
-        from domain.services.rag_policy import _CRITICAL_RULES_BLOCK
-        from domain.value_objects.not_found_patterns import NOT_FOUND_PATTERNS
+        from domain.rag.prompt_blocks import _CRITICAL_RULES_BLOCK
+        from domain.rag.prompt_blocks import NOT_FOUND_PATTERNS
 
         match = re.search(r'ответь ровно:\s*\n\s*"(.+?)"', _CRITICAL_RULES_BLOCK)
         assert match, "_CRITICAL_RULES_BLOCK must contain the quoted not-found phrase"

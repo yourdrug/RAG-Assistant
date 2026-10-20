@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from domain.knowledge.enums import DocDomain
-from domain.value_objects.llm_provider import Breadth
+from domain.rag.breadth import Breadth
 
 
 @dataclass(frozen=True)

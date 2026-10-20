@@ -2,7 +2,7 @@
 
 from copy import copy
 
-from domain.services.rag_policy import sanitize_for_prompt
+from domain.rag.guardrails.sanitization import sanitize_for_prompt
 from domain.value_objects.message_role import MessageRole
 from domain.knowledge.enums import PageContentType
 from infrastructure.ml.rag.utils import clean_source_name

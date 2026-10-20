@@ -13,9 +13,11 @@ from typing import TYPE_CHECKING
 
 from domain.knowledge.enums import DocDomain
 from domain.rag.answer_policy import policy_for
-from domain.value_objects.llm_provider import Breadth
+from domain.rag.breadth import Breadth
+from domain.rag.prompts import SUFFICIENCY_ASSESSMENT_SYSTEM
+from domain.rag.retrieval import select_final_top_k, compute_context_budget
 from domain.knowledge.enums import SearchMode
-from domain.services.evidence_queries import evidence_search_queries
+from domain.rag.evidence.queries import evidence_search_queries
 from langchain.schema import Document as LCDocument
 
 from domain.shared.hashing import content_hash
@@ -202,8 +204,6 @@ async def assess_sufficiency(
     to bound total hold time).
     """
     import asyncio
-
-    from domain.services.rag_policy import SUFFICIENCY_ASSESSMENT_SYSTEM
 
     if not docs:
         return SufficiencyAssessment(
@@ -429,8 +429,6 @@ async def rerank_and_enrich(
             document_access=document_access,
             user=ctx.to_user_context(),
         )
-
-    from domain.services.rag_policy import select_final_top_k, compute_context_budget
 
     final_top_k = select_final_top_k(breadth, enumerate_cases, rag)
     if active_evidence.get() is not None:

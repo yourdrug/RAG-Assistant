@@ -44,7 +44,7 @@ from infrastructure.ml.config.config_subscribers import (
 
 if TYPE_CHECKING:
     from domain.knowledge.index_sync import VectorIndexWriter
-    from domain.repositories.vector_store_repository import VectorStoreRepository
+    from domain.rag.ports import VectorSearch
     from application.ports.action_logger import ActionLoggerPort
     from application.identity import ApiKeyProviderPort
     from application.benchmark import BenchmarkHistoryPort
@@ -201,7 +201,7 @@ class MLContainer:
         return self.vector_store
 
     @property
-    def vector_search(self) -> VectorStoreRepository:
+    def vector_search(self) -> VectorSearch:
         return self.vector_store
 
     @property

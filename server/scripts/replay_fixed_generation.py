@@ -16,7 +16,7 @@ from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
 from config import settings
-from domain.value_objects.llm_provider import Breadth
+from domain.rag.breadth import Breadth
 from infrastructure.ml.rag.rag_prompts import build_prompt
 from infrastructure.ml.rag.evidence_focus import format_generation_messages
 

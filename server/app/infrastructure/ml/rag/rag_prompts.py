@@ -6,9 +6,10 @@ import re
 
 import httpx
 from config import settings
-from domain.services.rag_policy import build_context_message, build_system_prompt  # noqa: F401
+from domain.rag.evidence.reading import evidence_reading_reminder
+from domain.rag.prompts import build_context_message, build_system_prompt  # noqa: F401
 from domain.value_objects.message_role import MessageRole
-from domain.exceptions.domain_errors import ContextBudgetExceededError
+from domain.rag.retrieval import ContextBudgetExceededError
 from infrastructure.ml.rag.prompt_budget import estimate_message_tokens
 from infrastructure.ml.clients.client_lease import client_operation
 from infrastructure.ml.clients.llm_schemas import DecompositionCheck
@@ -276,7 +277,6 @@ def build_prompt(
     # injected instructions in documents execute at user privilege, not system.
     messages.append(("human", build_context_message()))
     messages.append(MessagesPlaceholder(variable_name="history"))
-    from domain.services.rag_policy.evidence_reading import evidence_reading_reminder
 
     reminder = evidence_reading_reminder(question).replace("{", "{{").replace("}", "}}")
     messages.append(("human", "{question}" + reminder))

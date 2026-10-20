@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 
 from domain.rag.answer_policy import policy_for
-from domain.value_objects.llm_provider import Breadth
+from domain.rag.breadth import Breadth
 from infrastructure.ml.rag.helpers import domain_prompt_addendum
 
 from domain.ingestion.profiles.protocol import (

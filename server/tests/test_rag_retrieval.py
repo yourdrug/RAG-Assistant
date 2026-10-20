@@ -176,7 +176,7 @@ async def test_qdrant_dense_search_generates_hash_when_missing(mock_settings):
 @patch("infrastructure.ml.rag.rag_retrieval.RAG_STAGE_DURATION")
 @patch("infrastructure.ml.rag.rag_retrieval.settings")
 async def test_hybrid_search_fallback_to_dense_when_bm25_disabled(mock_settings, mock_metrics):
-    from domain.value_objects.rag_settings import (
+    from domain.rag.settings import (
         FeatureToggles,
         HybridSearchConfig,
         RagSettings,
@@ -244,7 +244,7 @@ async def test_hybrid_search_fallback_to_dense_when_bm25_disabled(mock_settings,
 @patch("infrastructure.ml.rag.rag_retrieval.RAG_STAGE_DURATION")
 @patch("infrastructure.ml.rag.rag_retrieval.settings")
 async def test_run_hybrid_search_acl_defaults_are_mandatory(mock_settings, mock_metrics):
-    from domain.value_objects.rag_settings import (
+    from domain.rag.settings import (
         FeatureToggles,
         HybridSearchConfig,
         RagSettings,
@@ -298,7 +298,7 @@ async def test_run_hybrid_search_acl_defaults_are_mandatory(mock_settings, mock_
 @patch("infrastructure.ml.rag.rag_retrieval.RAG_STAGE_DURATION")
 @patch("infrastructure.ml.rag.rag_retrieval.settings")
 async def test_run_hybrid_search_empty_conditions_fail_closed(mock_settings, mock_metrics):
-    from domain.value_objects.rag_settings import (
+    from domain.rag.settings import (
         FeatureToggles,
         HybridSearchConfig,
         RagSettings,
@@ -361,7 +361,7 @@ async def test_run_hybrid_search_empty_conditions_fail_closed(mock_settings, moc
 @patch("infrastructure.ml.rag.rag_retrieval.RAG_STAGE_DURATION")
 @patch("infrastructure.ml.rag.rag_retrieval.settings")
 async def test_hybrid_search_uses_rrf_with_qdrant_sparse(mock_settings, mock_metrics, mock_rrf):
-    from domain.value_objects.rag_settings import (
+    from domain.rag.settings import (
         FeatureToggles,
         HybridSearchConfig,
         RagSettings,

@@ -13,9 +13,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 import infrastructure.ml.rag.rag_reranking as rag_rr  # noqa: E402
 import infrastructure.ml.rag.rag_sources as rag_src  # noqa: E402
-from domain.services.rag_policy import classify_question_breadth  # noqa: E402
-from domain.services.rag_policy import build_system_prompt  # noqa: E402
-from domain.value_objects.llm_provider import Breadth  # noqa: E402
+from domain.rag.classification import classify_question_breadth  # noqa: E402
+from domain.rag.prompts import build_system_prompt  # noqa: E402
+from domain.rag.breadth import Breadth  # noqa: E402
 from infrastructure.ml.rag.rag_formatting import format_docs  # noqa: E402
 from infrastructure.ml.rag.rag_config import build_rag_settings as _build_rag_settings  # noqa: E402
 from infrastructure.ml.rag.rag_postprocess import is_not_found_answer as _is_not_found_answer  # noqa: E402
@@ -46,7 +46,7 @@ def _scored_doc(content: str, score: float, source: str = "a.pdf", metadata_extr
 
 class TestBuildRagSettings:
     def test_returns_rag_settings_instance(self):
-        from domain.value_objects.rag_settings import RagSettings
+        from domain.rag.settings import RagSettings
 
         result = _build_rag_settings()
         assert isinstance(result, RagSettings)
@@ -276,7 +276,7 @@ class TestBuildSystemPrompt:
         assert "domain_specific_rules" in prompt
 
     def test_context_placeholder_present(self):
-        from domain.services.rag_policy import build_context_message
+        from domain.rag.prompts import build_context_message
 
         context_msg = build_context_message()
         assert "{context}" in context_msg

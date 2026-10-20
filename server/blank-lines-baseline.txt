@@ -7,7 +7,7 @@ app/composition/utils.py
 app/config.py
 app/domain/ingestion/profiles/base.py
 app/domain/ingestion/content_splitter.py
-app/domain/domain_profile/date_parsing.py
+app/domain/rag/classification.py
 app/domain/ingestion/profiles/decree.py
 app/domain/ingestion/profiles/legal.py
 app/domain/ingestion/profiles/types.py
@@ -20,7 +20,7 @@ app/domain/knowledge/document.py
 app/domain/entities/message.py
 app/domain/identity/user.py
 app/domain/knowledge/index_sync.py
-app/domain/exceptions/domain_errors.py
+app/domain/rag/retrieval.py
 app/domain/knowledge/access_control.py
 app/domain/knowledge/acts/policy.py
 app/domain/services/benchmark_evaluation.py
@@ -28,14 +28,11 @@ app/domain/services/benchmark_judge.py
 app/domain/services/benchmark_selection.py
 app/domain/services/benchmark_source_hints.py
 app/domain/services/document_domain_classifier.py
-app/domain/services/evidence_applicability.py
-app/domain/services/evidence_queries.py
-app/domain/services/injection_patterns.py
-app/domain/services/rag_policy/classification.py
-app/domain/services/rag_policy/evidence_reading.py
-app/domain/services/rag_policy/retrieval.py
-app/domain/services/rag_policy/sanitization.py
-app/domain/services/retrieval_diversity.py
+app/domain/rag/evidence/applicability.py
+app/domain/rag/evidence/queries.py
+app/domain/rag/guardrails/injection.py
+app/domain/rag/evidence/reading.py
+app/domain/rag/guardrails/sanitization.py
 app/domain/ingestion/text_quality.py
 app/domain/utils.py
 app/domain/value_objects/benchmark_annotations.py

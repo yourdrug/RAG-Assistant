@@ -10,7 +10,7 @@ from typing import Protocol
 
 from application.chat import ChatRAGPort
 from config import _settings_overrides, get_setting, settings
-from domain.value_objects.chat_context import ChatContext
+from domain.rag.context import RagContext
 from domain.knowledge.access_control import get_visibility_conditions
 from domain.identity.roles import UserKind, UserRole
 from infrastructure.repositories.vector.acl import build_qdrant_filter
@@ -74,7 +74,7 @@ class BenchmarkAnswer:
 
 
 class BenchmarkAnswerGenerator(Protocol):
-    async def generate(self, question: dict, ctx: ChatContext) -> BenchmarkAnswer: ...
+    async def generate(self, question: dict, ctx: RagContext) -> BenchmarkAnswer: ...
 
 
 class RagBenchmarkGenerator:
@@ -83,7 +83,7 @@ class RagBenchmarkGenerator:
         self._top_k = top_k
         self._fetch_k = fetch_k
 
-    async def generate(self, question: dict, ctx: ChatContext) -> BenchmarkAnswer:
+    async def generate(self, question: dict, ctx: RagContext) -> BenchmarkAnswer:
         overrides = {
             **(_settings_overrides.get() or {}),
             "cache_enabled": False,
@@ -127,7 +127,7 @@ class RagBenchmarkGenerator:
 
 
 class StandaloneBenchmarkGenerator:
-    def __init__(self, top_k: int, fetch_k: int | None, ctx: ChatContext) -> None:
+    def __init__(self, top_k: int, fetch_k: int | None, ctx: RagContext) -> None:
         self._storage = LazyStorage()
         self._clients = MLClientRegistry()
         self._ml_settings = settings.model_copy()
@@ -168,7 +168,7 @@ class StandaloneBenchmarkGenerator:
                 return
         raise ValidationError("ML configuration changed during benchmark preparation; retry the operation")
 
-    async def generate(self, question: dict, ctx: ChatContext) -> BenchmarkAnswer:
+    async def generate(self, question: dict, ctx: RagContext) -> BenchmarkAnswer:
         await self.refresh_ml_clients()
         llm = retrieval.build_llm(
             settings.llm_model, settings.ollama_base_url, provider=settings.llm_provider

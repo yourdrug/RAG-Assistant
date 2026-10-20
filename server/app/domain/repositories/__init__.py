@@ -5,11 +5,6 @@ from domain.repositories.benchmark_question_repository import BenchmarkQuestionR
 from domain.repositories.benchmark_run_repository import BenchmarkRunRepository
 from domain.repositories.benchmark_sweep_repository import BenchmarkSweepRepository
 from domain.repositories.chat_log_repository import ChatLogRepository
-from domain.repositories.chunk_repository import (
-    ChunkContextRepository,
-    ChunkRetrievalRepository,
-    ChunkSearchRepository,
-)
 from domain.repositories.config_parameter_repository import ConfigParameterRepository
 from domain.repositories.conversation_repository import ConversationRepository
 from domain.repositories.message_repository import MessageRepository
@@ -20,9 +15,6 @@ __all__ = [
     "BenchmarkRunRepository",
     "BenchmarkSweepRepository",
     "ChatLogRepository",
-    "ChunkContextRepository",
-    "ChunkRetrievalRepository",
-    "ChunkSearchRepository",
     "ConfigParameterRepository",
     "ConversationRepository",
     "MessageRepository",

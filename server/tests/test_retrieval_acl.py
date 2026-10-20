@@ -153,7 +153,7 @@ class TestResolveHashesACLFilter:
 @pytest.mark.parametrize("sub_queries", [["query"], ["first query", "second query"]])
 async def test_decomposition_and_legal_fallback_preserve_acl(decomposition, sub_queries):
     from domain.knowledge.access_control import get_visibility_conditions
-    from domain.value_objects.llm_provider import Breadth
+    from domain.rag.breadth import Breadth
     from infrastructure.ml.rag.helpers import retrieve_with_decomposition
 
     af = with_temporal_filter(build_qdrant_filter(_user(), [1, 2]), None)
@@ -199,14 +199,14 @@ async def test_decomposition_and_legal_fallback_preserve_acl(decomposition, sub_
 @pytest.mark.asyncio
 async def test_legal_rerank_fallback_preserves_acl_and_temporal_filter():
     from domain.knowledge.access_control import get_visibility_conditions
-    from domain.value_objects.llm_provider import Breadth
-    from domain.value_objects.chat_context import ChatContext
+    from domain.rag.breadth import Breadth
+    from domain.rag.context import RagContext
     from domain.identity.roles import UserKind, UserRole
     from infrastructure.ml.rag.helpers import rerank_and_enrich
 
     af = with_temporal_filter(build_qdrant_filter(_user(), [1, 2]), None)
     conditions = get_visibility_conditions("internal", 5, [1, 2], for_list=False)
-    ctx = ChatContext(
+    ctx = RagContext(
         as_of_date=None,
         user_id=5,
         user_kind=UserKind.INTERNAL,
@@ -219,8 +219,8 @@ async def test_legal_rerank_fallback_preserves_acl_and_temporal_filter():
         patch("infrastructure.ml.rag.helpers.rerank_documents", AsyncMock(return_value=[])),
         patch("infrastructure.ml.rag.helpers.run_hybrid_search", AsyncMock(return_value=[])) as search,
         patch("infrastructure.ml.rag.helpers.enrich_with_neighbors", AsyncMock(return_value=[])),
-        patch("domain.services.rag_policy.select_final_top_k", return_value=5),
-        patch("domain.services.rag_policy.compute_context_budget", return_value=1000),
+        patch("infrastructure.ml.rag.helpers.select_final_top_k", return_value=5),
+        patch("infrastructure.ml.rag.helpers.compute_context_budget", return_value=1000),
     ):
         await rerank_and_enrich(
             "query",

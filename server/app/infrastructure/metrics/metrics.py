@@ -17,7 +17,7 @@ from collections.abc import Awaitable, Callable
 import httpx
 from application.ports.ml_clients import MLClientPort
 from config import settings
-from domain.value_objects.not_found_patterns import NOT_FOUND_PATTERNS
+from domain.rag.prompt_blocks import NOT_FOUND_PATTERNS
 from prometheus_client import Counter, Gauge, Histogram
 from sqlalchemy.pool import QueuePool
 

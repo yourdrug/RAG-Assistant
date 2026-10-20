@@ -1,6 +1,6 @@
 """Prompt injection defense tests for the RAG pipeline.
 
-Verifies that the system prompt construction in domain/services/rag_policy.py
+Verifies that the system prompt construction in domain/rag
 contains adequate defense instructions against prompt injection attacks
 via retrieved document context.
 """
@@ -11,13 +11,17 @@ import re
 
 import pytest
 
-from domain.services.rag_policy import (
-    build_system_prompt,
+from domain.rag.breadth import Breadth
+from domain.rag.classification import (
     classify_question_breadth,
     is_out_of_domain,
+)
+from domain.rag.guardrails.sanitization import (
     sanitize_for_prompt,
 )
-from domain.value_objects.llm_provider import Breadth
+from domain.rag.prompts import (
+    build_system_prompt,
+)
 
 
 class TestSystemPromptStructure:
@@ -51,14 +55,14 @@ class TestSystemPromptStructure:
         assert "не инструкции" in prompt.lower() or "не команда" in prompt.lower()
 
     def test_prompt_includes_document_context_block(self):
-        from domain.services.rag_policy import build_context_message
+        from domain.rag.prompts import build_context_message
 
         context_msg = build_context_message()
         assert "<<DOCUMENT_CONTEXT>>" in context_msg
         assert "<<END_DOCUMENT_CONTEXT>>" in context_msg
 
     def test_prompt_includes_reminder_after_context(self):
-        from domain.services.rag_policy import build_context_message
+        from domain.rag.prompts import build_context_message
 
         context_msg = build_context_message()
         assert "Напоминание" in context_msg or "напоминание" in context_msg.lower()
@@ -119,7 +123,7 @@ class TestPromptInjectionDefense:
 
     def test_document_context_is_sandboxed(self):
         """Document context should be in a separate message, not in system prompt."""
-        from domain.services.rag_policy import build_context_message
+        from domain.rag.prompts import build_context_message
 
         prompt = build_system_prompt()
         context_msg = build_context_message()

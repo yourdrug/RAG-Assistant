@@ -19,7 +19,7 @@ from application.benchmark import BenchmarkCheckpoints
 
 from config import settings
 from domain.value_objects.benchmark_annotations import validate_annotations
-from domain.value_objects.chat_context import ChatContext
+from domain.rag.context import RagContext
 from domain.identity.roles import UserKind, UserRole
 from infrastructure.benchmark import answer_generators, persistence
 from infrastructure.benchmark.case_evaluator import BenchmarkCaseEvaluator
@@ -116,7 +116,7 @@ async def run_benchmark_async(
         raise ValueError("max_concurrent must be positive")
     semaphore = asyncio.Semaphore(max_concurrent)
     completed = 0
-    ctx = ChatContext(user_id=0, user_kind=UserKind.INTERNAL, user_role=UserRole.ADMIN)
+    ctx = RagContext(user_id=0, user_kind=UserKind.INTERNAL, user_role=UserRole.ADMIN)
     generator = (
         answer_generators.RagBenchmarkGenerator(rag_service, top_k, fetch_k)
         if rag_service is not None

@@ -4,8 +4,8 @@ import logging
 import re
 from copy import copy
 
-from domain.services.evidence_applicability import act_numbers, normalize_act_number, timing_question
-from domain.services.evidence_queries import listed_goods_polarities, table_scope_confirmed
+from domain.rag.evidence.applicability import act_numbers, normalize_act_number, timing_question
+from domain.rag.evidence.queries import listed_goods_polarities, table_scope_confirmed
 from domain.knowledge.enums import PageContentType
 from domain.knowledge.enums import SearchMode
 from infrastructure.ml.rag.evidence_focus import matching_field_rows, requested_fields

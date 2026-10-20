@@ -14,7 +14,7 @@ from pydantic import SecretStr
 
 from infrastructure.ml.rag.rag_retrieval import search_sparse_points
 from application.search import HybridRetriever
-from domain.services.retrieval_diversity import prioritize_distinct_provisions
+from domain.rag.retrieval import prioritize_distinct_provisions
 from application.ports.ml_clients import MLClientPort
 from infrastructure.repositories.vector.embedding_identity import ensure_embedding_identity
 

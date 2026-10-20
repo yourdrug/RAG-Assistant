@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from domain.value_objects.chat_context import ChatContext
+from domain.rag.context import RagContext
 from domain.identity.roles import UserKind, UserRole
 from domain.knowledge.access_control import get_visibility_conditions
 from infrastructure.benchmark import answer_generators, retrieval
@@ -41,7 +41,7 @@ def test_benchmark_sparse_passes_scope_and_collects_sparse_only_payload():
 
 @pytest.mark.asyncio
 async def test_standalone_uses_qdrant_without_loading_snapshot(monkeypatch):
-    ctx = ChatContext(user_id=0, user_kind=UserKind.INTERNAL, user_role=UserRole.ADMIN)
+    ctx = RagContext(user_id=0, user_kind=UserKind.INTERNAL, user_role=UserRole.ADMIN)
     generator = answer_generators.StandaloneBenchmarkGenerator(4, 10, ctx)
     loader = AsyncMock(side_effect=AssertionError("obsolete snapshot load"))
     generator._clients.ensure_bm25_loaded = loader

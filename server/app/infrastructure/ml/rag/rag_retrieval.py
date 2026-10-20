@@ -12,7 +12,7 @@ import time
 from application.ports.ml_clients import MLClientPort
 from application.search import HybridRetriever
 from config import settings
-from domain.value_objects.rag_settings import RagSettings
+from domain.rag.settings import RagSettings
 from domain.shared.hashing import content_hash
 from infrastructure.metrics.metrics import RAG_STAGE_DURATION
 from infrastructure.resilience.retry import retry_on_transient

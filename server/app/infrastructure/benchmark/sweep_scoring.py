@@ -24,7 +24,7 @@ from domain.services.benchmark_evaluation import (
     summarize_evidence,
     summarize_retrieval,
 )
-from domain.utils import rrf_merge
+from domain.rag.retrieval import rrf_merge
 from domain.value_objects.benchmark_scoring import (
     DEFAULT_OBJECTIVE_WEIGHTS,
     METRIC_SCALES,

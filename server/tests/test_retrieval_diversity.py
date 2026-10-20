@@ -6,7 +6,7 @@ import pytest
 from langchain_core.documents import Document
 
 from application.search import HybridRetriever
-from domain.services.retrieval_diversity import prioritize_distinct_provisions
+from domain.rag.retrieval import prioritize_distinct_provisions
 from infrastructure.ml.rag.rag_reranking import rerank_documents
 
 

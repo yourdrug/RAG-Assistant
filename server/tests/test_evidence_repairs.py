@@ -10,13 +10,13 @@ import pytest
 from langchain_core.documents import Document
 
 from domain.knowledge.chunk import ChunkRecord
-from domain.services.evidence_queries import evidence_search_queries
-from domain.services.evidence_queries import contradicts_requested_scope
-from domain.services.rag_policy.evidence_reading import evidence_reading_rules
-from domain.value_objects.llm_provider import Breadth
+from domain.rag.evidence.queries import evidence_search_queries
+from domain.rag.evidence.queries import contradicts_requested_scope
+from domain.rag.evidence.reading import evidence_reading_rules
+from domain.rag.breadth import Breadth
 from domain.knowledge.enums import PageContentType
 from domain.identity.roles import UserKind, UserRole
-from domain.value_objects.chat_context import ChatContext
+from domain.rag.context import RagContext
 from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata
 from infrastructure.ml.rag.evidence_focus import evidence_reading_map, format_generation_messages
 from infrastructure.ml.rag.helpers import retrieve_with_decomposition
@@ -39,7 +39,7 @@ from infrastructure.ml.rag_pipeline import RagPipelineState
 FIELD = "Дополнительный четырёхзначный код по классификатору дополнительной таможенной информации"
 AMENDMENT_QUESTION = f"Как изменился статус поля «{FIELD}» (позиция 57 таблицы 4.1)?"
 PROCEDURE_QUESTION = "Опишите порядок: передача товара на хранение и последующая отгрузка."
-USER = ChatContext(1, UserKind.INTERNAL, UserRole.ADMIN).to_user_context()
+USER = RagContext(1, UserKind.INTERNAL, UserRole.ADMIN).to_user_context()
 
 
 def chunk(index, text, *, table=False, section=None, document_id=27, version=2):
@@ -203,7 +203,7 @@ def test_table_comparison_probes_both_fields_without_answer_values():
 
 @pytest.mark.asyncio
 async def test_missing_field_lookup_uses_authorized_document_and_requested_date():
-    ctx = ChatContext(1, UserKind.INTERNAL, UserRole.ADMIN)
+    ctx = RagContext(1, UserKind.INTERNAL, UserRole.ADMIN)
     question = "Формат поля «УНП грузоотправителя» (позиция 18 таблицы 4.2)?"
     seed = hit(chunk(616, "| 23 | УНП грузополучателя an..19 |", table=True))[0]
     valid = chunk(614, "| 18 | УНП грузоотправителя an..15 |", table=True)
@@ -219,7 +219,7 @@ async def test_missing_field_lookup_uses_authorized_document_and_requested_date(
 
 @pytest.mark.asyncio
 async def test_missing_field_lookup_does_not_invent_evidence_on_empty_authorized_results():
-    ctx = ChatContext(1, UserKind.INTERNAL, UserRole.ADMIN)
+    ctx = RagContext(1, UserKind.INTERNAL, UserRole.ADMIN)
     question = "Формат поля «УНП грузоотправителя» (позиция 18 таблицы 4.2)?"
     seed = hit(chunk(616, "| 23 | УНП грузополучателя an..19 |", table=True))[0]
     search = SimpleNamespace(search_substring=AsyncMock(return_value=[]))
@@ -241,7 +241,7 @@ def test_category_negation_filters_only_explicitly_opposite_scope(negative):
 
 @pytest.mark.asyncio
 async def test_field_lookup_rejects_same_number_and_name_from_wrong_message_table():
-    ctx = ChatContext(1, UserKind.INTERNAL, UserRole.ADMIN)
+    ctx = RagContext(1, UserKind.INTERNAL, UserRole.ADMIN)
     question = "Формат поля «УНП грузоотправителя» (позиция 18 таблицы 4.2, BLRDLN)?"
     wrong = chunk(430, "Теги ЭТТН:\n| 18 | УНП грузоотправителя an..15 |", table=True)
     right = chunk(614, "Таблица 4.2\nТеги ЭТН:\n| 18 | УНП грузоотправителя an..15 |", table=True)
@@ -272,7 +272,7 @@ def test_extractive_procedure_keeps_complete_stage_links_in_source_order():
 
 @pytest.mark.asyncio
 async def test_missing_row_response_cannot_be_overridden_by_model_and_cache_changes_with_policy(monkeypatch):
-    ctx = ChatContext(1, UserKind.INTERNAL, UserRole.ADMIN)
+    ctx = RagContext(1, UserKind.INTERNAL, UserRole.ADMIN)
     question = "Формат поля «УНП грузоотправителя» (позиция 18 таблицы 4.2, BLRDLN)?"
     state = RagPipelineState(
         rag=build_rag_settings(),

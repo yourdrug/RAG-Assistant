@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 import unicodedata
 
+
 # ---------------------------------------------------------------------------
 # Unicode normalization (defense against obfuscation)
 # ---------------------------------------------------------------------------

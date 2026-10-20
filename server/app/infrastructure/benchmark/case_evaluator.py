@@ -16,7 +16,7 @@ from infrastructure.benchmark.checkpoint import FileBenchmarkCheckpoints
 from infrastructure.benchmark.judge_rubric import JUDGE_RUBRIC_VERSION
 
 from config import settings
-from domain.value_objects.chat_context import ChatContext
+from domain.rag.context import RagContext
 from domain.value_objects.benchmark_annotations import validate_annotations
 from domain.services.benchmark_evaluation import evaluate_evidence, evaluate_retrieval
 
@@ -47,7 +47,7 @@ class BenchmarkCaseEvaluator:
             await store.save(str(path) if self._checkpoints else path.name, stages)
 
     async def evaluate(
-        self, idx: int, question: dict, run_idx: int, ctx: ChatContext, checkpoint_path: Path | None = None
+        self, idx: int, question: dict, run_idx: int, ctx: RagContext, checkpoint_path: Path | None = None
     ) -> dict:
         from infrastructure.benchmark.token_usage import judge_usage, judge_context
 
@@ -89,7 +89,7 @@ class BenchmarkCaseEvaluator:
                 await self.save_stages(checkpoint_path, saved)
 
     async def evaluate_case(
-        self, idx: int, question: dict, run_idx: int, ctx: ChatContext, checkpoint_path: Path | None = None
+        self, idx: int, question: dict, run_idx: int, ctx: RagContext, checkpoint_path: Path | None = None
     ) -> dict:
         from infrastructure.benchmark.metrics import _estimate_cost_usd
 

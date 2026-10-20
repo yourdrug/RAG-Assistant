@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
 from domain.knowledge.document import Document
 from domain.shared.exceptions import BusinessRuleViolation
 from domain.knowledge.access_control import can_view_document, get_visibility_conditions, is_in_search_scope
-from domain.value_objects.chat_context import ChatContext
+from domain.rag.context import RagContext
 from domain.identity.user_context import CuratorScope
 from domain.knowledge.access_control import OwnerMatch
 from domain.identity.roles import UserKind, UserRole
@@ -478,7 +478,7 @@ class TestChatServiceCuratorScope:
         from domain.identity.user_context import CuratorScope
 
         scope = CuratorScope(managed_client_ids=(100,), managed_internal_ids=(200,), managed_group_ids=(300,))
-        ctx = ChatContext(
+        ctx = RagContext(
             user_id=1,
             user_kind="internal",
             user_role="curator",
@@ -515,7 +515,7 @@ class TestRagServiceCuratorScope:
 
     def test_user_no_scope_passes_none_managed_args(self):
         """Non-curator with curator_scope=None → all managed_*_ids=None."""
-        ctx = ChatContext(
+        ctx = RagContext(
             user_id=1,
             user_kind="internal",
             user_role="user",
@@ -556,10 +556,10 @@ class TestRagServiceCuratorScope:
         from unittest.mock import patch
 
         from domain.identity.user_context import CuratorScope
-        from domain.value_objects.chat_context import ChatContext
+        from domain.rag.context import RagContext
 
         scope = CuratorScope(managed_client_ids=(100, 200), managed_internal_ids=(300,))
-        ctx = ChatContext(
+        ctx = RagContext(
             user_id=1,
             user_kind="internal",
             user_role="curator",

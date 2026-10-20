@@ -4,8 +4,8 @@ from pathlib import Path
 
 from application.search import HybridRetriever
 from domain.shared.hashing import content_hash
-from domain.services.retrieval_diversity import prioritize_distinct_provisions
-from domain.services.evidence_queries import contradicts_requested_scope
+from domain.rag.retrieval import prioritize_distinct_provisions
+from domain.rag.evidence.queries import contradicts_requested_scope
 from infrastructure.ml.rag.rag_formatting import content_with_parent_scope
 from infrastructure.ml.rag.benchmark_evidence import active_evidence, capture_exclusions
 from infrastructure.ml.rag.context_selection import ExclusionReason, exclusion_record

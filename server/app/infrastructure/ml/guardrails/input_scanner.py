@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
-from domain.services.injection_patterns import (
+from domain.rag.guardrails.injection import (
     detect_injection,
     has_blocking_injection,
     has_flagged_injection,

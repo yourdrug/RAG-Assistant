@@ -1,18 +1,13 @@
 """Read ports for chunk retrieval."""
 
 from __future__ import annotations
-from domain.knowledge.chunk import ChunkRecord
-from domain.knowledge.chunk import TABLE_CONTEXT_MAX_CHUNKS
-
 
 from datetime import date
-
-from typing import Protocol, runtime_checkable
-
-
-from domain.knowledge.enums import SearchMode
+from typing import Any, Protocol, runtime_checkable
 
 from domain.identity.user_context import UserContext
+from domain.knowledge.chunk import TABLE_CONTEXT_MAX_CHUNKS, ChunkRecord
+from domain.knowledge.enums import SearchMode
 
 
 @runtime_checkable
@@ -76,3 +71,9 @@ class ChunkContextRepository(Protocol):
 @runtime_checkable
 class ChunkRetrievalRepository(ChunkSearchRepository, ChunkContextRepository, Protocol):
     """Substring matches and surrounding context for RAG retrieval."""
+
+
+@runtime_checkable
+class VectorSearch(Protocol):
+    async def generate_embeddings(self, text: str) -> list[float]: ...
+    async def get_point_payload(self, point_id: int, access_filter: Any) -> dict | None: ...

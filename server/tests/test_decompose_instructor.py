@@ -179,7 +179,7 @@ class TestDecomposeCallerIntegration:
         ):
             mock_ml = MagicMock()
             mock_ml.instructor_client = MagicMock()
-            from domain.value_objects.llm_provider import Breadth
+            from domain.rag.breadth import Breadth
 
             await retrieve_with_decomposition(
                 "complex question",

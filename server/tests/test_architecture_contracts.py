@@ -98,6 +98,9 @@ def test_application_dependency_boundary(importer: str, imported: str, allowed: 
         ("knowledge", "domain.shared.exceptions", True),
         ("knowledge", "domain.knowledge.chunk", True),
         ("rag", "domain.knowledge.enums", True),
+        ("rag", "domain.identity.user_context", True),
+        ("rag", "domain.shared.exceptions", True),
+        ("rag", "domain.rag.ports", True),
         ("rag", "domain.ingestion.profiles.protocol", False),
         ("ingestion", "domain.knowledge.chunk", True),
         ("ingestion", "domain.shared.dates", True),
@@ -109,6 +112,7 @@ def test_application_dependency_boundary(importer: str, imported: str, allowed: 
                 ("identity", "Domain identity depends only on shared"),
                 ("knowledge", "Domain knowledge depends only on identity and shared"),
                 ("ingestion", "Domain ingestion depends only on knowledge and shared"),
+                ("rag", "Domain RAG depends only on knowledge identity and shared"),
             )
             for options in CONFIG["contracts"]
             if options["name"] == name
@@ -139,7 +143,7 @@ def test_domain_context_dependency_boundary(context: str, imported: str, allowed
     assert contract.check(graph, verbose=False).kept is allowed
 
 
-@pytest.mark.parametrize("context", ["shared", "identity", "knowledge", "ingestion"])
+@pytest.mark.parametrize("context", ["shared", "identity", "knowledge", "ingestion", "rag"])
 def test_context_contract_covers_every_forbidden_domain_package(context: str) -> None:
     options = next(
         options for options in CONFIG["contracts"] if options.get("source_modules") == [f"domain.{context}"]
@@ -151,9 +155,10 @@ def test_context_contract_covers_every_forbidden_domain_package(context: str) ->
         and (path.suffix == ".py" or (path.is_dir() and (path / "__init__.py").exists()))
     }
 
-    if context == "knowledge":
+    if context in {"knowledge", "rag"}:
         siblings.discard("domain.identity")
-    elif context == "ingestion":
+
+    if context in {"ingestion", "rag"}:
         siblings.discard("domain.knowledge")
 
     assert set(options["forbidden_modules"]) == siblings

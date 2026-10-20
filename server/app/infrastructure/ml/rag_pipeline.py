@@ -10,10 +10,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from domain.value_objects.evidence_assessment import EvidenceAssessment
-from domain.value_objects.chat_context import ChatContext
-from domain.value_objects.llm_provider import Breadth
-from domain.value_objects.rag_settings import RagSettings
+from domain.rag.evidence.assessment import EvidenceAssessment
+from domain.rag.context import RagContext
+from domain.rag.breadth import Breadth
+from domain.rag.settings import RagSettings
 from domain.identity.user_context import UserContext
 
 if TYPE_CHECKING:
@@ -28,7 +28,7 @@ class RagPipelineState:
     rag: RagSettings
     t_pipeline_start: float
     question: str
-    ctx: ChatContext
+    ctx: RagContext
     user: UserContext
     access_filter: object
     retrieval_filter: object

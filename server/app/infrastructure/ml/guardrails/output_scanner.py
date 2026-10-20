@@ -12,7 +12,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 
-from domain.services.rag_policy.prompt_blocks import NOT_FOUND_ANSWER
+from domain.rag.prompt_blocks import NOT_FOUND_ANSWER
 
 log = logging.getLogger("default")
 

@@ -40,7 +40,7 @@ def save_json(path: Path, value):
 
 
 def prepare_snapshot(runs, dataset, run_id, ids, diagnostic_ids, git_commit=None):
-    from domain.value_objects.llm_provider import Breadth
+    from domain.rag.breadth import Breadth
     from infrastructure.ml.rag.evidence_focus import format_generation_messages
     from infrastructure.ml.rag.rag_prompts import build_prompt
 

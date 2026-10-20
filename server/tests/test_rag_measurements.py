@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 from langchain_core.messages import AIMessage, AIMessageChunk
 
-from domain.value_objects.chat_context import ChatContext
+from domain.rag.context import RagContext
 from domain.identity.roles import UserKind, UserRole
 from infrastructure.benchmark.answer_generators import BenchmarkAnswer, RagBenchmarkGenerator
 from infrastructure.benchmark.case_evaluator import BenchmarkCaseEvaluator
@@ -63,7 +63,7 @@ async def test_rag_elapsed_includes_retrieval_and_usage_without_judge():
             domain=None,
         )
 
-    ctx = ChatContext(1, UserKind.INTERNAL, UserRole.ADMIN)
+    ctx = RagContext(1, UserKind.INTERNAL, UserRole.ADMIN)
     result = await RagBenchmarkGenerator(SimpleNamespace(invoke=invoke), 8, 30).generate(
         {'question': 'q'}, ctx
     )

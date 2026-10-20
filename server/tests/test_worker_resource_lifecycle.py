@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from domain.identity.roles import UserKind, UserRole
-from domain.value_objects.chat_context import ChatContext
+from domain.rag.context import RagContext
 from infrastructure.benchmark import answer_generators, retrieval, runner
 from infrastructure.worker import queue, tasks
 
@@ -145,7 +145,7 @@ async def test_standalone_closes_llm_when_retrieval_fails(monkeypatch):
         raise RuntimeError("retrieval failed")
 
     monkeypatch.setattr(retrieval, "retrieve_with_scores_hybrid", fail)
-    ctx = ChatContext(user_id=0, user_kind=UserKind.INTERNAL, user_role=UserRole.ADMIN)
+    ctx = RagContext(user_id=0, user_kind=UserKind.INTERNAL, user_role=UserRole.ADMIN)
     generator = answer_generators.StandaloneBenchmarkGenerator(4, 12, ctx)
     monkeypatch.setattr(generator._clients, "ensure_bm25_loaded", AsyncMock(return_value=None))
     close = AsyncMock()
@@ -179,7 +179,7 @@ async def test_standalone_cancellation_waits_for_owned_retrieval_before_closing(
         return []
 
     monkeypatch.setattr(retrieval, "retrieve_with_scores_hybrid", retrieve)
-    ctx = ChatContext(user_id=0, user_kind=UserKind.INTERNAL, user_role=UserRole.ADMIN)
+    ctx = RagContext(user_id=0, user_kind=UserKind.INTERNAL, user_role=UserRole.ADMIN)
     generator = answer_generators.StandaloneBenchmarkGenerator(4, 12, ctx)
     monkeypatch.setattr(generator._clients, "ensure_bm25_loaded", AsyncMock(return_value=None))
     task = asyncio.create_task(generator.generate({"question": "q"}, ctx))

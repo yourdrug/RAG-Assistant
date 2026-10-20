@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 
-from domain.value_objects.llm_provider import Breadth
+from domain.rag.breadth import Breadth
 
 
 @dataclass(frozen=True, slots=True)

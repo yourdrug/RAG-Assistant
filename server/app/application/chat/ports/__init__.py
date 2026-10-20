@@ -9,9 +9,9 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from domain.entities.message import Message
-    from domain.value_objects.chat_context import ChatContext
-    from domain.value_objects.rag_result import RagResult
-    from domain.value_objects.stream_events import StreamEvent
+    from domain.rag.context import RagContext
+    from domain.rag.result import RagResult
+    from domain.rag.stream_events import StreamEvent
 
 
 @runtime_checkable
@@ -20,14 +20,14 @@ class ChatRAGPort(Protocol):
         self,
         question: str,
         history: list[Message],
-        ctx: ChatContext,
+        ctx: RagContext,
     ) -> AsyncIterator[StreamEvent]: ...
 
     async def invoke(
         self,
         question: str,
         history: list[Message],
-        ctx: ChatContext,
+        ctx: RagContext,
     ) -> RagResult: ...
 
 

@@ -5,10 +5,10 @@ from enum import StrEnum
 
 
 class EvidenceStatus(StrEnum):
-    COMPLETE = 'complete'
-    PARTIAL = 'partial'
-    INSUFFICIENT = 'insufficient'
-    CONFLICT = 'conflict'
+    COMPLETE = "complete"
+    PARTIAL = "partial"
+    INSUFFICIENT = "insufficient"
+    CONFLICT = "conflict"
 
 
 @dataclass(frozen=True)
@@ -19,7 +19,7 @@ class EvidenceFragment:
     version_id: int | None
     act_number: str | None
     chunk_index: int = 0
-    linked_scope: str = ''
+    linked_scope: str = ""
 
 
 @dataclass(frozen=True)

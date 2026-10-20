@@ -152,3 +152,18 @@ def test_table_splits_modules_and_resolves_barrels() -> None:
     assert moves["domain.repositories.chunk_repository.ChunkRepository"] == (
         "application.uow.chunks.ChunkRepository"
     )
+
+
+def test_table_resolves_rag_barrel_and_vector_read_port() -> None:
+    moves = json.loads(SCRIPT.with_name("domain_moves.json").read_text())
+    source = (
+        "from domain.services.rag_policy import build_system_prompt, compute_context_budget\n"
+        "from domain.repositories.vector_store_repository import VectorStoreRepository\n"
+        "port: VectorStoreRepository\n"
+    )
+    result = REWRITE(source, moves)
+    assert "from domain.rag.prompts import build_system_prompt" in result
+    assert "from domain.rag.retrieval import compute_context_budget" in result
+    assert "from domain.rag.ports import VectorSearch" in result
+    assert "port: VectorSearch" in result
+    assert REWRITE(result, moves) == result

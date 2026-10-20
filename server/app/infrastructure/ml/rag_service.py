@@ -18,12 +18,12 @@ from application.documents import DocumentAccessPort
 
 from config import settings
 from infrastructure.corpus.snapshot import pin_corpus_stream
-from domain.value_objects.rag_result import RagResult
-from domain.utils import compute_reranker_score
-from domain.value_objects.chat_context import ChatContext
+from domain.rag.result import RagResult
+from domain.rag.retrieval import compute_reranker_score
+from domain.rag.context import RagContext
 from domain.knowledge.enums import DocDomain
-from domain.value_objects.llm_provider import Breadth
-from domain.value_objects.stream_events import (
+from domain.rag.breadth import Breadth
+from domain.rag.stream_events import (
     PipelineMetaEvent,
     SourcesEvent,
     StatusEvent,
@@ -96,7 +96,7 @@ class RagService:
         self,
         question: str,
         history: list,
-        ctx: ChatContext,
+        ctx: RagContext,
     ) -> RagPipelineState:
         """Build the initial pipeline state from request parameters."""
         import time
@@ -174,7 +174,7 @@ class RagService:
         self,
         question: str,
         history: list,
-        ctx: ChatContext,
+        ctx: RagContext,
     ) -> AsyncIterator[StreamEvent]:
         state = self._init_state(question, history, ctx)
 
@@ -249,7 +249,7 @@ class RagService:
         self,
         question: str,
         history: list,
-        ctx: ChatContext,
+        ctx: RagContext,
     ) -> RagResult:
         answer_parts: list[str] = []
         sources: list[dict] = []

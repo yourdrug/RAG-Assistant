@@ -1,4 +1,4 @@
-"""Tests for domain/services/rag_policy.py — pure business logic for question classification.
+"""Tests for domain/rag — pure business logic for question classification.
 
 Functions tested:
   - classify_question_breadth
@@ -18,8 +18,10 @@ import sys
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent / "app"))
 
-from domain.services.rag_policy import (
+from domain.rag.prompts import (
     build_system_prompt,
+)
+from domain.rag.classification import (
     classify_question_breadth,
     classify_query_domain,
     has_exact_reference,
@@ -28,7 +30,7 @@ from domain.services.rag_policy import (
     should_enumerate_cases,
 )
 from domain.knowledge.enums import DocDomain
-from domain.value_objects.llm_provider import Breadth
+from domain.rag.breadth import Breadth
 
 
 # ===========================================================================

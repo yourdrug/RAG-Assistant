@@ -6,7 +6,7 @@ from domain.knowledge.chunk import TABLE_CONTEXT_MAX_CHUNKS
 
 from typing import TYPE_CHECKING
 
-from domain.repositories.chunk_repository import ChunkRetrievalRepository
+from domain.rag.ports import ChunkRetrievalRepository
 
 if TYPE_CHECKING:
     from infrastructure.uow_factory import UnitOfWorkFactory

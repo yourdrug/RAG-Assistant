@@ -4,8 +4,8 @@ import re
 
 from langchain_core.messages import HumanMessage
 
-from domain.services.rag_policy.evidence_reading import ENUMERATION_READING_RULES, evidence_reading_rules
-from domain.services.evidence_queries import table_scope_confirmed
+from domain.rag.evidence.reading import ENUMERATION_READING_RULES, evidence_reading_rules
+from domain.rag.evidence.queries import table_scope_confirmed
 
 MAX_FOCUS_CHARS = 3000
 EVIDENCE_POLICY_VERSION = "2026-10-09-applicability-v6"
