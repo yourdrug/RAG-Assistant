@@ -20,7 +20,6 @@ from domain.exceptions import (
     ServerException,
     ValidationError,
 )
-from domain.services.document_domain_classifier import classify_document_domain
 from domain.services.rag_policy import (
     build_system_prompt,
     classify_query_domain,
@@ -376,50 +375,6 @@ class TestHasExactReference:
 
     def test_empty_string(self):
         assert has_exact_reference("") is False
-
-
-# ===========================================================================
-# classify_document_domain Tests
-# ===========================================================================
-
-
-class TestClassifyDocumentDomain:
-    def test_general_text(self):
-        assert (
-            classify_document_domain("Простой текст без юридических терминов", threshold=2.0)
-            == DocDomain.GENERAL
-        )
-
-    def test_legal_text_high_density(self):
-        text = "\nСтатья 1\n" * 10 + "\nГлава 2\n" * 10
-        assert classify_document_domain(text, threshold=1.0) == DocDomain.LEGAL
-
-    def test_short_text_with_markers(self):
-        text = "Федеральный закон\nГК РФ\nНК РФ"
-        assert classify_document_domain(text, threshold=1.0) == DocDomain.LEGAL
-
-    def test_empty_text(self):
-        assert classify_document_domain("", threshold=2.0) == DocDomain.GENERAL
-
-    def test_custom_threshold(self):
-        text = "Федеральный закон"
-        assert classify_document_domain(text, threshold=100.0) == DocDomain.GENERAL
-        assert classify_document_domain(text, threshold=0.1) == DocDomain.LEGAL
-
-    def test_all_markers(self):
-        text = (
-            "\nСтатья 1\n"
-            "\nГлава 2\n"
-            "\nРаздел 3\n"
-            "\nПункт 4\n"
-            "\n1.2.\n"
-            "Федеральный закон"
-            "ГК РФ"
-            "НК РФ"
-            "настоящим договором"
-            "стороны договорились"
-        )
-        assert classify_document_domain(text, threshold=0.5) == DocDomain.LEGAL
 
 
 # ---------------------------------------------------------------------------

@@ -20,7 +20,6 @@ from domain.value_objects.visibility import DocumentVisibility
 
 if TYPE_CHECKING:
     from application.indexing.dto import ChunkProcessingOptions, ChunkWriteOptions, VersionMetadataOptions
-    from application.indexing.ports.classification import LegacyClassifier
     from application.uow import UnitOfWork, UnitOfWorkFactory
     from domain.domain_profile.registry import DomainProfileRegistry
     from domain.domain_profile.settings_port import DomainSettingsPort
@@ -58,13 +57,11 @@ def classify_domain(
     *,
     domain_registry: DomainProfileRegistry | None = None,
     domain_settings: DomainSettingsPort | None = None,
-    fallback_threshold: float,
-    legacy_classifier: LegacyClassifier | None = None,
 ) -> str:
-    """Shared domain classification with registry → legacy fallback.
+    """Shared registry-based domain classification.
 
     Used by both IngestionService (CLI) and DocumentProcessor (API) -- the
-    decision logic lives in domain_classification.classify_document_text so
+    decision logic lives in indexing.classification.classify_document_text so
     API and CLI can never drift apart.  CLI discards the ambiguity warning
     (it has no warning_message channel on this path).
     """
@@ -72,8 +69,6 @@ def classify_domain(
         text,
         domain_registry=domain_registry,
         domain_settings=domain_settings,
-        fallback_threshold=fallback_threshold,
-        legacy_classifier=legacy_classifier,
     ).domain_key
 
 

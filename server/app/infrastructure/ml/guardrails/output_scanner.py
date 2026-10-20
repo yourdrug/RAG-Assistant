@@ -12,6 +12,8 @@ import logging
 import re
 from dataclasses import dataclass, field
 
+from domain.services.rag_policy.prompt_blocks import NOT_FOUND_ANSWER
+
 log = logging.getLogger("default")
 
 # Phrases that indicate system prompt leakage
@@ -52,7 +54,7 @@ _ECHO_PATTERNS = [
 
 # Fake context markers in output (attacker trying to inject markers via LLM)
 _MARKER_FORGERY_RE = re.compile(r"<<(?:END_)?DOCUMENT_CONTEXT>>")
-BLOCKED_OUTPUT_MESSAGE = "Информация не найдена в документах."
+BLOCKED_OUTPUT_MESSAGE = NOT_FOUND_ANSWER
 
 
 @dataclass(frozen=True)

@@ -5,9 +5,12 @@ Usage::
     from enum import StrEnum
     from domain.value_objects.lifecycle_status import LifecycleStatusMixin
 
-    class MyStatus(LifecycleStatusMixin, StrEnum):
-        _terminal = frozenset({"done", "failed"})
-        _active = frozenset({"pending", "running"})
+    class MyStatus(
+        LifecycleStatusMixin,
+        StrEnum,
+        terminal=frozenset({"done", "failed"}),
+        active=frozenset({"pending", "running"}),
+    ):
         PENDING = "pending"
         RUNNING = "running"
         DONE = "done"
@@ -22,7 +25,7 @@ from typing import ClassVar
 class LifecycleStatusMixin:
     """Mixin for StrEnum status types that classifies states as terminal, active, or neither.
 
-    Subclasses set ``_terminal`` and ``_active`` as frozensets of string values.
+    Subclasses pass ``terminal=`` and ``active=`` as frozensets of string values.
     The properties compare ``self.value`` against these sets.
     """
 
@@ -40,6 +43,11 @@ class LifecycleStatusMixin:
             cls._terminal = terminal
         if active is not None:
             cls._active = active
+
+    @property
+    def is_terminal(self) -> bool:
+        """True when no more work is expected for this state."""
+        return self.value in self._terminal  # type: ignore[attr-defined]
 
     @property
     def is_active(self) -> bool:

@@ -309,7 +309,6 @@ def build_harness(tmp_path, *, docs=None, parse_error=None, repo=None, **overrid
             text_quality_assessor=harness.text_quality,
             metrics=harness.metrics,
         ),
-        domain_marker_threshold=1.0,
         domain_registry=harness.registry,
         domain_settings=StubSettings() if harness.registry is not None else None,
         act_versioning_service=harness.act_versioning,
@@ -519,14 +518,14 @@ async def test_ambiguous_classification_appends_warning(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_legacy_classifier_fallback_when_registry_missing(tmp_path):
+async def test_general_fallback_when_registry_missing(tmp_path, caplog):
     h = build_harness(tmp_path, docs=[RawDocument(page_content="Федеральный закон")])
     doc = await seed_document(h.repo)
 
     await run(h, doc, doc_domain=None)
 
-    # legacy heuristic: 1 marker hit / 1 KB -> density 1.0 >= threshold 1.0 -> legal
-    assert h.repo.domain_calls == [(doc.id, "legal")]
+    assert h.repo.domain_calls == [(doc.id, "general")]
+    assert "Domain registry or settings unavailable -- using general domain" in caplog.text
     assert outbox_ops(h.uow) == [(OutboxOperation.UPSERT_CHUNKS, doc.id)]
 
 

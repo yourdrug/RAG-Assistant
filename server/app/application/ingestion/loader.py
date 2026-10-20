@@ -14,7 +14,6 @@ from application.ingestion.ports.parser import FileMeta, SplitContext
 from application.ingestion.profiles import get_domain_profile
 from application.ingestion.registry import s3_file_hash
 from domain.entities.raw_document import RawDocument
-from domain.services.document_domain_classifier import classify_document_domain
 from domain.value_objects.doc_domain import DocDomain, DomainDetectionMode
 
 
@@ -109,8 +108,6 @@ class S3DocumentLoader:
         return chunks
 
     def classify_text_domain(self, text: str, domain: str) -> str:
-        # Registry-based classification with legacy fallback.
-
         if domain != DomainDetectionMode.AUTO.value:
             return DocDomain(domain).value
 
@@ -118,8 +115,6 @@ class S3DocumentLoader:
             text,
             domain_registry=self._domain_registry,
             domain_settings=self._domain_settings,
-            fallback_threshold=self._ingestion_settings.document_domain_marker_threshold,
-            legacy_classifier=classify_document_domain,
         )
 
     def classify_source_domains(self, full_text_by_source: dict[str, str], domain: str) -> dict[str, str]:

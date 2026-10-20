@@ -30,6 +30,7 @@ from domain.services.rag_policy import (
     build_system_prompt,
 )
 from domain.value_objects.llm_provider import BREADTH_ALIASES, Breadth, LLMProvider
+from domain.services.rag_policy.prompt_blocks import NOT_FOUND_ANSWER
 from domain.value_objects.stream_events import SourcesEvent, StreamEvent, TextChunk
 
 from config import settings
@@ -133,7 +134,7 @@ async def step_scan_input(
         log.warning("Input injection blocked [request_id=%s]: %s", state.req_id, verdict.reason)
 
         async def _injection_events():
-            yield TextChunk(text="Информация не найдена в документах.")
+            yield TextChunk(text=NOT_FOUND_ANSWER)
             record_rag_answer(
                 breadth=Breadth.NARROW.value,
                 answer="",
@@ -237,7 +238,7 @@ async def step_reject_ood(
         RAG_RELEVANCE_GATE_TOTAL.labels(result="out_of_domain").inc()
 
         async def _ood_events():
-            yield TextChunk(text="Информация не найдена в документах.")
+            yield TextChunk(text=NOT_FOUND_ANSWER)
             record_rag_answer(
                 breadth=Breadth.NARROW.value,
                 answer="",

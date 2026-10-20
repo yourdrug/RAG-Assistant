@@ -19,9 +19,6 @@ class IngestionSettingsPort(Protocol):
     def hybrid_enabled(self) -> bool: ...
 
     @property
-    def document_domain_marker_threshold(self) -> float: ...
-
-    @property
     def tei_embed_url(self) -> str: ...
 
     @property

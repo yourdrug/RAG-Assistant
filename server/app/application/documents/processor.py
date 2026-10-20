@@ -43,7 +43,6 @@ class DocumentProcessor:
         file_storage: FileStorage,
         dependencies: DocumentProcessingDependencies,
         *,
-        domain_marker_threshold: float,
         domain_registry: DomainProfileRegistry | None = None,
         domain_settings: DomainSettingsPort | None = None,
         act_versioning_service: ActVersioningService | None = None,
@@ -51,7 +50,6 @@ class DocumentProcessor:
         self._uow_factory = uow_factory
         self._file_storage = file_storage
         self._metrics = dependencies.metrics
-        self._domain_marker_threshold = domain_marker_threshold
         self._domain_registry = domain_registry
         self._domain_settings = domain_settings
         self._act_versioning_service = act_versioning_service
@@ -110,7 +108,6 @@ class DocumentProcessor:
                 command.doc_domain,
                 domain_registry=self._domain_registry,
                 domain_settings=self._domain_settings,
-                fallback_threshold=self._domain_marker_threshold,
                 metrics=self._metrics,
             )
             ctx.doc_domain = classification.domain_key

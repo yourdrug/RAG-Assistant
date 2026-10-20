@@ -1,4 +1,4 @@
-"""Shared registry-based domain classification with a legacy fallback."""
+"""Shared registry-based domain classification with an explicit general fallback."""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ from domain.value_objects.doc_domain import DocDomain
 
 
 if TYPE_CHECKING:
-    from application.indexing.ports.classification import LegacyClassifier
     from domain.domain_profile.registry import DomainProfileRegistry
     from domain.domain_profile.settings_port import DomainSettingsPort
 
@@ -23,16 +22,10 @@ def classify_document_text(
     *,
     domain_registry: DomainProfileRegistry | None = None,
     domain_settings: DomainSettingsPort | None = None,
-    fallback_threshold: float,
-    legacy_classifier: LegacyClassifier | None = None,
 ) -> DomainClassification:
     if domain_registry is None or domain_settings is None:
-        if legacy_classifier is None:
-            log.warning("DomainRegistry unavailable -- no fallback classifier provided")
-            return DomainClassification(domain_key=DocDomain.GENERAL.value)
-
-        log.warning("DomainRegistry unavailable -- falling back to legacy classifier")
-        return DomainClassification(domain_key=legacy_classifier(text, threshold=fallback_threshold))
+        log.warning("Domain registry or settings unavailable -- using general domain")
+        return DomainClassification(domain_key=DocDomain.GENERAL.value)
 
     result = domain_registry.classify(text, settings=domain_settings)
 

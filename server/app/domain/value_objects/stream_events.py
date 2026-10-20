@@ -20,15 +20,6 @@ class TextChunk:
 
 
 @dataclass(frozen=True, slots=True)
-class SourcesEvent:
-    """Source metadata extracted from retrieved documents."""
-
-    sources: list[dict]
-    confidence: float | None = None
-    usage: UsageReport | None = None
-
-
-@dataclass(frozen=True, slots=True)
 class UsageReport:
     """LLM token usage and cost for the request."""
 
@@ -36,6 +27,15 @@ class UsageReport:
     output_tokens: int | None = None
     model: str = ""
     operation: str = "generate"
+
+
+@dataclass(frozen=True, slots=True)
+class SourcesEvent:
+    """Source metadata extracted from retrieved documents."""
+
+    sources: list[dict]
+    confidence: float | None = None
+    usage: UsageReport | None = None
 
 
 @dataclass(frozen=True, slots=True)

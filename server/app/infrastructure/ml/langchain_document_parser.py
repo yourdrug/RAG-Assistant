@@ -40,7 +40,7 @@ log = logging.getLogger("detailed")
 _DECREE_FINGERPRINT_PREFIX_CHARS = 3000
 
 # Keyword-based document-type classification — delegated to domain layer.
-from domain.services.document_domain_classifier import (  # noqa: E402
+from domain.ingestion.doc_type import (  # noqa: E402
     DOC_TYPE_SAMPLE_CHARS,
     classify_doc_type,
 )

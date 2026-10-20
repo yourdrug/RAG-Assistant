@@ -232,10 +232,6 @@ class LiveIngestionSettings:
         return settings.hybrid_enabled
 
     @property
-    def document_domain_marker_threshold(self) -> float:
-        return settings.document_domain_marker_threshold
-
-    @property
     def tei_embed_url(self) -> str:
         return settings.tei_embed_url
 

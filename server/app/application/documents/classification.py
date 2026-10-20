@@ -1,8 +1,7 @@
-"""Domain classification -- registry-based with legacy-marksman fallback.
+"""Registry-based domain classification shared by API and CLI ingestion.
 
-Shared by DocumentProcessor (API upload) and document_pipeline.classify_domain
-(CLI ingestion): one place decides between DomainProfileRegistry.classify() and
-the legacy heuristic, so API and CLI can never drift apart on thresholds.
+DocumentProcessor (API upload) and indexing.classify_domain (CLI ingestion)
+use the same classification decision and fallback.
 Ambiguity handling is API-only: the warning is returned, the caller decides
 how to surface it (documents.warning_message + metrics + log).
 """
@@ -13,7 +12,6 @@ import logging
 from typing import TYPE_CHECKING
 
 from application.indexing import DomainClassification, classify_document_text
-from domain.services.document_domain_classifier import classify_document_domain
 
 
 if TYPE_CHECKING:
@@ -31,7 +29,6 @@ def classify_processing_document(
     *,
     domain_registry: DomainProfileRegistry | None,
     domain_settings: DomainSettingsPort | None,
-    fallback_threshold: float,
     metrics: MetricsCollectorPort,
 ) -> DomainClassification:
     if doc_domain is not None:
@@ -41,8 +38,6 @@ def classify_processing_document(
         full_text,
         domain_registry=domain_registry,
         domain_settings=domain_settings,
-        fallback_threshold=fallback_threshold,
-        legacy_classifier=classify_document_domain,
     )
 
     if classification.used_registry:

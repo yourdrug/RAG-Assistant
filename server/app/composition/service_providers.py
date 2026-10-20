@@ -119,7 +119,6 @@ def create_document_processor(
 ):
     """Create a DocumentProcessor using infrastructure singletons."""
     from application.act_versioning import ActVersioningService
-    from config import settings
     from infrastructure.ml.guardrails.text_quality_adapter import TextQualityAssessorAdapter
 
     uow = _require(
@@ -148,7 +147,6 @@ def create_document_processor(
             text_quality_assessor=TextQualityAssessorAdapter(),
             metrics=_require(infra.ml.metrics_collector, "metrics_collector"),
         ),
-        domain_marker_threshold=settings.document_domain_marker_threshold,
         domain_registry=infra.domain_registry,
         domain_settings=infra.domain_settings,
         act_versioning_service=act_versioning,

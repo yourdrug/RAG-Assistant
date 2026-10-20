@@ -65,7 +65,6 @@ def ingestion(tmp_path: Path) -> SimpleNamespace:
     settings = SimpleNamespace(
         s3_bucket="bucket",
         embed_dim=384,
-        document_domain_marker_threshold=1,
         tei_embed_url="tei",
         qdrant_url="qdrant",
         collection_name="chunks",
