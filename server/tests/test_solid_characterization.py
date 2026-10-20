@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from config import _settings_overrides, get_setting, settings
+from domain.knowledge.chunk import ChunkInsert
 from domain.benchmark.sweep import BenchmarkSweep
 from infrastructure.benchmark import evidence_judge, judge, metrics, persistence
 from infrastructure.benchmark.runner import run_benchmark_async
@@ -199,10 +200,11 @@ async def test_chunk_bulk_replacement_keeps_acl_and_metadata_in_shared_session()
         7,
         "report.pdf",
         "internal_group",
-        ["first", "second"],
+        [
+            ChunkInsert(content="first", content_hash="hash1", section="A"),
+            ChunkInsert(content="second", content_hash="hash2", section="B"),
+        ],
         group_id=3,
-        content_hashes=["hash1", "hash2"],
-        sections=["A", "B"],
         act_version_id=5,
     )
     assert ids == [10, 11]
@@ -221,7 +223,7 @@ async def test_chunk_bulk_replacement_keeps_acl_and_metadata_in_shared_session()
 @pytest.mark.asyncio
 async def test_empty_chunk_replacement_still_removes_old_chunks():
     session = SimpleNamespace(execute=AsyncMock(), add_all=MagicMock(), flush=AsyncMock())
-    assert await SQLAlchemyChunkRepository(session).bulk_insert(7, "report.pdf", "internal_public", []) == []
+    assert await SQLAlchemyChunkRepository(session).bulk_insert(7, 'report.pdf', 'internal_public', []) == []
     session.execute.assert_awaited_once()
     session.add_all.assert_not_called()
     session.flush.assert_not_awaited()

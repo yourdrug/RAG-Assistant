@@ -1,4 +1,4 @@
-"""Shared stats utilities."""
+"""Statistics for benchmark metrics."""
 
 
 def percentile(sorted_data: list[float], p: float) -> float:

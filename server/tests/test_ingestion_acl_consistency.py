@@ -7,6 +7,7 @@ import pytest_asyncio
 
 from application.chunks import ChunkQueryService
 from application.ingestion import DocumentSyncService
+from domain.knowledge.chunk import ChunkInsert
 from domain.knowledge.document import Document
 from domain.ingestion.raw_document import RawDocument
 from domain.knowledge.index_sync import OutboxOperation
@@ -31,7 +32,7 @@ async def indexed_public_document():
         document_id=doc.id,
         filename=FILENAME,
         visibility=DocumentVisibility.INTERNAL_PUBLIC.value,
-        chunks=["old public text"],
+        chunks=[ChunkInsert(content="old public text")],
     )
     return factory, doc.id
 
@@ -155,7 +156,10 @@ async def test_private_import_does_not_claim_same_named_public_document(
         )
     )
     await uow.chunks.bulk_insert(
-        original.id, FILENAME, DocumentVisibility.INTERNAL_PUBLIC.value, ["old public text"]
+        original.id,
+        FILENAME,
+        DocumentVisibility.INTERNAL_PUBLIC.value,
+        [ChunkInsert(content="old public text")],
     )
     await DocumentSyncService(factory).sync_documents_to_db(
         {"docs/report.md": {"source": SOURCE}},

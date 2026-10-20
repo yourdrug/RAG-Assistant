@@ -55,7 +55,6 @@ STATIC_SETTING_KEYS: frozenset[str] = frozenset(
         "benchmark_judge_model",
         "tei_embed_model",
         "embedding_revision",
-        "document_domain_marker_threshold",
         "embed_dim",
         "curator_scope_max_ids",
         "redis_host",

@@ -8,6 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from application.ingestion import DocumentSyncService
+from domain.knowledge.chunk import ChunkInsert
 from domain.knowledge.document import Document
 from domain.ingestion.raw_document import RawDocument
 from domain.identity.roles import UserKind, UserRole
@@ -37,7 +38,10 @@ async def test_reindex_reads_concurrent_assignment_after_acquiring_row_lock(pg_e
         )
         doc_id = doc.id
         await SQLAlchemyChunkRepository(session).bulk_insert(
-            doc_id, "report.md", DocumentVisibility.INTERNAL_PUBLIC.value, ["old public text"]
+            doc_id,
+            "report.md",
+            DocumentVisibility.INTERNAL_PUBLIC.value,
+            [ChunkInsert(content="old public text")],
         )
 
     class SessionDatabase:

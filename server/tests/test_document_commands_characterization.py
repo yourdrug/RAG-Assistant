@@ -17,6 +17,7 @@ from application.documents.rename import DocumentRenameCommand
 from application.documents.upload import DocumentUploadCommand
 from application.documents import DocumentCommandService
 from application.identity import UserContextFactory
+from domain.knowledge.chunk import ChunkInsert
 from domain.knowledge.document import Document
 from domain.knowledge.acts.models import ActVersion
 from domain.shared.exceptions import BusinessRuleViolation, ValidationError
@@ -199,8 +200,7 @@ async def seed_act_timeline(h, deleted_index):
             owner_id=1,
             group_id=None,
             doc_domain="legal",
-            chunks=["text"],
-            content_hashes=["hash"],
+            chunks=[ChunkInsert(content="text", content_hash="hash")],
             act_version_id=version.id,
             effective_from=version.effective_from,
             effective_to=version.effective_to,
@@ -351,8 +351,7 @@ async def test_rename_updates_chunks_and_exact_outbox_metadata_before_commit():
         owner_id=1,
         group_id=None,
         doc_domain="legal",
-        chunks=["text"],
-        content_hashes=["hash"],
+        chunks=[ChunkInsert(content="text", content_hash="hash")],
     )
     h.uow.documents.find_active_slot = AsyncMock(wraps=h.uow.documents.find_active_slot)
     dto = await h.command.rename_document(doc.id, "new.pdf", 1, "user")
@@ -392,8 +391,7 @@ async def test_delete_defers_bm25_to_outbox_and_storage_until_commit(db_fails):
         owner_id=1,
         group_id=None,
         doc_domain="general",
-        chunks=["text"],
-        content_hashes=["hash"],
+        chunks=[ChunkInsert(content="text", content_hash="hash")],
     )
 
     h.uow.chunks.list_for_document = AsyncMock(wraps=h.uow.chunks.list_for_document)
@@ -428,7 +426,7 @@ async def test_rename_enqueues_one_payload_patch_for_large_document():
         filename=doc.filename,
         visibility=DocumentVisibility.INTERNAL_PRIVATE.value,
         owner_id=1,
-        chunks=[f"text {i}" for i in range(count)],
+        chunks=[ChunkInsert(content=f"text {i}") for i in range(count)],
     )
     await h.command.rename_document(doc.id, "new.pdf", 1, UserRole.USER)
     entries = list(h.uow.vector_outbox._entries.values())

@@ -6,7 +6,7 @@ from collections.abc import AsyncIterator
 from datetime import date, datetime
 from typing import Protocol, runtime_checkable
 
-from domain.knowledge.chunk import ChunkRecord, ChunkStats
+from domain.knowledge.chunk import ChunkInsert, ChunkRecord, ChunkStats
 from domain.knowledge.enums import DocDomain
 from domain.shared.pagination import CursorPage
 
@@ -24,23 +24,15 @@ class ChunkCrudRepository(Protocol):
         document_id: int,
         filename: str,
         visibility: str,
-        chunks: list[str],
+        chunks: list[ChunkInsert],
         owner_id: int | None = None,
         group_id: int | None = None,
         doc_domain: str = DocDomain.GENERAL.value,
-        content_hashes: list[str] | None = None,
         domain_metadata: dict | None = None,
         act_version_id: int | None = None,
         effective_from: date | None = None,
         effective_to: date | None = None,
         is_current: bool = True,
-        sections: list[str | None] | None = None,
-        headings: list[str | None] | None = None,
-        heading_levels: list[int | None] | None = None,
-        content_types: list[str | None] | None = None,
-        doc_titles: list[str | None] | None = None,
-        doc_types: list[str | None] | None = None,
-        context_metadata: list[dict] | None = None,
     ) -> list[int]: ...
 
     async def get_by_id(self, chunk_id: int) -> ChunkRecord | None: ...

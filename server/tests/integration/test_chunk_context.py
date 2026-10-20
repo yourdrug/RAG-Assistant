@@ -9,6 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from domain.knowledge.chunk import ChunkInsert
 from domain.knowledge.enums import DocDomain
 from domain.knowledge.enums import DocumentStatus
 from domain.identity.roles import UserKind, UserRole
@@ -54,11 +55,15 @@ async def test_context_round_trip_and_unauthorized_search(pg_engine):
             doc.id,
             doc.filename,
             doc.visibility,
-            ["21.2. Submit the passport."],
+            [
+                ChunkInsert(
+                    content="21.2. Submit the passport.",
+                    content_hash="context-hash",
+                    context_metadata=context,
+                )
+            ],
             owner_id=users[0].id,
             doc_domain=DocDomain.DECREE.value,
-            content_hashes=["context-hash"],
-            context_metadata=[context],
         )
     allowed = UserContext(users[0].id, UserKind.INTERNAL, UserRole.USER)
     denied = UserContext(users[1].id, UserKind.INTERNAL, UserRole.USER)

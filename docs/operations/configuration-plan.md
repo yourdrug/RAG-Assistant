@@ -664,7 +664,6 @@ DATA_DIR остаётся статическим root только local backend
 | source_min_score | БД | `0.3` | Hot reload¹ | Управлять через админку; убрать из env после сверки |
 | citation_filter_enabled | БД | `true` | Hot reload¹ | Управлять через админку; убрать из env после сверки |
 | exact_ref_sparse_boost | БД | `2.5` | Hot reload¹ | Управлять через админку; убрать из env после сверки |
-| DOCUMENT_DOMAIN_MARKER_THRESHOLD | env | `2.0` | Пересоздать потребителей | Default в коде; env только при необходимом переопределении |
 | chunk_size | БД | `550` | Hot reload¹ | Управлять через админку; убрать из env после сверки |
 | chunk_overlap | БД | `200` | Hot reload¹ | Управлять через админку; убрать из env после сверки |
 | legal_chunk_size [domain=legal] | БД | `1000` | Hot reload¹ | Управлять через админку; убрать из env после сверки |

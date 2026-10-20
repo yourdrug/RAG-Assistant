@@ -3,6 +3,7 @@
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from domain.knowledge.chunk import ChunkInsert
 from domain.knowledge.chunk import TABLE_CONTEXT_MAX_CHUNKS
 from domain.knowledge.enums import PageContentType
 from domain.identity.roles import UserKind, UserRole
@@ -59,11 +60,16 @@ async def test_two_tables_text_limit_row_range_and_denied_document(pg_engine):
                 doc.id,
                 doc.filename,
                 doc.visibility,
-                contents,
+                [
+                    ChunkInsert(
+                        content=content,
+                        context_metadata=context,
+                        content_hash=f"doc-{doc.id}-{n}",
+                        content_type=PageContentType.TABLE.value if n != 3 else None,
+                    )
+                    for n, (content, context) in enumerate(zip(contents, contexts, strict=True))
+                ],
                 owner_id=doc.owner_id,
-                context_metadata=contexts,
-                content_hashes=[f"doc-{doc.id}-{n}" for n in range(len(contents))],
-                content_types=[PageContentType.TABLE.value] * 3 + [None, PageContentType.TABLE.value],
             )
     allowed = UserContext(users[0].id, UserKind.INTERNAL, UserRole.USER)
     denied = UserContext(users[1].id, UserKind.INTERNAL, UserRole.USER)

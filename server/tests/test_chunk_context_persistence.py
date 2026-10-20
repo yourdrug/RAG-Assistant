@@ -11,7 +11,7 @@ from application.indexing import process_chunks
 from domain.shared.hashing import content_hash
 from infrastructure.database.models import ChunkModel
 from domain.ingestion.raw_document import RawDocument
-from domain.knowledge.chunk import ChunkRecord
+from domain.knowledge.chunk import ChunkInsert, ChunkRecord
 from domain.knowledge.chunk import extract_chunk_context
 from domain.knowledge.enums import DocDomain
 from domain.identity.roles import UserKind, UserRole
@@ -152,17 +152,64 @@ def test_stale_context_cannot_override_acl_identity_or_version_state():
 
 
 @pytest.mark.asyncio
-async def test_missing_context_entries_fail_before_replacing_chunks():
-    session = SimpleNamespace(execute=AsyncMock())
-    with pytest.raises(ValueError, match="one entry per chunk"):
-        await SQLAlchemyChunkRepository(session).bulk_insert(
-            7,
-            "rules.pdf",
-            DocumentVisibility.INTERNAL_PRIVATE.value,
-            ["first", "second"],
-            context_metadata=[make_context()],
-        )
-    session.execute.assert_not_awaited()
+async def test_bulk_chunk_records_keep_fields_defaults_and_isolate_context():
+    models = []
+
+    async def flush():
+        for number, model in enumerate(models, 1):
+            model.id = number
+
+    session = SimpleNamespace(execute=AsyncMock(), add_all=models.extend, flush=AsyncMock(side_effect=flush))
+    context = {**make_context(), "owner_id": 999, "visibility": "internal_public"}
+    chunk = ChunkInsert(
+        content="first",
+        content_hash="hash",
+        section="A",
+        heading="Title",
+        heading_level=2,
+        content_type="table",
+        doc_title="Rules",
+        doc_type="decree",
+        context_metadata=context,
+    )
+    ids = await SQLAlchemyChunkRepository(session).bulk_insert(
+        7,
+        "rules.pdf",
+        DocumentVisibility.INTERNAL_PRIVATE.value,
+        [chunk, ChunkInsert("second")],
+        owner_id=12,
+        act_version_id=9,
+        effective_from=date(2025, 1, 1),
+        is_current=False,
+    )
+    assert ids == [1, 2]
+    saved, default = models
+
+    for field in (
+        "content",
+        "content_hash",
+        "section",
+        "heading",
+        "heading_level",
+        "content_type",
+        "doc_title",
+        "doc_type",
+    ):
+        assert getattr(saved, field) == getattr(chunk, field)
+
+        if field != "content":
+            assert getattr(default, field) is None
+
+    assert default.content == "second" and default.context_metadata == {}
+    assert saved.context_metadata == make_context()
+
+    for model in models:
+        assert model.owner_id == 12 and model.visibility == DocumentVisibility.INTERNAL_PRIVATE.value
+        assert model.act_version_id == 9 and model.effective_from == date(2025, 1, 1)
+        assert model.is_current is False
+
+    context["parent_units"][0]["content"] = "changed"
+    assert saved.context_metadata["parent_units"] == make_context()["parent_units"]
 
 
 def test_context_selection_excludes_transient_parser_offsets():

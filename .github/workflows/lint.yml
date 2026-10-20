@@ -70,7 +70,7 @@ jobs:
         working-directory: server
         run: >-
           uv run pytest -v
-          --cov=domain.services.access_control
+          --cov=domain.knowledge.access_control
           --cov=infrastructure.ml.answer_cache
           --cov-report=term-missing --cov-fail-under=85
 

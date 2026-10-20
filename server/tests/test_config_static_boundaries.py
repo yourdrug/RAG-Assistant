@@ -11,6 +11,7 @@ from domain.runtime.setting_keys import SECRET_SETTING_KEYS, STATIC_SETTING_KEYS
 from domain.shared.exceptions import ValidationError
 from fakes import FakeUnitOfWorkFactory
 from infrastructure.ml.config.config_subscribers import apply_to_settings, invalidate_storage_cache
+from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
 
 
 @pytest.mark.asyncio
@@ -46,6 +47,39 @@ def test_dynamic_environment_and_dotenv_are_ignored_but_constructor_kwargs_work(
     assert model.llm_model == "qwen2.5:7b"
     assert model.curator_scope_max_ids == 42
     assert Settings(_env_file=env, llm_model="explicit-model").llm_model == "explicit-model"
+
+
+def test_removed_classifier_threshold_in_env_and_dotenv_is_ignored(monkeypatch, tmp_path):
+    monkeypatch.setenv("DOCUMENT_DOMAIN_MARKER_THRESHOLD", "obsolete-value")
+    env = tmp_path / ".env"
+    env.write_text("DOCUMENT_DOMAIN_MARKER_THRESHOLD=obsolete-value\nCURATOR_SCOPE_MAX_IDS=42\n")
+    model = Settings(_env_file=env)
+    assert not hasattr(model, "document_domain_marker_threshold")
+    assert model.curator_scope_max_ids == 42
+
+
+@pytest.mark.asyncio
+async def test_removed_classifier_threshold_in_database_stays_inactive():
+    key = "document_domain_marker_threshold"
+    factory = FakeUnitOfWorkFactory()
+    row = ConfigParameter(key, "obsolete-value", ConfigValueType.FLOAT, "legacy")
+    await factory._uow.config_parameters.save(row)
+    model = Settings(_env_file=None)
+    bus = MagicMock()
+    configuration = SettingsProviderConfiguration(model, bus=bus)
+    configuration.apply([row])
+    assert configuration.status().ready
+    assert configuration.snapshot_version([row]) == configuration.snapshot_version([])
+    assert not hasattr(model, key)
+    assert key not in {param.key for param in configuration.effective_parameters([row])}
+    bus.publish.assert_not_called()
+    service = ConfigService(factory, bus, configuration)
+    assert await service.list_parameters() == []
+    with pytest.raises(ValidationError, match="not an active dynamic parameter"):
+        await service.update_parameter(key, "3.0")
+    assert row.value == "obsolete-value"
+    apply_to_settings(ConfigParameterChanged(key, None, "3.0", ConfigValueType.FLOAT))
+    assert not hasattr(settings, key)
 
 
 def test_preview_limits_are_static_environment_settings(monkeypatch):

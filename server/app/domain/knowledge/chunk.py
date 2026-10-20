@@ -67,6 +67,21 @@ def extract_chunk_context(metadata: Mapping) -> dict:
     return {key: deepcopy(value) for key, value in metadata.items() if key in CHUNK_CONTEXT_FIELDS}
 
 
+@dataclass(frozen=True)
+class ChunkInsert:
+    """Content and interpretation fields of one chunk in a document replacement."""
+
+    content: str
+    content_hash: str | None = None
+    section: str | None = None
+    heading: str | None = None
+    heading_level: int | None = None
+    content_type: str | None = None
+    doc_title: str | None = None
+    doc_type: str | None = None
+    context_metadata: dict = field(default_factory=dict)
+
+
 @dataclass
 class ChunkRecord:
     """A single chunk match from substring search."""

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from domain.knowledge.chunk import ChunkRecord, ChunkStats
+from domain.knowledge.chunk import ChunkInsert, ChunkRecord, ChunkStats
 from domain.shared.exceptions import BusinessRuleViolation
 from domain.shared.pagination import CursorPage
 from domain.knowledge.enums import DocDomain
@@ -43,27 +43,17 @@ class SQLAlchemyChunkCrudRepository:
         document_id: int,
         filename: str,
         visibility: str,
-        chunks: list[str],
+        chunks: list[ChunkInsert],
         owner_id: int | None = None,
         group_id: int | None = None,
         doc_domain: str = DocDomain.GENERAL.value,
-        content_hashes: list[str] | None = None,
         domain_metadata: dict | None = None,
         act_version_id: int | None = None,
         effective_from: date | None = None,
         effective_to: date | None = None,
         is_current: bool = True,
-        sections: list[str | None] | None = None,
-        headings: list[str | None] | None = None,
-        heading_levels: list[int | None] | None = None,
-        content_types: list[str | None] | None = None,
-        doc_titles: list[str | None] | None = None,
-        doc_types: list[str | None] | None = None,
-        context_metadata: list[dict] | None = None,
     ) -> list[int]:
         """Insert chunks for a document. Replaces existing chunks. Returns chunk IDs."""
-        if context_metadata is not None and len(context_metadata) != len(chunks):
-            raise ValueError("context_metadata must have one entry per chunk")
         await self._session.execute(delete(ChunkModel).where(ChunkModel.document_id == document_id))
 
         if not chunks:
@@ -73,27 +63,27 @@ class SQLAlchemyChunkCrudRepository:
             ChunkModel(
                 document_id=document_id,
                 chunk_index=i,
-                content=content,
+                content=chunk.content,
                 filename=filename,
                 visibility=visibility,
                 doc_domain=doc_domain,
                 owner_id=owner_id,
                 group_id=group_id,
-                content_hash=content_hashes[i] if content_hashes and i < len(content_hashes) else None,
+                content_hash=chunk.content_hash,
                 domain_metadata=domain_metadata,
                 act_version_id=act_version_id,
                 effective_from=effective_from,
                 effective_to=effective_to,
                 is_current=is_current,
-                section=sections[i] if sections and i < len(sections) else None,
-                heading=headings[i] if headings and i < len(headings) else None,
-                heading_level=heading_levels[i] if heading_levels and i < len(heading_levels) else None,
-                content_type=content_types[i] if content_types and i < len(content_types) else None,
-                doc_title=doc_titles[i] if doc_titles and i < len(doc_titles) else None,
-                doc_type=doc_types[i] if doc_types and i < len(doc_types) else None,
-                context_metadata=extract_chunk_context(context_metadata[i]) if context_metadata else {},
+                section=chunk.section,
+                heading=chunk.heading,
+                heading_level=chunk.heading_level,
+                content_type=chunk.content_type,
+                doc_title=chunk.doc_title,
+                doc_type=chunk.doc_type,
+                context_metadata=extract_chunk_context(chunk.context_metadata),
             )
-            for i, content in enumerate(chunks)
+            for i, chunk in enumerate(chunks)
         ]
         self._session.add_all(models)
         await self._session.flush()

@@ -157,7 +157,6 @@ class Settings(BaseSettings):
     source_min_score: float = 0.3
     citation_filter_enabled: bool = True
     exact_ref_sparse_boost: float = 2.5
-    document_domain_marker_threshold: float = 2.0
 
     # ── RAG: chunking ───────────────────────────────────────────────────────
     chunk_size: int = 550

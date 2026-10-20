@@ -8,6 +8,7 @@ from application.documents.dto import DocumentDTO
 from application.documents.queries import DocumentQueryService
 from application.ingestion import DocumentSyncService
 from domain.ingestion.raw_document import RawDocument
+from domain.knowledge.chunk import ChunkInsert
 from domain.knowledge.document import Document
 from domain.knowledge.enums import DocumentStatus, DocumentVisibility
 from domain.knowledge.index_sync import OutboxStatus
@@ -32,7 +33,7 @@ async def test_cli_document_waits_for_outbox(
             document_id=1,
             filename="test.md",
             visibility=DocumentVisibility.INTERNAL_PUBLIC.value,
-            chunks=["old text"],
+            chunks=[ChunkInsert(content="old text")],
         )
 
     # The shared fake's status methods are no-ops; record persisted status here.

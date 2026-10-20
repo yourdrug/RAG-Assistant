@@ -9,6 +9,7 @@ import pytest
 from application.indexing import process_chunks
 from application.ingestion import SingleFileIngestionWorkflow
 from application.ingestion import IngestionScope
+from domain.knowledge.chunk import ChunkInsert
 from domain.ingestion.raw_document import RawDocument
 from domain.knowledge.index_sync import OutboxOperation, OutboxStatus
 from domain.knowledge.enums import DocDomain
@@ -40,7 +41,7 @@ async def test_replacement_enqueues_old_ids_and_preserves_other_documents(replac
         2,
         "other.txt",
         DocumentVisibility.INTERNAL_PRIVATE.value,
-        ["other text"],
+        [ChunkInsert(content="other text")],
         owner_id=9,
     )
     await index(factory, replacement)

@@ -11,7 +11,7 @@ import logging
 from typing import TYPE_CHECKING, Unpack
 
 from application.indexing.classification import classify_document_text
-from domain.knowledge.chunk import extract_chunk_context
+from domain.knowledge.chunk import ChunkInsert, extract_chunk_context
 from domain.knowledge.enums import DocumentStatus, DocumentVisibility
 from domain.knowledge.index_sync import OutboxOperation, VectorOutboxEntry
 from domain.shared.hashing import content_hash
@@ -236,23 +236,28 @@ async def process_chunks_in_uow(
         document_id=document_id,
         filename=filename,
         visibility=visibility,
-        chunks=[rc.page_content for rc in chunks],
+        chunks=[
+            ChunkInsert(
+                content=rc.page_content,
+                content_hash=content_hash(rc.page_content),
+                section=rc.metadata.get("section"),
+                heading=rc.metadata.get("heading"),
+                heading_level=rc.metadata.get("heading_level"),
+                content_type=rc.metadata.get("content_type"),
+                doc_title=rc.metadata.get("doc_title"),
+                doc_type=rc.metadata.get("doc_type"),
+                context_metadata=extract_chunk_context(rc.metadata),
+            )
+            for rc in chunks
+        ],
         owner_id=options["owner_id"],
         group_id=options["group_id"],
         doc_domain=options["doc_domain"],
-        content_hashes=[content_hash(rc.page_content) for rc in chunks],
         domain_metadata=first_meta.get("domain_metadata"),
         act_version_id=first_meta.get("act_version_id"),
         effective_from=parse_meta_datetime(first_meta.get("effective_from")),
         effective_to=parse_meta_datetime(first_meta.get("effective_to")),
         is_current=first_meta.get("is_current", True),
-        sections=[rc.metadata.get("section") for rc in chunks],
-        headings=[rc.metadata.get("heading") for rc in chunks],
-        heading_levels=[rc.metadata.get("heading_level") for rc in chunks],
-        content_types=[rc.metadata.get("content_type") for rc in chunks],
-        doc_titles=[rc.metadata.get("doc_title") for rc in chunks],
-        doc_types=[rc.metadata.get("doc_type") for rc in chunks],
-        context_metadata=[extract_chunk_context(rc.metadata) for rc in chunks],
     )
 
     # 2. Enrich metadata with chunk_ids и chunk_index

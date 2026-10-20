@@ -18,6 +18,34 @@ CONTRACTS = {
 }
 
 
+@pytest.mark.parametrize(
+    "imported, allowed",
+    [
+        ("langchain.schema", False),
+        ("langchain_core.documents", False),
+        ("langchain_ollama", False),
+        ("langchain_openai", False),
+        ("sqlalchemy.orm", False),
+        ("typing", True),
+    ],
+)
+def test_domain_framework_dependency_boundary(imported: str, allowed: bool) -> None:
+    configure()  # type: ignore[no-untyped-call]  # import-linter exposes an untyped setup function.
+    options = next(options for options in CONFIG["contracts"] if options.get("source_modules") == ["domain"])
+    graph = ImportGraph()
+    importer = "domain.rag.example"
+
+    for module in [importer, imported, *options["forbidden_modules"]]:
+        parts = module.split(".")
+
+        for length in range(1, len(parts) + 1):
+            graph.add_module(".".join(parts[:length]))
+
+    graph.add_import(importer=importer, imported=imported, line_number=1, line_contents="")
+    contract = ForbiddenContract(options["name"], CONFIG, options)
+    assert contract.check(graph, verbose=False).kept is allowed
+
+
 def test_every_application_package_has_a_dependency_contract() -> None:
     packages = {
         f"application.{path.name}"
@@ -94,7 +122,7 @@ def test_application_dependency_boundary(importer: str, imported: str, allowed: 
         ("runtime", "domain.knowledge.enums", True),
         ("runtime", "domain.shared.exceptions", True),
         ("runtime", "domain.runtime.config", True),
-        ("benchmark", "domain.shared.stats", True),
+        ("benchmark", "domain.benchmark.stats", True),
         ("benchmark", "domain.benchmark.question", True),
         ("chat", "domain.rag.context", True),
         ("chat", "domain.identity.roles", True),

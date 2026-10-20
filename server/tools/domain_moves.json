@@ -307,7 +307,7 @@
   "domain.utils.deduplicate_docs": "domain.rag.retrieval.deduplicate_docs",
   "domain.utils.encode_cursor": "domain.knowledge.chunk.encode_cursor",
   "domain.utils.parse_bool": "domain.runtime.config.parse_bool",
-  "domain.utils.percentile": "domain.shared.stats.percentile",
+  "domain.utils.percentile": "domain.benchmark.stats.percentile",
   "domain.utils.rrf_merge": "domain.rag.retrieval.rrf_merge",
   "domain.value_objects.ApiKeyClientInfo": "domain.identity.api_key.ApiKeyClientInfo",
   "domain.value_objects.BackgroundJobStatus": "domain.runtime.jobs.BackgroundJobStatus",

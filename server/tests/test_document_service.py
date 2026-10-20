@@ -9,6 +9,7 @@ from application.documents.upload import DocumentUploadCommand
 from application.documents import DocumentCommandService, DocumentQueryService
 from application.documents.conflicts import resolve_upload_version_group
 from application.identity import UserContextFactory
+from domain.knowledge.chunk import ChunkInsert
 from domain.knowledge.document import Document
 from domain.shared.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
 from domain.knowledge.enums import DocumentStatus
@@ -361,8 +362,7 @@ async def test_delete_document_happy_path():
         document_id=1,
         filename="test.pdf",
         visibility="internal_public",
-        chunks=["chunk content"],
-        content_hashes=["hash_abc"],
+        chunks=[ChunkInsert(content="chunk content", content_hash="hash_abc")],
     )
 
     await cmd.delete_document(document_id=1, user_id=1, user_role="admin")
@@ -436,8 +436,7 @@ async def test_rename_document_different_path_copies_and_deletes_old():
         document_id=1,
         filename="old.pdf",
         visibility="internal_public",
-        chunks=["content"],
-        content_hashes=["h1"],
+        chunks=[ChunkInsert(content="content", content_hash="h1")],
     )
 
     dto = await cmd.rename_document(document_id=1, new_filename="new.pdf", user_id=1, user_role="admin")

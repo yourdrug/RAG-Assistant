@@ -5,7 +5,7 @@ from __future__ import annotations
 from domain.knowledge.chunk import TABLE_CONTEXT_MAX_CHUNKS
 from collections.abc import AsyncIterator
 from datetime import date, datetime
-from domain.knowledge.chunk import ChunkRecord, ChunkStats
+from domain.knowledge.chunk import ChunkInsert, ChunkRecord, ChunkStats
 from domain.shared.pagination import CursorPage
 from domain.knowledge.enums import DocDomain
 from domain.knowledge.enums import SearchMode
@@ -33,23 +33,15 @@ class SQLAlchemyChunkRepository:
         document_id: int,
         filename: str,
         visibility: str,
-        chunks: list[str],
+        chunks: list[ChunkInsert],
         owner_id: int | None = None,
         group_id: int | None = None,
         doc_domain: str = DocDomain.GENERAL.value,
-        content_hashes: list[str] | None = None,
         domain_metadata: dict | None = None,
         act_version_id: int | None = None,
         effective_from: date | None = None,
         effective_to: date | None = None,
         is_current: bool = True,
-        sections: list[str | None] | None = None,
-        headings: list[str | None] | None = None,
-        heading_levels: list[int | None] | None = None,
-        content_types: list[str | None] | None = None,
-        doc_titles: list[str | None] | None = None,
-        doc_types: list[str | None] | None = None,
-        context_metadata: list[dict] | None = None,
     ) -> list[int]:
         return await self._crud.bulk_insert(
             document_id=document_id,
@@ -59,19 +51,11 @@ class SQLAlchemyChunkRepository:
             owner_id=owner_id,
             group_id=group_id,
             doc_domain=doc_domain,
-            content_hashes=content_hashes,
             domain_metadata=domain_metadata,
             act_version_id=act_version_id,
             effective_from=effective_from,
             effective_to=effective_to,
             is_current=is_current,
-            sections=sections,
-            headings=headings,
-            heading_levels=heading_levels,
-            content_types=content_types,
-            doc_titles=doc_titles,
-            doc_types=doc_types,
-            context_metadata=context_metadata,
         )
 
     async def get_by_id(self, chunk_id: int) -> ChunkRecord | None:
