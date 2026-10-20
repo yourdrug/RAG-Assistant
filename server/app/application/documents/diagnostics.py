@@ -165,6 +165,7 @@ class PDFDiagnosticService:
 
         new_types = PageContentType.empty_counts()
         total_chars = 0
+        updated_pages: list[DryRunPageResult] = []
 
         for original_page in page_results:
             pr = original_page
@@ -206,10 +207,11 @@ class PDFDiagnosticService:
                         previous_type=pr.type,
                     )
 
+            updated_pages.append(pr)
             new_types[pr.type] = new_types.get(pr.type, 0) + 1
             total_chars += pr.chars
 
-        return page_results, new_types, total_chars
+        return updated_pages, new_types, total_chars
 
     @staticmethod
     def suggest_action(page_results: list[DryRunPageResult], types_count: dict[str, int]) -> str:
