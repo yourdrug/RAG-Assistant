@@ -8,7 +8,7 @@ import pytest
 
 from application.benchmark import compute_summary_from_results
 from domain.value_objects.chat_context import ChatContext
-from domain.value_objects.roles import UserKind
+from domain.identity.roles import UserKind
 from infrastructure.benchmark.answer_generators import BenchmarkAnswer
 from infrastructure.benchmark.case_evaluator import BenchmarkCaseEvaluator
 from infrastructure.ml.rag.benchmark_evidence import BenchmarkEvidence

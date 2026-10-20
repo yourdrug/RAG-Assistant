@@ -10,8 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
+from domain.identity.roles import UserKind, UserRole
 from domain.shared.exceptions import BusinessRuleViolation
-from domain.value_objects.roles import UserKind, UserRole
 
 
 @dataclass

@@ -12,9 +12,13 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine
 
     from application.uow.session import SessionProtocol
-    from domain.repositories import ApiKeyRepository
+    from domain.identity.repositories import (
+        ApiKeyRepository,
+        AssignmentRepository,
+        GroupRepository,
+        UserRepository,
+    )
     from domain.repositories.act_version_repository import ActVersionRepository
-    from domain.repositories.assignment_repository import AssignmentRepository
     from domain.repositories.background_job_repository import BackgroundJobRepository
     from domain.repositories.benchmark_question_repository import BenchmarkQuestionRepository
     from domain.repositories.benchmark_run_repository import BenchmarkRunRepository
@@ -24,11 +28,9 @@ if TYPE_CHECKING:
     from domain.repositories.config_parameter_repository import ConfigParameterRepository
     from domain.repositories.conversation_repository import ConversationRepository
     from domain.repositories.document_repository import DocumentRepository
-    from domain.repositories.group_repository import GroupRepository
     from domain.repositories.ingestion_registry_repository import IngestionRegistryRepository
     from domain.repositories.message_repository import MessageRepository
     from domain.repositories.regulatory_act_repository import RegulatoryActRepository
-    from domain.repositories.user_repository import UserRepository
     from domain.repositories.vector_outbox_repository import VectorOutboxRepository
 
 

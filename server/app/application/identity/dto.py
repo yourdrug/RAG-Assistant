@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from domain.value_objects.roles import UserKind, UserRole
+from domain.identity.roles import UserKind, UserRole
 
 
 if TYPE_CHECKING:

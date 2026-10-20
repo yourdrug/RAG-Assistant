@@ -7,9 +7,9 @@ from langchain_core.documents import Document
 import pytest
 
 from application.search import HybridRetriever, SearchService
-from domain.value_objects.roles import UserKind, UserRole
+from domain.identity.roles import UserKind, UserRole
+from domain.identity.user_context import UserContext
 from domain.value_objects.search_mode import SearchMode
-from domain.value_objects.user_context import UserContext
 
 
 @pytest.mark.parametrize(

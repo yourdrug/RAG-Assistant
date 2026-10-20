@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from domain.value_objects.roles import UserKind, UserRole
+from domain.identity.roles import UserKind, UserRole
 
 
 @dataclass(frozen=True)
@@ -34,3 +34,19 @@ class UserContext:
     @property
     def is_curator(self) -> bool:
         return self.user_role == UserRole.CURATOR
+
+
+@dataclass(frozen=True)
+class CuratorScope:
+    """Snapshot of curator managed-scope at request time.
+
+    None in ChatContext means the user is not a curator (or has no managed IDs).
+    Tuples (not lists) for immutability and hashability.
+    """
+
+    managed_client_ids: tuple[int, ...] = ()
+    managed_internal_ids: tuple[int, ...] = ()
+    managed_group_ids: tuple[int, ...] = ()
+
+    def is_empty(self) -> bool:
+        return not (self.managed_client_ids or self.managed_internal_ids or self.managed_group_ids)

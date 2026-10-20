@@ -12,7 +12,7 @@ from domain.repositories.chunk_repository import ChunkSearchResult, ChunkStats
 from domain.services import compute_owner_and_group
 from domain.shared.hashing import content_hash
 from domain.value_objects.document_status import DocumentStatus
-from domain.value_objects.roles import UserRole
+from domain.identity.roles import UserRole
 from domain.value_objects.source_type import SourceType
 from domain.value_objects.visibility import DocumentVisibility
 

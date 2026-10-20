@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from domain.value_objects.roles import UserRole
+from domain.identity.roles import UserRole
 
 
 class Capability(StrEnum):

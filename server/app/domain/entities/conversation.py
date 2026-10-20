@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from domain.entities.message import Message
-from domain.value_objects.roles import UserRole
+from domain.identity.roles import UserRole
 
 
 @dataclass

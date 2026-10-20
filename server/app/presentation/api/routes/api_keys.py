@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from application.ports.rate_limit import RateLimitPolicyName
 from application.identity import ApiKeyService
-from domain.value_objects.roles import UserKind, UserRole
+from domain.identity.roles import UserKind, UserRole
 from fastapi import APIRouter, Depends, HTTPException
 
 from presentation.api.auth_dependencies import get_current_user, require_admin

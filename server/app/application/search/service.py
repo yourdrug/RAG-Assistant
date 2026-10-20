@@ -10,8 +10,8 @@ from domain.value_objects.search_mode import SearchMode
 
 if TYPE_CHECKING:
     from application.uow import UnitOfWorkFactory
+    from domain.identity.user_context import UserContext
     from domain.repositories.chunk_repository import ChunkSearchResult
-    from domain.value_objects.user_context import UserContext
 
 
 class SearchService:

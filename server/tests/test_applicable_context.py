@@ -9,7 +9,7 @@ from langchain_core.documents import Document
 from domain.repositories.chunk_repository import ChunkSearchResult
 from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.page_content_type import PageContentType
-from domain.value_objects.roles import UserKind, UserRole
+from domain.identity.roles import UserKind, UserRole
 from infrastructure.ml.rag.applicable_context import enrich_applicable_context
 from infrastructure.ml.rag.grounded_response import extractive_timing_response, missing_field_response
 from infrastructure.ml.rag.rag_formatting import content_with_parent_scope

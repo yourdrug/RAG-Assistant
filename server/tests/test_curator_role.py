@@ -25,10 +25,10 @@ from domain.entities.document import Document
 from domain.shared.exceptions import BusinessRuleViolation
 from domain.services import can_view_document, get_visibility_conditions, is_in_search_scope
 from domain.value_objects.chat_context import ChatContext
-from domain.value_objects.curator_scope import CuratorScope
+from domain.identity.user_context import CuratorScope
 from domain.value_objects.owner_match import OwnerMatch
-from domain.value_objects.roles import UserKind, UserRole
-from domain.value_objects.user_context import UserContext
+from domain.identity.roles import UserKind, UserRole
+from domain.identity.user_context import UserContext
 from domain.value_objects.visibility import DocumentVisibility
 from infrastructure.repositories.vector.acl import build_qdrant_filter
 
@@ -335,31 +335,31 @@ class TestOwnerMatchAssigned:
 
 class TestCuratorCapabilities:
     def test_curator_has_documents_manage(self):
-        from domain.value_objects.capabilities import Capability, get_role_capabilities
+        from domain.identity.capabilities import Capability, get_role_capabilities
 
         caps = get_role_capabilities(UserRole.CURATOR)
         assert Capability.DOCUMENTS_MANAGE in caps
 
     def test_curator_has_chunks_manage(self):
-        from domain.value_objects.capabilities import Capability, get_role_capabilities
+        from domain.identity.capabilities import Capability, get_role_capabilities
 
         caps = get_role_capabilities(UserRole.CURATOR)
         assert Capability.CHUNKS_MANAGE in caps
 
     def test_curator_no_config_manage(self):
-        from domain.value_objects.capabilities import Capability, get_role_capabilities
+        from domain.identity.capabilities import Capability, get_role_capabilities
 
         caps = get_role_capabilities(UserRole.CURATOR)
         assert Capability.CONFIG_MANAGE not in caps
 
     def test_curator_no_users_manage(self):
-        from domain.value_objects.capabilities import Capability, get_role_capabilities
+        from domain.identity.capabilities import Capability, get_role_capabilities
 
         caps = get_role_capabilities(UserRole.CURATOR)
         assert Capability.USERS_MANAGE not in caps
 
     def test_user_has_documents_view(self):
-        from domain.value_objects.capabilities import Capability, get_role_capabilities
+        from domain.identity.capabilities import Capability, get_role_capabilities
 
         caps = get_role_capabilities(UserRole.USER)
         assert Capability.DOCUMENTS_VIEW in caps
@@ -446,7 +446,7 @@ class TestChatServiceCuratorScope:
     """B3: ChatService._prepare_chat builds CuratorScope from UserContext."""
 
     def test_curator_gets_scope(self):
-        from domain.value_objects.curator_scope import CuratorScope
+        from domain.identity.user_context import CuratorScope
 
         user_ctx = _curator(user_id=1, managed_client_ids=[100, 200], managed_internal_ids=[300])
         assert user_ctx.is_curator is True
@@ -475,7 +475,7 @@ class TestChatServiceCuratorScope:
         assert scope.is_empty() is True
 
     def test_chat_context_construction_with_curator_scope(self):
-        from domain.value_objects.curator_scope import CuratorScope
+        from domain.identity.user_context import CuratorScope
 
         scope = CuratorScope(managed_client_ids=(100,), managed_internal_ids=(200,), managed_group_ids=(300,))
         ctx = ChatContext(
@@ -498,7 +498,7 @@ class TestRagServiceCuratorScope:
 
     def test_curator_scope_produces_correct_managed_args(self):
         """CuratorScope fields unpack to managed_*_ids arguments."""
-        from domain.value_objects.curator_scope import CuratorScope
+        from domain.identity.user_context import CuratorScope
 
         scope = CuratorScope(managed_client_ids=(100, 200), managed_internal_ids=(300,))
         user = {"id": 1, "kind": "internal", "role": "curator"}
@@ -536,7 +536,7 @@ class TestRagServiceCuratorScope:
 
     def test_rag_filter_with_scope_has_assigned_conditions(self):
         """After B4, curator with managed_ids → filter includes ASSIGNED conditions."""
-        from domain.value_objects.curator_scope import CuratorScope
+        from domain.identity.user_context import CuratorScope
 
         user = {"id": 1, "kind": "internal", "role": "curator"}
         scope = CuratorScope(managed_client_ids=(100,), managed_internal_ids=(200,))
@@ -555,7 +555,7 @@ class TestRagServiceCuratorScope:
         """RagService._init_state with CuratorScope calls build_qdrant_filter with managed-ids."""
         from unittest.mock import patch
 
-        from domain.value_objects.curator_scope import CuratorScope
+        from domain.identity.user_context import CuratorScope
         from domain.value_objects.chat_context import ChatContext
 
         scope = CuratorScope(managed_client_ids=(100, 200), managed_internal_ids=(300,))
@@ -594,21 +594,21 @@ class TestRagServiceCuratorScope:
 
 class TestUserRoleValidation:
     def test_client_cannot_become_curator(self):
-        from domain.entities.user import User
+        from domain.identity.user import User
 
         user = User(id=1, kind=UserKind.CLIENT, role=UserRole.USER)
         with pytest.raises(BusinessRuleViolation, match="cannot be admin or curator"):
             user.change_role(UserRole.CURATOR)
 
     def test_user_can_become_curator(self):
-        from domain.entities.user import User
+        from domain.identity.user import User
 
         user = User(id=1, kind=UserKind.INTERNAL, role=UserRole.USER)
         user.change_role(UserRole.CURATOR)
         assert user.role == UserRole.CURATOR
 
     def test_curator_can_become_user(self):
-        from domain.entities.user import User
+        from domain.identity.user import User
 
         user = User(id=1, kind=UserKind.INTERNAL, role=UserRole.CURATOR)
         user.change_role(UserRole.USER)

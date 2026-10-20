@@ -32,8 +32,8 @@ from domain.services.access_control import (
     check_ownership,
     is_in_search_scope,
 )
-from domain.value_objects.roles import UserKind, UserRole
-from domain.value_objects.user_context import UserContext
+from domain.identity.roles import UserKind, UserRole
+from domain.identity.user_context import UserContext
 from domain.value_objects.visibility import DocumentVisibility
 
 # ===========================================================================

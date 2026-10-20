@@ -20,7 +20,7 @@ from application.benchmark import BenchmarkCheckpoints
 from config import settings
 from domain.value_objects.benchmark_annotations import validate_annotations
 from domain.value_objects.chat_context import ChatContext
-from domain.value_objects.roles import UserKind, UserRole
+from domain.identity.roles import UserKind, UserRole
 from infrastructure.benchmark import answer_generators, persistence
 from infrastructure.benchmark.case_evaluator import BenchmarkCaseEvaluator
 from infrastructure.benchmark.metrics import result_judge_errors

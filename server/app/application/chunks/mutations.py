@@ -20,8 +20,8 @@ if TYPE_CHECKING:
     from application.chunks.ports.settings import ChunkSettingsPort
     from application.ports.cache_invalidator import CacheInvalidatorPort
     from application.uow import UnitOfWork, UnitOfWorkFactory
+    from domain.identity.roles import UserRole
     from domain.repositories.chunk_repository import ChunkCrudRepository
-    from domain.value_objects.roles import UserRole
 
 log = logging.getLogger(__name__)
 

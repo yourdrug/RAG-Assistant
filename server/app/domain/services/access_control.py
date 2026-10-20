@@ -11,8 +11,8 @@ from dataclasses import dataclass
 
 from domain.shared.exceptions import BusinessRuleViolation, ValidationError
 from domain.value_objects.owner_match import OwnerMatch
-from domain.value_objects.roles import UserKind, UserRole
-from domain.value_objects.user_context import UserContext
+from domain.identity.roles import UserKind, UserRole
+from domain.identity.user_context import UserContext
 from domain.value_objects.visibility import DocumentVisibility
 
 if False:  # TYPE_CHECKING

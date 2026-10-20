@@ -9,7 +9,7 @@ from sqlalchemy.dialects import postgresql
 
 from domain.entities.act_version import ActVersion
 from domain.entities.vector_outbox_entry import OutboxOperation
-from domain.value_objects.roles import UserRole
+from domain.identity.roles import UserRole
 from infrastructure.repositories.chunk.sqlalchemy_chunk_repository import SQLAlchemyChunkRepository
 from infrastructure.repositories.misc.sqlalchemy_act_version_repository import SQLAlchemyActVersionRepository
 from test_chunk_service import _make_service, _make_uow

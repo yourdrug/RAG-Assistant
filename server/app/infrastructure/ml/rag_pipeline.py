@@ -14,7 +14,7 @@ from domain.value_objects.evidence_assessment import EvidenceAssessment
 from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.llm_provider import Breadth
 from domain.value_objects.rag_settings import RagSettings
-from domain.value_objects.user_context import UserContext
+from domain.identity.user_context import UserContext
 
 if TYPE_CHECKING:
     from application.chat import PIIRedactorPort

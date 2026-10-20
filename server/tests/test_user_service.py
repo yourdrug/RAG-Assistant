@@ -12,9 +12,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 import pytest  # noqa: E402
 from application.identity import CreateUserCommand, LoginCommand  # noqa: E402
 from application.identity import AuthService, UserManagementService  # noqa: E402
-from domain.entities.user import User  # noqa: E402
+from domain.identity.user import User  # noqa: E402
 from domain.shared.exceptions import BusinessRuleViolation, ValidationError  # noqa: E402
-from domain.value_objects.roles import UserKind, UserRole  # noqa: E402
+from domain.identity.roles import UserKind, UserRole  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Helpers

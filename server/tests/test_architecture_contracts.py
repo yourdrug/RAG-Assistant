@@ -89,26 +89,31 @@ def test_application_dependency_boundary(importer: str, imported: str, allowed: 
 
 
 @pytest.mark.parametrize(
-    "imported, allowed",
+    "context, imported, allowed",
     [
-        ("domain.shared.exceptions", True),
+        ("shared", "domain.shared.exceptions", True),
+        ("identity", "domain.shared.exceptions", True),
+        ("identity", "domain.identity.roles", True),
         *[
-            (module, False)
+            (context, module, False)
+            for context, name in (
+                ("shared", "Domain shared kernel is independent of contexts"),
+                ("identity", "Domain identity depends only on shared"),
+            )
             for options in CONFIG["contracts"]
-            if options["name"] == "Domain shared kernel is independent of contexts"
+            if options["name"] == name
             for module in options["forbidden_modules"]
         ],
     ],
 )
-def test_shared_dependency_boundary(imported: str, allowed: bool) -> None:
+def test_domain_context_dependency_boundary(context: str, imported: str, allowed: bool) -> None:
     configure()  # type: ignore[no-untyped-call]  # import-linter exposes an untyped setup function.
     options = next(
-        options
-        for options in CONFIG["contracts"]
-        if options["name"] == "Domain shared kernel is independent of contexts"
+        options for options in CONFIG["contracts"] if options.get("source_modules") == [f"domain.{context}"]
     )
     graph = ImportGraph()
-    modules = ["domain.shared.enums", imported, *options["forbidden_modules"]]
+    importer = f"domain.{context}.example"
+    modules = [importer, imported, *options["forbidden_modules"]]
 
     for module in modules:
         parts = module.split(".")
@@ -116,21 +121,20 @@ def test_shared_dependency_boundary(imported: str, allowed: bool) -> None:
         for length in range(1, len(parts) + 1):
             graph.add_module(".".join(parts[:length]))
 
-    graph.add_import(importer="domain.shared.enums", imported=imported, line_number=1, line_contents="")
+    graph.add_import(importer=importer, imported=imported, line_number=1, line_contents="")
     contract = ForbiddenContract(options["name"], CONFIG, options)
     assert contract.check(graph, verbose=False).kept is allowed
 
 
-def test_shared_contract_covers_every_other_domain_package() -> None:
+@pytest.mark.parametrize("context", ["shared", "identity"])
+def test_context_contract_covers_every_forbidden_domain_package(context: str) -> None:
     options = next(
-        options
-        for options in CONFIG["contracts"]
-        if options["name"] == "Domain shared kernel is independent of contexts"
+        options for options in CONFIG["contracts"] if options.get("source_modules") == [f"domain.{context}"]
     )
     siblings = {
         f"domain.{path.stem}"
         for path in (SERVER / "app/domain").iterdir()
-        if path.name not in {"__init__.py", "shared"}
+        if path.name not in {"__init__.py", "shared", context}
         and (path.suffix == ".py" or (path.is_dir() and (path / "__init__.py").exists()))
     }
     assert set(options["forbidden_modules"]) == siblings

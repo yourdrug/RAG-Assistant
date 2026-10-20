@@ -5,8 +5,8 @@ from __future__ import annotations
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from domain.repositories.assignment_repository import AssignmentRepository
-from domain.value_objects.roles import UserKind
+from domain.identity.repositories import AssignmentRepository
+from domain.identity.roles import UserKind
 from infrastructure.database.models import (
     CuratorGroupAssignmentModel,
     CuratorUserAssignmentModel,

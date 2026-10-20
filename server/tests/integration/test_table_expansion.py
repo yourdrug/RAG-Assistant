@@ -5,8 +5,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from domain.value_objects.chunk_context import TABLE_CONTEXT_MAX_CHUNKS
 from domain.value_objects.page_content_type import PageContentType
-from domain.value_objects.roles import UserKind, UserRole
-from domain.value_objects.user_context import UserContext
+from domain.identity.roles import UserKind, UserRole
+from domain.identity.user_context import UserContext
 from domain.value_objects.visibility import DocumentVisibility
 from infrastructure.database.models import DocumentModel, UserModel
 from infrastructure.repositories.chunk.sqlalchemy_chunk_repository import SQLAlchemyChunkRepository

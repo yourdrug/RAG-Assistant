@@ -401,7 +401,7 @@ class TestBM25PredicateInvariant:
     def test_user_invariant(self):
         """USER: BM25 predicate matches domain rule."""
         from domain.services.access_control import get_visibility_conditions
-        from domain.value_objects.roles import UserKind, UserRole
+        from domain.identity.roles import UserKind, UserRole
 
         self._run_invariant(
             user_id=10,
@@ -419,7 +419,7 @@ class TestBM25PredicateInvariant:
     def test_admin_invariant(self):
         """ADMIN: BM25 predicate matches domain rule (no CLIENT_PRIVATE bonus)."""
         from domain.services.access_control import get_visibility_conditions
-        from domain.value_objects.roles import UserKind, UserRole
+        from domain.identity.roles import UserKind, UserRole
 
         self._run_invariant(
             user_id=1,
@@ -437,7 +437,7 @@ class TestBM25PredicateInvariant:
     def test_curator_with_managed_invariant(self):
         """CURATOR with managed_ids: BM25 predicate matches domain rule."""
         from domain.services.access_control import get_visibility_conditions
-        from domain.value_objects.roles import UserKind, UserRole
+        from domain.identity.roles import UserKind, UserRole
 
         self._run_invariant(
             user_id=10,

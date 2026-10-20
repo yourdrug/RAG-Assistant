@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from domain.entities.api_key import ApiKey
-from domain.value_objects.query_results import ApiKeyClientInfo
-from domain.value_objects.roles import UserKind
+from domain.identity.api_key import ApiKey
+from domain.identity.api_key import ApiKeyClientInfo
+from domain.identity.roles import UserKind
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 

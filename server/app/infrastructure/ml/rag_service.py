@@ -114,7 +114,7 @@ class RagService:
         scope = ctx.curator_scope
 
         from domain.services import get_visibility_conditions
-        from domain.value_objects.roles import UserKind, UserRole
+        from domain.identity.roles import UserKind, UserRole
 
         visibility_conditions = get_visibility_conditions(
             UserKind(ctx.user_kind),

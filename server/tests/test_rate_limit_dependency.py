@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from application.ports.rate_limit import RateLimitPolicyName  # noqa: E402
 from domain.shared.exceptions import AuthenticationError, ClientException  # noqa: E402
-from domain.value_objects.roles import UserKind, UserRole  # noqa: E402
+from domain.identity.roles import UserKind, UserRole  # noqa: E402
 from presentation.api.auth_dependencies import get_current_user  # noqa: E402
 from presentation.api.dependencies import create_rate_limiter  # noqa: E402
 from presentation.api.exception_handlers import handle_client_exception  # noqa: E402

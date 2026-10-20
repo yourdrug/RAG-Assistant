@@ -11,7 +11,7 @@ from application.jobs.service import JobService
 from domain.entities.background_job import BackgroundJob
 from domain.shared.exceptions import ClientException, EntityNotFound
 from domain.value_objects.job_status import BackgroundJobStatus
-from domain.value_objects.roles import UserKind, UserRole
+from domain.identity.roles import UserKind, UserRole
 from fakes import FakeUnitOfWorkFactory
 from presentation.api.auth_dependencies import get_current_user
 from presentation.api.dependencies import create_job_service

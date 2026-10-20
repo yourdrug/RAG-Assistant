@@ -20,3 +20,15 @@ class ApiKey:
     @property
     def is_active(self) -> bool:
         return self.revoked_at is None
+
+
+@dataclass(frozen=True)
+class ApiKeyClientInfo:
+    """Combined ApiKey + User data returned by get_active_client_by_hash."""
+
+    api_key_id: int
+    id: int
+    email: str
+    role: str
+    kind: str
+    is_active: bool

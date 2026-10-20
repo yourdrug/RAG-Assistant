@@ -7,9 +7,9 @@ import logging
 from application.ports.rate_limit import RateLimitPolicyName
 from application.chunks import ChunkCursorQuery, ChunkMutationService, ChunkQueryService
 from application.documents import ManualDocumentService
-from domain.value_objects.roles import UserKind, UserRole
+from domain.identity.roles import UserKind, UserRole
 from domain.value_objects.visibility import DocumentVisibility
-from domain.value_objects.capabilities import Capability
+from domain.identity.capabilities import Capability
 from fastapi import APIRouter, Depends, Query
 
 from presentation.api.auth_dependencies import get_current_user, require_capability

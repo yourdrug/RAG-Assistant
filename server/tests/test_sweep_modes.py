@@ -14,7 +14,7 @@ from domain.services.benchmark_evaluation import evaluate_retrieval, summarize_e
 from domain.services.benchmark_selection import select_fast_candidates
 from domain.value_objects.benchmark_strategy import BenchmarkStrategy
 from domain.value_objects.chat_context import ChatContext
-from domain.value_objects.roles import UserKind
+from domain.identity.roles import UserKind
 from domain.value_objects.sweep_evaluation_mode import SweepEvaluationMode
 from infrastructure.benchmark.answer_generators import BenchmarkAnswer
 from infrastructure.benchmark.case_evaluator import BenchmarkCaseEvaluator

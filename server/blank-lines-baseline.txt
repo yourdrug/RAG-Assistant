@@ -18,7 +18,7 @@ app/domain/entities/config_parameter.py
 app/domain/entities/conversation.py
 app/domain/entities/document.py
 app/domain/entities/message.py
-app/domain/entities/user.py
+app/domain/identity/user.py
 app/domain/entities/vector_outbox_entry.py
 app/domain/exceptions/domain_errors.py
 app/domain/services/access_control.py

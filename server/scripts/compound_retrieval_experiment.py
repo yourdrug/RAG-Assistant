@@ -7,26 +7,27 @@ comparison of automatic decomposition must be a separate experiment.
 
 import argparse
 import asyncio
-import json
-import logging
 from dataclasses import replace
 from functools import partial
+import json
+import logging
 from pathlib import Path
 
 from langchain_core.documents import Document
 
+from domain.identity.roles import UserKind, UserRole
 from domain.services import get_visibility_conditions
 from domain.utils import content_hash
 from domain.value_objects.chat_context import ChatContext
-from domain.value_objects.roles import UserKind, UserRole
-from infrastructure.ml.clients.client_registry import MLClientRegistry
 from infrastructure.bm25.persistence import load_configured_bm25_snapshot
-from infrastructure.storage.file_storage import LazyStorage
+from infrastructure.ml.clients.client_registry import MLClientRegistry
 from infrastructure.ml.rag.rag_config import build_rag_settings
 from infrastructure.ml.rag.rag_formatting import format_docs_with_selection
-from infrastructure.ml.rag.rag_retrieval import run_hybrid_search
 from infrastructure.ml.rag.rag_reranking import rerank_documents
+from infrastructure.ml.rag.rag_retrieval import run_hybrid_search
 from infrastructure.repositories.vector.acl import build_qdrant_filter, with_temporal_filter
+from infrastructure.storage.file_storage import LazyStorage
+
 
 logger = logging.getLogger("default")
 QUERIES = {

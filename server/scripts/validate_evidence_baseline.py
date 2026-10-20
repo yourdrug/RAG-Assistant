@@ -6,20 +6,20 @@ never overwritten. Run from server with PYTHONPATH=app inside the service contai
 
 import argparse
 import asyncio
-import json
-import logging
-import time
 from dataclasses import asdict
 from hashlib import sha256
+import json
+import logging
 from pathlib import Path
+import time
 
 import httpx
 
 from composition.container import Container
 from config import _settings_overrides, settings
 from domain.events.config_events import ConfigParameterChanged
+from domain.identity.roles import UserKind, UserRole
 from domain.value_objects.chat_context import ChatContext
-from domain.value_objects.roles import UserKind, UserRole
 from infrastructure.benchmark.answer_generators import BenchmarkAnswer, RagBenchmarkGenerator
 from infrastructure.benchmark.case_evaluator import BenchmarkCaseEvaluator
 from infrastructure.benchmark.token_usage import judge_usage
@@ -30,6 +30,7 @@ from infrastructure.ml.rag.evidence_focus import EVIDENCE_POLICY_VERSION
 from infrastructure.ml.usage_capture import active_llm_usage, summarize_usage
 from infrastructure.redis.redis_client import redis_client
 from infrastructure.resilience.circuit_breaker import init_breakers
+
 
 log = logging.getLogger('default')
 

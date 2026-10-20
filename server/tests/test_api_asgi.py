@@ -18,7 +18,7 @@ from domain.value_objects.source_type import SourceType
 from domain.entities.message import Message
 from domain.value_objects.message_role import MessageRole
 from domain.value_objects.job_status import BackgroundJobStatus
-from domain.value_objects.roles import UserRole
+from domain.identity.roles import UserRole
 from domain.value_objects.doc_domain import DocDomain
 from domain.repositories.chunk_repository import ChunkSearchResult
 from main import app

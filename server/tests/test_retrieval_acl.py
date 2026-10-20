@@ -201,7 +201,7 @@ async def test_legal_rerank_fallback_preserves_acl_and_temporal_filter():
     from domain.services.access_control import get_visibility_conditions
     from domain.value_objects.llm_provider import Breadth
     from domain.value_objects.chat_context import ChatContext
-    from domain.value_objects.roles import UserKind, UserRole
+    from domain.identity.roles import UserKind, UserRole
     from infrastructure.ml.rag.helpers import rerank_and_enrich
 
     af = with_temporal_filter(build_qdrant_filter(_user(), [1, 2]), None)

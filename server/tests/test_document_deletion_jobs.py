@@ -8,11 +8,11 @@ import pytest
 from application.documents import DocumentDeletionJobs
 from domain.entities.background_job import BackgroundJob
 from domain.entities.document import Document
-from domain.entities.user import User
+from domain.identity.roles import UserKind, UserRole
+from domain.identity.user import User
 from domain.shared.exceptions import BusinessRuleViolation, EntityNotFound
 from domain.value_objects.job_status import BackgroundJobStatus
 from domain.value_objects.job_type import JobType
-from domain.value_objects.roles import UserKind, UserRole
 from domain.value_objects.visibility import DocumentVisibility
 from fakes import FakeUnitOfWorkFactory
 from infrastructure.worker.document_deletion import delete_document

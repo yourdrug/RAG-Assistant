@@ -5,19 +5,19 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from application.identity.dto import ToggleActiveResult, UserDTO
-from domain.entities.user import User
+from domain.identity.roles import UserKind, UserRole
+from domain.identity.user import User
 from domain.shared.exceptions import BusinessRuleViolation, EntityNotFound
-from domain.value_objects.roles import UserKind, UserRole
 
 
 if TYPE_CHECKING:
     from application.identity.dto import ChangeRoleCommand, CreateUserCommand
     from application.uow import UnitOfWorkFactory
-    from domain.services.password_hasher import IPasswordHasher
+    from domain.identity.ports import PasswordHasher
 
 
 class UserManagementService:
-    def __init__(self, uow_factory: UnitOfWorkFactory, password_hasher: IPasswordHasher) -> None:
+    def __init__(self, uow_factory: UnitOfWorkFactory, password_hasher: PasswordHasher) -> None:
         self._uow_factory = uow_factory
         self._hasher = password_hasher
 

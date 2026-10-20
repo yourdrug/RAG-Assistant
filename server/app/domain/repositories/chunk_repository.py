@@ -15,7 +15,7 @@ from typing import Protocol, runtime_checkable
 from domain.shared.pagination import CursorPage
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.search_mode import SearchMode
-from domain.value_objects.user_context import UserContext
+from domain.identity.user_context import UserContext
 
 
 @dataclass

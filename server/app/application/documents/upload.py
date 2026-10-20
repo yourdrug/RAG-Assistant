@@ -10,6 +10,7 @@ from application.documents.conflicts import resolve_upload_version_group
 from application.documents.dto import DocumentDTO
 from application.documents.utils import generate_storage_key, resolve_unique_filename
 from domain.entities.document import Document
+from domain.identity.roles import UserKind, UserRole
 from domain.services import check_ownership, compute_owner_and_group, validate_document_visibility
 from domain.services.act_version_policy import same_document_scope
 from domain.shared.exceptions import (
@@ -20,7 +21,6 @@ from domain.shared.exceptions import (
 )
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.document_status import DocumentStatus
-from domain.value_objects.roles import UserKind, UserRole
 from domain.value_objects.visibility import DocumentVisibility
 
 
@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from application.identity import UserContextFactory
     from application.ports.file_storage import FileStorage
     from application.uow import UnitOfWork, UnitOfWorkFactory
-    from domain.value_objects.user_context import UserContext
+    from domain.identity.user_context import UserContext
 
 log = logging.getLogger("default")
 

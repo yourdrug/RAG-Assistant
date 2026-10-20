@@ -9,7 +9,7 @@ from langchain_core.documents import Document
 
 from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.llm_provider import Breadth
-from domain.value_objects.roles import UserKind, UserRole
+from domain.identity.roles import UserKind, UserRole
 from domain.value_objects.evidence_assessment import EvidenceStatus
 from infrastructure.ml.rag.grounded_response import (
     extractive_procedure_response,

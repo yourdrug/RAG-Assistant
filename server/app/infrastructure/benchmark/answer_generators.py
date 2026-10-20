@@ -12,7 +12,7 @@ from application.chat import ChatRAGPort
 from config import _settings_overrides, get_setting, settings
 from domain.value_objects.chat_context import ChatContext
 from domain.services.access_control import get_visibility_conditions
-from domain.value_objects.roles import UserKind, UserRole
+from domain.identity.roles import UserKind, UserRole
 from infrastructure.repositories.vector.acl import build_qdrant_filter
 from infrastructure.ml.rag.rag_formatting import format_docs_with_selection
 from infrastructure.benchmark import judge, metrics, retrieval

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from domain.value_objects.query_results import GroupInfo, GroupMemberInfo
+from domain.identity.group import GroupInfo, GroupMemberInfo
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 

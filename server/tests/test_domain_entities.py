@@ -18,13 +18,13 @@ from domain.entities.conversation import Conversation
 from domain.entities.document import Document
 from domain.entities.message import Message
 from domain.entities.raw_document import RawDocument
-from domain.entities.user import User
+from domain.identity.user import User
 from domain.shared.exceptions import BusinessRuleViolation
 from domain.shared.hashing import content_hash
 from domain.utils import parse_bool
 from domain.value_objects.document_status import DocumentStatus
 from domain.value_objects.message_role import MessageRole
-from domain.value_objects.roles import UserKind, UserRole
+from domain.identity.roles import UserKind, UserRole
 from domain.value_objects.visibility import DocumentVisibility
 
 # ---------------------------------------------------------------------------

@@ -15,10 +15,10 @@ from langchain_core.messages import AIMessage, HumanMessage
 from application.chat import ConversationService
 from domain.exceptions.domain_errors import ContextBudgetExceededError
 from domain.value_objects.chat_context import ChatContext
-from domain.value_objects.curator_scope import CuratorScope
+from domain.identity.user_context import CuratorScope
 from domain.value_objects.llm_provider import Breadth
 from domain.value_objects.message_role import MessageRole
-from domain.value_objects.roles import UserKind, UserRole
+from domain.identity.roles import UserKind, UserRole
 from infrastructure.ml import answer_cache
 from infrastructure.ml.clients.tei_clients import TEIRerankerClient
 from infrastructure.ml.rag.prompt_budget import estimate_message_tokens

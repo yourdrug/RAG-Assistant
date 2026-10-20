@@ -13,8 +13,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from application.chunks import ChunkMutationService
 from domain.entities.act_version import ActVersion
 from domain.value_objects.document_status import DocumentStatus
-from domain.value_objects.roles import UserKind, UserRole
-from domain.value_objects.user_context import UserContext
+from domain.identity.roles import UserKind, UserRole
+from domain.identity.user_context import UserContext
 from domain.value_objects.visibility import DocumentVisibility
 from infrastructure.database.models import ActVersionModel, ChunkModel, DocumentModel, VectorStoreOutboxModel
 from infrastructure.repositories.chunk.sqlalchemy_chunk_repository import SQLAlchemyChunkRepository

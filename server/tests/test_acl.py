@@ -19,8 +19,8 @@ from domain.services import (  # noqa: E402
 )
 from domain.services.access_control import ALLOWED_VISIBILITY_FOR_KIND, is_in_search_scope  # noqa: E402
 from domain.services import get_visibility_conditions  # noqa: E402
-from domain.value_objects.roles import UserKind, UserRole
-from domain.value_objects.user_context import UserContext
+from domain.identity.roles import UserKind, UserRole
+from domain.identity.user_context import UserContext
 from domain.value_objects.visibility import DocumentVisibility
 from infrastructure.repositories.vector.acl import build_qdrant_filter  # noqa: E402
 

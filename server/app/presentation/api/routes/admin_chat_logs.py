@@ -6,8 +6,8 @@ from datetime import datetime
 
 from application.chat import ChatLogService
 from application.identity import AssignmentService
-from domain.value_objects.capabilities import Capability
-from domain.value_objects.roles import UserRole
+from domain.identity.capabilities import Capability
+from domain.identity.roles import UserRole
 from fastapi import APIRouter, Depends, Query
 
 from presentation.api.auth_dependencies import require_capability

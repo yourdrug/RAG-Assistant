@@ -12,7 +12,7 @@ from application.identity import UserContextFactory
 from domain.entities.document import Document
 from domain.shared.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
 from domain.value_objects.document_status import DocumentStatus
-from domain.value_objects.user_context import UserContext
+from domain.identity.user_context import UserContext
 from domain.value_objects.visibility import DocumentVisibility
 
 from fakes import FakeUnitOfWork, FakeUnitOfWorkFactory

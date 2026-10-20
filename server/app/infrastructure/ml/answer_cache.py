@@ -22,8 +22,8 @@ from domain.shared.hashing import content_hash
 from config import settings
 from infrastructure.corpus.snapshot import active_corpus
 from infrastructure.redis.redis_client import redis_client
-from domain.value_objects.curator_scope import CuratorScope
-from domain.value_objects.roles import UserRole
+from domain.identity.user_context import CuratorScope
+from domain.identity.roles import UserRole
 
 log = logging.getLogger("default")
 

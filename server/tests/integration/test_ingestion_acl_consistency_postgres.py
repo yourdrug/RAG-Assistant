@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from application.ingestion import DocumentSyncService
 from domain.entities.document import Document
 from domain.entities.raw_document import RawDocument
-from domain.value_objects.roles import UserKind, UserRole
+from domain.identity.roles import UserKind, UserRole
 from domain.value_objects.visibility import DocumentVisibility
 from infrastructure.database.models import UserModel
 from infrastructure.repositories.chunk.sqlalchemy_chunk_repository import SQLAlchemyChunkRepository

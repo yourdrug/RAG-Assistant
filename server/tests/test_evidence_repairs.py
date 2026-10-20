@@ -15,7 +15,7 @@ from domain.services.evidence_queries import contradicts_requested_scope
 from domain.services.rag_policy.evidence_reading import evidence_reading_rules
 from domain.value_objects.llm_provider import Breadth
 from domain.value_objects.page_content_type import PageContentType
-from domain.value_objects.roles import UserKind, UserRole
+from domain.identity.roles import UserKind, UserRole
 from domain.value_objects.chat_context import ChatContext
 from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata
 from infrastructure.ml.rag.evidence_focus import evidence_reading_map, format_generation_messages

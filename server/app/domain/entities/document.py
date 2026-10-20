@@ -10,10 +10,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
+from domain.identity.roles import UserRole
 from domain.shared.exceptions import BusinessRuleViolation
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.document_status import DocumentStatus
-from domain.value_objects.roles import UserRole
 from domain.value_objects.source_type import SourceType
 from domain.value_objects.visibility import DocumentVisibility
 

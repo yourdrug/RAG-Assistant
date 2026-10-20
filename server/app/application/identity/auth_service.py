@@ -11,8 +11,7 @@ from domain.shared.exceptions import ValidationError
 if TYPE_CHECKING:
     from application.identity.dto import LoginCommand
     from application.uow import UnitOfWorkFactory
-    from domain.services.password_hasher import IPasswordHasher
-    from domain.services.token_provider import ITokenProvider
+    from domain.identity.ports import PasswordHasher, TokenProvider
 
 # Fixed bcrypt hash used only to equalize login timing for unknown emails.
 # The value is a valid bcrypt hash of an irrelevant string; its purpose is
@@ -24,8 +23,8 @@ class AuthService:
     def __init__(
         self,
         uow_factory: UnitOfWorkFactory,
-        password_hasher: IPasswordHasher,
-        token_provider: ITokenProvider,
+        password_hasher: PasswordHasher,
+        token_provider: TokenProvider,
     ) -> None:
         self._uow_factory = uow_factory
         self._hasher = password_hasher

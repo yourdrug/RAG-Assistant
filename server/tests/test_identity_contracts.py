@@ -16,9 +16,9 @@ from application.identity import (
     UserContextFactory,
     UserManagementService,
 )
-from domain.entities.user import User
+from domain.identity.roles import UserKind, UserRole
+from domain.identity.user import User
 from domain.shared.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
-from domain.value_objects.roles import UserKind, UserRole
 
 
 @pytest.mark.parametrize(

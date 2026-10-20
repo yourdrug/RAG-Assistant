@@ -5,13 +5,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from application.identity.user_context_factory import UserContextFactory
+from domain.identity.roles import UserKind
 from domain.shared.exceptions import EntityNotFound, ValidationError
-from domain.value_objects.roles import UserKind
 
 
 if TYPE_CHECKING:
     from application.uow import UnitOfWorkFactory
-    from domain.value_objects.query_results import GroupInfo, GroupMemberInfo
+    from domain.identity.group import GroupInfo, GroupMemberInfo
 
 
 class GroupService:

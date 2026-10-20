@@ -18,8 +18,8 @@ from qdrant_client.models import (
     VectorParams,
 )
 
+from domain.identity.roles import UserKind, UserRole
 from domain.shared.exceptions import ValidationError
-from domain.value_objects.roles import UserKind, UserRole
 from domain.value_objects.visibility import DocumentVisibility
 from infrastructure.corpus.snapshot import BoundQdrantClient
 from infrastructure.corpus.validation import validate_corpus

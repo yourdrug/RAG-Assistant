@@ -16,7 +16,7 @@ from domain.value_objects.visibility import DocumentVisibility
 
 if TYPE_CHECKING:
     from application.uow import UnitOfWorkFactory
-    from domain.value_objects.roles import UserKind, UserRole
+    from domain.identity.roles import UserKind, UserRole
 
 log = logging.getLogger(__name__)
 

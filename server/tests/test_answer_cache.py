@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
 
-from domain.value_objects.curator_scope import CuratorScope
+from domain.identity.user_context import CuratorScope
 from infrastructure.ml.answer_cache import CACHE_PREFIX, compute_visibility_scope_hash
 
 

@@ -359,7 +359,7 @@ module = [
     "domain.services.benchmark_selection",
     "domain.services.injection_patterns",
     "domain.services.retrieval_diversity",
-    "domain.services.token_provider",
+    "domain.identity.ports",
     "domain.utils",
     "domain.shared.enums",
     "domain.value_objects.benchmark_annotations",
@@ -795,6 +795,16 @@ forbidden_modules = [
 name = "Domain shared kernel is independent of contexts"
 type = "forbidden"
 source_modules = ["domain.shared"]
+forbidden_modules = [
+    "domain.domain_profile", "domain.entities", "domain.events", "domain.exceptions",
+    "domain.identity", "domain.ingestion", "domain.repositories", "domain.services", "domain.utils",
+    "domain.value_objects",
+]
+
+[[tool.importlinter.contracts]]
+name = "Domain identity depends only on shared"
+type = "forbidden"
+source_modules = ["domain.identity"]
 forbidden_modules = [
     "domain.domain_profile", "domain.entities", "domain.events", "domain.exceptions",
     "domain.ingestion", "domain.repositories", "domain.services", "domain.utils",

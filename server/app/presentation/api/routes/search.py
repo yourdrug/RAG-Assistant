@@ -6,7 +6,7 @@ import logging
 
 from application.ports.rate_limit import RateLimitPolicyName
 from application.search import SearchService
-from domain.value_objects.user_context import UserContext
+from domain.identity.user_context import UserContext
 from fastapi import APIRouter, Depends
 
 from presentation.api.auth_dependencies import get_current_user

@@ -10,9 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
 
-from domain.value_objects.curator_scope import CuratorScope
-from domain.value_objects.roles import UserRole
-from domain.value_objects.user_context import UserContext
+from domain.identity.roles import UserRole
+from domain.identity.user_context import CuratorScope, UserContext
 
 
 @dataclass(frozen=True)

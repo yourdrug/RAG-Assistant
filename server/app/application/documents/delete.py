@@ -8,9 +8,9 @@ from typing import TYPE_CHECKING
 
 from application.act_versioning.persistence import ActVersionPersistence
 from application.indexing import enqueue_delete_by_document
+from domain.identity.roles import UserKind
 from domain.services import check_ownership
 from domain.shared.exceptions import EntityNotFound
-from domain.value_objects.roles import UserKind
 
 
 if TYPE_CHECKING:

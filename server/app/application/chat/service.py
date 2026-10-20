@@ -16,10 +16,10 @@ from typing import TYPE_CHECKING, Any
 from application.chat.dto import ChatResult, CreateChatLogCommand, PersistChatCommand
 from application.identity import UserContextFactory
 from domain.entities.message import Message
+from domain.identity.user_context import CuratorScope
 from domain.shared.exceptions import BusinessRuleViolation
 from domain.utils import compute_reranker_score
 from domain.value_objects.chat_context import ChatContext
-from domain.value_objects.curator_scope import CuratorScope
 from domain.value_objects.message_role import MessageRole
 from domain.value_objects.stream_events import (
     MetaEvent,

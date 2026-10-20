@@ -11,7 +11,7 @@ from domain.shared.exceptions import EntityNotFound, UniqueConstraintViolation
 from domain.services import get_visibility_conditions
 from domain.value_objects.document_status import DOCUMENT_SLOT_STATUSES, DocumentStatus
 from domain.value_objects.owner_match import OwnerMatch
-from domain.value_objects.roles import UserKind, UserRole
+from domain.identity.roles import UserKind, UserRole
 from domain.value_objects.visibility import DocumentVisibility
 from sqlalchemy import and_, distinct, func, or_, select
 from sqlalchemy.exc import IntegrityError

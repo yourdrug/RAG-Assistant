@@ -13,7 +13,7 @@ from application.benchmark import BenchmarkSweepService
 from domain.entities.benchmark_sweep import BenchmarkSweep
 from domain.shared.exceptions import ClientException
 from domain.value_objects.sweep_status import BenchmarkSweepStatus
-from domain.value_objects.roles import UserKind, UserRole
+from domain.identity.roles import UserKind, UserRole
 from domain.value_objects.sweep_evaluation_mode import SweepEvaluationMode
 from fakes import FakeUnitOfWorkFactory
 from infrastructure.worker import sweep as worker

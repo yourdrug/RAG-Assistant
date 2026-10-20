@@ -15,7 +15,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
 
 from domain.value_objects.chat_context import ChatContext
-from domain.value_objects.curator_scope import CuratorScope
+from domain.identity.user_context import CuratorScope
 
 
 # ===========================================================================

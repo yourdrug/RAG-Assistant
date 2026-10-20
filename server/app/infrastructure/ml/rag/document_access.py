@@ -1,7 +1,7 @@
 """Fail-closed authorization of indexed evidence and cache dependencies."""
 
 from application.documents import DocumentAccessPort
-from domain.value_objects.user_context import UserContext
+from domain.identity.user_context import UserContext
 
 
 def valid_document_id(value) -> bool:

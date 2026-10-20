@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import date
 
 from domain.services import get_visibility_conditions
-from domain.value_objects.roles import UserKind, UserRole
+from domain.identity.roles import UserKind, UserRole
 from qdrant_client.models import (
     Condition,
     DatetimeRange,

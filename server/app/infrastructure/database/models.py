@@ -31,7 +31,7 @@ from domain.value_objects.job_status import BackgroundJobStatus
 from domain.value_objects.visibility import DocumentVisibility
 from domain.value_objects.source_type import SourceType
 from domain.value_objects.doc_domain import DocDomain
-from domain.value_objects.roles import UserRole, UserKind
+from domain.identity.roles import UserRole, UserKind
 from domain.value_objects.document_status import DOCUMENT_SLOT_STATUSES, DocumentStatus
 from domain.value_objects.sweep_status import BenchmarkSweepStatus
 from domain.value_objects.sweep_evaluation_mode import SweepEvaluationMode

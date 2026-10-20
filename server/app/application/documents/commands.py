@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Unpack
 
-from domain.value_objects.roles import UserKind
+from domain.identity.roles import UserKind
 
 
 if TYPE_CHECKING:

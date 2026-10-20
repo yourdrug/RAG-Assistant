@@ -18,8 +18,8 @@ if TYPE_CHECKING:
     from application.chunks.dto import ChunkItemDTO
     from application.uow import UnitOfWorkFactory
     from domain.entities.document import Document
+    from domain.identity.roles import UserKind, UserRole
     from domain.repositories.chunk_repository import ChunkSearchResult
-    from domain.value_objects.roles import UserKind, UserRole
 
 log = logging.getLogger(__name__)
 

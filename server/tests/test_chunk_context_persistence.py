@@ -14,8 +14,8 @@ from domain.entities.raw_document import RawDocument
 from domain.repositories.chunk_repository import ChunkSearchResult
 from domain.value_objects.chunk_context import extract_chunk_context
 from domain.value_objects.doc_domain import DocDomain
-from domain.value_objects.roles import UserKind, UserRole
-from domain.value_objects.user_context import UserContext
+from domain.identity.roles import UserKind, UserRole
+from domain.identity.user_context import UserContext
 from domain.value_objects.visibility import DocumentVisibility
 from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata
 from infrastructure.ml.rag.helpers import apply_exact_search

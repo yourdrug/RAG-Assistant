@@ -18,10 +18,10 @@ from application.identity import (
     CreateUserCommand,
     UserManagementService,
 )
-from domain.entities.api_key import ApiKey
-from domain.entities.user import User
+from domain.identity.api_key import ApiKey
+from domain.identity.roles import UserKind, UserRole
+from domain.identity.user import User
 from domain.shared.exceptions import BusinessRuleViolation, ClientException, EntityNotFound
-from domain.value_objects.roles import UserKind, UserRole
 from presentation.api.dependencies import create_action_logger, create_rate_limiter
 from presentation.api.exception_handlers import handle_client_exception
 from presentation.api.routes.api_keys import router as api_key_router

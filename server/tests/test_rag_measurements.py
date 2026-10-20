@@ -7,7 +7,7 @@ import pytest
 from langchain_core.messages import AIMessage, AIMessageChunk
 
 from domain.value_objects.chat_context import ChatContext
-from domain.value_objects.roles import UserKind, UserRole
+from domain.identity.roles import UserKind, UserRole
 from infrastructure.benchmark.answer_generators import BenchmarkAnswer, RagBenchmarkGenerator
 from infrastructure.benchmark.case_evaluator import BenchmarkCaseEvaluator
 from infrastructure.benchmark.token_usage import judge_usage, record_judge_usage

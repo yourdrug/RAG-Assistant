@@ -22,7 +22,7 @@ from domain.entities.act_version import ActVersion
 from domain.shared.exceptions import BusinessRuleViolation, ValidationError
 from domain.value_objects.document_status import DocumentStatus
 from domain.value_objects.visibility import DocumentVisibility
-from domain.value_objects.roles import UserRole
+from domain.identity.roles import UserRole
 from fakes import FakeUnitOfWorkFactory
 
 

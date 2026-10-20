@@ -8,10 +8,10 @@ from typing import TYPE_CHECKING
 
 from application.documents.dto import ClientInfo, DocumentDTO
 from application.identity import UserContextFactory
+from domain.identity.roles import UserKind, UserRole
 from domain.services import check_document_access, is_in_search_scope
 from domain.shared.exceptions import EntityNotFound
 from domain.value_objects.document_status import DocumentStatus
-from domain.value_objects.roles import UserKind, UserRole
 
 
 if TYPE_CHECKING:

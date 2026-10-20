@@ -8,7 +8,7 @@ from datetime import date
 from domain.repositories.chunk_repository import ChunkSearchResult
 from domain.services import get_visibility_conditions
 from domain.value_objects.owner_match import OwnerMatch
-from domain.value_objects.roles import UserKind, UserRole
+from domain.identity.roles import UserKind, UserRole
 from domain.value_objects.search_mode import SearchMode
 from sqlalchemy import and_, func, or_, select, text, true
 from sqlalchemy.ext.asyncio import AsyncSession

@@ -11,8 +11,8 @@ from application.documents import DocumentAccessService
 from domain.entities.document import Document
 from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.llm_provider import Breadth
-from domain.value_objects.roles import UserKind, UserRole
-from domain.value_objects.user_context import UserContext
+from domain.identity.roles import UserKind, UserRole
+from domain.identity.user_context import UserContext
 from domain.value_objects.visibility import DocumentVisibility
 from infrastructure.ml.rag.document_access import cache_is_accessible, filter_scored_documents
 from infrastructure.ml.rag.rag_steps import step_check_cache

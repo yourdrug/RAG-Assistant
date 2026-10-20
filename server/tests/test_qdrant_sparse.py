@@ -11,8 +11,8 @@ import pytest
 from qdrant_client import QdrantClient, models
 
 from config import settings
+from domain.identity.roles import UserKind
 from domain.services.access_control import get_visibility_conditions
-from domain.value_objects.roles import UserKind
 from infrastructure.bm25.stemmer import stem_token
 from infrastructure.bm25.tokenizer import tokenize, tokenize_raw
 from infrastructure.ml.rag import rag_retrieval

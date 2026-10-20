@@ -500,7 +500,7 @@ async def test_cached_llm_family_changes_together_and_active_stream_survives(mod
 async def test_standalone_benchmark_refreshes_its_private_cached_embedding_pool(model, monkeypatch):
     from infrastructure.benchmark import answer_generators
     from domain.value_objects.chat_context import ChatContext
-    from domain.value_objects.roles import UserKind
+    from domain.identity.roles import UserKind
 
     pools = wire_http(monkeypatch, successful_response)
     monkeypatch.setattr(answer_generators, "settings", model)
@@ -668,7 +668,7 @@ async def test_auxiliary_call_waiting_for_semaphore_keeps_its_original_client(mo
 async def test_concurrent_benchmark_refresh_never_installs_obsolete_endpoint(model, monkeypatch):
     from infrastructure.benchmark import answer_generators
     from domain.value_objects.chat_context import ChatContext
-    from domain.value_objects.roles import UserKind
+    from domain.identity.roles import UserKind
 
     started, release = asyncio.Event(), asyncio.Event()
     model.ml_internal_allowed_origins.append("http://newer:8080")

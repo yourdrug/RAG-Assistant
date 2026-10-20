@@ -16,9 +16,9 @@ from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.llm_provider import Breadth
 from domain.value_objects.page_content_type import PageContentType
-from domain.value_objects.roles import UserKind, UserRole
+from domain.identity.roles import UserKind, UserRole
 from domain.value_objects.stream_events import StatusEvent
-from domain.value_objects.user_context import UserContext
+from domain.identity.user_context import UserContext
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from infrastructure.ml.ingestion.pdf import parse_pdf, pymupdf_table_to_markdown
 from infrastructure.ml.ingestion.splitting import split_documents

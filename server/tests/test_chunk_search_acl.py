@@ -54,7 +54,7 @@ class _CaptureSession:
 async def _capture(
     query: str, user: dict, group_ids: list[int], mode: str, document_id: int | None, as_of_date=None
 ):
-    from domain.value_objects.user_context import UserContext
+    from domain.identity.user_context import UserContext
 
     session = _CaptureSession()
     repo = SQLAlchemyChunkRepository(session)

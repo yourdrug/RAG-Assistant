@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from domain.value_objects.chat_context import ChatContext
-from domain.value_objects.roles import UserKind, UserRole
+from domain.identity.roles import UserKind, UserRole
 from domain.services.access_control import get_visibility_conditions
 from infrastructure.benchmark import answer_generators, retrieval
 from infrastructure.repositories.vector.acl import build_qdrant_filter

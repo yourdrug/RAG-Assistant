@@ -2,7 +2,7 @@
 
 from typing import Protocol
 
-from domain.value_objects.user_context import UserContext
+from domain.identity.user_context import UserContext
 
 
 class DocumentAccessPort(Protocol):

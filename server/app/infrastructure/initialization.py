@@ -11,7 +11,7 @@ from domain.domain_profile.registry import DomainProfileRegistry
 from infrastructure.domain_profile import register_all_profiles
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from domain.value_objects.dynamic_config import DYNAMIC_PARAMS
-from domain.value_objects.roles import UserKind, UserRole
+from domain.identity.roles import UserKind, UserRole
 from infrastructure.auth.password_hasher import BCryptPasswordHasher
 from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
 

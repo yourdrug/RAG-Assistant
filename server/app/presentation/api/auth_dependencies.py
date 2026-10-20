@@ -13,8 +13,8 @@ import jwt as _jwt
 from application.budget import billing_principal
 from application.identity import ApiKeyService, AuthService
 from domain.shared.exceptions import AuthenticationError, PermissionDeniedError
-from domain.value_objects.capabilities import Capability, get_role_capabilities
-from domain.value_objects.roles import UserRole
+from domain.identity.capabilities import Capability, get_role_capabilities
+from domain.identity.roles import UserRole
 from fastapi import Depends
 from fastapi.security import APIKeyHeader
 

@@ -14,7 +14,7 @@ from domain.services.benchmark_evaluation import evaluate_evidence, summarize_ev
 from domain.value_objects.benchmark_annotations import validate_annotations
 from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.rag_result import RagResult
-from domain.value_objects.roles import UserKind
+from domain.identity.roles import UserKind
 from infrastructure.benchmark.answer_generators import BenchmarkAnswer, RagBenchmarkGenerator
 from infrastructure.benchmark.case_evaluator import BenchmarkCaseEvaluator
 from infrastructure.ml.rag.benchmark_evidence import (
@@ -300,8 +300,8 @@ def test_explicit_csv_keeps_metrics_and_never_appends_local_history(tmp_path):
 
 def test_real_prompt_capture_keeps_parent_scope_and_raw_retrieval():
     from domain.value_objects.llm_provider import Breadth
-    from domain.value_objects.roles import UserRole
-    from domain.value_objects.user_context import UserContext
+    from domain.identity.roles import UserRole
+    from domain.identity.user_context import UserContext
     from infrastructure.ml.rag.rag_steps import step_build_context
     from infrastructure.ml.rag_pipeline import RagPipelineState
     from test_rag_pipeline import _make_rag

@@ -9,9 +9,9 @@ from sqlalchemy.dialects.postgresql import JSONB
 
 from application.search import SearchService
 from domain.value_objects.doc_domain import DocDomain
-from domain.value_objects.roles import UserKind, UserRole
+from domain.identity.roles import UserKind, UserRole
 from domain.value_objects.search_mode import SearchMode
-from domain.value_objects.user_context import UserContext
+from domain.identity.user_context import UserContext
 from domain.value_objects.visibility import DocumentVisibility
 from infrastructure.database.models import ChunkModel
 from infrastructure.repositories.chunk.sqlalchemy_chunk_repository import SQLAlchemyChunkRepository

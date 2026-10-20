@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from application.uow import UnitOfWorkFactory
 
+from domain.identity.roles import UserRole
 from domain.shared.exceptions import BusinessRuleViolation, EntityNotFound
-from domain.value_objects.roles import UserRole
 
 
 log = logging.getLogger("default")

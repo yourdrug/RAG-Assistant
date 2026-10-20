@@ -16,12 +16,12 @@ from langchain_core.documents import Document
 from domain.domain_profile.profiles.general import GeneralDomainProfile
 from domain.domain_profile.profiles.legal import LegalDomainProfile
 from domain.domain_profile.registry import DomainProfileRegistry
+from domain.identity.roles import UserKind, UserRole
 from domain.services.benchmark_evaluation import evaluate_evidence
 from domain.services.rag_policy import classify_query_domain
 from domain.utils import content_hash
 from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.llm_provider import Breadth
-from domain.value_objects.roles import UserKind, UserRole
 from infrastructure.ml.rag.benchmark_evidence import BenchmarkEvidence, active_evidence, snapshot_documents
 from infrastructure.ml.rag.document_sources import group_by_document
 from infrastructure.ml.rag.helpers import domain_prompt_addendum

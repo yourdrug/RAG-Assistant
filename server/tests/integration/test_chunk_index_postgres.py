@@ -15,9 +15,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from application.chunks import ChunkMutationService
+from domain.identity.roles import UserRole
 from domain.shared.exceptions import BusinessRuleViolation
 from domain.value_objects.document_status import DocumentStatus
-from domain.value_objects.roles import UserRole
 from domain.value_objects.visibility import DocumentVisibility
 from infrastructure.database.migrations.versions import t0j1k2l3m4n5_unique_chunk_index as migration
 from infrastructure.database.models import ChunkModel, DocumentModel, VectorStoreOutboxModel

@@ -1,8 +1,8 @@
 """Validate RAG dependencies against primary database document ACLs."""
 
 from application.uow import UnitOfWorkFactory
+from domain.identity.user_context import UserContext
 from domain.services.access_control import is_in_search_scope
-from domain.value_objects.user_context import UserContext
 
 
 class DocumentAccessService:

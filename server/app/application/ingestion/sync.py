@@ -18,9 +18,9 @@ from application.indexing import enrich_chunks_metadata, process_chunks, tag_chu
 from application.ingestion.profiles import get_domain_profile
 from domain.entities.document import Document as DocEntity
 from domain.entities.raw_document import RawDocument
+from domain.identity.roles import UserKind
 from domain.shared.exceptions import EntityNotFound, ValidationError
 from domain.value_objects.doc_domain import DocDomain
-from domain.value_objects.roles import UserKind
 from domain.value_objects.visibility import DocumentVisibility
 
 

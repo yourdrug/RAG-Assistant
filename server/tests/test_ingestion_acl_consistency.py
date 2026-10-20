@@ -11,7 +11,7 @@ from domain.entities.document import Document
 from domain.entities.raw_document import RawDocument
 from domain.entities.vector_outbox_entry import OutboxOperation
 from domain.shared.exceptions import BusinessRuleViolation, ValidationError
-from domain.value_objects.roles import UserKind, UserRole
+from domain.identity.roles import UserKind, UserRole
 from domain.value_objects.source_type import SourceType
 from domain.value_objects.visibility import DocumentVisibility
 from fakes import FakeUnitOfWorkFactory

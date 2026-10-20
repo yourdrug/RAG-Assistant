@@ -14,12 +14,12 @@ from application.chat import ChatLogService, ChatService, ConversationService, C
 from domain.entities.chat_log import ChatLog
 from domain.entities.conversation import Conversation
 from domain.entities.message import Message
+from domain.identity.roles import UserKind, UserRole
 from domain.shared.exceptions import BusinessRuleViolation, EntityNotFound, PermissionDeniedError
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.llm_provider import Breadth
 from domain.value_objects.message_role import MessageRole
 from domain.value_objects.rag_result import RagResult
-from domain.value_objects.roles import UserKind, UserRole
 from domain.value_objects.stream_events import (
     MetaEvent,
     SourcesEvent,

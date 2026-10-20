@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from application.identity.dto import ApiKeyAuthResult, ApiKeyInfo, IssueApiKeyResult
+from domain.identity.roles import UserKind
 from domain.shared.exceptions import BusinessRuleViolation, EntityNotFound
-from domain.value_objects.roles import UserKind
 
 
 if TYPE_CHECKING:
