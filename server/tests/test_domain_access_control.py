@@ -1,4 +1,4 @@
-"""Tests for domain/services/access_control.py — pure business rules for document visibility.
+"""Tests for domain/knowledge/access_control.py — pure business rules for document visibility.
 
 Tests four functions:
   - validate_document_visibility

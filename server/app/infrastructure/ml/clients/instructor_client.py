@@ -15,7 +15,7 @@ from infrastructure.budget.transport import PaidSyncTransport, PaidAsyncTranspor
 from openai import AsyncOpenAI, OpenAI
 
 from config import settings
-from domain.value_objects.llm_provider import LLMProvider
+from domain.runtime.enums import LLMProvider
 from infrastructure.ml.usage_capture import record_model_response
 
 log = logging.getLogger("default")

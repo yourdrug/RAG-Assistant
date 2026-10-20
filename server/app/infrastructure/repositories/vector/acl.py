@@ -2,7 +2,7 @@
 infrastructure/acl.py — Qdrant filter construction for document access control.
 
 Translates canonical VisibilityCondition objects from the domain layer
-into Qdrant Filter objects. All business logic lives in domain/services/access_control.py.
+into Qdrant Filter objects. All business logic lives in domain/knowledge/access_control.py.
 """
 
 from __future__ import annotations

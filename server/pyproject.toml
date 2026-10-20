@@ -359,7 +359,7 @@ module = [
     "domain.rag.guardrails.injection",
     "domain.rag.retrieval",
     "domain.identity.ports",
-    "domain.utils",
+    "domain.runtime.config",
     "domain.shared.enums",
     "domain.rag.guardrails.pii",
     "domain.rag.result",
@@ -793,30 +793,27 @@ name = "Domain shared kernel is independent of contexts"
 type = "forbidden"
 source_modules = ["domain.shared"]
 forbidden_modules = [
-    "domain.benchmark", "domain.chat", "domain.rag", "domain.entities", "domain.events",
-    "domain.identity", "domain.knowledge", "domain.ingestion", "domain.repositories", "domain.services", "domain.utils",
-    "domain.value_objects",
+    "domain.benchmark", "domain.chat", "domain.identity", "domain.ingestion", "domain.knowledge", "domain.rag", "domain.runtime",
 ]
+
 
 [[tool.importlinter.contracts]]
 name = "Domain identity depends only on shared"
 type = "forbidden"
 source_modules = ["domain.identity"]
 forbidden_modules = [
-    "domain.benchmark", "domain.chat", "domain.rag", "domain.entities", "domain.events",
-    "domain.knowledge", "domain.ingestion", "domain.repositories", "domain.services", "domain.utils",
-    "domain.value_objects",
+    "domain.benchmark", "domain.chat", "domain.ingestion", "domain.knowledge", "domain.rag", "domain.runtime",
 ]
+
 
 [[tool.importlinter.contracts]]
 name = "Domain knowledge depends only on identity and shared"
 type = "forbidden"
 source_modules = ["domain.knowledge"]
 forbidden_modules = [
-    "domain.benchmark", "domain.chat", "domain.rag", "domain.entities", "domain.events",
-    "domain.ingestion", "domain.repositories", "domain.services", "domain.utils",
-    "domain.value_objects",
+    "domain.benchmark", "domain.chat", "domain.ingestion", "domain.rag", "domain.runtime",
 ]
+
 
 [[tool.importlinter.contracts]]
 name = "Domain ingestion depends only on knowledge and shared"
@@ -824,25 +821,16 @@ type = "forbidden"
 source_modules = ["domain.ingestion"]
 allow_indirect_imports = true
 forbidden_modules = [
-    "domain.benchmark",
-    "domain.chat",
-    "domain.entities",
-    "domain.events",
-    "domain.identity",
-    "domain.rag",
-    "domain.repositories",
-    "domain.services",
-    "domain.utils",
-    "domain.value_objects",
+    "domain.benchmark", "domain.chat", "domain.identity", "domain.rag", "domain.runtime",
 ]
+
 
 [[tool.importlinter.contracts]]
 name = "Domain RAG depends only on knowledge identity and shared"
 type = "forbidden"
 source_modules = ["domain.rag"]
 forbidden_modules = [
-    "domain.benchmark", "domain.chat", "domain.ingestion", "domain.entities", "domain.events", "domain.repositories",
-    "domain.services", "domain.utils", "domain.value_objects",
+    "domain.benchmark", "domain.chat", "domain.ingestion", "domain.runtime",
 ]
 
 
@@ -852,8 +840,7 @@ type = "forbidden"
 source_modules = ["domain.chat"]
 allow_indirect_imports = true
 forbidden_modules = [
-    "domain.benchmark", "domain.knowledge", "domain.ingestion", "domain.entities", "domain.events",
-    "domain.repositories", "domain.services", "domain.utils", "domain.value_objects",
+    "domain.benchmark", "domain.ingestion", "domain.knowledge", "domain.runtime",
 ]
 
 
@@ -862,9 +849,17 @@ name = "Domain benchmark depends only on shared"
 type = "forbidden"
 source_modules = ["domain.benchmark"]
 forbidden_modules = [
-    "domain.chat", "domain.rag", "domain.knowledge", "domain.identity", "domain.ingestion",
-    "domain.entities", "domain.events", "domain.repositories", "domain.services",
-    "domain.utils", "domain.value_objects",
+    "domain.chat", "domain.identity", "domain.ingestion", "domain.knowledge", "domain.rag", "domain.runtime",
+]
+
+
+[[tool.importlinter.contracts]]
+name = "Domain runtime depends only on knowledge and shared"
+type = "forbidden"
+source_modules = ["domain.runtime"]
+allow_indirect_imports = true
+forbidden_modules = [
+    "domain.benchmark", "domain.chat", "domain.identity", "domain.ingestion", "domain.rag",
 ]
 
 

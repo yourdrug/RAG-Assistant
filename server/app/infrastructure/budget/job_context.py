@@ -5,7 +5,7 @@ from contextvars import ContextVar
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from application.budget import billing_principal
-from domain.value_objects.cost_budget import BudgetError
+from domain.runtime.cost import BudgetError
 
 
 job_operations: ContextVar[tuple[str, dict[str, int]] | None] = ContextVar('job_operations', default=None)

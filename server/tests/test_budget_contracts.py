@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from application.budget import BudgetAdminService, BudgetPolicy, CostBudgetService
-from domain.value_objects.cost_budget import BudgetError
+from domain.runtime.cost import BudgetError
 
 
 @pytest.mark.parametrize(

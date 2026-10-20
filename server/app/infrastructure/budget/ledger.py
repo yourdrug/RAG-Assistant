@@ -10,7 +10,7 @@ import json
 
 from sqlalchemy import text
 
-from domain.value_objects.cost_budget import BudgetError, UNDISPATCHED_COST_SOURCE
+from domain.runtime.cost import BudgetError, UNDISPATCHED_COST_SOURCE
 
 ADMIT = """
 local hour = tonumber(ARGV[1]) + tonumber(ARGV[3])
@@ -223,7 +223,8 @@ class PostgresRedisBudget:
                     await session.execute(
                         text('''
                 SELECT provider, model, version, unit, input_usd_per_million,
-                       output_usd_per_million, context_tokens FROM cost_rates
+                       output_usd_per_million, context_tokens,
+                       provider = 'deepinfra' AS input_only FROM cost_rates
                 ORDER BY provider, model, version DESC
             ''')
                     )

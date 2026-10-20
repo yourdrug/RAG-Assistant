@@ -18,7 +18,7 @@ from typing import Any
 from config import settings
 from domain.rag.prompts import build_system_prompt
 from domain.rag.breadth import Breadth
-from domain.value_objects.llm_provider import LLMProvider
+from domain.runtime.enums import LLMProvider
 from langchain.schema import Document
 
 from infrastructure.ml.clients.llm_schemas import JudgeScore

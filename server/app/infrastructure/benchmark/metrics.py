@@ -84,7 +84,7 @@ def compute_context_precision_recall(
 
     """
     from config import settings
-    from domain.value_objects.llm_provider import LLMProvider
+    from domain.runtime.enums import LLMProvider
 
     from infrastructure.benchmark.judge import (
         CONTEXT_PRECISION_PROMPT,

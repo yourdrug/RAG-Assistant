@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from domain.benchmark.sweep import BenchmarkSweep
+from domain.benchmark.sweep import BenchmarkStrategy, BenchmarkSweep, SweepEvaluationMode
 from domain.shared.exceptions import BusinessRuleViolation
-from domain.value_objects.job_status import BackgroundJobStatus
+from domain.runtime.jobs import BackgroundJobStatus
 from domain.benchmark.sweep import BenchmarkSweepStatus
 from sqlalchemy import delete, or_, func, select, update
 from sqlalchemy.exc import IntegrityError
@@ -195,14 +195,14 @@ class SQLAlchemyBenchmarkSweepRepository:
         return BenchmarkSweep(
             id=orm.id,
             creation_date=orm.creation_date,
-            status=orm.status,
-            strategy=orm.strategy,
+            status=BenchmarkSweepStatus(orm.status),
+            strategy=BenchmarkStrategy(orm.strategy),
             search_space=orm.search_space or {},
             objective_weights=orm.objective_weights or {},
             dataset=orm.dataset,
             top_n_llm=orm.top_n_llm,
             judge_model=orm.judge_model,
-            evaluation_mode=orm.evaluation_mode,
+            evaluation_mode=SweepEvaluationMode(orm.evaluation_mode),
             job_id=orm.job_id,
             total_configs=orm.total_configs,
             evaluated_configs=orm.evaluated_configs,

@@ -24,7 +24,7 @@ from infrastructure.corpus.snapshot import BoundQdrantClient, CorpusSnapshot, ac
 from infrastructure.ml.clients.managed_llm import ManagedLLM, ManagedInstructor
 from domain.shared.exceptions import ValidationError
 from domain.shared.exceptions import SemaphoreTimeoutError
-from domain.value_objects.llm_provider import LLMProvider
+from domain.runtime.enums import LLMProvider
 
 from infrastructure.bm25.bm25_index import BM25Index
 from infrastructure.bm25.persistence import BM25SnapshotNotReady

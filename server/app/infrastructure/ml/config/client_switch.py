@@ -2,7 +2,7 @@
 
 import asyncio
 import math
-from domain.value_objects.ml_provider import MLProvider
+from domain.runtime.enums import MLProvider
 from typing import Any
 
 import httpx
@@ -10,7 +10,7 @@ import httpx
 from config import Settings
 from application.budget import billing_principal
 from domain.shared.exceptions import ValidationError
-from domain.value_objects.llm_provider import LLMProvider
+from domain.runtime.enums import LLMProvider
 from infrastructure.ml.clients import factories
 from infrastructure.ml.clients.instructor_client import create_async_instructor_client
 from infrastructure.ml.clients.managed_llm import ManagedInstructor, ManagedLLM

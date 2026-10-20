@@ -133,6 +133,4 @@ def default_strategy_factories() -> dict[str, Callable[[dict], SweepSearchStrate
             generate_random_points(space, space.get("_n_random", 50))
         ),
         BenchmarkStrategy.OPTUNA_TPE.value: OptunaSweepStrategy,
-        # Keep previously persisted sweeps executable without a data migration.
-        BenchmarkStrategy.SUCCESSIVE_HALVING.value: OptunaSweepStrategy,
     }

@@ -8,7 +8,7 @@ import pytest
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent / "app"))
 
-from domain.entities.config_parameter import ConfigParameter
+from domain.runtime.config import ConfigParameter
 from domain.shared.exceptions import (
     AppException,
     AuthenticationError,
@@ -27,7 +27,7 @@ from domain.rag.classification import (
     classify_query_domain,
     has_exact_reference,
 )
-from domain.value_objects.config_value_type import ConfigValueType
+from domain.runtime.config import ConfigValueType
 from domain.knowledge.enums import DocDomain
 from domain.rag.breadth import Breadth
 

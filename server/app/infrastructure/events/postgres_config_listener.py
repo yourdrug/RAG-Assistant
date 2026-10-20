@@ -17,7 +17,7 @@ import asyncpg
 from application.ports.event_bus import EventBus
 from config import settings
 from infrastructure.initialization import load_config_from_db
-from domain.events.config_events import ConfigParameterChanged
+from domain.runtime.config import ConfigParameterChanged
 
 from infrastructure.metrics.metrics import (
     CONFIG_LISTENER_CONNECTED,

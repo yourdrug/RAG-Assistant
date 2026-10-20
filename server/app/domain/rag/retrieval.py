@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TypedDict
+from typing import Any, Protocol, TypedDict
 
 from domain.knowledge.chunk import SENTENCE_UNIT_KIND
 from domain.rag.breadth import Breadth
@@ -10,6 +10,16 @@ from domain.rag.classification import has_exact_reference
 from domain.rag.settings import RagSettings
 from domain.shared.exceptions import ValidationError
 from domain.shared.hashing import content_hash
+
+
+class RetrievalDocument(Protocol):
+    """Read-only content and metadata required by retrieval policies."""
+
+    @property
+    def page_content(self) -> str: ...
+
+    @property
+    def metadata(self) -> dict[str, Any]: ...
 
 
 class RetrievalParams(TypedDict):
@@ -98,7 +108,9 @@ def select_final_top_k(
     return rag_settings.retriever.top_k_broad
 
 
-def prioritize_distinct_provisions(items: list) -> list:
+def prioritize_distinct_provisions[ItemT: RetrievalDocument | tuple[RetrievalDocument, float]](
+    items: list[ItemT],
+) -> list[ItemT]:
     """Stable first pass over provisions, followed by their remaining chunks.
 
     Accept documents or (document, score) pairs. Sentence splits share their
@@ -107,8 +119,8 @@ def prioritize_distinct_provisions(items: list) -> list:
     No text is removed: remaining chunks can fill any unused budget.
     """
     seen = set()
-    first = []
-    remaining = []
+    first: list[ItemT] = []
+    remaining: list[ItemT] = []
     for item in items:
         doc = item[0] if isinstance(item, tuple) else item
         metadata = doc.metadata
@@ -178,10 +190,10 @@ def rrf_merge(
     return [h for h, _score in merged]
 
 
-def deduplicate_docs(docs: list) -> list:
+def deduplicate_docs[DocumentT: RetrievalDocument](docs: list[DocumentT]) -> list[DocumentT]:
     """Remove near-duplicate chunks by content_hash to improve context diversity."""
     seen_hashes: set[str] = set()
-    unique_docs: list = []
+    unique_docs: list[DocumentT] = []
     for doc in docs:
         h = content_hash(doc.page_content)
         if h not in seen_hashes:

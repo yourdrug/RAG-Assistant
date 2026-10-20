@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 import pytest
 
 from application.admin import ConfigService
-from domain.events.config_events import ConfigParameterChanged
+from domain.runtime.config import ConfigParameterChanged
 from domain.ingestion.profiles.decree import DecreeDomainProfile
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
@@ -95,7 +95,7 @@ class TestConfigServiceDomainParams:
 
 
 def _param(key: str, value: str, domain_key: str | None):
-    from domain.entities.config_parameter import ConfigParameter
+    from domain.runtime.config import ConfigParameter
 
     return ConfigParameter(
         key=key,

@@ -11,15 +11,17 @@ from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from application.admin.dto import ConfigurationStatus
-from domain.events.config_events import ConfigParameterChanged
-from domain.shared.exceptions import EntityNotFound, ValidationError
-from domain.value_objects.dynamic_config import (
+from domain.runtime.config import ConfigParameterChanged
+from domain.runtime.dynamic_params import (
     DYNAMIC_FIELDS_MAP,
     DYNAMIC_PARAMS,
+)
+from domain.runtime.setting_keys import (
     METADATA_SETTING_KEYS,
     SECRET_SETTING_KEYS,
     STATIC_SETTING_KEYS,
 )
+from domain.shared.exceptions import EntityNotFound, ValidationError
 
 
 if TYPE_CHECKING:
@@ -27,7 +29,7 @@ if TYPE_CHECKING:
     from application.admin.ports import ProviderConfigurationPort
     from application.ports.event_bus import EventBus
     from application.uow import UnitOfWorkFactory
-    from domain.entities.config_parameter import ConfigParameter
+    from domain.runtime.config import ConfigParameter
 
 
 class ConfigService:

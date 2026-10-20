@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import logging
 
-from domain.events.config_events import ConfigParameterChanged
+from domain.runtime.config import ConfigParameterChanged
 from infrastructure.ml.config.config_subscribers import SENSITIVE_KEYS
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession

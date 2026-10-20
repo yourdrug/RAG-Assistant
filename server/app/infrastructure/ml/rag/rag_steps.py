@@ -35,7 +35,7 @@ from domain.rag.prompts import (
     build_system_prompt,
 )
 from domain.rag.breadth import BREADTH_ALIASES, Breadth
-from domain.value_objects.llm_provider import LLMProvider
+from domain.runtime.enums import LLMProvider
 from domain.rag.prompt_blocks import NOT_FOUND_ANSWER
 from domain.rag.stream_events import SourcesEvent, StreamEvent, TextChunk, UsageReport
 

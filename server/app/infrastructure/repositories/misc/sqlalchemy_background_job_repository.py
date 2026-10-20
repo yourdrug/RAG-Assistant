@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from domain.repositories.background_job_repository import BackgroundJob
-from domain.value_objects.job_status import BackgroundJobStatus
+from domain.runtime.jobs import BackgroundJob
+from domain.runtime.jobs import BackgroundJobStatus
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from domain.repositories.config_parameter_repository import ConfigParameter
+from domain.runtime.config import ConfigParameter
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 

@@ -213,7 +213,7 @@ async def assess_sufficiency(
         )
 
     from config import settings
-    from domain.value_objects.llm_provider import LLMProvider
+    from domain.runtime.enums import LLMProvider
 
     if llm_client is None:
         llm_client = ml_clients.instructor_client

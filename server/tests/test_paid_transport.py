@@ -10,11 +10,11 @@ import pytest
 from instructor.core.exceptions import InstructorRetryException
 from infrastructure.ml.clients import factories, managed_http, deepinfra_clients
 from infrastructure.ml.clients.managed_llm import ManagedLLM
-from domain.value_objects.llm_provider import LLMProvider
+from domain.runtime.enums import LLMProvider
 from infrastructure.benchmark import judge, grouped_judge
 
 from application.budget import BudgetPolicy, CostBudgetService, billing_principal
-from domain.value_objects.cost_budget import BudgetError, CostRate, ModelBillingContract
+from domain.runtime.cost import BudgetError, CostRate, ModelBillingContract
 from infrastructure.budget.runtime import BudgetRuntime
 from pydantic import BaseModel
 from infrastructure.budget.provider_catalog import OpenRouterBillingCatalog
@@ -45,7 +45,9 @@ async def test_disabled_quota_does_not_require_reservation():
 
 
 def test_embedding_zero_output_budget():
-    rate = CostRate('deepinfra', 'BAAI/bge-m3', 1, 'tokens', Decimal('1'), Decimal('0'), 8192)
+    rate = CostRate(
+        'deepinfra', 'BAAI/bge-m3', 1, 'tokens', Decimal('1'), Decimal('0'), 8192, input_only=True
+    )
     assert rate.reserve(8192, 0) == 8_192_000
 
 
@@ -173,7 +175,7 @@ async def test_unknown_budget_policy_never_dispatches(runtime, sync):
 async def test_deepinfra_configuration_probe_has_billing_scope(runtime, monkeypatch, principal, failure):
     runtime.catalog = OpenRouterBillingCatalog()
     runtime.rate.return_value = CostRate(
-        'deepinfra', 'BAAI/bge-m3', 1, 'tokens', Decimal('1'), Decimal('0'), 32768
+        'deepinfra', 'BAAI/bge-m3', 1, 'tokens', Decimal('1'), Decimal('0'), 32768, input_only=True
     )
     observed = []
 
@@ -326,7 +328,9 @@ async def test_deepinfra_batch_uses_documented_units(runtime, operation, count):
         ),
         'verified',
     )
-    runtime.rate.return_value = CostRate('deepinfra', 'm', 1, 'tokens', Decimal('1'), Decimal('0'), 100)
+    runtime.rate.return_value = CostRate(
+        'deepinfra', 'm', 1, 'tokens', Decimal('1'), Decimal('0'), 100, input_only=True
+    )
     payload = (
         {'usage': {'prompt_tokens': 7}}
         if operation == 'embedding'
@@ -866,7 +870,9 @@ async def test_deepinfra_clients_keep_outputs_and_account_physical_call(runtime,
         frozenset({'queries', 'documents'} if rerank else {'model', 'input', 'encoding_format'}),
         'verified',
     )
-    runtime.rate.return_value = CostRate('deepinfra', 'm', 1, 'tokens', Decimal('1'), Decimal('0'), 100)
+    runtime.rate.return_value = CostRate(
+        'deepinfra', 'm', 1, 'tokens', Decimal('1'), Decimal('0'), 100, input_only=True
+    )
     payload = (
         {'scores': [0.9], 'input_tokens': 7}
         if rerank

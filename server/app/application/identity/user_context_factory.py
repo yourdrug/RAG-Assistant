@@ -41,8 +41,8 @@ class UserContextFactory:
 
         return UserContext(
             user_id=user_id,
-            user_kind=user_kind,
-            user_role=user_role,
+            user_kind=UserKind(user_kind),
+            user_role=UserRole(user_role),
             group_ids=group_ids,
             managed_client_ids=managed_client_ids,
             managed_internal_ids=managed_internal_ids,

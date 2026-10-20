@@ -457,5 +457,7 @@
   "domain.services.rag_policy.compute_context_budget": "domain.rag.retrieval.compute_context_budget",
   "domain.services.rag_policy.compute_retrieval_params": "domain.rag.retrieval.compute_retrieval_params",
   "domain.services.rag_policy.select_final_top_k": "domain.rag.retrieval.select_final_top_k",
-  "domain.services.rag_policy.sanitize_for_prompt": "domain.rag.guardrails.sanitization.sanitize_for_prompt"
+  "domain.services.rag_policy.sanitize_for_prompt": "domain.rag.guardrails.sanitization.sanitize_for_prompt",
+  "domain.repositories.config_parameter_repository.ConfigParameter": "domain.runtime.config.ConfigParameter",
+  "domain.repositories.background_job_repository.BackgroundJob": "domain.runtime.jobs.BackgroundJob"
 }

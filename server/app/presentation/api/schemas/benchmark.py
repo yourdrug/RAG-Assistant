@@ -135,7 +135,7 @@ class SweepCreateRequest(BaseModel):
 
     strategy: BenchmarkStrategy = Field(
         BenchmarkStrategy.GRID,
-        description="Search strategy. successive_halving is a deprecated alias for optuna_tpe.",
+        description="Search strategy.",
     )
     search_space: dict
     objective_weights: dict[str, float] = Field(default_factory=lambda: DEFAULT_OBJECTIVE_WEIGHTS.copy())
@@ -143,13 +143,6 @@ class SweepCreateRequest(BaseModel):
     top_n_llm: int = Field(3, ge=0, le=20)
     evaluation_mode: SweepEvaluationMode = SweepEvaluationMode.FAST
     judge_model: str | None = Field(default=None, min_length=1, max_length=255)
-
-    @field_validator("strategy")
-    @classmethod
-    def normalize_strategy(cls, value: BenchmarkStrategy) -> BenchmarkStrategy:
-        if value == BenchmarkStrategy.SUCCESSIVE_HALVING:
-            return BenchmarkStrategy.OPTUNA_TPE
-        return value
 
     @field_validator("judge_model")
     @classmethod

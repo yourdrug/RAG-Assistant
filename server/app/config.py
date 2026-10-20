@@ -2,11 +2,11 @@
 
 Types, defaults and validation live here; deployment values currently come from
 env and supported dynamic values are applied from the database at bootstrap.
-Target ownership is declared in domain.value_objects.dynamic_config.
+Target ownership is declared in domain.runtime.setting_keys.
 """
 
 import sys
-from domain.value_objects.ml_provider import MLProvider
+from domain.runtime.enums import MLProvider
 from contextvars import ContextVar
 from datetime import UTC, datetime
 from pathlib import Path
@@ -16,9 +16,9 @@ from zoneinfo import ZoneInfo
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict, PydanticBaseSettingsSource
 
-from domain.value_objects.dynamic_config import MAX_UPLOAD_FILE_MB, DYNAMIC_PARAMS
-from domain.value_objects.app_stage import AppStage
-from domain.value_objects.llm_provider import LLMProvider
+from domain.runtime.dynamic_params import MAX_UPLOAD_FILE_MB, DYNAMIC_PARAMS
+from domain.runtime.enums import AppStage
+from domain.runtime.enums import LLMProvider
 
 _settings_overrides: ContextVar[dict[str, object] | None] = ContextVar("settings_overrides", default=None)
 

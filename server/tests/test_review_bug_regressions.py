@@ -7,7 +7,7 @@ import pytest
 
 from composition.container import Container
 from config import settings
-from domain.value_objects.config_value_type import ConfigValueType
+from domain.runtime.config import ConfigValueType
 from infrastructure.events.in_process_event_bus import InProcessEventBus
 from infrastructure.ml.clients.client_registry import MLClientRegistry
 from infrastructure.database.database import database
@@ -30,7 +30,7 @@ async def test_broad_config_rebuilds_cached_llm(monkeypatch, key):
     container = Container()
     container.infrastructure.ml.ml_clients = registry
     from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
-    from domain.entities.config_parameter import ConfigParameter
+    from domain.runtime.config import ConfigParameter
 
     monkeypatch.setattr("composition.infrastructure.event_bus", bus)
     monkeypatch.setattr(settings, "tei_embed_url", "http://tei-embed:8080")

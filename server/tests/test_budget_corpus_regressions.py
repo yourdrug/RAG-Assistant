@@ -16,7 +16,7 @@ from pydantic import ValidationError
 
 from application.budget import BudgetAdminService, BudgetPolicy, CostBudgetService
 from domain.benchmark.sweep import BenchmarkSweep
-from domain.value_objects.cost_budget import BudgetError, CostRate
+from domain.runtime.cost import BudgetError, CostRate
 from infrastructure.benchmark import runner, sweep_scoring
 from infrastructure.benchmark.corpus import corpus_metadata
 from infrastructure.benchmark.sweep_engine import SweepEngine
@@ -79,6 +79,7 @@ async def test_stored_zero_tariff_never_dispatches():
             Decimal('0'),
             Decimal('0'),
             32768,
+            input_only=True,
         )
     )
     send = Mock(return_value=httpx.Response(200))
@@ -101,7 +102,7 @@ async def test_stored_zero_tariff_never_dispatches():
 @pytest.mark.parametrize('model', ['Qwen/Qwen3-Reranker-0.6B', 'Qwen/Qwen3-Reranker-4B'])
 async def test_reranker_contract_reserves_each_pair(model):
     contract = await OpenRouterBillingCatalog().contract('deepinfra', model)
-    rate = CostRate('deepinfra', model, 1, 'tokens', Decimal('0.01'), Decimal('0'), 32768)
+    rate = CostRate('deepinfra', model, 1, 'tokens', Decimal('0.01'), Decimal('0'), 32768, input_only=True)
     assert prepare_inference_body({'queries': ['q'], 'documents': ['d1', 'd2']}, contract, rate) == 655360
 
 
@@ -126,6 +127,7 @@ async def test_active_model_status_reports_unsupported_or_invalid_tariffs(model,
                 Decimal(price),
                 Decimal('0'),
                 32768,
+                input_only=True,
             )
         )
     ]
@@ -144,7 +146,11 @@ async def test_active_model_status_checks_violation_of_latest_tariff(versions, v
     model = 'Qwen/Qwen3-Reranker-0.6B'
     repository = AsyncMock()
     repository.rates.return_value = [
-        vars(CostRate('deepinfra', model, version, 'tokens', Decimal('0.01'), Decimal('0'), 32768))
+        vars(
+            CostRate(
+                'deepinfra', model, version, 'tokens', Decimal('0.01'), Decimal('0'), 32768, input_only=True
+            )
+        )
         for version in versions
     ]
     repository.rate_violated.side_effect = lambda provider, name, version: violated and version == 1

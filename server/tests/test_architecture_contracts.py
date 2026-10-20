@@ -91,6 +91,9 @@ def test_application_dependency_boundary(importer: str, imported: str, allowed: 
 @pytest.mark.parametrize(
     "context, imported, allowed",
     [
+        ("runtime", "domain.knowledge.enums", True),
+        ("runtime", "domain.shared.exceptions", True),
+        ("runtime", "domain.runtime.config", True),
         ("benchmark", "domain.shared.stats", True),
         ("benchmark", "domain.benchmark.question", True),
         ("chat", "domain.rag.context", True),
@@ -114,6 +117,7 @@ def test_application_dependency_boundary(importer: str, imported: str, allowed: 
         *[
             (context, module, False)
             for context, name in (
+                ("runtime", "Domain runtime depends only on knowledge and shared"),
                 ("benchmark", "Domain benchmark depends only on shared"),
                 ("chat", "Domain chat depends only on rag identity and shared"),
                 ("shared", "Domain shared kernel is independent of contexts"),
@@ -152,7 +156,7 @@ def test_domain_context_dependency_boundary(context: str, imported: str, allowed
 
 
 @pytest.mark.parametrize(
-    "context", ["shared", "identity", "knowledge", "ingestion", "rag", "chat", "benchmark"]
+    "context", ["shared", "identity", "knowledge", "ingestion", "rag", "chat", "benchmark", "runtime"]
 )
 def test_context_contract_covers_every_forbidden_domain_package(context: str) -> None:
     options = next(
@@ -168,7 +172,7 @@ def test_context_contract_covers_every_forbidden_domain_package(context: str) ->
     if context in {"knowledge", "rag", "chat"}:
         siblings.discard("domain.identity")
 
-    if context in {"ingestion", "rag"}:
+    if context in {"ingestion", "rag", "runtime"}:
         siblings.discard("domain.knowledge")
 
     if context == "chat":

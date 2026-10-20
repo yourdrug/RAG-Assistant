@@ -6,8 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from config import settings
-from domain.events.config_events import ConfigParameterChanged
-from domain.value_objects.config_value_type import ConfigValueType
+from domain.runtime.config import ConfigParameterChanged, ConfigValueType
 from infrastructure.ml.config.config_subscribers import apply_to_settings, invalidate_storage_cache
 from infrastructure.storage.file_storage import LazyStorage
 from test_s3_storage_async import client_harness

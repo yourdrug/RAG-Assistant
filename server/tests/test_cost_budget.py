@@ -1,6 +1,6 @@
 from decimal import Decimal
 import pytest
-from domain.value_objects.cost_budget import CostRate, BudgetError, usd_units
+from domain.runtime.cost import CostRate, BudgetError, usd_units
 from application.budget import BudgetPolicy, CostBudgetService, billing_principal
 from unittest.mock import AsyncMock
 import asyncio

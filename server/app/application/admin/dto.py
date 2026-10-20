@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from typing import Any
 
-from domain.value_objects.ml_provider import MLProvider
+from domain.runtime.enums import MLProvider
 
 
 @dataclass(frozen=True)

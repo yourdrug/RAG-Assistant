@@ -119,7 +119,7 @@ async def test_resume_cannot_displace_an_active_sweep(pg_engine):
 
 
 async def test_dead_job_releases_active_sweep(pg_engine):
-    from domain.value_objects.job_status import BackgroundJobStatus
+    from domain.runtime.jobs import BackgroundJobStatus
     from presentation.api.constants import JobType
     from infrastructure.database.models import BackgroundJobModel
 

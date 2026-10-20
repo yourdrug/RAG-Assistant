@@ -14,7 +14,7 @@ from openai import AsyncOpenAI, APIConnectionError, RateLimitError, InternalServ
 from pydantic import ValidationError
 
 from config import settings
-from domain.value_objects.llm_provider import LLMProvider
+from domain.runtime.enums import LLMProvider
 from infrastructure.ml.clients.llm_schemas import JudgeScore
 from infrastructure.benchmark.token_usage import record_judge_usage
 from infrastructure.benchmark.judge_diagnostics import (

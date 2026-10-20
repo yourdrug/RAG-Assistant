@@ -1,12 +1,29 @@
-"""ConfigParameter entity — dynamic configuration parameter with validation."""
+"""Dynamic configuration values, validation and change events."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from enum import StrEnum
 
 from domain.shared.exceptions import ValidationError
-from domain.utils import parse_bool
-from domain.value_objects.config_value_type import ConfigValueType
+
+
+def parse_bool(value: str) -> bool:
+    """Parse a string to boolean, raising ValueError on failure."""
+    if value.lower() in ("true", "1", "yes", "on"):
+        return True
+    if value.lower() in ("false", "0", "no", "off"):
+        return False
+    raise ValueError(f"Cannot parse '{value}' as boolean")
+
+
+class ConfigValueType(StrEnum):
+    BOOL = "bool"
+    INT = "int"
+    FLOAT = "float"
+    STR = "str"
+    LIST = "list"
 
 
 @dataclass
@@ -57,3 +74,20 @@ class ConfigParameter:
             raise ValidationError(f"Value for '{self.key}' must be >= {self.min_value}")
         if self.max_value is not None and val > self.max_value:
             raise ValidationError(f"Value for '{self.key}' must be <= {self.max_value}")
+
+
+@dataclass(frozen=True)
+class ConfigParameterChanged:
+    """Published after a dynamic config parameter is committed to the database.
+
+    Subscribers decide whether the changed key is relevant to them -- the
+    event is broadcast generically and filtering happens inside each handler.
+    """
+
+    key: str
+    old_value: str | None
+    new_value: str
+    value_type: str
+    changed_by: int | None = None
+    occurred_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    domain_key: str | None = None

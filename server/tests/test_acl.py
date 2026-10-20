@@ -1,6 +1,6 @@
 """Tests for access control logic.
 
-Domain rules: domain/services/access_control.py
+Domain rules: domain/knowledge/access_control.py
 Qdrant filter: infrastructure/acl.py
 """
 

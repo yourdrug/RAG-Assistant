@@ -26,7 +26,7 @@ async def check_relevance(ml_clients, question: str, docs: list) -> tuple[bool, 
     import asyncio
 
     from config import settings
-    from domain.value_objects.llm_provider import LLMProvider
+    from domain.runtime.enums import LLMProvider
 
     context = format_docs(docs, max_context_tokens=2000)
     prompt_text = f"Вопрос: {question}\n\nКонтекст из документов:\n{context}"

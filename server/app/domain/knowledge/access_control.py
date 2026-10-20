@@ -171,8 +171,8 @@ def validate_document_visibility(
     ctx: UserContext,
 ) -> None:
     """Validate that a user can use the given visibility."""
-    user_kind = UserKind(ctx.user_kind)
-    user_role = UserRole(ctx.user_role)
+    user_kind = ctx.user_kind
+    user_role = ctx.user_role
     allowed = ALLOWED_VISIBILITY_FOR_KIND.get(user_kind)
     if allowed is None or visibility not in allowed:
         raise ValidationError(f"visibility='{visibility}' not available for kind='{user_kind}'")
@@ -220,11 +220,11 @@ def can_view_document(doc: Document, ctx: UserContext) -> bool:
     """
     DocumentVisibility.validate(doc.visibility)
     conditions = get_visibility_conditions(
-        UserKind(ctx.user_kind),
+        ctx.user_kind,
         ctx.user_id,
         list(ctx.group_ids),
         for_list=True,
-        user_role=UserRole(ctx.user_role),
+        user_role=ctx.user_role,
         managed_client_ids=list(ctx.managed_client_ids),
         managed_internal_ids=list(ctx.managed_internal_ids),
         managed_group_ids=list(ctx.managed_group_ids),
@@ -242,11 +242,11 @@ def is_in_search_scope(doc: Document, ctx: UserContext) -> bool:
     both list and search modes.
     """
     conditions = get_visibility_conditions(
-        UserKind(ctx.user_kind),
+        ctx.user_kind,
         ctx.user_id,
         list(ctx.group_ids),
         for_list=False,
-        user_role=UserRole(ctx.user_role),
+        user_role=ctx.user_role,
         managed_client_ids=list(ctx.managed_client_ids),
         managed_internal_ids=list(ctx.managed_internal_ids),
         managed_group_ids=list(ctx.managed_group_ids),
@@ -282,7 +282,7 @@ def check_ownership(doc: Document, ctx: UserContext, action: str = "modify") -> 
     """Raise BusinessRuleViolation if user cannot modify/delete the document."""
     if not doc.can_be_deleted_by(
         ctx.user_id,
-        UserRole(ctx.user_role),
+        ctx.user_role,
         list(ctx.group_ids),
         managed_client_ids=list(ctx.managed_client_ids),
         managed_internal_ids=list(ctx.managed_internal_ids),

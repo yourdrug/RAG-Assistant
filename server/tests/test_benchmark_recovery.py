@@ -119,7 +119,7 @@ async def test_resume_only_accepts_terminal_failed_or_cancelled_sweeps(status):
     service = BenchmarkSweepService(factory)
     if status in (BenchmarkSweepStatus.FAILED, BenchmarkSweepStatus.CANCELLED):
         resumed = await service.resume(1)
-        assert resumed.status == BenchmarkSweepStatus.PENDING.value
+        assert resumed.status is BenchmarkSweepStatus.PENDING
     else:
         with pytest.raises(ValidationError):
             await service.resume(1)
@@ -128,7 +128,7 @@ async def test_resume_only_accepts_terminal_failed_or_cancelled_sweeps(status):
 @pytest.mark.asyncio
 async def test_resume_waits_for_cancelled_worker_to_stop():
     from domain.shared.exceptions import BusinessRuleViolation
-    from domain.value_objects.job_status import BackgroundJobStatus
+    from domain.runtime.jobs import BackgroundJobStatus
 
     factory = FakeUnitOfWorkFactory()
     factory._uow.benchmark_sweeps.get_by_id = AsyncMock(

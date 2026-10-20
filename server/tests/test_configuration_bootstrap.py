@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from fastapi import Response
 from composition import infrastructure
-from domain.value_objects.cost_budget import BudgetError
+from domain.runtime.cost import BudgetError
 from infrastructure.budget.runtime import BudgetRuntime
 from infrastructure.budget.transport import PaidAsyncTransport
 from infrastructure.ml.clients import managed_http
@@ -16,17 +16,17 @@ from unittest.mock import MagicMock
 import pytest
 
 from config import Settings, settings
-from domain.entities.config_parameter import ConfigParameter
+from domain.runtime.config import ConfigParameter
 from domain.shared.exceptions import ValidationError
-from domain.value_objects.llm_provider import LLMProvider
-from domain.value_objects.config_value_type import ConfigValueType
+from domain.runtime.enums import LLMProvider
+from domain.runtime.config import ConfigValueType
 from fakes import FakeUnitOfWorkFactory
 from infrastructure import initialization
 from infrastructure.domain_profile import register_all_profiles
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from infrastructure.events.in_process_event_bus import InProcessEventBus
-from domain.events.config_events import ConfigParameterChanged
+from domain.runtime.config import ConfigParameterChanged
 
 
 def row(key, value, value_type=ConfigValueType.STR, domain_key=None):
@@ -278,7 +278,7 @@ async def test_cli_bootstrap_failure_does_not_run_action_and_closes_resources(mo
 
 
 def test_deepinfra_production_can_construct_before_db_load_and_without_tei_urls(configuration):
-    from domain.value_objects.app_stage import AppStage
+    from domain.runtime.enums import AppStage
 
     model = Settings(
         _env_file=None,
@@ -302,7 +302,7 @@ async def test_readiness_rejects_failed_configuration_snapshot(configuration, co
     from unittest.mock import AsyncMock
     from application.health.service import HealthService
     from application.health.ports import HealthCheckResult
-    from domain.value_objects.health_status import HealthStatus
+    from domain.runtime.enums import HealthStatus
 
     probes = SimpleNamespace(
         **{
@@ -384,7 +384,7 @@ def test_domain_invalid_value_is_rejected_before_update(configuration):
 
 def test_missing_snapshot_key_after_bootstrap_does_not_silently_keep_stale_value(configuration):
     complete = initialization.build_defaults()
-    from domain.entities.config_parameter import ConfigParameter
+    from domain.runtime.config import ConfigParameter
     from domain.ingestion.profiles.legal import LegalDomainProfile
     from domain.ingestion.profiles.decree import DecreeDomainProfile
     from domain.ingestion.profiles.general import GeneralDomainProfile

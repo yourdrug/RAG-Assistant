@@ -17,7 +17,7 @@ from domain.knowledge.enums import DocumentVisibility
 from domain.knowledge.enums import SourceType
 from domain.chat.message import Message
 from domain.chat.message import MessageRole
-from domain.value_objects.job_status import BackgroundJobStatus
+from domain.runtime.jobs import BackgroundJobStatus
 from domain.identity.roles import UserRole
 from domain.knowledge.enums import DocDomain
 from domain.knowledge.chunk import ChunkRecord
@@ -264,8 +264,8 @@ async def test_private_document_ownership_through_real_route(asgi_client, user_i
 )
 async def test_document_delete_queues_only_after_authorization(asgi_client, user_id, role, expected):
     from application.documents import DocumentDeletionJobs
-    from domain.entities.background_job import BackgroundJob
-    from domain.value_objects.job_type import JobType
+    from domain.runtime.jobs import BackgroundJob
+    from domain.runtime.jobs import JobType
     from domain.knowledge.enums import DocumentVisibility
 
     factory = FakeUnitOfWorkFactory()

@@ -63,16 +63,15 @@ def test_mode_survives_api_dto_and_response(mode):
 
 @pytest.mark.parametrize(
     "strategy",
-    [BenchmarkStrategy.RANDOM, BenchmarkStrategy.OPTUNA_TPE, BenchmarkStrategy.SUCCESSIVE_HALVING],
+    [BenchmarkStrategy.RANDOM, BenchmarkStrategy.OPTUNA_TPE],
 )
 def test_full_mode_rejects_incomplete_search_strategies(strategy):
     with pytest.raises(ValidationError, match="requires grid"):
         SweepCreateRequest(search_space={}, strategy=strategy.value, evaluation_mode=SweepEvaluationMode.FULL)
 
 
-@pytest.mark.parametrize("strategy", [BenchmarkStrategy.OPTUNA_TPE, BenchmarkStrategy.SUCCESSIVE_HALVING])
-def test_tpe_request_normalizes_strategy_through_dto_and_response(strategy):
-    body = SweepCreateRequest(search_space={}, strategy=strategy.value)
+def test_tpe_request_preserves_strategy_through_dto_and_response():
+    body = SweepCreateRequest(search_space={}, strategy=BenchmarkStrategy.OPTUNA_TPE.value)
     dto = sweep_create_to_dto(body)
     assert dto.strategy == BenchmarkStrategy.OPTUNA_TPE
     assert body.model_dump(mode="json")["strategy"] == BenchmarkStrategy.OPTUNA_TPE.value
@@ -80,9 +79,10 @@ def test_tpe_request_normalizes_strategy_through_dto_and_response(strategy):
     assert sweep_to_response(saved).strategy == BenchmarkStrategy.OPTUNA_TPE.value
 
 
-def test_unknown_search_strategy_is_rejected():
+@pytest.mark.parametrize("strategy", ["unknown", "successive_halving"])
+def test_unknown_search_strategy_is_rejected(strategy):
     with pytest.raises(ValidationError):
-        SweepCreateRequest(search_space={}, strategy="unknown")
+        SweepCreateRequest(search_space={}, strategy=strategy)
 
 
 @pytest.mark.asyncio

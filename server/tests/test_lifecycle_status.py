@@ -7,8 +7,8 @@ import pytest
 from domain.benchmark.sweep import BenchmarkSweepStatus
 from domain.knowledge.enums import DocumentStatus
 from domain.knowledge.index_sync import OutboxStatus
+from domain.runtime.jobs import BackgroundJobStatus
 from domain.shared.enums import LifecycleStatusMixin
-from domain.value_objects.job_status import BackgroundJobStatus
 
 
 @pytest.mark.parametrize(

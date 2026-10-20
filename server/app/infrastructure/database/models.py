@@ -27,7 +27,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from domain.knowledge.index_sync import OutboxStatus
-from domain.value_objects.job_status import BackgroundJobStatus
+from domain.runtime.jobs import BackgroundJobStatus
 from domain.knowledge.enums import DocumentVisibility
 from domain.knowledge.enums import SourceType
 from domain.knowledge.enums import DocDomain

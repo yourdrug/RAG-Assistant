@@ -8,12 +8,12 @@ from contextlib import asynccontextmanager
 from sqlalchemy import text
 import psycopg
 from langchain_core.load.dump import dumpd
-from domain.utils import parse_bool
+from domain.runtime.config import parse_bool
 
 from infrastructure.budget.job_context import next_operation_id
 from application.budget import BudgetPolicy, CostBudgetService, billing_principal
 from config import settings
-from domain.value_objects.cost_budget import BudgetError, CostRate
+from domain.runtime.cost import BudgetError, CostRate
 from infrastructure.ml.usage_capture import active_llm_usage
 from infrastructure.storage.file_storage import finish_owned_task
 import asyncio
@@ -114,7 +114,8 @@ class BudgetRuntime:
                     await session.execute(
                         text('''
                 SELECT provider, model, version, unit, input_usd_per_million,
-                       output_usd_per_million, context_tokens FROM cost_rates
+                       output_usd_per_million, context_tokens,
+                       provider = 'deepinfra' AS input_only FROM cost_rates
                 WHERE provider=:provider AND model=:model ORDER BY version DESC LIMIT 1
             '''),
                         {'provider': provider, 'model': model},

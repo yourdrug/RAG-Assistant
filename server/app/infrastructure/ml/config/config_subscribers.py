@@ -20,14 +20,15 @@ import json
 import logging
 
 from config import settings
-from domain.events.config_events import ConfigParameterChanged
-from domain.utils import parse_bool
+from domain.runtime.config import ConfigParameterChanged
+from domain.runtime.config import parse_bool
 
 from infrastructure.ml.ingestion import get_paddle_ocr
 from infrastructure.ml.guardrails.guardrails import invalidate_pii_detector
 
-from domain.value_objects.dynamic_config import DYNAMIC_FIELDS_MAP, STATIC_SETTING_KEYS
-from domain.value_objects.dynamic_config import SECRET_SETTING_KEYS as SENSITIVE_KEYS
+from domain.runtime.dynamic_params import DYNAMIC_FIELDS_MAP
+from domain.runtime.setting_keys import STATIC_SETTING_KEYS
+from domain.runtime.setting_keys import SECRET_SETTING_KEYS as SENSITIVE_KEYS
 
 log = logging.getLogger("default")
 

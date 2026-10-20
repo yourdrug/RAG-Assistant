@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 from composition.application import ApplicationContainer
 from composition.infrastructure import InfrastructureContainer
 from config import settings
-from domain.value_objects.app_stage import AppStage
+from domain.runtime.enums import AppStage
 
 if TYPE_CHECKING:
     from infrastructure.database.database import DatabaseManager

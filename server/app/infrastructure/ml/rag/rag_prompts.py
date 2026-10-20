@@ -135,7 +135,7 @@ async def decompose_question(
         return [question]
 
     from config import settings as _settings
-    from domain.value_objects.llm_provider import LLMProvider
+    from domain.runtime.enums import LLMProvider
 
     model = (
         _settings.llm_model if _settings.llm_provider == LLMProvider.OLLAMA else _settings.openrouter_model

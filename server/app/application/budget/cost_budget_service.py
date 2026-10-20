@@ -5,7 +5,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Unpack
 
-from domain.value_objects.cost_budget import BudgetError, usd_units
+from domain.runtime.cost import BudgetError, usd_units
 
 
 if TYPE_CHECKING:

@@ -14,7 +14,7 @@ import logging
 
 import httpx
 from infrastructure.budget.transport import PaidSyncTransport
-from domain.value_objects.cost_budget import BudgetError
+from domain.runtime.cost import BudgetError
 from infrastructure.ml.clients.managed_http import ManagedHTTPPool
 from infrastructure.ml.usage_capture import record_inference_response
 

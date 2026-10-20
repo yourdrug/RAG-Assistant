@@ -10,14 +10,16 @@ from domain.identity.roles import UserKind, UserRole
 @dataclass(frozen=True)
 class UserContext:
     user_id: int
-    user_kind: str
-    user_role: str
+    user_kind: UserKind
+    user_role: UserRole
     group_ids: tuple[int, ...] = field(default_factory=tuple)
     managed_client_ids: tuple[int, ...] = field(default_factory=tuple)
     managed_internal_ids: tuple[int, ...] = field(default_factory=tuple)
     managed_group_ids: tuple[int, ...] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "user_kind", UserKind(self.user_kind))
+        object.__setattr__(self, "user_role", UserRole(self.user_role))
         object.__setattr__(self, "group_ids", tuple(self.group_ids))
         object.__setattr__(self, "managed_client_ids", tuple(self.managed_client_ids))
         object.__setattr__(self, "managed_internal_ids", tuple(self.managed_internal_ids))

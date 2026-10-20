@@ -5,9 +5,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from domain.entities.background_job import BackgroundJob
+from domain.runtime.jobs import BackgroundJob, BackgroundJobStatus
 from domain.shared.exceptions import EntityNotFound
-from domain.value_objects.job_status import BackgroundJobStatus
 
 
 if TYPE_CHECKING:
@@ -25,7 +24,7 @@ class JobService:
         """Create a background job record and return its ID."""
         job = BackgroundJob(
             job_type=job_type,
-            status=BackgroundJobStatus.PENDING.value,
+            status=BackgroundJobStatus.PENDING,
             related_id=related_id,
         )
         async with self._uow_factory.create(master=True) as uow:

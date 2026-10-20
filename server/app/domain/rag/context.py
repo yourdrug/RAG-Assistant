@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
 
-from domain.identity.roles import UserRole
+from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import CuratorScope, UserContext
 
 
@@ -36,8 +36,8 @@ class RagContext:
         scope = self.curator_scope
         return UserContext(
             user_id=self.user_id,
-            user_kind=self.user_kind,
-            user_role=self.user_role,
+            user_kind=UserKind(self.user_kind),
+            user_role=UserRole(self.user_role),
             group_ids=tuple(self.user_group_ids),
             managed_client_ids=scope.managed_client_ids if scope else (),
             managed_internal_ids=scope.managed_internal_ids if scope else (),

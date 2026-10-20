@@ -8,7 +8,7 @@ import pytest
 from redis.exceptions import RedisError
 
 from config import Settings
-from domain.value_objects.dynamic_config import DYNAMIC_FIELDS_MAP
+from domain.runtime.dynamic_params import DYNAMIC_FIELDS_MAP
 from application.ports.rate_limit import RateLimitPolicyName
 from infrastructure.rate_limit import limiter as module
 from infrastructure.rate_limit import bucket_factory

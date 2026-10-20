@@ -12,7 +12,7 @@ from application.documents import DocumentQueryService
 from application.jobs.service import JobService
 from domain.identity.capabilities import Capability
 from domain.knowledge.enums import DocDomain
-from domain.value_objects.job_status import BackgroundJobStatus
+from domain.runtime.jobs import BackgroundJobStatus
 from domain.knowledge.enums import DocumentVisibility
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 

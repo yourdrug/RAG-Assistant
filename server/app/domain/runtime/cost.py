@@ -34,6 +34,7 @@ class CostRate:
     input_usd_per_million: Decimal
     output_usd_per_million: Decimal
     context_tokens: int
+    input_only: bool = False
 
     def reserve(self, input_tokens: int, output_tokens: int) -> int:
         if (
@@ -41,7 +42,7 @@ class CostRate:
             or self.version < 1
             or input_tokens < 0
             or output_tokens < 0
-            or (output_tokens == 0 and self.provider != 'deepinfra')
+            or (output_tokens == 0 and not self.input_only)
             or self.context_tokens < 1
             or input_tokens > self.context_tokens
             or output_tokens > self.context_tokens
@@ -49,9 +50,7 @@ class CostRate:
             raise BudgetError('Unsupported billing unit or unbounded token budget')
         usd_units(self.input_usd_per_million)
         usd_units(self.output_usd_per_million)
-        if self.input_usd_per_million <= 0 or (
-            self.provider != 'deepinfra' and self.output_usd_per_million <= 0
-        ):
+        if self.input_usd_per_million <= 0 or (not self.input_only and self.output_usd_per_million <= 0):
             raise BudgetError('Paid token tariffs must be positive')
         return usd_units(
             (input_tokens * self.input_usd_per_million + output_tokens * self.output_usd_per_million)

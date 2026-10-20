@@ -58,6 +58,7 @@ class CostRateRow(TypedDict):
     input_usd_per_million: Decimal
     output_usd_per_million: Decimal
     context_tokens: int
+    input_only: bool
 
 
 BudgetUsageRows = Sequence[Mapping[str, object]]

@@ -21,7 +21,7 @@ from domain.ingestion.raw_document import RawDocument
 from domain.identity.user import User
 from domain.shared.exceptions import BusinessRuleViolation
 from domain.shared.hashing import content_hash
-from domain.utils import parse_bool
+from domain.runtime.config import parse_bool
 from domain.knowledge.enums import DocumentStatus
 from domain.chat.message import MessageRole
 from domain.identity.roles import UserKind, UserRole

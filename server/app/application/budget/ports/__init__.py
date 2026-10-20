@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Protocol, Unpack
 
 if TYPE_CHECKING:
     from application.budget.dto import BudgetReservation, BudgetUsageRows, CostRateRow
-    from domain.value_objects.cost_budget import CostRate, ModelBillingContract
+    from domain.runtime.cost import CostRate, ModelBillingContract
 
 
 class CostBudgetPort(Protocol):

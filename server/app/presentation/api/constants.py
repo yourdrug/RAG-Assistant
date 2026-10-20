@@ -7,7 +7,7 @@ dependency providers.
 
 from __future__ import annotations
 
-from domain.value_objects.job_type import JobType as JobType
+from domain.runtime.jobs import JobType as JobType
 
 
 # ---------------------------------------------------------------------------

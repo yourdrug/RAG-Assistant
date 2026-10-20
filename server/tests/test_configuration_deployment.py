@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from dotenv import dotenv_values
 
-from domain.value_objects.dynamic_config import SECRET_SETTING_KEYS, TARGET_DYNAMIC_SETTING_KEYS
+from domain.runtime.setting_keys import SECRET_SETTING_KEYS, TARGET_DYNAMIC_SETTING_KEYS
 
 ROOT = Path(__file__).resolve().parents[2]
 

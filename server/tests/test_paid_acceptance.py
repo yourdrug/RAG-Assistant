@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from domain.value_objects.cost_budget import BudgetError
+from domain.runtime.cost import BudgetError
 
 
 @pytest.fixture

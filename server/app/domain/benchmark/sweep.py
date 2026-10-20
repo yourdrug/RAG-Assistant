@@ -15,8 +15,6 @@ class BenchmarkStrategy(StrEnum):
     GRID = "grid"
     RANDOM = "random"
     OPTUNA_TPE = "optuna_tpe"
-    # Deprecated input/persisted value; executes the same TPE search.
-    SUCCESSIVE_HALVING = "successive_halving"
 
 
 class BenchmarkSweepStatus(
@@ -46,14 +44,14 @@ def validate_sweep_mode(mode: str, strategy: str) -> SweepEvaluationMode:
 
 @dataclass
 class BenchmarkSweep:
-    strategy: str = BenchmarkStrategy.GRID.value
+    strategy: BenchmarkStrategy = BenchmarkStrategy.GRID
     search_space: dict = field(default_factory=dict)
     objective_weights: dict = field(default_factory=lambda: DEFAULT_OBJECTIVE_WEIGHTS.copy())
     dataset: str = DEFAULT_DATASET
     top_n_llm: int = 3
     judge_model: str | None = None
-    evaluation_mode: str = SweepEvaluationMode.FAST.value
-    status: str = BenchmarkSweepStatus.PENDING.value
+    evaluation_mode: SweepEvaluationMode = SweepEvaluationMode.FAST
+    status: BenchmarkSweepStatus = BenchmarkSweepStatus.PENDING
     job_id: int | None = None
     total_configs: int = 0
     evaluated_configs: int = 0
@@ -61,3 +59,8 @@ class BenchmarkSweep:
     id: int | None = None
     version: int = 0
     creation_date: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+    def __post_init__(self) -> None:
+        self.strategy = BenchmarkStrategy(self.strategy)
+        self.evaluation_mode = SweepEvaluationMode(self.evaluation_mode)
+        self.status = BenchmarkSweepStatus(self.status)

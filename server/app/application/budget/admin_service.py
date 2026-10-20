@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from domain.value_objects.cost_budget import BudgetError, CostRate, usd_units
+from domain.runtime.cost import BudgetError, CostRate, usd_units
 
 
 if TYPE_CHECKING:

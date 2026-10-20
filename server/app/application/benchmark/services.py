@@ -9,9 +9,15 @@ from application.benchmark.dto import (
     ApplyConfigResult,
 )
 from domain.benchmark.question import BenchmarkQuestion, validate_annotations
-from domain.benchmark.sweep import BenchmarkSweep, BenchmarkSweepStatus, validate_sweep_mode
+from domain.benchmark.sweep import (
+    BenchmarkStrategy,
+    BenchmarkSweep,
+    BenchmarkSweepStatus,
+    SweepEvaluationMode,
+    validate_sweep_mode,
+)
+from domain.runtime.jobs import BackgroundJobStatus
 from domain.shared.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
-from domain.value_objects.job_status import BackgroundJobStatus
 
 
 if TYPE_CHECKING:
@@ -148,14 +154,14 @@ class BenchmarkSweepService:
                 raise BusinessRuleViolation(message)
 
             sweep_entity = BenchmarkSweep(
-                strategy=body.strategy,
+                strategy=BenchmarkStrategy(body.strategy),
                 search_space=body.search_space,
                 objective_weights=body.objective_weights,
                 dataset=body.dataset,
                 top_n_llm=body.top_n_llm,
                 judge_model=body.judge_model,
-                evaluation_mode=body.evaluation_mode,
-                status=BenchmarkSweepStatus.PENDING.value,
+                evaluation_mode=SweepEvaluationMode(body.evaluation_mode),
+                status=BenchmarkSweepStatus.PENDING,
             )
             return await uow.benchmark_sweeps.create(sweep_entity)
 
@@ -211,7 +217,7 @@ class BenchmarkSweepService:
                 message = "Only failed or cancelled sweeps can be resumed"
                 raise ValidationError(message)
 
-            sweep.status = BenchmarkSweepStatus.PENDING.value
+            sweep.status = BenchmarkSweepStatus.PENDING
             sweep.job_id = None
             return sweep
 

@@ -133,7 +133,7 @@ class UnitOfWorkFactory:
             broadcaster = self._config_broadcaster
 
             async def _publish_to_broadcaster(event: object) -> None:
-                from domain.events.config_events import ConfigParameterChanged
+                from domain.runtime.config import ConfigParameterChanged
 
                 if isinstance(event, ConfigParameterChanged):
                     await broadcaster.broadcast_within_session(session, event)

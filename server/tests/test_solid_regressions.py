@@ -42,12 +42,11 @@ async def test_optuna_accepts_scalar_fetch_k_and_integer_range_without_step(optu
 
 
 @pytest.mark.asyncio
-async def test_legacy_persisted_strategy_produces_same_tpe_results(optuna_engine):
+async def test_unmigrated_legacy_strategy_is_rejected(optuna_engine):
     sweep = optuna_sweep()
-    canonical = await optuna_engine.run_sweep(sweep)
-    sweep.strategy = BenchmarkStrategy.SUCCESSIVE_HALVING.value
-    legacy = await optuna_engine.run_sweep(sweep)
-    assert legacy == canonical
+    sweep.strategy = "successive_halving"
+    with pytest.raises(ValueError, match="Unknown strategy"):
+        await optuna_engine.run_sweep(sweep)
 
 
 @pytest.mark.asyncio

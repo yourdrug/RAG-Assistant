@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import logging
-from domain.value_objects.ml_provider import MLProvider
+from domain.runtime.enums import MLProvider
 from decimal import Decimal
 from typing import Literal
 from pydantic import BaseModel, Field
 from config import settings
-from domain.value_objects.cost_budget import CostRate
+from domain.runtime.cost import CostRate
 from application.budget import BudgetAdminService
 from application.admin import (
     ConfigAdminService,
@@ -24,7 +24,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from presentation.api.auth_dependencies import require_admin
 from presentation.api.rate_limit import rate_limit
 from presentation.api.constants import QUESTION_LOG_MAX_CHARS, STATIC_CONFIG_KEYS
-from domain.value_objects.dynamic_config import DYNAMIC_FIELDS_MAP, SECRET_SETTING_KEYS
+from domain.runtime.dynamic_params import DYNAMIC_FIELDS_MAP
+from domain.runtime.setting_keys import SECRET_SETTING_KEYS
 from presentation.api.dependencies import (
     create_action_logger,
     create_budget_admin_service,
@@ -224,7 +225,9 @@ async def add_cost_rate(
     admin: CurrentUser = Depends(require_admin),
     service: BudgetAdminService = Depends(create_budget_admin_service),
 ):
-    return await service.add_rate(CostRate(**body.model_dump()))
+    return await service.add_rate(
+        CostRate(**body.model_dump(), input_only=body.provider == MLProvider.DEEPINFRA)
+    )
 
 
 @router.get('/admin/cost/usage')

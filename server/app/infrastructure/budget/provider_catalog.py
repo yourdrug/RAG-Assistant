@@ -3,7 +3,7 @@
 import httpx
 
 from config import settings
-from domain.value_objects.cost_budget import BudgetError, ModelBillingContract
+from domain.runtime.cost import BudgetError, ModelBillingContract
 from infrastructure.ml.config.endpoint_policy import validate_endpoints
 
 

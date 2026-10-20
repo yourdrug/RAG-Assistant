@@ -28,7 +28,7 @@ from infrastructure.storage import LazyStorage
 from typing import TYPE_CHECKING, Any
 
 from composition.utils import _missing_fields, _require
-from domain.events.config_events import ConfigParameterChanged
+from domain.runtime.config import ConfigParameterChanged
 from infrastructure.events.in_process_event_bus import event_bus
 from infrastructure.domain_profile import register_all_profiles
 from domain.ingestion.profiles.registry import DomainProfileRegistry

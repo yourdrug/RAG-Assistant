@@ -29,8 +29,7 @@ if TYPE_CHECKING:
     from domain.knowledge.index_sync import VectorOutboxRepository
     from domain.knowledge.repositories.acts import ActVersionRepository, RegulatoryActRepository
     from domain.knowledge.repositories.document import DocumentRepository
-    from domain.repositories.background_job_repository import BackgroundJobRepository
-    from domain.repositories.config_parameter_repository import ConfigParameterRepository
+    from domain.runtime.repositories import BackgroundJobRepository, ConfigParameterRepository
 
 
 @dataclass(frozen=True)

@@ -9,8 +9,9 @@ from domain.ingestion.profiles.decree import DecreeDomainProfile
 from domain.ingestion.profiles.general import GeneralDomainProfile
 from domain.ingestion.profiles.legal import LegalDomainProfile
 from domain.knowledge.enums import DocDomain
-from domain.value_objects import dynamic_config
-from domain.value_objects.llm_provider import LLMProvider
+import domain.runtime.dynamic_params
+from domain.runtime.enums import LLMProvider
+import domain.runtime.setting_keys
 from fakes import FakeUnitOfWorkFactory
 from infrastructure import initialization
 from infrastructure.ml.config.config_subscribers import SENSITIVE_KEYS
@@ -43,10 +44,10 @@ def test_catalog_covers_every_current_and_planned_setting():
 
 def test_target_sources_match_catalog_and_are_disjoint():
     groups = {
-        "env": dynamic_config.STATIC_SETTING_KEYS,
-        "secrets": dynamic_config.SECRET_SETTING_KEYS,
-        "БД": dynamic_config.TARGET_DYNAMIC_SETTING_KEYS,
-        "Код / метаданные": dynamic_config.METADATA_SETTING_KEYS,
+        "env": domain.runtime.setting_keys.STATIC_SETTING_KEYS,
+        "secrets": domain.runtime.setting_keys.SECRET_SETTING_KEYS,
+        "БД": domain.runtime.setting_keys.TARGET_DYNAMIC_SETTING_KEYS,
+        "Код / метаданные": domain.runtime.setting_keys.METADATA_SETTING_KEYS,
     }
     sources = catalog_sources()
     for source, keys in groups.items():
@@ -55,22 +56,23 @@ def test_target_sources_match_catalog_and_are_disjoint():
 
 
 def test_future_dynamic_registry_excludes_secrets_and_static_s3():
-    assert not dynamic_config.TARGET_DYNAMIC_SETTING_KEYS & dynamic_config.SECRET_SETTING_KEYS
-    assert {"s3_endpoint", "s3_bucket", "s3_region"} <= dynamic_config.STATIC_SETTING_KEYS
-    assert {"s3_access_key", "s3_secret_key"} <= dynamic_config.SECRET_SETTING_KEYS
-    assert "curator_scope_max_ids" in dynamic_config.STATIC_SETTING_KEYS
+    assert (
+        not domain.runtime.setting_keys.TARGET_DYNAMIC_SETTING_KEYS
+        & domain.runtime.setting_keys.SECRET_SETTING_KEYS
+    )
+    assert {"s3_endpoint", "s3_bucket", "s3_region"} <= domain.runtime.setting_keys.STATIC_SETTING_KEYS
+    assert {"s3_access_key", "s3_secret_key"} <= domain.runtime.setting_keys.SECRET_SETTING_KEYS
+    assert "curator_scope_max_ids" in domain.runtime.setting_keys.STATIC_SETTING_KEYS
 
 
 def test_secret_masking_uses_complete_canonical_list():
-    assert SENSITIVE_KEYS is dynamic_config.SECRET_SETTING_KEYS
+    assert SENSITIVE_KEYS is domain.runtime.setting_keys.SECRET_SETTING_KEYS
     assert {"admin_password", "qdrant_api_key"} <= SENSITIVE_KEYS
 
 
-def test_new_dynamic_keys_are_not_activated_before_their_implementation():
-    active = {param.key for param in dynamic_config.DYNAMIC_PARAMS}
-    pending = dynamic_config.TARGET_DYNAMIC_SETTING_KEYS - active
-    assert not pending
-    assert not pending & dynamic_config.DYNAMIC_FIELDS_MAP.keys()
+def test_dynamic_registry_keys_match_target_ownership():
+    active = {param.key for param in domain.runtime.dynamic_params.DYNAMIC_PARAMS}
+    assert active == domain.runtime.setting_keys.TARGET_DYNAMIC_SETTING_KEYS
 
 
 def test_domain_parameters_keep_scope_and_stay_out_of_global_map():
@@ -80,10 +82,10 @@ def test_domain_parameters_keep_scope_and_stay_out_of_global_map():
         "decree_chunk_size": DocDomain.DECREE,
         "decree_chunk_overlap": DocDomain.DECREE,
     }
-    scoped = {p.key: p.domain_key for p in dynamic_config.DYNAMIC_PARAMS if p.domain_key}
+    scoped = {p.key: p.domain_key for p in domain.runtime.dynamic_params.DYNAMIC_PARAMS if p.domain_key}
     assert scoped == expected
-    assert not scoped.keys() & dynamic_config.DYNAMIC_FIELDS_MAP.keys()
-    pairs = [(p.key, p.domain_key) for p in dynamic_config.DYNAMIC_PARAMS]
+    assert not scoped.keys() & domain.runtime.dynamic_params.DYNAMIC_FIELDS_MAP.keys()
+    pairs = [(p.key, p.domain_key) for p in domain.runtime.dynamic_params.DYNAMIC_PARAMS]
     assert len(pairs) == len(set(pairs))
 
 

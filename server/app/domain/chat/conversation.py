@@ -34,6 +34,6 @@ class Conversation:
 class ConversationListItem:
     id: int
     user_id: int
-    creation_date: object
+    creation_date: datetime
     title: str | None = None
     message_count: int = 0

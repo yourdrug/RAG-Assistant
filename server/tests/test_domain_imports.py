@@ -167,3 +167,15 @@ def test_table_resolves_rag_barrel_and_vector_read_port() -> None:
     assert "from domain.rag.ports import VectorSearch" in result
     assert "port: VectorSearch" in result
     assert REWRITE(result, moves) == result
+
+
+def test_table_resolves_runtime_repository_model_imports() -> None:
+    moves = json.loads(SCRIPT.with_name("domain_moves.json").read_text())
+    source = (
+        "from domain.repositories.background_job_repository import BackgroundJob\n"
+        "from domain.repositories.config_parameter_repository import ConfigParameter\n"
+    )
+    result = REWRITE(source, moves)
+    assert "from domain.runtime.jobs import BackgroundJob" in result
+    assert "from domain.runtime.config import ConfigParameter" in result
+    assert REWRITE(result, moves) == result

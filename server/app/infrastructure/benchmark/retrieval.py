@@ -6,7 +6,7 @@ from infrastructure.budget.transport import PaidSyncTransport, PaidAsyncTranspor
 from pathlib import Path
 
 from config import get_setting, settings
-from domain.value_objects.llm_provider import LLMProvider
+from domain.runtime.enums import LLMProvider
 from langchain.schema import Document
 from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI

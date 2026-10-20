@@ -6,10 +6,10 @@ import httpx
 import pytest
 
 from config import Settings
-from domain.entities.config_parameter import ConfigParameter
+from domain.runtime.config import ConfigParameter
 from domain.shared.exceptions import ValidationError
-from domain.value_objects.config_value_type import ConfigValueType
-from domain.value_objects.dynamic_config import DYNAMIC_FIELDS_MAP
+from domain.runtime.config import ConfigValueType
+from domain.runtime.dynamic_params import DYNAMIC_FIELDS_MAP
 from infrastructure.events.in_process_event_bus import InProcessEventBus
 from infrastructure.ml.clients import factories
 from infrastructure.ml.clients.client_registry import MLClientRegistry
@@ -273,7 +273,7 @@ async def test_repeated_pool_changes_close_retired_connections(model, monkeypatc
 
 @pytest.mark.asyncio
 async def test_failed_reaction_keeps_clients_and_settings(model, monkeypatch):
-    from domain.events.config_events import ConfigParameterChanged
+    from domain.runtime.config import ConfigParameterChanged
 
     pools = wire_http(monkeypatch, successful_response)
     monkeypatch.setattr(factories, "settings", model)

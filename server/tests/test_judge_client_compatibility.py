@@ -7,7 +7,7 @@ import instructor
 import pytest
 from openai import OpenAI
 
-from domain.value_objects.llm_provider import LLMProvider
+from domain.runtime.enums import LLMProvider
 from infrastructure.benchmark import judge
 from infrastructure.benchmark.token_usage import judge_usage
 

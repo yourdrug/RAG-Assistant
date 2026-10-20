@@ -9,7 +9,7 @@ import logging
 import math
 import os
 import tempfile
-from domain.value_objects.ml_provider import MLProvider
+from domain.runtime.enums import MLProvider
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -19,17 +19,21 @@ from dotenv import dotenv_values
 from dotenv.parser import parse_stream
 from pydantic import TypeAdapter
 
-from domain.entities.config_parameter import ConfigParameter
+from domain.runtime.config import ConfigParameter
 from domain.shared.exceptions import ValidationError as DomainValidationError
-from domain.value_objects.config_value_type import ConfigValueType
-from domain.value_objects.dynamic_config import (
+from domain.runtime.config import ConfigValueType
+from domain.runtime.dynamic_params import (
     DYNAMIC_PARAMS,
-    LEGACY_POOL_SETTING_KEYS,
+)
+from domain.runtime.setting_keys import (
     SECRET_SETTING_KEYS,
     TARGET_DYNAMIC_SETTING_KEYS,
 )
-from domain.value_objects.file_backend import FileBackend
-from domain.value_objects.llm_provider import LLMProvider
+from domain.runtime.enums import FileBackend
+from domain.runtime.enums import LLMProvider
+
+# Legacy names are recognized only by the offline migration parser.
+LEGACY_POOL_SETTING_KEYS: frozenset[str] = frozenset({"http_pool_max_connections", "http_pool_max_keepalive"})
 
 logger = logging.getLogger("default")
 S3_CONNECTION_KEYS = frozenset({"s3_endpoint", "s3_bucket", "s3_region", "s3_access_key", "s3_secret_key"})

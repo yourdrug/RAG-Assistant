@@ -17,9 +17,9 @@ import httpx
 
 from composition.container import Container
 from config import _settings_overrides, settings
-from domain.events.config_events import ConfigParameterChanged
 from domain.identity.roles import UserKind, UserRole
 from domain.rag.context import RagContext
+from domain.runtime.config import ConfigParameterChanged
 from infrastructure.benchmark.answer_generators import BenchmarkAnswer, RagBenchmarkGenerator
 from infrastructure.benchmark.case_evaluator import BenchmarkCaseEvaluator
 from infrastructure.benchmark.token_usage import judge_usage

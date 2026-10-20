@@ -13,10 +13,11 @@ import pytest
 from dotenv import dotenv_values
 from typer.testing import CliRunner
 
-from domain.entities.config_parameter import ConfigParameter
-from domain.value_objects.config_value_type import ConfigValueType
+from domain.runtime.config import ConfigParameter
+from domain.runtime.config import ConfigValueType
 from domain.knowledge.enums import DocDomain
-from domain.value_objects.dynamic_config import LEGACY_POOL_SETTING_KEYS, TARGET_DYNAMIC_SETTING_KEYS
+from domain.runtime.setting_keys import TARGET_DYNAMIC_SETTING_KEYS
+from infrastructure.config_migration import LEGACY_POOL_SETTING_KEYS
 from fakes import FakeConfigParameterRepository
 from infrastructure import config_migration
 from presentation.cli.commands import config as config_command

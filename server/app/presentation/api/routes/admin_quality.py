@@ -9,7 +9,7 @@ from pathlib import Path
 
 from domain.knowledge.enums import DocumentVisibility
 from domain.shared.exceptions import ServerException
-from domain.value_objects.file_backend import FileBackend
+from domain.runtime.enums import FileBackend
 from domain.knowledge.enums import DocDomain
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 

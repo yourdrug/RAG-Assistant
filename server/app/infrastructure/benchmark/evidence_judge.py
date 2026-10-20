@@ -4,7 +4,7 @@ import json
 import logging
 
 from config import settings
-from domain.value_objects.llm_provider import LLMProvider
+from domain.runtime.enums import LLMProvider
 
 from infrastructure.benchmark.judge import get_judge_client, judge_with_structured_output
 

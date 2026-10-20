@@ -4,17 +4,17 @@ from pathlib import Path
 
 from application.search import HybridRetriever
 from domain.shared.hashing import content_hash
-from domain.rag.retrieval import prioritize_distinct_provisions
+from domain.rag.retrieval import RetrievalDocument, prioritize_distinct_provisions
 from domain.rag.evidence.queries import contradicts_requested_scope
 from infrastructure.ml.rag.rag_formatting import content_with_parent_scope
 from infrastructure.ml.rag.benchmark_evidence import active_evidence, capture_exclusions
 from infrastructure.ml.rag.context_selection import ExclusionReason, exclusion_record
 
 
-def deduplicate_docs(docs: list) -> list:
+def deduplicate_docs[DocumentT: RetrievalDocument](docs: list[DocumentT]) -> list[DocumentT]:
     """Deduplicate retrieval candidates and preserve request-local diagnostics."""
     seen = set()
-    selected = []
+    selected: list[DocumentT] = []
     for doc in docs:
         identity = content_hash(doc.page_content)
         if identity in seen:

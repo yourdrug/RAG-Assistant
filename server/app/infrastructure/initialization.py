@@ -6,11 +6,11 @@ import json
 import logging
 
 from config import Settings, settings
-from domain.entities.config_parameter import ConfigParameter
+from domain.runtime.config import ConfigParameter
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from infrastructure.domain_profile import register_all_profiles
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
-from domain.value_objects.dynamic_config import DYNAMIC_PARAMS
+from domain.runtime.dynamic_params import DYNAMIC_PARAMS
 from domain.identity.roles import UserKind, UserRole
 from infrastructure.auth.password_hasher import BCryptPasswordHasher
 from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration

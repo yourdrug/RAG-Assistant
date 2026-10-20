@@ -13,7 +13,7 @@ import time
 import httpx
 from application.health.ports import HealthCheckResult
 from config import settings
-from domain.value_objects.health_status import HealthStatus
+from domain.runtime.enums import HealthStatus
 from infrastructure.database.database import database
 from infrastructure.redis.redis_client import redis_client
 from qdrant_client import QdrantClient

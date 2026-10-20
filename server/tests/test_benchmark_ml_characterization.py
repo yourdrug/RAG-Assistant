@@ -109,7 +109,7 @@ async def test_container_shutdown_waits_for_owned_benchmark_pool_cleanup(judge_h
 
 
 def test_judge_constructor_cannot_mix_old_origin_with_new_provider_credentials(judge_http, monkeypatch):
-    from domain.value_objects.llm_provider import LLMProvider
+    from domain.runtime.enums import LLMProvider
 
     class UpdatingLock:
         def __enter__(self):

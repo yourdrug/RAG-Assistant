@@ -18,7 +18,7 @@ import infrastructure.ml.rag.rag_reranking as rag_rr  # noqa: E402
 import infrastructure.ml.rag.rag_relevance as rag_rel  # noqa: E402
 import infrastructure.ml.rag.rag_sources as rag_src  # noqa: E402
 from domain.rag.classification import classify_question_breadth  # noqa: E402
-from domain.value_objects.llm_provider import LLMProvider  # noqa: E402
+from domain.runtime.enums import LLMProvider  # noqa: E402
 from infrastructure.ml.rag.rag_prompts import decompose_question  # noqa: E402
 from langchain_core.language_models import FakeListChatModel  # noqa: E402
 
@@ -617,7 +617,7 @@ class TestAssessSufficiency:
         doc.metadata = {"source": "test.pdf", "document_id": 1}
 
         with patch("config.settings") as mock_settings:
-            from domain.value_objects.llm_provider import LLMProvider
+            from domain.runtime.enums import LLMProvider
 
             mock_settings.llm_provider = LLMProvider.OLLAMA
             mock_settings.llm_model = "qwen2.5"
@@ -652,7 +652,7 @@ class TestAssessSufficiency:
         doc.metadata = {"source": "test.pdf", "document_id": 1}
 
         with patch("config.settings") as mock_settings:
-            from domain.value_objects.llm_provider import LLMProvider
+            from domain.runtime.enums import LLMProvider
 
             mock_settings.llm_provider = LLMProvider.OPENROUTER
             mock_settings.openrouter_model = "qwen/qwen-2.5-7b-instruct"
@@ -922,7 +922,7 @@ class TestPromptMetricsSync:
         assert covered, (
             f"The canonical not-found phrase '{phrase}' from _CRITICAL_RULES_BLOCK "
             f"is not matched by any substring in NOT_FOUND_PATTERNS: {NOT_FOUND_PATTERNS}. "
-            "Add a matching substring to NOT_FOUND_PATTERNS in domain/value_objects/not_found_patterns.py."
+            "Add a matching substring to NOT_FOUND_PATTERNS in domain/rag/prompt_blocks.py."
         )
 
 

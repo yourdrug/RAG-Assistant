@@ -10,7 +10,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-from domain.events.config_events import ConfigParameterChanged
+from domain.runtime.config import ConfigParameterChanged
 from infrastructure.events.postgres_config_listener import PostgresConfigListener
 
 
