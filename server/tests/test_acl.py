@@ -11,7 +11,7 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 import pytest  # noqa: E402
-from domain.exceptions import ValidationError  # noqa: E402
+from domain.shared.exceptions import ValidationError  # noqa: E402
 from domain.services import (  # noqa: E402
     can_view_document,
     compute_owner_and_group,

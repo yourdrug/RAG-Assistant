@@ -6,7 +6,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from domain.entities.background_job import BackgroundJob
-from domain.exceptions import EntityNotFound
+from domain.shared.exceptions import EntityNotFound
 from domain.value_objects.job_status import BackgroundJobStatus
 
 

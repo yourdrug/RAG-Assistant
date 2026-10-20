@@ -22,8 +22,8 @@ from application.ports.ml_clients import AsyncSemaphorePort, MLClientPort
 from config import settings
 from infrastructure.corpus.snapshot import BoundQdrantClient, CorpusSnapshot, active_corpus
 from infrastructure.ml.clients.managed_llm import ManagedLLM, ManagedInstructor
-from domain.exceptions import ValidationError
-from domain.exceptions.domain_errors import SemaphoreTimeoutError
+from domain.shared.exceptions import ValidationError
+from domain.shared.exceptions import SemaphoreTimeoutError
 from domain.value_objects.llm_provider import LLMProvider
 
 from infrastructure.bm25.bm25_index import BM25Index

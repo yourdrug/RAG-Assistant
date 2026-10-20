@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Unpack
 
 from application.indexing.classification import classify_document_text
 from domain.entities.vector_outbox_entry import OutboxOperation, VectorOutboxEntry
-from domain.utils import content_hash
+from domain.shared.hashing import content_hash
 from domain.value_objects.chunk_context import extract_chunk_context
 from domain.value_objects.document_status import DocumentStatus
 from domain.value_objects.visibility import DocumentVisibility

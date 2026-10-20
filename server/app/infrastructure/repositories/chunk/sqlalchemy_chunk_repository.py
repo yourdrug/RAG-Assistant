@@ -6,7 +6,7 @@ from domain.value_objects.chunk_context import TABLE_CONTEXT_MAX_CHUNKS
 from collections.abc import AsyncIterator
 from datetime import date, datetime
 from domain.repositories.chunk_repository import ChunkSearchResult, ChunkStats
-from domain.value_objects.cursor_page import CursorPage
+from domain.shared.pagination import CursorPage
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.search_mode import SearchMode
 from sqlalchemy.ext.asyncio import AsyncSession

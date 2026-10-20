@@ -3,7 +3,7 @@
 from urllib.parse import urlsplit
 
 from config import Settings
-from domain.exceptions import ValidationError
+from domain.shared.exceptions import ValidationError
 
 ENDPOINT_KEYS = frozenset(
     {

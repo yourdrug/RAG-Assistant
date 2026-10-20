@@ -17,7 +17,7 @@ from collections.abc import AsyncIterator
 from datetime import date
 from dataclasses import asdict
 from typing import TYPE_CHECKING
-from domain.exceptions import ContextBudgetExceededError
+from domain.exceptions.domain_errors import ContextBudgetExceededError
 
 
 from domain.services.rag_policy import (

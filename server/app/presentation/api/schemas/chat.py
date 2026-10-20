@@ -6,7 +6,8 @@ from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from domain.domain_profile.date_parsing import explicit_question_date, parse_date_guess
+from domain.domain_profile.date_parsing import explicit_question_date
+from domain.shared.dates import parse_date_guess
 
 
 class ChatRequest(BaseModel):

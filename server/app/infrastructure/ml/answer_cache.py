@@ -18,7 +18,7 @@ import time
 from collections.abc import Awaitable
 from typing import cast
 
-from domain.utils import content_hash
+from domain.shared.hashing import content_hash
 from config import settings
 from infrastructure.corpus.snapshot import active_corpus
 from infrastructure.redis.redis_client import redis_client

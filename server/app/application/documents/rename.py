@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING
 from application.documents.dto import DocumentDTO
 from application.documents.utils import generate_storage_key, resolve_unique_filename
 from domain.entities.vector_outbox_entry import OutboxOperation, VectorOutboxEntry
-from domain.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
 from domain.services import check_ownership
+from domain.shared.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
 from domain.value_objects.document_status import DocumentStatus
 from domain.value_objects.roles import UserKind
 

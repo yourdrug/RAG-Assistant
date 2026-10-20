@@ -5,8 +5,8 @@ from __future__ import annotations
 from datetime import date, datetime
 
 from domain.repositories.chunk_repository import ChunkSearchResult, ChunkStats
-from domain.exceptions import BusinessRuleViolation
-from domain.value_objects.cursor_page import CursorPage
+from domain.shared.exceptions import BusinessRuleViolation
+from domain.shared.pagination import CursorPage
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.chunk_context import extract_chunk_context
 from sqlalchemy import delete, func, select, update
@@ -246,7 +246,7 @@ class SQLAlchemyChunkCrudRepository:
 
         # direction == "prev"
         if cursor is None:
-            from domain.exceptions import ValidationError
+            from domain.shared.exceptions import ValidationError
 
             raise ValidationError("cursor is required when direction=prev")
         conditions.extend(_build_cursor_backward_conditions(cursor))

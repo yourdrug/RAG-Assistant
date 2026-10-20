@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from application.identity.user_context_factory import UserContextFactory
-from domain.exceptions import EntityNotFound, ValidationError
+from domain.shared.exceptions import EntityNotFound, ValidationError
 from domain.value_objects.roles import UserKind
 
 

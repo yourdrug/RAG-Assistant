@@ -1,7 +1,7 @@
 """Reconstruct retrieved chunk metadata from authoritative PostgreSQL fields."""
 
 from domain.repositories.chunk_repository import ChunkSearchResult
-from domain.utils import content_hash
+from domain.shared.hashing import content_hash
 from domain.value_objects.chunk_context import extract_chunk_context
 
 

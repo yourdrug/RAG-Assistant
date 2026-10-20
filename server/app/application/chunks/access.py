@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from application.identity import UserContextFactory
-from domain.exceptions import BusinessRuleViolation, EntityNotFound
+from domain.shared.exceptions import BusinessRuleViolation, EntityNotFound
 from domain.value_objects.document_status import DocumentStatus
 from domain.value_objects.roles import UserKind
 

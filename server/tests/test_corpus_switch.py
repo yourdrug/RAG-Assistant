@@ -11,7 +11,7 @@ from qdrant_client.models import Distance, VectorParams, PointStruct, SparseVect
 from infrastructure.repositories.vector.sparse_vectors import SPARSE_VECTOR_NAME, point_vectors
 import hashlib
 from dataclasses import replace
-from domain.exceptions import ValidationError
+from domain.shared.exceptions import ValidationError
 from infrastructure.corpus.validation import validate_corpus
 from infrastructure.ml.clients.client_registry import MLClientRegistry
 from infrastructure.ml.answer_cache import _cache_key

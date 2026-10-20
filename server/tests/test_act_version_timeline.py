@@ -7,7 +7,7 @@ import pytest
 
 from domain.entities.act_version import ActVersion
 from domain.entities.act_version_timeline import ActVersionTimeline
-from domain.exceptions import EntityNotFound, ValidationError
+from domain.shared.exceptions import EntityNotFound, ValidationError
 
 
 def timeline() -> ActVersionTimeline:

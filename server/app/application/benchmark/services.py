@@ -10,7 +10,7 @@ from application.benchmark.dto import (
 )
 from domain.entities.benchmark_question import BenchmarkQuestion
 from domain.entities.benchmark_sweep import BenchmarkSweep
-from domain.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
+from domain.shared.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
 from domain.value_objects.benchmark_annotations import validate_annotations
 from domain.value_objects.job_status import BackgroundJobStatus
 from domain.value_objects.sweep_evaluation_mode import validate_sweep_mode

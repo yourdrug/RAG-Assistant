@@ -26,7 +26,7 @@ from contextlib import asynccontextmanager, nullcontext
 
 from domain.entities.message import Message
 from domain.entities.vector_outbox_entry import OutboxStatus, VectorOutboxEntry
-from domain.exceptions import EntityNotFound
+from domain.shared.exceptions import EntityNotFound
 from domain.repositories.ingestion_registry_repository import IngestionRegistryEntry
 from domain.value_objects.stream_events import SourcesEvent, TextChunk
 from domain.value_objects.visibility import DocumentVisibility
@@ -290,7 +290,7 @@ class FakeChunkRepository:
         content_hashes: list[str] | None = None,
     ):
         from domain.utils import encode_cursor
-        from domain.value_objects.cursor_page import CursorPage
+        from domain.shared.pagination import CursorPage
 
         rows = [c for c in self._chunks if c["document_id"] == document_id]
         rows.sort(key=lambda c: (c.get("chunk_index", 0), c["id"]))
@@ -310,7 +310,7 @@ class FakeChunkRepository:
             )
         else:
             if cursor is None:
-                from domain.exceptions import ValidationError
+                from domain.shared.exceptions import ValidationError
 
                 raise ValidationError("cursor is required when direction=prev")
             ci, cid = cursor

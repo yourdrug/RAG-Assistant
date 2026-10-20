@@ -3,14 +3,9 @@
 from __future__ import annotations
 
 import base64
-import hashlib
 
-from domain.exceptions import ValidationError
-
-
-def content_hash(text: str) -> str:
-    """Deterministic short hash for deduplication and merge keys."""
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+from domain.shared.exceptions import ValidationError
+from domain.shared.hashing import content_hash
 
 
 def parse_bool(value: str) -> bool:
@@ -103,20 +98,3 @@ def deduplicate_docs(docs: list) -> list:
             seen_hashes.add(h)
             unique_docs.append(doc)
     return unique_docs
-
-
-# ---------------------------------------------------------------------------
-# Percentile — pure function, zero dependencies
-# ---------------------------------------------------------------------------
-
-
-def percentile(sorted_data: list[float], p: float) -> float:
-    """Compute percentile from pre-sorted data using linear interpolation."""
-    if not sorted_data:
-        return 0.0
-    if len(sorted_data) == 1:
-        return sorted_data[0]
-    k = (len(sorted_data) - 1) * p / 100.0
-    f = int(k)
-    c = min(f + 1, len(sorted_data) - 1)
-    return sorted_data[f] + (sorted_data[c] - sorted_data[f]) * (k - f)

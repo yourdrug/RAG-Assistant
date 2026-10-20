@@ -17,7 +17,7 @@ from domain.entities.act_version import ActVersion
 from domain.entities.document import Document
 from domain.entities.regulatory_act import RegulatoryAct
 from domain.entities.vector_outbox_entry import OutboxOperation
-from domain.exceptions import EntityNotFound
+from domain.shared.exceptions import EntityNotFound
 from fakes import FakeUnitOfWorkFactory
 
 

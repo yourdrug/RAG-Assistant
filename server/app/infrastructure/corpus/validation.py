@@ -4,7 +4,7 @@ import hashlib
 
 from qdrant_client.models import Modifier, SparseVector
 
-from domain.exceptions import ValidationError
+from domain.shared.exceptions import ValidationError
 from infrastructure.bm25.bm25_index import BM25Index
 from infrastructure.bm25.tokenizer import tokenize
 from infrastructure.corpus.snapshot import CorpusSnapshot

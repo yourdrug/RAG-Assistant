@@ -15,7 +15,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
 
-from domain.utils import content_hash
+from domain.shared.hashing import content_hash
 from domain.services.access_control import VisibilityCondition
 from domain.value_objects.owner_match import OwnerMatch
 from domain.value_objects.visibility import DocumentVisibility

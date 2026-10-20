@@ -10,14 +10,14 @@ from application.documents.conflicts import resolve_upload_version_group
 from application.documents.dto import DocumentDTO
 from application.documents.utils import generate_storage_key, resolve_unique_filename
 from domain.entities.document import Document
-from domain.exceptions import (
+from domain.services import check_ownership, compute_owner_and_group, validate_document_visibility
+from domain.services.act_version_policy import same_document_scope
+from domain.shared.exceptions import (
     BusinessRuleViolation,
     EntityNotFound,
     UniqueConstraintViolation,
     ValidationError,
 )
-from domain.services import check_ownership, compute_owner_and_group, validate_document_visibility
-from domain.services.act_version_policy import same_document_scope
 from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.document_status import DocumentStatus
 from domain.value_objects.roles import UserKind, UserRole

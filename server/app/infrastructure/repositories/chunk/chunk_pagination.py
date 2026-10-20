@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from domain.repositories.chunk_repository import ChunkSearchResult
 from domain.utils import encode_cursor
-from domain.value_objects.cursor_page import CursorPage
+from domain.shared.pagination import CursorPage
 from sqlalchemy import and_, or_
 
 from infrastructure.database.models import ChunkModel

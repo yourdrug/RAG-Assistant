@@ -8,10 +8,10 @@ from typing import TYPE_CHECKING
 from application.chunks.dto import ChunkCursorQuery
 from application.chunks.mappers import to_chunk_dto
 from application.identity import UserContextFactory
-from domain.exceptions import BusinessRuleViolation, EntityNotFound
 from domain.services import check_document_access
+from domain.shared.exceptions import BusinessRuleViolation, EntityNotFound
+from domain.shared.pagination import CursorPage
 from domain.utils import decode_cursor
-from domain.value_objects.cursor_page import CursorPage
 
 
 if TYPE_CHECKING:

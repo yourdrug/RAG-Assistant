@@ -65,7 +65,8 @@ domain/
 │
 ├── knowledge/                       (база знаний: документы, чанки, ACL, версии актов)
 │   ├── enums.py                     (DocDomain, DomainDetectionMode, DocDomainSelection, DocumentStatus,
-│   │                                 DOCUMENT_SLOT_STATUSES, DocumentVisibility, SourceType, SearchMode)
+│   │                                 DOCUMENT_SLOT_STATUSES, DocumentVisibility, SourceType, SearchMode,
+│   │                                 PageContentType: тип содержимого для ingestion и RAG)
 │   ├── document.py                  (агрегат Document: жизненный цикл и права)
 │   ├── chunk.py                     (Chunk, ChunkRecord, ChunkStats, контекст чанка, SENTENCE_UNIT_KIND,
 │   │                                 encode/decode_cursor)
@@ -78,7 +79,7 @@ domain/
 │   │   └── policy.py                (same_document_scope, document_scope_key)
 │   └── repositories/                (порты хранилищ знаний)
 │       ├── document.py              (CRUD и maintenance документов)
-│       ├── chunk.py                 (ChunkCrudRepository, ChunkVersioningRepository)
+│       ├── chunk.py                 (ChunkCrudRepository, ChunkVersioningRepository, ChunkCorpusRepository)
 │       └── acts.py                  (ActVersion- и RegulatoryAct-репозитории)
 │
 ├── ingestion/                       (запись: разбор файла → чанки → индекс)
@@ -88,7 +89,7 @@ domain/
 │   ├── doc_type.py                  (эвристика типа документа: приказ, договор и т.п.)
 │   ├── references.py                (extract_act_number из ReferenceMatch)
 │   ├── versioning.py                (решение version или replace при конфликте)
-│   ├── preview.py                   (типы страниц, DTO dry-run, качество PDF)
+│   ├── preview.py                   (PreviewUnitKind, DTO dry-run, качество PDF)
 │   ├── text_quality.py              (классификация текста: скан, мусор, таблица)
 │   ├── repositories.py              (реестр проиндексированных файлов)
 │   └── profiles/                    (как разбирать документ данного домена)
@@ -107,7 +108,7 @@ domain/
 │   ├── settings.py                  (RagSettings: снимок динамического конфига на запрос)
 │   ├── result.py                    (RagResult: итог пайплайна для логирования)
 │   ├── stream_events.py             (типизированные события стрима ответа)
-│   ├── ports.py                     (ChunkSearch/Page/Context/Corpus, VectorSearch: чтение)
+│   ├── ports.py                     (ChunkSearch/Page/Context, VectorSearch: чтение)
 │   ├── classification.py            (ширина вопроса, декомпозиция, out-of-domain, explicit_question_date)
 │   ├── answer_policy.py             (AnswerPolicy: промпт-правила и fallback по домену,
 │   │                                 versioned_prompt_date_stamp)
@@ -182,7 +183,7 @@ domain/
 ### knowledge
 | Старое | Новое |
 |---|---|
-| `doc_domain`, `document_status`, `visibility`, `source_type`, `search_mode` | `knowledge/enums.py` |
+| `doc_domain`, `document_status`, `visibility`, `source_type`, `search_mode`, `page_content_type` | `knowledge/enums.py` |
 | `entities/document.py` | `knowledge/document.py` |
 | `entities/chunk.py`, `ChunkSearchResult`, `ChunkStats`, `chunk_context.py`, `utils.encode/decode_cursor`, `SENTENCE_UNIT_KIND` | `knowledge/chunk.py` |
 | `services/access_control.py`, `owner_match.py` | `knowledge/access_control.py` |
@@ -191,7 +192,7 @@ domain/
 | `entities/act_version_timeline.py` | `knowledge/acts/timeline.py` |
 | `same_document_scope`, `document_scope_key` | `knowledge/acts/policy.py` |
 | `document_repository.py` | `knowledge/repositories/document.py` |
-| `ChunkCrudRepository`, `ChunkVersioningRepository` | `knowledge/repositories/chunk.py` |
+| `ChunkCrudRepository`, `ChunkVersioningRepository`, `ChunkCorpusRepository` | `knowledge/repositories/chunk.py` |
 | `act_version_repository.py`, `regulatory_act_repository.py` | `knowledge/repositories/acts.py` |
 
 ### ingestion
@@ -203,7 +204,7 @@ domain/
 | `classify_doc_type`, `DOC_TYPE_KEYWORDS`, `DOC_TYPE_SAMPLE_CHARS` | `ingestion/doc_type.py` (выполнено на шаге 1) |
 | `extract_act_number` (`act_version_policy.py`) | `ingestion/references.py` |
 | `document_versioning.py` | `ingestion/versioning.py` |
-| `page_content_type`, `preview_unit_kind`, `pdf_dto`, `pdf_quality_report` | `ingestion/preview.py` |
+| `preview_unit_kind`, `pdf_dto`, `pdf_quality_report` | `ingestion/preview.py` |
 | `services/text_quality.py` | `ingestion/text_quality.py` |
 | `ingestion_registry_repository.py` | `ingestion/repositories.py` |
 | `ConfigDefault`, `BoundaryLevel`, `ReferenceMatch`, `EffectiveDateCandidate`, `refs_to_metadata` | `ingestion/profiles/types.py` |
@@ -219,7 +220,7 @@ domain/
 | `rag_settings.py` | `rag/settings.py` |
 | `rag_result.py` | `rag/result.py` |
 | `stream_events.py` | `rag/stream_events.py` |
-| read-часть `chunk_repository.py` и `vector_store_repository.py` | `rag/ports.py` |
+| search/context-часть `chunk_repository.py` и read-часть `vector_store_repository.py` | `rag/ports.py` |
 | `rag_policy/classification.py`, `explicit_question_date` | `rag/classification.py` |
 | `prompt_addendum`, `retrieval_fallback_to_full_corpus`, `_LEGAL_PROMPT_RULES`, `_DECREE_PROMPT_RULES`, `versioned_prompt_date_stamp` | `rag/answer_policy.py` |
 | `rag_policy/prompt_blocks.py`, `not_found_patterns.py` | `rag/prompt_blocks.py` |
@@ -274,14 +275,15 @@ domain/
 - **`DocumentProfile`:** `key`, `display_name`, `is_versioned`, `config_defaults`, `structural_fingerprint`, `classify_score`, `content_boundaries`, `extract_references`, `extract_effective_date`.
 - **`AnswerPolicy`:** `prompt_addendum(breadth, as_of_date)`, `retrieval_fallback_to_full_corpus()`. Реализации по ключу домена: `general`, `legal`, `decree`.
 - Тексты промптов уходят из `legal.py` и `decree.py` в `rag/answer_policy.py`.
-- У каждой стороны свой registry. Связь между ними только строковый ключ `DocDomain` из `knowledge`.
+- Registry нужен только `DocumentProfile`. Для RAG достаточно `policy_for(domain_key)` в `rag/answer_policy.py`, без второго registry. Связь между ними только ключ `DocDomain` из `knowledge`.
 
 ### Порты
 
 | Протокол | Куда |
 |---|---|
-| `ChunkCrudRepository`, `ChunkVersioningRepository` | `knowledge/repositories/chunk.py` |
-| `ChunkSearchRepository`, `ChunkSearchPageRepository`, `ChunkContextRepository`, `ChunkCorpusRepository` | `rag/ports.py` |
+| `ChunkCrudRepository`, `ChunkVersioningRepository`, `ChunkCorpusRepository` | `knowledge/repositories/chunk.py` |
+| `ChunkSearchRepository`, `ChunkSearchPageRepository`, `ChunkContextRepository`, `ChunkRetrievalRepository` | `rag/ports.py` |
+| combined `ChunkRepository` для UoW | `application/uow/chunks.py` (пересечение knowledge- и rag-портов) |
 | `VectorStoreRepository`: `ensure_collection`, `upload_documents`, `delete_*`, `upsert_point`, `set_document_id_*`, `update_*` | `knowledge/index_sync.py` как `VectorIndexWriter` |
 | `VectorStoreRepository`: `generate_embeddings`, `get_point_payload` | `rag/ports.py` как `VectorSearch` |
 | outbox (entry и три протокола) | `knowledge/index_sync.py` |
@@ -298,7 +300,7 @@ Outbox остаётся в `knowledge`: в него пишут и индекса
 - `LEGACY_POOL_SETTING_KEYS` (уходит в скрипт офлайн-миграции).
 - `BenchmarkDataset` (одно значение). Заменяется константой `DEFAULT_DATASET = "main"`.
 - `BenchmarkStrategy.SUCCESSIVE_HALVING` (после миграции данных).
-- Дубль `HealthStatus.OK` и `HEALTHY`: оставить один.
+- `HealthStatus.OK` и `HEALTHY` сохранить: это разные значения публичного health-контракта (`ok` для компонентов и `/live`, `healthy` для общей готовности).
 - `if False:  # TYPE_CHECKING` в `access_control.py`.
 - Дубли в протоколах: `ConversationRepository.get` или `get_by_id`; нестримовые методы `ChunkCorpusRepository`.
 - Все barrel-`__init__` с `__all__`.
@@ -322,7 +324,7 @@ Outbox остаётся в `knowledge`: в него пишут и индекса
 3. Ввести `NOT_FOUND_ANSWER` в `prompt_blocks.py`, подставить во все блоки, добавить тест, что фраза матчится `NOT_FOUND_PATTERNS`.
 4. `cost.py`: заменить `provider != 'deepinfra'` на поле `input_only: bool = False` в `CostRate`.
 5. Хранить enum как enum с приведением в `__post_init__`: `BackgroundJob.status`, `BenchmarkSweep.status/strategy/evaluation_mode`, `UserContext.user_kind/user_role`. Убрать повторные `UserKind(ctx.user_kind)` в `access_control`.
-6. `Document`: общий curator-блок из `can_be_deleted_by` и `can_edit_chunks` вынести в `_in_curator_scope(...)`.
+6. `Document`: общий curator-блок из `can_be_deleted_by` и `can_edit_chunks` вынести в `in_curator_scope(...)`.
 7. `ConversationListItem.creation_date: object` заменить на `datetime`.
 8. `deduplicate_docs` и `prioritize_distinct_provisions` аннотировать через `RawDocument` или `Protocol`.
 9. Тест на равенство множеств `TARGET_DYNAMIC_SETTING_KEYS` и ключей `DYNAMIC_PARAMS`, либо довести миграцию и убрать дубль.
@@ -396,14 +398,32 @@ forbidden_modules =
 
 - [x] План проверен; поправки процесса и риски внесены. Создана отдельная ветка.
 - [x] Шаг 1: подготовка выполнена. `is_terminal`, документация mixin, порядок `UsageReport`, общий `NOT_FOUND_ANSWER` в промптах и ответах runtime, удаление legacy-модуля и согласование Application/DI. `ruff format app/domain` не потребовал массовых изменений. Baseline: **362 passed**, `task lint` пройден. После удаления legacy: **914 passed** в итоговом наборе (Domain, API/S3, RAG/guardrails, ACL, кеш, Application contracts), `task lint` пройден (Ruff, формат, mypy, 18 import-контрактов, deptry, vulture, blank-lines).
-- [ ] Шаг 2: закрыть блокирующие вопросы перед переносом.
-- [ ] Шаги 3–9: codemod, переносы, контракты и финальные проверки.
+- [x] Шаг 2: блокирующие вопросы 11.1–3, 11.9, 11.14, 11.26 закрыты по коду; решения и ограничения проверки данных зафиксированы ниже. Согласованы PageContentType, профили, combined-порт UoW и сохранение health-контракта.
+- Проверки шага 2: **155 passed** (guardrails, domain_profiles, domain_registry, text_quality, preview_strategies, закрытие corpus-stream, answer_cache, act_version_timeline), `git diff --check` пройден. Два более широких запуска прерваны при отсутствии прогресса на benchmark-сценарии `test_solid_characterization.py` и `test_retrieval_acl.py`; эти наборы не считаются пройденными. Исходники не менялись; полный pytest и `task lint` на этом этапе не запускались.
+- [x] Шаг 3: подготовлен LibCST-codemod `server/tools/domain_imports.py` и таблица `server/tools/domain_moves.json` (441 соответствие на уровне символов, включая текущие реэкспорты). По умолчанию показывает diff; запись только с `--write`, выбор контекста — `--context`. Проверены split-imports, переименования, алиасы и их scope, модульные обращения, сохранение неиспользуемых экспортов, идемпотентность и отказ от частичной записи при star-import. Разделение `DomainProfile`/`VectorStoreRepository` и удаление legacy-значений остаются ручными изменениями шагов 4–8; неоднозначный векторный порт намеренно не получает автоматическую замену. Прикладные parser/splitter-порты уже находятся в `application/ingestion/ports/parser.py`, отсутствующего Domain-модуля в таблице нет. `MLProvider` переносится вместе с остальными provider-enum в `runtime/enums.py`.
+- Проверки шага 3: **14 passed**, все семь команд из `task lint` выполнены напрямую и прошли (сам snap-бинарник `task` не запускается в этой среде). Пробный запуск по `app`, `tests`, `tools` без записи завершён: **449 файлов** меняются, результат каждого разбирается Python AST, повторное преобразование не меняет результат. Переносы исходников ещё не применялись.
+- [x] Шаг 4, контекст `shared`: выделены `exceptions`, `enums`, `pagination`, `hashing`, `dates`, `stats`; `__init__.py` пустой. Потребители во всех слоях и тестах переведены на конкретные модули, старые файлы base/lifecycle_status/cursor_page удалены. `ContextBudgetExceededError`, `explicit_question_date` и остальные функции `utils` остаются в своих старых модулях до переноса соответствующих контекстов; реэкспорты общих ошибок удалены. Добавлен error-контракт независимости `shared` от всех остальных текущих Domain-пакетов/модулей и тесты разрешённых/запрещённых зависимостей; отдельный тест требует дополнять контракт при появлении контекстов. Точечные Ruff/mypy/blank-lines исключения перенесены вместе с существующим кодом; зависимости и lock не изменились (`uv lock --offline` выполнен).
+- Проверки `shared`: baseline **199 passed**; после переноса **237 passed**, расширенный набор **424 passed**, итоговые архитектурные тесты **39 passed** (наборы пересекаются). Все команды `task lint` выполнены напрямую и прошли: Ruff, формат, mypy, **19 import-контрактов**, deptry, vulture, blank-lines; `git diff --check` пройден. Python AST разбирается во всех app/tests/tools; импортов перенесённых shared-символов по старым путям не осталось. Полный pytest запущен, но остановлен без прогресса на `test_api_asgi.py`; дополнительный широкий запуск остановлен на `test_rate_limit_dependency.py`. Эти два запуска не считаются пройденными; полный набор остаётся обязательной проверкой. Индекс `.git` доступен только для чтения: перенос выполнен файловой системой, коммит контекста не создан, исходная staged-правка пользователя сохранена.
+- [ ] Остальная часть шагов 4–9: переносы, разделение портов/профилей, контракты и финальные проверки. Следующий контекст — `identity`.
+
+### Решения шага 2 (20.10.2026)
+
+- **11.1 — PII остаётся в `rag/guardrails/pii.py`.** Единственный импорт `ALL_PATTERNS` — `infrastructure/ml/guardrails/guardrails.py`. Через `PIIRedactorAdapter` детектор используется в `application/chat/service.py` (вопрос), `rag_steps.py` (ответ) и `rag_cache.py` (кешированный ответ); пути индексации его не вызывают.
+- **11.2 и 11.26 — корпус в `knowledge`, только ACL-stream API.** Единственный рабочий потребитель — `infrastructure/worker/cron.py::cron_bm25_rebuild`, вызывающий `iter_all_contents_with_acl`. Возвращаемый tuple содержит только текст, visibility, owner_id, group_id; зависимости от RAG нет. Три нестримовых метода не имеют потребителей: удалить их из протокола, SQLAlchemy-фасада, `chunk_corpus.py` и фейков при переносе. Сохранить закрытие результата в `finally` и тест `test_solid_characterization.py`.
+- **11.3 — `PageContentType` переносится в `knowledge/enums.py`.** Тип сохранён в metadata чанков и читается RAG-модулями `field_evidence`, `linked_context`, `applicable_context`, `rag_postprocess`, `rag_formatting`, а также ingestion и preview. Размещение в `ingestion/preview.py` создало бы запрещённое ребро RAG → ingestion. `PreviewUnitKind`, dry-run DTO, `PDFQualityReport` и `text_quality` остаются в ingestion: их потребители — обработка/предпросмотр документов, не retrieval.
+- **11.9 — потребители ingestion-половины:** `application/indexing/classification.py` (`classify`); `application/ingestion/profiles.py` и его вызывающие `loader.py`/`sync.py` (разбор и версия); `application/documents/conflicts.py`/`versioning.py` (`is_versioned`); `infrastructure/ml/langchain_document_parser.py` (границы, ссылки, fingerprint); `infrastructure/ml/preview/rtf_preview_strategy.py` (структура decree); `infrastructure/ml/config/provider_configuration.py` и `infrastructure/initialization.py` (`all/config_defaults`). `documents/processor.py`, `classification.py`, `persistence.py`, `indexing/pipeline.py` передают registry этим потребителям. Composition и `infrastructure/domain_profile/__init__.py` собирают/регистрируют профили; CLI bootstrap использует `infrastructure.initialization`.
+- **11.9–11.11 — потребители RAG-половины:** `infrastructure/ml/rag/helpers.py::domain_prompt_addendum` (`get/prompt_addendum`) и `rag_steps.py::step_check_cache` (`all/prompt_addendum`); registry передаётся через `rag_service.py`. Заменить их на `policy_for(domain_key)`; при построении ключа кеша сохранить набор доменов и оба prompt-addendum (narrow/broad), дату и поведение отсутствующего/неизвестного домена. Общего бизнес-потребителя обеих половин не найдено. `versioned_prompt_date_stamp` — чистая RAG-функция; temporal-правила legal/decree заданы в их AnswerPolicy и не требуют чтения `DocumentProfile.is_versioned`. `retrieval_fallback_to_full_corpus` сейчас объявлен профилями, но не вызывается: реальный legal fallback находится в `helpers.py::run_retrieval`; при переносе не менять его поведение.
+- **11.12 и 11.29 — разделить типы, сохранить одну реализацию и транзакцию.** `QdrantVectorStoreRepository` продолжает реализовывать оба порта; Composition предоставляет отдельные типизированные привязки writer/search к тому же экземпляру. `application/ingestion/batch.py` получает writer. Combined `ChunkRepository` перенести в `application/uow/chunks.py`: этот пакет уже владеет UoW и может импортировать оба Domain-контекста без изменения существующего контракта Application. `ChunkRetrievalRepository` остаётся read-портом в `rag/ports.py`; `UnitOfWorkRepositories.chunks` сохраняет один transactional facade.
+- **11.13 — `SENTENCE_UNIT_KIND` в `knowledge/chunk.py`.** Splitter записывает структурные единицы, а `domain/services/retrieval_diversity.py` интерпретирует `sentence` в section-пути; это общий контракт метаданных, а не внутренняя настройка splitter.
+- **11.14 — Python-пути не являются форматом сохраняемых данных в проверенных адаптерах.** Answer cache использует JSON + gzip/base64 (`infrastructure/ml/answer_cache.py`), BM25 — JSON (`bm25/persistence.py`, `BM25Index.to_dict/from_dict`), Qdrant — `page_content/metadata` (`repositories/vector/qdrant_ops.py`), outbox — payload и JSON уведомление (`repositories/config/sqlalchemy_vector_outbox_repository.py`). Поиск по app/tools/scripts не выявил pickle или сериализации доменных классов по Python-пути. Alembic динамически импортирует только `infrastructure.database.models`; logging использует именованные логгеры `default/detailed/actions`, без фильтра по старым Domain-пакетам. Обновить mypy-строки модулей в `server/pyproject.toml` и два строковых patch-target в `tests/test_retrieval_acl.py` (реэкспорты `rag_policy`). Миграция `l2c3d4e5f6g7_add_sweep_evaluation_mode.py` содержит обычные Domain-импорты: включить migrations в codemod. В Dockerfile и alembic.ini старых Domain-путей нет. Содержимое работающих БД/Redis/Qdrant не проверялось; вывод относится к формату записи в коде.
+- **11.15–11.18 — ограничения совместимости.** Наличие `successive_halving` в работающей БД не проверялось: перед удалением enum нужна безусловная data migration, безопасная при отсутствии таких строк; учесть также публичную схему `SweepCreateRequest` и strategy factory. `HealthStatus.OK="ok"` и `HEALTHY="healthy"` не дубли: сохранить оба и проверку `/ready` в `presentation/api/routes/health.py`. `BenchmarkDataset` задаёт только default `main`, тогда как API принимает `dataset: str`; замена константой не должна запрещать другие наборы. `ChunkSearchResult` и `ChatContext` не используются непосредственно как поля Pydantic-схем в presentation; переименование проверить тестами API после переноса.
 
 ---
 
 ## 11. Открытые вопросы
 
 Пометка **[до переноса]** означает, что ответ нужен до начала соответствующего шага, иначе придётся переделывать.
+Ответы на 1–3, 9–14, 26, 29 и ограничения для 15–18 зафиксированы в «Решениях шага 2» выше; исходные вопросы ниже сохранены для трассировки. По 36: `register_all_profiles` остаётся инфраструктурной регистрацией только DocumentProfile; отдельного registry AnswerPolicy не будет.
 
 ### A. Границы контекстов
 

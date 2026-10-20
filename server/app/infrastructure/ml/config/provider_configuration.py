@@ -14,7 +14,7 @@ from application.admin import ConfigurationStatus, EffectiveParameter
 from config import Settings, settings
 from domain.entities.config_parameter import ConfigParameter
 from domain.events.config_events import ConfigParameterChanged
-from domain.exceptions import ValidationError
+from domain.shared.exceptions import ValidationError
 from domain.value_objects.cost_budget import usd_units
 from domain.utils import parse_bool
 from domain.value_objects.dynamic_config import DYNAMIC_PARAMS, SECRET_SETTING_KEYS, STATIC_SETTING_KEYS

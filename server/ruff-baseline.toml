@@ -7,7 +7,6 @@ exclude = [
     "app/domain/services/evidence_queries.py",
     "app/domain/value_objects/cost_budget.py",
     "app/domain/value_objects/evidence_assessment.py",
-    "app/domain/value_objects/lifecycle_status.py",
     "app/infrastructure/benchmark/case_evaluator.py",
     "app/infrastructure/benchmark/corpus.py",
     "app/infrastructure/benchmark/grouped_judge.py",
@@ -103,7 +102,6 @@ exclude = [
 "app/domain/entities/regulatory_act.py" = ["TC003"]
 "app/domain/entities/user.py" = ["EM101", "FBT001", "TRY003"]
 "app/domain/entities/vector_outbox_entry.py" = ["TC003"]
-"app/domain/exceptions/__init__.py" = ["I001", "RUF022"]
 "app/domain/exceptions/domain_errors.py" = ["I001", "N818", "RUF001"]
 "app/domain/repositories/__init__.py" = ["I001"]
 "app/domain/repositories/act_version_repository.py" = ["TC001"]
@@ -146,12 +144,12 @@ exclude = [
 "app/domain/services/text_quality.py" = ["FBT001", "FBT002", "I001", "PLR0911", "PLR2004"]
 "app/domain/utils.py" = ["EM101", "EM102", "PLR2004", "TRY003", "TRY301", "UP012"]
 "app/domain/value_objects/__init__.py" = ["I001", "RUF100"]
-"app/domain/value_objects/base.py" = ["ANN401", "EM102", "TRY003"]
+"app/domain/shared/enums.py" = ["ANN401", "EM102", "TRY003"]
 "app/domain/value_objects/benchmark_annotations.py" = ["EM101", "EM102", "I001", "PLR2004", "TRY003"]
 "app/domain/value_objects/benchmark_scoring.py" = ["EM101", "I001", "TRY003"]
 "app/domain/value_objects/chat_context.py" = ["TC001", "TC003"]
 "app/domain/value_objects/cost_budget.py" = ["EM101", "I001", "Q000", "TRY003", "TRY300", "TRY301"]
-"app/domain/value_objects/cursor_page.py" = ["I001", "UP046"]
+"app/domain/shared/pagination.py" = ["I001", "UP046"]
 "app/domain/value_objects/evidence_assessment.py" = ["Q000"]
 "app/domain/value_objects/pdf_quality_report.py" = ["PLR2004"]
 "app/domain/value_objects/pii_patterns.py" = ["I001", "RUF001"]
@@ -581,3 +579,6 @@ exclude = [
 "tests/test_worker_resource_lifecycle.py" = ["ARG002", "ARG005", "EM101", "PLR0915", "RUF043", "TRY003"]
 "tests/test_worker_sweep_lifecycle.py" = ["ARG002", "ARG005", "PLC0415", "PT018"]
 "tests/test_worker_task_registration.py" = ["I001", "PLC0415", "Q000"]
+
+"app/domain/shared/exceptions.py" = ["N818", "RUF001"]
+"app/domain/shared/dates.py" = ["C901", "PLR0911", "RUF001", "RUF002"]

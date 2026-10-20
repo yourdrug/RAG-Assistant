@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from application.search import HybridRetriever
-from domain.utils import content_hash
+from domain.shared.hashing import content_hash
 from domain.services.retrieval_diversity import prioritize_distinct_provisions
 from domain.services.evidence_queries import contradicts_requested_scope
 from infrastructure.ml.rag.rag_formatting import content_with_parent_scope

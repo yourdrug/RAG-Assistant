@@ -4,7 +4,7 @@ import logging
 
 from langchain_core.documents import Document
 
-from domain.utils import content_hash
+from domain.shared.hashing import content_hash
 from domain.services.evidence_queries import table_message_matches
 from domain.value_objects.page_content_type import PageContentType
 from domain.value_objects.search_mode import SearchMode

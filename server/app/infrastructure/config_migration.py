@@ -20,7 +20,7 @@ from dotenv.parser import parse_stream
 from pydantic import TypeAdapter
 
 from domain.entities.config_parameter import ConfigParameter
-from domain.exceptions import ValidationError as DomainValidationError
+from domain.shared.exceptions import ValidationError as DomainValidationError
 from domain.value_objects.config_value_type import ConfigValueType
 from domain.value_objects.dynamic_config import (
     DYNAMIC_PARAMS,

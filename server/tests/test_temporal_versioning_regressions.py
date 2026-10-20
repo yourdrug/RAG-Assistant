@@ -13,7 +13,7 @@ from application.act_versioning import ActVersioningService
 from application.documents.dto import PersistDocumentCommand, PreparedDocumentVersioning
 from application.documents.persistence import persist_document_result
 from application.ingestion import DocumentSyncService
-from domain.domain_profile.date_parsing import parse_date_guess
+from domain.shared.dates import parse_date_guess
 from domain.domain_profile.profiles.decree import DecreeDomainProfile
 from domain.domain_profile.profiles.legal import LegalDomainProfile
 from domain.domain_profile.protocol import ReferenceMatch
@@ -22,7 +22,7 @@ from domain.entities.raw_document import RawDocument
 from domain.entities.vector_outbox_entry import OutboxOperation
 from domain.value_objects.visibility import DocumentVisibility
 from domain.repositories.chunk_repository import ChunkSearchResult
-from domain.exceptions import ValidationError
+from domain.shared.exceptions import ValidationError
 from domain.value_objects.stream_events import MetaEvent
 from fakes import FakeUnitOfWorkFactory
 from infrastructure.ml.rag.rag_postprocess import resolve_temporal_conflicts

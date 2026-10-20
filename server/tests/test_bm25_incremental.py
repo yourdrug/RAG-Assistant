@@ -2,7 +2,7 @@
 
 import pytest
 from infrastructure.bm25.bm25_index import BM25Index
-from domain.utils import content_hash
+from domain.shared.hashing import content_hash
 
 
 class TestBM25Incremental:

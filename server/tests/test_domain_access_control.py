@@ -19,7 +19,7 @@ sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.par
 
 from types import SimpleNamespace
 
-from domain.exceptions import BusinessRuleViolation, ValidationError
+from domain.shared.exceptions import BusinessRuleViolation, ValidationError
 from domain.services import (
     can_view_document,
     compute_owner_and_group,

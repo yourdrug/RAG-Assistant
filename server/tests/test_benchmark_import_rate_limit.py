@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from application.ports.rate_limit import RateLimitDecision, RateLimitPolicyName
-from domain.exceptions import ClientException
+from domain.shared.exceptions import ClientException
 from domain.value_objects.roles import UserKind, UserRole
 from presentation.api.auth_dependencies import get_current_user
 from presentation.api.dependencies import create_benchmark_question_service, create_rate_limiter

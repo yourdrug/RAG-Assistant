@@ -107,7 +107,7 @@ async def test_failed_judge_keeps_generated_answer(tmp_path, monkeypatch):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("status", list(BenchmarkSweepStatus))
 async def test_resume_only_accepts_terminal_failed_or_cancelled_sweeps(status):
-    from domain.exceptions import ValidationError
+    from domain.shared.exceptions import ValidationError
 
     factory = FakeUnitOfWorkFactory()
     entity = BenchmarkSweep(id=1, status=status.value)
@@ -127,7 +127,7 @@ async def test_resume_only_accepts_terminal_failed_or_cancelled_sweeps(status):
 
 @pytest.mark.asyncio
 async def test_resume_waits_for_cancelled_worker_to_stop():
-    from domain.exceptions import BusinessRuleViolation
+    from domain.shared.exceptions import BusinessRuleViolation
     from domain.value_objects.job_status import BackgroundJobStatus
 
     factory = FakeUnitOfWorkFactory()

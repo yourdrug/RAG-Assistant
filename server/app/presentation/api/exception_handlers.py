@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from logging import Logger, getLogger
 
-from domain.exceptions import (
+from domain.shared.exceptions import (
     AuthenticationError,
     BusinessRuleViolation,
     ClientException,

@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Self
 
-from domain.exceptions import DatabaseError
+from domain.shared.exceptions import DatabaseError
 
 
 if TYPE_CHECKING:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from domain.value_objects.lifecycle_status import LifecycleStatusMixin
+from domain.shared.enums import LifecycleStatusMixin
 
 
 class BenchmarkSweepStatus(

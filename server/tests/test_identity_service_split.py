@@ -20,7 +20,7 @@ from application.identity import (
 )
 from domain.entities.api_key import ApiKey
 from domain.entities.user import User
-from domain.exceptions import BusinessRuleViolation, ClientException, EntityNotFound
+from domain.shared.exceptions import BusinessRuleViolation, ClientException, EntityNotFound
 from domain.value_objects.roles import UserKind, UserRole
 from presentation.api.dependencies import create_action_logger, create_rate_limiter
 from presentation.api.exception_handlers import handle_client_exception

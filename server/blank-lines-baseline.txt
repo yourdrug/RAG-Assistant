@@ -41,7 +41,6 @@ app/domain/utils.py
 app/domain/value_objects/benchmark_annotations.py
 app/domain/value_objects/benchmark_scoring.py
 app/domain/value_objects/cost_budget.py
-app/domain/value_objects/lifecycle_status.py
 app/domain/value_objects/sweep_evaluation_mode.py
 app/infrastructure/adapters/pii_redactor_adapter.py
 app/infrastructure/auth/api_key_provider.py
@@ -343,3 +342,5 @@ tests/test_temporal_retrieval.py
 tests/test_temporal_versioning_regressions.py
 tests/test_worker_resource_lifecycle.py
 tests/test_worker_sweep_lifecycle.py
+app/domain/shared/dates.py
+app/domain/shared/stats.py

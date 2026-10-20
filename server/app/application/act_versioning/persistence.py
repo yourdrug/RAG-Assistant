@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from domain.entities.act_version_timeline import ActVersionTimeline
 from domain.entities.vector_outbox_entry import OutboxOperation, VectorOutboxEntry
-from domain.exceptions import EntityNotFound
+from domain.shared.exceptions import EntityNotFound
 
 
 if TYPE_CHECKING:

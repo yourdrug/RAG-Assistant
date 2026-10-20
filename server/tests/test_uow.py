@@ -22,7 +22,7 @@ from application.uow import (
 from application.uow.base import BaseUnitOfWork as ImplementationBaseUnitOfWork
 from application.uow.factory import UnitOfWorkFactory as ImplementationUnitOfWorkFactory
 from application.uow.session import SessionProtocol as ImplementationSessionProtocol
-from domain.exceptions import DatabaseError
+from domain.shared.exceptions import DatabaseError
 from infrastructure.uow_factory import UnitOfWorkFactory as SQLAlchemyUnitOfWorkFactory
 
 

@@ -19,7 +19,7 @@ from application.documents import DocumentCommandService
 from application.identity import UserContextFactory
 from domain.entities.document import Document
 from domain.entities.act_version import ActVersion
-from domain.exceptions import BusinessRuleViolation, ValidationError
+from domain.shared.exceptions import BusinessRuleViolation, ValidationError
 from domain.value_objects.document_status import DocumentStatus
 from domain.value_objects.visibility import DocumentVisibility
 from domain.value_objects.roles import UserRole

@@ -28,7 +28,7 @@ from qdrant_client.models import (
 
 from config import settings
 from infrastructure.corpus.snapshot import collection_for
-from domain.utils import content_hash
+from domain.shared.hashing import content_hash
 from infrastructure.ml.clients.factories import create_qdrant_client
 from infrastructure.repositories.vector.embedding_identity import ensure_embedding_identity
 

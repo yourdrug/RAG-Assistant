@@ -9,7 +9,7 @@ from application.documents import DocumentDeletionJobs
 from domain.entities.background_job import BackgroundJob
 from domain.entities.document import Document
 from domain.entities.user import User
-from domain.exceptions import BusinessRuleViolation, EntityNotFound
+from domain.shared.exceptions import BusinessRuleViolation, EntityNotFound
 from domain.value_objects.job_status import BackgroundJobStatus
 from domain.value_objects.job_type import JobType
 from domain.value_objects.roles import UserKind, UserRole

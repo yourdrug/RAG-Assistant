@@ -26,7 +26,7 @@ from infrastructure.ml.config.client_switch import (
     RERANK_CLIENT_KEYS,
 )
 from infrastructure.ml.config.endpoint_policy import validate_endpoints, validate_pools
-from domain.exceptions import ValidationError
+from domain.shared.exceptions import ValidationError
 from infrastructure.storage.file_storage import LazyStorage, finish_owned_task
 
 from infrastructure.ml.rag.benchmark_evidence import (

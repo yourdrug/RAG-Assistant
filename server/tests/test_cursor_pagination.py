@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 from application.chunks.dto import ChunkCursorQuery
 from application.chunks.queries import ChunkQueryService
 from domain.entities.document import Document  # noqa: E402
-from domain.exceptions import ValidationError  # noqa: E402
+from domain.shared.exceptions import ValidationError  # noqa: E402
 from domain.utils import decode_cursor, encode_cursor  # noqa: E402
 from domain.value_objects.visibility import DocumentVisibility  # noqa: E402
 
@@ -141,7 +141,7 @@ class TestChunkServiceCursor:
 
     @pytest.mark.asyncio
     async def test_document_not_found_raises(self, service):
-        from domain.exceptions import EntityNotFound
+        from domain.shared.exceptions import EntityNotFound
 
         with pytest.raises(EntityNotFound):
             await service.list_chunks_cursor(

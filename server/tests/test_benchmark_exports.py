@@ -17,7 +17,7 @@ from infrastructure.benchmark.legacy_import import load_legacy_runs
 from presentation.api.routes import benchmark
 from presentation.api.dependencies import create_benchmark_export_service
 from presentation.api.auth_dependencies import get_current_user
-from domain.exceptions import PermissionDeniedError
+from domain.shared.exceptions import PermissionDeniedError
 
 
 class Factory:

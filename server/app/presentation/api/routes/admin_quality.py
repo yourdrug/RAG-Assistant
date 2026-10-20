@@ -8,7 +8,7 @@ import logging
 from pathlib import Path
 
 from domain.value_objects.visibility import DocumentVisibility
-from domain.exceptions import ServerException
+from domain.shared.exceptions import ServerException
 from domain.value_objects.file_backend import FileBackend
 from domain.value_objects.doc_domain import DocDomain
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile

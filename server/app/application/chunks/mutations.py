@@ -10,8 +10,8 @@ from application.chunks.access import load_doc_for_add, load_doc_for_edit
 from application.chunks.dto import AddChunkResult, EditChunkResult
 from application.indexing import build_outbox_metadata
 from domain.entities.vector_outbox_entry import OutboxOperation, VectorOutboxEntry
-from domain.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
-from domain.utils import content_hash
+from domain.shared.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
+from domain.shared.hashing import content_hash
 from domain.value_objects.chunk_context import extract_chunk_context
 from domain.value_objects.source_type import SourceType
 

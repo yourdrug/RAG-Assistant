@@ -16,7 +16,7 @@ from application.documents.upload import DocumentUploadCommand
 from application.documents import DocumentCommandService
 from domain.entities.document import Document
 from domain.entities.vector_outbox_entry import VectorOutboxEntry
-from domain.exceptions import BusinessRuleViolation
+from domain.shared.exceptions import BusinessRuleViolation
 from domain.value_objects.user_context import UserContext
 from infrastructure.database.models import DocumentModel, UserModel
 from infrastructure.repositories.config.sqlalchemy_vector_outbox_repository import (

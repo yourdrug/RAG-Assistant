@@ -19,7 +19,7 @@ from logging import (
 )
 
 from config import settings
-from domain.exceptions import DatabaseError
+from domain.shared.exceptions import DatabaseError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,

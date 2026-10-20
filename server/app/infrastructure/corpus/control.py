@@ -24,7 +24,7 @@ from qdrant_client.models import Modifier
 from infrastructure.repositories.vector.sparse_vectors import SPARSE_VECTOR_NAME
 
 from config import settings
-from domain.exceptions import ValidationError
+from domain.shared.exceptions import ValidationError
 from domain.value_objects.document_status import DocumentStatus
 from domain.entities.vector_outbox_entry import OutboxStatus
 from infrastructure.ml.config.embedding_identity import configured_embedding_identity

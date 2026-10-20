@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from config import settings
 from domain.value_objects.source_type import SourceType
 from domain.entities.document import Document
-from domain.exceptions import EntityNotFound, UniqueConstraintViolation
+from domain.shared.exceptions import EntityNotFound, UniqueConstraintViolation
 from domain.services import get_visibility_conditions
 from domain.value_objects.document_status import DOCUMENT_SLOT_STATUSES, DocumentStatus
 from domain.value_objects.owner_match import OwnerMatch

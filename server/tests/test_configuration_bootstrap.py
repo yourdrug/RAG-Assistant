@@ -17,7 +17,7 @@ import pytest
 
 from config import Settings, settings
 from domain.entities.config_parameter import ConfigParameter
-from domain.exceptions import ValidationError
+from domain.shared.exceptions import ValidationError
 from domain.value_objects.llm_provider import LLMProvider
 from domain.value_objects.config_value_type import ConfigValueType
 from fakes import FakeUnitOfWorkFactory

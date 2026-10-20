@@ -10,7 +10,7 @@ from application.documents import DocumentCommandService, DocumentQueryService
 from application.documents.conflicts import resolve_upload_version_group
 from application.identity import UserContextFactory
 from domain.entities.document import Document
-from domain.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
+from domain.shared.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
 from domain.value_objects.document_status import DocumentStatus
 from domain.value_objects.user_context import UserContext
 from domain.value_objects.visibility import DocumentVisibility
@@ -316,7 +316,7 @@ async def test_upload_unique_constraint_violation_translates_to_conflict():
     """A database uniqueness violation is translated to an application conflict."""
     cmd, query, uow, fs = _service()
     # Make save raise UniqueConstraintViolation
-    from domain.exceptions import UniqueConstraintViolation
+    from domain.shared.exceptions import UniqueConstraintViolation
 
     original_save = uow.documents.save
 

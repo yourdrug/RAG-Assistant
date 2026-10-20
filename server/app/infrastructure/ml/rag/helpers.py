@@ -17,7 +17,7 @@ from domain.value_objects.search_mode import SearchMode
 from domain.services.evidence_queries import evidence_search_queries
 from langchain.schema import Document as LCDocument
 
-from domain.utils import content_hash
+from domain.shared.hashing import content_hash
 from infrastructure.ml.clients.client_lease import client_operation
 from infrastructure.ml.clients.llm_schemas import SufficiencyAssessment
 from infrastructure.ml.rag.rag_formatting import format_docs

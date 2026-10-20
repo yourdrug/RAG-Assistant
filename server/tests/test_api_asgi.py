@@ -9,7 +9,7 @@ import pytest_asyncio
 
 from application.chat import ConversationService
 from application.chunks import AddChunkResult, EditChunkResult
-from domain.value_objects.cursor_page import CursorPage
+from domain.shared.pagination import CursorPage
 from test_chunk_service import _make_chunk, _make_doc, _make_service, _make_uow
 from application.documents import DocumentDTO
 from domain.entities.document import Document
@@ -226,7 +226,7 @@ async def test_conversation_cursor_and_ownership(asgi_client):
 
 @pytest.mark.asyncio
 async def test_chat_outage_preserves_retry_after(asgi_client):
-    from domain.exceptions import LLMUnavailableError
+    from domain.shared.exceptions import LLMUnavailableError
 
     sign_in()
     service = SimpleNamespace(sync_chat=AsyncMock(side_effect=LLMUnavailableError()))

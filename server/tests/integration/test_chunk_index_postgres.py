@@ -15,7 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from application.chunks import ChunkMutationService
-from domain.exceptions import BusinessRuleViolation
+from domain.shared.exceptions import BusinessRuleViolation
 from domain.value_objects.document_status import DocumentStatus
 from domain.value_objects.roles import UserRole
 from domain.value_objects.visibility import DocumentVisibility

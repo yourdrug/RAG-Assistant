@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 
-from domain.value_objects.lifecycle_status import LifecycleStatusMixin
+from domain.shared.enums import LifecycleStatusMixin
 
 
 class OutboxOperation(StrEnum):

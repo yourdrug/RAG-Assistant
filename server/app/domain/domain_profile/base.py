@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
-from domain.domain_profile.date_parsing import parse_date_guess
+from domain.shared.dates import parse_date_guess
 from domain.domain_profile.protocol import ConfigDefault, EffectiveDateCandidate
 
 EFFECTIVE_DATE_TRUST_THRESHOLD_DEFAULT = ConfigDefault(

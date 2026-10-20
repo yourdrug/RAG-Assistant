@@ -8,7 +8,7 @@ import httpx
 from config import settings
 from domain.services.rag_policy import build_context_message, build_system_prompt  # noqa: F401
 from domain.value_objects.message_role import MessageRole
-from domain.exceptions import ContextBudgetExceededError
+from domain.exceptions.domain_errors import ContextBudgetExceededError
 from infrastructure.ml.rag.prompt_budget import estimate_message_tokens
 from infrastructure.ml.clients.client_lease import client_operation
 from infrastructure.ml.clients.llm_schemas import DecompositionCheck

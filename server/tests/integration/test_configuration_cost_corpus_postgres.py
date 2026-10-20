@@ -28,7 +28,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from config import settings
-from domain.exceptions import ValidationError
+from domain.shared.exceptions import ValidationError
 from domain.value_objects.cost_budget import BudgetError, CostRate, ModelBillingContract
 from application.budget import BudgetPolicy
 from infrastructure.budget.job_context import bill_job_to_initiator

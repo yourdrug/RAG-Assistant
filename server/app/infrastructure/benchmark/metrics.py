@@ -140,7 +140,7 @@ def compute_context_precision_recall(
 
 
 # Re-exported from domain for backward compatibility
-from domain.utils import percentile as _percentile  # noqa: E402, F401
+from domain.shared.stats import percentile as _percentile  # noqa: E402, F401
 
 
 # LLM pricing per 1M tokens (USD). Ollama = 0 (self-hosted).

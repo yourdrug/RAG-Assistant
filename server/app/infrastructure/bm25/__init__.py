@@ -5,7 +5,8 @@ from infrastructure.bm25.bm25_invalidation import (
     publish_bm25_invalidation,
 )
 from infrastructure.bm25.bm25_index import BM25Index
-from domain.utils import content_hash, rrf_merge
+from domain.shared.hashing import content_hash
+from domain.utils import rrf_merge
 
 __all__ = [
     "BM25Index",

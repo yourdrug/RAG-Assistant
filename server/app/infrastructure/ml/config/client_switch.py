@@ -9,7 +9,7 @@ import httpx
 
 from config import Settings
 from application.budget import billing_principal
-from domain.exceptions import ValidationError
+from domain.shared.exceptions import ValidationError
 from domain.value_objects.llm_provider import LLMProvider
 from infrastructure.ml.clients import factories
 from infrastructure.ml.clients.instructor_client import create_async_instructor_client

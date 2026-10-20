@@ -8,7 +8,7 @@ import pytest
 from langchain.schema import Document
 
 from application.indexing import process_chunks
-from domain.utils import content_hash
+from domain.shared.hashing import content_hash
 from infrastructure.database.models import ChunkModel
 from domain.entities.raw_document import RawDocument
 from domain.repositories.chunk_repository import ChunkSearchResult

@@ -20,7 +20,7 @@ from typing import Any, Callable
 
 from prometheus_client import Counter, Gauge
 
-from domain.exceptions import LLMUnavailableError
+from domain.shared.exceptions import LLMUnavailableError
 
 log = logging.getLogger("default")
 

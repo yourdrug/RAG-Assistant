@@ -6,7 +6,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
-from domain.exceptions import EntityNotFound, PermissionDeniedError
+from domain.shared.exceptions import EntityNotFound, PermissionDeniedError
 from domain.value_objects.message_role import MessageRole
 
 

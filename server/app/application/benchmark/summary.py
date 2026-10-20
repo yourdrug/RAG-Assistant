@@ -4,7 +4,7 @@ from typing import Any
 
 from domain.services.benchmark_evaluation import summarize_evidence, summarize_retrieval
 from domain.services.benchmark_judge import judge_coverage
-from domain.utils import percentile
+from domain.shared.stats import percentile
 
 
 def summarize_benchmark_results(results: list[dict[str, Any]]) -> dict[str, Any]:

@@ -7,16 +7,16 @@ import logging
 from typing import TYPE_CHECKING, Unpack
 
 from application.act_versioning.persistence import ActVersionPersistence
-from domain.domain_profile.date_parsing import parse_date_guess
 from domain.entities.act_version import ActVersion
 from domain.entities.act_version_timeline import ActVersionTimeline
 from domain.entities.regulatory_act import RegulatoryAct
-from domain.exceptions import EntityNotFound, ValidationError
 from domain.services.act_version_policy import (
     document_scope_key,
     extract_act_number,
     same_document_scope,
 )
+from domain.shared.dates import parse_date_guess
+from domain.shared.exceptions import EntityNotFound, ValidationError
 from domain.value_objects.visibility import DocumentVisibility
 
 

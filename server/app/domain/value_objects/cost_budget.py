@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation, ROUND_CEILING
 
-from domain.exceptions import BusinessRuleViolation
+from domain.shared.exceptions import BusinessRuleViolation
 
 UNDISPATCHED_COST_SOURCE = 'not_dispatched'
 

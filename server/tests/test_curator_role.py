@@ -22,7 +22,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
 
 from domain.entities.document import Document
-from domain.exceptions import BusinessRuleViolation
+from domain.shared.exceptions import BusinessRuleViolation
 from domain.services import can_view_document, get_visibility_conditions, is_in_search_scope
 from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.curator_scope import CuratorScope

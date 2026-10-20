@@ -13,7 +13,7 @@ from application.admin import (
     OpenRouterModelsInfo,
     VectorDBCollectionInfo,
 )
-from domain.exceptions import ValidationError
+from domain.shared.exceptions import ValidationError
 
 
 @pytest.mark.parametrize(

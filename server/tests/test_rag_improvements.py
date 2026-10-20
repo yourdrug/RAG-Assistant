@@ -13,7 +13,7 @@ from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, HumanMessage
 
 from application.chat import ConversationService
-from domain.exceptions import ContextBudgetExceededError
+from domain.exceptions.domain_errors import ContextBudgetExceededError
 from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.curator_scope import CuratorScope
 from domain.value_objects.llm_provider import Breadth

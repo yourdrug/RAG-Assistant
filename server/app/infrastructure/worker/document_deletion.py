@@ -1,6 +1,6 @@
 """Durable document deletion; permissions are checked again at execution time."""
 
-from domain.exceptions import EntityNotFound, PermissionDeniedError
+from domain.shared.exceptions import EntityNotFound, PermissionDeniedError
 from domain.value_objects.capabilities import Capability, get_role_capabilities
 from infrastructure.worker.tasks import run_tracked_job
 

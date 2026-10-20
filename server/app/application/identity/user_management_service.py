@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 from application.identity.dto import ToggleActiveResult, UserDTO
 from domain.entities.user import User
-from domain.exceptions import BusinessRuleViolation, EntityNotFound
+from domain.shared.exceptions import BusinessRuleViolation, EntityNotFound
 from domain.value_objects.roles import UserKind, UserRole
 
 

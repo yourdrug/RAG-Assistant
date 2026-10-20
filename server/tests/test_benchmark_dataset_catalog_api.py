@@ -7,7 +7,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from domain.exceptions import ClientException
+from domain.shared.exceptions import ClientException
 from domain.value_objects.benchmark_dataset import BenchmarkDataset
 from domain.value_objects.roles import UserKind, UserRole
 from presentation.api.auth_dependencies import get_current_user

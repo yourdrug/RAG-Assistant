@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 from application.admin.dto import ConfigurationStatus
 from domain.events.config_events import ConfigParameterChanged
-from domain.exceptions import EntityNotFound, ValidationError
+from domain.shared.exceptions import EntityNotFound, ValidationError
 from domain.value_objects.dynamic_config import (
     DYNAMIC_FIELDS_MAP,
     DYNAMIC_PARAMS,

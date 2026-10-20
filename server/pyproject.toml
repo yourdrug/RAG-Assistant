@@ -361,7 +361,7 @@ module = [
     "domain.services.retrieval_diversity",
     "domain.services.token_provider",
     "domain.utils",
-    "domain.value_objects.base",
+    "domain.shared.enums",
     "domain.value_objects.benchmark_annotations",
     "domain.value_objects.chunk_context",
     "domain.value_objects.pii_patterns",
@@ -789,6 +789,16 @@ source_modules = ["domain"]
 forbidden_modules = [
     "config", "fastapi", "starlette", "sqlalchemy", "pydantic", "pydantic_settings",
     "httpx", "redis", "qdrant_client",
+]
+
+[[tool.importlinter.contracts]]
+name = "Domain shared kernel is independent of contexts"
+type = "forbidden"
+source_modules = ["domain.shared"]
+forbidden_modules = [
+    "domain.domain_profile", "domain.entities", "domain.events", "domain.exceptions",
+    "domain.ingestion", "domain.repositories", "domain.services", "domain.utils",
+    "domain.value_objects",
 ]
 
 [[tool.importlinter.contracts]]

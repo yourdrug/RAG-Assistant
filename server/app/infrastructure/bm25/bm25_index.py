@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import math
 
-from domain.utils import content_hash
+from domain.shared.hashing import content_hash
 from infrastructure.bm25.tokenizer import tokenize
 
 log = logging.getLogger("default")

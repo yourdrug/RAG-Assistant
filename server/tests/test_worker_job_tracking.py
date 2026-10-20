@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 import pytest  # noqa: E402
-from domain.exceptions import BusinessRuleViolation  # noqa: E402
+from domain.shared.exceptions import BusinessRuleViolation  # noqa: E402
 from domain.value_objects.sweep_status import BenchmarkSweepStatus  # noqa: E402
 from domain.value_objects.sweep_evaluation_mode import SweepEvaluationMode  # noqa: E402
 

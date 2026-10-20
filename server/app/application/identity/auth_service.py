@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from application.identity.dto import LoginResult, UserDTO
-from domain.exceptions import ValidationError
+from domain.shared.exceptions import ValidationError
 
 
 if TYPE_CHECKING:

@@ -17,7 +17,7 @@ from collections.abc import Callable, Coroutine
 from typing import Any
 
 from application.ports.rate_limit import RateLimiterPort, RateLimitPolicyName
-from domain.exceptions import RateLimitExceededError
+from domain.shared.exceptions import RateLimitExceededError
 from fastapi import Depends, Request
 
 from presentation.api.auth_dependencies import get_current_user

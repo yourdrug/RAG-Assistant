@@ -7,7 +7,7 @@ if TYPE_CHECKING:
     from langchain_core.documents import Document
 
 from domain.services.rag_policy import sanitize_for_prompt
-from domain.utils import content_hash
+from domain.shared.hashing import content_hash
 from infrastructure.bm25.tokenizer import tokenize
 from infrastructure.ml.rag.document_sources import document_identity
 from infrastructure.ml.rag.rag_formatting import build_header, content_with_parent_scope, render_selected_docs

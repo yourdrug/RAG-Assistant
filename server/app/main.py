@@ -12,7 +12,7 @@ from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from composition.container import Container
 from config import settings
-from domain.exceptions import ClientException, ServerException
+from domain.shared.exceptions import ClientException, ServerException
 from infrastructure.database.database import database
 from infrastructure.initialization import bootstrap_admin
 from infrastructure.logging import logging_config

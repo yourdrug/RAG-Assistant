@@ -8,7 +8,7 @@ from application.admin import ConfigService
 from config import Settings, settings
 from domain.entities.config_parameter import ConfigParameter
 from domain.events.config_events import ConfigParameterChanged
-from domain.exceptions import ValidationError
+from domain.shared.exceptions import ValidationError
 from domain.value_objects.config_value_type import ConfigValueType
 from domain.value_objects.dynamic_config import SECRET_SETTING_KEYS, STATIC_SETTING_KEYS
 from fakes import FakeUnitOfWorkFactory

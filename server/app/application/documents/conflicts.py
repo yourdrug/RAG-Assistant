@@ -6,7 +6,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from application.documents.delete import delete_document_in_uow
-from domain.exceptions import EntityNotFound
+from domain.shared.exceptions import EntityNotFound
 from domain.value_objects.document_status import DocumentStatus
 
 

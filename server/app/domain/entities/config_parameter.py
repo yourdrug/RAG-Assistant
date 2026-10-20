@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from domain.exceptions import ValidationError
+from domain.shared.exceptions import ValidationError
 from domain.utils import parse_bool
 from domain.value_objects.config_value_type import ConfigValueType
 

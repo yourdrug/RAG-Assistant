@@ -7,7 +7,7 @@ import pytest
 
 from config import Settings
 from domain.entities.config_parameter import ConfigParameter
-from domain.exceptions import ValidationError
+from domain.shared.exceptions import ValidationError
 from domain.value_objects.config_value_type import ConfigValueType
 from domain.value_objects.dynamic_config import DYNAMIC_FIELDS_MAP
 from infrastructure.events.in_process_event_bus import InProcessEventBus

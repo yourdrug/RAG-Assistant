@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 import pytest
 
-from domain.exceptions.domain_errors import SemaphoreTimeoutError
+from domain.shared.exceptions import SemaphoreTimeoutError
 from infrastructure.ml.clients.client_registry import TimeoutSemaphore
 
 

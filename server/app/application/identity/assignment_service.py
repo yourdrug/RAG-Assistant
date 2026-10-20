@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from application.uow import UnitOfWorkFactory
 
-from domain.exceptions import BusinessRuleViolation, EntityNotFound
+from domain.shared.exceptions import BusinessRuleViolation, EntityNotFound
 from domain.value_objects.roles import UserRole
 
 

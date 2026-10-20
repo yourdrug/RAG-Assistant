@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from domain.value_objects.base import ValidatedEnumMixin
+from domain.shared.enums import ValidatedEnumMixin
 
 
 class DocumentVisibility(ValidatedEnumMixin, StrEnum, label="visibility"):

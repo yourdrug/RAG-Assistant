@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from application.jobs.service import JobService
 from domain.entities.background_job import BackgroundJob
-from domain.exceptions import ClientException, EntityNotFound
+from domain.shared.exceptions import ClientException, EntityNotFound
 from domain.value_objects.job_status import BackgroundJobStatus
 from domain.value_objects.roles import UserKind, UserRole
 from fakes import FakeUnitOfWorkFactory

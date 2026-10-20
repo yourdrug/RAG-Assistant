@@ -6,7 +6,7 @@ from dataclasses import dataclass, replace
 from datetime import date
 
 from domain.entities.act_version import ActVersion
-from domain.exceptions import EntityNotFound
+from domain.shared.exceptions import EntityNotFound
 
 
 @dataclass(frozen=True)
