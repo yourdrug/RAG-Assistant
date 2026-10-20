@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from config import settings
-from domain.services.benchmark_judge import judge_coverage
+from domain.benchmark.judge import judge_coverage
 from infrastructure.benchmark import grouped_judge
 from infrastructure.benchmark.answer_generators import BenchmarkAnswer
 from infrastructure.benchmark.case_evaluator import BenchmarkCaseEvaluator
@@ -204,7 +204,7 @@ async def test_request_concurrency_is_bounded_across_questions(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_all_config_results_saved_and_resume_updates_existing_rows():
-    from domain.entities.benchmark_sweep import BenchmarkSweep
+    from domain.benchmark.sweep import BenchmarkSweep
     from infrastructure.worker.sweep import save_sweep_results
 
     factory = FakeUnitOfWorkFactory()
@@ -236,7 +236,7 @@ async def test_all_config_results_saved_and_resume_updates_existing_rows():
 
 @pytest.mark.asyncio
 async def test_cancel_interrupts_inflight_evaluation_and_awaits_cleanup():
-    from domain.entities.benchmark_sweep import BenchmarkSweep
+    from domain.benchmark.sweep import BenchmarkSweep
     from infrastructure.benchmark.sweep_engine import SweepCancelled
     from infrastructure.worker.sweep import run_cancellable_sweep
 
@@ -365,7 +365,7 @@ async def test_service_returns_current_results_without_consulting_report_files(t
 @pytest.mark.asyncio
 async def test_result_detail_api_serializes_per_question_list():
     from application.benchmark import BenchmarkResultService
-    from domain.entities.benchmark_run import BenchmarkRun
+    from domain.benchmark.run import BenchmarkRun
     from presentation.api.routes.benchmark import get_benchmark_result
 
     factory = FakeUnitOfWorkFactory()
@@ -400,8 +400,8 @@ async def test_legacy_single_finalist_uses_latest_attempt_after_operational_sett
 
 @pytest.mark.asyncio
 async def test_failure_does_not_overwrite_acknowledged_cancellation(monkeypatch):
-    from domain.entities.benchmark_sweep import BenchmarkSweep
-    from domain.value_objects.sweep_status import BenchmarkSweepStatus
+    from domain.benchmark.sweep import BenchmarkSweep
+    from domain.benchmark.sweep import BenchmarkSweepStatus
     from infrastructure.worker import sweep
 
     factory = FakeUnitOfWorkFactory()

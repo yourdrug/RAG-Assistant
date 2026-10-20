@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from domain.value_objects.benchmark_scoring import DEFAULT_OBJECTIVE_WEIGHTS
+from domain.benchmark.scoring import DEFAULT_OBJECTIVE_WEIGHTS
 from infrastructure.benchmark import answer_generators, grouped_judge, runner
 from infrastructure.benchmark.case_evaluator import refresh_judge_rubric
 from infrastructure.benchmark.checkpoint import DatabaseBenchmarkCheckpoints

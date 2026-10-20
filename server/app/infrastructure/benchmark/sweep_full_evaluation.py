@@ -5,9 +5,9 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 import math
 
-from domain.services.benchmark_selection import select_fast_candidates
-from domain.value_objects.benchmark_scoring import METRIC_SCALES, validate_objective_weights
-from domain.value_objects.sweep_evaluation_mode import SweepEvaluationMode
+from domain.benchmark.selection import select_fast_candidates
+from domain.benchmark.scoring import METRIC_SCALES, validate_objective_weights
+from domain.benchmark.sweep import SweepEvaluationMode
 
 from infrastructure.benchmark.sweep_scoring import compute_composite_score
 from infrastructure.benchmark.sweep_settings import SweepSettingsPort

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from application.uow import UnitOfWorkFactory
-    from domain.entities.benchmark_run import BenchmarkRun
+    from domain.benchmark.run import BenchmarkRun
 
 
 from application.benchmark.dto import BenchmarkImportResult

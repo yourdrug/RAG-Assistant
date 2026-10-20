@@ -2,8 +2,8 @@
 
 from typing import Any
 
-from domain.services.benchmark_evaluation import summarize_evidence, summarize_retrieval
-from domain.services.benchmark_judge import judge_coverage
+from domain.benchmark.evaluation import summarize_evidence, summarize_retrieval
+from domain.benchmark.judge import judge_coverage
 from domain.shared.stats import percentile
 
 

@@ -4,8 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from domain.entities.benchmark_sweep import BenchmarkSweep
-from domain.value_objects.benchmark_strategy import BenchmarkStrategy
+from domain.benchmark.sweep import BenchmarkStrategy, BenchmarkSweep
 from infrastructure.benchmark.sweep_engine import SweepEngine
 from infrastructure.benchmark.sweep_settings import LiveSweepSettings
 

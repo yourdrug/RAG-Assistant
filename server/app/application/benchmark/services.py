@@ -8,13 +8,10 @@ from typing import TYPE_CHECKING, Any
 from application.benchmark.dto import (
     ApplyConfigResult,
 )
-from domain.entities.benchmark_question import BenchmarkQuestion
-from domain.entities.benchmark_sweep import BenchmarkSweep
+from domain.benchmark.question import BenchmarkQuestion, validate_annotations
+from domain.benchmark.sweep import BenchmarkSweep, BenchmarkSweepStatus, validate_sweep_mode
 from domain.shared.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
-from domain.value_objects.benchmark_annotations import validate_annotations
 from domain.value_objects.job_status import BackgroundJobStatus
-from domain.value_objects.sweep_evaluation_mode import validate_sweep_mode
-from domain.value_objects.sweep_status import BenchmarkSweepStatus
 
 
 if TYPE_CHECKING:
@@ -28,7 +25,7 @@ if TYPE_CHECKING:
         SweepCreateDTO,
     )
     from application.uow import UnitOfWorkFactory
-    from domain.entities.benchmark_run import BenchmarkRun
+    from domain.benchmark.run import BenchmarkRun
 
 
 log = logging.getLogger("default")

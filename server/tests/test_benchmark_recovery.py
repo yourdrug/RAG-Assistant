@@ -11,8 +11,8 @@ import pytest
 from openai import OpenAI
 
 
-from domain.entities.benchmark_sweep import BenchmarkSweep
-from domain.value_objects.sweep_status import BenchmarkSweepStatus
+from domain.benchmark.sweep import BenchmarkSweep
+from domain.benchmark.sweep import BenchmarkSweepStatus
 from application.benchmark import BenchmarkSweepService
 from fakes import FakeUnitOfWorkFactory
 from infrastructure.benchmark import judge, persistence, runner

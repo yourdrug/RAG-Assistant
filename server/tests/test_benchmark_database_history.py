@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from application.benchmark import BenchmarkResultService
-from domain.entities.benchmark_run import BenchmarkRun
+from domain.benchmark.run import BenchmarkRun
 from infrastructure.benchmark.benchmark_history_adapter import BenchmarkHistoryAdapter
 
 

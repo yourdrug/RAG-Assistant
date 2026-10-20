@@ -29,7 +29,7 @@ from application.documents.dto import ProcessDocumentCommand
 from domain.knowledge.enums import DocumentVisibility
 from application.benchmark import load_benchmark_questions
 from application.benchmark import compute_summary_from_results
-from domain.entities.benchmark_run import BenchmarkRun
+from domain.benchmark.run import BenchmarkRun
 from application.benchmark import BenchmarkResultService
 from application.benchmark import BenchmarkExportService
 from infrastructure.benchmark.corpus import benchmark_corpus, corpus_metadata

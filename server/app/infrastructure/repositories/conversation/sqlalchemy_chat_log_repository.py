@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from domain.entities.chat_log import ChatLog
+from domain.chat.chat_log import ChatLog
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 

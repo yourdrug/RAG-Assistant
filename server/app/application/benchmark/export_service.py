@@ -8,7 +8,7 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any
 
-from domain.services.benchmark_evaluation import EVIDENCE_METRICS
+from domain.benchmark.evaluation import EVIDENCE_METRICS
 
 
 if TYPE_CHECKING:

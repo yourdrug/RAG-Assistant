@@ -3,7 +3,7 @@
 from copy import copy
 
 from domain.rag.guardrails.sanitization import sanitize_for_prompt
-from domain.value_objects.message_role import MessageRole
+from domain.chat.message import MessageRole
 from domain.knowledge.enums import PageContentType
 from infrastructure.ml.rag.utils import clean_source_name
 from infrastructure.ml.rag.document_sources import group_by_document

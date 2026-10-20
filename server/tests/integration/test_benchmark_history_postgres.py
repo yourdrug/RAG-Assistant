@@ -10,8 +10,8 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from application.benchmark import BenchmarkExportService
-from domain.entities.benchmark_run import BenchmarkRun
-from domain.entities.benchmark_sweep import BenchmarkSweep
+from domain.benchmark.run import BenchmarkRun
+from domain.benchmark.sweep import BenchmarkSweep
 from infrastructure.database.models import BenchmarkRunModel, BenchmarkCheckpointModel
 from infrastructure.repositories.benchmark.sqlalchemy_benchmark_run_repository import (
     SQLAlchemyBenchmarkRunRepository,

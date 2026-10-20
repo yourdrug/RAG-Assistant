@@ -1,10 +1,21 @@
-"""Deterministic evidence metrics and shared aggregation for benchmark results."""
+"""Benchmark evaluation: domain models and rules."""
+
+from __future__ import annotations
 
 import math
 import re
 from pathlib import PurePosixPath
 
-from domain.services.benchmark_source_hints import matches_source_hints, parse_source_hints
+
+def parse_source_hints(source_hint: str | None) -> tuple[str, ...]:
+    if source_hint is None:
+        return ()
+    return tuple(part.strip().lower() for part in source_hint.split(";") if part.strip())
+
+
+def matches_source_hints(filename: str, hints: tuple[str, ...]) -> bool:
+    return any(hint in filename.lower() for hint in hints)
+
 
 EVIDENCE_METRICS = (
     "fragment_recall_at_k",

@@ -19,7 +19,7 @@ from application.benchmark.dto import (
 if TYPE_CHECKING:
     from application.benchmark.ports import BenchmarkHistoryPort
     from application.uow import UnitOfWorkFactory
-    from domain.entities.benchmark_run import BenchmarkRun
+    from domain.benchmark.run import BenchmarkRun
 
 
 class BenchmarkResultService:

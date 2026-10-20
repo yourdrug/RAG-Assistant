@@ -6,8 +6,8 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
+from domain.chat.message import MessageRole
 from domain.shared.exceptions import EntityNotFound, PermissionDeniedError
-from domain.value_objects.message_role import MessageRole
 
 
 if TYPE_CHECKING:
@@ -15,9 +15,8 @@ if TYPE_CHECKING:
 
     from application.chat.ports import ChatSettingsPort, RollingSummaryUpdaterPort
     from application.uow import UnitOfWorkFactory
-    from domain.entities.conversation import Conversation
-    from domain.entities.message import Message
-    from domain.repositories.conversation_repository import ConversationListItem
+    from domain.chat.conversation import Conversation, ConversationListItem
+    from domain.chat.message import Message
 
 log = logging.getLogger(__name__)
 

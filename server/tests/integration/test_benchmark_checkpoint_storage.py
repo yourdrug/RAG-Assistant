@@ -10,8 +10,8 @@ from alembic.operations import Operations
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from domain.entities.benchmark_run import BenchmarkRun
-from domain.entities.benchmark_sweep import BenchmarkSweep
+from domain.benchmark.run import BenchmarkRun
+from domain.benchmark.sweep import BenchmarkSweep
 from infrastructure.benchmark.checkpoint import DatabaseBenchmarkCheckpoints
 from infrastructure.database.models import BenchmarkCheckpointModel, BenchmarkRunModel, BenchmarkSweepModel
 from infrastructure.repositories.benchmark.sqlalchemy_benchmark_run_repository import (

@@ -13,12 +13,12 @@ from types import SimpleNamespace
 
 from langchain_core.documents import Document
 
+from domain.benchmark.evaluation import evaluate_evidence
 from domain.identity.roles import UserKind, UserRole
 from domain.knowledge.enums import DocDomain
 from domain.rag.breadth import Breadth
 from domain.rag.classification import classify_query_domain
 from domain.rag.context import RagContext
-from domain.services.benchmark_evaluation import evaluate_evidence
 from domain.shared.hashing import content_hash
 from infrastructure.ml.rag.benchmark_evidence import BenchmarkEvidence, active_evidence, snapshot_documents
 from infrastructure.ml.rag.document_sources import group_by_document

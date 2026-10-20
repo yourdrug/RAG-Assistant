@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Unpack
 
-from domain.entities.chat_log import ChatLog
+from domain.chat.chat_log import ChatLog
 from domain.knowledge.enums import DocDomain
 from domain.rag.breadth import Breadth
 

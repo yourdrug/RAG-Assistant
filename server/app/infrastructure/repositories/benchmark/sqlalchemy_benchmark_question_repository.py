@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from domain.entities.benchmark_question import BenchmarkQuestion
+from domain.benchmark.question import BenchmarkQuestion
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 

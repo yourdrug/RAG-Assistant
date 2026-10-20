@@ -9,8 +9,8 @@ import pytest
 
 
 from application.benchmark import compute_summary_from_results
-from domain.services.benchmark_judge import judge_coverage
-from domain.value_objects.sweep_evaluation_mode import SweepEvaluationMode
+from domain.benchmark.judge import judge_coverage
+from domain.benchmark.sweep import SweepEvaluationMode
 from infrastructure.benchmark import judge, metrics, evidence_judge
 from infrastructure.benchmark.answer_generators import BenchmarkAnswer
 from infrastructure.benchmark.case_evaluator import BenchmarkCaseEvaluator
@@ -193,7 +193,7 @@ async def test_worker_retains_partial_sweep_for_resume_and_reports_counts(monkey
 @pytest.mark.asyncio
 async def test_worker_never_persists_incomplete_config_as_winner():
     from infrastructure.worker.sweep import save_sweep_results
-    from domain.entities.benchmark_sweep import BenchmarkSweep
+    from domain.benchmark.sweep import BenchmarkSweep
     from fakes import FakeUnitOfWorkFactory
 
     factory = FakeUnitOfWorkFactory()

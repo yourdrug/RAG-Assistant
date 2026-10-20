@@ -33,9 +33,9 @@ from domain.knowledge.enums import SourceType
 from domain.knowledge.enums import DocDomain
 from domain.identity.roles import UserRole, UserKind
 from domain.knowledge.enums import DOCUMENT_SLOT_STATUSES, DocumentStatus
-from domain.value_objects.sweep_status import BenchmarkSweepStatus
-from domain.value_objects.sweep_evaluation_mode import SweepEvaluationMode
-from domain.value_objects.benchmark_strategy import BenchmarkStrategy
+from domain.benchmark.sweep import BenchmarkSweepStatus
+from domain.benchmark.sweep import SweepEvaluationMode
+from domain.benchmark.sweep import BenchmarkStrategy
 from infrastructure.database.basemodel import BaseModel, LinkedBaseModel
 
 BENCHMARK_ACTIVE_SWEEP_INDEX = "uq_benchmark_sweeps_one_active"

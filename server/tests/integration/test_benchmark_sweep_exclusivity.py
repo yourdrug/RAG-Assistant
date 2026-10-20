@@ -14,10 +14,10 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from application.benchmark import SweepCreateDTO
 from application.benchmark import BenchmarkSweepService
-from domain.entities.benchmark_sweep import BenchmarkSweep
+from domain.benchmark.sweep import BenchmarkSweep
 from domain.shared.exceptions import BusinessRuleViolation
-from domain.value_objects.benchmark_strategy import BenchmarkStrategy
-from domain.value_objects.sweep_status import BenchmarkSweepStatus
+from domain.benchmark.sweep import BenchmarkStrategy
+from domain.benchmark.sweep import BenchmarkSweepStatus
 from infrastructure.database.models import BenchmarkSweepModel
 from infrastructure.repositories.benchmark.sqlalchemy_benchmark_sweep_repository import (
     SQLAlchemyBenchmarkSweepRepository,

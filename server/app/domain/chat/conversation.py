@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from domain.entities.message import Message
+from domain.chat.message import Message
 from domain.identity.roles import UserRole
 
 
@@ -28,3 +28,12 @@ class Conversation:
         if user_role == UserRole.ADMIN:
             return True
         return self.user_id == user_id
+
+
+@dataclass(frozen=True)
+class ConversationListItem:
+    id: int
+    user_id: int
+    creation_date: object
+    title: str | None = None
+    message_count: int = 0

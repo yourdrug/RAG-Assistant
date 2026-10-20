@@ -13,6 +13,12 @@ if TYPE_CHECKING:
 
     from application.uow.chunks import ChunkRepository
     from application.uow.session import SessionProtocol
+    from domain.benchmark.repositories import (
+        BenchmarkQuestionRepository,
+        BenchmarkRunRepository,
+        BenchmarkSweepRepository,
+    )
+    from domain.chat.repositories import ChatLogRepository, ConversationRepository, MessageRepository
     from domain.identity.repositories import (
         ApiKeyRepository,
         AssignmentRepository,
@@ -24,13 +30,7 @@ if TYPE_CHECKING:
     from domain.knowledge.repositories.acts import ActVersionRepository, RegulatoryActRepository
     from domain.knowledge.repositories.document import DocumentRepository
     from domain.repositories.background_job_repository import BackgroundJobRepository
-    from domain.repositories.benchmark_question_repository import BenchmarkQuestionRepository
-    from domain.repositories.benchmark_run_repository import BenchmarkRunRepository
-    from domain.repositories.benchmark_sweep_repository import BenchmarkSweepRepository
-    from domain.repositories.chat_log_repository import ChatLogRepository
     from domain.repositories.config_parameter_repository import ConfigParameterRepository
-    from domain.repositories.conversation_repository import ConversationRepository
-    from domain.repositories.message_repository import MessageRepository
 
 
 @dataclass(frozen=True)

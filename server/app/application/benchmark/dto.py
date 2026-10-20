@@ -5,9 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, TypedDict
 
-from domain.value_objects.benchmark_dataset import BenchmarkDataset
-from domain.value_objects.benchmark_scoring import DEFAULT_OBJECTIVE_WEIGHTS
-from domain.value_objects.sweep_evaluation_mode import SweepEvaluationMode
+from domain.benchmark.question import DEFAULT_DATASET
+from domain.benchmark.scoring import DEFAULT_OBJECTIVE_WEIGHTS
+from domain.benchmark.sweep import SweepEvaluationMode
 
 
 if TYPE_CHECKING:
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
     from application.benchmark.ports import BenchmarkCheckpoints
     from application.chat import ChatRAGPort
-    from domain.entities.benchmark_run import BenchmarkRun
+    from domain.benchmark.run import BenchmarkRun
 
 
 @dataclass(frozen=True)
@@ -85,7 +85,7 @@ class BenchmarkResultSummary:
     artifacts: dict[str, Any] = field(default_factory=dict)
     duration_sec: float = 0.0
     llm_evaluated: bool = False
-    dataset: str = BenchmarkDataset.MAIN.value
+    dataset: str = DEFAULT_DATASET
     sweep_id: int | None = None
     creation_date: datetime | None = None
 

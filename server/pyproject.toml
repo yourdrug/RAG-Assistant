@@ -340,29 +340,27 @@ module = [
     "config",
     "domain.ingestion.profiles.base",
     "domain.ingestion.profiles.general",
-    "domain.entities.benchmark_question",
-    "domain.entities.benchmark_run",
-    "domain.entities.benchmark_sweep",
-    "domain.entities.chat_log",
+    "domain.benchmark.question",
+    "domain.benchmark.run",
+    "domain.benchmark.sweep",
+    "domain.chat.chat_log",
     "domain.knowledge.chunk",
-    "domain.entities.message",
+    "domain.chat.message",
     "domain.ingestion.raw_document",
     "domain.knowledge.index_sync",
-    "domain.repositories.benchmark_question_repository",
-    "domain.repositories.benchmark_run_repository",
+    "domain.benchmark.repositories",
     "domain.rag.ports",
     "domain.knowledge.repositories.chunk",
     "domain.knowledge.access_control",
     "domain.knowledge.acts.policy",
-    "domain.services.benchmark_evaluation",
-    "domain.services.benchmark_judge",
-    "domain.services.benchmark_selection",
+    "domain.benchmark.evaluation",
+    "domain.benchmark.judge",
+    "domain.benchmark.selection",
     "domain.rag.guardrails.injection",
     "domain.rag.retrieval",
     "domain.identity.ports",
     "domain.utils",
     "domain.shared.enums",
-    "domain.value_objects.benchmark_annotations",
     "domain.rag.guardrails.pii",
     "domain.rag.result",
     "domain.rag.stream_events",
@@ -795,7 +793,7 @@ name = "Domain shared kernel is independent of contexts"
 type = "forbidden"
 source_modules = ["domain.shared"]
 forbidden_modules = [
-    "domain.rag", "domain.entities", "domain.events",
+    "domain.benchmark", "domain.chat", "domain.rag", "domain.entities", "domain.events",
     "domain.identity", "domain.knowledge", "domain.ingestion", "domain.repositories", "domain.services", "domain.utils",
     "domain.value_objects",
 ]
@@ -805,7 +803,7 @@ name = "Domain identity depends only on shared"
 type = "forbidden"
 source_modules = ["domain.identity"]
 forbidden_modules = [
-    "domain.rag", "domain.entities", "domain.events",
+    "domain.benchmark", "domain.chat", "domain.rag", "domain.entities", "domain.events",
     "domain.knowledge", "domain.ingestion", "domain.repositories", "domain.services", "domain.utils",
     "domain.value_objects",
 ]
@@ -815,7 +813,7 @@ name = "Domain knowledge depends only on identity and shared"
 type = "forbidden"
 source_modules = ["domain.knowledge"]
 forbidden_modules = [
-    "domain.rag", "domain.entities", "domain.events",
+    "domain.benchmark", "domain.chat", "domain.rag", "domain.entities", "domain.events",
     "domain.ingestion", "domain.repositories", "domain.services", "domain.utils",
     "domain.value_objects",
 ]
@@ -826,6 +824,8 @@ type = "forbidden"
 source_modules = ["domain.ingestion"]
 allow_indirect_imports = true
 forbidden_modules = [
+    "domain.benchmark",
+    "domain.chat",
     "domain.entities",
     "domain.events",
     "domain.identity",
@@ -841,9 +841,32 @@ name = "Domain RAG depends only on knowledge identity and shared"
 type = "forbidden"
 source_modules = ["domain.rag"]
 forbidden_modules = [
-    "domain.ingestion", "domain.entities", "domain.events", "domain.repositories",
+    "domain.benchmark", "domain.chat", "domain.ingestion", "domain.entities", "domain.events", "domain.repositories",
     "domain.services", "domain.utils", "domain.value_objects",
 ]
+
+
+[[tool.importlinter.contracts]]
+name = "Domain chat depends only on rag identity and shared"
+type = "forbidden"
+source_modules = ["domain.chat"]
+allow_indirect_imports = true
+forbidden_modules = [
+    "domain.benchmark", "domain.knowledge", "domain.ingestion", "domain.entities", "domain.events",
+    "domain.repositories", "domain.services", "domain.utils", "domain.value_objects",
+]
+
+
+[[tool.importlinter.contracts]]
+name = "Domain benchmark depends only on shared"
+type = "forbidden"
+source_modules = ["domain.benchmark"]
+forbidden_modules = [
+    "domain.chat", "domain.rag", "domain.knowledge", "domain.identity", "domain.ingestion",
+    "domain.entities", "domain.events", "domain.repositories", "domain.services",
+    "domain.utils", "domain.value_objects",
+]
+
 
 [[tool.importlinter.contracts]]
 name = "Application is independent of framework and client implementations"

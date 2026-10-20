@@ -7,7 +7,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from domain.services.benchmark_evaluation import EVIDENCE_METRICS
+from domain.benchmark.evaluation import EVIDENCE_METRICS
 
 from infrastructure.benchmark.metrics import compute_summary_metrics
 

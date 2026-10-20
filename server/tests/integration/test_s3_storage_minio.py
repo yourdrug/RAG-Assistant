@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from application.benchmark import BenchmarkExportService
 from config import settings
-from domain.entities.benchmark_run import BenchmarkRun
+from domain.benchmark.run import BenchmarkRun
 from domain.knowledge.enums import DocumentVisibility
 from infrastructure.bm25 import bm25_invalidation, persistence
 from infrastructure.ml.clients.client_registry import MLClientRegistry

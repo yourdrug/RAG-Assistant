@@ -7,7 +7,7 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
-from domain.entities.benchmark_run import BenchmarkRun
+from domain.benchmark.run import BenchmarkRun
 from infrastructure.benchmark.metrics import compute_summary_metrics
 
 MAX_LEGACY_BYTES = 64 * 1024 * 1024

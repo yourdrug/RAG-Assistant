@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-from domain.value_objects.benchmark_scoring import DEFAULT_OBJECTIVE_WEIGHTS, validate_objective_weights
+from domain.benchmark.scoring import DEFAULT_OBJECTIVE_WEIGHTS, validate_objective_weights
 
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from domain.value_objects.benchmark_dataset import BenchmarkDataset
-from domain.value_objects.benchmark_annotations import validate_annotations
-from domain.value_objects.benchmark_strategy import BenchmarkStrategy
-from domain.value_objects.sweep_evaluation_mode import SweepEvaluationMode, validate_sweep_mode
+from domain.benchmark.question import DEFAULT_DATASET
+from domain.benchmark.question import validate_annotations
+from domain.benchmark.sweep import BenchmarkStrategy
+from domain.benchmark.sweep import SweepEvaluationMode, validate_sweep_mode
 
 
 # ---------------------------------------------------------------------------
@@ -22,7 +22,7 @@ from domain.value_objects.sweep_evaluation_mode import SweepEvaluationMode, vali
 class BenchmarkRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    dataset: str = Field(default=BenchmarkDataset.MAIN.value, min_length=1, max_length=100)
+    dataset: str = Field(default=DEFAULT_DATASET, min_length=1, max_length=100)
     out_dir: str | None = Field(
         default=None,
         deprecated=True,
@@ -74,7 +74,7 @@ class BenchmarkQuestionCreate(BaseModel):
 
     _validate_annotations = field_validator("annotations")(validate_annotations)
     tags: list[str] | None = None
-    dataset: str = BenchmarkDataset.MAIN.value
+    dataset: str = DEFAULT_DATASET
     is_active: bool = True
     notes: str | None = None
 
@@ -139,7 +139,7 @@ class SweepCreateRequest(BaseModel):
     )
     search_space: dict
     objective_weights: dict[str, float] = Field(default_factory=lambda: DEFAULT_OBJECTIVE_WEIGHTS.copy())
-    dataset: str = BenchmarkDataset.MAIN.value
+    dataset: str = DEFAULT_DATASET
     top_n_llm: int = Field(3, ge=0, le=20)
     evaluation_mode: SweepEvaluationMode = SweepEvaluationMode.FAST
     judge_model: str | None = Field(default=None, min_length=1, max_length=255)

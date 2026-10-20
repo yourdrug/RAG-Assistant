@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from domain.entities.conversation import Conversation
-from domain.repositories.conversation_repository import ConversationListItem
-from domain.value_objects.message_role import MessageRole
+from domain.chat.conversation import Conversation, ConversationListItem
+from domain.chat.message import MessageRole
 from sqlalchemy import Integer, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,9 +31,6 @@ class SQLAlchemyConversationRepository:
         return Conversation(
             id=orm.id, user_id=orm.user_id, creation_date=orm.creation_date, summary=orm.summary
         )
-
-    async def get(self, conversation_id: int) -> Conversation | None:
-        return await self.get_by_id(conversation_id)
 
     async def get_for_update(self, conversation_id: int) -> Conversation | None:
         result = await self._db.execute(

@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from application.chat.dto import ChatResult, CreateChatLogCommand, PersistChatCommand
 from application.identity import UserContextFactory
-from domain.entities.message import Message
+from domain.chat.message import Message, MessageRole
 from domain.identity.user_context import CuratorScope
 from domain.rag.context import RagContext
 from domain.rag.retrieval import compute_reranker_score
@@ -26,7 +26,6 @@ from domain.rag.stream_events import (
     TextChunk,
 )
 from domain.shared.exceptions import BusinessRuleViolation
-from domain.value_objects.message_role import MessageRole
 
 
 if TYPE_CHECKING:
@@ -37,7 +36,7 @@ if TYPE_CHECKING:
     from application.chat.logs import ChatLogService
     from application.chat.ports import ChatRAGPort, ChatSettingsPort, PIIRedactorPort
     from application.uow import UnitOfWorkFactory
-    from domain.entities.conversation import Conversation
+    from domain.chat.conversation import Conversation
     from domain.rag.stream_events import (
         StreamEvent,
     )

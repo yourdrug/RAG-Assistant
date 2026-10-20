@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from domain.entities.message import Message
-from domain.value_objects.message_role import MessageRole
+from domain.chat.message import Message, MessageRole
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 

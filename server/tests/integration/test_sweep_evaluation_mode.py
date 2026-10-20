@@ -9,10 +9,10 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from domain.entities.benchmark_sweep import BenchmarkSweep
-from domain.value_objects.benchmark_strategy import BenchmarkStrategy
-from domain.value_objects.sweep_evaluation_mode import SweepEvaluationMode
-from domain.value_objects.sweep_status import BenchmarkSweepStatus
+from domain.benchmark.sweep import BenchmarkSweep
+from domain.benchmark.sweep import BenchmarkStrategy
+from domain.benchmark.sweep import SweepEvaluationMode
+from domain.benchmark.sweep import BenchmarkSweepStatus
 from infrastructure.repositories.benchmark.sqlalchemy_benchmark_sweep_repository import (
     SQLAlchemyBenchmarkSweepRepository,
 )

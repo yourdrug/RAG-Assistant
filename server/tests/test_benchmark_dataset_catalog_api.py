@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from domain.shared.exceptions import ClientException
-from domain.value_objects.benchmark_dataset import BenchmarkDataset
+from domain.benchmark.question import DEFAULT_DATASET
 from domain.identity.roles import UserKind, UserRole
 from presentation.api.auth_dependencies import get_current_user
 from presentation.api.dependencies import (
@@ -24,7 +24,7 @@ from presentation.api.schemas import CurrentUser
 
 @pytest.mark.parametrize("role", [UserRole.ADMIN, UserRole.USER, None])
 def test_dataset_catalog_requires_admin(role):
-    datasets = [BenchmarkDataset.MAIN.value, "quick-30", "custom"]
+    datasets = [DEFAULT_DATASET, "quick-30", "custom"]
     service = SimpleNamespace(list_datasets=AsyncMock(return_value=datasets))
     app = FastAPI()
     app.include_router(router)

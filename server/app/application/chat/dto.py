@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, TypedDict
 if TYPE_CHECKING:
     from datetime import datetime
 
-    from domain.entities.message import Message
+    from domain.chat.message import Message
     from domain.rag.stream_events import UsageReport
 
 

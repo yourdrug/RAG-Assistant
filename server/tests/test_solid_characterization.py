@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from config import _settings_overrides, get_setting, settings
-from domain.entities.benchmark_sweep import BenchmarkSweep
+from domain.benchmark.sweep import BenchmarkSweep
 from infrastructure.benchmark import evidence_judge, judge, metrics, persistence
 from infrastructure.benchmark.runner import run_benchmark_async
 from infrastructure.benchmark.sweep_engine import SweepEngine, SweepCancelled

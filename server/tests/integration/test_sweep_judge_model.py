@@ -8,8 +8,8 @@ from alembic.operations import Operations
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from domain.entities.benchmark_sweep import BenchmarkSweep
-from domain.value_objects.sweep_status import BenchmarkSweepStatus
+from domain.benchmark.sweep import BenchmarkSweep
+from domain.benchmark.sweep import BenchmarkSweepStatus
 from infrastructure.repositories.benchmark.sqlalchemy_benchmark_sweep_repository import (
     SQLAlchemyBenchmarkSweepRepository,
 )

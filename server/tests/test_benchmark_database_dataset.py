@@ -7,14 +7,15 @@ import pytest
 from pydantic import ValidationError
 
 from application.benchmark import load_benchmark_questions
-from domain.entities.benchmark_question import BenchmarkQuestion
-from domain.entities.benchmark_sweep import BenchmarkSweep
-from domain.value_objects.benchmark_dataset import BenchmarkDataset
+from domain.benchmark.question import BenchmarkQuestion
+from domain.benchmark.run import BenchmarkRun
+from domain.benchmark.sweep import BenchmarkSweep
+from domain.benchmark.question import DEFAULT_DATASET
 from infrastructure.benchmark.sweep_engine import SweepEngine
 from infrastructure.repositories.benchmark.sqlalchemy_benchmark_question_repository import (
     SQLAlchemyBenchmarkQuestionRepository,
 )
-from presentation.api.schemas.benchmark import BenchmarkRequest
+from presentation.api.schemas.benchmark import BenchmarkQuestionCreate, BenchmarkRequest, SweepCreateRequest
 
 
 def dataset_factory(questions=None, error=None):
@@ -72,7 +73,7 @@ async def test_db_error_propagates_without_file_fallback(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     factory, _, _ = dataset_factory(error=RuntimeError("database unavailable"))
     with pytest.raises(RuntimeError, match="database unavailable"):
-        await load_benchmark_questions(factory, BenchmarkDataset.MAIN.value)
+        await load_benchmark_questions(factory, DEFAULT_DATASET)
     assert list(tmp_path.iterdir()) == []
 
 
@@ -126,10 +127,27 @@ async def test_phase_b_uses_loaded_dataset_including_cases_without_source_hints(
 
 
 def test_benchmark_request_selects_dataset_and_rejects_file_paths():
-    assert BenchmarkRequest().dataset == BenchmarkDataset.MAIN.value
+    assert BenchmarkRequest().dataset == DEFAULT_DATASET
     assert BenchmarkRequest(dataset="custom").dataset == "custom"
     with pytest.raises(ValidationError):
         BenchmarkRequest(questions_path="removed.json")
+
+
+@pytest.mark.parametrize(
+    "factory",
+    [
+        BenchmarkQuestion,
+        BenchmarkRun,
+        BenchmarkSweep,
+        BenchmarkRequest,
+        lambda **kwargs: BenchmarkQuestionCreate(question="Question", **kwargs),
+        lambda **kwargs: SweepCreateRequest(search_space={"top_k": {"values": [2]}}, **kwargs),
+    ],
+)
+def test_dataset_defaults_preserve_custom_names(factory):
+    assert DEFAULT_DATASET == "main"
+    assert factory().dataset == "main"
+    assert factory(dataset="custom").dataset == "custom"
 
 
 @pytest.mark.asyncio
@@ -166,10 +184,10 @@ async def test_queue_serializes_dataset_and_deduplicates_per_dataset(monkeypatch
 
     enqueue = AsyncMock()
     monkeypatch.setattr(queue, "enqueue_arq", enqueue)
-    for job_id, dataset in enumerate([BenchmarkDataset.MAIN.value, "custom"], 8):
+    for job_id, dataset in enumerate([DEFAULT_DATASET, "custom"], 8):
         await queue.enqueue_benchmark(dataset=dataset, top_k=7, judge_model="judge", job_id=job_id)
     calls = enqueue.await_args_list
-    assert [c.kwargs["dataset"] for c in calls] == [BenchmarkDataset.MAIN.value, "custom"]
+    assert [c.kwargs["dataset"] for c in calls] == [DEFAULT_DATASET, "custom"]
     assert calls[0].kwargs["arq_job_id"] != calls[1].kwargs["arq_job_id"]
     assert all("questions_path" not in c.kwargs for c in calls)
 
@@ -179,9 +197,9 @@ async def test_dataset_catalog_uses_repository_without_question_pagination():
     from application.benchmark import BenchmarkQuestionService
 
     factory, repo, uow = dataset_factory()
-    repo.get_datasets = AsyncMock(return_value=[BenchmarkDataset.MAIN.value, "quick-30", "custom"])
+    repo.get_datasets = AsyncMock(return_value=[DEFAULT_DATASET, "quick-30", "custom"])
     result = await BenchmarkQuestionService(factory).list_datasets()
-    assert result == [BenchmarkDataset.MAIN.value, "quick-30", "custom"]
+    assert result == [DEFAULT_DATASET, "quick-30", "custom"]
     repo.get_datasets.assert_awaited_once_with()
     repo.list_active.assert_not_awaited()
     uow.__aexit__.assert_awaited_once()

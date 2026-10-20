@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 from langchain.schema import Document
 
-from domain.entities.benchmark_sweep import BenchmarkSweep
+from domain.benchmark.sweep import BenchmarkSweep
 from infrastructure.benchmark.case_metrics import compute_retriever_metrics_from_sources
 from infrastructure.benchmark.metrics import compute_retriever_metrics, compute_summary_metrics
 from infrastructure.benchmark.sweep_engine import SweepEngine

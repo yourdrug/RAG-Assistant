@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from domain.value_objects.sweep_status import BenchmarkSweepStatus
+from domain.benchmark.sweep import BenchmarkSweepStatus
 
 from application.ports.rate_limit import RateLimitPolicyName
 from application.benchmark import (

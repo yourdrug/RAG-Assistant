@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from domain.entities.benchmark_run import BenchmarkRun
-from domain.services.benchmark_evaluation import EVIDENCE_METRICS, summarize_evidence
+from domain.benchmark.run import BenchmarkRun
+from domain.benchmark.evaluation import EVIDENCE_METRICS, summarize_evidence
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession

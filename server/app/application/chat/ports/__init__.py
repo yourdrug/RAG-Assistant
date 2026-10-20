@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-    from domain.entities.message import Message
+    from domain.chat.message import Message
     from domain.rag.context import RagContext
     from domain.rag.result import RagResult
     from domain.rag.stream_events import StreamEvent

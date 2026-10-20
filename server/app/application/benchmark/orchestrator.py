@@ -10,7 +10,7 @@ import logging
 from typing import TYPE_CHECKING, Any, Unpack
 
 from application.benchmark.summary import summarize_benchmark_results
-from domain.services.benchmark_judge import result_judge_errors
+from domain.benchmark.judge import result_judge_errors
 
 
 if TYPE_CHECKING:

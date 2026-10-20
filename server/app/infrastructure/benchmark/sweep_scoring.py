@@ -18,14 +18,14 @@ from infrastructure.ml.rag.rag_retrieval import search_sparse_points
 
 from application.search import HybridRetriever
 from config import get_setting, settings
-from domain.services.benchmark_evaluation import (
+from domain.benchmark.evaluation import (
     evaluate_retrieval,
     has_retrieval_labels as has_retrieval_labels,
     summarize_evidence,
     summarize_retrieval,
 )
 from domain.rag.retrieval import rrf_merge
-from domain.value_objects.benchmark_scoring import (
+from domain.benchmark.scoring import (
     DEFAULT_OBJECTIVE_WEIGHTS,
     METRIC_SCALES,
     validate_objective_weights,

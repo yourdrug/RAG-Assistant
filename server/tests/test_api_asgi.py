@@ -15,8 +15,8 @@ from application.documents import DocumentDTO
 from domain.knowledge.document import Document
 from domain.knowledge.enums import DocumentVisibility
 from domain.knowledge.enums import SourceType
-from domain.entities.message import Message
-from domain.value_objects.message_role import MessageRole
+from domain.chat.message import Message
+from domain.chat.message import MessageRole
 from domain.value_objects.job_status import BackgroundJobStatus
 from domain.identity.roles import UserRole
 from domain.knowledge.enums import DocDomain
@@ -137,7 +137,7 @@ async def test_exact_search_rejects_invalid_offset(asgi_client, offset):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("dataset", [None, "custom"])
 async def test_benchmark_launch_enqueues_database_dataset(asgi_client, tmp_path, dataset):
-    from domain.value_objects.benchmark_dataset import BenchmarkDataset
+    from domain.benchmark.question import DEFAULT_DATASET
 
     sign_in(role=UserRole.ADMIN.value)
     enqueuer = SimpleNamespace(enqueue_benchmark=AsyncMock())
@@ -152,7 +152,7 @@ async def test_benchmark_launch_enqueues_database_dataset(asgi_client, tmp_path,
     response = await asgi_client.post("/benchmark", json={} if dataset is None else {"dataset": dataset})
     assert response.status_code == 200
     enqueuer.enqueue_benchmark.assert_awaited_once_with(
-        dataset=dataset or BenchmarkDataset.MAIN.value,
+        dataset=dataset or DEFAULT_DATASET,
         top_k=7,
         judge_model="judge",
         job_id=8,

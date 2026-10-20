@@ -8,10 +8,10 @@ import logging
 from typing import Any
 
 from config import settings
-from domain.entities.benchmark_run import BenchmarkRun
+from domain.benchmark.run import BenchmarkRun
 from application.benchmark import BenchmarkExportService
-from domain.services.benchmark_evaluation import EVIDENCE_METRICS
-from domain.value_objects.sweep_status import BenchmarkSweepStatus
+from domain.benchmark.evaluation import EVIDENCE_METRICS
+from domain.benchmark.sweep import BenchmarkSweepStatus
 from composition.service_providers import create_sweep_engine
 from infrastructure.benchmark.sweep_engine import SweepCancelled
 from infrastructure.benchmark.checkpoint import fingerprint

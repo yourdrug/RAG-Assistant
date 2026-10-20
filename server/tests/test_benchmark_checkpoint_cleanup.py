@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from domain.value_objects.sweep_status import BenchmarkSweepStatus
+from domain.benchmark.sweep import BenchmarkSweepStatus
 from infrastructure.benchmark.checkpoint_cleanup import (
     cleanup_sweep_checkpoints,
     remove_sweep_checkpoints,

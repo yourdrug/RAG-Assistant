@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from domain.entities.benchmark_sweep import BenchmarkSweep
+from domain.benchmark.sweep import BenchmarkSweep
 from domain.shared.exceptions import BusinessRuleViolation
 from domain.value_objects.job_status import BackgroundJobStatus
-from domain.value_objects.sweep_status import BenchmarkSweepStatus
+from domain.benchmark.sweep import BenchmarkSweepStatus
 from sqlalchemy import delete, or_, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession

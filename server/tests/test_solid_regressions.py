@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from config import get_setting
-from domain.entities.benchmark_sweep import BenchmarkSweep
-from domain.value_objects.benchmark_strategy import BenchmarkStrategy
+from domain.benchmark.sweep import BenchmarkSweep
+from domain.benchmark.sweep import BenchmarkStrategy
 from infrastructure.benchmark.runner import run_benchmark_async
 from infrastructure.benchmark.sweep_engine import SweepEngine, SweepCancelled
 

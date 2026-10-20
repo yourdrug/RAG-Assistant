@@ -17,8 +17,8 @@ from infrastructure.benchmark.judge_rubric import JUDGE_RUBRIC_VERSION
 
 from config import settings
 from domain.rag.context import RagContext
-from domain.value_objects.benchmark_annotations import validate_annotations
-from domain.services.benchmark_evaluation import evaluate_evidence, evaluate_retrieval
+from domain.benchmark.question import validate_annotations
+from domain.benchmark.evaluation import evaluate_evidence, evaluate_retrieval
 
 from infrastructure.benchmark.answer_generators import BenchmarkAnswerGenerator
 from infrastructure.ml.usage_capture import summarize_usage

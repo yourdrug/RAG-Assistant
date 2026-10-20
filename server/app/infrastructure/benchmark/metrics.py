@@ -1,7 +1,7 @@
 """Benchmark metrics — retriever metrics, context precision/recall, summary."""
 
 from application.benchmark.summary import summarize_benchmark_results
-from domain.services.benchmark_judge import result_judge_errors  # noqa: F401
+from domain.benchmark.judge import result_judge_errors  # noqa: F401
 
 import logging
 from pathlib import Path

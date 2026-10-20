@@ -6,8 +6,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from domain.entities.benchmark_sweep import BenchmarkSweep
-from domain.value_objects.sweep_status import BenchmarkSweepStatus
+from domain.benchmark.sweep import BenchmarkSweep, BenchmarkSweepStatus
 from infrastructure.benchmark.sweep_strategies import EnumeratedSweepStrategy
 from infrastructure.worker import sweep
 from presentation.cli.commands import worker

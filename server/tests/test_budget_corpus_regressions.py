@@ -15,7 +15,7 @@ import pytest
 from pydantic import ValidationError
 
 from application.budget import BudgetAdminService, BudgetPolicy, CostBudgetService
-from domain.entities.benchmark_sweep import BenchmarkSweep
+from domain.benchmark.sweep import BenchmarkSweep
 from domain.value_objects.cost_budget import BudgetError, CostRate
 from infrastructure.benchmark import runner, sweep_scoring
 from infrastructure.benchmark.corpus import corpus_metadata

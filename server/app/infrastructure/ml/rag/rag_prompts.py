@@ -8,7 +8,7 @@ import httpx
 from config import settings
 from domain.rag.evidence.reading import evidence_reading_reminder
 from domain.rag.prompts import build_context_message, build_system_prompt  # noqa: F401
-from domain.value_objects.message_role import MessageRole
+from domain.chat.message import MessageRole
 from domain.rag.retrieval import ContextBudgetExceededError
 from infrastructure.ml.rag.prompt_budget import estimate_message_tokens
 from infrastructure.ml.clients.client_lease import client_operation

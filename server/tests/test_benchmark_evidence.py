@@ -10,8 +10,8 @@ from langchain.schema import Document
 from pydantic import ValidationError
 
 
-from domain.services.benchmark_evaluation import evaluate_evidence, summarize_evidence
-from domain.value_objects.benchmark_annotations import validate_annotations
+from domain.benchmark.evaluation import evaluate_evidence, summarize_evidence
+from domain.benchmark.question import validate_annotations
 from domain.rag.context import RagContext
 from domain.rag.result import RagResult
 from domain.identity.roles import UserKind
@@ -125,7 +125,7 @@ def test_annotation_validation_shared_by_runner_and_api(annotations):
 
 
 def test_lab_annotation_mappers_and_repository_mapping():
-    from domain.entities.benchmark_question import BenchmarkQuestion
+    from domain.benchmark.question import BenchmarkQuestion
     from infrastructure.database.models import BenchmarkQuestionModel
     from infrastructure.repositories.benchmark.sqlalchemy_benchmark_question_repository import (
         SQLAlchemyBenchmarkQuestionRepository,

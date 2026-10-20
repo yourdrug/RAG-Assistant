@@ -8,7 +8,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Protocol
 
-from domain.value_objects.benchmark_strategy import BenchmarkStrategy
+from domain.benchmark.sweep import BenchmarkStrategy
 
 from infrastructure.benchmark.sweep_scoring import generate_grid_points, generate_random_points
 

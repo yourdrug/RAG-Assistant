@@ -18,7 +18,7 @@ from domain.rag.retrieval import ContextBudgetExceededError
 from domain.rag.context import RagContext
 from domain.identity.user_context import CuratorScope
 from domain.rag.breadth import Breadth
-from domain.value_objects.message_role import MessageRole
+from domain.chat.message import MessageRole
 from domain.identity.roles import UserKind, UserRole
 from infrastructure.ml import answer_cache
 from infrastructure.ml.rag import rag_steps

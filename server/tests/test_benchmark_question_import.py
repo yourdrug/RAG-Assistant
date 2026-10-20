@@ -7,8 +7,8 @@ import pytest
 from pydantic import ValidationError
 
 from application.benchmark import BenchmarkQuestionService
-from domain.entities.benchmark_question import BenchmarkQuestion
-from domain.value_objects.benchmark_dataset import BenchmarkDataset
+from domain.benchmark.question import BenchmarkQuestion
+from domain.benchmark.question import DEFAULT_DATASET
 from infrastructure.repositories.benchmark.sqlalchemy_benchmark_question_repository import (
     SQLAlchemyBenchmarkQuestionRepository,
 )
@@ -72,9 +72,7 @@ async def test_export_retains_active_state_for_reimport():
         )
     )
 
-    exported = await export_questions(
-        dataset=BenchmarkDataset.MAIN.value, admin=SimpleNamespace(id=1), service=service
-    )
+    exported = await export_questions(dataset=DEFAULT_DATASET, admin=SimpleNamespace(id=1), service=service)
     imported = BenchmarkQuestionsImportRequest.model_validate({"questions": exported})
 
     assert [question.is_active for question in imported.questions] == [True, False]

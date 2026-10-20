@@ -24,7 +24,8 @@ import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager, nullcontext
 
-from domain.entities.message import Message
+from domain.chat.conversation import Conversation
+from domain.chat.message import Message
 from domain.knowledge.index_sync import OutboxStatus, VectorOutboxEntry
 from domain.shared.exceptions import EntityNotFound
 from domain.ingestion.repositories import IngestionRegistryEntry
@@ -49,19 +50,12 @@ class FakeConversationRepository:
         self._convs[conv_id] = {"id": conv_id, "user_id": user_id, "summary": None}
         return type("Conv", (), self._convs[conv_id])()
 
-    async def get(self, conv_id: int):
-        if conv_id in self._convs:
-            return type("Conv", (), self._convs[conv_id])()
-        return None
-
     async def get_by_id(self, conv_id: int):
-        from domain.entities.conversation import Conversation
-
         data = self._convs.get(conv_id)
         return Conversation(**data) if data else None
 
     async def get_for_update(self, conv_id: int):
-        return await self.get(conv_id)
+        return await self.get_by_id(conv_id)
 
     async def update_summary(self, conv_id: int, summary: str | None) -> None:
         conv = self._convs.get(conv_id)

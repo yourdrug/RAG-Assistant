@@ -11,9 +11,9 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from application.chat import ChatLogService, ChatService, ConversationService, CreateChatLogCommand
-from domain.entities.chat_log import ChatLog
-from domain.entities.conversation import Conversation
-from domain.entities.message import Message
+from domain.chat.chat_log import ChatLog
+from domain.chat.conversation import Conversation
+from domain.chat.message import Message, MessageRole
 from domain.identity.roles import UserKind, UserRole
 from domain.knowledge.enums import DocDomain
 from domain.rag.breadth import Breadth
@@ -26,7 +26,6 @@ from domain.rag.stream_events import (
     UsageReport,
 )
 from domain.shared.exceptions import BusinessRuleViolation, EntityNotFound, PermissionDeniedError
-from domain.value_objects.message_role import MessageRole
 
 
 if TYPE_CHECKING:

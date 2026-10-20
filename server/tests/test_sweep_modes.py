@@ -9,13 +9,13 @@ from pydantic import ValidationError
 
 
 from application.benchmark import compute_summary_from_results
-from domain.entities.benchmark_sweep import BenchmarkSweep
-from domain.services.benchmark_evaluation import evaluate_retrieval, summarize_evidence
-from domain.services.benchmark_selection import select_fast_candidates
-from domain.value_objects.benchmark_strategy import BenchmarkStrategy
+from domain.benchmark.sweep import BenchmarkSweep
+from domain.benchmark.evaluation import evaluate_retrieval, summarize_evidence
+from domain.benchmark.selection import select_fast_candidates
+from domain.benchmark.sweep import BenchmarkStrategy
 from domain.rag.context import RagContext
 from domain.identity.roles import UserKind
-from domain.value_objects.sweep_evaluation_mode import SweepEvaluationMode
+from domain.benchmark.sweep import SweepEvaluationMode
 from infrastructure.benchmark.answer_generators import BenchmarkAnswer
 from infrastructure.benchmark.case_evaluator import BenchmarkCaseEvaluator
 from infrastructure.benchmark.sweep_engine import SweepEngine

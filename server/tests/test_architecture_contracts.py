@@ -91,6 +91,12 @@ def test_application_dependency_boundary(importer: str, imported: str, allowed: 
 @pytest.mark.parametrize(
     "context, imported, allowed",
     [
+        ("benchmark", "domain.shared.stats", True),
+        ("benchmark", "domain.benchmark.question", True),
+        ("chat", "domain.rag.context", True),
+        ("chat", "domain.identity.roles", True),
+        ("chat", "domain.shared.exceptions", True),
+        ("chat", "domain.chat.message", True),
         ("shared", "domain.shared.exceptions", True),
         ("identity", "domain.shared.exceptions", True),
         ("identity", "domain.identity.roles", True),
@@ -108,6 +114,8 @@ def test_application_dependency_boundary(importer: str, imported: str, allowed: 
         *[
             (context, module, False)
             for context, name in (
+                ("benchmark", "Domain benchmark depends only on shared"),
+                ("chat", "Domain chat depends only on rag identity and shared"),
                 ("shared", "Domain shared kernel is independent of contexts"),
                 ("identity", "Domain identity depends only on shared"),
                 ("knowledge", "Domain knowledge depends only on identity and shared"),
@@ -143,7 +151,9 @@ def test_domain_context_dependency_boundary(context: str, imported: str, allowed
     assert contract.check(graph, verbose=False).kept is allowed
 
 
-@pytest.mark.parametrize("context", ["shared", "identity", "knowledge", "ingestion", "rag"])
+@pytest.mark.parametrize(
+    "context", ["shared", "identity", "knowledge", "ingestion", "rag", "chat", "benchmark"]
+)
 def test_context_contract_covers_every_forbidden_domain_package(context: str) -> None:
     options = next(
         options for options in CONFIG["contracts"] if options.get("source_modules") == [f"domain.{context}"]
@@ -155,10 +165,13 @@ def test_context_contract_covers_every_forbidden_domain_package(context: str) ->
         and (path.suffix == ".py" or (path.is_dir() and (path / "__init__.py").exists()))
     }
 
-    if context in {"knowledge", "rag"}:
+    if context in {"knowledge", "rag", "chat"}:
         siblings.discard("domain.identity")
 
     if context in {"ingestion", "rag"}:
         siblings.discard("domain.knowledge")
+
+    if context == "chat":
+        siblings.discard("domain.rag")
 
     assert set(options["forbidden_modules"]) == siblings

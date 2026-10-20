@@ -16,9 +16,9 @@ from collections.abc import Callable
 from typing import Protocol, TypedDict, cast
 
 from application.uow.factory import UnitOfWorkFactory
-from domain.entities.benchmark_sweep import BenchmarkSweep
-from domain.value_objects.sweep_evaluation_mode import SweepEvaluationMode, validate_sweep_mode
-from domain.value_objects.benchmark_scoring import validate_objective_weights
+from domain.benchmark.sweep import BenchmarkSweep
+from domain.benchmark.sweep import SweepEvaluationMode, validate_sweep_mode
+from domain.benchmark.scoring import validate_objective_weights
 
 from infrastructure.benchmark.corpus import benchmark_corpus, corpus_metadata
 from infrastructure.benchmark.sweep_data import SweepDataSource

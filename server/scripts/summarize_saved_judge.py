@@ -3,11 +3,12 @@
 import argparse
 import collections
 import json
-import statistics
 from pathlib import Path
+import statistics
 
-from domain.value_objects.benchmark_scoring import DEFAULT_OBJECTIVE_WEIGHTS
 from calibrate_saved_judge import digest, groups, save
+
+from domain.benchmark.scoring import DEFAULT_OBJECTIVE_WEIGHTS
 
 
 def summarize(root):  # noqa: C901 -- Offline aggregation and report rendering.

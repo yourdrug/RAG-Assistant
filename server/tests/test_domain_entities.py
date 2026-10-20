@@ -14,16 +14,16 @@ import pytest
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent / "app"))
 
 from domain.knowledge.chunk import Chunk
-from domain.entities.conversation import Conversation
+from domain.chat.conversation import Conversation
 from domain.knowledge.document import Document
-from domain.entities.message import Message
+from domain.chat.message import Message
 from domain.ingestion.raw_document import RawDocument
 from domain.identity.user import User
 from domain.shared.exceptions import BusinessRuleViolation
 from domain.shared.hashing import content_hash
 from domain.utils import parse_bool
 from domain.knowledge.enums import DocumentStatus
-from domain.value_objects.message_role import MessageRole
+from domain.chat.message import MessageRole
 from domain.identity.roles import UserKind, UserRole
 from domain.knowledge.enums import DocumentVisibility
 

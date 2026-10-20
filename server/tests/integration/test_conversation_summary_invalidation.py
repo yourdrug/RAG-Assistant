@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy import null, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from domain.value_objects.message_role import MessageRole
+from domain.chat.message import MessageRole
 from infrastructure.database.models import ConversationModel, MessageModel, UserModel
 from infrastructure.repositories.conversation.sqlalchemy_conversation_repository import (
     SQLAlchemyConversationRepository,

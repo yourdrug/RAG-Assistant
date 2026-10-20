@@ -18,7 +18,7 @@ from infrastructure.benchmark.judge_rubric import JUDGE_RUBRIC_VERSION
 from application.benchmark import BenchmarkCheckpoints
 
 from config import settings
-from domain.value_objects.benchmark_annotations import validate_annotations
+from domain.benchmark.question import validate_annotations
 from domain.rag.context import RagContext
 from domain.identity.roles import UserKind, UserRole
 from infrastructure.benchmark import answer_generators, persistence

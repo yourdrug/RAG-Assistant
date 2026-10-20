@@ -3,8 +3,8 @@
 from alembic import op
 import sqlalchemy as sa
 
-from domain.value_objects.sweep_evaluation_mode import SweepEvaluationMode
-from domain.value_objects.benchmark_strategy import BenchmarkStrategy
+from domain.benchmark.sweep import SweepEvaluationMode
+from domain.benchmark.sweep import BenchmarkStrategy
 
 revision = "l2c3d4e5f6g7"
 down_revision = "j1c2d3e4f5g6"

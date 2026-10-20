@@ -8,9 +8,9 @@ from langchain.schema import Document
 from pydantic import ValidationError
 
 from config import get_setting
-from domain.value_objects.benchmark_scoring import DEFAULT_OBJECTIVE_WEIGHTS
-from domain.entities.benchmark_sweep import BenchmarkSweep
-from domain.value_objects.benchmark_strategy import BenchmarkStrategy
+from domain.benchmark.scoring import DEFAULT_OBJECTIVE_WEIGHTS
+from domain.benchmark.sweep import BenchmarkSweep
+from domain.benchmark.sweep import BenchmarkStrategy
 from infrastructure.benchmark.sweep_engine import SweepEngine
 from infrastructure.benchmark.sweep_full_evaluation import SweepFullEvaluator
 from infrastructure.benchmark.sweep_scoring import compute_composite_score, score_config_cheap

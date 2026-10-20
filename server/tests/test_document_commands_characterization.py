@@ -376,7 +376,7 @@ async def test_delete_db_failure_rolls_back_outbox_and_summaries_without_deletin
         await h.command.delete_document(doc.id, 1, "user")
     assert await h.uow.documents.get_by_id(doc.id) is not None
     assert h.uow.vector_outbox._entries == {}
-    assert (await h.uow.conversations.get(conversation.id)).summary == "summary"
+    assert (await h.uow.conversations.get_by_id(conversation.id)).summary == "summary"
     h.storage.delete_file.assert_not_awaited()
 
 
