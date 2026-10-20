@@ -5,7 +5,7 @@ from decimal import Decimal, InvalidOperation, ROUND_CEILING
 
 from domain.shared.exceptions import BusinessRuleViolation
 
-UNDISPATCHED_COST_SOURCE = 'not_dispatched'
+UNDISPATCHED_COST_SOURCE = "not_dispatched"
 
 
 class BudgetError(BusinessRuleViolation):
@@ -22,7 +22,7 @@ def usd_units(value: str | Decimal) -> int:
             raise ValueError
         return units
     except (InvalidOperation, ValueError, OverflowError):
-        raise BudgetError('Invalid USD amount') from None
+        raise BudgetError("Invalid USD amount") from None
 
 
 @dataclass(frozen=True)
@@ -38,7 +38,7 @@ class CostRate:
 
     def reserve(self, input_tokens: int, output_tokens: int) -> int:
         if (
-            self.unit != 'tokens'
+            self.unit != "tokens"
             or self.version < 1
             or input_tokens < 0
             or output_tokens < 0
@@ -47,11 +47,11 @@ class CostRate:
             or input_tokens > self.context_tokens
             or output_tokens > self.context_tokens
         ):
-            raise BudgetError('Unsupported billing unit or unbounded token budget')
+            raise BudgetError("Unsupported billing unit or unbounded token budget")
         usd_units(self.input_usd_per_million)
         usd_units(self.output_usd_per_million)
         if self.input_usd_per_million <= 0 or (not self.input_only and self.output_usd_per_million <= 0):
-            raise BudgetError('Paid token tariffs must be positive')
+            raise BudgetError("Paid token tariffs must be positive")
         return usd_units(
             (input_tokens * self.input_usd_per_million + output_tokens * self.output_usd_per_million)
             / 1_000_000

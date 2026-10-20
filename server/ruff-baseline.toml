@@ -5,7 +5,6 @@ exclude = [
     "app/composition/container.py",
     "app/domain/rag/evidence/applicability.py",
     "app/domain/rag/evidence/queries.py",
-    "app/domain/runtime/cost.py",
     "app/domain/rag/evidence/assessment.py",
     "app/infrastructure/benchmark/case_evaluator.py",
     "app/infrastructure/benchmark/corpus.py",
