@@ -169,7 +169,7 @@ def test_context_judge_uses_same_explicit_model(monkeypatch):
 async def test_version_update_rolls_back_rows_and_skips_cache_when_outbox_fails(monkeypatch):
     from datetime import date
     from application.act_versioning import ActVersioningService
-    from domain.entities.act_version import ActVersion
+    from domain.knowledge.acts.models import ActVersion
     from fakes import FakeUnitOfWorkFactory
 
     factory = FakeUnitOfWorkFactory()

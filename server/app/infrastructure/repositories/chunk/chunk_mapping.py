@@ -1,12 +1,12 @@
 """Map stored chunk rows to the repository DTO."""
 
-from domain.repositories.chunk_repository import ChunkSearchResult
+from domain.knowledge.chunk import ChunkRecord
 
 from infrastructure.database.models import ChunkModel
 
 
-def to_chunk_search_result(orm: ChunkModel) -> ChunkSearchResult:
-    return ChunkSearchResult(
+def to_chunk_search_result(orm: ChunkModel) -> ChunkRecord:
+    return ChunkRecord(
         chunk_id=orm.id,
         document_id=orm.document_id,
         filename=orm.filename,

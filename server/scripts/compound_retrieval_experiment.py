@@ -16,7 +16,7 @@ from pathlib import Path
 from langchain_core.documents import Document
 
 from domain.identity.roles import UserKind, UserRole
-from domain.services import get_visibility_conditions
+from domain.knowledge.access_control import get_visibility_conditions
 from domain.utils import content_hash
 from domain.value_objects.chat_context import ChatContext
 from infrastructure.bm25.persistence import load_configured_bm25_snapshot

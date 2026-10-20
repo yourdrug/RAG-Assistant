@@ -6,7 +6,7 @@ from datetime import date
 
 from pydantic import BaseModel, ConfigDict
 
-from domain.value_objects.visibility import DocumentVisibility
+from domain.knowledge.enums import DocumentVisibility
 
 
 class ActVersionReviewItem(BaseModel):

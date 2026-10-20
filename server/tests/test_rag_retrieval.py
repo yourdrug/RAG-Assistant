@@ -16,8 +16,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 import pytest
 from qdrant_client.models import FieldCondition, Filter, MatchValue, NamedSparseVector
 
-from domain.services.access_control import VisibilityCondition
-from domain.value_objects.visibility import DocumentVisibility
+from domain.knowledge.access_control import VisibilityCondition
+from domain.knowledge.enums import DocumentVisibility
 from infrastructure.repositories.vector.acl import build_qdrant_filter
 
 

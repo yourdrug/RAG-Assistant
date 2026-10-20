@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 
-from domain.entities.vector_outbox_entry import OutboxOperation, OutboxStatus, VectorOutboxEntry
+from domain.knowledge.index_sync import OutboxOperation, OutboxStatus, VectorOutboxEntry
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 

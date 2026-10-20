@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from domain.value_objects.doc_domain import DocDomain
+from domain.knowledge.enums import DocDomain
 
 from .documents import DocumentResponse
 

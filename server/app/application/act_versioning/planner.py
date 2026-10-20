@@ -6,14 +6,14 @@ import logging
 from typing import TYPE_CHECKING
 
 from application.act_versioning.dto import VersioningPlan
-from domain.domain_profile.protocol import refs_to_metadata
+from domain.ingestion.profiles.types import refs_to_metadata
 
 
 if TYPE_CHECKING:
     from datetime import date
 
-    from domain.domain_profile.protocol import DomainProfile
-    from domain.domain_profile.settings_port import DomainSettingsPort
+    from domain.ingestion.ports import DomainSettingsPort
+    from domain.ingestion.profiles.protocol import DocumentProfile
 
 
 log = logging.getLogger("default")
@@ -43,7 +43,7 @@ class ActVersionPlanner:
         return _DATE_SOURCE_EXTRACTED
 
     async def prepare_document_versioning(
-        self, profile: DomainProfile, full_text: str
+        self, profile: DocumentProfile, full_text: str
     ) -> VersioningPlan | None:
         # Extract version metadata without committing a version row.
         if not profile.is_versioned:

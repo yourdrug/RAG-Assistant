@@ -8,7 +8,7 @@ import pytest
 from langchain.schema import Document
 from qdrant_client.models import Filter
 
-from domain.value_objects.visibility import DocumentVisibility
+from domain.knowledge.enums import DocumentVisibility
 from infrastructure.benchmark.sweep_data import SweepDataSource
 from infrastructure.benchmark.sweep_reranking import cache_reranker_scores
 from infrastructure.benchmark.sweep_scoring import cache_candidates

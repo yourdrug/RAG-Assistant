@@ -9,7 +9,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.schema import CreateTable
 
-from domain.entities.vector_outbox_entry import OutboxStatus
+from domain.knowledge.index_sync import OutboxStatus
 from infrastructure.database.models import VectorStoreOutboxModel
 from infrastructure.repositories.config.sqlalchemy_vector_outbox_repository import (
     SQLAlchemyVectorOutboxRepository,

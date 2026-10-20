@@ -5,11 +5,11 @@ from pathlib import Path
 import pytest
 
 from config import Settings, settings
-from domain.domain_profile.profiles.decree import DecreeDomainProfile
-from domain.domain_profile.profiles.general import GeneralDomainProfile
-from domain.domain_profile.profiles.legal import LegalDomainProfile
+from domain.ingestion.profiles.decree import DecreeDomainProfile
+from domain.ingestion.profiles.general import GeneralDomainProfile
+from domain.ingestion.profiles.legal import LegalDomainProfile
+from domain.knowledge.enums import DocDomain
 from domain.value_objects import dynamic_config
-from domain.value_objects.doc_domain import DocDomain
 from domain.value_objects.llm_provider import LLMProvider
 from fakes import FakeUnitOfWorkFactory
 from infrastructure import initialization

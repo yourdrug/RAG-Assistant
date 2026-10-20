@@ -12,7 +12,7 @@ from infrastructure.bm25.bm25_invalidation import publish_bm25_invalidation
 from infrastructure.bm25.bm25_index import BM25Index
 from infrastructure.bm25.persistence import save_bm25_index_to_s3
 from infrastructure.metrics.metrics import BM25_REBUILD_MEMORY
-from domain.repositories.chunk_repository import ChunkCorpusRepository
+from domain.knowledge.repositories.chunk import ChunkCorpusRepository
 
 logger = logging.getLogger("default")
 

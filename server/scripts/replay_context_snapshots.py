@@ -13,10 +13,8 @@ from types import SimpleNamespace
 
 from langchain_core.documents import Document
 
-from domain.domain_profile.profiles.general import GeneralDomainProfile
-from domain.domain_profile.profiles.legal import LegalDomainProfile
-from domain.domain_profile.registry import DomainProfileRegistry
 from domain.identity.roles import UserKind, UserRole
+from domain.knowledge.enums import DocDomain
 from domain.services.benchmark_evaluation import evaluate_evidence
 from domain.services.rag_policy import classify_query_domain
 from domain.utils import content_hash
@@ -110,7 +108,7 @@ def compact_exclusion(item):
     }
 
 
-def replay_question(question: dict, rag, registry) -> dict:
+def replay_question(question: dict, rag, domain_keys) -> dict:
     evidence = question["evidence"]
     candidates = reconstruct_candidates(evidence)
     ctx = ChatContext(1, UserKind.INTERNAL, UserRole.ADMIN)
@@ -120,7 +118,7 @@ def replay_question(question: dict, rag, registry) -> dict:
     query_domain = classify_query_domain(question["question"])
     prompt = build_prompt(
         breadth,
-        domain_addendum=domain_prompt_addendum(query_domain, ctx, breadth, registry),
+        domain_addendum=domain_prompt_addendum(query_domain, ctx, breadth, domain_keys),
         enumerate_cases=enumerate_cases,
     )
     num_ctx = rag.llm_num_ctx_broad if breadth == Breadth.BROAD else rag.llm_num_ctx_narrow
@@ -153,7 +151,7 @@ def replay_question(question: dict, rag, registry) -> dict:
     captured = BenchmarkEvidence()
     token = active_evidence.set(captured)
     try:
-        step_build_context(state, registry)
+        step_build_context(state, domain_keys)
     finally:
         active_evidence.reset(token)
     variants["new"] = {
@@ -196,14 +194,12 @@ def replay_question(question: dict, rag, registry) -> dict:
 
 def replay(snapshot: dict) -> dict:
     rag = build_rag_settings(SimpleNamespace(**snapshot["runtime"]))
-    registry = DomainProfileRegistry()
-    registry.register(LegalDomainProfile())
-    registry.register(GeneralDomainProfile())
+    domain_keys = (DocDomain.LEGAL.value, DocDomain.GENERAL.value)
     return {
         "sweep_id": snapshot["sweep_id"],
         "run_id": snapshot["run_id"],
         "reconstruction": snapshot.get("reconstruction"),
-        "questions": [replay_question(question, rag, registry) for question in snapshot["questions"]],
+        "questions": [replay_question(question, rag, domain_keys) for question in snapshot["questions"]],
     }
 
 

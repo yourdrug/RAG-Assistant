@@ -12,7 +12,7 @@ import fitz
 from langchain.schema import Document
 
 from config import settings
-from domain.value_objects.page_content_type import PageContentType
+from domain.knowledge.enums import PageContentType
 from infrastructure.ml.ingestion.ocr import ocr_pdf_pages
 from infrastructure.ml.ingestion.table_formatting import markdown_cell
 from infrastructure.ml.ingestion.utils import clean_pdf_text

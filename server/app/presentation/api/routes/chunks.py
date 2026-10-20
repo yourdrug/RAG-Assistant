@@ -8,7 +8,7 @@ from application.ports.rate_limit import RateLimitPolicyName
 from application.chunks import ChunkCursorQuery, ChunkMutationService, ChunkQueryService
 from application.documents import ManualDocumentService
 from domain.identity.roles import UserKind, UserRole
-from domain.value_objects.visibility import DocumentVisibility
+from domain.knowledge.enums import DocumentVisibility
 from domain.identity.capabilities import Capability
 from fastapi import APIRouter, Depends, Query
 

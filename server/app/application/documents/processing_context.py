@@ -5,13 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from domain.value_objects.document_status import DocumentStatus
+from domain.knowledge.enums import DocumentStatus
 
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from domain.entities.raw_document import RawDocument
+    from domain.ingestion.raw_document import RawDocument
 
 
 @dataclass

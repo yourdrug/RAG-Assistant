@@ -9,7 +9,7 @@ from domain.shared.exceptions import EntityNotFound, ValidationError
 
 if TYPE_CHECKING:
     from application.uow.factory import UnitOfWorkFactory
-    from domain.entities.document import Document
+    from domain.knowledge.document import Document
 
 
 class QualityService:

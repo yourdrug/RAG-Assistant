@@ -6,7 +6,7 @@ from datetime import date, datetime
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from domain.entities.act_version import ActVersion
+from domain.knowledge.acts.models import ActVersion
 from infrastructure.database.models import ActVersionModel, DocumentModel, RegulatoryActModel
 
 

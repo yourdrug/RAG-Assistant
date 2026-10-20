@@ -25,8 +25,8 @@ from infrastructure.repositories.vector.sparse_vectors import SPARSE_VECTOR_NAME
 
 from config import settings
 from domain.shared.exceptions import ValidationError
-from domain.value_objects.document_status import DocumentStatus
-from domain.entities.vector_outbox_entry import OutboxStatus
+from domain.knowledge.enums import DocumentStatus
+from domain.knowledge.index_sync import OutboxStatus
 from infrastructure.ml.config.embedding_identity import configured_embedding_identity
 from infrastructure.ml.config.endpoint_policy import endpoint_origin
 from infrastructure.corpus import snapshot as corpus_snapshot

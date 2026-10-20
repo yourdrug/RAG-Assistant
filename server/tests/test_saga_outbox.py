@@ -20,12 +20,12 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-from domain.entities.vector_outbox_entry import (
+from domain.knowledge.index_sync import (
     OutboxOperation,
     OutboxStatus,
     VectorOutboxEntry,
 )
-from domain.value_objects.document_status import DocumentStatus
+from domain.knowledge.enums import DocumentStatus
 
 
 # ---------------------------------------------------------------------------
@@ -141,7 +141,7 @@ class TestDispatcherSuccess:
 
     @pytest.mark.asyncio
     async def test_apply_upsert_chunks(self, fake_uow_factory, mock_vector_store, fake_outbox):
-        from domain.entities.document import Document
+        from domain.knowledge.document import Document
         from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
 
         async with fake_uow_factory.create(master=True) as uow:
@@ -231,7 +231,7 @@ class TestQdrantUnavailable:
     @pytest.mark.asyncio
     async def test_failed_entry_gets_retried(self, fake_uow_factory, mock_vector_store, fake_outbox):
         """When Qdrant fails, entry stays in outbox for retry."""
-        from domain.entities.document import Document
+        from domain.knowledge.document import Document
         from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
 
         async with fake_uow_factory.create(master=True) as uow:
@@ -272,7 +272,7 @@ class TestQdrantUnavailable:
         self, fake_uow_factory, mock_vector_store, fake_outbox
     ):
         """After max_attempts failures, entry goes to dead letter."""
-        from domain.entities.document import Document
+        from domain.knowledge.document import Document
         from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
 
         async with fake_uow_factory.create(master=True) as uow:
@@ -312,7 +312,7 @@ class TestQdrantUnavailable:
     @pytest.mark.asyncio
     async def test_success_after_retry(self, fake_uow_factory, mock_vector_store, fake_outbox):
         """Entry succeeds after previous failure."""
-        from domain.entities.document import Document
+        from domain.knowledge.document import Document
         from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
 
         async with fake_uow_factory.create(master=True) as uow:
@@ -370,7 +370,7 @@ class TestIdempotency:
     @pytest.mark.asyncio
     async def test_upsert_is_idempotent(self, fake_uow_factory, mock_vector_store, fake_outbox):
         """Same chunk upserted twice produces same result (no duplicate)."""
-        from domain.entities.document import Document
+        from domain.knowledge.document import Document
         from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
 
         async with fake_uow_factory.create(master=True) as uow:
@@ -536,7 +536,7 @@ class TestFullFlowWithQdrantDown:
         3. Qdrant comes back - dispatcher processes entry
         4. Document becomes searchable
         """
-        from domain.entities.document import Document
+        from domain.knowledge.document import Document
         from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
 
         async with fake_uow_factory.create(master=True) as uow:
@@ -606,7 +606,7 @@ class TestFullFlowWithQdrantDown:
         self, fake_uow_factory, mock_vector_store, fake_outbox
     ):
         """Multiple operations, some succeed, some fail."""
-        from domain.entities.document import Document
+        from domain.knowledge.document import Document
         from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
 
         async with fake_uow_factory.create(master=True) as uow:

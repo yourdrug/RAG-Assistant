@@ -25,11 +25,11 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager, nullcontext
 
 from domain.entities.message import Message
-from domain.entities.vector_outbox_entry import OutboxStatus, VectorOutboxEntry
+from domain.knowledge.index_sync import OutboxStatus, VectorOutboxEntry
 from domain.shared.exceptions import EntityNotFound
-from domain.repositories.ingestion_registry_repository import IngestionRegistryEntry
+from domain.ingestion.repositories import IngestionRegistryEntry
 from domain.value_objects.stream_events import SourcesEvent, TextChunk
-from domain.value_objects.visibility import DocumentVisibility
+from domain.knowledge.enums import DocumentVisibility
 
 # ---------------------------------------------------------------------------
 # Fake UnitOfWork
@@ -240,8 +240,6 @@ class FakeChunkRepository:
     async def search_substring_page(self, **kwargs):
         return [], 0
 
-    async def get_all_contents(self) -> list[str]:
-        return []
 
     async def list_for_document(
         self,
@@ -250,13 +248,13 @@ class FakeChunkRepository:
         offset: int = 0,
         content_hashes: list[str] | None = None,
     ) -> tuple[list, int]:
-        from domain.repositories.chunk_repository import ChunkSearchResult
+        from domain.knowledge.chunk import ChunkRecord
 
         rows = [c for c in self._chunks if c["document_id"] == document_id]
         total = len(rows)
         rows = rows[offset : offset + limit]
         items = [
-            ChunkSearchResult(
+            ChunkRecord(
                 chunk_id=c["id"],
                 document_id=c["document_id"],
                 filename=c.get("filename", ""),
@@ -289,7 +287,7 @@ class FakeChunkRepository:
         direction: str = "next",
         content_hashes: list[str] | None = None,
     ):
-        from domain.utils import encode_cursor
+        from domain.knowledge.chunk import encode_cursor
         from domain.shared.pagination import CursorPage
 
         rows = [c for c in self._chunks if c["document_id"] == document_id]
@@ -322,10 +320,10 @@ class FakeChunkRepository:
             prev_cur = encode_cursor(page[0]["chunk_index"], page[0]["id"]) if has_extra and page else None
             next_cur = encode_cursor(page[0]["chunk_index"], page[0]["id"]) if page else None
 
-        from domain.repositories.chunk_repository import ChunkSearchResult
+        from domain.knowledge.chunk import ChunkRecord
 
         items = [
-            ChunkSearchResult(
+            ChunkRecord(
                 chunk_id=c["id"],
                 document_id=c["document_id"],
                 filename=c.get("filename", ""),
@@ -369,7 +367,7 @@ class FakeDocumentRepository:
         managed_internal_ids: list[int] | None = None,
         managed_group_ids: list[int] | None = None,
     ):
-        from domain.services.access_control import is_in_search_scope
+        from domain.knowledge.access_control import is_in_search_scope
 
         class _FakeCtx:
             def __init__(self):

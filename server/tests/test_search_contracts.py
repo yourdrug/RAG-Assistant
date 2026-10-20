@@ -9,7 +9,7 @@ import pytest
 from application.search import HybridRetriever, SearchService
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
-from domain.value_objects.search_mode import SearchMode
+from domain.knowledge.enums import SearchMode
 
 
 @pytest.mark.parametrize(

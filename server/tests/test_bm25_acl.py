@@ -16,9 +16,9 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
 
 from domain.shared.hashing import content_hash
-from domain.services.access_control import VisibilityCondition
-from domain.value_objects.owner_match import OwnerMatch
-from domain.value_objects.visibility import DocumentVisibility
+from domain.knowledge.access_control import VisibilityCondition
+from domain.knowledge.access_control import OwnerMatch
+from domain.knowledge.enums import DocumentVisibility
 from infrastructure.bm25.bm25_index import BM25Index
 
 
@@ -388,7 +388,7 @@ class TestBM25PredicateInvariant:
         for i, (label, vis, owner, grp) in enumerate(self._build_test_docs()):
             doc = SimpleNamespace(visibility=vis, owner_id=owner, group_id=grp)
 
-            from domain.services.access_control import is_in_search_scope
+            from domain.knowledge.access_control import is_in_search_scope
 
             domain_result = is_in_search_scope(doc, ctx)
             bm25_result = self._bm25_matches(idx, i, conditions, user_id, group_ids)
@@ -400,7 +400,7 @@ class TestBM25PredicateInvariant:
 
     def test_user_invariant(self):
         """USER: BM25 predicate matches domain rule."""
-        from domain.services.access_control import get_visibility_conditions
+        from domain.knowledge.access_control import get_visibility_conditions
         from domain.identity.roles import UserKind, UserRole
 
         self._run_invariant(
@@ -418,7 +418,7 @@ class TestBM25PredicateInvariant:
 
     def test_admin_invariant(self):
         """ADMIN: BM25 predicate matches domain rule (no CLIENT_PRIVATE bonus)."""
-        from domain.services.access_control import get_visibility_conditions
+        from domain.knowledge.access_control import get_visibility_conditions
         from domain.identity.roles import UserKind, UserRole
 
         self._run_invariant(
@@ -436,7 +436,7 @@ class TestBM25PredicateInvariant:
 
     def test_curator_with_managed_invariant(self):
         """CURATOR with managed_ids: BM25 predicate matches domain rule."""
-        from domain.services.access_control import get_visibility_conditions
+        from domain.knowledge.access_control import get_visibility_conditions
         from domain.identity.roles import UserKind, UserRole
 
         self._run_invariant(
@@ -458,9 +458,9 @@ class TestBM25PredicateInvariant:
 
     def test_acl_none_in_index_denied(self):
         idx = BM25Index(texts=["pub", "priv"], doc_visibility=[None, None])
-        from domain.services.access_control import VisibilityCondition
-        from domain.value_objects.owner_match import OwnerMatch
-        from domain.value_objects.visibility import DocumentVisibility
+        from domain.knowledge.access_control import VisibilityCondition
+        from domain.knowledge.access_control import OwnerMatch
+        from domain.knowledge.enums import DocumentVisibility
 
         conditions = [
             VisibilityCondition(visibility=DocumentVisibility.INTERNAL_PRIVATE, owner_match=OwnerMatch.SELF),

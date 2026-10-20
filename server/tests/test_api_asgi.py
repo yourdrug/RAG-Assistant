@@ -12,15 +12,15 @@ from application.chunks import AddChunkResult, EditChunkResult
 from domain.shared.pagination import CursorPage
 from test_chunk_service import _make_chunk, _make_doc, _make_service, _make_uow
 from application.documents import DocumentDTO
-from domain.entities.document import Document
-from domain.value_objects.visibility import DocumentVisibility
-from domain.value_objects.source_type import SourceType
+from domain.knowledge.document import Document
+from domain.knowledge.enums import DocumentVisibility
+from domain.knowledge.enums import SourceType
 from domain.entities.message import Message
 from domain.value_objects.message_role import MessageRole
 from domain.value_objects.job_status import BackgroundJobStatus
 from domain.identity.roles import UserRole
-from domain.value_objects.doc_domain import DocDomain
-from domain.repositories.chunk_repository import ChunkSearchResult
+from domain.knowledge.enums import DocDomain
+from domain.knowledge.chunk import ChunkRecord
 from main import app
 from presentation.api.auth_dependencies import get_current_user
 from presentation.api import dependencies as deps
@@ -111,7 +111,7 @@ async def test_preview_index_rejects_unknown_domain_before_loading_file(asgi_cli
 @pytest.mark.asyncio
 async def test_exact_search_reports_full_total_and_requested_page(asgi_client):
     sign_in()
-    row = ChunkSearchResult(3, 10, "test.txt", "matching needle text", 3)
+    row = ChunkRecord(3, 10, "test.txt", "matching needle text", 3)
     service = SimpleNamespace(exact_search=AsyncMock(return_value=([row], 53)))
     app.dependency_overrides[deps.create_search_service] = lambda: service
     response = await asgi_client.post("/search/exact", json={"query": "needle", "limit": 2, "offset": 2})
@@ -241,7 +241,7 @@ async def test_chat_outage_preserves_retry_after(asgi_client):
 @pytest.mark.parametrize("user_id,role,status", [(1, "user", 200), (2, "user", 409), (2, "admin", 200)])
 async def test_private_document_ownership_through_real_route(asgi_client, user_id, role, status):
     from application.documents import DocumentQueryService
-    from domain.value_objects.visibility import DocumentVisibility
+    from domain.knowledge.enums import DocumentVisibility
 
     factory = FakeUnitOfWorkFactory()
     document = await factory._uow.documents.save(
@@ -266,7 +266,7 @@ async def test_document_delete_queues_only_after_authorization(asgi_client, user
     from application.documents import DocumentDeletionJobs
     from domain.entities.background_job import BackgroundJob
     from domain.value_objects.job_type import JobType
-    from domain.value_objects.visibility import DocumentVisibility
+    from domain.knowledge.enums import DocumentVisibility
 
     factory = FakeUnitOfWorkFactory()
     document = await factory._uow.documents.save(

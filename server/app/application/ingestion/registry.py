@@ -14,7 +14,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from domain.repositories.ingestion_registry_repository import IngestionRegistryEntry
+from domain.ingestion.repositories import IngestionRegistryEntry
 
 
 if TYPE_CHECKING:
@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from application.ingestion.dto import RegistryRecord
     from application.ports.file_storage import FileItem, FileStorage
     from application.uow import UnitOfWorkFactory
-    from domain.entities.raw_document import RawDocument
+    from domain.ingestion.raw_document import RawDocument
 
 log = logging.getLogger("default")
 

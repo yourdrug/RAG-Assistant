@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from application.ingestion.scope import IngestionScope
     from application.ingestion.sync import DocumentSyncService
     from application.ports.file_storage import FileStorage
-    from domain.entities.raw_document import RawDocument
+    from domain.ingestion.raw_document import RawDocument
 
 log = logging.getLogger("default")
 

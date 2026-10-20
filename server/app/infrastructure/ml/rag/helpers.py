@@ -11,9 +11,10 @@ import logging
 import time
 from typing import TYPE_CHECKING
 
-from domain.value_objects.doc_domain import DocDomain
+from domain.knowledge.enums import DocDomain
+from domain.rag.answer_policy import policy_for
 from domain.value_objects.llm_provider import Breadth
-from domain.value_objects.search_mode import SearchMode
+from domain.knowledge.enums import SearchMode
 from domain.services.evidence_queries import evidence_search_queries
 from langchain.schema import Document as LCDocument
 
@@ -40,15 +41,16 @@ if TYPE_CHECKING:
 log = logging.getLogger("default")
 
 
-def domain_prompt_addendum(query_domain: str, ctx, breadth: Breadth, domain_registry) -> str | None:
-    """Domain-profile prompt rules."""
-    if domain_registry is None:
+def domain_prompt_addendum(
+    query_domain: str,
+    ctx,
+    breadth: Breadth,
+    domain_keys: tuple[str, ...] | None,
+) -> str | None:
+    """Answer rules for a registered domain."""
+    if domain_keys is None or query_domain not in domain_keys:
         return None
-    try:
-        profile = domain_registry.get(query_domain)
-    except KeyError:
-        return None
-    return profile.prompt_addendum(
+    return policy_for(query_domain).prompt_addendum(
         breadth.value if hasattr(breadth, "value") else breadth, as_of_date=ctx.as_of_date
     )
 

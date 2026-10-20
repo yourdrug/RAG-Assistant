@@ -21,8 +21,8 @@ if TYPE_CHECKING:
         TextQualityAssessorPort,
     )
     from application.ingestion import DocumentParserPort, DocumentSplitterPort
-    from domain.entities.raw_document import RawDocument
-    from domain.value_objects.pdf_quality_report import PDFQualityReport
+    from domain.ingestion.preview import PDFQualityReport
+    from domain.ingestion.raw_document import RawDocument
 
 
 T = TypeVar("T")

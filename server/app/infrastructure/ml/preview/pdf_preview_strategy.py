@@ -6,10 +6,10 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from domain.value_objects.page_content_type import PageContentType
-from domain.value_objects.preview_unit_kind import PreviewUnitKind
+from domain.knowledge.enums import PageContentType
+from domain.ingestion.preview import PreviewUnitKind
 
-from domain.value_objects.pdf_dto import DryRunPageResult
+from domain.ingestion.preview import DryRunPageResult
 
 if TYPE_CHECKING:
     from application.documents.diagnostics import PDFDiagnosticService

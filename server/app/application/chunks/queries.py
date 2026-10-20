@@ -8,23 +8,23 @@ from typing import TYPE_CHECKING
 from application.chunks.dto import ChunkCursorQuery
 from application.chunks.mappers import to_chunk_dto
 from application.identity import UserContextFactory
-from domain.services import check_document_access
+from domain.knowledge.access_control import check_document_access
+from domain.knowledge.chunk import decode_cursor
 from domain.shared.exceptions import BusinessRuleViolation, EntityNotFound
 from domain.shared.pagination import CursorPage
-from domain.utils import decode_cursor
 
 
 if TYPE_CHECKING:
     from application.chunks.dto import ChunkItemDTO
     from application.uow import UnitOfWorkFactory
-    from domain.entities.document import Document
     from domain.identity.roles import UserKind, UserRole
-    from domain.repositories.chunk_repository import ChunkSearchResult
+    from domain.knowledge.chunk import ChunkRecord
+    from domain.knowledge.document import Document
 
 log = logging.getLogger(__name__)
 
 
-def validate_chunk_acl(document: Document, chunks: list[ChunkSearchResult]) -> None:
+def validate_chunk_acl(document: Document, chunks: list[ChunkRecord]) -> None:
     # Fail closed on legacy inconsistency or an ACL change between SQL reads.
 
     for chunk in chunks:

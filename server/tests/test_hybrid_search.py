@@ -99,8 +99,8 @@ class TestBM25Index:
 
     def test_search_with_hashes(self):
         texts = ["маркировка товаров", "штрафы за нарушение"]
-        from domain.services.access_control import VisibilityCondition
-        from domain.value_objects.visibility import DocumentVisibility
+        from domain.knowledge.access_control import VisibilityCondition
+        from domain.knowledge.enums import DocumentVisibility
 
         idx = BM25Index(texts, doc_visibility=["internal_public"] * len(texts))
         results = idx.search_with_hashes(

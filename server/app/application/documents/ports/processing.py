@@ -12,8 +12,8 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from domain.entities.raw_document import RawDocument
-    from domain.value_objects.pdf_quality_report import PDFQualityReport
+    from domain.ingestion.preview import PDFQualityReport
+    from domain.ingestion.raw_document import RawDocument
 
 
 @runtime_checkable

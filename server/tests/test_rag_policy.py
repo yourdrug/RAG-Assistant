@@ -27,7 +27,7 @@ from domain.services.rag_policy import (
     needs_decomposition,
     should_enumerate_cases,
 )
-from domain.value_objects.doc_domain import DocDomain
+from domain.knowledge.enums import DocDomain
 from domain.value_objects.llm_provider import Breadth
 
 

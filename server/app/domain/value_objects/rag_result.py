@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from domain.value_objects.doc_domain import DocDomain
+from domain.knowledge.enums import DocDomain
 from domain.value_objects.llm_provider import Breadth
 
 

@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from domain.value_objects.doc_domain import DomainDetectionMode
-from domain.value_objects.visibility import DocumentVisibility
+from domain.knowledge.enums import DocumentVisibility, DomainDetectionMode
 
 
 if TYPE_CHECKING:

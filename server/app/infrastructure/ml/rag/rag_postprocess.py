@@ -10,8 +10,8 @@ from collections.abc import AsyncIterator
 from datetime import date as _date
 
 from domain.value_objects.llm_provider import Breadth
-from domain.value_objects.chunk_context import TABLE_CONTEXT_MAX_CHUNKS
-from domain.value_objects.page_content_type import PageContentType
+from domain.knowledge.chunk import TABLE_CONTEXT_MAX_CHUNKS
+from domain.knowledge.enums import PageContentType
 from infrastructure.ml.rag.table_context import focus_table_rows, requests_table_overview
 from domain.value_objects.not_found_patterns import NOT_FOUND_PATTERNS
 from domain.value_objects.rag_settings import RagSettings

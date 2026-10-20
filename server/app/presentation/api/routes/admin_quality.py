@@ -7,10 +7,10 @@ import base64
 import logging
 from pathlib import Path
 
-from domain.value_objects.visibility import DocumentVisibility
+from domain.knowledge.enums import DocumentVisibility
 from domain.shared.exceptions import ServerException
 from domain.value_objects.file_backend import FileBackend
-from domain.value_objects.doc_domain import DocDomain
+from domain.knowledge.enums import DocDomain
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from application.ports.rate_limit import RateLimitPolicyName

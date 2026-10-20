@@ -18,12 +18,11 @@ from application.ingestion import (
     SingleFileIngestionWorkflow,
 )
 from application.ports.file_storage import FileItem
-from domain.entities.chunk import Chunk
-from domain.entities.document import Document
-from domain.entities.raw_document import RawDocument
-from domain.entities.vector_outbox_entry import OutboxOperation, OutboxStatus, VectorOutboxEntry
-from domain.value_objects.source_type import SourceType
-from domain.value_objects.visibility import DocumentVisibility
+from domain.ingestion.raw_document import RawDocument
+from domain.knowledge.chunk import Chunk
+from domain.knowledge.document import Document
+from domain.knowledge.enums import DocumentVisibility, SourceType
+from domain.knowledge.index_sync import OutboxOperation, OutboxStatus, VectorOutboxEntry
 from fakes import FakeUnitOfWorkFactory  # type: ignore[import-not-found]
 from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
 

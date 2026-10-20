@@ -26,13 +26,13 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from domain.entities.vector_outbox_entry import OutboxStatus
+from domain.knowledge.index_sync import OutboxStatus
 from domain.value_objects.job_status import BackgroundJobStatus
-from domain.value_objects.visibility import DocumentVisibility
-from domain.value_objects.source_type import SourceType
-from domain.value_objects.doc_domain import DocDomain
+from domain.knowledge.enums import DocumentVisibility
+from domain.knowledge.enums import SourceType
+from domain.knowledge.enums import DocDomain
 from domain.identity.roles import UserRole, UserKind
-from domain.value_objects.document_status import DOCUMENT_SLOT_STATUSES, DocumentStatus
+from domain.knowledge.enums import DOCUMENT_SLOT_STATUSES, DocumentStatus
 from domain.value_objects.sweep_status import BenchmarkSweepStatus
 from domain.value_objects.sweep_evaluation_mode import SweepEvaluationMode
 from domain.value_objects.benchmark_strategy import BenchmarkStrategy

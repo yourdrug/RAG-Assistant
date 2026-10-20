@@ -6,9 +6,9 @@ from unittest.mock import AsyncMock
 import pytest
 from langchain_core.documents import Document
 
-from domain.repositories.chunk_repository import ChunkSearchResult
+from domain.knowledge.chunk import ChunkRecord
 from domain.value_objects.chat_context import ChatContext
-from domain.value_objects.page_content_type import PageContentType
+from domain.knowledge.enums import PageContentType
 from domain.identity.roles import UserKind, UserRole
 from infrastructure.ml.rag.applicable_context import enrich_applicable_context
 from infrastructure.ml.rag.grounded_response import extractive_timing_response, missing_field_response
@@ -19,7 +19,7 @@ QUESTION = 'Формат поля «Код» (позиция 18 таблицы 4
 
 
 def source_chunk(index, text, table_id=None, version=1):
-    return ChunkSearchResult(
+    return ChunkRecord(
         chunk_id=index,
         document_id=1,
         chunk_index=index,

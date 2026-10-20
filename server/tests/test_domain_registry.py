@@ -7,12 +7,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-from domain.domain_profile.registry import (
+from domain.ingestion.profiles.registry import (
     DomainProfileRegistry,
 )
-from domain.domain_profile.profiles.decree import DecreeDomainProfile
-from domain.domain_profile.profiles.general import GeneralDomainProfile
-from domain.domain_profile.profiles.legal import LegalDomainProfile
+from domain.ingestion.profiles.decree import DecreeDomainProfile
+from domain.ingestion.profiles.general import GeneralDomainProfile
+from domain.ingestion.profiles.legal import LegalDomainProfile
 
 
 class FakeSettings:
@@ -176,12 +176,6 @@ class _TwoFingerprintProfile:
 
     def extract_effective_date(self, text: str):
         return None
-
-    def prompt_addendum(self, breadth: str, as_of_date=None):
-        return None
-
-    def retrieval_fallback_to_full_corpus(self) -> bool:
-        return False
 
 
 class TestFingerprintConflict:

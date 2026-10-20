@@ -6,15 +6,15 @@ from typing import TYPE_CHECKING
 
 from application.identity import UserContextFactory
 from domain.identity.roles import UserKind
+from domain.knowledge.enums import DocumentStatus
 from domain.shared.exceptions import BusinessRuleViolation, EntityNotFound
-from domain.value_objects.document_status import DocumentStatus
 
 
 if TYPE_CHECKING:
     from application.uow import UnitOfWork
-    from domain.entities.document import Document
     from domain.identity.roles import UserRole
     from domain.identity.user_context import UserContext
+    from domain.knowledge.document import Document
 
 
 _default_factory = UserContextFactory()

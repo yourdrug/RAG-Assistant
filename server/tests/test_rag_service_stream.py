@@ -86,10 +86,10 @@ def _make_service(llm_response: str = "Ответ из документов.", *
     mock_ml.embedding_semaphore = asyncio.Semaphore(8)
 
     chunk_search = overrides.pop("chunk_search", None)
-    domain_registry = overrides.pop("domain_registry", None)
+    domain_keys = overrides.pop("domain_keys", None)
     access = SimpleNamespace(allowed_document_ids=AsyncMock(side_effect=lambda ids, user: set(ids)))
     return RagService(
-        ml_clients=mock_ml, chunk_search=chunk_search, domain_registry=domain_registry, document_access=access
+        ml_clients=mock_ml, chunk_search=chunk_search, domain_keys=domain_keys, document_access=access
     )
 
 

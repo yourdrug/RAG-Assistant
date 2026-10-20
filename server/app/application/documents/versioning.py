@@ -9,7 +9,7 @@ from application.documents.dto import PreparedDocumentVersioning
 
 if TYPE_CHECKING:
     from application.act_versioning import ActVersioningService
-    from domain.domain_profile.registry import DomainProfileRegistry
+    from domain.ingestion.profiles.registry import DomainProfileRegistry
 
 
 async def prepare_processing_versioning(

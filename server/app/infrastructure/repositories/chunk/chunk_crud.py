@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from domain.repositories.chunk_repository import ChunkSearchResult, ChunkStats
+from domain.knowledge.chunk import ChunkRecord, ChunkStats
 from domain.shared.exceptions import BusinessRuleViolation
 from domain.shared.pagination import CursorPage
-from domain.value_objects.doc_domain import DocDomain
-from domain.value_objects.chunk_context import extract_chunk_context
+from domain.knowledge.enums import DocDomain
+from domain.knowledge.chunk import extract_chunk_context
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -99,7 +99,7 @@ class SQLAlchemyChunkCrudRepository:
         await self._session.flush()
         return [m.id for m in models]
 
-    async def get_by_id(self, chunk_id: int) -> ChunkSearchResult | None:
+    async def get_by_id(self, chunk_id: int) -> ChunkRecord | None:
         stmt = select(ChunkModel).where(ChunkModel.id == chunk_id)
         result = await self._session.execute(stmt)
         orm = result.scalar_one_or_none()
@@ -205,7 +205,7 @@ class SQLAlchemyChunkCrudRepository:
         limit: int = 50,
         offset: int = 0,
         content_hashes: list[str] | None = None,
-    ) -> tuple[list[ChunkSearchResult], int]:
+    ) -> tuple[list[ChunkRecord], int]:
         conditions = [ChunkModel.document_id == document_id]
         if content_hashes:
             conditions.append(ChunkModel.content_hash.in_(content_hashes))
@@ -228,7 +228,7 @@ class SQLAlchemyChunkCrudRepository:
         cursor: tuple[int, int] | None = None,
         direction: str = "next",
         content_hashes: list[str] | None = None,
-    ) -> CursorPage[ChunkSearchResult]:
+    ) -> CursorPage[ChunkRecord]:
         conditions = [ChunkModel.document_id == document_id]
         if content_hashes:
             conditions.append(ChunkModel.content_hash.in_(content_hashes))
@@ -264,7 +264,7 @@ class SQLAlchemyChunkCrudRepository:
         document_id: int,
         content_hash: str,
         exclude_chunk_id: int | None = None,
-    ) -> ChunkSearchResult | None:
+    ) -> ChunkRecord | None:
         conditions = [
             ChunkModel.document_id == document_id,
             ChunkModel.content_hash == content_hash,

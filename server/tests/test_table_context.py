@@ -6,9 +6,9 @@ from unittest.mock import AsyncMock
 import pytest
 from langchain.schema import Document
 
-from domain.repositories.chunk_repository import ChunkSearchResult
-from domain.value_objects.chunk_context import extract_chunk_context, TABLE_CONTEXT_MAX_CHUNKS
-from domain.value_objects.page_content_type import PageContentType
+from domain.knowledge.chunk import ChunkRecord
+from domain.knowledge.chunk import extract_chunk_context, TABLE_CONTEXT_MAX_CHUNKS
+from domain.knowledge.enums import PageContentType
 from infrastructure.ml.ingestion.splitting import split_documents
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser
 from infrastructure.ml.rag.rag_postprocess import enrich_with_neighbors
@@ -59,7 +59,7 @@ def table_seed():
 @pytest.mark.asyncio
 async def test_target_field_keeps_columns_scope_and_split_row_conditions():
     seed = table_seed()
-    continuation = ChunkSearchResult(
+    continuation = ChunkRecord(
         chunk_id=3,
         document_id=7,
         filename="tables.md",
@@ -118,7 +118,7 @@ async def test_legacy_table_without_identity_does_not_expand():
 @pytest.mark.asyncio
 async def test_expansion_respects_context_budget():
     seed = table_seed()
-    continuation = ChunkSearchResult(
+    continuation = ChunkRecord(
         chunk_id=3,
         document_id=7,
         filename="tables.md",

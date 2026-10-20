@@ -5,15 +5,15 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
-from domain.entities.act_version_timeline import ActVersionTimeline
-from domain.entities.vector_outbox_entry import OutboxOperation, VectorOutboxEntry
+from domain.knowledge.acts.timeline import ActVersionTimeline
+from domain.knowledge.index_sync import OutboxOperation, VectorOutboxEntry
 from domain.shared.exceptions import EntityNotFound
 
 
 if TYPE_CHECKING:
     from application.uow import UnitOfWork
-    from domain.entities.act_version import ActVersion
-    from domain.repositories.chunk_repository import ChunkVersioningRepository
+    from domain.knowledge.acts.models import ActVersion
+    from domain.knowledge.repositories.chunk import ChunkVersioningRepository
 
 
 class ActVersionPersistence:

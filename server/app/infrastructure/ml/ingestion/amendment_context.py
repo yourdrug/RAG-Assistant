@@ -2,7 +2,7 @@
 
 import re
 
-from domain.value_objects.page_content_type import PageContentType
+from domain.knowledge.enums import PageContentType
 
 REPLACEMENT_BRIDGE_RE = re.compile(r"^\s*заменить\s+позицией\s*:?\s*$", re.IGNORECASE)
 TABLE_TARGET_RE = re.compile(r"в\s+таблице\s+\d+(?:\.\d+)*", re.IGNORECASE)

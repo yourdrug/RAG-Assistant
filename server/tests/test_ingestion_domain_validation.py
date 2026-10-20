@@ -5,8 +5,8 @@ from types import SimpleNamespace
 import pytest
 
 from application.ingestion import S3DocumentLoader
-from domain.entities.raw_document import RawDocument
-from domain.value_objects.doc_domain import DocDomain
+from domain.ingestion.raw_document import RawDocument
+from domain.knowledge.enums import DocDomain
 
 
 class PassthroughSplitter:

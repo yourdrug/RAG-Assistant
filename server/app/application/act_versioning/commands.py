@@ -7,17 +7,18 @@ import logging
 from typing import TYPE_CHECKING, Unpack
 
 from application.act_versioning.persistence import ActVersionPersistence
-from domain.entities.act_version import ActVersion
-from domain.entities.act_version_timeline import ActVersionTimeline
-from domain.entities.regulatory_act import RegulatoryAct
-from domain.services.act_version_policy import (
-    document_scope_key,
+from domain.ingestion.references import (
     extract_act_number,
+)
+from domain.knowledge.acts.models import ActVersion, RegulatoryAct
+from domain.knowledge.acts.policy import (
+    document_scope_key,
     same_document_scope,
 )
+from domain.knowledge.acts.timeline import ActVersionTimeline
+from domain.knowledge.enums import DocumentVisibility
 from domain.shared.dates import parse_date_guess
 from domain.shared.exceptions import EntityNotFound, ValidationError
-from domain.value_objects.visibility import DocumentVisibility
 
 
 if TYPE_CHECKING:
@@ -28,7 +29,8 @@ if TYPE_CHECKING:
     from application.act_versioning.dto import VersionUpdateOptions
     from application.act_versioning.planner import ActVersionPlanner
     from application.uow import UnitOfWork, UnitOfWorkFactory
-    from domain.domain_profile.protocol import DomainProfile, ReferenceMatch
+    from domain.ingestion.profiles.protocol import DocumentProfile
+    from domain.ingestion.profiles.types import ReferenceMatch
 
 
 log = logging.getLogger("default")
@@ -129,7 +131,7 @@ class ActVersionCommands:
 
     async def handle_versioned_upload(
         self,
-        profile: DomainProfile,
+        profile: DocumentProfile,
         document_id: int,
         extracted_refs: list[ReferenceMatch],
         effective_date: date | None = None,
@@ -158,7 +160,7 @@ class ActVersionCommands:
     async def create_version_in_uow(
         self,
         uow: UnitOfWork,
-        profile: DomainProfile,
+        profile: DocumentProfile,
         document_id: int,
         extracted_refs: list[ReferenceMatch],
         *,

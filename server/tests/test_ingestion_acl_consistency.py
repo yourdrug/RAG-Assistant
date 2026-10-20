@@ -7,13 +7,13 @@ import pytest_asyncio
 
 from application.chunks import ChunkQueryService
 from application.ingestion import DocumentSyncService
-from domain.entities.document import Document
-from domain.entities.raw_document import RawDocument
-from domain.entities.vector_outbox_entry import OutboxOperation
+from domain.knowledge.document import Document
+from domain.ingestion.raw_document import RawDocument
+from domain.knowledge.index_sync import OutboxOperation
 from domain.shared.exceptions import BusinessRuleViolation, ValidationError
 from domain.identity.roles import UserKind, UserRole
-from domain.value_objects.source_type import SourceType
-from domain.value_objects.visibility import DocumentVisibility
+from domain.knowledge.enums import SourceType
+from domain.knowledge.enums import DocumentVisibility
 from fakes import FakeUnitOfWorkFactory
 
 FILENAME = "report.md"

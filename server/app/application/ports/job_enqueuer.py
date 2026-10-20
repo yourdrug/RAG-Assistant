@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol, TypedDict, Unpack
 
-from domain.value_objects.visibility import DocumentVisibility
+from domain.knowledge.enums import DocumentVisibility
 
 
 class DocumentProcessingOptions(TypedDict, total=False):

@@ -15,8 +15,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import fitz
-from domain.services.text_quality import classify_content, is_garbled  # noqa: F401
-from domain.value_objects.page_content_type import PageContentType
+from domain.ingestion.text_quality import classify_content, is_garbled  # noqa: F401
+from domain.knowledge.enums import PageContentType
 
 logger = logging.getLogger("default")
 

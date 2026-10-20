@@ -7,11 +7,9 @@ from typing import TYPE_CHECKING
 
 from application.documents.dto import DocumentDTO
 from application.identity import UserContextFactory
-from domain.entities.document import Document
-from domain.services import compute_owner_and_group, validate_document_visibility
-from domain.value_objects.document_status import DocumentStatus
-from domain.value_objects.source_type import SourceType
-from domain.value_objects.visibility import DocumentVisibility
+from domain.knowledge.access_control import compute_owner_and_group, validate_document_visibility
+from domain.knowledge.document import Document
+from domain.knowledge.enums import DocumentStatus, DocumentVisibility, SourceType
 
 
 if TYPE_CHECKING:

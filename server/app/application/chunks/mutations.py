@@ -9,11 +9,11 @@ from typing import TYPE_CHECKING
 from application.chunks.access import load_doc_for_add, load_doc_for_edit
 from application.chunks.dto import AddChunkResult, EditChunkResult
 from application.indexing import build_outbox_metadata
-from domain.entities.vector_outbox_entry import OutboxOperation, VectorOutboxEntry
+from domain.knowledge.chunk import extract_chunk_context
+from domain.knowledge.enums import SourceType
+from domain.knowledge.index_sync import OutboxOperation, VectorOutboxEntry
 from domain.shared.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
 from domain.shared.hashing import content_hash
-from domain.value_objects.chunk_context import extract_chunk_context
-from domain.value_objects.source_type import SourceType
 
 
 if TYPE_CHECKING:
@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from application.ports.cache_invalidator import CacheInvalidatorPort
     from application.uow import UnitOfWork, UnitOfWorkFactory
     from domain.identity.roles import UserRole
-    from domain.repositories.chunk_repository import ChunkCrudRepository
+    from domain.knowledge.repositories.chunk import ChunkCrudRepository
 
 log = logging.getLogger(__name__)
 

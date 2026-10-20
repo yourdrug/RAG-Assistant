@@ -6,14 +6,14 @@ import logging
 from typing import TYPE_CHECKING
 
 from application.documents.delete import delete_document_in_uow
+from domain.knowledge.enums import DocumentStatus
 from domain.shared.exceptions import EntityNotFound
-from domain.value_objects.document_status import DocumentStatus
 
 
 if TYPE_CHECKING:
     from application.uow import UnitOfWork
-    from domain.domain_profile.registry import DomainProfileRegistry
-    from domain.entities.document import Document
+    from domain.ingestion.profiles.registry import DomainProfileRegistry
+    from domain.knowledge.document import Document
 
 log = logging.getLogger(__name__)
 

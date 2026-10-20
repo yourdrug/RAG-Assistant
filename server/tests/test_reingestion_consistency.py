@@ -9,10 +9,10 @@ import pytest
 from application.indexing import process_chunks
 from application.ingestion import SingleFileIngestionWorkflow
 from application.ingestion import IngestionScope
-from domain.entities.raw_document import RawDocument
-from domain.entities.vector_outbox_entry import OutboxOperation, OutboxStatus
-from domain.value_objects.doc_domain import DocDomain
-from domain.value_objects.visibility import DocumentVisibility
+from domain.ingestion.raw_document import RawDocument
+from domain.knowledge.index_sync import OutboxOperation, OutboxStatus
+from domain.knowledge.enums import DocDomain
+from domain.knowledge.enums import DocumentVisibility
 from fakes import FakeUnitOfWorkFactory
 from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
 

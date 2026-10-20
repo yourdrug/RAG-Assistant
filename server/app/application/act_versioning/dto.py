@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, TypedDict
 if TYPE_CHECKING:
     from datetime import date
 
-    from domain.domain_profile.protocol import ReferenceMatch
+    from domain.ingestion.profiles.types import ReferenceMatch
 
 
 @dataclass(frozen=True)

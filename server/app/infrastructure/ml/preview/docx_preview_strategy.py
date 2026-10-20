@@ -7,11 +7,11 @@ import logging
 from pathlib import Path
 
 from config import settings
-from domain.services.text_quality import classify_content
-from domain.value_objects.page_content_type import PageContentType
-from domain.value_objects.preview_unit_kind import PreviewUnitKind
+from domain.ingestion.text_quality import classify_content
+from domain.knowledge.enums import PageContentType
+from domain.ingestion.preview import PreviewUnitKind
 
-from domain.value_objects.pdf_dto import DryRunPageResult
+from domain.ingestion.preview import DryRunPageResult
 from infrastructure.ml.ingestion import ocr_image_paddle, ocr_image_surya, parse_docx_sections
 
 logger = logging.getLogger("default")

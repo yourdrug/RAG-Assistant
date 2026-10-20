@@ -13,16 +13,16 @@ from typing import TYPE_CHECKING
 
 from striprtf.striprtf import rtf_to_text
 
-from domain.domain_profile.content_splitter import MIN_STRUCTURAL_CHUNK_CHARS, SplitUnit, split_by_content
-from domain.domain_profile.profiles.decree import (
+from domain.ingestion.content_splitter import MIN_STRUCTURAL_CHUNK_CHARS, SplitUnit, split_by_content
+from domain.ingestion.profiles.decree import (
     _DECREE_DATE_RE,
     _DECREE_NUMBER_RE,
     _POSTANOVLYAYU_RE,
 )
 
 if TYPE_CHECKING:
-    from domain.domain_profile.settings_port import DomainSettingsPort
-    from domain.domain_profile.profiles.decree import DecreeDomainProfile
+    from domain.ingestion.ports import DomainSettingsPort
+    from domain.ingestion.profiles.decree import DecreeDomainProfile
 
 _HEADER_ZONE_CHARS = 1500  # decree requisites are always at the top of the document
 

@@ -9,9 +9,9 @@ from typing import TYPE_CHECKING
 from application.documents.dto import ClientInfo, DocumentDTO
 from application.identity import UserContextFactory
 from domain.identity.roles import UserKind, UserRole
-from domain.services import check_document_access, is_in_search_scope
+from domain.knowledge.access_control import check_document_access, is_in_search_scope
+from domain.knowledge.enums import DocumentStatus
 from domain.shared.exceptions import EntityNotFound
-from domain.value_objects.document_status import DocumentStatus
 
 
 if TYPE_CHECKING:

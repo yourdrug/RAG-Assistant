@@ -16,21 +16,20 @@ from application.act_versioning import VersioningResult
 from application.documents.delete import delete_document_in_uow
 from application.indexing import enrich_chunks_metadata, process_chunks, tag_chunks
 from application.ingestion.profiles import get_domain_profile
-from domain.entities.document import Document as DocEntity
-from domain.entities.raw_document import RawDocument
 from domain.identity.roles import UserKind
+from domain.ingestion.raw_document import RawDocument
+from domain.knowledge.document import Document as DocEntity
+from domain.knowledge.enums import DocDomain, DocumentVisibility
 from domain.shared.exceptions import EntityNotFound, ValidationError
-from domain.value_objects.doc_domain import DocDomain
-from domain.value_objects.visibility import DocumentVisibility
 
 
 if TYPE_CHECKING:
     from application.act_versioning import ActVersioningService, VersioningPlan
     from application.ingestion.dto import RegistryRecord, SyncOneDocumentOptions
     from application.uow import UnitOfWork, UnitOfWorkFactory
-    from domain.domain_profile.protocol import DomainProfile
-    from domain.domain_profile.registry import DomainProfileRegistry
-    from domain.domain_profile.settings_port import DomainSettingsPort
+    from domain.ingestion.ports import DomainSettingsPort
+    from domain.ingestion.profiles.protocol import DocumentProfile
+    from domain.ingestion.profiles.registry import DomainProfileRegistry
 
 log = logging.getLogger("default")
 
@@ -50,7 +49,7 @@ class DocumentSyncService:
         self._domain_registry = domain_registry
         self._domain_settings = domain_settings
 
-    def get_profile(self, domain: str) -> DomainProfile | None:
+    def get_profile(self, domain: str) -> DocumentProfile | None:
         return get_domain_profile(self._domain_registry, domain)
 
     async def sync_documents_to_db(
@@ -178,7 +177,7 @@ class DocumentSyncService:
         src: str,
         file_chunks: list[RawDocument],
         *,
-        prepared: tuple[VersioningResult, VersioningPlan | None, DomainProfile | None] | None = None,
+        prepared: tuple[VersioningResult, VersioningPlan | None, DocumentProfile | None] | None = None,
         **options: Unpack[SyncOneDocumentOptions],
     ) -> None:
         """Persist version state, chunks and outbox together for one document."""
@@ -300,7 +299,7 @@ class DocumentSyncService:
 
     async def prepare_versioning(
         self, fname: str, chunk_domain: str, full_text: str
-    ) -> tuple[VersioningResult, VersioningPlan | None, DomainProfile | None]:
+    ) -> tuple[VersioningResult, VersioningPlan | None, DocumentProfile | None]:
         versioning = VersioningResult(
             domain_metadata=None,
             act_version_id=None,

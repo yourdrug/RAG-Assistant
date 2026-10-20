@@ -13,9 +13,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 _real_fitz = sys.modules.get("fitz")
 sys.modules["fitz"] = MagicMock()
 
-from domain.value_objects.page_content_type import PageContentType  # noqa: E402
-from domain.value_objects.preview_unit_kind import PreviewUnitKind  # noqa: E402
-from domain.value_objects.pdf_dto import DryRunPageResult  # noqa: E402
+from domain.knowledge.enums import PageContentType  # noqa: E402
+from domain.ingestion.preview import PreviewUnitKind  # noqa: E402
+from domain.ingestion.preview import DryRunPageResult  # noqa: E402
 from infrastructure.ml.preview.factory import PreviewStrategyFactory  # noqa: E402
 from infrastructure.ml.preview.rtf_preview_strategy import RtfPreviewStrategy  # noqa: E402
 from infrastructure.ml.preview.docx_preview_strategy import DocxPreviewStrategy  # noqa: E402

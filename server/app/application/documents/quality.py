@@ -18,8 +18,8 @@ if TYPE_CHECKING:
         PDFQualityAssessorPort,
         TextQualityAssessorPort,
     )
-    from domain.entities.raw_document import RawDocument
-    from domain.value_objects.pdf_quality_report import PDFQualityReport
+    from domain.ingestion.preview import PDFQualityReport
+    from domain.ingestion.raw_document import RawDocument
 
 log = logging.getLogger("default")
 MAX_BAD_RATIO = 0.3

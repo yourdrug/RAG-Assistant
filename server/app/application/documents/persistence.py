@@ -13,14 +13,14 @@ from typing import TYPE_CHECKING
 from application.act_versioning import VersioningResult
 from application.documents.conflicts import apply_async_replacement
 from application.indexing import enrich_chunks_metadata, process_chunks
-from domain.value_objects.document_status import DocumentStatus
+from domain.knowledge.enums import DocumentStatus
 
 
 if TYPE_CHECKING:
     from application.act_versioning import ActVersioningService
     from application.documents.dto import PersistDocumentCommand
     from application.uow import UnitOfWorkFactory
-    from domain.domain_profile.registry import DomainProfileRegistry
+    from domain.ingestion.profiles.registry import DomainProfileRegistry
 
 log = logging.getLogger("default")
 

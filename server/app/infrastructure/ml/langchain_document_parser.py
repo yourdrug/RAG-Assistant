@@ -12,8 +12,8 @@ from typing import TYPE_CHECKING
 
 from langchain.schema import Document
 
-from domain.entities.raw_document import RawDocument
-from domain.value_objects.doc_domain import DocDomain
+from domain.ingestion.raw_document import RawDocument
+from domain.knowledge.enums import DocDomain
 from infrastructure.ml.ingestion import (
     PARSERS,
     parse_docx,
@@ -31,9 +31,9 @@ from infrastructure.ml.ingestion.markdown import extract_date_from_filename
 from infrastructure.ml.rtf_decree_parser import parse_decree_rtf
 
 if TYPE_CHECKING:
-    from domain.domain_profile.settings_port import DomainSettingsPort
-    from domain.domain_profile.profiles.decree import DecreeDomainProfile
-    from domain.domain_profile.registry import DomainProfileRegistry
+    from domain.ingestion.ports import DomainSettingsPort
+    from domain.ingestion.profiles.decree import DecreeDomainProfile
+    from domain.ingestion.profiles.registry import DomainProfileRegistry
 
 log = logging.getLogger("detailed")
 

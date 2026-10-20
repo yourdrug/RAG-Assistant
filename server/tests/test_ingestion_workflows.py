@@ -16,7 +16,7 @@ from langchain.schema import Document
 from application.ingestion import BatchIngestionWorkflow
 from application.ingestion import IngestionScope
 from application.ingestion import SingleFileIngestionWorkflow
-from domain.value_objects.visibility import DocumentVisibility
+from domain.knowledge.enums import DocumentVisibility
 
 
 @pytest.mark.asyncio

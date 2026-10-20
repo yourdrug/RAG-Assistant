@@ -8,10 +8,10 @@ import pytest
 
 from application.indexing.classification import classify_document_text
 from application.indexing.pipeline import classify_domain
-from domain.domain_profile.profiles.general import GeneralDomainProfile
-from domain.domain_profile.profiles.legal import LegalDomainProfile
-from domain.domain_profile.registry import DomainProfileRegistry
 from domain.ingestion.doc_type import classify_doc_type
+from domain.ingestion.profiles.general import GeneralDomainProfile
+from domain.ingestion.profiles.legal import LegalDomainProfile
+from domain.ingestion.profiles.registry import DomainProfileRegistry
 
 
 class ClassificationSettings:

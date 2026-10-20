@@ -3,7 +3,7 @@
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 
-from domain.value_objects.chunk_context import extract_chunk_context
+from domain.knowledge.chunk import extract_chunk_context
 
 
 @dataclass

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from domain.value_objects.chunk_context import TABLE_CONTEXT_MAX_CHUNKS
+from domain.knowledge.chunk import TABLE_CONTEXT_MAX_CHUNKS
 
 from typing import TYPE_CHECKING
 

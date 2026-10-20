@@ -5,9 +5,9 @@ from docx import Document as WordDocument
 from langchain.schema import Document
 
 from application.ingestion import FileMeta, SplitContext
-from domain.entities.raw_document import RawDocument
-from domain.value_objects.doc_domain import DocDomain
-from domain.value_objects.page_content_type import PageContentType
+from domain.ingestion.raw_document import RawDocument
+from domain.knowledge.enums import DocDomain
+from domain.knowledge.enums import PageContentType
 from infrastructure.ingestion.document_parser_adapter import (
     IngestionDocumentParser,
     IngestionDocumentSplitter,

@@ -8,14 +8,14 @@ import pytest
 from docx import Document as WordDocument
 from langchain.schema import Document
 
-from domain.domain_profile.profiles.decree import DecreeDomainProfile
-from domain.domain_profile.registry import DomainProfileRegistry
-from domain.entities.raw_document import RawDocument
+from domain.ingestion.profiles.decree import DecreeDomainProfile
+from domain.ingestion.profiles.registry import DomainProfileRegistry
+from domain.ingestion.raw_document import RawDocument
 from domain.exceptions.domain_errors import ContextBudgetExceededError
-from domain.value_objects.doc_domain import DocDomain
+from domain.knowledge.enums import DocDomain
 from domain.value_objects.chat_context import ChatContext
 from domain.value_objects.llm_provider import Breadth
-from domain.value_objects.page_content_type import PageContentType
+from domain.knowledge.enums import PageContentType
 from domain.identity.roles import UserKind, UserRole
 from domain.value_objects.stream_events import StatusEvent
 from domain.identity.user_context import UserContext

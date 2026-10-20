@@ -12,11 +12,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 import pytest
 
 from application.act_versioning import ActVersioningService
-from domain.domain_profile.protocol import ReferenceMatch
-from domain.entities.act_version import ActVersion
-from domain.entities.document import Document
-from domain.entities.regulatory_act import RegulatoryAct
-from domain.entities.vector_outbox_entry import OutboxOperation
+from domain.ingestion.profiles.types import ReferenceMatch
+from domain.knowledge.acts.models import ActVersion
+from domain.knowledge.document import Document
+from domain.knowledge.acts.models import RegulatoryAct
+from domain.knowledge.index_sync import OutboxOperation
 from domain.shared.exceptions import EntityNotFound
 from fakes import FakeUnitOfWorkFactory
 
@@ -32,7 +32,7 @@ class FakeSettings:
 
 
 def decree_profile():
-    from domain.domain_profile.profiles.decree import DecreeDomainProfile
+    from domain.ingestion.profiles.decree import DecreeDomainProfile
 
     return DecreeDomainProfile(settings=FakeSettings())
 
@@ -241,7 +241,7 @@ async def test_process_document_versioning_low_confidence_date_not_filterable():
 async def test_process_document_versioning_skips_unversioned_profile():
     service, _ = make_service()
     from application.act_versioning import VersioningResult
-    from domain.domain_profile.profiles.general import GeneralDomainProfile
+    from domain.ingestion.profiles.general import GeneralDomainProfile
 
     result = await service.process_document_versioning(
         GeneralDomainProfile(), document_id=1, full_text="text"
@@ -266,7 +266,7 @@ async def test_process_document_versioning_skips_unversioned_profile():
     ],
 )
 async def test_date_correction_rebuilds_chain_chunks_and_outbox(new_start, expected_ends, current_document):
-    from domain.value_objects.visibility import DocumentVisibility
+    from domain.knowledge.enums import DocumentVisibility
 
     service, factory = make_service()
     service._commands._today = lambda: date(2026, 6, 1)
@@ -332,7 +332,7 @@ async def test_date_correction_preserves_explicit_expiry():
 async def test_date_correction_outbox_failure_rolls_back_whole_chain():
     from unittest.mock import AsyncMock
 
-    from domain.value_objects.visibility import DocumentVisibility
+    from domain.knowledge.enums import DocumentVisibility
 
     service, factory = make_service()
     uow = factory._uow

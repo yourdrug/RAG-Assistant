@@ -8,8 +8,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-from domain.domain_profile.content_splitter import SplitUnit, split_by_content
-from domain.domain_profile.protocol import BoundaryLevel
+from domain.ingestion.content_splitter import SplitUnit, split_by_content
+from domain.ingestion.profiles.types import BoundaryLevel
 
 
 _POINT_RE = re.compile(r"^\s*(\d+)\.\s+", re.MULTILINE)

@@ -5,14 +5,14 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from config import settings
-from domain.value_objects.source_type import SourceType
-from domain.entities.document import Document
+from domain.knowledge.enums import SourceType
+from domain.knowledge.document import Document
 from domain.shared.exceptions import EntityNotFound, UniqueConstraintViolation
-from domain.services import get_visibility_conditions
-from domain.value_objects.document_status import DOCUMENT_SLOT_STATUSES, DocumentStatus
-from domain.value_objects.owner_match import OwnerMatch
+from domain.knowledge.access_control import get_visibility_conditions
+from domain.knowledge.enums import DOCUMENT_SLOT_STATUSES, DocumentStatus
+from domain.knowledge.access_control import OwnerMatch
 from domain.identity.roles import UserKind, UserRole
-from domain.value_objects.visibility import DocumentVisibility
+from domain.knowledge.enums import DocumentVisibility
 from sqlalchemy import and_, distinct, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession

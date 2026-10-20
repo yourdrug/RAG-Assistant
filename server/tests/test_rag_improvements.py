@@ -2,6 +2,7 @@
 
 import asyncio
 from dataclasses import replace
+from datetime import date
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -20,6 +21,8 @@ from domain.value_objects.llm_provider import Breadth
 from domain.value_objects.message_role import MessageRole
 from domain.identity.roles import UserKind, UserRole
 from infrastructure.ml import answer_cache
+from infrastructure.ml.rag import rag_steps
+from domain.rag.answer_policy import policy_for
 from infrastructure.ml.clients.tei_clients import TEIRerankerClient
 from infrastructure.ml.rag.prompt_budget import estimate_message_tokens
 from infrastructure.ml.rag.rag_formatting import format_docs_with_selection
@@ -294,7 +297,7 @@ async def test_chunk_mutations_invalidate_answers_after_the_database_transaction
 
 @pytest.mark.asyncio
 async def test_cache_invalidation_failure_keeps_outbox_pending_for_retry():
-    from domain.entities.vector_outbox_entry import OutboxOperation, OutboxStatus, VectorOutboxEntry
+    from domain.knowledge.index_sync import OutboxOperation, OutboxStatus, VectorOutboxEntry
     from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
 
     factory = FakeUnitOfWorkFactory()
@@ -315,3 +318,36 @@ async def test_cache_invalidation_failure_keeps_outbox_pending_for_retry():
         assert uow.vector_outbox._entries[entry.id].status == OutboxStatus.DONE
     assert vector_store.delete_by_ids.await_count == 2
     assert invalidator.invalidate_by_document_ids.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_split_answer_policies_preserve_cache_prompt_scope(cache_redis, monkeypatch):
+    rag = _make_rag()
+    rag = replace(rag, features=replace(rag.features, cache_enabled=True))
+    state = state_for([], rag=rag, query_for_search="Q")
+    state.ctx = replace(state.ctx, as_of_date=date(2026, 1, 1))
+    contexts = []
+    original_hash = rag_steps.compute_question_hash
+
+    def capture_hash(question, *, context):
+        contexts.append(context)
+        return original_hash(question, context=context)
+
+    monkeypatch.setattr(rag_steps, "compute_question_hash", capture_hash)
+    keys = ("general", "legal", "decree")
+    await step_check_cache(state, keys)
+    first_hash = state.q_hash
+    assert contexts[-1]["domain_prompts"] == {
+        key: [
+            policy_for(key).prompt_addendum(breadth, state.ctx.as_of_date) for breadth in ("narrow", "broad")
+        ]
+        for key in keys
+    }
+    await step_check_cache(state, tuple(reversed(keys)))
+    assert state.q_hash == first_hash
+    await step_check_cache(state, ("general", "legal"))
+    assert state.q_hash != first_hash
+    await step_check_cache(state, None)
+    assert contexts[-1]["domain_prompts"] == {}
+    await step_check_cache(state, ("unknown",))
+    assert contexts[-1]["domain_prompts"] == {"unknown": [None, None]}

@@ -6,12 +6,12 @@ import logging
 from typing import TYPE_CHECKING
 
 from application.indexing.dto import DomainClassification
-from domain.value_objects.doc_domain import DocDomain
+from domain.knowledge.enums import DocDomain
 
 
 if TYPE_CHECKING:
-    from domain.domain_profile.registry import DomainProfileRegistry
-    from domain.domain_profile.settings_port import DomainSettingsPort
+    from domain.ingestion.ports import DomainSettingsPort
+    from domain.ingestion.profiles.registry import DomainProfileRegistry
 
 log = logging.getLogger("default")
 MIN_CLASSIFICATION_CONFIDENCE = 0.5

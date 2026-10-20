@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 
 if TYPE_CHECKING:
-    from domain.repositories.document_repository import DocumentCrudRepository
+    from domain.knowledge.repositories.document import DocumentCrudRepository
 
 log = logging.getLogger(__name__)
 

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 
-from domain.repositories.ingestion_registry_repository import (
+from domain.ingestion.repositories import (
     IngestionRegistryEntry,
 )
 from infrastructure.database.models import IngestionRegistryModel

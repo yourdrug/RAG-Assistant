@@ -95,7 +95,7 @@ def create_ingestion_service(
     targets = S3IngestionTargets()
     return IngestionService(
         batch_workflow=BatchIngestionWorkflow(
-            _require(infra.ml.vector_store_repo, "vector_store_repo"),
+            infra.ml.vector_index_writer,
             ingestion_settings,
             loader,
             registry,

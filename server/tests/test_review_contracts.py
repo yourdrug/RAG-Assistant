@@ -9,8 +9,8 @@ import pytest
 from langchain.schema import Document as LCDocument
 
 from application.search import HybridRetriever
-from domain.entities.document import Document
-from domain.repositories.chunk_repository import ChunkSearchResult
+from domain.knowledge.document import Document
+from domain.knowledge.chunk import ChunkRecord
 from infrastructure.ml import answer_cache
 from infrastructure.ml.clients.managed_llm import ManagedLLM, ManagedInstructor
 from infrastructure.redis.redis_client import RedisClient
@@ -178,11 +178,11 @@ async def test_document_worker_defers_same_owner_and_admits_other_owner():
 @pytest.mark.parametrize("fail_commit", [False, True])
 async def test_chunk_vectors_are_deferred_to_outbox(monkeypatch, operation, index_method, fail_commit):
     from application.chunks import ChunkMutationService
-    from domain.value_objects.document_status import DocumentStatus
+    from domain.knowledge.enums import DocumentStatus
 
     events = []
     document = Document(id=1, filename="test.pdf", status=DocumentStatus.DONE)
-    chunk = ChunkSearchResult(
+    chunk = ChunkRecord(
         chunk_id=2,
         document_id=1,
         filename="test.pdf",

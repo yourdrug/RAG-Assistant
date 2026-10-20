@@ -4,7 +4,7 @@ import re
 
 from langchain.schema import Document
 
-from domain.domain_profile.content_splitter import MIN_STRUCTURAL_CHUNK_CHARS
+from domain.ingestion.content_splitter import MIN_STRUCTURAL_CHUNK_CHARS
 from infrastructure.ml.ingestion.text_chunks import context_prefix, fallback_split, text_document_chunks
 
 

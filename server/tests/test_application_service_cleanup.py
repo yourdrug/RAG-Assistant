@@ -10,8 +10,8 @@ import pytest
 from application.admin.metrics import MetricsService
 from application.admin.ports.metrics import MetricsRegistryPort
 from application.documents.diagnostics import PDFDiagnosticService
-from domain.value_objects.page_content_type import PageContentType
-from domain.value_objects.pdf_dto import DryRunPageResult
+from domain.ingestion.preview import DryRunPageResult
+from domain.knowledge.enums import PageContentType
 
 
 @pytest.mark.parametrize(

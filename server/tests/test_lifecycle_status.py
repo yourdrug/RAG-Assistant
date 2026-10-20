@@ -4,9 +4,9 @@ from enum import StrEnum
 
 import pytest
 
-from domain.entities.vector_outbox_entry import OutboxStatus
+from domain.knowledge.enums import DocumentStatus
+from domain.knowledge.index_sync import OutboxStatus
 from domain.shared.enums import LifecycleStatusMixin
-from domain.value_objects.document_status import DocumentStatus
 from domain.value_objects.job_status import BackgroundJobStatus
 from domain.value_objects.sweep_status import BenchmarkSweepStatus
 

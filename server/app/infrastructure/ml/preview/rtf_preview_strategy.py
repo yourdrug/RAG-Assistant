@@ -6,17 +6,17 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from domain.services.text_quality import classify_content
-from domain.value_objects.page_content_type import PageContentType
-from domain.value_objects.preview_unit_kind import PreviewUnitKind
+from domain.ingestion.text_quality import classify_content
+from domain.knowledge.enums import PageContentType
+from domain.ingestion.preview import PreviewUnitKind
 
-from domain.value_objects.pdf_dto import DryRunPageResult
+from domain.ingestion.preview import DryRunPageResult
 from infrastructure.ml.ingestion import parse_rtf
 from infrastructure.ml.rtf_decree_parser import parse_decree_rtf
 
 if TYPE_CHECKING:
-    from domain.domain_profile.settings_port import DomainSettingsPort
-    from domain.domain_profile.registry import DomainProfileRegistry
+    from domain.ingestion.ports import DomainSettingsPort
+    from domain.ingestion.profiles.registry import DomainProfileRegistry
 
 logger = logging.getLogger("default")
 

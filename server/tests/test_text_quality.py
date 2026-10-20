@@ -1,4 +1,4 @@
-"""Tests for domain/services/text_quality.py — classify_content and is_garbled.
+"""Tests for domain/ingestion/text_quality.py — classify_content and is_garbled.
 
 These are the shared classification functions extracted from pdf_diag.py
 and used by PDF, RTF, and DOCX preview strategies.
@@ -9,8 +9,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-from domain.services.text_quality import classify_content, is_garbled  # noqa: E402
-from domain.value_objects.page_content_type import PageContentType  # noqa: E402
+from domain.ingestion.text_quality import classify_content, is_garbled  # noqa: E402
+from domain.knowledge.enums import PageContentType  # noqa: E402
 
 
 # ---------------------------------------------------------------------------

@@ -16,7 +16,7 @@ from langchain.schema import Document
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-from domain.value_objects.visibility import DocumentVisibility  # noqa: E402
+from domain.knowledge.enums import DocumentVisibility  # noqa: E402
 from application.ingestion import (  # noqa: E402
     IngestionService,
 )
@@ -245,7 +245,7 @@ class TestParseFile:
         doc.close()
 
         # Configure mock parser to return a list of RawDocuments
-        from domain.entities.raw_document import RawDocument
+        from domain.ingestion.raw_document import RawDocument
 
         svc = _make_service()
         svc._batch._loader._parser.parse.return_value = [
@@ -264,7 +264,7 @@ class TestParseFile:
         assert result is None
 
     def test_txt_parsing(self, tmp_path):
-        from domain.entities.raw_document import RawDocument
+        from domain.ingestion.raw_document import RawDocument
 
         txt_path = tmp_path / "test.txt"
         txt_path.write_text("This is a test document with enough content to pass validation.")
@@ -282,7 +282,7 @@ class TestParseFile:
         assert len(result) == 1
 
     def test_base_metadata_added(self, tmp_path):
-        from domain.entities.raw_document import RawDocument
+        from domain.ingestion.raw_document import RawDocument
 
         pdf_path = tmp_path / "meta.pdf"
 

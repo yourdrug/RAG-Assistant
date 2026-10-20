@@ -7,7 +7,7 @@ import logging
 
 from config import Settings, settings
 from domain.entities.config_parameter import ConfigParameter
-from domain.domain_profile.registry import DomainProfileRegistry
+from domain.ingestion.profiles.registry import DomainProfileRegistry
 from infrastructure.domain_profile import register_all_profiles
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from domain.value_objects.dynamic_config import DYNAMIC_PARAMS

@@ -11,19 +11,18 @@ import logging
 from typing import TYPE_CHECKING, Unpack
 
 from application.indexing.classification import classify_document_text
-from domain.entities.vector_outbox_entry import OutboxOperation, VectorOutboxEntry
+from domain.knowledge.chunk import extract_chunk_context
+from domain.knowledge.enums import DocumentStatus, DocumentVisibility
+from domain.knowledge.index_sync import OutboxOperation, VectorOutboxEntry
 from domain.shared.hashing import content_hash
-from domain.value_objects.chunk_context import extract_chunk_context
-from domain.value_objects.document_status import DocumentStatus
-from domain.value_objects.visibility import DocumentVisibility
 
 
 if TYPE_CHECKING:
     from application.indexing.dto import ChunkProcessingOptions, ChunkWriteOptions, VersionMetadataOptions
     from application.uow import UnitOfWork, UnitOfWorkFactory
-    from domain.domain_profile.registry import DomainProfileRegistry
-    from domain.domain_profile.settings_port import DomainSettingsPort
-    from domain.entities.raw_document import RawDocument
+    from domain.ingestion.ports import DomainSettingsPort
+    from domain.ingestion.profiles.registry import DomainProfileRegistry
+    from domain.ingestion.raw_document import RawDocument
 
 log = logging.getLogger("default")
 

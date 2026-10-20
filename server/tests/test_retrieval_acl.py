@@ -152,7 +152,7 @@ class TestResolveHashesACLFilter:
 @pytest.mark.parametrize("decomposition", [False, True])
 @pytest.mark.parametrize("sub_queries", [["query"], ["first query", "second query"]])
 async def test_decomposition_and_legal_fallback_preserve_acl(decomposition, sub_queries):
-    from domain.services.access_control import get_visibility_conditions
+    from domain.knowledge.access_control import get_visibility_conditions
     from domain.value_objects.llm_provider import Breadth
     from infrastructure.ml.rag.helpers import retrieve_with_decomposition
 
@@ -198,7 +198,7 @@ async def test_decomposition_and_legal_fallback_preserve_acl(decomposition, sub_
 
 @pytest.mark.asyncio
 async def test_legal_rerank_fallback_preserves_acl_and_temporal_filter():
-    from domain.services.access_control import get_visibility_conditions
+    from domain.knowledge.access_control import get_visibility_conditions
     from domain.value_objects.llm_provider import Breadth
     from domain.value_objects.chat_context import ChatContext
     from domain.identity.roles import UserKind, UserRole

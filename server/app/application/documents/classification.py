@@ -16,8 +16,8 @@ from application.indexing import DomainClassification, classify_document_text
 
 if TYPE_CHECKING:
     from application.documents.ports.processing import MetricsCollectorPort
-    from domain.domain_profile.registry import DomainProfileRegistry
-    from domain.domain_profile.settings_port import DomainSettingsPort
+    from domain.ingestion.ports import DomainSettingsPort
+    from domain.ingestion.profiles.registry import DomainProfileRegistry
 
 log = logging.getLogger("default")
 

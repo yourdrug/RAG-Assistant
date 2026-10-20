@@ -14,14 +14,14 @@ from application.documents.dto import PersistDocumentCommand, PreparedDocumentVe
 from application.documents.persistence import persist_document_result
 from application.ingestion import DocumentSyncService
 from domain.shared.dates import parse_date_guess
-from domain.domain_profile.profiles.decree import DecreeDomainProfile
-from domain.domain_profile.profiles.legal import LegalDomainProfile
-from domain.domain_profile.protocol import ReferenceMatch
-from domain.entities.document import Document
-from domain.entities.raw_document import RawDocument
-from domain.entities.vector_outbox_entry import OutboxOperation
-from domain.value_objects.visibility import DocumentVisibility
-from domain.repositories.chunk_repository import ChunkSearchResult
+from domain.ingestion.profiles.decree import DecreeDomainProfile
+from domain.ingestion.profiles.legal import LegalDomainProfile
+from domain.ingestion.profiles.types import ReferenceMatch
+from domain.knowledge.document import Document
+from domain.ingestion.raw_document import RawDocument
+from domain.knowledge.index_sync import OutboxOperation
+from domain.knowledge.enums import DocumentVisibility
+from domain.knowledge.chunk import ChunkRecord
 from domain.shared.exceptions import ValidationError
 from domain.value_objects.stream_events import MetaEvent
 from fakes import FakeUnitOfWorkFactory
@@ -333,7 +333,7 @@ async def test_sql_search_enforces_dates_without_weakening_acl(mode):
 
 @pytest.mark.asyncio
 async def test_exact_candidates_include_temporal_metadata_and_request_date():
-    result = ChunkSearchResult(
+    result = ChunkRecord(
         chunk_id=1,
         document_id=2,
         filename="rules.rtf",

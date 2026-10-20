@@ -4,8 +4,8 @@ import docx
 import pytest
 from langchain.schema import Document
 
-from domain.value_objects.chunk_context import extract_chunk_context
-from domain.value_objects.page_content_type import PageContentType
+from domain.knowledge.chunk import extract_chunk_context
+from domain.knowledge.enums import PageContentType
 from infrastructure.ml.ingestion.amendment_context import attach_table_replacement_scope
 from infrastructure.ml.ingestion.table_chunks import table_document_chunks
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser

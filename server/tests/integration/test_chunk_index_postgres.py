@@ -16,9 +16,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from application.chunks import ChunkMutationService
 from domain.identity.roles import UserRole
+from domain.knowledge.enums import DocumentStatus, DocumentVisibility
 from domain.shared.exceptions import BusinessRuleViolation
-from domain.value_objects.document_status import DocumentStatus
-from domain.value_objects.visibility import DocumentVisibility
 from infrastructure.database.migrations.versions import t0j1k2l3m4n5_unique_chunk_index as migration
 from infrastructure.database.models import ChunkModel, DocumentModel, VectorStoreOutboxModel
 from infrastructure.repositories.chunk.sqlalchemy_chunk_repository import SQLAlchemyChunkRepository

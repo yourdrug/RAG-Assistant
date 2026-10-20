@@ -18,6 +18,7 @@ from datetime import date
 from dataclasses import asdict
 from typing import TYPE_CHECKING
 from domain.exceptions.domain_errors import ContextBudgetExceededError
+from domain.rag.answer_policy import policy_for
 
 
 from domain.services.rag_policy import (
@@ -155,7 +156,7 @@ async def step_scan_input(
 
 async def step_check_cache(
     state: RagPipelineState,
-    domain_registry=None,
+    domain_keys: tuple[str, ...] | None = None,
     document_access=None,
 ) -> tuple[RagPipelineState, AsyncIterator[StreamEvent] | None]:
     """Step 2: Semantic answer cache lookup. Returns terminal events on hit."""
@@ -196,13 +197,13 @@ async def step_check_cache(
             "retrieval_score_threshold": settings.rag_retrieval_score_threshold,
             "evidence_policy": EVIDENCE_POLICY_VERSION,
             "domain_prompts": {
-                profile.key: [
-                    profile.prompt_addendum(Breadth.NARROW, state.ctx.as_of_date),
-                    profile.prompt_addendum(Breadth.BROAD, state.ctx.as_of_date),
+                domain_key: [
+                    policy_for(domain_key).prompt_addendum(Breadth.NARROW, state.ctx.as_of_date),
+                    policy_for(domain_key).prompt_addendum(Breadth.BROAD, state.ctx.as_of_date),
                 ]
-                for profile in domain_registry.all()
+                for domain_key in domain_keys
             }
-            if domain_registry is not None
+            if domain_keys is not None
             else {},
             "system_prompts": [
                 build_system_prompt(Breadth.NARROW, question=state.question),
@@ -443,7 +444,7 @@ async def step_self_rag(
 
 def step_build_context(
     state: RagPipelineState,
-    domain_registry,
+    domain_keys: tuple[str, ...] | None,
     token_counter=None,
 ) -> tuple[list, list]:
     """Build prompt and format messages for LLM generation.
@@ -460,7 +461,7 @@ def step_build_context(
         state.query_domain,
         ctx,
         effective_breadth,
-        domain_registry,
+        domain_keys,
     )
     prompt = build_prompt(
         effective_breadth,

@@ -21,7 +21,7 @@ from infrastructure.corpus.snapshot import pin_corpus_stream
 from domain.value_objects.rag_result import RagResult
 from domain.utils import compute_reranker_score
 from domain.value_objects.chat_context import ChatContext
-from domain.value_objects.doc_domain import DocDomain
+from domain.knowledge.enums import DocDomain
 from domain.value_objects.llm_provider import Breadth
 from domain.value_objects.stream_events import (
     PipelineMetaEvent,
@@ -52,7 +52,6 @@ from shared import request_id_ctx
 
 if TYPE_CHECKING:
     from application.chat import PIIRedactorPort
-    from domain.domain_profile.registry import DomainProfileRegistry
     from infrastructure.adapters.chunk_search_adapter import ChunkSearchAdapter
 
 log = logging.getLogger("default")
@@ -63,14 +62,14 @@ class RagService:
         self,
         ml_clients: MLClientPort,
         chunk_search: ChunkSearchAdapter | None = None,
-        domain_registry: DomainProfileRegistry | None = None,
+        domain_keys: tuple[str, ...] | None = None,
         pii_redactor: PIIRedactorPort | None = None,
         *,
         document_access: DocumentAccessPort,
     ) -> None:
         self._ml = ml_clients
         self._chunk_search = chunk_search
-        self._domain_registry = domain_registry
+        self._domain_keys = domain_keys
         self._pii_redactor = pii_redactor
         self._document_access = document_access
 
@@ -113,7 +112,7 @@ class RagService:
         user = ctx.to_user_context()
         scope = ctx.curator_scope
 
-        from domain.services import get_visibility_conditions
+        from domain.knowledge.access_control import get_visibility_conditions
         from domain.identity.roles import UserKind, UserRole
 
         visibility_conditions = get_visibility_conditions(
@@ -190,7 +189,7 @@ class RagService:
             return
 
         # ── Step 2: Semantic answer cache ───────────────────────────
-        state, events = await step_check_cache(state, self._domain_registry, self._document_access)
+        state, events = await step_check_cache(state, self._domain_keys, self._document_access)
         for e in await self._drain_if_terminal(state, events):
             yield e
         if state.terminal:
@@ -217,7 +216,7 @@ class RagService:
 
         # ── Step 6: Prompt building + LLM generation ────────────────
         yield StatusEvent(stage="generating")
-        messages, grouped_docs = step_build_context(state, self._domain_registry)
+        messages, grouped_docs = step_build_context(state, self._domain_keys)
         async for event in step_generate(state, self._ml, messages, grouped_docs):
             yield event
 

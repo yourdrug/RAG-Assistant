@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from domain.repositories.chunk_repository import ChunkSearchResult
-from domain.utils import encode_cursor
+from domain.knowledge.chunk import ChunkRecord
+from domain.knowledge.chunk import encode_cursor
 from domain.shared.pagination import CursorPage
 from sqlalchemy import and_, or_
 
@@ -36,9 +36,7 @@ def _build_cursor_backward_conditions(cursor: tuple[int, int]) -> list:
     ]
 
 
-def _paginate_forward(
-    rows: list, limit: int, cursor: tuple[int, int] | None
-) -> CursorPage[ChunkSearchResult]:
+def _paginate_forward(rows: list, limit: int, cursor: tuple[int, int] | None) -> CursorPage[ChunkRecord]:
     """Build CursorPage from forward-fetched rows."""
     has_extra = len(rows) > limit
     page_rows = rows[:limit]
@@ -49,11 +47,11 @@ def _paginate_forward(
     # Handle both ORM objects and raw tuples
     items = []
     for r in page_rows:
-        if isinstance(r, ChunkSearchResult):
+        if isinstance(r, ChunkRecord):
             items.append(r)
         else:
             items.append(
-                ChunkSearchResult(
+                ChunkRecord(
                     chunk_id=r.id,
                     document_id=r.document_id,
                     filename=r.filename,
@@ -72,7 +70,7 @@ def _paginate_forward(
     return CursorPage(items=items, next_cursor=next_cur, prev_cursor=prev_cur)
 
 
-def _paginate_backward(rows: list, limit: int) -> CursorPage[ChunkSearchResult]:
+def _paginate_backward(rows: list, limit: int) -> CursorPage[ChunkRecord]:
     """Build CursorPage from backward-fetched rows."""
     has_extra = len(rows) > limit
     page_rows = rows[:limit]
@@ -81,11 +79,11 @@ def _paginate_backward(rows: list, limit: int) -> CursorPage[ChunkSearchResult]:
     next_cur = encode_cursor(page_rows[0].chunk_index, page_rows[0].id) if page_rows else None
     items = []
     for r in page_rows:
-        if isinstance(r, ChunkSearchResult):
+        if isinstance(r, ChunkRecord):
             items.append(r)
         else:
             items.append(
-                ChunkSearchResult(
+                ChunkRecord(
                     chunk_id=r.id,
                     document_id=r.document_id,
                     filename=r.filename,

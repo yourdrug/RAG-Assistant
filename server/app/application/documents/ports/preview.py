@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from domain.value_objects.pdf_dto import DryRunPageResult
+    from domain.ingestion.preview import DryRunPageResult
 
 
 @runtime_checkable

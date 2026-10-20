@@ -13,8 +13,8 @@ from application.indexing import classify_domain, tag_chunks, tag_domain
 from application.ingestion.ports.parser import FileMeta, SplitContext
 from application.ingestion.profiles import get_domain_profile
 from application.ingestion.registry import s3_file_hash
-from domain.entities.raw_document import RawDocument
-from domain.value_objects.doc_domain import DocDomain, DomainDetectionMode
+from domain.ingestion.raw_document import RawDocument
+from domain.knowledge.enums import DocDomain, DomainDetectionMode
 
 
 if TYPE_CHECKING:
@@ -25,9 +25,9 @@ if TYPE_CHECKING:
     from application.ingestion.ports.settings import IngestionSettingsPort
     from application.ingestion.registry import IngestionRegistry
     from application.ports.file_storage import FileItem, FileStorage
-    from domain.domain_profile.protocol import DomainProfile
-    from domain.domain_profile.registry import DomainProfileRegistry
-    from domain.domain_profile.settings_port import DomainSettingsPort
+    from domain.ingestion.ports import DomainSettingsPort
+    from domain.ingestion.profiles.protocol import DocumentProfile
+    from domain.ingestion.profiles.registry import DomainProfileRegistry
 
 log = logging.getLogger("default")
 
@@ -126,7 +126,7 @@ class S3DocumentLoader:
 
         return source_domain
 
-    def get_profile(self, domain: str) -> DomainProfile | None:
+    def get_profile(self, domain: str) -> DocumentProfile | None:
         return get_domain_profile(self._domain_registry, domain)
 
     async def load_documents(

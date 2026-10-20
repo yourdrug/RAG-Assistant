@@ -19,10 +19,10 @@ if TYPE_CHECKING:
     from application.act_versioning.dto import ActSummary, VersioningPlan, VersionUpdateOptions
     from application.ports.cache_invalidator import CacheInvalidatorPort
     from application.uow import UnitOfWork, UnitOfWorkFactory
-    from domain.domain_profile.protocol import DomainProfile, ReferenceMatch
-    from domain.domain_profile.settings_port import DomainSettingsPort
-    from domain.entities.act_version import ActVersion
-    from domain.entities.regulatory_act import RegulatoryAct
+    from domain.ingestion.ports import DomainSettingsPort
+    from domain.ingestion.profiles.protocol import DocumentProfile
+    from domain.ingestion.profiles.types import ReferenceMatch
+    from domain.knowledge.acts.models import ActVersion, RegulatoryAct
 
 
 log = logging.getLogger("default")
@@ -51,7 +51,7 @@ class ActVersioningService:
 
     async def handle_versioned_upload(
         self,
-        profile: DomainProfile,
+        profile: DocumentProfile,
         document_id: int,
         extracted_refs: list[ReferenceMatch],
         effective_date: date | None = None,
@@ -68,7 +68,7 @@ class ActVersioningService:
     async def create_version_in_uow(
         self,
         uow: UnitOfWork,
-        profile: DomainProfile,
+        profile: DocumentProfile,
         document_id: int,
         extracted_refs: list[ReferenceMatch],
         *,
@@ -91,14 +91,14 @@ class ActVersioningService:
         return await self._answers.invalidate_document_answers(document_id=document_id)
 
     async def prepare_document_versioning(
-        self, profile: DomainProfile, full_text: str
+        self, profile: DocumentProfile, full_text: str
     ) -> VersioningPlan | None:
         return await self._planner.prepare_document_versioning(profile=profile, full_text=full_text)
 
     async def apply_versioning_plan(
         self,
         uow: UnitOfWork,
-        profile: DomainProfile,
+        profile: DocumentProfile,
         document_id: int,
         plan: VersioningPlan,
     ) -> VersioningResult:
@@ -150,7 +150,7 @@ class ActVersioningService:
 
     async def process_document_versioning(
         self,
-        profile: DomainProfile,
+        profile: DocumentProfile,
         document_id: int,
         full_text: str,
     ) -> VersioningResult:

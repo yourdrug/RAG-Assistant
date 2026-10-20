@@ -13,9 +13,9 @@ import uuid
 
 from application.ports.cache_invalidator import CacheInvalidatorPort
 from config import settings
-from domain.entities.chunk import Chunk
-from domain.entities.vector_outbox_entry import OutboxOperation, VectorOutboxEntry
-from domain.repositories.vector_store_repository import VectorStoreRepository
+from domain.knowledge.chunk import Chunk
+from domain.knowledge.index_sync import OutboxOperation, VectorOutboxEntry
+from domain.knowledge.index_sync import VectorIndexWriter
 
 
 log = logging.getLogger("default")
@@ -36,7 +36,7 @@ class OutboxDispatcher:
     def __init__(
         self,
         uow_factory,
-        vector_store: VectorStoreRepository,
+        vector_store: VectorIndexWriter,
         cache_invalidator: CacheInvalidatorPort | None = None,
     ) -> None:
         self._uow_factory = uow_factory

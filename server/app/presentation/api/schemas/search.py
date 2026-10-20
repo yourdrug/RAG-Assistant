@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from domain.value_objects.search_mode import SearchMode
+from domain.knowledge.enums import SearchMode
 
 
 class ExactSearchRequest(BaseModel):

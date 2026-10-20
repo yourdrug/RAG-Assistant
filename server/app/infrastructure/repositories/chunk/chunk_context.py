@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from domain.repositories.chunk_repository import ChunkSearchResult
-from domain.value_objects.chunk_context import TABLE_CONTEXT_MAX_CHUNKS
+from domain.knowledge.chunk import ChunkRecord
+from domain.knowledge.chunk import TABLE_CONTEXT_MAX_CHUNKS
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,7 +24,7 @@ class SQLAlchemyChunkContextRepository:
         exclude_hashes: set[str] | None = None,
         *,
         user,
-    ) -> list[ChunkSearchResult]:
+    ) -> list[ChunkRecord]:
         low = center_index - window
         high = center_index + window
         conditions = [
@@ -59,7 +59,7 @@ class SQLAlchemyChunkContextRepository:
         limit: int = TABLE_CONTEXT_MAX_CHUNKS,
         row_start: int | None = None,
         row_end: int | None = None,
-    ) -> list[ChunkSearchResult]:
+    ) -> list[ChunkRecord]:
         """Fetch bounded batches of exactly one table, optionally overlapping rows."""
         if not table_id:
             return []

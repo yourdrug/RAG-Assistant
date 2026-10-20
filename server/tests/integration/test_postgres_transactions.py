@@ -14,8 +14,8 @@ from application.documents.delete import DocumentDeleteCommand
 from application.documents.rename import DocumentRenameCommand
 from application.documents.upload import DocumentUploadCommand
 from application.documents import DocumentCommandService
-from domain.entities.document import Document
-from domain.entities.vector_outbox_entry import VectorOutboxEntry
+from domain.knowledge.document import Document
+from domain.knowledge.index_sync import VectorOutboxEntry
 from domain.shared.exceptions import BusinessRuleViolation
 from domain.identity.user_context import UserContext
 from infrastructure.database.models import DocumentModel, UserModel

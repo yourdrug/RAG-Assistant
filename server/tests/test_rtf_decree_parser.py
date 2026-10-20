@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
 from infrastructure.ml.rtf_decree_parser import parse_decree_rtf
-from domain.domain_profile.profiles.decree import DecreeDomainProfile
+from domain.ingestion.profiles.decree import DecreeDomainProfile
 
 
 class FakeSettings:

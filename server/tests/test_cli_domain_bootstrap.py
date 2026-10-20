@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from composition.infrastructure import InfrastructureContainer
-from domain.domain_profile.registry import DomainProfileRegistry
+from domain.ingestion.profiles.registry import DomainProfileRegistry
 from domain.events.config_events import ConfigParameterChanged
 from domain.value_objects.config_value_type import ConfigValueType
 from infrastructure.database.database import database

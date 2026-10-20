@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from domain.value_objects.visibility import DocumentVisibility
+from domain.knowledge.enums import DocumentVisibility
 from infrastructure.worker.queue import (
     enqueue_benchmark as _enqueue_benchmark,
     enqueue_document_deletion,

@@ -26,7 +26,7 @@ from composition.service_providers import (
     create_ingestion_service,
 )
 from application.documents.dto import ProcessDocumentCommand
-from domain.value_objects.visibility import DocumentVisibility
+from domain.knowledge.enums import DocumentVisibility
 from application.benchmark import load_benchmark_questions
 from application.benchmark import compute_summary_from_results
 from domain.entities.benchmark_run import BenchmarkRun

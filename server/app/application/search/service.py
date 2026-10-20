@@ -5,13 +5,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from application.identity import UserContextFactory
-from domain.value_objects.search_mode import SearchMode
+from domain.knowledge.enums import SearchMode
 
 
 if TYPE_CHECKING:
     from application.uow import UnitOfWorkFactory
     from domain.identity.user_context import UserContext
-    from domain.repositories.chunk_repository import ChunkSearchResult
+    from domain.knowledge.chunk import ChunkRecord
 
 
 class SearchService:
@@ -30,7 +30,7 @@ class SearchService:
         mode: str = SearchMode.EXACT.value,
         document_id: int | None = None,
         offset: int = 0,
-    ) -> tuple[list[ChunkSearchResult], int]:
+    ) -> tuple[list[ChunkRecord], int]:
         async with self._uow_factory.create() as uow:
             full_ctx = await self._user_ctx_factory.build(uow, user.user_id, user.user_kind, user.user_role)
             return await uow.chunks.search_substring_page(

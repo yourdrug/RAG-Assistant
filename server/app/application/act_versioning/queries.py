@@ -9,7 +9,7 @@ from application.act_versioning.dto import ActSummary
 
 if TYPE_CHECKING:
     from application.uow import UnitOfWorkFactory
-    from domain.entities.act_version import ActVersion
+    from domain.knowledge.acts.models import ActVersion
 
 
 class ActVersionQueries:

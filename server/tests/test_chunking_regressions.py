@@ -10,12 +10,12 @@ from langchain.schema import Document
 from application.ingestion import FileMeta, SplitContext
 from application.ingestion import S3DocumentLoader
 from application.documents.content import DocumentContentProcessor
-from domain.domain_profile.profiles.decree import DecreeDomainProfile
-from domain.domain_profile.profiles.legal import LegalDomainProfile
-from domain.domain_profile.registry import DomainProfileRegistry
-from domain.entities.raw_document import RawDocument
-from domain.value_objects.doc_domain import DocDomain
-from domain.value_objects.page_content_type import PageContentType
+from domain.ingestion.profiles.decree import DecreeDomainProfile
+from domain.ingestion.profiles.legal import LegalDomainProfile
+from domain.ingestion.profiles.registry import DomainProfileRegistry
+from domain.ingestion.raw_document import RawDocument
+from domain.knowledge.enums import DocDomain
+from domain.knowledge.enums import PageContentType
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from infrastructure.ingestion.document_parser_adapter import (
     IngestionDocumentParser,

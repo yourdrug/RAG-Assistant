@@ -9,7 +9,7 @@ from sqlalchemy import Connection, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, async_sessionmaker
 
-from domain.entities.document import Document
+from domain.knowledge.document import Document
 from infrastructure.database.migrations.versions import s9i0j1k2l3m4_ingestion_source_identity as migration
 from infrastructure.repositories.document.sqlalchemy_document_repository import SQLAlchemyDocumentRepository
 

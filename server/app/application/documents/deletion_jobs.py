@@ -4,7 +4,7 @@ from application.identity import UserContextFactory
 from application.ports.job_enqueuer import JobEnqueuerPort
 from application.uow import UnitOfWork, UnitOfWorkFactory
 from domain.entities.background_job import BackgroundJob
-from domain.services import check_ownership
+from domain.knowledge.access_control import check_ownership
 from domain.shared.exceptions import EntityNotFound
 from domain.value_objects.job_type import JobType
 

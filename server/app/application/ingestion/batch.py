@@ -7,7 +7,7 @@ import time
 from typing import TYPE_CHECKING
 
 from application.indexing import tag_chunks, tag_domain
-from domain.value_objects.doc_domain import DocDomain
+from domain.knowledge.enums import DocDomain
 
 
 if TYPE_CHECKING:
@@ -16,8 +16,8 @@ if TYPE_CHECKING:
     from application.ingestion.registry import IngestionRegistry
     from application.ingestion.scope import IngestionScope
     from application.ingestion.sync import DocumentSyncService
-    from domain.entities.raw_document import RawDocument
-    from domain.repositories.vector_store_repository import VectorStoreRepository
+    from domain.ingestion.raw_document import RawDocument
+    from domain.knowledge.index_sync import VectorIndexWriter
 
 log = logging.getLogger("default")
 
@@ -27,7 +27,7 @@ class BatchIngestionWorkflow:
 
     def __init__(
         self,
-        vector_store: VectorStoreRepository,
+        vector_store: VectorIndexWriter,
         settings: IngestionSettingsPort,
         loader: S3DocumentLoader,
         registry: IngestionRegistry,

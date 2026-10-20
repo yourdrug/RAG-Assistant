@@ -94,11 +94,21 @@ def test_application_dependency_boundary(importer: str, imported: str, allowed: 
         ("shared", "domain.shared.exceptions", True),
         ("identity", "domain.shared.exceptions", True),
         ("identity", "domain.identity.roles", True),
+        ("knowledge", "domain.identity.roles", True),
+        ("knowledge", "domain.shared.exceptions", True),
+        ("knowledge", "domain.knowledge.chunk", True),
+        ("rag", "domain.knowledge.enums", True),
+        ("rag", "domain.ingestion.profiles.protocol", False),
+        ("ingestion", "domain.knowledge.chunk", True),
+        ("ingestion", "domain.shared.dates", True),
+        ("ingestion", "domain.ingestion.profiles.types", True),
         *[
             (context, module, False)
             for context, name in (
                 ("shared", "Domain shared kernel is independent of contexts"),
                 ("identity", "Domain identity depends only on shared"),
+                ("knowledge", "Domain knowledge depends only on identity and shared"),
+                ("ingestion", "Domain ingestion depends only on knowledge and shared"),
             )
             for options in CONFIG["contracts"]
             if options["name"] == name
@@ -122,11 +132,14 @@ def test_domain_context_dependency_boundary(context: str, imported: str, allowed
             graph.add_module(".".join(parts[:length]))
 
     graph.add_import(importer=importer, imported=imported, line_number=1, line_contents="")
-    contract = ForbiddenContract(options["name"], CONFIG, options)
+    contract_options = {
+        key: str(value) if isinstance(value, bool) else value for key, value in options.items()
+    }
+    contract = ForbiddenContract(options["name"], CONFIG, contract_options)
     assert contract.check(graph, verbose=False).kept is allowed
 
 
-@pytest.mark.parametrize("context", ["shared", "identity"])
+@pytest.mark.parametrize("context", ["shared", "identity", "knowledge", "ingestion"])
 def test_context_contract_covers_every_forbidden_domain_package(context: str) -> None:
     options = next(
         options for options in CONFIG["contracts"] if options.get("source_modules") == [f"domain.{context}"]
@@ -137,4 +150,10 @@ def test_context_contract_covers_every_forbidden_domain_package(context: str) ->
         if path.name not in {"__init__.py", "shared", context}
         and (path.suffix == ".py" or (path.is_dir() and (path / "__init__.py").exists()))
     }
+
+    if context == "knowledge":
+        siblings.discard("domain.identity")
+    elif context == "ingestion":
+        siblings.discard("domain.knowledge")
+
     assert set(options["forbidden_modules"]) == siblings

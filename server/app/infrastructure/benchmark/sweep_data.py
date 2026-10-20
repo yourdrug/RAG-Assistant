@@ -4,7 +4,7 @@ from __future__ import annotations
 
 
 from application.uow.factory import UnitOfWorkFactory
-from domain.services.access_control import get_visibility_conditions
+from domain.knowledge.access_control import get_visibility_conditions
 from domain.identity.roles import UserKind, UserRole
 
 from application.benchmark import load_benchmark_questions

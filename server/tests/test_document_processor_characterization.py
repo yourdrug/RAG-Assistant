@@ -30,12 +30,12 @@ import pytest
 from application.act_versioning import ActVersioningService, VersioningPlan, VersioningResult
 from application.documents.dto import DocumentProcessingDependencies, ProcessDocumentCommand
 from application.documents import DocumentProcessor
-from domain.domain_profile.registry import ClassificationResult
-from domain.entities.document import Document
-from domain.entities.raw_document import RawDocument
-from domain.entities.vector_outbox_entry import OutboxOperation
-from domain.value_objects.document_status import DocumentStatus
-from domain.value_objects.pdf_quality_report import PDFQualityReport
+from domain.ingestion.profiles.registry import ClassificationResult
+from domain.knowledge.document import Document
+from domain.ingestion.raw_document import RawDocument
+from domain.knowledge.index_sync import OutboxOperation
+from domain.knowledge.enums import DocumentStatus
+from domain.ingestion.preview import PDFQualityReport
 from fakes import FakeDocumentRepository, FakeUnitOfWorkFactory
 from infrastructure.ingestion.document_parser_adapter import IngestionDocumentSplitter
 

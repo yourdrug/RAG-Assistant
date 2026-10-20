@@ -18,7 +18,7 @@ from application.ingestion import (
     S3IngestionTargets,
 )
 from composition.application import ApplicationContainer
-from domain.value_objects.visibility import DocumentVisibility
+from domain.knowledge.enums import DocumentVisibility
 from infrastructure.worker import tasks as worker_tasks
 from presentation.api.dependencies import create_ingest_service, create_ingestion_port
 from presentation.cli.commands import ingest

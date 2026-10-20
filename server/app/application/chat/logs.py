@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Unpack
 
 from domain.entities.chat_log import ChatLog
-from domain.value_objects.doc_domain import DocDomain
+from domain.knowledge.enums import DocDomain
 from domain.value_objects.llm_provider import Breadth
 
 

@@ -15,7 +15,7 @@ from typer.testing import CliRunner
 
 from domain.entities.config_parameter import ConfigParameter
 from domain.value_objects.config_value_type import ConfigValueType
-from domain.value_objects.doc_domain import DocDomain
+from domain.knowledge.enums import DocDomain
 from domain.value_objects.dynamic_config import LEGACY_POOL_SETTING_KEYS, TARGET_DYNAMIC_SETTING_KEYS
 from fakes import FakeConfigParameterRepository
 from infrastructure import config_migration

@@ -7,7 +7,7 @@ import re
 from langchain.schema import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
-from domain.domain_profile.content_splitter import MIN_STRUCTURAL_CHUNK_CHARS, TINY_FRAGMENT_MAX_CHARS
+from domain.ingestion.content_splitter import MIN_STRUCTURAL_CHUNK_CHARS, TINY_FRAGMENT_MAX_CHARS
 
 MAX_CONTEXT_CHARS = 300
 STEP_HEADING_RE = re.compile(r"^[ \t]*(?:Шаг\s+)?(\d+)[.)][ \t]+([^\n]+)", re.MULTILINE)

@@ -1,4 +1,4 @@
-"""Chunk DTO mapping -- single source of truth for ChunkSearchResult -> ChunkItemDTO."""
+"""Chunk DTO mapping -- single source of truth for ChunkRecord -> ChunkItemDTO."""
 
 from __future__ import annotations
 
@@ -8,11 +8,11 @@ from application.chunks.dto import ChunkItemDTO
 
 
 if TYPE_CHECKING:
-    from domain.repositories.chunk_repository import ChunkSearchResult
+    from domain.knowledge.chunk import ChunkRecord
 
 
-def to_chunk_dto(c: ChunkSearchResult) -> ChunkItemDTO:
-    """Map a ChunkSearchResult (or compatible) to a ChunkItemDTO."""
+def to_chunk_dto(c: ChunkRecord) -> ChunkItemDTO:
+    """Map a ChunkRecord (or compatible) to a ChunkItemDTO."""
     return ChunkItemDTO(
         id=c.chunk_id,
         document_id=c.document_id,

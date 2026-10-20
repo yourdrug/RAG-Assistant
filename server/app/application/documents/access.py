@@ -2,7 +2,7 @@
 
 from application.uow import UnitOfWorkFactory
 from domain.identity.user_context import UserContext
-from domain.services.access_control import is_in_search_scope
+from domain.knowledge.access_control import is_in_search_scope
 
 
 class DocumentAccessService:

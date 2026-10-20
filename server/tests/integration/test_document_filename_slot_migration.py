@@ -6,9 +6,9 @@ from alembic.operations import Operations
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 
-from domain.value_objects.doc_domain import DocDomain
-from domain.value_objects.document_status import DocumentStatus
-from domain.value_objects.visibility import DocumentVisibility
+from domain.knowledge.enums import DocDomain
+from domain.knowledge.enums import DocumentStatus
+from domain.knowledge.enums import DocumentVisibility
 from infrastructure.database.migrations.versions import (
     n4e5f6g7h8i9_include_indexing_in_document_slot as migration,
 )

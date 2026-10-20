@@ -9,12 +9,12 @@ from unittest.mock import AsyncMock
 import pytest
 from langchain_core.documents import Document
 
-from domain.repositories.chunk_repository import ChunkSearchResult
+from domain.knowledge.chunk import ChunkRecord
 from domain.services.evidence_queries import evidence_search_queries
 from domain.services.evidence_queries import contradicts_requested_scope
 from domain.services.rag_policy.evidence_reading import evidence_reading_rules
 from domain.value_objects.llm_provider import Breadth
-from domain.value_objects.page_content_type import PageContentType
+from domain.knowledge.enums import PageContentType
 from domain.identity.roles import UserKind, UserRole
 from domain.value_objects.chat_context import ChatContext
 from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata
@@ -43,7 +43,7 @@ USER = ChatContext(1, UserKind.INTERNAL, UserRole.ADMIN).to_user_context()
 
 
 def chunk(index, text, *, table=False, section=None, document_id=27, version=2):
-    return ChunkSearchResult(
+    return ChunkRecord(
         chunk_id=index,
         document_id=document_id,
         filename="source.docx",

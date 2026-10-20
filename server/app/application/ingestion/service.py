@@ -10,8 +10,7 @@ from application.ingestion.dto import (
     IngestStatusResult,
 )
 from application.ingestion.scope import IngestionScope
-from domain.value_objects.doc_domain import DomainDetectionMode
-from domain.value_objects.visibility import DocumentVisibility
+from domain.knowledge.enums import DocumentVisibility, DomainDetectionMode
 
 
 if TYPE_CHECKING:

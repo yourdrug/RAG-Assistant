@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from domain.services import get_visibility_conditions
+from domain.knowledge.access_control import get_visibility_conditions
 from domain.identity.roles import UserKind, UserRole
 from qdrant_client.models import (
     Condition,
@@ -32,7 +32,7 @@ def build_qdrant_filter(
 ) -> Filter:
     """Build a Qdrant filter for documents visible to this user.
 
-    Derives conditions from domain.services.access_control.get_visibility_conditions().
+    Derives conditions from domain.knowledge.access_control.get_visibility_conditions().
 
     Args:
         user: UserContext or dict with "id", "kind", and optionally "role" keys

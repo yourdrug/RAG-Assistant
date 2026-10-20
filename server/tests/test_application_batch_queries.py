@@ -16,11 +16,10 @@ from application.ingestion import (
 )
 from application.ingestion.registry import s3_file_hash
 from application.ports.file_storage import FileItem
-from domain.entities.document import Document
-from domain.entities.raw_document import RawDocument
-from domain.entities.vector_outbox_entry import OutboxStatus, VectorOutboxEntry
-from domain.value_objects.document_status import DocumentStatus
-from domain.value_objects.visibility import DocumentVisibility
+from domain.ingestion.raw_document import RawDocument
+from domain.knowledge.document import Document
+from domain.knowledge.enums import DocumentStatus, DocumentVisibility
+from domain.knowledge.index_sync import OutboxStatus, VectorOutboxEntry
 
 
 if TYPE_CHECKING:

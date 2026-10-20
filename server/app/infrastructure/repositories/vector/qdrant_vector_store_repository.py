@@ -1,4 +1,4 @@
-"""Qdrant implementation of VectorStoreRepository."""
+"""Qdrant adapter implementing vector index writes and ACL-filtered payload reads."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from collections.abc import Awaitable, Callable
 
 from application.ports.ml_clients import MLClientPort
 from config import settings
-from domain.entities.chunk import Chunk
+from domain.knowledge.chunk import Chunk
 from langchain.schema import Document as LCDocument
 from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
 

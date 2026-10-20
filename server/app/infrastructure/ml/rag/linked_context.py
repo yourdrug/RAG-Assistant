@@ -6,7 +6,7 @@ from copy import copy
 
 from langchain_core.documents import Document
 
-from domain.value_objects.page_content_type import PageContentType
+from domain.knowledge.enums import PageContentType
 from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata
 
 log = logging.getLogger("default")

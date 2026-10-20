@@ -11,6 +11,7 @@ from application.uow.base import BaseUnitOfWork
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine
 
+    from application.uow.chunks import ChunkRepository
     from application.uow.session import SessionProtocol
     from domain.identity.repositories import (
         ApiKeyRepository,
@@ -18,20 +19,18 @@ if TYPE_CHECKING:
         GroupRepository,
         UserRepository,
     )
-    from domain.repositories.act_version_repository import ActVersionRepository
+    from domain.ingestion.repositories import IngestionRegistryRepository
+    from domain.knowledge.index_sync import VectorOutboxRepository
+    from domain.knowledge.repositories.acts import ActVersionRepository, RegulatoryActRepository
+    from domain.knowledge.repositories.document import DocumentRepository
     from domain.repositories.background_job_repository import BackgroundJobRepository
     from domain.repositories.benchmark_question_repository import BenchmarkQuestionRepository
     from domain.repositories.benchmark_run_repository import BenchmarkRunRepository
     from domain.repositories.benchmark_sweep_repository import BenchmarkSweepRepository
     from domain.repositories.chat_log_repository import ChatLogRepository
-    from domain.repositories.chunk_repository import ChunkRepository
     from domain.repositories.config_parameter_repository import ConfigParameterRepository
     from domain.repositories.conversation_repository import ConversationRepository
-    from domain.repositories.document_repository import DocumentRepository
-    from domain.repositories.ingestion_registry_repository import IngestionRegistryRepository
     from domain.repositories.message_repository import MessageRepository
-    from domain.repositories.regulatory_act_repository import RegulatoryActRepository
-    from domain.repositories.vector_outbox_repository import VectorOutboxRepository
 
 
 @dataclass(frozen=True)

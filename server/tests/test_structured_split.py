@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 from langchain.schema import Document
 
 from application.indexing import enrich_chunks_metadata
-from domain.domain_profile.profiles.decree import DecreeDomainProfile
+from domain.ingestion.profiles.decree import DecreeDomainProfile
 from infrastructure.ml.ingestion import split_documents
 
 
@@ -82,7 +82,7 @@ def test_process_chunks_persists_versioning_columns(fake_uow_factory):
     import asyncio
 
     from application.indexing import process_chunks
-    from domain.entities.raw_document import RawDocument
+    from domain.ingestion.raw_document import RawDocument
 
     chunks = [
         RawDocument(

@@ -8,8 +8,8 @@ from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from domain.entities.regulatory_act import RegulatoryAct
-from domain.value_objects.visibility import DocumentVisibility
+from domain.knowledge.acts.models import RegulatoryAct
+from domain.knowledge.enums import DocumentVisibility
 from infrastructure.database.models import RegulatoryActModel
 
 

@@ -18,13 +18,13 @@ from infrastructure.ml.ingestion.text_chunks import (
 )
 
 from config import settings
-from domain.value_objects.doc_domain import DocDomain
-from domain.value_objects.page_content_type import PageContentType
+from domain.knowledge.enums import DocDomain
+from domain.knowledge.enums import PageContentType
 
 if TYPE_CHECKING:
     from application.chunks import ChunkSettingsPort
-    from domain.domain_profile.settings_port import DomainSettingsPort
-    from domain.domain_profile.protocol import DomainProfile
+    from domain.ingestion.ports import DomainSettingsPort
+    from domain.ingestion.profiles.protocol import DocumentProfile
 
 log = logging.getLogger("detailed")
 
@@ -246,7 +246,7 @@ def _page_separator(before: str, after: str) -> str:
 def split_documents(
     docs: list[Document],
     domain: str = DocDomain.GENERAL.value,
-    profile: "DomainProfile | None" = None,
+    profile: "DocumentProfile | None" = None,
     settings: "DomainSettingsPort | None" = None,
     chunk_settings: "ChunkSettingsPort | None" = None,
 ) -> list[Document]:
@@ -307,7 +307,7 @@ def split_documents(
 
 def _split_structured(
     docs: list[Document],
-    profile: "DomainProfile",
+    profile: "DocumentProfile",
     domain_settings: "DomainSettingsPort",
 ) -> list[Document]:
     """Content-based splitting via the profile's structural boundary hierarchy.
@@ -317,7 +317,7 @@ def _split_structured(
     are further split using boundary-aware separators from the profile,
     then RecursiveCharacterTextSplitter as final fallback.
     """
-    from domain.domain_profile.content_splitter import MIN_STRUCTURAL_CHUNK_CHARS, split_by_content
+    from domain.ingestion.content_splitter import MIN_STRUCTURAL_CHUNK_CHARS, split_by_content
 
     max_unit_chars = int(domain_settings.get("max_unit_chars", domain_key=profile.key))
     chunk_size = settings_chunk_size(profile.key, domain_settings)

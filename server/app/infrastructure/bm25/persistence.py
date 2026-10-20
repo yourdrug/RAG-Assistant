@@ -15,7 +15,7 @@ from application.ports.file_storage import FileStorage
 from config import settings
 
 from infrastructure.bm25.bm25_index import BM25Index
-from domain.value_objects.visibility import DocumentVisibility
+from domain.knowledge.enums import DocumentVisibility
 from infrastructure.storage.file_storage import S3_MISSING_CODES, run_storage_io
 
 log = logging.getLogger("default")

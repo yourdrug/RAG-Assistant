@@ -22,7 +22,7 @@ from domain.value_objects.llm_provider import LLMProvider
 from domain.value_objects.config_value_type import ConfigValueType
 from infrastructure.events.in_process_event_bus import event_bus, InProcessEventBus
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
-from domain.domain_profile.registry import DomainProfileRegistry
+from domain.ingestion.profiles.registry import DomainProfileRegistry
 from infrastructure.ml.config.endpoint_policy import validate_endpoints, validate_pools
 from infrastructure.ml.config.client_switch import prepare_clients, dispose_clients
 from infrastructure.ml.config.client_switch import LLM_CLIENT_KEYS

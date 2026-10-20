@@ -144,7 +144,11 @@ class ApplicationContainer:
         self.rag_service = RagService(
             ml_clients=ml,
             chunk_search=chunk_search,
-            domain_registry=infra.domain_registry,
+            domain_keys=(
+                tuple(profile.key for profile in infra.domain_registry.all())
+                if infra.domain_registry is not None
+                else None
+            ),
             pii_redactor=pii_redactor,
             document_access=DocumentAccessService(uow),
         )

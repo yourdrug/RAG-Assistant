@@ -8,10 +8,9 @@ import pytest
 
 from application import indexing
 from application.indexing.pipeline import parse_meta_datetime
-from domain.entities.raw_document import RawDocument
-from domain.entities.vector_outbox_entry import VectorOutboxEntry
-from domain.value_objects.document_status import DocumentStatus
-from domain.value_objects.visibility import DocumentVisibility
+from domain.ingestion.raw_document import RawDocument
+from domain.knowledge.enums import DocumentStatus, DocumentVisibility
+from domain.knowledge.index_sync import VectorOutboxEntry
 
 
 @pytest.mark.parametrize(

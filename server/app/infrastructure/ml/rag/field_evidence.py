@@ -6,8 +6,8 @@ from langchain_core.documents import Document
 
 from domain.shared.hashing import content_hash
 from domain.services.evidence_queries import table_message_matches
-from domain.value_objects.page_content_type import PageContentType
-from domain.value_objects.search_mode import SearchMode
+from domain.knowledge.enums import PageContentType
+from domain.knowledge.enums import SearchMode
 from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata
 from infrastructure.ml.rag.evidence_focus import matching_field_rows, requested_fields
 

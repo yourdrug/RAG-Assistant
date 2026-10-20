@@ -6,10 +6,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from domain.value_objects.doc_domain import DocDomain
+from domain.knowledge.enums import DocDomain, DocumentVisibility, SourceType
 from domain.value_objects.job_status import BackgroundJobStatus
-from domain.value_objects.source_type import SourceType
-from domain.value_objects.visibility import DocumentVisibility
 
 
 class UploadStatusResponse(BaseModel):

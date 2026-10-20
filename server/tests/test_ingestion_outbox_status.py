@@ -7,11 +7,10 @@ import pytest
 from application.documents.dto import DocumentDTO
 from application.documents.queries import DocumentQueryService
 from application.ingestion import DocumentSyncService
-from domain.entities.document import Document
-from domain.entities.raw_document import RawDocument
-from domain.entities.vector_outbox_entry import OutboxStatus
-from domain.value_objects.document_status import DocumentStatus
-from domain.value_objects.visibility import DocumentVisibility
+from domain.ingestion.raw_document import RawDocument
+from domain.knowledge.document import Document
+from domain.knowledge.enums import DocumentStatus, DocumentVisibility
+from domain.knowledge.index_sync import OutboxStatus
 from fakes import FakeUnitOfWorkFactory  # type: ignore[import-not-found]
 from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
 

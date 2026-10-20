@@ -5,11 +5,11 @@ from __future__ import annotations
 import re
 from datetime import date
 
-from domain.repositories.chunk_repository import ChunkSearchResult
-from domain.services import get_visibility_conditions
-from domain.value_objects.owner_match import OwnerMatch
+from domain.knowledge.chunk import ChunkRecord
+from domain.knowledge.access_control import get_visibility_conditions
+from domain.knowledge.access_control import OwnerMatch
 from domain.identity.roles import UserKind, UserRole
-from domain.value_objects.search_mode import SearchMode
+from domain.knowledge.enums import SearchMode
 from sqlalchemy import and_, func, or_, select, text, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -45,11 +45,11 @@ _SEARCH_COLUMNS = (
 )
 
 
-def _row_to_search_result(row) -> ChunkSearchResult:
-    """Convert a search query row tuple to ChunkSearchResult."""
+def _row_to_search_result(row) -> ChunkRecord:
+    """Convert a search query row tuple to ChunkRecord."""
     effective_from = row[15]
     effective_to = row[16]
-    return ChunkSearchResult(
+    return ChunkRecord(
         chunk_id=row[0],
         document_id=row[1],
         filename=row[2],
@@ -209,7 +209,7 @@ class SQLAlchemyChunkSearchRepository:
         mode: str = "exact",
         document_id: int | None = None,
         as_of_date: date | None = None,
-    ) -> list[ChunkSearchResult]:
+    ) -> list[ChunkRecord]:
         if len(query.strip()) < 3:
             return []
 
@@ -226,7 +226,7 @@ class SQLAlchemyChunkSearchRepository:
         mode: str = SearchMode.EXACT.value,
         document_id: int | None = None,
         as_of_date: date | None = None,
-    ) -> tuple[list[ChunkSearchResult], int]:
+    ) -> tuple[list[ChunkRecord], int]:
         if len(query.strip()) < 3:
             return [], 0
 

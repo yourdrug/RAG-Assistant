@@ -10,13 +10,13 @@ from langchain.schema import Document
 from application.indexing import process_chunks
 from domain.shared.hashing import content_hash
 from infrastructure.database.models import ChunkModel
-from domain.entities.raw_document import RawDocument
-from domain.repositories.chunk_repository import ChunkSearchResult
-from domain.value_objects.chunk_context import extract_chunk_context
-from domain.value_objects.doc_domain import DocDomain
+from domain.ingestion.raw_document import RawDocument
+from domain.knowledge.chunk import ChunkRecord
+from domain.knowledge.chunk import extract_chunk_context
+from domain.knowledge.enums import DocDomain
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
-from domain.value_objects.visibility import DocumentVisibility
+from domain.knowledge.enums import DocumentVisibility
 from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata
 from infrastructure.ml.rag.helpers import apply_exact_search
 from infrastructure.ml.rag.rag_formatting import format_docs
@@ -127,7 +127,7 @@ def test_stale_context_cannot_override_acl_identity_or_version_state():
         "effective_from": "1990-01-01",
         "act_version_id": 999,
     }
-    result = ChunkSearchResult(
+    result = ChunkRecord(
         chunk_id=1,
         document_id=7,
         filename="rules.pdf",
@@ -243,7 +243,7 @@ async def test_rename_preserves_chunk_metadata(versioned):
     doc = await seed(h)
     now = datetime(2026, 1, 1, tzinfo=UTC)
     context = make_context()
-    chunk = ChunkSearchResult(
+    chunk = ChunkRecord(
         chunk_id=10,
         document_id=doc.id,
         filename=doc.filename,

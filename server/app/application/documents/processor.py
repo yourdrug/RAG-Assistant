@@ -17,7 +17,7 @@ from application.documents.dto import PersistDocumentCommand
 from application.documents.persistence import persist_document_result
 from application.documents.processing_context import ProcessingContext
 from application.documents.versioning import prepare_processing_versioning
-from domain.value_objects.document_status import DocumentStatus
+from domain.knowledge.enums import DocumentStatus
 
 
 if TYPE_CHECKING:
@@ -29,9 +29,9 @@ if TYPE_CHECKING:
     )
     from application.ports.file_storage import FileStorage
     from application.uow import UnitOfWorkFactory
-    from domain.domain_profile.registry import DomainProfileRegistry
-    from domain.domain_profile.settings_port import DomainSettingsPort
-    from domain.entities.document import Document
+    from domain.ingestion.ports import DomainSettingsPort
+    from domain.ingestion.profiles.registry import DomainProfileRegistry
+    from domain.knowledge.document import Document
 
 log = logging.getLogger("default")
 

@@ -4,7 +4,7 @@ from copy import copy
 
 from domain.services.rag_policy import sanitize_for_prompt
 from domain.value_objects.message_role import MessageRole
-from domain.value_objects.page_content_type import PageContentType
+from domain.knowledge.enums import PageContentType
 from infrastructure.ml.rag.utils import clean_source_name
 from infrastructure.ml.rag.document_sources import group_by_document
 from infrastructure.ml.rag.prompt_budget import estimate_text_tokens

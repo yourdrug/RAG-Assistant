@@ -1,6 +1,6 @@
 """Preserve distinct structural provisions when a candidate budget is applied."""
 
-from domain.domain_profile.protocol import SENTENCE_UNIT_KIND
+from domain.knowledge.chunk import SENTENCE_UNIT_KIND
 
 
 def prioritize_distinct_provisions(items: list) -> list:

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, TypedDict, runtime_checkable
 
 from application.benchmark import BenchmarkQuestionCreateDTO, SweepCreateDTO
-from domain.value_objects.document_status import DocumentStatus
+from domain.knowledge.enums import DocumentStatus
 from fastapi import HTTPException
 
 from presentation.api.constants import (

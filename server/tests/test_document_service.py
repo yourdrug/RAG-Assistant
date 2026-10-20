@@ -9,11 +9,11 @@ from application.documents.upload import DocumentUploadCommand
 from application.documents import DocumentCommandService, DocumentQueryService
 from application.documents.conflicts import resolve_upload_version_group
 from application.identity import UserContextFactory
-from domain.entities.document import Document
+from domain.knowledge.document import Document
 from domain.shared.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
-from domain.value_objects.document_status import DocumentStatus
+from domain.knowledge.enums import DocumentStatus
 from domain.identity.user_context import UserContext
-from domain.value_objects.visibility import DocumentVisibility
+from domain.knowledge.enums import DocumentVisibility
 
 from fakes import FakeUnitOfWork, FakeUnitOfWorkFactory
 

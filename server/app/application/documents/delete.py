@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from application.act_versioning.persistence import ActVersionPersistence
 from application.indexing import enqueue_delete_by_document
 from domain.identity.roles import UserKind
-from domain.services import check_ownership
+from domain.knowledge.access_control import check_ownership
 from domain.shared.exceptions import EntityNotFound
 
 

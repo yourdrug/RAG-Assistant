@@ -11,9 +11,9 @@ from application.documents import DocumentCommandService
 from application.documents import DocumentQueryService
 from application.jobs.service import JobService
 from domain.identity.capabilities import Capability
-from domain.value_objects.doc_domain import DocDomain
+from domain.knowledge.enums import DocDomain
 from domain.value_objects.job_status import BackgroundJobStatus
-from domain.value_objects.visibility import DocumentVisibility
+from domain.knowledge.enums import DocumentVisibility
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 
 from presentation.api.auth_dependencies import get_current_user, require_capability

@@ -6,15 +6,15 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from application.chunks.mutations import ChunkMutationService
 from application.documents import ManualDocumentService
-from domain.entities.document import Document
+from domain.knowledge.document import Document
 from domain.shared.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
-from domain.repositories.chunk_repository import ChunkSearchResult, ChunkStats
-from domain.services import compute_owner_and_group
+from domain.knowledge.chunk import ChunkRecord, ChunkStats
+from domain.knowledge.access_control import compute_owner_and_group
 from domain.shared.hashing import content_hash
-from domain.value_objects.document_status import DocumentStatus
+from domain.knowledge.enums import DocumentStatus
 from domain.identity.roles import UserRole
-from domain.value_objects.source_type import SourceType
-from domain.value_objects.visibility import DocumentVisibility
+from domain.knowledge.enums import SourceType
+from domain.knowledge.enums import DocumentVisibility
 
 
 # ---------------------------------------------------------------------------
@@ -40,7 +40,7 @@ def _make_doc(**overrides) -> Document:
     return Document(**defaults)
 
 
-def _make_chunk(**overrides) -> ChunkSearchResult:
+def _make_chunk(**overrides) -> ChunkRecord:
     defaults = {
         "chunk_id": 10,
         "document_id": 1,
@@ -64,7 +64,7 @@ def _make_chunk(**overrides) -> ChunkSearchResult:
         "doc_type": None,
     }
     defaults.update(overrides)
-    return ChunkSearchResult(**defaults)
+    return ChunkRecord(**defaults)
 
 
 def _make_uow(doc=None, chunk=None, max_index=0):

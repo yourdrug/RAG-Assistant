@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from application.ingestion import FileMeta, SplitContext
-from domain.entities.raw_document import RawDocument
+from domain.ingestion.raw_document import RawDocument
 from infrastructure.ml.ingestion.registry import PARSERS
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
 

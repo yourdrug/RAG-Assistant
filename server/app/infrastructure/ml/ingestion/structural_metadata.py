@@ -2,12 +2,13 @@
 
 from dataclasses import asdict
 
-from domain.domain_profile.content_splitter import SplitUnit
-from domain.domain_profile.protocol import DomainProfile, refs_to_metadata
+from domain.ingestion.content_splitter import SplitUnit
+from domain.ingestion.profiles.protocol import DocumentProfile
+from domain.ingestion.profiles.types import refs_to_metadata
 from infrastructure.ml.ingestion.text_chunks import shorten_context
 
 
-def unit_metadata(unit: SplitUnit, profile: DomainProfile, metadata: dict) -> dict:
+def unit_metadata(unit: SplitUnit, profile: DocumentProfile, metadata: dict) -> dict:
     """Keep parent identity, breadcrumb and scope on every descendant."""
     meta = {**metadata, "unit_kind": unit.unit_kind}
     parents = [asdict(parent) for parent in unit.parents]

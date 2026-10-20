@@ -5,15 +5,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from domain.value_objects.doc_domain import DocDomain
+from domain.knowledge.enums import DocDomain
 
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from domain.domain_profile.protocol import DomainProfile
-    from domain.domain_profile.settings_port import DomainSettingsPort
-    from domain.entities.raw_document import RawDocument
+    from domain.ingestion.ports import DomainSettingsPort
+    from domain.ingestion.profiles.protocol import DocumentProfile
+    from domain.ingestion.raw_document import RawDocument
 
 
 @dataclass(frozen=True)
@@ -31,7 +31,7 @@ class SplitContext:
     """Domain-dependent splitting parameters (domain types in a port are acceptable)."""
 
     domain: str = DocDomain.GENERAL.value
-    profile: DomainProfile | None = None
+    profile: DocumentProfile | None = None
     settings: DomainSettingsPort | None = None
     legal_mode: bool = False
 

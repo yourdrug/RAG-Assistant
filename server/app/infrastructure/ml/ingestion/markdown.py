@@ -6,7 +6,7 @@ import html
 import re
 from pathlib import Path
 
-from domain.value_objects.page_content_type import PageContentType
+from domain.knowledge.enums import PageContentType
 
 _MD_HEADER_RE = re.compile(r"^(#{1,6})\s+(.*)$", re.MULTILINE)
 # Setext headers: a line of text followed immediately by a line of only

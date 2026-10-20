@@ -1,19 +1,25 @@
-"""Tests for DomainProfile protocol conformance and profile behavior."""
+"""Tests for document profiles and their independent answer policies."""
 
 from __future__ import annotations
 
 import sys
+from datetime import date
+from types import SimpleNamespace
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 
-from domain.domain_profile.protocol import (
-    DomainProfile,
+from domain.rag.answer_policy import policy_for
+from domain.value_objects.llm_provider import Breadth
+from infrastructure.ml.rag.helpers import domain_prompt_addendum
+
+from domain.ingestion.profiles.protocol import (
+    DocumentProfile,
 )
-from domain.domain_profile.profiles.decree import DecreeDomainProfile
-from domain.domain_profile.profiles.general import GeneralDomainProfile
-from domain.domain_profile.profiles.legal import LegalDomainProfile
+from domain.ingestion.profiles.decree import DecreeDomainProfile
+from domain.ingestion.profiles.general import GeneralDomainProfile
+from domain.ingestion.profiles.legal import LegalDomainProfile
 
 
 class FakeSettings:
@@ -33,15 +39,15 @@ class FakeSettings:
 class TestProtocolConformance:
     def test_general_satisfies_protocol(self):
         p = GeneralDomainProfile()
-        assert isinstance(p, DomainProfile)
+        assert isinstance(p, DocumentProfile)
 
     def test_legal_satisfies_protocol(self):
         p = LegalDomainProfile()
-        assert isinstance(p, DomainProfile)
+        assert isinstance(p, DocumentProfile)
 
     def test_decree_satisfies_protocol(self):
         p = DecreeDomainProfile()
-        assert isinstance(p, DomainProfile)
+        assert isinstance(p, DocumentProfile)
 
     def test_general_is_not_versioned(self):
         assert GeneralDomainProfile().is_versioned is False
@@ -70,7 +76,7 @@ class TestGeneralProfile:
         assert GeneralDomainProfile().extract_references("any text") == []
 
     def test_prompt_addendum_none(self):
-        assert GeneralDomainProfile().prompt_addendum("narrow") is None
+        assert policy_for("general").prompt_addendum("narrow") is None
 
 
 class TestDecreeProfile:
@@ -158,14 +164,12 @@ class TestLegalProfile:
         assert len(article_refs) >= 1
 
     def test_prompt_addendum_contains_rules(self):
-        addendum = LegalDomainProfile().prompt_addendum("narrow")
+        addendum = policy_for("legal").prompt_addendum("narrow")
         assert addendum is not None
         assert "статьи" in addendum.lower() or "пункта" in addendum.lower()
 
     def test_prompt_addendum_with_as_of_date(self):
-        from datetime import date
-
-        addendum = LegalDomainProfile().prompt_addendum("narrow", as_of_date=date(2026, 1, 1))
+        addendum = policy_for("legal").prompt_addendum("narrow", as_of_date=date(2026, 1, 1))
         assert addendum is not None
         assert "01.01.2026" in addendum
 
@@ -178,8 +182,6 @@ class TestLegalProfile:
 class TestEffectiveDateFallback:
     def test_legal_fallback_to_signing_date(self):
         """When no 'вступает в силу' pattern, falls back to signing date."""
-        from datetime import date
-
         profile = LegalDomainProfile()
         text = "Федеральный закон от 15 марта 2026 года о чём-то.\nСтатья 1. Общие положения.\n"
         result = profile.extract_effective_date(text)
@@ -189,8 +191,6 @@ class TestEffectiveDateFallback:
 
     def test_legal_explicit_effective_date(self):
         """'вступает в силу со дня' gets high confidence."""
-        from datetime import date
-
         profile = LegalDomainProfile()
         text = "Федеральный закон вступает в силу со дня 1 июня 2026 года.\nСтатья 1. Общие положения.\n"
         result = profile.extract_effective_date(text)
@@ -200,8 +200,6 @@ class TestEffectiveDateFallback:
 
     def test_decree_fallback_to_signing_date(self):
         """Decree without 'вступает в силу' falls back to signing date."""
-        from datetime import date
-
         profile = DecreeDomainProfile()
         text = "УКАЗ от 10 января 2026 г.\nПОСТАНОВЛЯЮ:\n1. Пункт.\n"
         result = profile.extract_effective_date(text)
@@ -270,3 +268,51 @@ class TestLegalProfileEdgeCases:
         score = profile.classify_score(text)
         # Base: 1.3, +1.5 for contract language = 2.8
         assert score >= 2.5
+
+
+class TestAnswerPolicies:
+    def test_versioned_domains_preserve_breadth_and_temporal_rules(self):
+        expected = {
+            "legal": (
+                "- Обязательно указывай номер статьи/пункта, если он есть в контексте "
+                "(например: «Согласно ст. 15 ФЗ-XXX» или «п. 3.2 Договора»).\n"
+                "- Не перефразируй формулировки нормативных актов — цитируй максимально близко к тексту.\n"
+            ),
+            "decree": (
+                "- Каждый указ идентифицируй по номеру и дате.\n"
+                "- Ссылайся на конкретный пункт постановляющей части, не пересказывай указ целиком.\n"
+            ),
+        }
+        stamp = (
+            "- Ответ дан по состоянию на 01.01.2026. "
+            "Если подходят разные редакции — укажи, какая редакция использована.\n"
+        )
+
+        for domain, rules in expected.items():
+            policy = policy_for(domain)
+            assert policy.retrieval_fallback_to_full_corpus() is True
+
+            for breadth in ("narrow", "broad"):
+                assert policy.prompt_addendum(breadth) == rules
+                assert policy.prompt_addendum(breadth, date(2026, 1, 1)) == rules + stamp
+
+    def test_general_and_unknown_domains_have_no_addendum_or_fallback(self):
+        for domain in ("general", "unknown", ""):
+            policy = policy_for(domain)
+            assert policy.prompt_addendum("narrow") is None
+            assert policy.retrieval_fallback_to_full_corpus() is False
+
+    def test_document_profiles_do_not_own_answer_rules(self):
+        for profile in (GeneralDomainProfile(), LegalDomainProfile(), DecreeDomainProfile()):
+            assert isinstance(profile, DocumentProfile)
+            assert not hasattr(profile, "prompt_addendum")
+            assert not hasattr(profile, "retrieval_fallback_to_full_corpus")
+
+    def test_rag_addendum_respects_registered_domains(self):
+        ctx = SimpleNamespace(as_of_date=None)
+        assert domain_prompt_addendum("legal", ctx, Breadth.NARROW, None) is None
+        assert domain_prompt_addendum("legal", ctx, Breadth.NARROW, ("general",)) is None
+        assert domain_prompt_addendum("unknown", ctx, Breadth.NARROW, ("unknown",)) is None
+        assert domain_prompt_addendum("legal", ctx, Breadth.NARROW, ("legal",)) == (
+            policy_for("legal").prompt_addendum("narrow")
+        )

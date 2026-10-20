@@ -21,15 +21,15 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
 
-from domain.entities.document import Document
+from domain.knowledge.document import Document
 from domain.shared.exceptions import BusinessRuleViolation
-from domain.services import can_view_document, get_visibility_conditions, is_in_search_scope
+from domain.knowledge.access_control import can_view_document, get_visibility_conditions, is_in_search_scope
 from domain.value_objects.chat_context import ChatContext
 from domain.identity.user_context import CuratorScope
-from domain.value_objects.owner_match import OwnerMatch
+from domain.knowledge.access_control import OwnerMatch
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
-from domain.value_objects.visibility import DocumentVisibility
+from domain.knowledge.enums import DocumentVisibility
 from infrastructure.repositories.vector.acl import build_qdrant_filter
 
 
@@ -574,7 +574,7 @@ class TestRagServiceCuratorScope:
                     svc = RagService.__new__(RagService)
                     svc._ml = None
                     svc._chunk_search = None
-                    svc._domain_registry = None
+                    svc._domain_keys = None
                     svc._pii_redactor = None
                     svc._init_state("test question", [], ctx)
                     mock_filter.assert_called_once_with(

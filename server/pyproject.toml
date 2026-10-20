@@ -338,22 +338,23 @@ module = [
     "composition.service_providers",
     "composition.utils",
     "config",
-    "domain.domain_profile.base",
-    "domain.domain_profile.profiles.general",
+    "domain.ingestion.profiles.base",
+    "domain.ingestion.profiles.general",
     "domain.entities.benchmark_question",
     "domain.entities.benchmark_run",
     "domain.entities.benchmark_sweep",
     "domain.entities.chat_log",
-    "domain.entities.chunk",
+    "domain.knowledge.chunk",
     "domain.entities.message",
-    "domain.entities.raw_document",
-    "domain.entities.vector_outbox_entry",
+    "domain.ingestion.raw_document",
+    "domain.knowledge.index_sync",
     "domain.repositories.benchmark_question_repository",
     "domain.repositories.benchmark_run_repository",
     "domain.repositories.chunk_repository",
+    "domain.knowledge.repositories.chunk",
     "domain.repositories.vector_store_repository",
-    "domain.services.access_control",
-    "domain.services.act_version_policy",
+    "domain.knowledge.access_control",
+    "domain.knowledge.acts.policy",
     "domain.services.benchmark_evaluation",
     "domain.services.benchmark_judge",
     "domain.services.benchmark_selection",
@@ -363,7 +364,6 @@ module = [
     "domain.utils",
     "domain.shared.enums",
     "domain.value_objects.benchmark_annotations",
-    "domain.value_objects.chunk_context",
     "domain.value_objects.pii_patterns",
     "domain.value_objects.rag_result",
     "domain.value_objects.stream_events",
@@ -796,8 +796,8 @@ name = "Domain shared kernel is independent of contexts"
 type = "forbidden"
 source_modules = ["domain.shared"]
 forbidden_modules = [
-    "domain.domain_profile", "domain.entities", "domain.events", "domain.exceptions",
-    "domain.identity", "domain.ingestion", "domain.repositories", "domain.services", "domain.utils",
+    "domain.rag", "domain.domain_profile", "domain.entities", "domain.events", "domain.exceptions",
+    "domain.identity", "domain.knowledge", "domain.ingestion", "domain.repositories", "domain.services", "domain.utils",
     "domain.value_objects",
 ]
 
@@ -806,10 +806,44 @@ name = "Domain identity depends only on shared"
 type = "forbidden"
 source_modules = ["domain.identity"]
 forbidden_modules = [
-    "domain.domain_profile", "domain.entities", "domain.events", "domain.exceptions",
+    "domain.rag", "domain.domain_profile", "domain.entities", "domain.events", "domain.exceptions",
+    "domain.knowledge", "domain.ingestion", "domain.repositories", "domain.services", "domain.utils",
+    "domain.value_objects",
+]
+
+[[tool.importlinter.contracts]]
+name = "Domain knowledge depends only on identity and shared"
+type = "forbidden"
+source_modules = ["domain.knowledge"]
+forbidden_modules = [
+    "domain.rag", "domain.domain_profile", "domain.entities", "domain.events", "domain.exceptions",
     "domain.ingestion", "domain.repositories", "domain.services", "domain.utils",
     "domain.value_objects",
 ]
+
+[[tool.importlinter.contracts]]
+name = "Domain ingestion depends only on knowledge and shared"
+type = "forbidden"
+source_modules = ["domain.ingestion"]
+allow_indirect_imports = true
+forbidden_modules = [
+    "domain.domain_profile",
+    "domain.entities",
+    "domain.events",
+    "domain.exceptions",
+    "domain.identity",
+    "domain.rag",
+    "domain.repositories",
+    "domain.services",
+    "domain.utils",
+    "domain.value_objects",
+]
+
+[[tool.importlinter.contracts]]
+name = "Domain RAG does not depend on ingestion"
+type = "forbidden"
+source_modules = ["domain.rag"]
+forbidden_modules = ["domain.ingestion"]
 
 [[tool.importlinter.contracts]]
 name = "Application is independent of framework and client implementations"
@@ -1130,7 +1164,7 @@ paths = ["app"]
 exclude = [
     "app/infrastructure/database/migrations/",
     "app/config.py",
-    "app/domain/services/access_control.py",
+    "app/domain/knowledge/access_control.py",
     "app/infrastructure/benchmark/judge.py",
     "app/infrastructure/benchmark/metrics.py",
     "app/infrastructure/events/postgres_config_listener.py",

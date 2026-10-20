@@ -9,8 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.schema import CreateIndex, CreateTable
 
-from domain.value_objects.document_status import DocumentStatus
-from domain.value_objects.visibility import DocumentVisibility
+from domain.knowledge.enums import DocumentStatus, DocumentVisibility
 from infrastructure.database.models import DocumentModel
 from infrastructure.repositories.document.sqlalchemy_document_repository import SQLAlchemyDocumentRepository
 

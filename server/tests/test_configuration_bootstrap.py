@@ -24,7 +24,7 @@ from fakes import FakeUnitOfWorkFactory
 from infrastructure import initialization
 from infrastructure.domain_profile import register_all_profiles
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
-from domain.domain_profile.registry import DomainProfileRegistry
+from domain.ingestion.profiles.registry import DomainProfileRegistry
 from infrastructure.events.in_process_event_bus import InProcessEventBus
 from domain.events.config_events import ConfigParameterChanged
 
@@ -385,9 +385,9 @@ def test_domain_invalid_value_is_rejected_before_update(configuration):
 def test_missing_snapshot_key_after_bootstrap_does_not_silently_keep_stale_value(configuration):
     complete = initialization.build_defaults()
     from domain.entities.config_parameter import ConfigParameter
-    from domain.domain_profile.profiles.legal import LegalDomainProfile
-    from domain.domain_profile.profiles.decree import DecreeDomainProfile
-    from domain.domain_profile.profiles.general import GeneralDomainProfile
+    from domain.ingestion.profiles.legal import LegalDomainProfile
+    from domain.ingestion.profiles.decree import DecreeDomainProfile
+    from domain.ingestion.profiles.general import GeneralDomainProfile
 
     pairs = {(item.key, item.domain_key) for item in complete}
     for profile in (LegalDomainProfile(), DecreeDomainProfile(), GeneralDomainProfile()):

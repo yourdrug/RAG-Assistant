@@ -3,11 +3,11 @@
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from domain.value_objects.chunk_context import TABLE_CONTEXT_MAX_CHUNKS
-from domain.value_objects.page_content_type import PageContentType
+from domain.knowledge.chunk import TABLE_CONTEXT_MAX_CHUNKS
+from domain.knowledge.enums import PageContentType
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
-from domain.value_objects.visibility import DocumentVisibility
+from domain.knowledge.enums import DocumentVisibility
 from infrastructure.database.models import DocumentModel, UserModel
 from infrastructure.repositories.chunk.sqlalchemy_chunk_repository import SQLAlchemyChunkRepository
 from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata

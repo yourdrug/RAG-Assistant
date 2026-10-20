@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from domain.value_objects.doc_domain import DomainDetectionMode
+from domain.knowledge.enums import DomainDetectionMode
 
 import asyncio
 import logging
@@ -17,7 +17,7 @@ from infrastructure.redis.redis_client import redis_client
 
 import typer
 from config import settings
-from domain.value_objects.visibility import DocumentVisibility
+from domain.knowledge.enums import DocumentVisibility
 from application.ingestion import IngestionService
 
 logger = logging.getLogger("cli")

@@ -24,7 +24,7 @@ from arq import create_pool
 from arq.connections import RedisSettings
 from arq.jobs import Job
 from config import settings
-from domain.value_objects.visibility import DocumentVisibility
+from domain.knowledge.enums import DocumentVisibility
 from application.budget import billing_principal
 
 logger = logging.getLogger("default")

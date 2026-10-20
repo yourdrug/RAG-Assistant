@@ -11,8 +11,8 @@ import pytest
 
 from application.admin import ConfigService
 from domain.events.config_events import ConfigParameterChanged
-from domain.domain_profile.profiles.decree import DecreeDomainProfile
-from domain.domain_profile.registry import DomainProfileRegistry
+from domain.ingestion.profiles.decree import DecreeDomainProfile
+from domain.ingestion.profiles.registry import DomainProfileRegistry
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from fakes import FakeUnitOfWorkFactory
 

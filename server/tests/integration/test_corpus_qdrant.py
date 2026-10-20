@@ -19,8 +19,8 @@ from qdrant_client.models import (
 )
 
 from domain.identity.roles import UserKind, UserRole
+from domain.knowledge.enums import DocumentVisibility
 from domain.shared.exceptions import ValidationError
-from domain.value_objects.visibility import DocumentVisibility
 from infrastructure.corpus.snapshot import BoundQdrantClient
 from infrastructure.corpus.validation import validate_corpus
 from infrastructure.repositories.vector.acl import build_qdrant_filter

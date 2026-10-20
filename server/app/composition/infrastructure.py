@@ -31,7 +31,7 @@ from composition.utils import _missing_fields, _require
 from domain.events.config_events import ConfigParameterChanged
 from infrastructure.events.in_process_event_bus import event_bus
 from infrastructure.domain_profile import register_all_profiles
-from domain.domain_profile.registry import DomainProfileRegistry
+from domain.ingestion.profiles.registry import DomainProfileRegistry
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from infrastructure.initialization import seed_domain_config_defaults, seed_config_defaults
 from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
@@ -43,6 +43,8 @@ from infrastructure.ml.config.config_subscribers import (
 )
 
 if TYPE_CHECKING:
+    from domain.knowledge.index_sync import VectorIndexWriter
+    from domain.repositories.vector_store_repository import VectorStoreRepository
     from application.ports.action_logger import ActionLoggerPort
     from application.identity import ApiKeyProviderPort
     from application.benchmark import BenchmarkHistoryPort
@@ -195,6 +197,14 @@ class MLContainer:
         return _require(self.vector_store_repo, "vector_store_repo")
 
     @property
+    def vector_index_writer(self) -> VectorIndexWriter:
+        return self.vector_store
+
+    @property
+    def vector_search(self) -> VectorStoreRepository:
+        return self.vector_store
+
+    @property
     def storage(self) -> LazyStorage:
         return _require(self.file_storage, "file_storage")
 
@@ -210,7 +220,7 @@ class EventContainer:
     def init(
         self,
         uow_factory: UnitOfWorkFactory,
-        vector_store_repo: QdrantVectorStoreRepository,
+        vector_store_repo: VectorIndexWriter,
         event_bus: EventBus,
         domain_settings: DomainSettingsAdapter | None = None,
         cache_invalidator: CacheInvalidatorPort | None = None,
@@ -382,7 +392,7 @@ class InfrastructureContainer:
         self.services.init()
         self.events.init(
             uow_factory=self.db.uow,
-            vector_store_repo=self.ml.vector_store,
+            vector_store_repo=self.ml.vector_index_writer,
             event_bus=event_bus,
             domain_settings=self.domain_settings,
             cache_invalidator=self.services.cache_invalidator,

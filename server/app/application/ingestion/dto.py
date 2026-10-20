@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, TypedDict
 
 
 if TYPE_CHECKING:
-    from domain.value_objects.visibility import DocumentVisibility
+    from domain.knowledge.enums import DocumentVisibility
 
 
 from dataclasses import dataclass, field

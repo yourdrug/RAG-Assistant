@@ -17,11 +17,11 @@ from application.documents.rename import DocumentRenameCommand
 from application.documents.upload import DocumentUploadCommand
 from application.documents import DocumentCommandService
 from application.identity import UserContextFactory
-from domain.entities.document import Document
-from domain.entities.act_version import ActVersion
+from domain.knowledge.document import Document
+from domain.knowledge.acts.models import ActVersion
 from domain.shared.exceptions import BusinessRuleViolation, ValidationError
-from domain.value_objects.document_status import DocumentStatus
-from domain.value_objects.visibility import DocumentVisibility
+from domain.knowledge.enums import DocumentStatus
+from domain.knowledge.enums import DocumentVisibility
 from domain.identity.roles import UserRole
 from fakes import FakeUnitOfWorkFactory
 

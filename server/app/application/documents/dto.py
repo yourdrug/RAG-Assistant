@@ -5,8 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, NotRequired, TypedDict
 
-from domain.value_objects.doc_domain import DocDomain
-from domain.value_objects.source_type import SourceType
+from domain.knowledge.enums import DocDomain, SourceType
 
 
 if TYPE_CHECKING:
@@ -20,11 +19,11 @@ if TYPE_CHECKING:
         TextQualityAssessorPort,
     )
     from application.ingestion import DocumentParserPort, DocumentSplitterPort
-    from domain.domain_profile.protocol import DomainProfile
-    from domain.entities.document import Document
-    from domain.entities.raw_document import RawDocument
-    from domain.value_objects.pdf_quality_report import PDFQualityReport
-    from domain.value_objects.visibility import DocumentVisibility
+    from domain.ingestion.preview import PDFQualityReport
+    from domain.ingestion.profiles.protocol import DocumentProfile
+    from domain.ingestion.raw_document import RawDocument
+    from domain.knowledge.document import Document
+    from domain.knowledge.enums import DocumentVisibility
 
 
 @dataclass(frozen=True)
@@ -117,7 +116,7 @@ class ProcessDocumentCommand:
 @dataclass(frozen=True)
 class PreparedDocumentVersioning:
     plan: VersioningPlan
-    profile: DomainProfile
+    profile: DocumentProfile
 
 
 @dataclass(frozen=True, kw_only=True)
