@@ -1,6 +1,7 @@
 """Preview expiration follows the explicitly supplied TTL."""
 
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -14,7 +15,7 @@ async def test_preview_expires_at_configured_ttl(monkeypatch: pytest.MonkeyPatch
     clock = Mock(return_value=100.0)
     monkeypatch.setattr("application.documents.preview_cache.time.monotonic", clock)
     storage = AsyncMock(spec=FileStorage)
-    cache = PreviewCache(storage, ttl_seconds=10)
+    cache = PreviewCache(storage, settings=SimpleNamespace(preview_cache_ttl_seconds=10))
     preview_id = await cache.store(b"pdf", original_filename="document.pdf")
     key = storage.upload_file.await_args.args[0]
     preview = tmp_path / "preview.pdf"

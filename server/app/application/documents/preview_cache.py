@@ -1,6 +1,6 @@
 """S3-backed cache for dry-run preview files with TTL-based expiration.
 
-Stores preview PDFs in the configured ``FileStorage`` backend (S3 or local)
+Stores preview files in the configured S3-compatible ``FileStorage`` backend
 under the ``previews/`` prefix.  An in-memory dict tracks keys and
 timestamps for fast TTL checks; stale objects are evicted on each
 ``store()`` call.
@@ -19,6 +19,7 @@ import uuid
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
+    from application.documents.ports.diagnostics import PreviewSettingsPort
     from application.ports.file_storage import FileStorage
 
 logger = logging.getLogger("default")
@@ -30,14 +31,14 @@ class PreviewCache:
     """Stores PDF files for dry-run preview sessions in FileStorage.
 
     Each file is assigned a unique ``preview_id`` (UUID4 hex).  Files are
-    automatically evicted after *ttl_seconds*.
+    expired on access or cleanup using the current configured TTL.
     """
 
-    def __init__(self, storage: FileStorage, ttl_seconds: int) -> None:
+    def __init__(self, storage: FileStorage, settings: PreviewSettingsPort) -> None:
         self._storage = storage
         self._cache: dict[str, tuple[str, float, str | None]] = {}
         # preview_id -> (s3_key, timestamp, original_filename)
-        self._ttl = ttl_seconds
+        self.settings = settings
 
     # ------------------------------------------------------------------
     # Public API
@@ -69,7 +70,7 @@ class PreviewCache:
 
         key, ts, _ = entry
 
-        if time.monotonic() - ts > self._ttl:
+        if time.monotonic() - ts > self.settings.preview_cache_ttl_seconds:
             await self.evict(preview_id)
             yield None
             return
@@ -89,7 +90,7 @@ class PreviewCache:
 
         key, ts, _ = entry
 
-        if time.monotonic() - ts > self._ttl:
+        if time.monotonic() - ts > self.settings.preview_cache_ttl_seconds:
             await self.evict(preview_id)
             return None
 
@@ -129,7 +130,8 @@ class PreviewCache:
 
     async def cleanup_expired(self) -> None:
         now = time.monotonic()
-        expired = [pid for pid, (_, ts, _) in self._cache.items() if now - ts > self._ttl]
+        ttl = self.settings.preview_cache_ttl_seconds
+        expired = [pid for pid, (_, ts, _) in self._cache.items() if now - ts > ttl]
 
         for pid in expired:
             await self.evict(pid)

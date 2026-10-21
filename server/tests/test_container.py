@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
@@ -18,10 +19,13 @@ from composition.container import (
 from infrastructure.adapters.chunk_search_adapter import ChunkSearchAdapter
 from infrastructure.database.database import DatabaseManager
 from config import settings
-from domain.runtime.config import ConfigParameterChanged
+from domain.runtime.config import ConfigParameter, ConfigParameterChanged
 from domain.runtime.config import ConfigValueType
+from domain.shared.exceptions import ValidationError
 from infrastructure.events.in_process_event_bus import InProcessEventBus
 from infrastructure.events.postgres_config_listener import PostgresConfigListener
+from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
+from infrastructure.ml.ingestion import ocr
 
 
 @pytest.fixture
@@ -74,7 +78,6 @@ class TestApplicationContainer:
         container.infrastructure = MagicMock()
         with patch("composition.application.create_ingestion_service", return_value=MagicMock()):
             container.application.init(container.infrastructure)
-        from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
         from config import Settings
 
         configuration = SettingsProviderConfiguration(
@@ -107,9 +110,7 @@ class TestApplicationContainer:
             factory = container.infrastructure.db.uow_factory
             factory.create.return_value.__aenter__ = AsyncMock(return_value=uow)
             factory.create.return_value.__aexit__ = AsyncMock(return_value=False)
-            await PostgresConfigListener(bus, factory, configuration=configuration).resync(
-                trigger="reconnect"
-            )
+            await PostgresConfigListener(factory, configuration=configuration).resync(trigger="reconnect")
 
         assert settings.pii_redaction_enabled is True
         assert chat_redactor.redact(text) == "Контакт: ***"
@@ -325,3 +326,50 @@ class TestSubscribeConfigEvents:
             for h in handlers:
                 h(bm25_event)
             mock_ml.invalidate_bm25.assert_called()
+
+
+@pytest.mark.parametrize("change", ["language", "unrelated", "invalid"])
+def test_ocr_cache_reacts_to_validated_configuration(monkeypatch, change):
+    monkeypatch.setattr(settings, "ocr_lang_paddle", "ru")
+    monkeypatch.setattr(settings, "ocr_dpi", settings.ocr_dpi)
+    monkeypatch.setattr(settings, "tei_embed_url", "http://tei-embed:8080")
+    monkeypatch.setattr(settings, "tei_rerank_url", "http://tei-rerank:8080")
+    paddle = MagicMock(side_effect=SimpleNamespace)
+    monkeypatch.setitem(sys.modules, "paddleocr", SimpleNamespace(PaddleOCR=paddle))
+    bus = InProcessEventBus()
+    monkeypatch.setattr("composition.infrastructure.event_bus", bus)
+    configuration = SettingsProviderConfiguration(settings, bus=bus)
+    infra = InfrastructureContainer(configuration=configuration)
+    infra.ml.ml_clients = MagicMock()
+    infra.subscribe_config_events()
+    ocr.get_paddle_ocr.cache_clear()
+    try:
+        original = ocr.get_paddle_ocr()
+        assert original.lang == "ru"
+        assert ocr.get_paddle_ocr() is original
+        if change == "language":
+            configuration.apply([ConfigParameter("ocr_lang_paddle", "en", ConfigValueType.STR, "ocr")])
+            # Invalidating the cache must not load a model inside the event handler.
+            assert paddle.call_count == 1
+            updated = ocr.get_paddle_ocr()
+            assert updated is not original
+            assert updated.lang == "en"
+            assert paddle.call_count == 2
+            configuration.apply([ConfigParameter("ocr_lang_paddle", "en", ConfigValueType.STR, "ocr")])
+            assert ocr.get_paddle_ocr() is updated
+        elif change == "unrelated":
+            configuration.apply([ConfigParameter("ocr_dpi", "200", ConfigValueType.INT, "ocr")])
+            assert ocr.get_paddle_ocr() is original
+        else:
+            with pytest.raises(ValidationError):
+                configuration.apply(
+                    [
+                        ConfigParameter("ocr_lang_paddle", "en", ConfigValueType.STR, "ocr"),
+                        ConfigParameter("chunk_size", "invalid", ConfigValueType.INT, "ingestion"),
+                    ]
+                )
+            assert settings.ocr_lang_paddle == "ru"
+            assert ocr.get_paddle_ocr() is original
+    finally:
+        infra.unsubscribe_config_events()
+        ocr.get_paddle_ocr.cache_clear()

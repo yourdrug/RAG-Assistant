@@ -34,7 +34,6 @@ class CacheConfig:
 
 @dataclass(frozen=True)
 class StorageConfig:
-    """Config for storage-backend-dependent features (page images, Redis)."""
+    """Config for storage-related Redis access."""
 
-    file_backend: str
     redis_url: str

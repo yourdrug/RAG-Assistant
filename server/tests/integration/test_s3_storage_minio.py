@@ -38,7 +38,6 @@ async def minio_storage(monkeypatch):
     if not endpoint:
         pytest.fail("S3_SMOKE_ENDPOINT is required")
     monkeypatch.setattr(settings, "s3_endpoint", endpoint)
-    monkeypatch.setattr(settings, "file_backend", "s3")
     storage = S3Storage()
     prefix = f"_test/async-s3/{uuid.uuid4().hex}/"
     keys = []

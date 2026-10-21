@@ -4,7 +4,6 @@ import asyncio
 from dataclasses import asdict, replace
 from decimal import Decimal
 import hashlib
-from importlib import import_module
 import json
 import os
 import subprocess
@@ -17,8 +16,6 @@ from unittest.mock import AsyncMock
 
 import httpx
 
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
 import fakeredis.aioredis
 import pytest
 import pytest_asyncio
@@ -47,18 +44,6 @@ pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 
 @pytest_asyncio.fixture
 async def configured_engine(pg_engine):
-    def migrate(connection):
-        context = MigrationContext.configure(connection)
-        with Operations.context(context):
-            for name in [
-                'o5f6g7h8i9j0_cost_budget',
-                'p6g7h8i9j0k1_corpus_switch',
-                'q7h8i9j0k1l2_cost_attempt_audit',
-            ]:
-                import_module(f'infrastructure.database.migrations.versions.{name}').upgrade()
-
-    async with pg_engine.begin() as conn:
-        await conn.run_sync(migrate)
     return pg_engine
 
 
@@ -387,19 +372,8 @@ async def test_physical_sync_async_real_redis_restart_and_tariff_debt(configured
         await redis.aclose()
 
 
-async def test_audit_migration_preserves_legacy_pending_and_settled_usage(configured_engine):
-    audit = import_module('infrastructure.database.migrations.versions.q7h8i9j0k1l2_cost_attempt_audit')
-
-    def revert_audit(connection):
-        with Operations.context(MigrationContext.configure(connection)):
-            audit.downgrade()
-
-    def apply_audit(connection):
-        with Operations.context(MigrationContext.configure(connection)):
-            audit.upgrade()
-
+async def test_audit_preserves_pending_and_settled_usage(configured_engine):
     async with configured_engine.begin() as connection:
-        await connection.run_sync(revert_audit)
         await connection.execute(
             text("""
             INSERT INTO cost_rates(provider, model, version, unit, input_usd_per_million,
@@ -410,12 +384,11 @@ async def test_audit_migration_preserves_legacy_pending_and_settled_usage(config
         await connection.execute(
             text("""
             INSERT INTO cost_usage(operation_id, principal, provider, model, operation,
-                                   rate_version, reserved_units, actual_units, settled_at)
-            VALUES ('pending', 'user:1', 'openrouter', 'legacy', 'llm', 3, 100, NULL, NULL),
-                   ('settled', 'user:1', 'openrouter', 'legacy', 'llm', 3, 100, 70, now())
+                                   rate_version, reserved_units, actual_units, settled_at, dispatch_state)
+            VALUES ('pending', 'user:1', 'openrouter', 'legacy', 'llm', 3, 100, NULL, NULL, 'sending'),
+                   ('settled', 'user:1', 'openrouter', 'legacy', 'llm', 3, 100, 70, now(), 'settled')
         """)
         )
-        await connection.run_sync(apply_audit)
     sessions = async_sessionmaker(configured_engine, expire_on_commit=False)
     ledger = PostgresRedisBudget(sessions, None)
     rows = {row['operation_id']: row for row in await ledger.usage()}

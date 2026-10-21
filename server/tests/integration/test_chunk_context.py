@@ -1,10 +1,6 @@
 """PostgreSQL round trips and migration contracts for chunk interpretation metadata."""
 
-from importlib import import_module
-
 import pytest
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -79,18 +75,9 @@ async def test_context_round_trip_and_unauthorized_search(pg_engine):
         assert await repository.get_neighbors(doc.id, 0, user=denied) == []
 
 
-async def test_context_migration_preserves_legacy_rows_and_enforces_objects(pg_engine):
-    migration = import_module(
-        "infrastructure.database.migrations.versions.f9a0b1c2d3e4_add_chunk_context_metadata"
-    )
-
-    def run_migration(connection, operation):
-        with Operations.context(MigrationContext.configure(connection)):
-            operation()
+async def test_context_default_and_object_constraint(pg_engine):
 
     async with pg_engine.begin() as conn:
-        # Recreate the prior schema only inside the disposable test schema.
-        await conn.run_sync(lambda connection: run_migration(connection, migration.downgrade))
         doc_id = (
             await conn.execute(
                 text(
@@ -121,7 +108,6 @@ async def test_context_migration_preserves_legacy_rows_and_enforces_objects(pg_e
                 },
             )
         ).scalar_one()
-        await conn.run_sync(lambda connection: run_migration(connection, migration.upgrade))
         row = (
             await conn.execute(
                 text("SELECT content, context_metadata FROM chunks WHERE id = :id"), {"id": chunk_id}
@@ -138,7 +124,6 @@ async def test_context_migration_preserves_legacy_rows_and_enforces_objects(pg_e
                 await conn.execute(
                     text("UPDATE chunks SET context_metadata = NULL WHERE id = :id"), {"id": chunk_id}
                 )
-        await conn.run_sync(lambda connection: run_migration(connection, migration.downgrade))
         assert (
             await conn.execute(text("SELECT content FROM chunks WHERE id = :id"), {"id": chunk_id})
         ).scalar_one() == ("Legacy content")

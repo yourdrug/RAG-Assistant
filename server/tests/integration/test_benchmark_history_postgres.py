@@ -121,10 +121,12 @@ async def test_db_retention_preserves_active_and_recent_failed_checkpoints(pg_en
     async with sessions.begin() as session:
         repo = SQLAlchemyBenchmarkSweepRepository(session)
         sweeps = []
+
         for status in ('running', 'failed', 'cancelled', 'done'):
             sweep = await repo.create(BenchmarkSweep(status=status))
             sweeps.append(sweep)
             await repo.save_checkpoint(sweep.id, 'dataset.json', [])
+
         # Failed is recent; cancelled is old. Done is immediately disposable.
         await session.execute(
             update(BenchmarkCheckpointModel)
@@ -136,22 +138,6 @@ async def test_db_retention_preserves_active_and_recent_failed_checkpoints(pg_en
         assert set(remaining) == {sweeps[0].id, sweeps[1].id}
 
 
-async def test_report_migration_roundtrip(pg_engine):
-    import importlib
-    from alembic.migration import MigrationContext
-    from alembic.operations import Operations
-
-    migration = importlib.import_module(
-        'infrastructure.database.migrations.versions.r8h9i0j1k2l3_benchmark_reports'
-    )
-
-    def roundtrip(connection):
-        with Operations.context(MigrationContext.configure(connection)):
-            migration.downgrade()
-            migration.upgrade()
-
-    async with pg_engine.begin() as conn:
-        await conn.run_sync(roundtrip)
 
 
 async def test_fresh_sweep_worker_restores_database_without_data_dir(pg_engine, monkeypatch):

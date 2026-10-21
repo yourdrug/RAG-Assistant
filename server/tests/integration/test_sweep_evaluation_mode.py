@@ -1,10 +1,6 @@
 """Evaluation mode persistence, DB invariants and reversible migration."""
 
-from importlib import import_module
-
 import pytest
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -51,17 +47,9 @@ async def test_database_rejects_invalid_modes_and_nonexhaustive_full_search(pg_e
             )
 
 
-async def test_migration_preserves_legacy_rows_and_is_reversible(pg_engine):
-    migration = import_module(
-        "infrastructure.database.migrations.versions.l2c3d4e5f6g7_add_sweep_evaluation_mode"
-    )
-
-    def migrate(connection, operation):
-        with Operations.context(MigrationContext.configure(connection)):
-            operation()
+async def test_evaluation_mode_default_and_updates(pg_engine):
 
     async with pg_engine.begin() as conn:
-        await conn.run_sync(lambda c: migrate(c, migration.downgrade))
         sweep_id = (
             await conn.execute(
                 text(
@@ -72,7 +60,6 @@ async def test_migration_preserves_legacy_rows_and_is_reversible(pg_engine):
                 {"strategy": BenchmarkStrategy.GRID.value, "status": BenchmarkSweepStatus.DONE.value},
             )
         ).scalar_one()
-        await conn.run_sync(lambda c: migrate(c, migration.upgrade))
         assert (
             await conn.execute(
                 text("SELECT status, evaluation_mode FROM benchmark_sweeps WHERE id=:id"), {"id": sweep_id}
@@ -82,8 +69,6 @@ async def test_migration_preserves_legacy_rows_and_is_reversible(pg_engine):
             text("UPDATE benchmark_sweeps SET evaluation_mode=:mode WHERE id=:id"),
             {"id": sweep_id, "mode": SweepEvaluationMode.FULL.value},
         )
-        await conn.run_sync(lambda c: migrate(c, migration.downgrade))
         assert (
             await conn.execute(text("SELECT status FROM benchmark_sweeps WHERE id=:id"), {"id": sweep_id})
         ).scalar_one() == BenchmarkSweepStatus.DONE.value
-        await conn.run_sync(lambda c: migrate(c, migration.upgrade))

@@ -13,6 +13,14 @@ class PDFDocumentHandle(Protocol):
     def load_page(self, index: int) -> object: ...
 
 
+class PreviewSettingsPort(Protocol):
+    @property
+    def preview_max_size_mb(self) -> int: ...
+
+    @property
+    def preview_cache_ttl_seconds(self) -> int: ...
+
+
 @runtime_checkable
 class PDFPageClassifierPort(Protocol):
     def classify_page(self, text: str, chars: int, page: object | None = None) -> tuple[str, str]: ...

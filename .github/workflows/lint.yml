@@ -66,10 +66,15 @@ jobs:
         working-directory: server
         run: uv sync --frozen --group development --group testing
 
+      - name: Check migration baseline (upgrade, schema parity, downgrade)
+        working-directory: server
+        run: uv run pytest tests/integration/test_migration_schema.py -q
+
       - name: Run tests
         working-directory: server
         run: >-
           uv run pytest -v
+          --ignore=tests/integration/test_migration_schema.py
           --cov=domain.knowledge.access_control
           --cov=infrastructure.ml.answer_cache
           --cov-report=term-missing --cov-fail-under=85

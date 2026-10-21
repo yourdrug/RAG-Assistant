@@ -212,7 +212,6 @@ class Settings(BaseSettings):
         return f"redis://{auth}{self.redis_host}:{self.redis_port}/{self.redis_db}"
 
     # ── File storage ────────────────────────────────────────────────────────
-    file_backend: str = "s3"
     s3_endpoint: str = "http://minio:9000"
     s3_bucket: str = "rag-documents"
     s3_access_key: str = ""
@@ -367,17 +366,12 @@ class Settings(BaseSettings):
                 "REDIS_PASSWORD must be a strong non-default value "
                 "(set REDIS_PASSWORD in server/.env.secrets)"
             )
-        if self.file_backend == "s3" and (
-            self.s3_access_key in ("", "minioadmin") or self.s3_secret_key in ("", "minioadmin")
-        ):
+        if self.s3_access_key in ("", "minioadmin") or self.s3_secret_key in ("", "minioadmin"):
             errors.append(
                 "S3_ACCESS_KEY / S3_SECRET_KEY must be strong non-default values (set in server/.env.secrets)"
             )
-        if self.stage == AppStage.PROD:
-            if self.file_backend == "local":
-                errors.append("FILE_BACKEND must be 's3' in production")
-            if self.allowed_origins.strip() == "*":
-                errors.append("ALLOWED_ORIGINS must not be '*' in production — list explicit origins")
+        if self.stage == AppStage.PROD and self.allowed_origins.strip() == "*":
+            errors.append("ALLOWED_ORIGINS must not be '*' in production — list explicit origins")
         return errors
 
     def check_ml_provider(self) -> list[str]:

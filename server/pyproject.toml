@@ -152,7 +152,6 @@ line-length = 110
 target-version = "py312"
 src = ["app", "tests", "tools"]
 force-exclude = true
-extend-exclude = ["app/infrastructure/database/migrations/versions"]
 output-format = "grouped"
 show-fixes = true
 
@@ -379,7 +378,6 @@ module = [
     "infrastructure.corpus.snapshot",
     "infrastructure.corpus.validation",
     "infrastructure.database.database",
-    "infrastructure.database.models",
     "infrastructure.events.in_process_event_bus",
     "infrastructure.events.postgres_config_broadcaster",
     "infrastructure.events.postgres_config_listener",

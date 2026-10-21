@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from config import settings
 from infrastructure.ml.clients import factories
 
 
@@ -25,7 +24,6 @@ def experiment():
 async def test_live_experiment_loads_sparse_and_closes_owned_storage(
     experiment, monkeypatch, tmp_path, fail_search
 ):
-    monkeypatch.setattr(settings, "file_backend", "s3")
     path = tmp_path / "snapshot.json"
     path.write_text('{"texts":["existing sparse evidence"],"hashes":["sparse-hash"]}')
     storage = SimpleNamespace(download_to_temp=AsyncMock(return_value=path), aclose=AsyncMock())

@@ -9,7 +9,6 @@ from pathlib import Path
 
 from domain.knowledge.enums import DocumentVisibility
 from domain.shared.exceptions import AppServerError
-from domain.runtime.enums import FileBackend
 from domain.knowledge.enums import DocDomain
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
@@ -31,7 +30,6 @@ from presentation.api.dependencies import (
     create_preview_cache,
     create_preview_strategy_factory,
     create_quality_service,
-    create_storage_config,
 )
 from presentation.api.helpers import (
     build_dry_run_response,
@@ -134,7 +132,6 @@ async def dry_run_preview(
     preview_factory=Depends(create_preview_strategy_factory),
     domain_registry=Depends(create_domain_registry),
     domain_settings=Depends(create_domain_settings),
-    storage_cfg=Depends(create_storage_config),
 ):
     """Preview extraction; the selected PaddleOCR-VL engine also parses scans."""
     filename = file.filename or "unnamed"
@@ -143,7 +140,7 @@ async def dry_run_preview(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
-    data = await read_upload_with_limit(file, diag_service._max_bytes)
+    data = await read_upload_with_limit(file, diag_service.max_preview_bytes)
 
     ext = Path(filename).suffix.lower()
 
@@ -175,7 +172,7 @@ async def dry_run_preview(
             warning,
             preview_id=preview_id,
             suggestion=suggestion,
-            image_available=storage_cfg.file_backend == FileBackend.S3.value,
+            image_available=True,
         )
 
 
@@ -199,7 +196,6 @@ async def dry_run_ocr_phase2(
     preview_factory=Depends(create_preview_strategy_factory),
     domain_registry=Depends(create_domain_registry),
     domain_settings=Depends(create_domain_settings),
-    storage_cfg=Depends(create_storage_config),
 ):
     """Phase 2: Run OCR on specific problem units and return updated results.
 
@@ -244,7 +240,7 @@ async def dry_run_ocr_phase2(
             warning,
             preview_id=effective_preview_id,
             suggestion=suggestion,
-            image_available=storage_cfg.file_backend == FileBackend.S3.value,
+            image_available=True,
         )
 
     # Resolve the file: cached file takes precedence over a fresh upload
@@ -276,7 +272,7 @@ async def _run_ocr_from_upload(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
-    data = await read_upload_with_limit(file, diag_service._max_bytes)
+    data = await read_upload_with_limit(file, diag_service.max_preview_bytes)
 
     ext = Path(fname).suffix.lower()
     new_preview_id = await preview_cache.store(data, suffix=ext, original_filename=fname)
@@ -318,15 +314,8 @@ async def get_page_image(
     admin: CurrentUser = Depends(require_admin),
     diag_service: PDFDiagnosticService = Depends(create_pdf_diagnostic_service),
     preview_cache=Depends(create_preview_cache),
-    storage_cfg=Depends(create_storage_config),
 ):
     """Render a single page of the cached PDF as a PNG image (base64-encoded)."""
-    if storage_cfg.file_backend != FileBackend.S3.value:
-        raise HTTPException(
-            status_code=404,
-            detail="Page image rendering is not available (requires S3 storage backend)",
-        )
-
     async with preview_cache.get_path(preview_id) as tmp_path:
         if tmp_path is None:
             raise HTTPException(status_code=404, detail="Preview expired or not found")

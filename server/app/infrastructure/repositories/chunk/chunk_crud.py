@@ -18,7 +18,7 @@ from infrastructure.repositories.chunk.chunk_mapping import to_chunk_search_resu
 from infrastructure.repositories.chunk.chunk_pagination import (
     _build_cursor_backward_conditions,
     _build_cursor_forward_conditions,
-    _paginate_backward,
+    paginate_backward,
     _paginate_forward,
 )
 
@@ -247,7 +247,7 @@ class SQLAlchemyChunkCrudRepository:
             .limit(limit + 1)
         )
         result = await self._session.execute(stmt)
-        return _paginate_backward(list(result.scalars().all()), limit)
+        return paginate_backward(list(result.scalars().all()), limit)
 
     async def find_duplicate_by_hash(
         self,

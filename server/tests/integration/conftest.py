@@ -3,13 +3,18 @@
 import os
 import uuid
 
+from alembic import command
+from alembic.config import Config
 import pytest
 import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from infrastructure.database.basemodel import BaseModel
-import infrastructure.database.models  # noqa: F401
+
+def upgrade_schema(connection):
+    config = Config("alembic.ini")
+    config.attributes["connection"] = connection
+    command.upgrade(config, "head")
 
 
 @pytest_asyncio.fixture
@@ -20,11 +25,12 @@ async def pg_engine():
     schema = f"test_{uuid.uuid4().hex}"
     admin = create_async_engine(url)
     async with admin.begin() as conn:
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public"))
         await conn.execute(text(f'CREATE SCHEMA "{schema}"'))
     engine = create_async_engine(url, connect_args={"server_settings": {"search_path": schema}})
     try:
         async with engine.begin() as conn:
-            await conn.run_sync(BaseModel.metadata.create_all)
+            await conn.run_sync(upgrade_schema)
         yield engine
     finally:
         await engine.dispose()

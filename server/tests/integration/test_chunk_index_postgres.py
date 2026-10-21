@@ -7,10 +7,8 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
 import pytest
-from sqlalchemy import insert, select, text
+from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -18,16 +16,12 @@ from application.chunks import ChunkMutationService
 from domain.identity.roles import UserRole
 from domain.knowledge.enums import DocumentStatus, DocumentVisibility
 from domain.shared.exceptions import BusinessRuleViolationError
-from infrastructure.database.migrations.versions import t0j1k2l3m4n5_unique_chunk_index as migration
 from infrastructure.database.models import ChunkModel, DocumentModel, VectorStoreOutboxModel
 from infrastructure.repositories.chunk.sqlalchemy_chunk_repository import SQLAlchemyChunkRepository
 from infrastructure.uow_factory import UnitOfWorkFactory
 
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
-    from sqlalchemy import Connection
     from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
     from application.chunks.dto import AddChunkResult
@@ -161,41 +155,3 @@ async def test_duplicate_index_is_conflict_and_unrelated_integrity_errors_propag
             )
         await session.rollback()
         assert list((await session.scalars(select(ChunkModel.chunk_index))).all()) == [3]
-
-
-def apply_migration(connection: Connection, action: Callable[[], None]) -> None:
-    with Operations.context(MigrationContext.configure(connection)):
-        action()
-
-
-async def test_migration_round_trip_and_existing_duplicates(pg_engine: AsyncEngine) -> None:
-    sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
-    document_id = await seed_document(sessions)
-    async with pg_engine.begin() as connection:
-        await connection.run_sync(apply_migration, migration.downgrade)
-        await connection.run_sync(apply_migration, migration.upgrade)
-        async with connection.begin_nested() as savepoint:
-            with pytest.raises(IntegrityError, match="ux_chunks_document_index"):
-                await connection.execute(
-                    insert(ChunkModel).values(
-                        document_id=document_id,
-                        chunk_index=3,
-                        content="Duplicate",
-                        visibility=DocumentVisibility.INTERNAL_PUBLIC.value,
-                    )
-                )
-            await savepoint.rollback()
-        await connection.run_sync(apply_migration, migration.downgrade)
-        await connection.execute(
-            insert(ChunkModel).values(
-                document_id=document_id,
-                chunk_index=3,
-                content="Duplicate",
-                visibility=DocumentVisibility.INTERNAL_PUBLIC.value,
-            )
-        )
-        async with connection.begin_nested() as savepoint:
-            with pytest.raises(IntegrityError, match="ux_chunks_document_index"):
-                await connection.run_sync(apply_migration, migration.upgrade)
-            await savepoint.rollback()
-        assert list((await connection.execute(text("SELECT chunk_index FROM chunks"))).scalars()) == [3, 3]

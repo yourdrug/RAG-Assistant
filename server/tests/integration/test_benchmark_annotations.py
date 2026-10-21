@@ -1,10 +1,6 @@
 """Real PostgreSQL contracts for optional benchmark annotations."""
 
-from importlib import import_module
-
 import pytest
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -44,17 +40,9 @@ async def test_annotations_crud_round_trip(pg_engine):
         assert (await repo.update(created.id, annotations=None)).annotations is None
 
 
-async def test_annotation_migration_preserves_questions_and_rejects_arrays(pg_engine):
-    migration = import_module(
-        "infrastructure.database.migrations.versions.g0b1c2d3e4f5_add_benchmark_annotations"
-    )
-
-    def migrate(conn, operation):
-        with Operations.context(MigrationContext.configure(conn)):
-            operation()
+async def test_annotations_default_and_object_constraint(pg_engine):
 
     async with pg_engine.begin() as conn:
-        await conn.run_sync(lambda c: migrate(c, migration.downgrade))
         question_id = (
             await conn.execute(
                 text(
@@ -63,7 +51,6 @@ async def test_annotation_migration_preserves_questions_and_rejects_arrays(pg_en
                 )
             )
         ).scalar_one()
-        await conn.run_sync(lambda c: migrate(c, migration.upgrade))
         assert (
             await conn.execute(
                 text("SELECT question, annotations FROM benchmark_questions WHERE id=:id"),
@@ -79,7 +66,6 @@ async def test_annotation_migration_preserves_questions_and_rejects_arrays(pg_en
         await conn.execute(
             text("UPDATE benchmark_questions SET annotations='{}'::jsonb WHERE id=:id"), {"id": question_id}
         )
-        await conn.run_sync(lambda c: migrate(c, migration.downgrade))
         assert (
             await conn.execute(
                 text("SELECT question FROM benchmark_questions WHERE id=:id"), {"id": question_id}

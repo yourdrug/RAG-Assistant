@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from config import settings
+from infrastructure.ml.config.settings_adapters import LivePreviewSettings
 
 from application.chunks import ChunkMutationService, ChunkQueryService
 from application.documents import DocumentCommandService, ManualDocumentService
@@ -233,7 +233,7 @@ class ApplicationContainer:
             pdf_doc=FitzPDFDocument(),
             storage=fs,
             preview_cache=infra.ml.preview_cache,
-            max_dry_run_bytes=settings.preview_max_size_mb * 1024 * 1024,
+            settings=LivePreviewSettings(),
         )
 
         self.search_service = SearchService(uow_factory=uow)

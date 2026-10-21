@@ -5,12 +5,11 @@ from unittest.mock import MagicMock
 import pytest
 
 from application.admin import ConfigService
-from config import Settings, settings
-from domain.runtime.config import ConfigParameter, ConfigParameterChanged, ConfigValueType
+from config import Settings
+from domain.runtime.config import ConfigParameter, ConfigValueType
 from domain.runtime.setting_keys import SECRET_SETTING_KEYS, STATIC_SETTING_KEYS
 from domain.shared.exceptions import ValidationError
 from fakes import FakeUnitOfWorkFactory
-from infrastructure.ml.config.config_subscribers import apply_to_settings, invalidate_storage_cache
 from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
 
 
@@ -27,15 +26,14 @@ async def test_direct_service_cannot_update_deployment_or_pending_keys(key):
 
 
 @pytest.mark.parametrize("key", ["s3_secret_key", "s3_access_key", "s3_endpoint", "s3_bucket", "s3_region"])
-def test_legacy_storage_event_does_not_change_env_or_resources(monkeypatch, key):
-    monkeypatch.setattr(settings, key, "deployment-value")
-    storage, clients = MagicMock(), MagicMock()
-    event = ConfigParameterChanged(key=key, old_value=None, new_value="****", value_type=ConfigValueType.STR)
-    apply_to_settings(event)
-    invalidate_storage_cache(event, storage, clients)
-    assert getattr(settings, key) == "deployment-value"
-    storage.invalidate.assert_not_called()
-    clients.invalidate_bm25.assert_not_called()
+def test_legacy_storage_row_does_not_change_deployment_settings(key):
+    model = Settings(_env_file=None, **{key: "deployment-value"})
+    bus = MagicMock()
+    configuration = SettingsProviderConfiguration(model, bus=bus)
+    row = ConfigParameter(key, "****", ConfigValueType.STR, "legacy")
+    configuration.apply([row])
+    assert getattr(model, key) == "deployment-value"
+    bus.publish_strict.assert_not_called()
 
 
 def test_dynamic_environment_and_dotenv_are_ignored_but_constructor_kwargs_work(monkeypatch, tmp_path):
@@ -78,17 +76,15 @@ async def test_removed_classifier_threshold_in_database_stays_inactive():
     with pytest.raises(ValidationError, match="not an active dynamic parameter"):
         await service.update_parameter(key, "3.0")
     assert row.value == "obsolete-value"
-    apply_to_settings(ConfigParameterChanged(key, None, "3.0", ConfigValueType.FLOAT))
-    assert not hasattr(settings, key)
 
 
-def test_preview_limits_are_static_environment_settings(monkeypatch):
+def test_preview_limits_ignore_legacy_environment_settings(monkeypatch):
     monkeypatch.setenv("PREVIEW_MAX_SIZE_MB", "7")
     monkeypatch.setenv("PREVIEW_CACHE_TTL_SECONDS", "90")
     model = Settings(_env_file=None)
-    assert model.preview_max_size_mb == 7
-    assert model.preview_cache_ttl_seconds == 90
-    assert {"preview_max_size_mb", "preview_cache_ttl_seconds"} <= STATIC_SETTING_KEYS
+    assert model.preview_max_size_mb == 50
+    assert model.preview_cache_ttl_seconds == 1800
+    assert not {"preview_max_size_mb", "preview_cache_ttl_seconds"} & STATIC_SETTING_KEYS
 
 
 @pytest.mark.parametrize("key", ["preview_max_size_mb", "preview_cache_ttl_seconds"])

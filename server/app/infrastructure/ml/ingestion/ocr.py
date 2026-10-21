@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import functools
 import logging
+from typing import TYPE_CHECKING
 
 import numpy as np
 import fitz
@@ -13,12 +14,24 @@ from PIL import Image
 from config import settings
 from infrastructure.ml.ingestion.ocr_vl import recognize_page
 
+if TYPE_CHECKING:
+    from domain.runtime.config import ConfigParameterChanged
+
 log = logging.getLogger("detailed")
 
 # Recognitions below this confidence are dropped rather than fed into search
 # — low-confidence OCR guesses are noise that actively hurts embeddings/exact
 # match, not signal. Overridable via settings.ocr_min_confidence.
 _DEFAULT_OCR_MIN_CONFIDENCE = 0.5
+
+
+def invalidate_paddle_ocr_cache(event: ConfigParameterChanged) -> None:
+    """Сбросить кэш PaddleOCR при смене языка (модель перезагрузится лениво)."""
+    if event.key != "ocr_lang_paddle":
+        return
+
+    get_paddle_ocr.cache_clear()
+    log.info("PaddleOCR cache invalidated (ocr_lang_paddle -> %s)", event.new_value)
 
 
 @functools.lru_cache(maxsize=1)

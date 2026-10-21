@@ -43,9 +43,6 @@ app/infrastructure/config_migration.py
 app/infrastructure/corpus/control.py
 app/infrastructure/corpus/snapshot.py
 app/infrastructure/corpus/validation.py
-app/infrastructure/database/migrations/env.py
-app/infrastructure/database/migrations/versions/q7h8i9j0k1l2_cost_attempt_audit.py
-app/infrastructure/database/migrations/versions/r8h9i0j1k2l3_benchmark_reports.py
 app/infrastructure/domain_profile/settings_adapter.py
 app/infrastructure/events/in_process_event_bus.py
 app/infrastructure/events/postgres_config_broadcaster.py

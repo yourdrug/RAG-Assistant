@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from botocore.exceptions import ClientError
 
-from config import settings
-from infrastructure.storage.file_storage import S3Storage
+from config import Settings, settings
+from infrastructure.storage.file_storage import S3Storage, create_storage
 
 
 def client_harness(monkeypatch, *, max_concurrent=2):
@@ -349,3 +349,18 @@ async def test_cancel_during_multipart_creation_aborts_remote_upload(monkeypatch
             Bucket='bucket', Key='report.json', UploadId='owned-upload'
         )
     await storage.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("legacy_backend", ["local", "s3", "typo"])
+async def test_factory_uses_s3_without_data_dir_even_with_legacy_env(monkeypatch, legacy_backend):
+    monkeypatch.setenv("FILE_BACKEND", legacy_backend)
+    configured = Settings(_env_file=None, data_dir="/proc/unavailable")
+    monkeypatch.setattr("infrastructure.storage.file_storage.settings", configured)
+    storage = create_storage()
+    try:
+        assert isinstance(storage, S3Storage)
+        assert storage.bucket == configured.s3_bucket
+        assert "file_backend" not in Settings.model_fields
+    finally:
+        await storage.aclose()

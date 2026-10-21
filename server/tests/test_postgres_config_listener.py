@@ -1,244 +1,98 @@
-"""Tests for PostgresConfigListener."""
+"""Config notifications trigger a validated snapshot reload from the writer."""
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from domain.runtime.config import ConfigParameterChanged
+from infrastructure.events.postgres_config_broadcaster import PostgresConfigBroadcaster
 from infrastructure.events.postgres_config_listener import PostgresConfigListener
 
 
-def test_on_notify_publishes_event():
-    bus = MagicMock()
-    factory = MagicMock()
-    listener = PostgresConfigListener(bus, factory)
+@pytest.fixture
+def listener():
+    return PostgresConfigListener(MagicMock(), configuration=MagicMock())
 
-    payload = (
-        '{"key": "retriever_top_k", "old_value": "4", "new_value": "8", "value_type": "int", "changed_by": 1}'
-    )
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("payload", ["", "not json", '{"key":"llm_model","new_value":"stale"}'])
+async def test_notify_reloads_snapshot_regardless_of_payload(listener, monkeypatch, payload):
+    synchronize = AsyncMock()
+    monkeypatch.setattr(listener, "synchronize", synchronize)
     listener.on_notify(None, None, "config_changed", payload)
-
-    bus.publish.assert_called_once()
-    event = bus.publish.call_args[0][0]
-    assert isinstance(event, ConfigParameterChanged)
-    assert event.key == "retriever_top_k"
-    assert event.new_value == "8"
-    assert event.old_value == "4"
-    assert event.value_type == "int"
-    assert event.changed_by == 1
-
-
-def test_on_notify_malformed_payload_does_not_raise():
-    bus = MagicMock()
-    factory = MagicMock()
-    listener = PostgresConfigListener(bus, factory)
-    listener.on_notify(None, None, "config_changed", "not valid json")
-    bus.publish.assert_not_called()
-
-
-def test_on_notify_refetch_payload_skips_direct_publish():
-    bus = MagicMock()
-    factory = MagicMock()
-    listener = PostgresConfigListener(bus, factory)
-
-    payload = '{"key": "chunk_size", "refetch": True}'
-    listener.on_notify(None, None, "config_changed", payload)
-    bus.publish.assert_not_called()
-
-
-def test_on_notify_missing_optional_fields():
-    bus = MagicMock()
-    factory = MagicMock()
-    listener = PostgresConfigListener(bus, factory)
-
-    payload = '{"key": "chunk_size", "new_value": "900", "value_type": "int"}'
-    listener.on_notify(None, None, "config_changed", payload)
-
-    bus.publish.assert_called_once()
-    event = bus.publish.call_args[0][0]
-    assert event.old_value is None
-    assert event.changed_by is None
+    await asyncio.gather(*listener._background_tasks)
+    synchronize.assert_awaited_once_with()
+    listener.configuration.failed.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_refetch_and_publish_reads_from_db():
-    bus = MagicMock()
-    fake_param = MagicMock()
-    fake_param.key = "chunk_size"
-    fake_param.value = "900"
-    fake_param.value_type = "int"
-
-    fake_uow = AsyncMock()
-    fake_uow.config_parameters.get_by_key_and_domain.return_value = fake_param
-
-    fake_factory = MagicMock()
-    fake_factory.create.return_value.__aenter__ = AsyncMock(return_value=fake_uow)
-    fake_factory.create.return_value.__aexit__ = AsyncMock(return_value=False)
-
-    listener = PostgresConfigListener(bus, fake_factory)
-    await listener.refetch_and_publish("chunk_size")
-
-    bus.publish.assert_called_once()
-    event = bus.publish.call_args[0][0]
-    assert event.key == "chunk_size"
-    assert event.new_value == "900"
-
-
-@pytest.mark.asyncio
-async def test_refetch_and_publish_param_not_found():
-    bus = MagicMock()
-    fake_uow = AsyncMock()
-    fake_uow.config_parameters.get_by_key_and_domain.return_value = None
-
-    fake_factory = MagicMock()
-    fake_factory.create.return_value.__aenter__ = AsyncMock(return_value=fake_uow)
-    fake_factory.create.return_value.__aexit__ = AsyncMock(return_value=False)
-
-    listener = PostgresConfigListener(bus, fake_factory)
-    await listener.refetch_and_publish("nonexistent")
-
-    bus.publish.assert_not_called()
-
-
-def test_is_connected_false_initially():
-    bus = MagicMock()
-    factory = MagicMock()
-    listener = PostgresConfigListener(bus, factory)
-    assert listener.is_connected is False
-
-
-@pytest.mark.asyncio
-async def test_stop_sets_stopped_flag():
-    bus = MagicMock()
-    factory = MagicMock()
-    listener = PostgresConfigListener(bus, factory)
-    await listener.stop()
-    assert listener._stopped is True
-
-
-@pytest.mark.asyncio
-async def test_resync_publishes_only_changed_params():
-    bus = MagicMock()
-    fake_rows = [
-        MagicMock(key="chunk_size", value="900", value_type="int", domain_key=None),
-        MagicMock(key="hybrid_enabled", value="true", value_type="bool", domain_key=None),
-    ]
-
-    fake_uow = AsyncMock()
-    fake_uow.config_parameters.get_all.return_value = fake_rows
-
-    fake_factory = MagicMock()
-    fake_factory.create.return_value.__aenter__ = AsyncMock(return_value=fake_uow)
-    fake_factory.create.return_value.__aexit__ = AsyncMock(return_value=False)
-
-    import config
-
-    original_chunk_size = getattr(config.settings, "chunk_size", None)
-    original_hybrid = getattr(config.settings, "hybrid_enabled", None)
-    try:
-        config.settings.chunk_size = 500
-        config.settings.hybrid_enabled = False
-
-        listener = PostgresConfigListener(bus, fake_factory)
-        await listener.resync(trigger="manual")
-
-        assert bus.publish.call_count == 2
-        first_event = bus.publish.call_args_list[0][0][0]
-        assert first_event.key == "chunk_size"
-        assert first_event.new_value == "900"
-        second_event = bus.publish.call_args_list[1][0][0]
-        assert second_event.key == "hybrid_enabled"
-        assert second_event.new_value == "true"
-    finally:
-        if original_chunk_size is not None:
-            config.settings.chunk_size = original_chunk_size
-        if original_hybrid is not None:
-            config.settings.hybrid_enabled = original_hybrid
-
-
-@pytest.mark.asyncio
-async def test_resync_skips_unchanged_params():
-    bus = MagicMock()
-    fake_rows = [
-        MagicMock(key="chunk_size", value="500", value_type="int", domain_key=None),
-        MagicMock(key="hybrid_enabled", value="false", value_type="bool", domain_key=None),
-    ]
-
-    fake_uow = AsyncMock()
-    fake_uow.config_parameters.get_all.return_value = fake_rows
-
-    fake_factory = MagicMock()
-    fake_factory.create.return_value.__aenter__ = AsyncMock(return_value=fake_uow)
-    fake_factory.create.return_value.__aexit__ = AsyncMock(return_value=False)
-
-    import config
-
-    original_chunk_size = getattr(config.settings, "chunk_size", None)
-    original_hybrid = getattr(config.settings, "hybrid_enabled", None)
-    try:
-        config.settings.chunk_size = 500
-        config.settings.hybrid_enabled = False
-
-        listener = PostgresConfigListener(bus, fake_factory)
-        await listener.resync(trigger="manual")
-
-        bus.publish.assert_not_called()
-    finally:
-        if original_chunk_size is not None:
-            config.settings.chunk_size = original_chunk_size
-        if original_hybrid is not None:
-            config.settings.hybrid_enabled = original_hybrid
-
-
-@pytest.mark.asyncio
-async def test_resync_logs_failure_without_raising():
-    bus = MagicMock()
-    fake_factory = MagicMock()
-    fake_factory.create.side_effect = RuntimeError("DB down")
-
-    listener = PostgresConfigListener(bus, fake_factory)
+async def test_resync_marks_configuration_unready_on_failure(listener, monkeypatch, caplog):
+    monkeypatch.setattr(listener, "synchronize", AsyncMock(side_effect=RuntimeError("DB down")))
     await listener.resync(trigger="periodic")
-    bus.publish.assert_not_called()
+    listener.configuration.failed.assert_called_once_with()
+    assert "Configuration snapshot resync failed" in caplog.text
 
 
-class TestValuesEqual:
-    def test_none_both(self):
-        assert PostgresConfigListener.values_equal(None, None) is True
+@pytest.mark.asyncio
+async def test_connect_reloads_snapshot_after_listening(listener, monkeypatch):
+    connection = AsyncMock()
+    monkeypatch.setattr(
+        "infrastructure.events.postgres_config_listener.asyncpg.connect",
+        AsyncMock(return_value=connection),
+    )
+    synchronize = AsyncMock()
 
-    def test_none_current(self):
-        assert PostgresConfigListener.values_equal(None, "1.0") is False
+    async def synchronized_after_listen():
+        connection.add_listener.assert_awaited_once_with("config_changed", listener.on_notify)
+        await synchronize()
 
-    def test_none_db(self):
-        assert PostgresConfigListener.values_equal("1.0", None) is False
+    monkeypatch.setattr(listener, "synchronize", synchronized_after_listen)
+    await listener.connect_and_listen()
+    synchronize.assert_awaited_once_with()
+    assert listener._conn is connection
 
-    def test_string_vs_string(self):
-        assert PostgresConfigListener.values_equal("2.0", "2.0") is True
 
-    def test_string_vs_number_json(self):
-        """Bug fix: '2.0' (str) vs '2.0' (JSON number) should be equal."""
-        assert PostgresConfigListener.values_equal("2.0", "2.0") is True
+@pytest.mark.asyncio
+async def test_stop_cancels_pending_sync_and_closes_connection(listener, monkeypatch):
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
 
-    def test_int_vs_int(self):
-        assert PostgresConfigListener.values_equal(42, "42") is True
+    async def synchronize():
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
 
-    def test_float_vs_float(self):
-        assert PostgresConfigListener.values_equal(3.14, "3.14") is True
+    monkeypatch.setattr(listener, "synchronize", synchronize)
+    listener._conn = MagicMock(is_closed=MagicMock(return_value=False), close=AsyncMock())
+    connection = listener._conn
+    listener.on_notify(None, None, "config_changed", "")
+    await started.wait()
+    await listener.stop()
+    assert cancelled.is_set()
+    assert not listener._background_tasks
+    assert not listener.is_connected
+    connection.close.assert_awaited_once_with()
+    listener.configuration.failed.assert_not_called()
 
-    def test_bool_vs_bool(self):
-        assert PostgresConfigListener.values_equal(True, "true") is True
 
-    def test_list_vs_list(self):
-        assert PostgresConfigListener.values_equal(["a", "b"], '["a", "b"]') is True
+def test_is_connected_false_initially(listener):
+    assert not listener.is_connected
 
-    def test_different_values(self):
-        assert PostgresConfigListener.values_equal("1.0", "2.0") is False
 
-    def test_int_vs_string(self):
-        """42 (int) vs "42" (JSON string) should be considered equal in config context."""
-        assert PostgresConfigListener.values_equal(42, '"42"') is True
+@pytest.mark.asyncio
+@pytest.mark.parametrize("key,value", [("llm_model", "x" * 9000), ("openrouter_api_key", "secret")])
+async def test_broadcast_sends_only_invalidation_in_existing_transaction(key, value):
+    session = AsyncMock(spec=AsyncSession)
+    event = ConfigParameterChanged(key=key, old_value="old", new_value=value, value_type="str")
+    await PostgresConfigBroadcaster().broadcast_within_session(session, event)
+    statement, parameters = session.execute.call_args.args
+    assert str(statement) == "SELECT pg_notify(:channel, :payload)"
+    assert parameters == {"channel": "config_changed", "payload": ""}
+    session.commit.assert_not_awaited()
+    session.rollback.assert_not_awaited()

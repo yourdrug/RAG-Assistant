@@ -1,10 +1,9 @@
-"""Container-owned async local/S3 backends with lazy client initialization."""
+"""Container-owned async S3 storage with lazy client initialization."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
-import shutil
 import tempfile
 import threading
 from contextlib import asynccontextmanager
@@ -77,134 +76,6 @@ def close_download(handle, *, remove: bool) -> None:
     finally:
         if remove:
             Path(handle.name).unlink(missing_ok=True)
-
-
-class LocalStorage:
-    def __init__(self, base_dir: str | None = None):
-        self.base_dir = Path(base_dir or settings.data_dir)
-
-    @property
-    def supported_extensions(self) -> tuple[str, ...]:
-        return settings.supported_extensions
-
-    async def list_files(self, prefix: str) -> list[FileItem]:
-        return await asyncio.to_thread(self.list_files_sync, prefix)
-
-    def list_files_sync(self, prefix: str) -> list[FileItem]:
-        base = self.base_dir / prefix
-        if not base.exists():
-            return []
-        items: list[FileItem] = []
-        for f in sorted(base.rglob("*")):
-            if not f.is_file():
-                continue
-            if f.suffix.lower() not in settings.supported_extensions:
-                continue
-            rel = f.relative_to(self.base_dir)
-            stat = f.stat()
-            items.append(
-                FileItem(
-                    key=str(rel),
-                    filename=f.name,
-                    size_bytes=stat.st_size,
-                    last_modified=str(int(stat.st_mtime)),
-                    extension=f.suffix.lower(),
-                )
-            )
-        return items
-
-    async def download_to_temp(self, key: str) -> Path:
-        def download() -> Path:
-            src = self.base_dir / key
-            if not src.exists():
-                raise FileNotFoundError(f"File not found: {key}")
-            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=Path(key).suffix)
-            try:
-                tmp.write(src.read_bytes())
-            except Exception:
-                tmp.close()
-                Path(tmp.name).unlink(missing_ok=True)
-                raise
-            tmp.close()
-            return Path(tmp.name)
-
-        return await asyncio.to_thread(download)
-
-    async def upload_file(self, key: str, data: bytes) -> None:
-        def upload() -> None:
-            dest = self.base_dir / key
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_bytes(data)
-
-        await asyncio.to_thread(upload)
-
-    async def upload_stream(self, key: str, blocks: AsyncIterator[bytes]) -> None:
-        dest = self.base_dir / key
-        await run_storage_io(dest.parent.mkdir, parents=True, exist_ok=True)
-        # A disposable sibling permits atomic replacement on the local backend.
-        creation = asyncio.create_task(
-            asyncio.to_thread(tempfile.NamedTemporaryFile, dir=dest.parent, delete=False)
-        )
-        try:
-            handle = await asyncio.shield(creation)
-        except asyncio.CancelledError:
-            handle = await finish_owned_task(creation)
-            await run_storage_io(close_download, handle, remove=True)
-            raise
-        try:
-            async for block in blocks:
-                await run_storage_io(handle.write, block)
-            await run_storage_io(handle.close)
-            await run_storage_io(Path(handle.name).replace, dest)
-        finally:
-            await run_storage_io(close_download, handle, remove=True)
-
-    async def get_file_info(self, key: str) -> FileItem | None:
-        return await asyncio.to_thread(self.get_file_info_sync, key)
-
-    def get_file_info_sync(self, key: str) -> FileItem | None:
-        f = self.base_dir / key
-        if not f.exists():
-            return None
-        stat = f.stat()
-        return FileItem(
-            key=key,
-            filename=f.name,
-            size_bytes=stat.st_size,
-            last_modified=str(int(stat.st_mtime)),
-            extension=f.suffix.lower(),
-        )
-
-    async def delete_file(self, key: str) -> None:
-        def delete() -> None:
-            f = self.base_dir / key
-            if f.exists():
-                f.unlink()
-
-        await asyncio.to_thread(delete)
-
-    async def rename_file(self, old_key: str, new_key: str) -> None:
-        def rename() -> None:
-            src = self.base_dir / old_key
-            dst = self.base_dir / new_key
-            if src.exists():
-                dst.parent.mkdir(parents=True, exist_ok=True)
-                src.rename(dst)
-
-        await asyncio.to_thread(rename)
-
-    async def copy_file(self, old_key: str, new_key: str) -> None:
-        def copy() -> None:
-            src = self.base_dir / old_key
-            dst = self.base_dir / new_key
-            if src.exists():
-                dst.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(src, dst)
-
-        await asyncio.to_thread(copy)
-
-    async def aclose(self) -> None:
-        """Local storage has no persistent resources."""
 
 
 class S3Storage:
@@ -530,6 +401,4 @@ class LazyStorage:
 
 
 def create_storage() -> FileStorage:
-    if settings.file_backend == "s3":
-        return S3Storage()
-    return LocalStorage()
+    return S3Storage()

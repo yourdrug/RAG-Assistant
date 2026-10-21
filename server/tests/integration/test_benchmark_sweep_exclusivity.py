@@ -2,13 +2,10 @@
 
 import asyncio
 from contextlib import asynccontextmanager
-from importlib import import_module
 from types import SimpleNamespace
 
 import pytest
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -135,32 +132,3 @@ async def test_dead_job_releases_active_sweep(pg_engine):
         assert await repo.requeue(sweep.id) is True
         # Requeue clears the old failed job; the reaper cannot fail the new attempt.
         assert await repo.fail_dead_jobs() == 0
-
-
-async def test_migration_upgrade_and_downgrade(pg_engine):
-    migration = import_module(
-        "infrastructure.database.migrations.versions.h1c2d3e4f5g6_one_active_benchmark_sweep"
-    )
-
-    def migrate(conn, operation):
-        with Operations.context(MigrationContext.configure(conn)):
-            operation()
-
-    async with pg_engine.begin() as conn:
-        await conn.run_sync(lambda c: migrate(c, migration.downgrade))
-        await conn.run_sync(lambda c: migrate(c, migration.upgrade))
-        insert = text(
-            "INSERT INTO benchmark_sweeps (strategy, search_space, objective_weights, creation_date) "
-            "VALUES (:strategy, '{}', '{}', CURRENT_TIMESTAMP)"
-        )
-        params = {"strategy": BenchmarkStrategy.GRID.value}
-        await conn.execute(insert, params)
-        with pytest.raises(IntegrityError):
-            async with conn.begin_nested():
-                await conn.execute(insert, params)
-        await conn.run_sync(lambda c: migrate(c, migration.downgrade))
-        await conn.execute(insert, params)
-        # Existing duplicates must fail migration without silently cancelling jobs.
-        with pytest.raises(IntegrityError):
-            async with conn.begin_nested():
-                await conn.run_sync(lambda c: migrate(c, migration.upgrade))

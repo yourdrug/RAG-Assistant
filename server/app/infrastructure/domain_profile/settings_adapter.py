@@ -1,14 +1,6 @@
-"""DomainSettingsAdapter — reads domain-specific config from config_parameters table.
-
-Implements DomainSettingsPort. Caches values in memory, invalidated by
-ConfigParameterChanged events with matching domain_key.
-"""
+"""DomainSettingsPort backed by the validated process-local configuration snapshot."""
 
 from __future__ import annotations
-
-import logging
-
-log = logging.getLogger("default")
 
 
 class DomainSettingsAdapter:
@@ -29,11 +21,6 @@ class DomainSettingsAdapter:
         if cache_key in self._cache:
             return self._cache[cache_key]
         raise KeyError(f"Config parameter '{key}' not found for domain '{domain_key}'")
-
-    def set(self, key: str, domain_key: str | None, value: str) -> None:
-        """Update cached value. Called by config event subscribers."""
-        cache_key = (key, domain_key or "")
-        self._cache[cache_key] = value
 
     def snapshot(self) -> dict[tuple[str, str], str]:
         return dict(self._cache)

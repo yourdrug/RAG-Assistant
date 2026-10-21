@@ -1,6 +1,7 @@
 """Regression coverage for OCR page results returned to preview callers."""
 
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -32,7 +33,7 @@ def test_ocr_returns_updated_pages_and_preserves_other_pages(
         ocr=ocr,
         pdf_doc=pdf,
         storage=Mock(),
-        max_dry_run_bytes=1024,
+        settings=SimpleNamespace(preview_max_size_mb=1),
     )
     unchanged = DryRunPageResult(page=1, type=PageContentType.TEXT, chars=5, full_text="Текст")
     original = DryRunPageResult(page=2, type=PageContentType.EMPTY)

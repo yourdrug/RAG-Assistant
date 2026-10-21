@@ -6,39 +6,125 @@ Uses shared BaseModel (int PK + creation_date) and LinkedBaseModel (M2M join tab
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Any
 
 from sqlalchemy import (
-    func,
     JSON,
+    BigInteger,
     Boolean,
     CheckConstraint,
+    Column,
     Date,
     DateTime,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
+    Numeric,
     String,
+    Table,
     Text,
     UniqueConstraint,
+    func,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from domain.benchmark.sweep import (
+    BenchmarkStrategy,
+    BenchmarkSweepStatus,
+    SweepEvaluationMode,
+)
+from domain.identity.roles import UserKind, UserRole
+from domain.knowledge.enums import (
+    DOCUMENT_SLOT_STATUSES,
+    DocDomain,
+    DocumentStatus,
+    DocumentVisibility,
+    SourceType,
+)
 from domain.knowledge.index_sync import OutboxStatus
 from domain.runtime.jobs import BackgroundJobStatus
-from domain.knowledge.enums import DocumentVisibility
-from domain.knowledge.enums import SourceType
-from domain.knowledge.enums import DocDomain
-from domain.identity.roles import UserRole, UserKind
-from domain.knowledge.enums import DOCUMENT_SLOT_STATUSES, DocumentStatus
-from domain.benchmark.sweep import BenchmarkSweepStatus
-from domain.benchmark.sweep import SweepEvaluationMode
-from domain.benchmark.sweep import BenchmarkStrategy
 from infrastructure.database.basemodel import BaseModel, LinkedBaseModel
 
+
 BENCHMARK_ACTIVE_SWEEP_INDEX = "uq_benchmark_sweeps_one_active"
+
+
+# Runtime adapters use raw SQL; these declarations keep Alembic aware of their schema.
+cost_rates = Table(
+    "cost_rates",
+    BaseModel.metadata,
+    Column("provider", Text, primary_key=True),
+    Column("model", Text, primary_key=True),
+    Column("version", Integer, primary_key=True),
+    Column("unit", Text, nullable=False),
+    Column("input_usd_per_million", Numeric(24, 12), nullable=False),
+    Column("output_usd_per_million", Numeric(24, 12), nullable=False),
+    Column("context_tokens", Integer, nullable=False),
+    Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+    CheckConstraint("version > 0 AND context_tokens > 0"),
+    CheckConstraint("input_usd_per_million >= 0 AND output_usd_per_million >= 0"),
+)
+
+cost_usage = Table(
+    "cost_usage",
+    BaseModel.metadata,
+    Column("operation_id", Text, primary_key=True),
+    Column("principal", Text, nullable=False),
+    Column("provider", Text, nullable=False),
+    Column("model", Text, nullable=False),
+    Column("operation", Text, nullable=False),
+    Column("provider_response_id", Text),
+    Column("reconciliation_evidence", Text),
+    Column("rate_version", Integer, nullable=False),
+    Column("reserved_units", BigInteger, nullable=False),
+    Column("actual_units", BigInteger),
+    Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+    Column("settled_at", DateTime(timezone=True)),
+    Column("request_fingerprint", Text),
+    Column("billable_units", JSONB),
+    Column("cost_source", Text),
+    Column("dispatch_state", Text, server_default="reserved", nullable=False),
+    CheckConstraint("reserved_units >= 0 AND (actual_units IS NULL OR actual_units >= 0)"),
+    CheckConstraint("(actual_units IS NULL) = (settled_at IS NULL)"),
+    CheckConstraint("dispatch_state IN ('reserved', 'sending', 'settled')", name="ck_cost_usage_dispatch"),
+    ForeignKeyConstraint(
+        ["provider", "model", "rate_version"],
+        ["cost_rates.provider", "cost_rates.model", "cost_rates.version"],
+    ),
+    Index("ix_cost_usage_principal_window", "principal", "settled_at"),
+)
+
+corpus_control = Table(
+    "corpus_control",
+    BaseModel.metadata,
+    Column("id", Integer, primary_key=True),
+    Column("phase", Text, nullable=False),
+    Column("write_epoch", BigInteger, nullable=False, server_default="0"),
+    Column("active", JSONB, nullable=False),
+    Column("candidate", JSONB),
+    Column("digest", Text),
+    Column("owner", Text),
+    Column("error", Text),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    CheckConstraint("id = 1"),
+    CheckConstraint("phase IN ('active', 'preparing', 'committing', 'failed')"),
+)
+
+corpus_processes = Table(
+    "corpus_processes",
+    BaseModel.metadata,
+    Column("process_id", Text, primary_key=True),
+    Column("role", Text, nullable=False),
+    Column("prepared_generation", Text),
+    Column("applied_generation", Text),
+    Column("error", Text),
+    Column("heartbeat_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    CheckConstraint("role IN ('api', 'worker', 'cli')"),
+)
 
 
 class UserModel(BaseModel):
@@ -81,7 +167,7 @@ class MessageModel(BaseModel):
     conversation_id: Mapped[int | None] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"))
     role: Mapped[str] = mapped_column(String(16), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    sources: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    sources: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
 
     conversation = relationship("ConversationModel", back_populates="messages")
 
@@ -139,6 +225,13 @@ class DocumentModel(BaseModel):
         Index("idx_documents_visibility", "visibility"),
         Index("idx_documents_status", "status"),
         Index("idx_documents_doc_domain", "doc_domain"),
+        Index("idx_documents_source_type", "source_type"),
+        Index(
+            "idx_documents_version_group",
+            "version_group_id",
+            postgresql_where="version_group_id IS NOT NULL",
+        ),
+        CheckConstraint("source_type IN ('file', 'manual')", name="documents_source_type_check"),
         # COALESCE so public/group (NULL owner) rows collide too — NULLs are
         # distinct in plain unique indexes, which let duplicate public uploads
         # through.
@@ -218,7 +311,7 @@ class ConfigParameterModel(BaseModel):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     min_value: Mapped[float | None] = mapped_column(nullable=True)
     max_value: Mapped[float | None] = mapped_column(nullable=True)
-    allowed_values: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    allowed_values: Mapped[dict[str, Any] | list[Any] | None] = mapped_column(JSON, nullable=True)
     domain_key: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
@@ -268,7 +361,7 @@ class RegulatoryActModel(BaseModel):
             "act_type",
             "act_number",
             "visibility_scope",
-            text("COALESCE(act_date, DATE '0001-01-01')"),
+            text("COALESCE(act_date, '0001-01-01'::date)"),
             unique=True,
         ),
     )
@@ -328,6 +421,18 @@ class ChunkModel(BaseModel):
         Index("ix_chunks_owner_id", "owner_id"),
         Index("ix_chunks_group_id", "group_id"),
         Index("idx_chunks_content_hash", "content_hash"),
+        Index(
+            "ix_chunks_content_trgm",
+            "content",
+            postgresql_using="gin",
+            postgresql_ops={"content": "gin_trgm_ops"},
+        ),
+        Index("ix_chunks_edited_by", "edited_by", postgresql_where="edited_by IS NOT NULL"),
+        Index(
+            "idx_chunks_act_version_id",
+            "act_version_id",
+            postgresql_where="act_version_id IS NOT NULL",
+        ),
         CheckConstraint(
             "jsonb_typeof(context_metadata) = 'object'", name="chk_chunks_context_metadata_object"
         ),
@@ -343,12 +448,12 @@ class ChunkModel(BaseModel):
     doc_domain: Mapped[str] = mapped_column(String(32), nullable=False, default=DocDomain.GENERAL.value)
     owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     group_id: Mapped[int | None] = mapped_column(ForeignKey("groups.id", ondelete="SET NULL"))
-    edited_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     edited_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     manual: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     content_hash: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    domain_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    context_metadata: Mapped[dict] = mapped_column(
+    domain_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    context_metadata: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
     )
     act_version_id: Mapped[int | None] = mapped_column(
@@ -375,13 +480,13 @@ class ChatLogModel(BaseModel):
         Index("idx_chat_logs_domain", "domain"),
     )
 
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     conversation_id: Mapped[int | None] = mapped_column(
         ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True
     )
     question: Mapped[str] = mapped_column(Text, nullable=False)
     answer: Mapped[str] = mapped_column(Text, nullable=False)
-    sources: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    sources: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
     latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     model_used: Mapped[str | None] = mapped_column(String(100), nullable=True)
     breadth: Mapped[str | None] = mapped_column(String(20), nullable=True)
@@ -408,8 +513,12 @@ class BenchmarkQuestionModel(BaseModel):
     question: Mapped[str] = mapped_column(Text, nullable=False)
     expected_answer: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_hint: Mapped[str | None] = mapped_column(Text, nullable=True)
-    annotations: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
-    tags: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # SQLAlchemy does not annotate the PostgreSQL JSON constructor.
+    annotations: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB(none_as_null=True),  # type: ignore[no-untyped-call]
+        nullable=True,
+    )
+    tags: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     dataset: Mapped[str] = mapped_column(String(100), nullable=False, server_default="main")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
@@ -449,8 +558,8 @@ class BenchmarkSweepModel(BaseModel):
         String(20), nullable=False, server_default=BenchmarkSweepStatus.PENDING.value
     )
     strategy: Mapped[str] = mapped_column(String(50), nullable=False)
-    search_space: Mapped[dict] = mapped_column(JSON, nullable=False)
-    objective_weights: Mapped[dict] = mapped_column(JSON, nullable=False)
+    search_space: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    objective_weights: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     dataset: Mapped[str] = mapped_column(String(100), nullable=False, server_default="main")
     top_n_llm: Mapped[int] = mapped_column(Integer, nullable=False, server_default="3")
     judge_model: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -463,7 +572,10 @@ class BenchmarkSweepModel(BaseModel):
     total_configs: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     evaluated_configs: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     best_run_id: Mapped[int | None] = mapped_column(
-        ForeignKey("benchmark_runs.id", ondelete="SET NULL"), nullable=True
+        ForeignKey(
+            "benchmark_runs.id", ondelete="SET NULL", name="fk_benchmark_sweeps_best_run", use_alter=True
+        ),
+        nullable=True,
     )
     version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
 
@@ -482,16 +594,16 @@ class BenchmarkRunModel(BaseModel):
     sweep_id: Mapped[int | None] = mapped_column(
         ForeignKey("benchmark_sweeps.id", ondelete="SET NULL"), nullable=True
     )
-    config_json: Mapped[dict] = mapped_column(JSON, nullable=False)
-    summary_metrics: Mapped[dict] = mapped_column(JSON, nullable=False)
+    config_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    summary_metrics: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     duration_sec: Mapped[float] = mapped_column(Float, nullable=False, server_default="0")
     llm_evaluated: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     dataset: Mapped[str] = mapped_column(String(100), nullable=False, server_default="main")
-    per_question_results: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
+    per_question_results: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
     filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
     job_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     legacy_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    artifacts: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict, server_default="{}")
+    artifacts: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict, server_default="{}")
 
 
 class VectorStoreOutboxModel(BaseModel):
@@ -523,7 +635,7 @@ class VectorStoreOutboxModel(BaseModel):
     operation: Mapped[str] = mapped_column(String(30), nullable=False)
     aggregate_type: Mapped[str] = mapped_column(String(20), nullable=False, default="document")
     aggregate_id: Mapped[int] = mapped_column(Integer, nullable=False)
-    payload: Mapped[dict] = mapped_column(JSON, nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=OutboxStatus.PENDING.value)
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=8)
@@ -562,4 +674,4 @@ class BenchmarkCheckpointModel(LinkedBaseModel):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
-    payload: Mapped[dict] = mapped_column(JSON, nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)

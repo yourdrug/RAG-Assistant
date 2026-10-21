@@ -5,8 +5,6 @@ from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
 import pytest
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -69,19 +67,3 @@ async def test_concurrent_sweep_result_save_does_not_duplicate_configuration(pg_
     assert results[0].id == results[1].id
     async with sessions.begin() as session:
         assert await session.scalar(select(func.count()).select_from(BenchmarkRunModel)) == 1
-
-
-async def test_checkpoint_migration_roundtrip(pg_engine):
-    import importlib
-
-    migration = importlib.import_module(
-        "infrastructure.database.migrations.versions.m3d4e5f6g7h8_benchmark_checkpoints"
-    )
-
-    def roundtrip(connection):
-        with Operations.context(MigrationContext.configure(connection)):
-            migration.downgrade()
-            migration.upgrade()
-
-    async with pg_engine.begin() as conn:
-        await conn.run_sync(roundtrip)

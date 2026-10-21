@@ -1,10 +1,6 @@
 """PostgreSQL persistence and reversible migration for the selected judge."""
 
-from importlib import import_module
-
 import pytest
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -30,17 +26,9 @@ async def test_selected_judge_round_trips_through_repository(pg_engine):
         assert (await repo.list_items())[0].judge_model == "chosen/judge"
 
 
-async def test_migration_preserves_legacy_sweeps_and_is_reversible(pg_engine):
-    migration = import_module(
-        "infrastructure.database.migrations.versions.j1c2d3e4f5g6_add_sweep_judge_model"
-    )
-
-    def migrate(connection, operation):
-        with Operations.context(MigrationContext.configure(connection)):
-            operation()
+async def test_judge_default_and_updates(pg_engine):
 
     async with pg_engine.begin() as conn:
-        await conn.run_sync(lambda c: migrate(c, migration.downgrade))
         sweep_id = (
             await conn.execute(
                 text(
@@ -51,7 +39,6 @@ async def test_migration_preserves_legacy_sweeps_and_is_reversible(pg_engine):
                 {"status": BenchmarkSweepStatus.DONE.value},
             )
         ).scalar_one()
-        await conn.run_sync(lambda c: migrate(c, migration.upgrade))
         legacy = (
             await conn.execute(
                 text("SELECT status, judge_model FROM benchmark_sweeps WHERE id=:id"), {"id": sweep_id}
@@ -62,8 +49,6 @@ async def test_migration_preserves_legacy_sweeps_and_is_reversible(pg_engine):
             text("UPDATE benchmark_sweeps SET judge_model=:model WHERE id=:id"),
             {"model": "chosen/judge", "id": sweep_id},
         )
-        await conn.run_sync(lambda c: migrate(c, migration.downgrade))
         assert (
             await conn.execute(text("SELECT status FROM benchmark_sweeps WHERE id=:id"), {"id": sweep_id})
         ).scalar_one() == BenchmarkSweepStatus.DONE.value
-        await conn.run_sync(lambda c: migrate(c, migration.upgrade))

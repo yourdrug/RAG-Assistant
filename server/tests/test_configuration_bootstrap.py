@@ -135,7 +135,7 @@ async def test_restart_and_lost_notify_load_latest_writer_snapshot(configuration
 
     factory = FakeUnitOfWorkFactory()
     await factory._uow.config_parameters.save(row("llm_model", "first"))
-    listener = PostgresConfigListener(configuration.bus, factory, configuration=configuration)
+    listener = PostgresConfigListener(factory, configuration=configuration)
     await listener.resync()
     assert configuration.settings.llm_model == "first"
     await factory._uow.config_parameters.update_value("llm_model", "latest")
@@ -209,7 +209,7 @@ async def test_concurrent_resync_cannot_replay_an_older_snapshot(configuration):
         return result
 
     factory._uow.config_parameters.get_all = get_all
-    listener = PostgresConfigListener(configuration.bus, factory, configuration=configuration)
+    listener = PostgresConfigListener(factory, configuration=configuration)
     first = asyncio.create_task(listener.synchronize())
     await started.wait()
     await factory._uow.config_parameters.update_value("llm_model", "new")
@@ -283,7 +283,6 @@ def test_deepinfra_production_can_construct_before_db_load_and_without_tei_urls(
     model = Settings(
         _env_file=None,
         stage=AppStage.PROD,
-        file_backend="s3",
         allowed_origins="https://app.example.test",
         deepinfra_api_key="private-test-key",
         tei_embed_url="",

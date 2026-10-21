@@ -21,6 +21,7 @@ if TYPE_CHECKING:
         PDFPageClassifierPort,
         PDFStoragePort,
         PDFTextCleanerPort,
+        PreviewSettingsPort,
     )
 
 
@@ -58,7 +59,7 @@ class PDFDiagnosticService:
         pdf_doc: PDFDocumentPort,
         storage: PDFStoragePort,
         *,
-        max_dry_run_bytes: int,
+        settings: PreviewSettingsPort,
         preview_cache: PreviewCache | None = None,
     ) -> None:
         self._classifier = classifier
@@ -66,8 +67,12 @@ class PDFDiagnosticService:
         self._ocr = ocr
         self._pdf = pdf_doc
         self._storage = storage
-        self._max_bytes = max_dry_run_bytes
+        self.settings = settings
         self._preview_cache = preview_cache
+
+    @property
+    def max_preview_bytes(self) -> int:
+        return self.settings.preview_max_size_mb * 1024 * 1024
 
     async def diagnose_document(self, document_id: int, source_path: str) -> DocumentDiagnoseResult | None:
         temp_path = await self._storage.download_to_temp(source_path)

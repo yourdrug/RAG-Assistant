@@ -1,8 +1,7 @@
 """Declarative dynamic config parameters — single source of truth.
 
-Every hot-reloadable config parameter is declared once here. The
-``_build_defaults()`` seed function and the ``_DYNAMIC_FIELDS`` mapping
-are both derived from this list, eliminating the risk of triple-sync bugs.
+Every hot-reloadable config parameter is declared once here. Database seeds,
+settings field metadata and snapshot validation derive from this list.
 """
 
 from __future__ import annotations
@@ -88,6 +87,21 @@ DYNAMIC_PARAMS: list[DynamicParam] = [
         "File limit MiB; nginx request ceiling 64 MiB including multipart",
         1,
         MAX_UPLOAD_FILE_MB,
+    ),
+    DynamicParam(
+        "preview_max_size_mb",
+        int,
+        DynamicParamCategory.INGESTION,
+        "Preview file limit MiB; independent of document uploads",
+        1,
+        MAX_UPLOAD_FILE_MB,
+    ),
+    DynamicParam(
+        "preview_cache_ttl_seconds",
+        int,
+        DynamicParamCategory.INGESTION,
+        "Preview lifetime seconds; applied to existing entries on next access or cleanup",
+        1,
     ),
     DynamicParam(
         "job_cleanup_days",

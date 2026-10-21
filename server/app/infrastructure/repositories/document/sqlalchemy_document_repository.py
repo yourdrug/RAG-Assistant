@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from config import settings
+from domain.knowledge.index_sync import OutboxStatus
 from domain.knowledge.enums import SourceType
 from domain.knowledge.document import Document
 from domain.shared.exceptions import EntityNotFoundError, UniqueConstraintError
@@ -13,11 +14,11 @@ from domain.knowledge.enums import DOCUMENT_SLOT_STATUSES, DocumentStatus
 from domain.knowledge.access_control import OwnerMatch
 from domain.identity.roles import UserKind, UserRole
 from domain.knowledge.enums import DocumentVisibility
-from sqlalchemy import and_, distinct, func, or_, select
+from sqlalchemy import and_, distinct, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from infrastructure.database.models import DocumentModel
+from infrastructure.database.models import DocumentModel, VectorStoreOutboxModel
 
 
 class SQLAlchemyDocumentRepository:
@@ -385,14 +386,37 @@ class SQLAlchemyDocumentRepository:
         return ids
 
     async def reconcile_indexing_documents(self) -> list[int]:
-        """Mark INDEXING documents as DONE if outbox is empty."""
-        result = await self._db.execute(
-            select(DocumentModel.id).where(
-                DocumentModel.status == DocumentStatus.INDEXING.value,
-            )
+        """Mark INDEXING documents DONE only when all document outbox work is done."""
+        # Lock before checking outbox in a fresh statement: concurrent document
+        # mutations must commit first, and another reconciler skips owned rows.
+        candidates = await self._db.scalars(
+            select(DocumentModel.id)
+            .where(DocumentModel.status == DocumentStatus.INDEXING.value)
+            .with_for_update(skip_locked=True)
         )
-        indexing_ids = [row[0] for row in result.fetchall()]
-        return indexing_ids
+        ids = list(candidates.all())
+        if not ids:
+            return []
+        unfinished = (
+            select(VectorStoreOutboxModel.id)
+            .where(
+                VectorStoreOutboxModel.aggregate_type == "document",
+                VectorStoreOutboxModel.aggregate_id == DocumentModel.id,
+                VectorStoreOutboxModel.status != OutboxStatus.DONE.value,
+            )
+            .exists()
+        )
+        result = await self._db.scalars(
+            update(DocumentModel)
+            .where(DocumentModel.id.in_(ids), ~unfinished)
+            .values(
+                status=DocumentStatus.DONE.value,
+                indexed_at=datetime.now(UTC),
+                version=DocumentModel.version + 1,
+            )
+            .returning(DocumentModel.id)
+        )
+        return list(result.all())
 
     @staticmethod
     def _to_entity(orm: DocumentModel) -> Document:

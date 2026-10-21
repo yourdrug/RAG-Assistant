@@ -73,7 +73,7 @@ MAGIC_BYTES: dict[str, list[bytes]] = {
 # ---------------------------------------------------------------------------
 # Config keys that are static (not editable via API)
 # ---------------------------------------------------------------------------
-STATIC_CONFIG_KEYS: frozenset[str] = frozenset({"file_backend", "data_dir"})
+STATIC_CONFIG_KEYS: frozenset[str] = frozenset({"data_dir"})
 
 
 # ---------------------------------------------------------------------------

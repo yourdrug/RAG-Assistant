@@ -392,7 +392,7 @@
 
 - Холодный полный DB bootstrap проверяет TEI `/info` и реальный embedding даже при совпадении URL с defaults: model_id должен совпадать с настройками, вектор должен иметь настроенную размерность и конечные значения. Ошибка прерывает bootstrap до готовности и запуска corpus control. Схема существующих embedding identity не меняется; это не доказательство соответствия старых векторов произвольно заменённым весам той же модели. Изменение весов/revision по-прежнему требует embedding migration.
 - После BM25 invalidation новый запрос сначала загружает индекс, затем без await фиксирует согласованную пару Qdrant/BM25. Уже начатый запрос сохраняет старый snapshot. Если во время загрузки переключился корпус, stale download отбрасывается; BM25LoadError явно логируется, текущий запрос использует dense, следующий повторяет загрузку.
-- Мигратор учитывает default FILE_BACKEND=s3 и без legacy S3 rows: отсутствие S3_ACCESS_KEY/S3_SECRET_KEY блокирует dry run/apply до backup, DB mutations и изменения env. Тесты переноса отдельных секретов используют явный FILE_BACKEND=local.
+- Мигратор учитывает default FILE_BACKEND=s3 и без legacy S3 rows: отсутствие S3_ACCESS_KEY/S3_SECRET_KEY блокирует dry run/apply до backup, DB mutations и изменения env. После S3-only тесты переноса отдельных секретов также задают обязательные S3 credentials.
 - Регрессионные тесты: **RED — 9 failed** до исправлений; исправления и связанные bootstrap/migration/BM25/rate tests — **198 passed**. Команда: из server `.venv/bin/pytest -q tests/test_dynamic_ml_configuration.py tests/test_corpus_switch.py tests/test_config_env_migration.py tests/test_rate_limit_hotreload.py tests/test_configuration_bootstrap.py tests/test_bm25_async_loading.py tests/test_bm25_lifecycle.py`.
 - `.venv/bin/mypy app` — **Success: no issues found in 543 source files**; `.venv/bin/ruff check app tests` и format check семи изменённых Python-файлов — passed.
 - Расширенная проверка из server: `timeout 120 .venv/bin/pytest -q -m 'not integration and not slow'` — **2913 passed, 89 deselected, 13 существующих deprecation warnings**, exit 0. Расширение до unit suite обосновано изменениями общего bootstrap и admission всех corpus operations; integration/slow в этом запуске исключены явно.
@@ -430,7 +430,7 @@
 - [x] Выделить исключительно локальные CLI export/checkpoint paths из default web runtime. Удалить серверные DATA_DIR consumers history/report/out_dir после этапов 9–10; cleanup управляет DB checkpoint retention и S3 артефактами по их назначению.
 - [x] Для промежуточного файла использовать TemporaryDirectory/существующий безопасный temp mechanism с cleanup в finally/context, включая exception/cancellation. Если библиотеке не нужен pathname, передавать stream/bytes с bounded size. Blocking IO не выполнять в event loop.
 - [x] Не переносить все документы/OCR в RAM и не удалять полезные temp файлы из принципа. Они disposable; восстановление после restart опирается на БД/S3, не на temp.
-- [x] DATA_DIR не требуется при FILE_BACKEND=s3; local backend, если поддерживается, сохраняет статический root. Наличие поля с default не означает необходимость строки env: удалить только ненужные S3 строки/mounts, не volumes PostgreSQL/Qdrant/ML caches.
+- [x] DATA_DIR не требуется для S3; постоянный local backend удалён в S3-only. Наличие поля с default не означает необходимость строки env: удалить только ненужные S3 строки/mounts, не volumes PostgreSQL/Qdrant/ML caches.
 - [x] Тесты: S3 workflow с отсутствующим/readonly DATA_DIR; sweep retry другим worker восстанавливается из DB; exception/cancellation cleans temp; CLI --out работает; supported local storage сохраняет path/ACL validation.
 
 **Проверено 2026-10-15 (этапы 9–11):** 352 целевых теста прошли: `test_benchmark*.py`, `test_sweep*.py`, worker/resource lifecycle, async local/S3 storage, `integration/test_benchmark_history_postgres.py` и `integration/test_benchmark_checkpoint_storage.py`. PostgreSQL проверен в отдельном временном кластере, включая конкурентные retry/sweeps, upgrade/downgrade новой миграции и восстановление sweep новым экземпляром worker без DATA_DIR. `task lint` (Ruff + mypy, 548 модулей), TypeScript typecheck, Biome затронутых клиентских файлов и `git diff --check` прошли. Запрещённых обратных импортов в затронутых Domain/Application файлах не найдено. Тесты с файловым I/O/threadpool и сокетами выполнялись вне sandbox: внутри него эти операции зависают/запрещены.
@@ -439,7 +439,7 @@
 
 Legacy import: `benchmark import-legacy PATH --dataset DATASET` выполняет dry run; `--apply` сохраняет проверенные записи. Ошибки валидации блокируют apply, файлы не удаляются; дедупликация использует hash содержимого и dataset, provenance сохраняется в run. Размер одного входного файла ограничен 64 MiB. Для JSON без config/timestamp сохраняются доступные вопросы/метрики и mtime файла; неизвестные параметры корпуса не выдумываются. Сводки JSONL остаются без per-question details. Прежнее правило baseline — предыдущий совместимый запуск — сохранено; запись без известного корпуса не сравнивается с записью известного корпуса.
 
-DATA_DIR остаётся статическим root только local backend; в web S3 runtime файловые checkpoints, reports и history не используются. Автоматические bind mounts `/code/project/data` удалены; для persistent local backend добавлен явный `docker-compose.local-storage.yml` (`LOCAL_DATA_DIR` задаёт host path). Web cleanup удаляет DB checkpoints успешных sweeps либо неактивные старше суток под блокировкой sweep; существующие локальные recovery adapters остаются только явно подключаемым переходным режимом. Сохранённые отчёты в S3 не удаляются вместе с disposable checkpoints.
+Постоянный local backend и `docker-compose.local-storage.yml` удалены в S3-only. В web runtime файловые checkpoints и history не используются, reports сохраняются в S3. Автоматические bind mounts `/code/project/data` удалены. Web cleanup удаляет DB checkpoints успешных sweeps либо неактивные старше суток под блокировкой sweep; существующие локальные recovery adapters остаются только явно подключаемым переходным режимом. Сохранённые отчёты в S3 не удаляются вместе с disposable checkpoints.
 
 **Границы приёмки:** первоначальная проверка S3 была ограничена SDK-фейками. Повторная проверка 2026-10-15 выполнена с настоящими временными PostgreSQL/MinIO/Redis: upload/download, BM25 invalidation, report failure из-за отсутствующего bucket, retry новым экземпляром сервиса и CSV/JSON multipart >5 MiB без DATA_DIR прошли. Рабочие env/БД/контейнеры не изменялись; migrations и live приёмка рабочей установки остаются этапу 12. Отдельные commits не создавались, исходные незавершённые правки сохранены.
 
@@ -694,7 +694,7 @@ DATA_DIR остаётся статическим root только local backend
 | WORKER_MAX_CONCURRENT | env | `4` | Пересоздать потребителей | Текущая строка отличается от default; сохранить переопределение |
 | REDIS_SOCKET_TIMEOUT | env | `10` | Пересоздать потребителей | Default в коде; env только при необходимом переопределении |
 | REDIS_MAX_CONNECTIONS | env | `50` | Пересоздать потребителей | Default в коде; env только при необходимом переопределении |
-| FILE_BACKEND | env | `s3` | Пересоздать потребителей | Текущая строка совпадает с default; кандидат на удаление³ |
+| FILE_BACKEND | удалён | — | Удалить из env | Приложение использует только S3 |
 | S3_ENDPOINT | env | `http://minio:9000` | Пересоздать потребителей | Оставить в env; сейчас также в реестре БД — сверить и убрать |
 | S3_BUCKET | env | `rag-documents` | Пересоздать потребителей | Оставить в env; сейчас также в реестре БД — сверить и убрать |
 | S3_ACCESS_KEY | secrets | Нет рабочего default; задать секрет | Пересоздать потребителей | Оставить только в secrets; не помещать в БД; сейчас также в реестре БД — сверить и убрать |
@@ -703,9 +703,9 @@ DATA_DIR остаётся статическим root только local backend
 | S3_MAX_CONCURRENT | env | `10` | Пересоздать потребителей | Default в коде; env только при необходимом переопределении |
 | SUPPORTED_EXTENSIONS | env | `('.pdf', '.docx', '.doc', '.rtf', '.md', '.txt')` | Пересоздать потребителей | Default в коде; env только при необходимом переопределении |
 | max_upload_size_mb | БД | `50` | Новые запросы; согласование с nginx (этап 6) | Перенести существующее значение; убрать env только после реализации этапа |
-| preview_max_size_mb | env | `50` | При запуске; отдельный лимит preview | Максимальный размер файла preview в МБ |
-| preview_cache_ttl_seconds | env | `1800` | При запуске | Срок хранения preview в секундах |
-| DATA_DIR | env | `/code/project/data` | Пересоздать потребителей | После этапов 9–11 не нужен S3 backend; оставить только для поддерживаемого local backend |
+| preview_max_size_mb | БД | `50` | Следующая загрузка preview; отдельно от document upload | Максимальный размер файла preview в МБ |
+| preview_cache_ttl_seconds | БД | `1800` | Следующее чтение/очистка, включая существующие preview | Срок хранения preview в секундах |
+| DATA_DIR | env | `/code/project/data` | Пересоздать потребителей | Не нужен S3 runtime; остаётся только для явных legacy CLI paths |
 | UPLOADS_PREFIX | env | `uploads/` | Пересоздать потребителей | Текущая строка совпадает с default; кандидат на удаление³ |
 | ALLOWED_ORIGINS | env | — (обязательное поле) | Пересоздать потребителей | Явно задать в env |
 | FORWARDED_ALLOW_IPS | env | `127.0.0.1` | Пересоздать потребителей | Default в коде; env только при необходимом переопределении |

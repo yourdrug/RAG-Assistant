@@ -36,7 +36,6 @@ _TEST_DEFAULTS = {
     "LLM_MODEL": "qwen2.5:7b",
     "JWT_SECRET_KEY": "test-secret-key",
     "DATA_DIR": "/tmp/rag_test",
-    "FILE_BACKEND": "local",
     "REDIS_PASSWORD": "test-redis-password",
     "S3_ACCESS_KEY": "test-access-key",
     "S3_SECRET_KEY": "test-secret-key-value",

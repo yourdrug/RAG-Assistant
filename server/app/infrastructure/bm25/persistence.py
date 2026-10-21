@@ -12,7 +12,6 @@ from botocore.exceptions import BotoCoreError, ClientError
 from aiohttp import ClientError as HTTPClientError
 
 from application.ports.file_storage import FileStorage
-from config import settings
 
 from infrastructure.bm25.bm25_index import BM25Index
 from domain.knowledge.enums import DocumentVisibility
@@ -133,6 +132,4 @@ def validate_snapshot(data) -> None:
 
 async def load_configured_bm25_snapshot(storage: FileStorage) -> BM25Index | None:
     """Retain the S3-only sparse capability of the existing runtime registry."""
-    if settings.file_backend != "s3":
-        return None
     return await load_bm25_index_from_s3(storage)

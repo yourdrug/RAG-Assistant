@@ -17,11 +17,6 @@ class MLProvider(StrEnum):
     DEEPINFRA = "deepinfra"
 
 
-class FileBackend(StrEnum):
-    LOCAL = "local"
-    S3 = "s3"
-
-
 class AppStage(StrEnum):
     DEVELOPMENT = "development"
     STAGING = "staging"

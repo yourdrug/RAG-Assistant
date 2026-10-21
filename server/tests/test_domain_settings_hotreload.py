@@ -20,26 +20,38 @@ from fakes import FakeUnitOfWorkFactory
 class TestDomainSettingsAdapter:
     def test_roundtrip(self):
         adapter = DomainSettingsAdapter()
-        adapter.set("max_unit_chars", "decree", "1200")
+        adapter.replace_snapshot({("max_unit_chars", "decree"): "1200"})
         assert adapter.get("max_unit_chars", domain_key="decree") == "1200"
 
     def test_missing_key_raises_loudly(self):
         adapter = DomainSettingsAdapter()
-        adapter.set("some_global", None, "1")
+        adapter.replace_snapshot({("some_global", "legal"): "1"})
         with pytest.raises(KeyError):
             adapter.get("max_unit_chars", domain_key="decree")
 
-    def test_no_hidden_global_fallback(self):
-        """A global value must never be silently used for a domain key (TZ section 3)."""
+    def test_no_hidden_cross_domain_fallback(self):
+        """A value in another domain must never be silently reused."""
         adapter = DomainSettingsAdapter()
-        adapter.set("max_unit_chars", None, "999")
+        adapter.replace_snapshot({("max_unit_chars", "legal"): "999"})
         with pytest.raises(KeyError):
             adapter.get("max_unit_chars", domain_key="decree")
 
-    def test_set_and_get(self):
+    def test_snapshot_and_get(self):
         adapter = DomainSettingsAdapter()
-        adapter.set("max_unit_chars", "legal", "1500")
+        adapter.replace_snapshot({("max_unit_chars", "legal"): "1500"})
         assert adapter.get("max_unit_chars", domain_key="legal") == "1500"
+
+    def test_replace_snapshot_removes_old_values_and_copies_input(self):
+        adapter = DomainSettingsAdapter()
+        adapter.replace_snapshot({("old", "decree"): "1"})
+        values = {("new", "legal"): "2"}
+        adapter.replace_snapshot(values)
+        values[("new", "legal")] = "changed"
+        exported = adapter.snapshot()
+        exported[("new", "legal")] = "also changed"
+        assert adapter.get("new", "legal") == "2"
+        with pytest.raises(KeyError):
+            adapter.get("old", "decree")
 
 
 class TestRegistryWithAdapter:
@@ -51,8 +63,9 @@ class TestRegistryWithAdapter:
         registry.register(profile)
 
         # Simulate startup load from DB
-        for default in profile.config_defaults():
-            adapter.set(default.key, "decree", default.value)
+        adapter.replace_snapshot(
+            {(default.key, "decree"): default.value for default in profile.config_defaults()}
+        )
 
         text = "УКАЗ\nПОСТАНОВЛЯЮ:\n"  # weak signal: 3.0+2.0 but no points
         result = registry.classify(text, settings=adapter)

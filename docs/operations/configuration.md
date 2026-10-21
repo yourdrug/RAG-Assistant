@@ -6,6 +6,10 @@ Bootstrap PostgreSQL/Redis, CORS/trusted proxy, S3 connection и deployment —
 `client/.env` содержит `VITE_API_URL`: для изменения SPA нужна пересборка.
 
 LLM/OCR/RAG, endpoints, quotas, retention и Qdrant corpus управляются из PostgreSQL.
+Лимит файла preview (`preview_max_size_mb`) и срок его хранения
+(`preview_cache_ttl_seconds`) также меняются через админку, в разделе Ingestion.
+Размер применяется к следующей загрузке preview независимо от лимита документов;
+TTL — при следующем чтении или очистке, включая ранее сохранённые preview.
 Сохранённое значение может отличаться от применённого: проверяйте applied/error
 status и readiness API/worker. Cost control учитывает физические HTTP-попытки
 OpenRouter (text/structured/judges), DeepInfra BAAI/bge-m3 embedding и
@@ -54,3 +58,8 @@ legacy S3 DB rows — из pre-migration backup при необходимост�
 операция с проверкой новых writes; одного возврата URL недостаточно.
 
 Полный каталог и состояние приёмки: [план](configuration-plan.md).
+
+Постоянное файловое хранение приложения — только S3-совместимое (включая MinIO).
+`FILE_BACKEND` больше не выбирает backend; удалите его из env. `DATA_DIR` не нужен
+для загрузки документов, preview и файловых отчётов. Временные файлы парсеров очищаются;
+checkpoint/history рантайма хранятся в PostgreSQL.

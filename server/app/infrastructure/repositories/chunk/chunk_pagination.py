@@ -70,13 +70,13 @@ def _paginate_forward(rows: list, limit: int, cursor: tuple[int, int] | None) ->
     return CursorPage(items=items, next_cursor=next_cur, prev_cursor=prev_cur)
 
 
-def _paginate_backward(rows: list, limit: int) -> CursorPage[ChunkRecord]:
+def paginate_backward(rows: list, limit: int) -> CursorPage[ChunkRecord]:
     """Build CursorPage from backward-fetched rows."""
     has_extra = len(rows) > limit
     page_rows = rows[:limit]
     page_rows.reverse()
     prev_cur = encode_cursor(page_rows[0].chunk_index, page_rows[0].id) if has_extra and page_rows else None
-    next_cur = encode_cursor(page_rows[0].chunk_index, page_rows[0].id) if page_rows else None
+    next_cur = encode_cursor(page_rows[-1].chunk_index, page_rows[-1].id) if page_rows else None
     items = []
     for r in page_rows:
         if isinstance(r, ChunkRecord):

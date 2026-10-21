@@ -8,6 +8,16 @@ from __future__ import annotations
 from config import get_setting, settings
 
 
+class LivePreviewSettings:
+    @property
+    def preview_max_size_mb(self) -> int:
+        return settings.preview_max_size_mb
+
+    @property
+    def preview_cache_ttl_seconds(self) -> int:
+        return settings.preview_cache_ttl_seconds
+
+
 class LiveRagSettings:
     """RAG settings adapter — reads from global settings at access time (hot-reload)."""
 

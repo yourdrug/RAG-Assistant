@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from functools import partial
 
 from config import settings
+from infrastructure.ml.config.settings_adapters import LivePreviewSettings
 from infrastructure.budget.ledger import PostgresRedisBudget
 from application.budget import BudgetAdminService
 from application.benchmark import BenchmarkService
@@ -36,9 +37,9 @@ from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from infrastructure.initialization import seed_domain_config_defaults, seed_config_defaults
 from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
 from infrastructure.benchmark.judge import close_judge_clients
+from infrastructure.ml.ingestion.ocr import invalidate_paddle_ocr_cache
 from infrastructure.ml.config.config_subscribers import (
     audit_log_config_change,
-    invalidate_paddle_ocr_cache,
     invalidate_pii_detector_cache,
 )
 
@@ -51,7 +52,6 @@ if TYPE_CHECKING:
     from application.benchmark import BenchmarkHistoryPort
     from application.ports.cache_invalidator import CacheInvalidatorPort
     from application.admin import ConfigMaskerPort
-    from application.ports.event_bus import EventBus
     from application.ports.http_metrics import HttpMetricsPort
     from application.ports.idempotency_store import IdempotencyStorePort
     from application.ports.job_enqueuer import JobEnqueuerPort
@@ -157,9 +157,7 @@ class MLContainer:
         self.file_storage = LazyStorage()
         self.ml_clients = MLClientRegistry()
         self.vector_store_repo = QdrantVectorStoreRepository(ml_clients=self.ml_clients)
-        self.preview_cache = PreviewCache(
-            storage=self.file_storage, ttl_seconds=settings.preview_cache_ttl_seconds
-        )
+        self.preview_cache = PreviewCache(storage=self.file_storage, settings=LivePreviewSettings())
         self.document_parser = LangchainDocumentParser(
             domain_registry=domain_registry,
             domain_settings=domain_settings,
@@ -222,8 +220,7 @@ class EventContainer:
         self,
         uow_factory: UnitOfWorkFactory,
         vector_store_repo: VectorIndexWriter,
-        event_bus: EventBus,
-        domain_settings: DomainSettingsAdapter | None = None,
+        configuration: SettingsProviderConfiguration,
         cache_invalidator: CacheInvalidatorPort | None = None,
     ) -> None:
         from infrastructure.events.postgres_config_listener import PostgresConfigListener
@@ -232,9 +229,8 @@ class EventContainer:
         from config import settings as app_settings
 
         self.config_listener = PostgresConfigListener(
-            event_bus=event_bus,
             uow_factory=uow_factory,
-            domain_settings=domain_settings,
+            configuration=configuration,
         )
         self.outbox_dispatcher = OutboxDispatcher(
             uow_factory=uow_factory,
@@ -391,13 +387,6 @@ class InfrastructureContainer:
             domain_settings=self.domain_settings,
         )
         self.services.init()
-        self.events.init(
-            uow_factory=self.db.uow,
-            vector_store_repo=self.ml.vector_index_writer,
-            event_bus=event_bus,
-            domain_settings=self.domain_settings,
-            cache_invalidator=self.services.cache_invalidator,
-        )
         self.init_rate_limit()
         session_factory = partial(database_manager.get_session, master=True)
         budget_ledger = PostgresRedisBudget(session_factory, redis_client.async_redis)
@@ -410,9 +399,12 @@ class InfrastructureContainer:
             bus=event_bus,
             ml_clients=self.ml.clients,
         )
-        if self.events.config_listener is None:
-            raise RuntimeError("Config listener must be initialized")
-        self.events.config_listener.configuration = self.configuration
+        self.events.init(
+            uow_factory=self.db.uow,
+            vector_store_repo=self.ml.vector_index_writer,
+            configuration=self.configuration,
+            cache_invalidator=self.services.cache_invalidator,
+        )
         self.corpus_control = PostgresCorpusControl(
             session_factory, self.ml.clients, self.events.config_listener
         )

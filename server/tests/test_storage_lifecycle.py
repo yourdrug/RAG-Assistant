@@ -5,9 +5,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from composition.infrastructure import InfrastructureContainer
 from config import settings
-from domain.runtime.config import ConfigParameterChanged, ConfigValueType
-from infrastructure.ml.config.config_subscribers import apply_to_settings, invalidate_storage_cache
+from domain.runtime.config import ConfigParameter, ConfigParameterChanged, ConfigValueType
+from fakes import FakeUnitOfWorkFactory
+from infrastructure.events.in_process_event_bus import InProcessEventBus
+from infrastructure.events.postgres_config_listener import PostgresConfigListener
+from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
 from infrastructure.storage.file_storage import LazyStorage
 from test_s3_storage_async import client_harness
 from test_s3_storage_download import Body
@@ -105,8 +109,24 @@ async def test_legacy_config_event_preserves_storage_and_bm25_reader(monkeypatch
     storage = MagicMock()
     clients = MagicMock()
     event = ConfigParameterChanged(key=key, old_value="old", new_value="new", value_type=ConfigValueType.STR)
-    apply_to_settings(event)
-    assert getattr(settings, key) == "old"
-    invalidate_storage_cache(event, storage=storage, ml_clients=clients)
+    bus = InProcessEventBus()
+    monkeypatch.setattr("composition.infrastructure.event_bus", bus)
+    factory = FakeUnitOfWorkFactory()
+    await factory._uow.config_parameters.save(ConfigParameter(key, "new", ConfigValueType.STR, "legacy"))
+    configuration = SettingsProviderConfiguration(settings, bus=bus)
+    infra = InfrastructureContainer(configuration=configuration)
+    infra.ml.file_storage = storage
+    infra.ml.ml_clients = clients
+    listener = PostgresConfigListener(factory, configuration)
+    infra.events.config_listener = listener
+    infra.subscribe_config_events()
+    try:
+        bus.publish(event)
+        await asyncio.gather(*listener._background_tasks)
+        assert configuration.status().ready
+        assert getattr(settings, key) == "old"
+    finally:
+        infra.unsubscribe_config_events()
+        await listener.stop()
     storage.invalidate.assert_not_called()
     clients.invalidate_bm25.assert_not_called()

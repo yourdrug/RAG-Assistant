@@ -29,7 +29,6 @@ from domain.runtime.setting_keys import (
     SECRET_SETTING_KEYS,
     TARGET_DYNAMIC_SETTING_KEYS,
 )
-from domain.runtime.enums import FileBackend
 from domain.runtime.enums import LLMProvider
 
 # Legacy names are recognized only by the offline migration parser.
@@ -256,10 +255,7 @@ def validate_storage_and_credentials(
     }
     if conflicts:
         raise ValueError("S3 env/DB mismatch: " + ", ".join(sorted(conflicts)))
-    required = {"DB_PASSWORD", "REDIS_PASSWORD", "JWT_SECRET_KEY"}
-    backend = effective.get("FILE_BACKEND", Settings.model_fields["file_backend"].default)
-    if s3_rows or backend == FileBackend.S3.value:
-        required.update({"S3_ACCESS_KEY", "S3_SECRET_KEY"})
+    required = {"DB_PASSWORD", "REDIS_PASSWORD", "JWT_SECRET_KEY", "S3_ACCESS_KEY", "S3_SECRET_KEY"}
     providers = {
         key: effective.get(key.upper(), Settings.model_fields[key].default)
         for key in ("llm_provider", "ml_provider")

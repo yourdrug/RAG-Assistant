@@ -1,0 +1,122 @@
+[
+  [
+    "background_jobs",
+    "background_jobs_status_check",
+    "CHECK (((status)::text = ANY ((ARRAY['pending'::character varying, 'running'::character varying, 'done'::character varying, 'failed'::character varying])::text[])))"
+  ],
+  [
+    "benchmark_questions",
+    "chk_benchmark_questions_annotations_object",
+    "CHECK (((annotations IS NULL) OR (jsonb_typeof(annotations) = 'object'::text)))"
+  ],
+  [
+    "benchmark_sweeps",
+    "benchmark_sweeps_evaluation_mode_check",
+    "CHECK (((evaluation_mode)::text = ANY ((ARRAY['fast'::character varying, 'full'::character varying])::text[])))"
+  ],
+  [
+    "benchmark_sweeps",
+    "benchmark_sweeps_full_grid_check",
+    "CHECK ((((evaluation_mode)::text <> 'full'::text) OR ((strategy)::text = 'grid'::text)))"
+  ],
+  [
+    "benchmark_sweeps",
+    "benchmark_sweeps_status_check",
+    "CHECK (((status)::text = ANY ((ARRAY['pending'::character varying, 'running'::character varying, 'done'::character varying, 'failed'::character varying, 'cancelled'::character varying])::text[])))"
+  ],
+  [
+    "chunks",
+    "chk_chunks_context_metadata_object",
+    "CHECK ((jsonb_typeof(context_metadata) = 'object'::text))"
+  ],
+  [
+    "corpus_control",
+    "corpus_control_id_check",
+    "CHECK ((id = 1))"
+  ],
+  [
+    "corpus_control",
+    "corpus_control_phase_check",
+    "CHECK ((phase = ANY (ARRAY['active'::text, 'preparing'::text, 'committing'::text, 'failed'::text])))"
+  ],
+  [
+    "corpus_processes",
+    "corpus_processes_role_check",
+    "CHECK ((role = ANY (ARRAY['api'::text, 'worker'::text, 'cli'::text])))"
+  ],
+  [
+    "cost_rates",
+    "cost_rates_check",
+    "CHECK (((version > 0) AND (context_tokens > 0)))"
+  ],
+  [
+    "cost_rates",
+    "cost_rates_check1",
+    "CHECK (((input_usd_per_million >= (0)::numeric) AND (output_usd_per_million >= (0)::numeric)))"
+  ],
+  [
+    "cost_usage",
+    "ck_cost_usage_dispatch",
+    "CHECK ((dispatch_state = ANY (ARRAY['reserved'::text, 'sending'::text, 'settled'::text])))"
+  ],
+  [
+    "cost_usage",
+    "cost_usage_check",
+    "CHECK (((reserved_units >= 0) AND ((actual_units IS NULL) OR (actual_units >= 0))))"
+  ],
+  [
+    "cost_usage",
+    "cost_usage_check1",
+    "CHECK (((actual_units IS NULL) = (settled_at IS NULL)))"
+  ],
+  [
+    "curator_user_assignments",
+    "chk_curator_not_self_assign",
+    "CHECK ((curator_id <> target_user_id))"
+  ],
+  [
+    "documents",
+    "documents_source_type_check",
+    "CHECK (((source_type)::text = ANY ((ARRAY['file'::character varying, 'manual'::character varying])::text[])))"
+  ],
+  [
+    "documents",
+    "documents_status_check",
+    "CHECK (((status)::text = ANY ((ARRAY['pending'::character varying, 'processing'::character varying, 'indexing'::character varying, 'done'::character varying, 'failed'::character varying])::text[])))"
+  ],
+  [
+    "documents",
+    "documents_visibility_check",
+    "CHECK (((visibility)::text = ANY ((ARRAY['internal_public'::character varying, 'internal_group'::character varying, 'internal_private'::character varying, 'client_private'::character varying])::text[])))"
+  ],
+  [
+    "messages",
+    "messages_role_check",
+    "CHECK (((role)::text = ANY ((ARRAY['user'::character varying, 'assistant'::character varying])::text[])))"
+  ],
+  [
+    "users",
+    "chk_client_not_privileged",
+    "CHECK ((NOT (((kind)::text = 'client'::text) AND ((role)::text = ANY ((ARRAY['admin'::character varying, 'curator'::character varying])::text[])))))"
+  ],
+  [
+    "users",
+    "users_kind_check",
+    "CHECK (((kind)::text = ANY ((ARRAY['internal'::character varying, 'client'::character varying])::text[])))"
+  ],
+  [
+    "users",
+    "users_role_check",
+    "CHECK (((role)::text = ANY ((ARRAY['admin'::character varying, 'curator'::character varying, 'user'::character varying])::text[])))"
+  ],
+  [
+    "vector_store_outbox",
+    "vector_store_outbox_operation_check",
+    "CHECK (((operation)::text = ANY ((ARRAY['upsert_chunks'::character varying, 'delete_by_document'::character varying, 'delete_chunks'::character varying, 'update_metadata'::character varying, 'set_document_id'::character varying])::text[])))"
+  ],
+  [
+    "vector_store_outbox",
+    "vector_store_outbox_status_check",
+    "CHECK (((status)::text = ANY ((ARRAY['pending'::character varying, 'in_progress'::character varying, 'done'::character varying, 'failed'::character varying, 'dead_letter'::character varying])::text[])))"
+  ]
+]
