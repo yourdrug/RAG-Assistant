@@ -15,7 +15,7 @@ from infrastructure.ml import answer_cache
 from infrastructure.ml.clients.managed_llm import ManagedLLM, ManagedInstructor
 from infrastructure.redis.redis_client import RedisClient
 from infrastructure.repositories.vector.embedding_identity import ensure_embedding_identity
-from infrastructure.worker.admission import one_document_per_principal
+from infrastructure.worker.admission import document_admission
 from fakes import FakeUnitOfWorkFactory
 
 
@@ -147,12 +147,12 @@ async def test_document_worker_defers_same_owner_and_admits_other_owner():
     started, finish = asyncio.Event(), asyncio.Event()
     ran = []
 
-    @one_document_per_principal
     async def action(ctx, **kwargs):
-        ran.append(kwargs["job_id"])
-        if kwargs["job_id"] == 1:
-            started.set()
-            await finish.wait()
+        async with document_admission(ctx, kwargs):
+            ran.append(kwargs["job_id"])
+            if kwargs["job_id"] == 1:
+                started.set()
+                await finish.wait()
 
     first = asyncio.create_task(action({"redis": redis}, owner_id=10, principal_id=1, job_id=1))
     try:

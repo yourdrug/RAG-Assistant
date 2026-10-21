@@ -1,5 +1,7 @@
 """Judge selection survives the API, persistence mapping and worker boundary."""
 
+from infrastructure.worker import runtime
+
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -98,7 +100,6 @@ def test_api_preserves_selected_judge_and_requires_admin(role, mode, operation):
     ],
 )
 async def test_worker_uses_saved_judge_instead_of_main_model(monkeypatch, selected, configured, expected):
-    from infrastructure.worker import tasks
 
     saved = BenchmarkSweep(id=1, judge_model=selected)
     factory = FakeUnitOfWorkFactory()
@@ -112,7 +113,7 @@ async def test_worker_uses_saved_judge_instead_of_main_model(monkeypatch, select
     async def run_action(factory, job_id, action, **kwargs):
         await action()
 
-    monkeypatch.setattr(tasks, "run_tracked_job", run_action)
+    monkeypatch.setattr(runtime, "run_tracked_job", run_action)
     container = SimpleNamespace(infrastructure=SimpleNamespace(db=SimpleNamespace(uow_factory=factory)))
     await worker.run_sweep_task({"container": container}, sweep_id=1, job_id=2)
     assert engine.run_sweep.call_args.kwargs["judge_model"] == expected

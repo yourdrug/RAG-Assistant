@@ -1,5 +1,7 @@
 """Bounded DB export, artifact retries, legacy validation and admin boundary."""
 
+from infrastructure.worker import runtime
+
 import csv
 import io
 import json
@@ -205,7 +207,7 @@ async def test_worker_retry_reuses_committed_run(monkeypatch):
     monkeypatch.setattr(
         tasks, 'compute_summary_from_results', lambda results: {'results': results, 'total_time_sec': 1}
     )
-    monkeypatch.setattr(tasks, 'run_tracked_job', tracked)
+    monkeypatch.setattr(runtime, 'run_tracked_job', tracked)
     reports = SimpleNamespace(save_report=AsyncMock(return_value=False))
     monkeypatch.setattr(tasks, 'BenchmarkExportService', lambda *args: reports)
     ctx = {

@@ -18,6 +18,7 @@ import httpx
 from application.ports.ml_clients import MLClientPort
 from config import settings
 from domain.rag.prompt_blocks import NOT_FOUND_PATTERNS
+from domain.runtime.enums import LLMProvider
 from prometheus_client import Counter, Gauge, Histogram
 from sqlalchemy.pool import QueuePool
 
@@ -413,6 +414,7 @@ async def collect_infra_metrics(ml_clients: MLClientPort | None = None) -> None:
     except Exception as e:
         log.warning("Failed to collect Qdrant metrics: [%s] %s", type(e).__name__, e)
     try:
-        await _collect_ollama_metrics()
+        if settings.llm_provider == LLMProvider.OLLAMA:
+            await _collect_ollama_metrics()
     except Exception as e:
         log.warning("Failed to collect Ollama metrics: [%s] %s", type(e).__name__, e)

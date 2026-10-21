@@ -8,6 +8,7 @@ import logging
 from typing import Any
 
 from config import settings
+from infrastructure.redis.redis_client import redis_client
 from domain.benchmark.run import BenchmarkRun
 from application.benchmark import BenchmarkExportService
 from domain.benchmark.evaluation import EVIDENCE_METRICS
@@ -16,6 +17,7 @@ from composition.service_providers import create_sweep_engine
 from infrastructure.benchmark.sweep_engine import SweepCancelled
 from infrastructure.benchmark.checkpoint import fingerprint
 
+from infrastructure.worker.runtime import job
 from infrastructure.worker.outcomes import IncompleteEvaluation, job_error_message
 
 logger = logging.getLogger("default")
@@ -24,15 +26,7 @@ logger = logging.getLogger("default")
 async def publish_sweep_event(sweep_id: int, message: dict) -> None:
     """Publish a sweep progress/done event to the Redis pub/sub channel."""
     try:
-        from arq import create_pool
-        from arq.connections import RedisSettings
-
-        redis_settings = RedisSettings.from_dsn(settings.redis_url)
-        pool = await create_pool(redis_settings)
-        try:
-            await pool.publish(f"sweep:{sweep_id}", json.dumps(message, default=str))
-        finally:
-            await pool.close()
+        await redis_client.async_redis.publish(f"sweep:{sweep_id}", json.dumps(message, default=str))
     except Exception:
         logger.debug("Failed to publish sweep event to Redis", exc_info=True)
 
@@ -149,6 +143,7 @@ async def run_cancellable_sweep(engine, sweep, progress_callback, is_cancelled) 
                 pass
 
 
+@job(max_tries=1)
 async def run_sweep_task(
     ctx: dict[str, Any],
     *,
@@ -156,52 +151,40 @@ async def run_sweep_task(
     job_id: int,
 ) -> None:
     """Run a parameter sweep as a background job (cooperatively cancellable)."""
-    from infrastructure.worker.tasks import run_tracked_job
-
     uow_factory = ctx["container"].infrastructure.db.uow_factory
 
     async def is_cancelled() -> bool:
         return await sweep_job_cancelled(uow_factory, sweep_id, job_id)
 
-    async def run_action() -> None:
-        sweep = await start_sweep_job(uow_factory, sweep_id, job_id)
-        if sweep is None:
+    sweep = await start_sweep_job(uow_factory, sweep_id, job_id)
+    if sweep is None:
+        return
+
+    async def progress_callback(ev: int, tot: int, res: dict | None) -> None:
+        await record_sweep_progress(uow_factory, sweep, sweep_id, ev, tot, res)
+
+    try:
+        engine = create_sweep_engine(ctx["container"].infrastructure)
+        results = await run_cancellable_sweep(engine, sweep, progress_callback, is_cancelled)
+        best_run_id = await save_sweep_results(uow_factory, sweep, sweep_id, results)
+        validate_sweep_coverage(results)
+    except SweepCancelled:
+        await handle_sweep_cancelled(uow_factory, sweep_id)
+        return
+    except asyncio.CancelledError:
+        await record_sweep_failure(uow_factory, sweep_id, "Task cancelled (timeout or worker shutdown)")
+        raise
+    except Exception as exc:
+        cancelled = await record_sweep_failure(uow_factory, sweep_id, job_error_message(exc))
+        if cancelled:
             return
+        raise
 
-        async def progress_callback(ev: int, tot: int, res: dict | None) -> None:
-            await record_sweep_progress(uow_factory, sweep, sweep_id, ev, tot, res)
-
-        try:
-            engine = create_sweep_engine(ctx["container"].infrastructure)
-            results = await run_cancellable_sweep(engine, sweep, progress_callback, is_cancelled)
-            best_run_id = await save_sweep_results(uow_factory, sweep, sweep_id, results)
-            validate_sweep_coverage(results)
-        except SweepCancelled:
-            await handle_sweep_cancelled(uow_factory, sweep_id)
-            return
-        except asyncio.CancelledError:
-            await record_sweep_failure(uow_factory, sweep_id, "Task cancelled (timeout or worker shutdown)")
-            raise
-        except Exception as exc:
-            cancelled = await record_sweep_failure(uow_factory, sweep_id, job_error_message(exc))
-            if cancelled:
-                return
-            raise
-
-        await complete_sweep(uow_factory, sweep_id, results, best_run_id)
-        try:
-            await save_sweep_reports(ctx, uow_factory, sweep_id, len(results))
-        except Exception:
-            logger.exception("Sweep reports deferred: sweep=%s", sweep_id)
-
-    await run_tracked_job(
-        uow_factory,
-        job_id,
-        run_action,
-        description=f"sweep {sweep_id}",
-        job_try=ctx.get("job_try", 1),
-        max_tries=1,
-    )
+    await complete_sweep(uow_factory, sweep_id, results, best_run_id)
+    try:
+        await save_sweep_reports(ctx, uow_factory, sweep_id, len(results))
+    except Exception:
+        logger.exception("Sweep reports deferred: sweep=%s", sweep_id)
 
 
 def validate_sweep_coverage(results: list[dict]) -> None:

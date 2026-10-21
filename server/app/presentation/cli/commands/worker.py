@@ -12,16 +12,17 @@ from arq.cron import cron
 from arq.worker import Function, Worker, func as arq_func
 
 from composition.container import Container
-from infrastructure.budget.job_context import bill_job_to_initiator
 from config import settings
 from infrastructure.database.database import database
 from infrastructure.redis.redis_client import redis_client
 from infrastructure.resilience.circuit_breaker import init_breakers
 from infrastructure.worker.queue import QUEUE_NAME
-from infrastructure.worker.tasks import (
+from infrastructure.worker.cron import (
     cron_job_cleanup,
     cron_recover_orphaned_jobs,
     cron_recover_stuck_processing,
+)
+from infrastructure.worker.tasks import (
     process_document,
     run_benchmark,
     run_full_ingest,
@@ -49,7 +50,7 @@ def worker(
     """Запустить Arq worker для обработки фоновых задач.
 
     Слушает очередь: background_tasks.
-    Cron-задачи: job_cleanup (2x/day), recover_orphaned (15 мин), bm25_rebuild (3:00 UTC).
+    Cron-задачи: job_cleanup (2x/day), recover_orphaned (15 мин), recover_stuck_processing (15 мин).
     Использует Redis как брокер.
     """
     try:
@@ -75,9 +76,6 @@ def worker(
             arq_func(cron_recover_stuck_processing, timeout=_CRON_TIMEOUT, keep_result=0),
         ]
 
-        for function in functions:
-            function.coroutine = bill_job_to_initiator(function.coroutine)
-
         cron_jobs = [
             cron(cron_sweep_checkpoint_cleanup, minute=set(range(60)), timeout=_CRON_TIMEOUT),
             cron(cron_job_cleanup, hour={1, 13}, timeout=_CRON_TIMEOUT),
@@ -100,7 +98,7 @@ def worker(
         )
 
         logger.info(
-            "Arq worker starting — queue: %s cron: cleanup/recover/reconcile/bm25 max_jobs=%d redis=%s",
+            "Arq worker starting — queue: %s cron: cleanup/recover/reconcile max_jobs=%d redis=%s",
             QUEUE_NAME,
             max_jobs,
             settings.redis_host,

@@ -23,7 +23,7 @@ def test_enqueued_sweep_resolves_to_registered_handler(monkeypatch):
     functions = worker_factory.call_args.kwargs["functions"]
     matching_handlers = [function for function in functions if function.name == task_name]
     assert len(matching_handlers) == 1
-    assert matching_handlers[0].coroutine.__wrapped__ is run_sweep_task
+    assert matching_handlers[0].coroutine is run_sweep_task
     assert pool.enqueue_job.call_args.kwargs["sweep_id"] == 1
     assert pool.enqueue_job.call_args.kwargs["job_id"] == 2
     cleanup_jobs = [
@@ -49,7 +49,7 @@ def test_enqueued_deletion_resolves_to_registered_handler(monkeypatch):
     functions = worker_factory.call_args.kwargs["functions"]
     handlers = [function for function in functions if function.name == task_name]
     assert len(handlers) == 1
-    assert handlers[0].coroutine.__wrapped__ is delete_document
+    assert handlers[0].coroutine is delete_document
     assert pool.enqueue_job.call_args.kwargs["document_id"] == 7
     assert pool.enqueue_job.call_args.kwargs["user_id"] == 1
     assert pool.enqueue_job.call_args.kwargs["job_id"] == 42

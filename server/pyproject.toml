@@ -744,6 +744,7 @@ ignore_imports = [
     "presentation.cli.commands.worker -> infrastructure.database.database",
     "presentation.cli.commands.worker -> infrastructure.redis.redis_client",
     "presentation.cli.commands.worker -> infrastructure.resilience.circuit_breaker",
+    "presentation.cli.commands.worker -> infrastructure.worker.cron",
     "presentation.cli.commands.worker -> infrastructure.worker.checkpoint_cleanup",
     "presentation.cli.commands.worker -> infrastructure.worker.document_deletion",
     "presentation.cli.commands.worker -> infrastructure.worker.queue",

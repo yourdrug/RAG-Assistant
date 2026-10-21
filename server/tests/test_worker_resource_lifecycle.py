@@ -10,7 +10,7 @@ import pytest
 from domain.identity.roles import UserKind, UserRole
 from domain.rag.context import RagContext
 from infrastructure.benchmark import answer_generators, retrieval, runner
-from infrastructure.worker import queue, tasks
+from infrastructure.worker import queue, runtime, tasks
 
 
 @pytest.fixture
@@ -100,7 +100,7 @@ async def test_worker_benchmark_runs_container_rag_pipeline(monkeypatch):
         with pytest.raises(RuntimeError, match="stop after selecting pipeline"):
             await action()
 
-    monkeypatch.setattr(tasks, "run_tracked_job", tracked)
+    monkeypatch.setattr(runtime, "run_tracked_job", tracked)
     monkeypatch.setattr(tasks, "run_benchmark_async", evaluate)
     await tasks.run_benchmark(
         {"container": container}, dataset="custom", out_dir="unused", top_k=4, judge_model="judge", job_id=8

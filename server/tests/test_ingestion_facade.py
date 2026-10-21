@@ -19,7 +19,7 @@ from application.ingestion import (
 )
 from composition.application import ApplicationContainer
 from domain.knowledge.enums import DocumentVisibility
-from infrastructure.worker import tasks as worker_tasks
+from infrastructure.worker import runtime, tasks as worker_tasks
 from presentation.api.dependencies import create_ingest_service, create_ingestion_port
 from presentation.cli.commands import ingest
 
@@ -221,7 +221,7 @@ async def test_worker_uses_shared_factory_and_forwards_scope(
         assert options["job_try"] == 2
         await action()
 
-    monkeypatch.setattr(worker_tasks, "run_tracked_job", tracked)
+    monkeypatch.setattr(runtime, "run_tracked_job", tracked)
     ctx = {"container": SimpleNamespace(infrastructure=infra), "job_try": 2}
 
     if single:

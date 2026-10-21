@@ -1,5 +1,7 @@
 """Regressions for zero tariffs and corpus switches during evaluations."""
 
+from infrastructure.worker import runtime
+
 import asyncio
 import csv
 import json
@@ -299,7 +301,7 @@ async def test_worker_report_uses_pinned_corpus_after_switch(monkeypatch):
         await action()
 
     monkeypatch.setattr(tasks, 'run_benchmark_async', evaluate)
-    monkeypatch.setattr(tasks, 'run_tracked_job', tracked)
+    monkeypatch.setattr(runtime, 'run_tracked_job', tracked)
     try:
         await tasks.run_benchmark(
             {'container': container}, dataset='main', top_k=1, judge_model='judge', job_id=1

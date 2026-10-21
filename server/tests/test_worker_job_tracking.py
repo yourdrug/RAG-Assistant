@@ -19,7 +19,7 @@ from domain.benchmark.sweep import SweepEvaluationMode  # noqa: E402
 
 from application.benchmark import BenchmarkSweepService  # noqa: E402
 from infrastructure.benchmark.sweep_engine import SweepCancelled, SweepEngine  # noqa: E402
-from infrastructure.worker import tasks as worker_tasks  # noqa: E402
+from infrastructure.worker import runtime as worker_tasks  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Stateful fake for run_tracked_job tests
@@ -136,7 +136,7 @@ class TestRunTrackedJob:
         assert repo.error == type(failure).__name__
 
     def test_heartbeat_touches_while_running(self, monkeypatch):
-        monkeypatch.setattr(worker_tasks, "_HEARTBEAT_INTERVAL_SEC", 0.01)
+        monkeypatch.setattr(worker_tasks, "HEARTBEAT_INTERVAL_SEC", 0.01)
         repo = _StatefulJobRepo()
 
         async def body():
@@ -146,7 +146,7 @@ class TestRunTrackedJob:
         assert repo.heartbeat_touches >= 1, "heartbeat must refresh while the body runs"
 
     def test_heartbeat_cancelled_after_body(self, monkeypatch):
-        monkeypatch.setattr(worker_tasks, "_HEARTBEAT_INTERVAL_SEC", 3600)
+        monkeypatch.setattr(worker_tasks, "HEARTBEAT_INTERVAL_SEC", 3600)
         repo = _StatefulJobRepo()
 
         async def body():

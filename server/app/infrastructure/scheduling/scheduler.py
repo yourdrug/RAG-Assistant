@@ -5,7 +5,7 @@ lifespan helpers plus a ``schedule_periodic`` decorator for registering
 recurring background tasks (e.g. infra-metrics collection).
 
 Note: heavy maintenance jobs (cleanup, orphan recovery, BM25 rebuild)
-are handled by Arq worker cron — see infrastructure.worker.tasks.cron_*.
+are handled by Arq worker cron — see infrastructure.worker.cron.
 Only process-local jobs stay here (metrics collector, config resync).
 """
 

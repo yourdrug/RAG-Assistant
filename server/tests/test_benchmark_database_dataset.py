@@ -1,5 +1,7 @@
 """Database-only execution contracts for benchmark and both sweep phases."""
 
+from infrastructure.worker import runtime
+
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -169,7 +171,7 @@ async def test_worker_loads_selected_dataset_before_evaluation(monkeypatch):
         assert job_id == 8
         await action()
 
-    monkeypatch.setattr(tasks, "run_tracked_job", tracked)
+    monkeypatch.setattr(runtime, "run_tracked_job", tracked)
     await tasks.run_benchmark(
         ctx, dataset="custom", out_dir="results", top_k=7, judge_model="judge", job_id=8
     )
