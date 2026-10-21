@@ -22,6 +22,8 @@ SECRET_SETTING_KEYS: frozenset[str] = frozenset(
 STATIC_SETTING_KEYS: frozenset[str] = frozenset(
     {
         "ml_internal_allowed_origins",
+        "ocr_vl_url",
+        "ocr_vl_timeout",
         "db_host",
         "db_port",
         "db_user",

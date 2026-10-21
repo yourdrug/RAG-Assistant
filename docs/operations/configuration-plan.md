@@ -649,6 +649,8 @@ DATA_DIR остаётся статическим root только local backend
 | embedding_http_max_keepalive_connections | БД | `20`; сохраняет текущий эффективный лимит | Замена HTTP-клиента (этап 4) | Заменяет HTTP_POOL_MAX_KEEPALIVE; убрать неявное деление reranker на 2 |
 | rerank_http_max_keepalive_connections | БД | `10`; сохраняет текущий эффективный лимит | Замена HTTP-клиента (этап 4) | Заменяет HTTP_POOL_MAX_KEEPALIVE; убрать неявное деление reranker на 2 |
 | ocr_engine | БД | `paddleocr` | Hot reload¹ | Управлять через админку; убрать из env после сверки |
+| OCR_VL_URL | env | `http://ocr-vl:8080` | Пересоздать потребителей | Адрес OCR-VL сервиса задаётся при развёртывании; не помещать в БД |
+| OCR_VL_TIMEOUT | env | `180` | Пересоздать потребителей | Таймаут OCR-VL в секундах; должен быть больше нуля |
 | ocr_enabled | БД | `true` | Hot reload¹ | Управлять через админку; убрать из env после сверки |
 | ocr_lang_paddle | БД | `ru` | Hot reload¹ | Управлять через админку; убрать из env после сверки |
 | ocr_lang_surya | БД | `['ru', 'en']` | Hot reload¹ | Управлять через админку; убрать из env после сверки |
