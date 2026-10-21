@@ -21,7 +21,7 @@ dependencies = [
     # --- Validation ---
     "pydantic==2.9.2",
     "pydantic-settings==2.6.1",
-    "python-dotenv==1.0.1",  # Existing parser, now used directly by the migration CLI
+    "python-dotenv==1.0.1", # Existing parser, now used directly by the migration CLI
     "email-validator>=2.0.0",
     # --- Database ---
     "sqlalchemy==2.0.35",
@@ -169,38 +169,38 @@ docstring-code-line-length = "dynamic"
 select = ["ALL"]
 ignore = [
     # --- конфликты с форматтером (рекомендация самого ruff) ---
-    "COM812",   # trailing comma: конфликтует с ruff format
-    "ISC001",   # implicit string concat: конфликтует с ruff format
+    "COM812", # trailing comma: конфликтует с ruff format
+    "ISC001", # implicit string concat: конфликтует с ruff format
 
     # --- взаимоисключающие правила pydocstyle ---
-    "D203",     # конфликтует с D211
-    "D213",     # конфликтует с D212
+    "D203", # конфликтует с D211
+    "D213", # конфликтует с D212
 
     # --- мета-правила, не про качество кода ---
-    "CPY001",   # copyright header
-    "TD002",    # TODO без автора
-    "TD003",    # TODO без ссылки на issue
-    "FIX002",   # TODO в коде
+    "CPY001", # copyright header
+    "TD002", # TODO без автора
+    "TD003", # TODO без ссылки на issue
+    "FIX002", # TODO в коде
 
-    # --- докстринги: убрать эти строки, если хотите требовать их везде ---
+    # --- докстринги ---
     "D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107",
 ]
 fixable = ["ALL"]
 unfixable = [
-    "F841",     # не удалять неиспользуемые переменные молча
-    "ERA001",   # не удалять закомментированный код автоматически
+    "F841", # не удалять неиспользуемые переменные молча
+    "ERA001", # не удалять закомментированный код автоматически
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = [
-    "S101",     # assert
-    "PLR2004",  # magic values в assert
-    "ANN",      # аннотации в тестах
-    "D",        # докстринги
-    "SLF001",   # доступ к приватным атрибутам
-    "ARG001",   # неиспользуемые аргументы (фикстуры)
-    "FBT",      # boolean-аргументы
-    "INP001",   # нет __init__.py
+    "S101", # assert
+    "PLR2004", # magic values в assert
+    "ANN", # аннотации в тестах
+    "D", # докстринги
+    "SLF001", # доступ к приватным атрибутам
+    "ARG001", # неиспользуемые аргументы (фикстуры)
+    "FBT", # boolean-аргументы
+    "INP001", # нет __init__.py
 ]
 "app/infrastructure/database/migrations/**" = ["D", "INP001", "E501", "ANN", "ERA001"]
 # FastAPI резолвит типы параметров в рантайме, поэтому импорты нельзя прятать под TYPE_CHECKING
@@ -285,7 +285,7 @@ namespace_packages = true
 plugins = ["pydantic.mypy"]
 
 strict = true                  # включает disallow_untyped_defs, disallow_any_generics,
-                               # warn_return_any, no_implicit_reexport и т.д.
+# warn_return_any, no_implicit_reexport и т.д.
 disallow_any_unimported = true
 disallow_any_decorated = false # включите, если готовы бороться с декораторами FastAPI
 warn_unreachable = true

@@ -46,6 +46,7 @@ opencode.json
 !/.codex/agents/*.toml
 /.agents/*
 !/.agents/skills/
+graphify-out/
 
 # coverage
 server/.coverage
