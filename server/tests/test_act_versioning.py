@@ -17,7 +17,7 @@ from domain.knowledge.acts.models import ActVersion
 from domain.knowledge.document import Document
 from domain.knowledge.acts.models import RegulatoryAct
 from domain.knowledge.index_sync import OutboxOperation
-from domain.shared.exceptions import EntityNotFound
+from domain.shared.exceptions import EntityNotFoundError
 from fakes import FakeUnitOfWorkFactory
 
 
@@ -185,7 +185,7 @@ async def test_update_version_sets_manual_and_enqueues_qdrant_sync():
 @pytest.mark.asyncio
 async def test_update_version_unknown_id_raises():
     service, _ = make_service()
-    with pytest.raises(EntityNotFound):
+    with pytest.raises(EntityNotFoundError):
         await service.update_version(999, effective_from=date(2026, 1, 1))
 
 

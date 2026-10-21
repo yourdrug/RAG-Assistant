@@ -12,7 +12,7 @@ from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from composition.container import Container
 from config import settings
-from domain.shared.exceptions import ClientException, ServerException
+from domain.shared.exceptions import AppClientError, AppServerError
 from infrastructure.database.database import database
 from infrastructure.initialization import bootstrap_admin
 from infrastructure.logging import logging_config
@@ -163,8 +163,8 @@ class Application:
         add_metrics_middleware(self.app)
 
     def add_exception_handlers(self) -> None:
-        self.app.add_exception_handler(ClientException, handle_client_exception)
-        self.app.add_exception_handler(ServerException, handle_server_exception)
+        self.app.add_exception_handler(AppClientError, handle_client_exception)
+        self.app.add_exception_handler(AppServerError, handle_server_exception)
         self.app.add_exception_handler(HTTPException, handle_http_exception)
         self.app.add_exception_handler(RequestValidationError, handle_validation_exception)
         self.app.add_exception_handler(Exception, handle_unexpected_exception)

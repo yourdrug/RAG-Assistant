@@ -1,7 +1,7 @@
 """Durable document deletion; permissions are checked again at execution time."""
 
 from domain.identity.capabilities import Capability, get_role_capabilities
-from domain.shared.exceptions import EntityNotFound, PermissionDeniedError
+from domain.shared.exceptions import EntityNotFoundError, PermissionDeniedError
 from infrastructure.worker.tasks import run_tracked_job
 
 
@@ -23,7 +23,7 @@ async def delete_document(ctx: dict, *, document_id: int, user_id: int, job_id: 
                 await container.application.document_command_service.delete_document(
                     document_id, user_id, user.role, user.kind
                 )
-            except EntityNotFound:
+            except EntityNotFoundError:
                 # A duplicate job may have deleted it between lookup and command.
                 async with factory.create(master=True) as uow:
                     if await uow.documents.get_by_id(document_id) is not None:

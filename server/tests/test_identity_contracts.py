@@ -18,7 +18,7 @@ from application.identity import (
 )
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user import User
-from domain.shared.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
+from domain.shared.exceptions import BusinessRuleViolationError, EntityNotFoundError, ValidationError
 
 
 @pytest.mark.parametrize(
@@ -174,7 +174,7 @@ async def test_api_key_invalidation_requires_successful_commit(outcome: str) -> 
         await service.revoke_api_key(7, client_user_id=1)
         assert events == ["commit", "invalidate"]
     else:
-        with pytest.raises(EntityNotFound if outcome == "missing" else RuntimeError):
+        with pytest.raises(EntityNotFoundError if outcome == "missing" else RuntimeError):
             await service.revoke_api_key(7, client_user_id=1)
         provider.invalidate_by_id.assert_not_awaited()
 
@@ -204,7 +204,7 @@ async def test_assign_user_checks_target_role(role: UserRole) -> None:
         await service.assign_user(1, 2, 3)
         uow.assignments.assign_user.assert_awaited_once_with(1, 2, 3)
     else:
-        with pytest.raises(BusinessRuleViolation):
+        with pytest.raises(BusinessRuleViolationError):
             await service.assign_user(1, 2, 3)
         uow.assignments.assign_user.assert_not_awaited()
 
@@ -219,11 +219,11 @@ async def test_assign_group_checks_manager_and_group(manager_role: UserRole, *, 
     service = AssignmentService(factory)
 
     if manager_role != UserRole.CURATOR:
-        with pytest.raises(BusinessRuleViolation):
+        with pytest.raises(BusinessRuleViolationError):
             await service.assign_group(1, 2, 3)
         uow.groups.list_by_ids.assert_not_awaited()
     elif not group_exists:
-        with pytest.raises(EntityNotFound):
+        with pytest.raises(EntityNotFoundError):
             await service.assign_group(1, 2, 3)
     else:
         await service.assign_group(1, 2, 3)

@@ -7,9 +7,13 @@ convention with a proper typed union (``TextChunk | SourcesEvent``).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from typing import TYPE_CHECKING, Any
 
-from domain.rag.breadth import Breadth
+
+if TYPE_CHECKING:
+    from datetime import date
+
+    from domain.rag.breadth import Breadth
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,7 +37,7 @@ class UsageReport:
 class SourcesEvent:
     """Source metadata extracted from retrieved documents."""
 
-    sources: list[dict]
+    sources: list[dict[str, Any]]
     confidence: float | None = None
     usage: UsageReport | None = None
 
@@ -50,7 +54,7 @@ class MetaEvent:
     """Final metadata: conversation_id and sources, yielded after the answer."""
 
     conversation_id: int
-    sources: list[dict]
+    sources: list[dict[str, Any]]
     confidence: float | None = None
     usage: UsageReport | None = None
     as_of_date: date | None = None

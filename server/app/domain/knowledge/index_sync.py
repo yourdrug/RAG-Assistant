@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import datetime
 from enum import StrEnum
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from domain.knowledge.chunk import Chunk
-from domain.shared.enums import LifecycleStatusMixin
+from domain.shared.enums import LifecycleStatus
+
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+    from datetime import datetime
+
+    from domain.knowledge.chunk import Chunk
 
 
 class OutboxOperation(StrEnum):
@@ -22,8 +26,7 @@ class OutboxOperation(StrEnum):
 
 
 class OutboxStatus(
-    LifecycleStatusMixin,
-    StrEnum,
+    LifecycleStatus,
     terminal=frozenset({"done", "dead_letter"}),
     active=frozenset({"pending", "in_progress"}),
 ):
@@ -40,7 +43,7 @@ class VectorOutboxEntry:
     operation: OutboxOperation = OutboxOperation.UPSERT_CHUNKS
     aggregate_type: str = "document"
     aggregate_id: int = 0
-    payload: dict = field(default_factory=dict)
+    payload: dict[str, Any] = field(default_factory=dict)
     status: OutboxStatus = OutboxStatus.PENDING
     attempts: int = 0
     max_attempts: int = 8
@@ -59,6 +62,7 @@ class VectorOutboxEntry:
         """Record a failure attempt.  Check ``is_dead_letter`` after calling."""
         self.attempts += 1
         self.last_error = error
+
         if self.attempts >= self.max_attempts:
             self.status = OutboxStatus.DEAD_LETTER
         else:
@@ -122,7 +126,7 @@ class VectorOutboxRepository(OutboxProducer, OutboxDispatcher, OutboxInspector, 
 
 @runtime_checkable
 class VectorIndexWriter(Protocol):
-    async def ensure_collection(self, vector_size: int, reset: bool = False) -> None: ...
+    async def ensure_collection(self, vector_size: int, *, reset: bool = False) -> None: ...
     async def upload_documents(
         self,
         chunks: list[Chunk],
@@ -130,8 +134,10 @@ class VectorIndexWriter(Protocol):
         should_cancel: Callable[[], Awaitable[bool]] | None = None,
     ) -> None: ...
     async def delete_by_document_id(self, document_id: int) -> None: ...
-    async def upsert_point(self, point_id: int, vector: list[float], payload: dict) -> None: ...
+    async def upsert_point(self, point_id: int, vector: list[float], payload: dict[str, Any]) -> None: ...
     async def delete_by_ids(self, ids: list[int]) -> None: ...
     async def set_document_id_by_source(self, source: str, document_id: int) -> None: ...
     async def update_filename_by_document_id(self, document_id: int, new_filename: str) -> None: ...
-    async def update_metadata_by_act_version(self, act_version_id: int, metadata_updates: dict) -> None: ...
+    async def update_metadata_by_act_version(
+        self, act_version_id: int, metadata_updates: dict[str, Any]
+    ) -> None: ...

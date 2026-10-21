@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from application.uow import UnitOfWorkFactory
 
 from domain.identity.roles import UserRole
-from domain.shared.exceptions import BusinessRuleViolation, EntityNotFound
+from domain.shared.exceptions import BusinessRuleViolationError, EntityNotFoundError
 
 
 log = logging.getLogger("default")
@@ -37,25 +37,25 @@ class AssignmentService:
 
             if manager is None:
                 msg = "User"
-                raise EntityNotFound(msg, manager_id)
+                raise EntityNotFoundError(msg, manager_id)
 
             if manager.role != UserRole.CURATOR:
                 msg = "Target user is not a curator"
-                raise BusinessRuleViolation(msg)
+                raise BusinessRuleViolationError(msg)
 
             target = await uow.users.get_by_id(target_user_id)
 
             if target is None:
                 msg = "User"
-                raise EntityNotFound(msg, target_user_id)
+                raise EntityNotFoundError(msg, target_user_id)
 
             if target.role in (UserRole.ADMIN, UserRole.CURATOR):
                 msg = "Cannot assign admin or curator users to a curator"
-                raise BusinessRuleViolation(msg)
+                raise BusinessRuleViolationError(msg)
 
             if manager_id == target_user_id:
                 msg = "Cannot assign a curator to themselves"
-                raise BusinessRuleViolation(msg)
+                raise BusinessRuleViolationError(msg)
 
             await uow.assignments.assign_user(manager_id, target_user_id, assigned_by)
             log.info(
@@ -77,17 +77,17 @@ class AssignmentService:
 
             if manager is None:
                 msg = "User"
-                raise EntityNotFound(msg, manager_id)
+                raise EntityNotFoundError(msg, manager_id)
 
             if manager.role != UserRole.CURATOR:
                 msg = "Target user is not a curator"
-                raise BusinessRuleViolation(msg)
+                raise BusinessRuleViolationError(msg)
 
             groups = await uow.groups.list_by_ids([group_id])
 
             if not groups:
                 msg = "Group"
-                raise EntityNotFound(msg, group_id)
+                raise EntityNotFoundError(msg, group_id)
 
             await uow.assignments.assign_group(manager_id, group_id, assigned_by)
             log.info(

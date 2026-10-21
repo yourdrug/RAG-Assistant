@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from domain.shared.exceptions import EntityNotFound, ValidationError
+from domain.shared.exceptions import EntityNotFoundError, ValidationError
 
 
 if TYPE_CHECKING:
@@ -26,7 +26,7 @@ class QualityService:
 
             if doc is None:
                 entity_name = "Document"
-                raise EntityNotFound(entity_name, document_id)
+                raise EntityNotFoundError(entity_name, document_id)
 
             if not doc.source_path:
                 msg = "Document has no source file"

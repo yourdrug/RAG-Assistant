@@ -20,7 +20,7 @@ from domain.identity.roles import UserKind
 from domain.ingestion.raw_document import RawDocument
 from domain.knowledge.document import Document as DocEntity
 from domain.knowledge.enums import DocDomain, DocumentVisibility
-from domain.shared.exceptions import EntityNotFound, ValidationError
+from domain.shared.exceptions import EntityNotFoundError, ValidationError
 
 
 if TYPE_CHECKING:
@@ -195,7 +195,7 @@ class DocumentSyncService:
 
             if document is None:
                 entity_name = "Document"
-                raise EntityNotFound(entity_name, doc_id)
+                raise EntityNotFoundError(entity_name, doc_id)
 
             visibility, owner_id, group_id = document.visibility, document.owner_id, document.group_id
             # Copy per target: one source can have several different ACL assignments.

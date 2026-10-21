@@ -70,7 +70,7 @@ async def test_manual_chunk_round_trip_and_later_version_updates(pg_engine):
     async with sessions.begin() as session:
         # Same projection updates used by the version review/timeline services.
         repo = SQLAlchemyChunkRepository(session)
-        assert await repo.set_current_by_act_version_ids([version_id], True) == 1
+        assert await repo.set_current_by_act_version_ids([version_id], is_current=True) == 1
         assert await repo.update_temporal_by_act_version_id(version_id, date(2021, 1, 1), None) == 1
     async with sessions() as session:
         chunk = await SQLAlchemyChunkRepository(session).get_by_id(result.id)

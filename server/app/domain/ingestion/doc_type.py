@@ -8,7 +8,7 @@ DOC_TYPE_KEYWORDS: list[tuple[str, list[str]]] = [
     ("contract", ["договор", "контракт", "соглашение"]),
     ("protocol", ["протокол"]),
     ("instruction", ["инструкция", "регламент", "порядок действий"]),
-    ("policy", ["положение о"]),  # noqa: RUF001 — Russian keyword.
+    ("policy", ["положение \u043e"]),
     ("letter", ["письмо", "уведомление"]),
     ("report", ["отчёт", "отчет"]),
 ]

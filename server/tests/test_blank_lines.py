@@ -15,6 +15,11 @@ SCRIPT = Path(__file__).resolve().parents[1] / "tools" / "blank_lines.py"
     "source,expected,options",
     [
         (
+            'def example():\n    """Describe behavior."""\n    if ready:\n        pass\n    done()\n',
+            'def example():\n    """Describe behavior."""\n    if ready:\n        pass\n\n    done()\n',
+            [],
+        ),
+        (
             "x = 1\n# attached\nif x:\n    print(x)\nprint('end')\n",
             "x = 1\n\n# attached\nif x:\n    print(x)\n\nprint('end')\n",
             [],

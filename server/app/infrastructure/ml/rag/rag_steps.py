@@ -203,8 +203,8 @@ async def step_check_cache(
             "evidence_policy": EVIDENCE_POLICY_VERSION,
             "domain_prompts": {
                 domain_key: [
-                    policy_for(domain_key).prompt_addendum(Breadth.NARROW, state.ctx.as_of_date),
-                    policy_for(domain_key).prompt_addendum(Breadth.BROAD, state.ctx.as_of_date),
+                    policy_for(domain_key).prompt_addendum(state.ctx.as_of_date),
+                    policy_for(domain_key).prompt_addendum(state.ctx.as_of_date),
                 ]
                 for domain_key in domain_keys
             }
@@ -305,7 +305,7 @@ async def step_retrieve(
     candidates = await filter_documents(candidates, document_access, state.user)
 
     # ── Detect conditional rules on FULL candidate set ───────────────
-    enumerate_cases = should_enumerate_cases(query, [doc.page_content for doc in candidates])
+    enumerate_cases = should_enumerate_cases([doc.page_content for doc in candidates])
 
     # ── Reranking + enrichment ───────────────────────────────────────
     docs, _, avg_sim = await rerank_and_enrich(
@@ -465,7 +465,6 @@ def step_build_context(
     domain_addendum = domain_prompt_addendum(
         state.query_domain,
         ctx,
-        effective_breadth,
         domain_keys,
     )
     prompt = build_prompt(

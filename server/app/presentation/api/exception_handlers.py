@@ -2,7 +2,7 @@
 
 Principles:
 - Single mapping: exception_type → status_code, not scattered across functions.
-- ClientException handler for 4xx, ServerException handler for 5xx.
+- AppClientError handler for 4xx, AppServerError handler for 5xx.
 - HTTPException and RequestValidationError handled separately.
 - Unexpected errors are logged with exc_info and return 500.
 """
@@ -13,14 +13,14 @@ from logging import Logger, getLogger
 
 from domain.shared.exceptions import (
     AuthenticationError,
-    BusinessRuleViolation,
-    ClientException,
+    BusinessRuleViolationError,
+    AppClientError,
     DatabaseError,
-    EntityNotFound,
+    EntityNotFoundError,
     PermissionDeniedError,
     RateLimitExceededError,
     SemaphoreTimeoutError,
-    ServerException,
+    AppServerError,
     ValidationError,
 )
 from fastapi import status
@@ -34,24 +34,24 @@ logger: Logger = getLogger("default")
 # Status code mapping — client exceptions (4xx)
 # ---------------------------------------------------------------------------
 
-_CLIENT_STATUS_MAP: dict[type[ClientException], int] = {
+_CLIENT_STATUS_MAP: dict[type[AppClientError], int] = {
     ValidationError: status.HTTP_422_UNPROCESSABLE_ENTITY,
-    EntityNotFound: status.HTTP_404_NOT_FOUND,
-    BusinessRuleViolation: status.HTTP_409_CONFLICT,
+    EntityNotFoundError: status.HTTP_404_NOT_FOUND,
+    BusinessRuleViolationError: status.HTTP_409_CONFLICT,
     AuthenticationError: status.HTTP_401_UNAUTHORIZED,
     PermissionDeniedError: status.HTTP_403_FORBIDDEN,
     SemaphoreTimeoutError: status.HTTP_429_TOO_MANY_REQUESTS,
     RateLimitExceededError: status.HTTP_429_TOO_MANY_REQUESTS,
-    ClientException: status.HTTP_400_BAD_REQUEST,  # fallback
+    AppClientError: status.HTTP_400_BAD_REQUEST,  # fallback
 }
 
 # ---------------------------------------------------------------------------
 # Status code mapping — server exceptions (5xx)
 # ---------------------------------------------------------------------------
 
-_SERVER_STATUS_MAP: dict[type[ServerException], int] = {
+_SERVER_STATUS_MAP: dict[type[AppServerError], int] = {
     DatabaseError: status.HTTP_500_INTERNAL_SERVER_ERROR,
-    ServerException: status.HTTP_500_INTERNAL_SERVER_ERROR,  # fallback
+    AppServerError: status.HTTP_500_INTERNAL_SERVER_ERROR,  # fallback
 }
 
 
@@ -72,13 +72,13 @@ def _error(message: str, errors: dict | None = None) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Client exceptions — single handler for all ClientException subclasses
+# Client exceptions — single handler for all AppClientError subclasses
 # ---------------------------------------------------------------------------
 
 
 async def handle_client_exception(request: Request, exc: Exception) -> JSONResponse:
     """4xx — client errors (validation, not found, auth, permissions)."""
-    if not isinstance(exc, ClientException):
+    if not isinstance(exc, AppClientError):
         return await handle_unexpected_exception(request, exc)
 
     status_code = status.HTTP_400_BAD_REQUEST
@@ -98,13 +98,13 @@ async def handle_client_exception(request: Request, exc: Exception) -> JSONRespo
 
 
 # ---------------------------------------------------------------------------
-# Server exceptions — single handler for all ServerException subclasses
+# Server exceptions — single handler for all AppServerError subclasses
 # ---------------------------------------------------------------------------
 
 
 async def handle_server_exception(request: Request, exc: Exception) -> JSONResponse:
     """5xx — server errors (database, infrastructure)."""
-    if not isinstance(exc, ServerException):
+    if not isinstance(exc, AppServerError):
         return await handle_unexpected_exception(request, exc)
 
     logger.error("Server exception: %s", exc, exc_info=True)
@@ -115,7 +115,7 @@ async def handle_server_exception(request: Request, exc: Exception) -> JSONRespo
             status_code = code
             break
 
-    # ServerException details can contain driver messages, SQL, parameters or
+    # AppServerError details can contain driver messages, SQL, parameters or
     # schema names. Keep the full exception in server logs and return only a
     # stable public error envelope.
     return _json(_error("Внутренняя ошибка сервера"), status_code)

@@ -7,7 +7,7 @@ import pytest
 
 from domain.knowledge.acts.models import ActVersion
 from domain.knowledge.acts.timeline import ActVersionTimeline
-from domain.shared.exceptions import EntityNotFound, ValidationError
+from domain.shared.exceptions import EntityNotFoundError, ValidationError
 
 
 def timeline() -> ActVersionTimeline:
@@ -66,7 +66,7 @@ def test_expired_version_cannot_remain_current():
 
 
 def test_unknown_edition_cannot_be_corrected():
-    with pytest.raises(EntityNotFound):
+    with pytest.raises(EntityNotFoundError):
         timeline().correct(ActVersion(99, 10, 99), end_provided=False, today=date(2026, 6, 1))
 
 

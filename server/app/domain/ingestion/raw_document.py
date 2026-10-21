@@ -8,6 +8,7 @@ the hand-off type between the parser (infrastructure) and the splitter
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -19,4 +20,4 @@ class RawDocument:
     """
 
     page_content: str = ""
-    metadata: dict = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)

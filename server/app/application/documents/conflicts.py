@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from application.documents.delete import delete_document_in_uow
 from domain.knowledge.enums import DocumentStatus
-from domain.shared.exceptions import EntityNotFound
+from domain.shared.exceptions import EntityNotFoundError
 
 
 if TYPE_CHECKING:
@@ -31,7 +31,7 @@ async def resolve_upload_version_group(
 
         if replaces_doc is None:
             msg = "Document"
-            raise EntityNotFound(msg, replaces_document_id)
+            raise EntityNotFoundError(msg, replaces_document_id)
 
         version_group_id = replaces_doc.version_group_id or replaces_doc.id
         return version_group_id, replaces_doc.id, replaces_doc

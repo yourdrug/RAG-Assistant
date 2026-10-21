@@ -7,7 +7,7 @@ import pytest
 from application.chunks.mutations import ChunkMutationService
 from application.documents import ManualDocumentService
 from domain.knowledge.document import Document
-from domain.shared.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
+from domain.shared.exceptions import BusinessRuleViolationError, EntityNotFoundError, ValidationError
 from domain.knowledge.chunk import ChunkRecord, ChunkStats
 from domain.knowledge.access_control import compute_owner_and_group
 from domain.shared.hashing import content_hash
@@ -225,7 +225,7 @@ class TestEditChunk:
         uow = _make_uow(doc=doc)
         svc = _make_service(uow)
 
-        with pytest.raises(BusinessRuleViolation, match="No permission"):
+        with pytest.raises(BusinessRuleViolationError, match="No permission"):
             await svc.edit_chunk(
                 document_id=1,
                 chunk_id=10,
@@ -236,12 +236,12 @@ class TestEditChunk:
 
     @pytest.mark.asyncio
     async def test_edit_chunk_not_found(self):
-        """Chunk not in DB raises EntityNotFound."""
+        """Chunk not in DB raises EntityNotFoundError."""
         uow = _make_uow()
         uow.chunks.get_by_id = AsyncMock(return_value=None)
         svc = _make_service(uow)
 
-        with pytest.raises(EntityNotFound):
+        with pytest.raises(EntityNotFoundError):
             await svc.edit_chunk(
                 document_id=1,
                 chunk_id=999,
@@ -252,12 +252,12 @@ class TestEditChunk:
 
     @pytest.mark.asyncio
     async def test_edit_chunk_wrong_document(self):
-        """Chunk belonging to a different document raises BusinessRuleViolation."""
+        """Chunk belonging to a different document raises BusinessRuleViolationError."""
         chunk = _make_chunk(document_id=2)
         uow = _make_uow(chunk=chunk)
         svc = _make_service(uow)
 
-        with pytest.raises(BusinessRuleViolation, match="does not belong"):
+        with pytest.raises(BusinessRuleViolationError, match="does not belong"):
             await svc.edit_chunk(
                 document_id=1,
                 chunk_id=10,
@@ -341,7 +341,7 @@ class TestAddChunk:
         uow = _make_uow(doc=doc)
         svc = _make_service(uow)
 
-        with pytest.raises(BusinessRuleViolation, match="status"):
+        with pytest.raises(BusinessRuleViolationError, match="status"):
             await svc.add_chunk(
                 document_id=1,
                 content="new " * 50,
@@ -356,7 +356,7 @@ class TestAddChunk:
         uow = _make_uow(doc=doc)
         svc = _make_service(uow)
 
-        with pytest.raises(BusinessRuleViolation, match="No permission"):
+        with pytest.raises(BusinessRuleViolationError, match="No permission"):
             await svc.add_chunk(
                 document_id=1,
                 content="new " * 50,
@@ -375,7 +375,7 @@ class TestAddChunk:
         uow = _make_uow(doc=doc)
         svc = _make_service(uow)
 
-        with pytest.raises(BusinessRuleViolation, match="status"):
+        with pytest.raises(BusinessRuleViolationError, match="status"):
             await svc.add_chunk(
                 document_id=1,
                 content="new " * 50,
@@ -447,7 +447,7 @@ class TestDeleteChunk:
         uow = _make_uow(doc=doc)
         svc = _make_service(uow)
 
-        with pytest.raises(BusinessRuleViolation, match="No permission"):
+        with pytest.raises(BusinessRuleViolationError, match="No permission"):
             await svc.delete_chunk(document_id=1, chunk_id=10, user_id=999, user_role="user")
 
     @pytest.mark.asyncio
@@ -456,7 +456,7 @@ class TestDeleteChunk:
         uow.chunks.get_by_id = AsyncMock(return_value=None)
         svc = _make_service(uow)
 
-        with pytest.raises(EntityNotFound):
+        with pytest.raises(EntityNotFoundError):
             await svc.delete_chunk(document_id=1, chunk_id=999, user_id=100, user_role="admin")
 
     @pytest.mark.asyncio
@@ -465,7 +465,7 @@ class TestDeleteChunk:
         uow = _make_uow(chunk=chunk)
         svc = _make_service(uow)
 
-        with pytest.raises(BusinessRuleViolation, match="does not belong"):
+        with pytest.raises(BusinessRuleViolationError, match="does not belong"):
             await svc.delete_chunk(document_id=1, chunk_id=10, user_id=100, user_role="admin")
 
     @pytest.mark.asyncio
@@ -511,7 +511,7 @@ class TestCreateManualDocument:
         uow = _make_uow()
         svc = make_manual_service(uow)
 
-        with pytest.raises(BusinessRuleViolation):
+        with pytest.raises(BusinessRuleViolationError):
             await svc.create_manual_document(
                 title="Bad",
                 visibility="internal_public",
@@ -526,7 +526,7 @@ class TestCreateManualDocument:
         uow = _make_uow()
         svc = make_manual_service(uow)
 
-        with pytest.raises((ValidationError, BusinessRuleViolation)):
+        with pytest.raises((ValidationError, BusinessRuleViolationError)):
             await svc.create_manual_document(
                 title="Bad",
                 visibility="internal_group",

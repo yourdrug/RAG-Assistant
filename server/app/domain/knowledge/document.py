@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 
 from domain.identity.roles import UserRole
 from domain.knowledge.enums import DocDomain, DocumentStatus, DocumentVisibility, SourceType
-from domain.shared.exceptions import BusinessRuleViolation
+from domain.shared.exceptions import BusinessRuleViolationError
 
 
 @dataclass
@@ -41,6 +41,7 @@ class Document:
     def __post_init__(self) -> None:
         if isinstance(self.visibility, str):
             self.visibility = DocumentVisibility.validate(self.visibility)
+
         if isinstance(self.status, str):
             self.status = DocumentStatus(self.status)
 
@@ -48,9 +49,9 @@ class Document:
         self, chunks: int, chars: int, warning_message: str | None = None, quality_score: float | None = None
     ) -> None:
         if not self.status.is_active:
-            raise BusinessRuleViolation(
-                f"Cannot mark document as DONE: status is {self.status.value!r} (expected active state)"
-            )
+            msg = f"Cannot mark document as DONE: status is {self.status.value!r} (expected active state)"
+            raise BusinessRuleViolationError(msg)
+
         self.status = DocumentStatus.DONE
         self.chunks = chunks
         self.chars = chars
@@ -60,9 +61,9 @@ class Document:
 
     def mark_failed(self, error: str) -> None:
         if not self.status.is_active:
-            raise BusinessRuleViolation(
-                f"Cannot mark document as FAILED: status is {self.status.value!r} (expected active state)"
-            )
+            msg = f"Cannot mark document as FAILED: status is {self.status.value!r} (expected active state)"
+            raise BusinessRuleViolationError(msg)
+
         self.status = DocumentStatus.FAILED
         self.error_message = error
 
@@ -76,16 +77,17 @@ class Document:
     ) -> bool:
         """Check assigned owners and groups; callers enforce the curator role."""
         all_managed_ids = list(set(managed_client_ids or []) | set(managed_internal_ids or []))
+
         if self.owner_id is not None and self.owner_id in all_managed_ids:
             return True
+
         all_group_ids = list(set(user_group_ids or []) | set(managed_group_ids or []))
-        if (
+
+        return bool(
             self.visibility == DocumentVisibility.INTERNAL_GROUP
             and self.group_id is not None
             and self.group_id in all_group_ids
-        ):
-            return True
-        return False
+        )
 
     def can_be_deleted_by(
         self,
@@ -99,8 +101,10 @@ class Document:
     ) -> bool:
         if user_role == UserRole.ADMIN:
             return True
+
         if self.owner_id == user_id:
             return True
+
         if user_role == UserRole.CURATOR:
             return self.in_curator_scope(
                 user_group_ids,
@@ -108,14 +112,13 @@ class Document:
                 managed_internal_ids=managed_internal_ids,
                 managed_group_ids=managed_group_ids,
             )
-        if (
+
+        return bool(
             self.visibility == DocumentVisibility.INTERNAL_GROUP
             and self.group_id is not None
             and user_group_ids is not None
             and self.group_id in user_group_ids
-        ):
-            return True
-        return False
+        )
 
     def can_edit_chunks(
         self,
@@ -136,8 +139,10 @@ class Document:
         """
         if user_role == UserRole.ADMIN:
             return True
+
         if self.owner_id == user_id:
             return True
+
         if user_role == UserRole.CURATOR:
             return self.in_curator_scope(
                 user_group_ids,
@@ -145,6 +150,5 @@ class Document:
                 managed_internal_ids=managed_internal_ids,
                 managed_group_ids=managed_group_ids,
             )
-        if self.visibility == DocumentVisibility.INTERNAL_GROUP:
-            return False
-        return self.owner_id == user_id
+
+        return self.visibility != DocumentVisibility.INTERNAL_GROUP and self.owner_id == user_id

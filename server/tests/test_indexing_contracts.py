@@ -111,7 +111,7 @@ async def test_existing_uow_keeps_transaction_ownership_and_projection_order(set
     }
     uow.documents.update_status.assert_awaited_once_with(
         9,
-        DocumentStatus.INDEXING.value if set_indexing else DocumentStatus.DONE.value,
+        status=DocumentStatus.INDEXING.value if set_indexing else DocumentStatus.DONE.value,
         chunks=1,
         chars=4,
     )

@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
-from datetime import date
+from typing import TYPE_CHECKING
+
+
+if TYPE_CHECKING:
+    from datetime import date
+    import re
 
 
 @dataclass(frozen=True)
@@ -56,8 +60,10 @@ def refs_to_metadata(refs: list[ReferenceMatch]) -> dict[str, str | list[str]]:
     [point=1, point=2] -> {"point": ["1", "2"]}.
     """
     metadata: dict[str, str | list[str]] = {}
+
     for ref in refs:
         existing = metadata.get(ref.kind)
+
         if existing is None:
             metadata[ref.kind] = ref.value
         elif isinstance(existing, list):
@@ -65,6 +71,7 @@ def refs_to_metadata(refs: list[ReferenceMatch]) -> dict[str, str | list[str]]:
                 existing.append(ref.value)
         elif existing != ref.value:
             metadata[ref.kind] = [existing, ref.value]
+
     return metadata
 
 

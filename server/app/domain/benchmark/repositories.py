@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from domain.benchmark.question import BenchmarkQuestion
-from domain.benchmark.run import BenchmarkRun
-from domain.benchmark.sweep import BenchmarkSweep
+
+if TYPE_CHECKING:
+    from datetime import datetime
+
+    from domain.benchmark.question import BenchmarkQuestion
+    from domain.benchmark.run import BenchmarkRun
+    from domain.benchmark.sweep import BenchmarkSweep
 
 
 @runtime_checkable
@@ -40,7 +43,7 @@ class BenchmarkQuestionRepository(Protocol):
 
     async def create(self, question: BenchmarkQuestion) -> BenchmarkQuestion: ...
 
-    async def update(self, question_id: int, **fields) -> BenchmarkQuestion | None: ...
+    async def update(self, question_id: int, **fields: object) -> BenchmarkQuestion | None: ...
 
     async def delete(self, question_id: int) -> bool: ...
 
@@ -63,13 +66,13 @@ class BenchmarkRunRepository(Protocol):
 
     async def get_baseline(self, current: BenchmarkRun) -> BenchmarkRun | None: ...
 
-    async def export_header(self, run_id: int) -> dict | None: ...
+    async def export_header(self, run_id: int) -> dict[str, Any] | None: ...
 
-    async def result_page(self, run_id: int, *, offset: int, limit: int) -> list[dict]: ...
+    async def result_page(self, run_id: int, *, offset: int, limit: int) -> list[dict[str, Any]]: ...
 
     async def get_sweep_run_ids(self, sweep_id: int, limit: int) -> list[int]: ...
 
-    async def set_artifact(self, run_id: int, format: str, metadata: dict) -> None: ...
+    async def set_artifact(self, run_id: int, report_format: str, metadata: dict[str, Any]) -> None: ...
 
     async def create(self, run: BenchmarkRun) -> BenchmarkRun: ...
 

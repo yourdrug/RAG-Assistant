@@ -11,7 +11,7 @@ from domain.knowledge.chunk import ChunkInsert
 from domain.knowledge.document import Document
 from domain.ingestion.raw_document import RawDocument
 from domain.knowledge.index_sync import OutboxOperation
-from domain.shared.exceptions import BusinessRuleViolation, ValidationError
+from domain.shared.exceptions import BusinessRuleViolationError, ValidationError
 from domain.identity.roles import UserKind, UserRole
 from domain.knowledge.enums import SourceType
 from domain.knowledge.enums import DocumentVisibility
@@ -113,7 +113,7 @@ async def test_reindexed_private_content_allows_client_and_denies_unrelated_user
     items = await read_chunks(service, doc_id, cursor=cursor, user_id=CLIENT_ID, kind=UserKind.CLIENT)
     assert [item.content for item in items] == ["new private text"]
     for user_id, kind in [(10, UserKind.INTERNAL), (21, UserKind.CLIENT)]:
-        with pytest.raises(BusinessRuleViolation):
+        with pytest.raises(BusinessRuleViolationError):
             await read_chunks(service, doc_id, cursor=cursor, user_id=user_id, kind=kind)
 
 
@@ -288,7 +288,7 @@ async def test_legacy_chunk_acl_mismatch_blocks_listing(indexed_public_document,
     factory, doc_id = indexed_public_document
     factory._uow.chunks._chunks[0].update(chunk_acl)
 
-    with pytest.raises(BusinessRuleViolation, match="ACL"):
+    with pytest.raises(BusinessRuleViolationError, match="ACL"):
         await read_chunks(
             ChunkQueryService(factory), doc_id, cursor=cursor, user_id=10, kind=UserKind.INTERNAL
         )
@@ -310,5 +310,5 @@ async def test_stale_public_document_snapshot_cannot_authorize_private_chunks(
 
     monkeypatch.setattr(factory._uow.documents, "get_by_id", read_snapshot)
     service = ChunkQueryService(factory)
-    with pytest.raises(BusinessRuleViolation, match="ACL"):
+    with pytest.raises(BusinessRuleViolationError, match="ACL"):
         await read_chunks(service, doc_id, cursor=cursor, user_id=10, kind=UserKind.INTERNAL)

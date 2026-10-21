@@ -8,6 +8,9 @@ from enum import StrEnum
 from domain.knowledge.enums import PageContentType
 
 
+LOW_QUALITY_BAD_RATIO = 0.3
+
+
 class PreviewUnitKind(StrEnum):
     PAGE = "page"
     SECTION = "section"
@@ -54,4 +57,4 @@ class PDFQualityReport:
 
     @property
     def is_low_quality(self) -> bool:
-        return self.total_pages > 0 and self.bad_ratio > 0.3
+        return self.total_pages > 0 and self.bad_ratio > LOW_QUALITY_BAD_RATIO

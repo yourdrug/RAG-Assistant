@@ -5,7 +5,7 @@ from application.ports.job_enqueuer import JobEnqueuerPort
 from application.uow import UnitOfWork, UnitOfWorkFactory
 from domain.knowledge.access_control import check_ownership
 from domain.runtime.jobs import BackgroundJob, JobType
-from domain.shared.exceptions import EntityNotFound
+from domain.shared.exceptions import EntityNotFoundError
 
 
 class DocumentDeletionJobs:
@@ -21,7 +21,7 @@ class DocumentDeletionJobs:
 
         if doc is None:
             msg = "Document"
-            raise EntityNotFound(msg, document_id)
+            raise EntityNotFoundError(msg, document_id)
 
         ctx = await self._contexts.build(uow, user_id, user_kind, user_role)
         check_ownership(doc, ctx, "delete")
@@ -59,6 +59,6 @@ class DocumentDeletionJobs:
 
             if job is None or job.related_id != document_id or job.job_type != JobType.DOCUMENT_DELETION:
                 msg = "DocumentDeletionJob"
-                raise EntityNotFound(msg, job_id)
+                raise EntityNotFoundError(msg, job_id)
 
             return job

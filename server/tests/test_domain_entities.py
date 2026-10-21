@@ -19,7 +19,7 @@ from domain.knowledge.document import Document
 from domain.chat.message import Message
 from domain.ingestion.raw_document import RawDocument
 from domain.identity.user import User
-from domain.shared.exceptions import BusinessRuleViolation
+from domain.shared.exceptions import BusinessRuleViolationError
 from domain.shared.hashing import content_hash
 from domain.runtime.config import parse_bool
 from domain.knowledge.enums import DocumentStatus
@@ -86,7 +86,7 @@ class TestUserCreation:
         # Arrange
         user = _make_user()
         # Act & Assert
-        with pytest.raises(BusinessRuleViolation, match="Only admin can create users"):
+        with pytest.raises(BusinessRuleViolationError, match="Only admin can create users"):
             user.ensure_can_be_created_by(UserRole.USER)
 
     def test_admin_role_can_create_users(self):
@@ -95,7 +95,7 @@ class TestUserCreation:
 
     def test_user_role_cannot_create_users(self):
         # Arrange & Act & Assert
-        with pytest.raises(BusinessRuleViolation):
+        with pytest.raises(BusinessRuleViolationError):
             User().ensure_can_be_created_by(UserRole.USER)
 
 
@@ -106,7 +106,7 @@ class TestUserEnsureValidForCreation:
         # Arrange
         user = _make_user(kind=UserKind.CLIENT, role=UserRole.ADMIN)
         # Act & Assert
-        with pytest.raises(BusinessRuleViolation, match="Client cannot be admin"):
+        with pytest.raises(BusinessRuleViolationError, match="Client cannot be admin"):
             user.ensure_valid_for_creation()
 
     def test_client_with_user_role_is_valid(self):
@@ -135,7 +135,7 @@ class TestUserDeactivateSelfProhibited:
         # Arrange
         user = _make_user(id=42)
         # Act & Assert
-        with pytest.raises(BusinessRuleViolation, match="Cannot deactivate yourself"):
+        with pytest.raises(BusinessRuleViolationError, match="Cannot deactivate yourself"):
             user.deactivate_self_prohibited(42)
 
     def test_deactivating_other_user_is_allowed(self):
@@ -162,7 +162,7 @@ class TestUserToggleActive:
         # Arrange
         user = _make_user(is_active=False)
         # Act
-        user.toggle_active(True)
+        user.toggle_active(is_active=True)
         # Assert
         assert user.is_active is True
 
@@ -170,7 +170,7 @@ class TestUserToggleActive:
         # Arrange
         user = _make_user(is_active=True)
         # Act
-        user.toggle_active(False)
+        user.toggle_active(is_active=False)
         # Assert
         assert user.is_active is False
 
@@ -178,8 +178,8 @@ class TestUserToggleActive:
         # Arrange
         user = _make_user(is_active=True)
         # Act
-        user.toggle_active(True)
-        user.toggle_active(True)
+        user.toggle_active(is_active=True)
+        user.toggle_active(is_active=True)
         # Assert
         assert user.is_active is True
 
@@ -205,7 +205,7 @@ class TestUserChangeRole:
         # Arrange
         user = _make_user(kind=UserKind.CLIENT, role=UserRole.USER)
         # Act & Assert
-        with pytest.raises(BusinessRuleViolation, match="Client cannot be admin"):
+        with pytest.raises(BusinessRuleViolationError, match="Client cannot be admin"):
             user.change_role(UserRole.ADMIN)
 
     def test_client_can_stay_user(self):
@@ -291,12 +291,12 @@ class TestDocumentMarkDone:
 
     def test_mark_done_on_done_raises(self):
         doc = _make_document(status=DocumentStatus.DONE)
-        with pytest.raises(BusinessRuleViolation, match="Cannot mark document as DONE"):
+        with pytest.raises(BusinessRuleViolationError, match="Cannot mark document as DONE"):
             doc.mark_done(chunks=1, chars=1)
 
     def test_mark_done_on_failed_raises(self):
         doc = _make_document(status=DocumentStatus.FAILED)
-        with pytest.raises(BusinessRuleViolation, match="Cannot mark document as DONE"):
+        with pytest.raises(BusinessRuleViolationError, match="Cannot mark document as DONE"):
             doc.mark_done(chunks=1, chars=1)
 
 
@@ -330,12 +330,12 @@ class TestDocumentMarkFailed:
 
     def test_mark_failed_on_done_raises(self):
         doc = _make_document(status=DocumentStatus.DONE)
-        with pytest.raises(BusinessRuleViolation, match="Cannot mark document as FAILED"):
+        with pytest.raises(BusinessRuleViolationError, match="Cannot mark document as FAILED"):
             doc.mark_failed("oops")
 
     def test_mark_failed_on_failed_raises(self):
         doc = _make_document(status=DocumentStatus.FAILED)
-        with pytest.raises(BusinessRuleViolation, match="Cannot mark document as FAILED"):
+        with pytest.raises(BusinessRuleViolationError, match="Cannot mark document as FAILED"):
             doc.mark_failed("double fail")
 
 

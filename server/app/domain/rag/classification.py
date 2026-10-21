@@ -17,12 +17,15 @@ if TYPE_CHECKING:
     from datetime import date
 
 
+MIN_CONDITIONAL_CHUNKS = 2
+
+
 _QUANTITATIVE_CONDITIONAL_PATTERNS = [
     r"сколько\s+(нужно|необходимо|следует|требуется|должно)",
-    r"сколько\s+.+\bесли\b",
-    r"какое\s+количество\s+.+\bесли\b",
+    r"сколько\s+.+\b\u0435\u0441ли\b",
+    r"какое\s+количество\s+.+\b\u0435\u0441ли\b",
     r"в\s+каком\s+размере",
-    r"какой\s+процент\s+.+\bесли\b",
+    r"какой\s+процент\s+.+\b\u0435\u0441ли\b",
 ]
 
 
@@ -31,9 +34,9 @@ _NARROW_OVERRIDE_PATTERNS = [
     r"где\s+(найти|скачать|посмотреть|открыть)",
     r"что\s+(такое|означает|является)",
     r"какой\s+(пароль|срок|размер|номер|формат|статус)",
-    r"каки[ех]\s+исключени",
-    r"каки[ех]\s+особы",
-    r"каки[ех]\s+альтернатив",
+    r"каки[\u0435\u0445]\s+исключени",
+    r"каки[\u0435\u0445]\s+особы",
+    r"каки[\u0435\u0445]\s+альтернатив",
     r"почему\s+",
     r"можно\s+ли\s+",
 ]
@@ -50,7 +53,7 @@ _BROAD_PATTERNS = [
     r"полностью",
     r"детальн",
     r"максимальн",
-    r"каки[ех]\s+(условия|требования|правила|нормы|критерии)",
+    r"каки[\u0435\u0445]\s+(условия|требования|правила|нормы|критерии)",
     r"перечисл\w*",
     r"что\s+входит",
     r"что\s+включ\w+",
@@ -66,7 +69,7 @@ COMPOUND_PATTERNS = [
     r"как\w*\s+.*\s+и\s+",
     r"что\s+.*\s+и\s+что\s+",
     r"какие\s+.*\s+и\s+какие\s+",
-    r"опиши\s+.*\s+а\s+также\s+",
+    r"опиши\s+.*\s+\u0430\s+также\s+",
     r"объясни\s+.*\s+и\s+",
 ]
 
@@ -91,8 +94,8 @@ _LEGAL_PATTERNS = [
     r"подлежит\s+ли",
     r"несёт\s+ли\s+ответственность",
     r"стать[юяе]\s+\d+",
-    r"пункт[ае]?\s+\d+",
-    r"в\s+соответствии\s+с",
+    r"пункт[\u0430\u0435]?\s+\d+",
+    r"в\s+соответствии\s+\u0441",
     r"согласно\s+(закону|договору|статье)",
     r"нарушени[ея]\s+(условий|закона)",
 ]
@@ -107,7 +110,7 @@ _OUT_OF_DOMAIN_PATTERNS = [
     r"алгоритм\s+(быстрой\s+сортировки|сортировки|двоичного\s+поиска)",
     r"(решени[ея]\s+задач[иу]\s+codeforces|codeforces\s+\d+[a-zA-Z])",
     r"(time\s+complexity|пространственн\w+\s+сложност|big\s*o|O\(n\))",
-    # Math / physics / chemistry (non-corporate)
+    # Non-corporate topics in mathematics and natural sciences
     r"(доказатель\w*\s+теорем|вычисли\w*\s+(интеграл|производн))",
     r"(закон[ауи]\s+Ньютона|квантов\w+\s+механик|периодическ\w+\s+систем)",
     # Programming tutorials (non-corporate)
@@ -147,7 +150,9 @@ def needs_decomposition(question: str) -> bool:
     return any(re.search(p, q) for p in COMPOUND_PATTERNS)
 
 
-def should_enumerate_cases(question: str, context_texts: list[str | None]) -> bool:
+def should_enumerate_cases(
+    context_texts: list[str | None],
+) -> bool:
     """Detect when context contains multiple conditional/exclusive rules.
 
     Returns True when the LLM should enumerate all cases with conditions
@@ -155,16 +160,15 @@ def should_enumerate_cases(question: str, context_texts: list[str | None]) -> bo
     is left to the LLM -- the BROAD prompt's formatting rules handle
     sub-point expansion.
 
-    ``question`` is kept for API compatibility; only context affects this decision.
     """
-    if len(context_texts) < 2:
+    if len(context_texts) < MIN_CONDITIONAL_CHUNKS:
         return False
 
     chunks_with_conditions = sum(
         1 for text in context_texts if text and any(re.search(p, text.lower()) for p in _CONDITIONAL_MARKERS)
     )
 
-    return chunks_with_conditions >= 2
+    return chunks_with_conditions >= MIN_CONDITIONAL_CHUNKS
 
 
 def classify_query_domain(question: str) -> DocDomain:
@@ -191,7 +195,7 @@ def is_out_of_domain(question: str) -> bool:
 
 _QUESTION_AS_OF_RE = re.compile(
     r"(?:по состоянию на|на дату|на)\s+"
-    r"(?P<date>\d{4}-\d{2}-\d{2}|\d{1,2}[./]\d{1,2}[./]\d{4}|\d{1,2}\s+[а-яё]+\s+\d{4})",
+    r"(?P<date>\d{4}-\d{2}-\d{2}|\d{1,2}[./]\d{1,2}[./]\d{4}|\d{1,2}\s+[\u0430-яё]+\s+\d{4})",
     re.IGNORECASE,
 )
 
@@ -199,9 +203,14 @@ _QUESTION_AS_OF_RE = re.compile(
 def explicit_question_date(text: str) -> date | None:
     """Extract a date explicitly requested as the temporal state of the answer."""
     match = _QUESTION_AS_OF_RE.search(text)
+
     if match is None:
         return None
+
     parsed = parse_date_guess(match.group("date"))
+
     if parsed is None:
-        raise ValueError("Invalid date in question")
+        msg = "Invalid date in question"
+        raise ValueError(msg)
+
     return parsed

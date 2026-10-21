@@ -182,7 +182,7 @@ async def test_hybrid_uses_point_ids_and_sparse_payload_without_hash_resolution(
         scope,
         rag,
         MagicMock(),
-        visibility_conditions=get_visibility_conditions(UserKind.INTERNAL, 5, [], for_list=False),
+        visibility_conditions=get_visibility_conditions(UserKind.INTERNAL, [], for_list=False),
         user_id=5,
         user_group_ids=[],
     )

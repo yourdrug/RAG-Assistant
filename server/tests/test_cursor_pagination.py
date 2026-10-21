@@ -141,9 +141,9 @@ class TestChunkServiceCursor:
 
     @pytest.mark.asyncio
     async def test_document_not_found_raises(self, service):
-        from domain.shared.exceptions import EntityNotFound
+        from domain.shared.exceptions import EntityNotFoundError
 
-        with pytest.raises(EntityNotFound):
+        with pytest.raises(EntityNotFoundError):
             await service.list_chunks_cursor(
                 document_id=999,
                 user_id=10,

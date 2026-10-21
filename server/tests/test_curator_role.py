@@ -22,7 +22,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
 
 from domain.knowledge.document import Document
-from domain.shared.exceptions import BusinessRuleViolation
+from domain.shared.exceptions import BusinessRuleViolationError
 from domain.knowledge.access_control import can_view_document, get_visibility_conditions, is_in_search_scope
 from domain.rag.context import RagContext
 from domain.identity.user_context import CuratorScope
@@ -98,13 +98,11 @@ class TestCuratorFallback:
     def test_curator_visibility_conditions_same_as_user(self):
         curator_conds = get_visibility_conditions(
             UserKind.INTERNAL,
-            1,
             [],
             user_role=UserRole.CURATOR,
         )
         user_conds = get_visibility_conditions(
             UserKind.INTERNAL,
-            1,
             [],
             user_role=UserRole.USER,
         )
@@ -309,7 +307,6 @@ class TestOwnerMatchAssigned:
     def test_assigned_match_with_owner_in_list(self):
         conds = get_visibility_conditions(
             UserKind.INTERNAL,
-            1,
             [],
             user_role=UserRole.CURATOR,
             managed_client_ids=[100],
@@ -597,7 +594,7 @@ class TestUserRoleValidation:
         from domain.identity.user import User
 
         user = User(id=1, kind=UserKind.CLIENT, role=UserRole.USER)
-        with pytest.raises(BusinessRuleViolation, match="cannot be admin or curator"):
+        with pytest.raises(BusinessRuleViolationError, match="cannot be admin or curator"):
             user.change_role(UserRole.CURATOR)
 
     def test_user_can_become_curator(self):

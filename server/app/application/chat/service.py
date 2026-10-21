@@ -25,7 +25,7 @@ from domain.rag.stream_events import (
     StatusEvent,
     TextChunk,
 )
-from domain.shared.exceptions import BusinessRuleViolation
+from domain.shared.exceptions import BusinessRuleViolationError
 
 
 if TYPE_CHECKING:
@@ -138,7 +138,7 @@ class ChatService:
                     f"Curator scope ({total_ids} ids) exceeds retrieval limit "
                     f"({self._settings.curator_scope_max_ids}); use group-based assignment"
                 )
-                raise BusinessRuleViolation(msg)
+                raise BusinessRuleViolationError(msg)
 
         pii_question = self._pii_redactor.redact(question)
         return ChatSetup(conv=conv, history=history, ctx=ctx, pii_question=pii_question)

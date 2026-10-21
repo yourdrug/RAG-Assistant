@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from domain.identity.roles import UserKind, UserRole
-from domain.shared.exceptions import BusinessRuleViolation
+from domain.shared.exceptions import BusinessRuleViolationError
 
 
 @dataclass
@@ -28,28 +28,34 @@ class User:
     def __post_init__(self) -> None:
         if isinstance(self.role, str):
             self.role = UserRole.validate(self.role)
+
         if isinstance(self.kind, str):
             self.kind = UserKind.validate(self.kind)
 
     def ensure_can_be_created_by(self, creator_role: UserRole) -> None:
         """Enforce rule: only admin can create users."""
         if creator_role != UserRole.ADMIN:
-            raise BusinessRuleViolation("Only admin can create users")
+            msg = "Only admin can create users"
+            raise BusinessRuleViolationError(msg)
 
     def ensure_valid_for_creation(self) -> None:
         """Enforce rule: client cannot be admin or curator."""
         if self.kind == UserKind.CLIENT and self.role in (UserRole.ADMIN, UserRole.CURATOR):
-            raise BusinessRuleViolation("Client cannot be admin or curator")
+            msg = "Client cannot be admin or curator"
+            raise BusinessRuleViolationError(msg)
 
     def deactivate_self_prohibited(self, requester_id: int) -> None:
         """Enforce rule: admin cannot deactivate themselves."""
         if self.id == requester_id:
-            raise BusinessRuleViolation("Cannot deactivate yourself")
+            msg = "Cannot deactivate yourself"
+            raise BusinessRuleViolationError(msg)
 
-    def toggle_active(self, is_active: bool) -> None:
+    def toggle_active(self, *, is_active: bool) -> None:
         self.is_active = is_active
 
     def change_role(self, new_role: UserRole) -> None:
         if self.kind == UserKind.CLIENT and new_role in (UserRole.ADMIN, UserRole.CURATOR):
-            raise BusinessRuleViolation("Client cannot be admin or curator")
+            msg = "Client cannot be admin or curator"
+            raise BusinessRuleViolationError(msg)
+
         self.role = new_role

@@ -16,7 +16,7 @@ from application.documents.upload import DocumentUploadCommand
 from application.documents import DocumentCommandService
 from domain.knowledge.document import Document
 from domain.knowledge.index_sync import VectorOutboxEntry
-from domain.shared.exceptions import BusinessRuleViolation
+from domain.shared.exceptions import BusinessRuleViolationError
 from domain.identity.user_context import UserContext
 from infrastructure.database.models import DocumentModel, UserModel
 from infrastructure.repositories.config.sqlalchemy_vector_outbox_repository import (
@@ -152,7 +152,7 @@ async def test_concurrent_duplicate_upload_hits_real_unique_constraint(pg_engine
 
     results = await asyncio.wait_for(asyncio.gather(upload(), upload(), return_exceptions=True), timeout=10)
     assert sum(not isinstance(r, BaseException) for r in results) == 1
-    assert sum(isinstance(r, BusinessRuleViolation) for r in results) == 1
+    assert sum(isinstance(r, BusinessRuleViolationError) for r in results) == 1
     async with sessions() as session:
         assert await session.scalar(select(func.count()).select_from(DocumentModel)) == 1
 

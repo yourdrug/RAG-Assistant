@@ -417,7 +417,7 @@ class TestShouldEnumerateCases:
             "Для золотых изделий: не менее 30%, но не менее 100 штук.",
             "Для серебряных: за исключением случаев менее 50 штук.",
         ]
-        assert should_enumerate_cases("Сколько опробовать?", ctx) is True
+        assert should_enumerate_cases(ctx) is True
 
     def test_one_conditional_chunk_returns_false(self):
         from domain.rag.classification import should_enumerate_cases
@@ -426,7 +426,7 @@ class TestShouldEnumerateCases:
             "Для золотых изделий: не менее 30%, но не менее 100 штук.",
             "Общее требование: проверка обязательна.",
         ]
-        assert should_enumerate_cases("Сколько опробовать?", ctx) is False
+        assert should_enumerate_cases(ctx) is False
 
     def test_two_chunks_with_markers_returns_true(self):
         from domain.rag.classification import should_enumerate_cases
@@ -435,18 +435,18 @@ class TestShouldEnumerateCases:
             "Для золотых изделий: не менее 30%, но не менее 100 штук.",
             "Для серебряных: за исключением случаев менее 50 штук.",
         ]
-        assert should_enumerate_cases("Сколько опробовать?", ctx) is True
+        assert should_enumerate_cases(ctx) is True
 
     def test_empty_context_returns_false(self):
         from domain.rag.classification import should_enumerate_cases
 
-        assert should_enumerate_cases("Вопрос?", []) is False
+        assert should_enumerate_cases([]) is False
 
     def test_single_chunk_returns_false(self):
         from domain.rag.classification import should_enumerate_cases
 
         ctx = ["Правило: не менее 30% и не менее 100 штук."]
-        assert should_enumerate_cases("Вопрос?", ctx) is False
+        assert should_enumerate_cases(ctx) is False
 
     def test_no_markers_returns_false(self):
         from domain.rag.classification import should_enumerate_cases
@@ -455,7 +455,7 @@ class TestShouldEnumerateCases:
             "Партия проверяется полностью.",
             "Результаты фиксируются в журнале.",
         ]
-        assert should_enumerate_cases("Как проверяют?", ctx) is False
+        assert should_enumerate_cases(ctx) is False
 
     def test_percentage_markers_count(self):
         from domain.rag.classification import should_enumerate_cases
@@ -464,7 +464,7 @@ class TestShouldEnumerateCases:
             "Норма: 30% от партии.",
             "Исключение: 50 штук минимум.",
         ]
-        assert should_enumerate_cases("Сколько?", ctx) is True
+        assert should_enumerate_cases(ctx) is True
 
     def test_none_in_context_handled(self):
         from domain.rag.classification import should_enumerate_cases
@@ -474,13 +474,13 @@ class TestShouldEnumerateCases:
             None,
             "Для серебряных: за исключением случаев менее 50.",
         ]
-        assert should_enumerate_cases("Сколько?", ctx) is True
+        assert should_enumerate_cases(ctx) is True
 
     def test_all_none_context_returns_false(self):
         from domain.rag.classification import should_enumerate_cases
 
         ctx = [None, None]
-        assert should_enumerate_cases("Сколько?", ctx) is False
+        assert should_enumerate_cases(ctx) is False
 
     def test_empty_string_context_not_counted(self):
         from domain.rag.classification import should_enumerate_cases
@@ -490,7 +490,7 @@ class TestShouldEnumerateCases:
             "",
             "Ещё одно: не менее 50 штук.",
         ]
-        assert should_enumerate_cases("Сколько?", ctx) is True
+        assert should_enumerate_cases(ctx) is True
 
 
 # ---------------------------------------------------------------------------

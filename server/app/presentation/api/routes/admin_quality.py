@@ -8,7 +8,7 @@ import logging
 from pathlib import Path
 
 from domain.knowledge.enums import DocumentVisibility
-from domain.shared.exceptions import ServerException
+from domain.shared.exceptions import AppServerError
 from domain.runtime.enums import FileBackend
 from domain.knowledge.enums import DocDomain
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -102,7 +102,7 @@ async def diagnose_document(
 
     result = await diag_service.diagnose_document(document_id, source_path)
     if result is None:
-        raise ServerException(message="Failed to diagnose document")
+        raise AppServerError(message="Failed to diagnose document")
 
     return DocumentDiagnoseResponse(
         document_id=result.document_id,

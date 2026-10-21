@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from typing import TYPE_CHECKING
 
 from domain.shared.exceptions import ValidationError
+
+
+if TYPE_CHECKING:
+    from datetime import date, datetime
 
 
 @dataclass
@@ -36,7 +40,11 @@ class ActVersion:
         """Empty superseded editions are valid; an explicit expiry must be later."""
         if self.effective_from is None:
             return
+
         if explicit_end is not None and explicit_end <= self.effective_from:
-            raise ValidationError("effective_to must be later than effective_from")
+            msg = "effective_to must be later than effective_from"
+            raise ValidationError(msg)
+
         if self.effective_to is not None and self.effective_to < self.effective_from:
-            raise ValidationError("effective_to must not precede effective_from")
+            msg = "effective_to must not precede effective_from"
+            raise ValidationError(msg)

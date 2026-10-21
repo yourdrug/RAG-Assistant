@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 from application.identity.dto import ApiKeyAuthResult, ApiKeyInfo, IssueApiKeyResult
 from domain.identity.roles import UserKind
-from domain.shared.exceptions import BusinessRuleViolation, EntityNotFound
+from domain.shared.exceptions import BusinessRuleViolationError, EntityNotFoundError
 
 
 if TYPE_CHECKING:
@@ -47,11 +47,11 @@ class ApiKeyService:
 
             if user is None:
                 msg = "User"
-                raise EntityNotFound(msg, client_user_id)
+                raise EntityNotFoundError(msg, client_user_id)
 
             if user.kind != UserKind.CLIENT:
                 msg = "API keys can only be issued to external (client) users"
-                raise BusinessRuleViolation(msg)
+                raise BusinessRuleViolationError(msg)
 
             raw_key = self._api_key_provider.generate_key()
             key_hash = self._api_key_provider.hash_key(raw_key)
@@ -104,6 +104,6 @@ class ApiKeyService:
 
             if not revoked:
                 msg = "ApiKey"
-                raise EntityNotFound(msg, api_key_id)
+                raise EntityNotFoundError(msg, api_key_id)
 
         await self._api_key_provider.invalidate_by_id(api_key_id)

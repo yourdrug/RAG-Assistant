@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from domain.knowledge.enums import DocDomain
 from domain.shared.exceptions import ValidationError
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 @dataclass
 class Chunk:
     content: str = ""
-    metadata: dict = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
     score: float | None = None
 
 
@@ -62,7 +62,7 @@ CHUNK_CONTEXT_FIELDS = frozenset(
 )
 
 
-def extract_chunk_context(metadata: Mapping) -> dict:
+def extract_chunk_context(metadata: Mapping[str, Any]) -> dict[str, Any]:
     """Copy interpretation fields, excluding identity, ACL and temporal state."""
     return {key: deepcopy(value) for key, value in metadata.items() if key in CHUNK_CONTEXT_FIELDS}
 
@@ -79,7 +79,7 @@ class ChunkInsert:
     content_type: str | None = None
     doc_title: str | None = None
     doc_type: str | None = None
-    context_metadata: dict = field(default_factory=dict)
+    context_metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -111,7 +111,7 @@ class ChunkRecord:
     effective_from: date | None = None
     effective_to: date | None = None
     is_current: bool = True
-    context_metadata: dict = field(default_factory=dict)
+    context_metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -124,7 +124,7 @@ class ChunkStats:
 
 def encode_cursor(chunk_index: int, chunk_id: int) -> str:
     """Encode a (chunk_index, chunk_id) pair into an opaque base64url cursor."""
-    payload = f"{chunk_index}:{chunk_id}".encode("utf-8")
+    payload = f"{chunk_index}:{chunk_id}".encode()
     return base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
 
 
@@ -137,14 +137,21 @@ def decode_cursor(cursor: str) -> tuple[int, int]:
         # Re-pad to a multiple of 4 for urlsafe_b64decode
         padded = cursor + "=" * (-len(cursor) % 4)
         raw = base64.urlsafe_b64decode(padded).decode("utf-8")
-        parts = raw.split(":")
-
-        if len(parts) != 2:
-            raise ValueError("expected exactly two parts")
-
-        return int(parts[0]), int(parts[1])
+        return parse_cursor_parts(raw)
     except Exception as exc:
-        raise ValidationError(f"Invalid cursor: {exc}") from exc
+        msg = f"Invalid cursor: {exc}"
+        raise ValidationError(msg) from exc
+
+
+def parse_cursor_parts(raw: str) -> tuple[int, int]:
+    parts = raw.split(":")
+    pair_length = 2
+
+    if len(parts) != pair_length:
+        msg = "expected exactly two parts"
+        raise ValueError(msg)
+
+    return int(parts[0]), int(parts[1])
 
 
 SENTENCE_UNIT_KIND = "sentence"

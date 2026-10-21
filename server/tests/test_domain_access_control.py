@@ -19,7 +19,7 @@ sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.par
 
 from types import SimpleNamespace
 
-from domain.shared.exceptions import BusinessRuleViolation, ValidationError
+from domain.shared.exceptions import BusinessRuleViolationError, ValidationError
 from domain.knowledge.access_control import (
     can_view_document,
     compute_owner_and_group,
@@ -129,7 +129,7 @@ class TestValidateDocumentVisibility:
             )
 
     def test_internal_cannot_use_client_private(self):
-        with pytest.raises(BusinessRuleViolation, match="Only admin can upload documents for clients"):
+        with pytest.raises(BusinessRuleViolationError, match="Only admin can upload documents for clients"):
             validate_document_visibility(
                 DocumentVisibility.CLIENT_PRIVATE,
                 None,
@@ -139,7 +139,7 @@ class TestValidateDocumentVisibility:
     # --- INTERNAL_PUBLIC requires admin ---
 
     def test_internal_user_cannot_use_internal_public(self):
-        with pytest.raises(BusinessRuleViolation, match="Only admin can publish to internal_public"):
+        with pytest.raises(BusinessRuleViolationError, match="Only admin can publish to internal_public"):
             validate_document_visibility(
                 DocumentVisibility.INTERNAL_PUBLIC,
                 None,
@@ -157,7 +157,7 @@ class TestValidateDocumentVisibility:
             )
 
     def test_internal_group_requires_membership(self):
-        with pytest.raises(BusinessRuleViolation, match="not a member of this group"):
+        with pytest.raises(BusinessRuleViolationError, match="not a member of this group"):
             validate_document_visibility(
                 DocumentVisibility.INTERNAL_GROUP,
                 5,
@@ -396,14 +396,14 @@ class TestGetVisibilityConditions:
     """
 
     def test_client_returns_single_private_condition(self):
-        conds = get_visibility_conditions(UserKind.CLIENT, 42, [])
+        conds = get_visibility_conditions(UserKind.CLIENT, [])
         assert len(conds) == 1
         assert conds[0].visibility == DocumentVisibility.CLIENT_PRIVATE
         assert conds[0].owner_match == "self"
         assert conds[0].group_match is False
 
     def test_internal_no_groups_no_clients(self):
-        conds = get_visibility_conditions(UserKind.INTERNAL, 1, [])
+        conds = get_visibility_conditions(UserKind.INTERNAL, [])
         vis = {c.visibility for c in conds}
         assert DocumentVisibility.INTERNAL_PUBLIC in vis
         assert DocumentVisibility.INTERNAL_PRIVATE in vis
@@ -411,32 +411,32 @@ class TestGetVisibilityConditions:
         assert DocumentVisibility.CLIENT_PRIVATE not in vis
 
     def test_internal_private_has_owner_self(self):
-        conds = get_visibility_conditions(UserKind.INTERNAL, 1, [])
+        conds = get_visibility_conditions(UserKind.INTERNAL, [])
         private = [c for c in conds if c.visibility == DocumentVisibility.INTERNAL_PRIVATE]
         assert len(private) == 1
         assert private[0].owner_match == "self"
 
     def test_internal_public_has_no_owner(self):
-        conds = get_visibility_conditions(UserKind.INTERNAL, 1, [])
+        conds = get_visibility_conditions(UserKind.INTERNAL, [])
         public = [c for c in conds if c.visibility == DocumentVisibility.INTERNAL_PUBLIC]
         assert len(public) == 1
         assert public[0].owner_match is None
         assert public[0].group_match is False
 
     def test_internal_with_groups_adds_group_condition(self):
-        conds = get_visibility_conditions(UserKind.INTERNAL, 1, [5, 10])
+        conds = get_visibility_conditions(UserKind.INTERNAL, [5, 10])
         group_conds = [c for c in conds if c.visibility == DocumentVisibility.INTERNAL_GROUP]
         assert len(group_conds) == 1
         assert group_conds[0].group_match is True
 
     def test_internal_empty_groups_skips_group_condition(self):
-        conds = get_visibility_conditions(UserKind.INTERNAL, 1, [])
+        conds = get_visibility_conditions(UserKind.INTERNAL, [])
         group_conds = [c for c in conds if c.visibility == DocumentVisibility.INTERNAL_GROUP]
         assert len(group_conds) == 0
 
     def test_internal_admin_sees_client_private(self):
         # Admin sees all client docs in list mode
-        conds = get_visibility_conditions(UserKind.INTERNAL, 1, [], user_role=UserRole.ADMIN)
+        conds = get_visibility_conditions(UserKind.INTERNAL, [], user_role=UserRole.ADMIN)
         client_conds = [c for c in conds if c.visibility == DocumentVisibility.CLIENT_PRIVATE]
         assert len(client_conds) == 1
         # No owner_match needed - admin sees ALL client docs
@@ -444,19 +444,19 @@ class TestGetVisibilityConditions:
 
     def test_internal_non_admin_no_client_condition(self):
         # Non-admin internal user doesn't see client docs
-        conds = get_visibility_conditions(UserKind.INTERNAL, 1, [], user_role=UserRole.USER)
+        conds = get_visibility_conditions(UserKind.INTERNAL, [], user_role=UserRole.USER)
         client_conds = [c for c in conds if c.visibility == DocumentVisibility.CLIENT_PRIVATE]
         assert len(client_conds) == 0
 
     def test_internal_full_conditions_count(self):
         # Admin sees all client docs + all group docs (regardless of membership)
-        conds = get_visibility_conditions(UserKind.INTERNAL, 1, [5], user_role=UserRole.ADMIN)
+        conds = get_visibility_conditions(UserKind.INTERNAL, [5], user_role=UserRole.ADMIN)
         # public + private + private (admin bypass) + group (by membership) +
         # group (admin bypass) + client
         assert len(conds) == 6
 
     def test_conditions_are_frozen_dataclass(self):
-        conds = get_visibility_conditions(UserKind.CLIENT, 1, [])
+        conds = get_visibility_conditions(UserKind.CLIENT, [])
         with pytest.raises(AttributeError):
             conds[0].visibility = DocumentVisibility.INTERNAL_PUBLIC
 
@@ -472,7 +472,6 @@ class TestCuratorRole:
     def test_curator_sees_own_internal_private(self):
         conds = get_visibility_conditions(
             UserKind.INTERNAL,
-            10,
             [],
             user_role=UserRole.CURATOR,
         )
@@ -483,7 +482,6 @@ class TestCuratorRole:
     def test_curator_sees_managed_internal_private(self):
         conds = get_visibility_conditions(
             UserKind.INTERNAL,
-            10,
             [],
             user_role=UserRole.CURATOR,
             managed_internal_ids=[20, 30],
@@ -499,7 +497,6 @@ class TestCuratorRole:
     def test_curator_sees_managed_client_private(self):
         conds = get_visibility_conditions(
             UserKind.INTERNAL,
-            10,
             [],
             user_role=UserRole.CURATOR,
             managed_client_ids=[40, 50],
@@ -515,7 +512,6 @@ class TestCuratorRole:
     def test_curator_sees_managed_groups(self):
         conds = get_visibility_conditions(
             UserKind.INTERNAL,
-            10,
             [5],
             user_role=UserRole.CURATOR,
             managed_group_ids=[6, 7],
@@ -532,7 +528,6 @@ class TestCuratorRole:
         # CURATOR is INTERNAL, so gets standard INTERNAL_PUBLIC + INTERNAL_PRIVATE
         conds = get_visibility_conditions(
             UserKind.INTERNAL,
-            10,
             [],
             user_role=UserRole.CURATOR,
         )
@@ -543,7 +538,6 @@ class TestCuratorRole:
     def test_curator_managed_ids_empty_list_no_extra_conditions(self):
         conds = get_visibility_conditions(
             UserKind.INTERNAL,
-            10,
             [],
             user_role=UserRole.CURATOR,
             managed_client_ids=[],
@@ -557,7 +551,6 @@ class TestCuratorRole:
         """CURATOR should NOT see ALL client_private or ALL internal_private docs."""
         conds = get_visibility_conditions(
             UserKind.INTERNAL,
-            10,
             [5],
             user_role=UserRole.CURATOR,
             managed_client_ids=[],
@@ -710,7 +703,7 @@ class TestCheckDocumentAccess:
     def test_raises_when_no_access(self):
         doc = SimpleNamespace(visibility="internal_private", owner_id=99, group_id=None)
         ctx = UserContext(user_id=1, user_kind="internal", user_role="user")
-        with pytest.raises(BusinessRuleViolation, match="No access"):
+        with pytest.raises(BusinessRuleViolationError, match="No access"):
             check_document_access(doc, ctx)
 
     def test_ok_when_has_access(self):
@@ -728,7 +721,7 @@ class TestCheckOwnership:
             can_be_deleted_by=lambda uid, role, gids, **kw: False,
         )
         ctx = UserContext(user_id=1, user_kind="internal", user_role="user")
-        with pytest.raises(BusinessRuleViolation, match="Can only"):
+        with pytest.raises(BusinessRuleViolationError, match="Can only"):
             check_ownership(doc, ctx)
 
     def test_ok_when_owner(self):

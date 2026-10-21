@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
-from datetime import date
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from domain.identity.user_context import UserContext
-from domain.knowledge.chunk import TABLE_CONTEXT_MAX_CHUNKS, ChunkRecord
+from domain.knowledge.chunk import TABLE_CONTEXT_MAX_CHUNKS
 from domain.knowledge.enums import SearchMode
+
+
+if TYPE_CHECKING:
+    from datetime import date
+
+    from domain.identity.user_context import UserContext
+    from domain.knowledge.chunk import ChunkRecord
 
 
 @runtime_checkable
@@ -18,6 +23,7 @@ class ChunkSearchRepository(Protocol):
         self,
         query: str,
         user: UserContext,
+        *,
         limit: int = 20,
         mode: str = SearchMode.EXACT.value,
         document_id: int | None = None,
@@ -33,6 +39,7 @@ class ChunkSearchPageRepository(Protocol):
         self,
         query: str,
         user: UserContext,
+        *,
         limit: int = 20,
         offset: int = 0,
         mode: str = SearchMode.EXACT.value,
@@ -74,6 +81,8 @@ class ChunkRetrievalRepository(ChunkSearchRepository, ChunkContextRepository, Pr
 
 
 @runtime_checkable
-class VectorSearch(Protocol):
+class VectorSearch[AccessFilterT](Protocol):
     async def generate_embeddings(self, text: str) -> list[float]: ...
-    async def get_point_payload(self, point_id: int, access_filter: Any) -> dict | None: ...
+    async def get_point_payload(
+        self, point_id: int, access_filter: AccessFilterT
+    ) -> dict[str, Any] | None: ...

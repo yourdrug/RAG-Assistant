@@ -21,7 +21,7 @@ from application.identity import (
 from domain.identity.api_key import ApiKey
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user import User
-from domain.shared.exceptions import BusinessRuleViolation, ClientException, EntityNotFound
+from domain.shared.exceptions import AppClientError, BusinessRuleViolationError, EntityNotFoundError
 from presentation.api.dependencies import create_action_logger, create_rate_limiter
 from presentation.api.exception_handlers import handle_client_exception
 from presentation.api.routes.api_keys import router as api_key_router
@@ -76,7 +76,7 @@ async def test_issue_key_only_for_existing_client(identity: SimpleNamespace, kin
             name="integration",
         )
     else:
-        with pytest.raises(EntityNotFound if kind is None else BusinessRuleViolation):
+        with pytest.raises(EntityNotFoundError if kind is None else BusinessRuleViolationError):
             await identity.application.api_key_service.issue_api_key(1)
         identity.uow.api_keys.create.assert_not_awaited()
         identity.provider.generate_key.assert_not_called()
@@ -87,7 +87,7 @@ async def test_issue_key_only_for_existing_client(identity: SimpleNamespace, kin
 @pytest.mark.asyncio
 @pytest.mark.parametrize("role", [UserRole.USER, UserRole.CURATOR])
 async def test_user_creation_rejects_non_admin(identity: SimpleNamespace, role: UserRole) -> None:
-    with pytest.raises(BusinessRuleViolation, match="Only admin"):
+    with pytest.raises(BusinessRuleViolationError, match="Only admin"):
         await identity.application.user_management_service.create_user(
             CreateUserCommand("user@example.test", "password"), creator_role=role
         )
@@ -99,7 +99,7 @@ async def client(identity: SimpleNamespace) -> AsyncIterator[httpx.AsyncClient]:
     app = FastAPI()
     app.include_router(auth_router)
     app.include_router(api_key_router)
-    app.add_exception_handler(ClientException, handle_client_exception)
+    app.add_exception_handler(AppClientError, handle_client_exception)
     app.state.container = identity
     app.dependency_overrides[create_rate_limiter] = lambda: None
 

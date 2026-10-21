@@ -12,7 +12,7 @@ from application.indexing import build_outbox_metadata
 from domain.knowledge.chunk import extract_chunk_context
 from domain.knowledge.enums import SourceType
 from domain.knowledge.index_sync import OutboxOperation, VectorOutboxEntry
-from domain.shared.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
+from domain.shared.exceptions import BusinessRuleViolationError, EntityNotFoundError, ValidationError
 from domain.shared.hashing import content_hash
 
 
@@ -115,11 +115,11 @@ class ChunkMutationService:
 
             if chunk is None:
                 msg = "Chunk"
-                raise EntityNotFound(msg, chunk_id)
+                raise EntityNotFoundError(msg, chunk_id)
 
             if chunk.document_id != document_id:
                 msg = "Chunk does not belong to this document"
-                raise BusinessRuleViolation(msg)
+                raise BusinessRuleViolationError(msg)
 
             self.validate_chunk_content(content, is_manual=(doc.source_type == SourceType.MANUAL.value))
 
@@ -321,11 +321,11 @@ class ChunkMutationService:
 
             if chunk is None:
                 msg = "Chunk"
-                raise EntityNotFound(msg, chunk_id)
+                raise EntityNotFoundError(msg, chunk_id)
 
             if chunk.document_id != document_id:
                 msg = "Chunk does not belong to this document"
-                raise BusinessRuleViolation(msg)
+                raise BusinessRuleViolationError(msg)
 
             await chunks.delete_one(chunk_id)
 

@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 
-from domain.ingestion.profiles.types import ReferenceMatch
+
+if TYPE_CHECKING:
+    from domain.ingestion.profiles.types import ReferenceMatch
+
 
 _ACT_NUMBER_KINDS = ("decree_number", "act_number")
 

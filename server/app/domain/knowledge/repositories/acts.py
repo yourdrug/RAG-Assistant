@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import date
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from domain.knowledge.acts.models import ActVersion, RegulatoryAct
+
+if TYPE_CHECKING:
+    from datetime import date
+
+    from domain.knowledge.acts.models import ActVersion, RegulatoryAct
 
 
 @runtime_checkable

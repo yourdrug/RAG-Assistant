@@ -14,10 +14,15 @@ Edge cases handled:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
-from domain.ingestion.ports import DomainSettingsPort
-from domain.ingestion.profiles.protocol import DocumentProfile
 from domain.knowledge.enums import DocDomain
+
+
+if TYPE_CHECKING:
+    from domain.ingestion.ports import DomainSettingsPort
+    from domain.ingestion.profiles.protocol import DocumentProfile
+
 
 MIN_CLASSIFIABLE_CHARS = 120
 MARGIN_RATIO = 1.3
@@ -69,6 +74,7 @@ class DomainProfileRegistry:
 
         # Step 1: deterministic fingerprint (priority over density-score)
         fingerprint_hits = [p.key for p in candidates if p.structural_fingerprint(text)]
+
         if len(fingerprint_hits) == 1:
             return ClassificationResult(
                 fingerprint_hits[0],
@@ -77,6 +83,7 @@ class DomainProfileRegistry:
                 is_low_signal=False,
                 candidate_scores={},
             )
+
         if len(fingerprint_hits) > 1:
             return ClassificationResult(
                 fingerprint_hits[0],
@@ -86,18 +93,33 @@ class DomainProfileRegistry:
                 candidate_scores=dict.fromkeys(fingerprint_hits, 1.0),
             )
 
+        return self.classify_scores(text, candidates, prior_domain=prior_domain, settings=settings)
+
+    def classify_scores(
+        self,
+        text: str,
+        candidates: list[DocumentProfile],
+        *,
+        prior_domain: str | None,
+        settings: DomainSettingsPort,
+    ) -> ClassificationResult:
+        general = DocDomain.GENERAL.value
         # Step 2: density-score with sticky-prior and margin-check
         scores: dict[str, float] = {}
         thresholds: dict[str, float] = {}
+
         for p in candidates:
             raw = p.classify_score(text)
             threshold = float(settings.get("classification_threshold", domain_key=p.key))
+
             if prior_domain == p.key and raw > 0:
                 raw *= 1.0 + STICKY_BONUS_RATIO
+
             scores[p.key] = raw
             thresholds[p.key] = threshold
 
         ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
+
         if not ranked:
             return ClassificationResult(
                 general,
@@ -123,4 +145,6 @@ class DomainProfileRegistry:
         is_ambiguous = second_score > 0 and (top_score / max(second_score, 1e-6)) < MARGIN_RATIO
         confidence = min(1.0, (top_score - top_threshold) / top_threshold) if not is_ambiguous else 0.5
 
-        return ClassificationResult(top_key, confidence, is_ambiguous, False, scores)
+        return ClassificationResult(
+            top_key, confidence, is_ambiguous, is_low_signal=False, candidate_scores=scores
+        )

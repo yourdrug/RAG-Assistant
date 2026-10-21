@@ -1,12 +1,13 @@
 """DecreeDomainProfile -- presidential decrees and government resolutions.
 
-Structural fingerprint: "УКАЗ" header + "ПОСТАНОВЛЯЮ/ПОСТАНОВЛЯЕТ" marker.
+Structural fingerprint: "Decree" header + "ПОСТАНОВЛЯЮ/ПОСТАНОВЛЯЕТ" marker.
 Content-based splitting by point/subpoint/sentence.
 """
 
 from __future__ import annotations
 
 import re
+from typing import TYPE_CHECKING
 
 from domain.ingestion.profiles.base import (
     EFFECTIVE_DATE_TRUST_THRESHOLD_DEFAULT,
@@ -16,19 +17,25 @@ from domain.ingestion.profiles.base import (
 from domain.ingestion.profiles.types import (
     BoundaryLevel,
     ConfigDefault,
-    EffectiveDateCandidate,
     ReferenceMatch,
 )
 
-_DECREE_TITLE_RE = re.compile(r"^\s*УКАЗ\b", re.MULTILINE)
+
+if TYPE_CHECKING:
+    from domain.ingestion.profiles.types import (
+        EffectiveDateCandidate,
+    )
+
+
+_DECREE_TITLE_RE = re.compile(r"^\s*\u0423\u041a\u0410\u0417\b", re.MULTILINE)
 _POSTANOVLYAYU_RE = re.compile(r"ПОСТАНОВЛЯ[ЮЕ]\s*:?", re.IGNORECASE)
 _DECREE_NUMBER_RE = re.compile(r"№\s*(\d+)")
 _DECREE_DATE_RE = re.compile(
-    r"((?:\d{1,2}\s+[а-яё]+\s+\d{4}\s*г?\.?|\d{1,2}[./]\d{1,2}[./]\d{4}|\d{4}-\d{2}-\d{2}))",
+    r"((?:\d{1,2}\s+[\u0430-яё]+\s+\d{4}\s*\u0433?\.?|\d{1,2}[./]\d{1,2}[./]\d{4}|\d{4}-\d{2}-\d{2}))",
     re.IGNORECASE,
 )
 _POINT_RE = re.compile(r"^\s*(\d+)\.\s+", re.MULTILINE)
-_SUBPOINT_RE = re.compile(r"^\s*([а-я])\)\s+", re.MULTILINE)
+_SUBPOINT_RE = re.compile(r"^\s*([\u0430-я])\)\s+", re.MULTILINE)
 _SUBPOINT_NUM_RE = re.compile(r"^\s*(\d+\.\d+(?:\.\d+)*)\.\s+", re.MULTILINE)
 
 # Sentence boundary — matches ". " / "! " / "? " (all periods, including abbreviations).
@@ -39,12 +46,12 @@ _SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
 _EFFECTIVE_PATTERNS = [
     (
         re.compile(
-            r"вступает в силу\s+(?:со дня|с)\s+([^\n,]+)",
+            r"вступает в силу\s+(?:\u0441\u043e дня|\u0441)\s+([^\n,]+)",
             re.IGNORECASE,
         ),
         0.9,
     ),
-    (re.compile(r"с\s+даты\s+([^\n,]+)", re.IGNORECASE), 0.5),
+    (re.compile(r"\u0441\s+даты\s+([^\n,]+)", re.IGNORECASE), 0.5),
 ]
 
 
@@ -91,10 +98,13 @@ class DecreeDomainProfile(SettingsBackedProfile):
 
     def classify_score(self, text: str) -> float:
         score = 0.0
+
         if _DECREE_TITLE_RE.search(text):
             score += 3.0
+
         if _POSTANOVLYAYU_RE.search(text):
             score += 2.0
+
         score += 0.3 * len(_POINT_RE.findall(text))
         return score
 
@@ -108,10 +118,13 @@ class DecreeDomainProfile(SettingsBackedProfile):
 
     def extract_references(self, text: str) -> list[ReferenceMatch]:
         refs = []
+
         if m := _DECREE_NUMBER_RE.search(text):
             refs.append(ReferenceMatch("decree_number", m.group(1)))
+
         if m := _DECREE_DATE_RE.search(text):
             refs.append(ReferenceMatch("decree_date", m.group(1)))
+
         refs += [ReferenceMatch("point", m) for m in _POINT_RE.findall(text)]
         return refs
 

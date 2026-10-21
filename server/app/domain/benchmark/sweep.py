@@ -5,10 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
+from typing import Any
 
 from domain.benchmark.question import DEFAULT_DATASET
 from domain.benchmark.scoring import DEFAULT_OBJECTIVE_WEIGHTS
-from domain.shared.enums import LifecycleStatusMixin
+from domain.shared.enums import LifecycleStatus
 
 
 class BenchmarkStrategy(StrEnum):
@@ -18,8 +19,7 @@ class BenchmarkStrategy(StrEnum):
 
 
 class BenchmarkSweepStatus(
-    LifecycleStatusMixin,
-    StrEnum,
+    LifecycleStatus,
     terminal=frozenset({"done", "failed", "cancelled"}),
     active=frozenset({"pending", "running"}),
 ):
@@ -37,16 +37,19 @@ class SweepEvaluationMode(StrEnum):
 
 def validate_sweep_mode(mode: str, strategy: str) -> SweepEvaluationMode:
     resolved = SweepEvaluationMode(mode)
+
     if resolved == SweepEvaluationMode.FULL and strategy != BenchmarkStrategy.GRID:
-        raise ValueError("Full evaluation requires grid search to evaluate every combination")
+        msg = "Full evaluation requires grid search to evaluate every combination"
+        raise ValueError(msg)
+
     return resolved
 
 
 @dataclass
 class BenchmarkSweep:
     strategy: BenchmarkStrategy = BenchmarkStrategy.GRID
-    search_space: dict = field(default_factory=dict)
-    objective_weights: dict = field(default_factory=lambda: DEFAULT_OBJECTIVE_WEIGHTS.copy())
+    search_space: dict[str, Any] = field(default_factory=dict)
+    objective_weights: dict[str, Any] = field(default_factory=DEFAULT_OBJECTIVE_WEIGHTS.copy)
     dataset: str = DEFAULT_DATASET
     top_n_llm: int = 3
     judge_model: str | None = None

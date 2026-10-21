@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from application.ports.rate_limit import RateLimitDecision, RateLimitPolicyName
-from domain.shared.exceptions import ClientException
+from domain.shared.exceptions import AppClientError
 from domain.identity.roles import UserKind, UserRole
 from presentation.api.auth_dependencies import get_current_user
 from presentation.api.dependencies import create_benchmark_question_service, create_rate_limiter
@@ -31,7 +31,7 @@ def test_import_uses_write_quota_even_when_benchmark_quota_is_exhausted(valid, a
     service = SimpleNamespace(bulk_create=AsyncMock(return_value=1))
     app = FastAPI()
     app.include_router(router)
-    app.add_exception_handler(ClientException, handle_client_exception)
+    app.add_exception_handler(AppClientError, handle_client_exception)
     user = CurrentUser(
         id=7,
         email="admin@example.com",

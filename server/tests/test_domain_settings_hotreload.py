@@ -88,9 +88,9 @@ class TestConfigServiceDomainParams:
             uow_factory=FakeUnitOfWorkFactory(),
             event_bus=type("Bus", (), {"publish": staticmethod(lambda e: None)})(),
         )
-        from domain.shared.exceptions import EntityNotFound
+        from domain.shared.exceptions import EntityNotFoundError
 
-        with pytest.raises(EntityNotFound):
+        with pytest.raises(EntityNotFoundError):
             await service.update_parameter("max_unit_chars", "1", domain_key="decree")
 
 

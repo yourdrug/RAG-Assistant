@@ -48,7 +48,6 @@ def build_qdrant_filter(
     user_role = UserRole(user_role_raw) if user_role_raw else None
     conditions = get_visibility_conditions(
         UserKind(user_kind),
-        user_id,
         group_ids,
         for_list=False,
         user_role=user_role,

@@ -12,7 +12,7 @@ from domain.identity.roles import UserKind
 from domain.knowledge.access_control import check_ownership
 from domain.knowledge.enums import DocumentStatus
 from domain.knowledge.index_sync import OutboxOperation, VectorOutboxEntry
-from domain.shared.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
+from domain.shared.exceptions import BusinessRuleViolationError, EntityNotFoundError, ValidationError
 
 
 if TYPE_CHECKING:
@@ -101,7 +101,7 @@ class DocumentRenameCommand:
 
         if doc is None:
             msg = "Document"
-            raise EntityNotFound(msg, document_id)
+            raise EntityNotFoundError(msg, document_id)
 
         ctx = await self._user_ctx_factory.build(uow, user_id, user_kind, user_role)
         check_ownership(doc, ctx, "rename")
@@ -117,7 +117,7 @@ class DocumentRenameCommand:
                 DocumentStatus.INDEXING,
             ):
                 msg = "This document name is already being processed"
-                raise BusinessRuleViolation(msg)
+                raise BusinessRuleViolationError(msg)
 
             if existing.status in (DocumentStatus.DONE, DocumentStatus.FAILED):
                 new_filename = await resolve_unique_filename(
@@ -151,6 +151,6 @@ class DocumentRenameCommand:
 
         if final_doc is None:
             msg = "Document"
-            raise EntityNotFound(msg, document_id)
+            raise EntityNotFoundError(msg, document_id)
 
         return DocumentDTO.from_entity(final_doc), old_source_path

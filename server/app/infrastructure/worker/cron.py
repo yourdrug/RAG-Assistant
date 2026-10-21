@@ -66,7 +66,7 @@ async def _fail_documents_of_dead_jobs(uow_factory, dead_jobs) -> None:
             if doc is not None and doc.status.value in ("pending", "processing"):
                 await uow.documents.update_status(
                     doc_id,
-                    "failed",
+                    status="failed",
                     error="Processing job was never picked up — enqueue lost or worker unavailable",
                 )
                 logger.warning("Cron: marked document %d failed (dead job)", doc_id)

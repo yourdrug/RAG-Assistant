@@ -45,6 +45,7 @@ from infrastructure.ml.config.config_subscribers import (
 if TYPE_CHECKING:
     from domain.knowledge.index_sync import VectorIndexWriter
     from domain.rag.ports import VectorSearch
+    from qdrant_client.models import Filter
     from application.ports.action_logger import ActionLoggerPort
     from application.identity import ApiKeyProviderPort
     from application.benchmark import BenchmarkHistoryPort
@@ -201,7 +202,7 @@ class MLContainer:
         return self.vector_store
 
     @property
-    def vector_search(self) -> VectorSearch:
+    def vector_search(self) -> VectorSearch[Filter]:
         return self.vector_store
 
     @property

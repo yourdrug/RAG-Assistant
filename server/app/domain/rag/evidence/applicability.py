@@ -1,5 +1,6 @@
 """Conservative applicability checks for procedural stages and transmission timing."""
 
+from collections.abc import Iterator
 import re
 
 from domain.rag.evidence.assessment import (
@@ -18,7 +19,7 @@ STAGE_PATTERNS = {
     "реализация": re.compile(r"реализац", re.IGNORECASE),
 }
 STAGE_START_RE = re.compile(r"^При\s+(?:передаче|отгрузке|реализации)\b", re.IGNORECASE)
-TIMING_RE = re.compile(r"в режиме|раз[а]? в сут|ежесуточ|ежеднев", re.IGNORECASE)
+TIMING_RE = re.compile(r"в режиме|раз[\u0430]? в сут|ежесуточ|ежеднев", re.IGNORECASE)
 
 
 def normalize_act_number(number: str) -> str:
@@ -42,8 +43,10 @@ def evidence_conflicts(fragments: list[EvidenceFragment]) -> bool:
 
 def requested_procedure_stages(question: str) -> tuple[str, ...]:
     stages = tuple(name for name, pattern in STAGE_PATTERNS.items() if pattern.search(question))
+
     if not stages and re.search(r"логистическ\w* оператор", question, re.IGNORECASE):
         return ("хранение", "отгрузка")
+
     return stages
 
 
@@ -60,45 +63,69 @@ def timing_question(question: str) -> bool:
 def procedure_stage(line: str) -> str | None:
     if re.match(r"При реализации\b", line, re.IGNORECASE):
         return "реализация"
+
     if re.match(r"При отгрузке\b", line, re.IGNORECASE):
         return "отгрузка"
-    condition = re.split(r"оформля|составля|содерж|получатель|ТТН|ТН-", line, maxsplit=1)[0]
+
+    condition = re.split(
+        r"оформля|составля|содерж|получатель|\u0422\u0422\u041d|\u0422\u041d-", line, maxsplit=1
+    )[0]
     stages = [name for name, pattern in STAGE_PATTERNS.items() if pattern.search(condition)]
     return stages[0] if len(stages) == 1 else None
 
 
+def procedure_quotes(fragment: EvidenceFragment, terms: set[str]) -> Iterator[tuple[str, str, str]]:
+    lines = fragment.text.splitlines()
+
+    for index, line in enumerate(lines):
+        if not STAGE_START_RE.match(line):
+            continue
+
+        if terms and not terms <= {word[:7] for word in re.findall(r"[\u0430-яё]{5,}", line.casefold())}:
+            continue
+
+        # Classify the conditional clause, not a later reference to a different stage.
+        stage = procedure_stage(line)
+
+        if stage is None:
+            continue
+
+        quote = line
+
+        if index + 1 < len(lines) and lines[index + 1].startswith("\u0412 накладной "):
+            quote += "\n" + lines[index + 1]
+
+        yield stage, line, quote
+
+
 def procedure_assessment(question: str, fragments: list[EvidenceFragment]) -> EvidenceAssessment:
     required = requested_procedure_stages(question)
-    participant = re.search(r"\bс\s+(.+?)\s+согласно\b", question, re.IGNORECASE)
+    participant = re.search(r"\b\u0441\s+(.+?)\s+согласно\b", question, re.IGNORECASE)
     terms = (
-        {word[:7] for word in re.findall(r"[а-яё]{5,}", participant[1].casefold())} if participant else set()
+        {word[:7] for word in re.findall(r"[\u0430-яё]{5,}", participant[1].casefold())}
+        if participant
+        else set()
     )
     candidates = []
     claims: dict[tuple[str, str], EvidenceClaim] = {}
+
     for fragment in sorted(scoped_fragments(question, fragments), key=lambda f: f.chunk_index):
-        lines = fragment.text.splitlines()
-        for index, line in enumerate(lines):
-            if not STAGE_START_RE.match(line):
-                continue
-            if terms and not terms <= {word[:7] for word in re.findall(r"[а-яё]{5,}", line.casefold())}:
-                continue
-            # Classify the conditional clause, not a later reference to a different stage.
-            stage = procedure_stage(line)
-            if stage is None:
-                continue
-            quote = line
-            if index + 1 < len(lines) and lines[index + 1].startswith("В накладной "):
-                quote += "\n" + lines[index + 1]
+        for stage, line, quote in procedure_quotes(fragment, terms):
             candidates.append(fragment)
             key = (stage, line)
+
             if key not in claims or len(quote) > len(claims[key].quote):
                 claims[key] = EvidenceClaim(stage, quote, fragment.source)
+
     if evidence_conflicts(candidates):
         return EvidenceAssessment(EvidenceStatus.CONFLICT, missing=("акт или редакция этапов",))
+
     present = {claim.label for claim in claims.values()}
     missing = tuple(stage for stage in required if stage not in present)
+
     if not required:
         missing = ("запрошенные этапы",)
+
     status = (
         EvidenceStatus.COMPLETE
         if not missing
@@ -112,23 +139,32 @@ def procedure_assessment(question: str, fragments: list[EvidenceFragment]) -> Ev
 def timing_line_matches(question: str, line: str, previous: str, fragment: EvidenceFragment) -> bool:
     if not re.search(r"переда[её]т|передаются", line, re.IGNORECASE) or not TIMING_RE.search(line):
         return False
+
     scope = previous + "\n" + line if previous.rstrip().endswith(":") else line
-    if re.search(r"сведени", question, re.IGNORECASE) and not re.search(r"сведени", scope, re.IGNORECASE):
-        return False
-    if re.search(r"товар", question, re.IGNORECASE) and not re.search(r"товар", scope, re.IGNORECASE):
-        if not (
-            fragment.linked_scope
-            and re.search(r"сведения, указанные в пункте \d+ настоящего постановления", scope, re.IGNORECASE)
-        ):
-            return False
-    if re.search(r"EDI[- ]провайдер", question, re.IGNORECASE) and not re.search(
-        r"EDI[- ]провайдер", line, re.IGNORECASE
+
+    if not (
+        (not re.search(r"сведени", question, re.IGNORECASE) or re.search(r"сведени", scope, re.IGNORECASE))
+        and timing_goods_scope_matches(question, scope, fragment)
+        and (
+            not re.search(r"EDI[- ]провайдер", question, re.IGNORECASE)
+            or re.search(r"EDI[- ]провайдер", line, re.IGNORECASE)
+        )
+        and transmission_participants_match(question, scope)
     ):
         return False
-    if not transmission_participants_match(question, scope):
-        return False
+
     requested = listed_goods_polarities(question)
     return not requested or listed_goods_polarities(scope) == requested or bool(fragment.linked_scope)
+
+
+def timing_goods_scope_matches(question: str, scope: str, fragment: EvidenceFragment) -> bool:
+    if not re.search(r"товар", question, re.IGNORECASE) or re.search(r"товар", scope, re.IGNORECASE):
+        return True
+
+    return bool(
+        fragment.linked_scope
+        and re.search(r"сведения, указанные в пункте \d+ настоящего постановления", scope, re.IGNORECASE)
+    )
 
 
 def transmission_participants_match(question: str, scope: str) -> bool:
@@ -136,31 +172,41 @@ def transmission_participants_match(question: str, scope: str) -> bool:
         r"EDI[- ]провайдер\w* грузоотправител", scope, re.IGNORECASE
     ):
         return False
-    recipient = r"\bв\s+(?:МНС\b|Министерство по налогам и сборам)"
-    if re.search(recipient, question, re.IGNORECASE) and not re.search(recipient, scope, re.IGNORECASE):
-        return False
-    return True
+
+    recipient = r"\bв\s+(?:\u041c\u041d\u0421\b|Министерство по налогам и сборам)"
+
+    return not (
+        re.search(recipient, question, re.IGNORECASE) and not re.search(recipient, scope, re.IGNORECASE)
+    )
 
 
 def timing_assessment(question: str, fragments: list[EvidenceFragment]) -> EvidenceAssessment:
     requested = listed_goods_polarities(question)
     candidates = []
     claims: dict[str, EvidenceClaim] = {}
+
     for fragment in scoped_fragments(question, fragments):
         # A mixed category block has no unique local interpretation.
         actual = listed_goods_polarities(fragment.linked_scope or fragment.text)
+
         if requested and (len(requested) != 1 or actual != requested):
             continue
+
         lines = fragment.text.splitlines()
+
         for index, line in enumerate(lines):
             if not timing_line_matches(question, line, lines[index - 1] if index else "", fragment):
                 continue
+
             candidates.append(fragment)
             claims.setdefault(line.strip(), EvidenceClaim("режим передачи", line.strip(), fragment.source))
+
     if evidence_conflicts(candidates) or len(claims) > 1:
         return EvidenceAssessment(EvidenceStatus.CONFLICT, missing=("единственный применимый режим",))
+
     if not claims:
         return EvidenceAssessment(
             EvidenceStatus.INSUFFICIENT, missing=("действие, категория товаров и режим передачи",)
         )
+
     return EvidenceAssessment(EvidenceStatus.COMPLETE, tuple(claims.values()))

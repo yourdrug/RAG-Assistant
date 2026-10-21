@@ -117,7 +117,6 @@ class RagService:
 
         visibility_conditions = get_visibility_conditions(
             UserKind(ctx.user_kind),
-            ctx.user_id,
             ctx.user_group_ids,
             for_list=False,
             user_role=UserRole(ctx.user_role) if ctx.user_role else None,

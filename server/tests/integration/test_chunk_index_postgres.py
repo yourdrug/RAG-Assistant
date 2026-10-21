@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from application.chunks import ChunkMutationService
 from domain.identity.roles import UserRole
 from domain.knowledge.enums import DocumentStatus, DocumentVisibility
-from domain.shared.exceptions import BusinessRuleViolation
+from domain.shared.exceptions import BusinessRuleViolationError
 from infrastructure.database.migrations.versions import t0j1k2l3m4n5_unique_chunk_index as migration
 from infrastructure.database.models import ChunkModel, DocumentModel, VectorStoreOutboxModel
 from infrastructure.repositories.chunk.sqlalchemy_chunk_repository import SQLAlchemyChunkRepository
@@ -150,11 +150,15 @@ async def test_duplicate_index_is_conflict_and_unrelated_integrity_errors_propag
     document_id = await seed_document(sessions)
     async with sessions() as session:
         repo = SQLAlchemyChunkRepository(session)
-        with pytest.raises(BusinessRuleViolation, match="Chunk index already exists"):
-            await repo.insert_one(document_id, 3, "Duplicate", "ordinary.txt", "internal_public", "general")
+        with pytest.raises(BusinessRuleViolationError, match="Chunk index already exists"):
+            await repo.insert_one(
+                document_id, 3, "Duplicate", "ordinary.txt", "internal_public", doc_domain="general"
+            )
         await session.rollback()
         with pytest.raises(IntegrityError):
-            await repo.insert_one(-1, 4, "Missing parent", "ordinary.txt", "internal_public", "general")
+            await repo.insert_one(
+                -1, 4, "Missing parent", "ordinary.txt", "internal_public", doc_domain="general"
+            )
         await session.rollback()
         assert list((await session.scalars(select(ChunkModel.chunk_index))).all()) == [3]
 

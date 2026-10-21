@@ -12,8 +12,9 @@ from domain.rag.breadth import Breadth
 if TYPE_CHECKING:
     from datetime import datetime
 
-    from application.chat.dto import ChatLogListOptions, CreateChatLogCommand
+    from application.chat.dto import CreateChatLogCommand
     from application.uow import UnitOfWork, UnitOfWorkFactory
+    from domain.chat.repositories import ChatLogListOptions
 
 
 class ChatLogService:

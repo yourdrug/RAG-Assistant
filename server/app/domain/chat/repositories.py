@@ -2,12 +2,26 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, TypedDict, Unpack, runtime_checkable
 
-from domain.chat.chat_log import ChatLog
-from domain.chat.conversation import Conversation, ConversationListItem
-from domain.chat.message import Message
+
+if TYPE_CHECKING:
+    from datetime import datetime
+
+    from domain.chat.chat_log import ChatLog
+    from domain.chat.conversation import Conversation, ConversationListItem
+    from domain.chat.message import Message
+
+
+class ChatLogListOptions(TypedDict, total=False):
+    user_id: int | None
+    user_ids: list[int] | None
+    domain: str | None
+    date_from: datetime | None
+    date_to: datetime | None
+    search: str | None
+    limit: int
+    offset: int
 
 
 @runtime_checkable
@@ -44,15 +58,7 @@ class ChatLogRepository(Protocol):
 
     async def list_logs(
         self,
-        *,
-        user_id: int | None = None,
-        user_ids: list[int] | None = None,
-        domain: str | None = None,
-        date_from: datetime | None = None,
-        date_to: datetime | None = None,
-        search: str | None = None,
-        limit: int = 50,
-        offset: int = 0,
+        **options: Unpack[ChatLogListOptions],
     ) -> list[ChatLog]: ...
 
     async def count_logs(

@@ -10,6 +10,7 @@ from typing import Literal
 
 
 def decide_resolution_strategy(
+    *,
     is_versioned: bool,
 ) -> Literal["version", "replace"]:
     """Decide how to resolve a conflict between old and new document versions.

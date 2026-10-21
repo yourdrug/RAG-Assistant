@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime
 
 from domain.knowledge.chunk import ChunkInsert, ChunkRecord, ChunkStats
-from domain.shared.exceptions import BusinessRuleViolation
+from domain.shared.exceptions import BusinessRuleViolationError
 from domain.shared.pagination import CursorPage
 from domain.knowledge.enums import DocDomain
 from domain.knowledge.chunk import extract_chunk_context
@@ -167,7 +167,7 @@ class SQLAlchemyChunkCrudRepository:
 
             if constraint == "ux_chunks_document_index":
                 msg = "Chunk index already exists for this document; retry adding the chunk"
-                raise BusinessRuleViolation(msg) from exc
+                raise BusinessRuleViolationError(msg) from exc
 
             raise
         return orm.id

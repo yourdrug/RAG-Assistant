@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from domain.benchmark.sweep import BenchmarkStrategy, BenchmarkSweep, SweepEvaluationMode
-from domain.shared.exceptions import BusinessRuleViolation
+from domain.shared.exceptions import BusinessRuleViolationError
 from domain.runtime.jobs import BackgroundJobStatus
 from domain.benchmark.sweep import BenchmarkSweepStatus
 from sqlalchemy import delete, or_, func, select, update
@@ -58,7 +58,7 @@ class SQLAlchemyBenchmarkSweepRepository:
             diag = getattr(exc.orig, "diag", None)
             constraint = getattr(cause, "constraint_name", None) or getattr(diag, "constraint_name", None)
             if constraint == BENCHMARK_ACTIVE_SWEEP_INDEX:
-                raise BusinessRuleViolation(
+                raise BusinessRuleViolationError(
                     "Another sweep is pending or running — cancel it or wait for it to finish"
                 ) from exc
             raise
@@ -95,7 +95,7 @@ class SQLAlchemyBenchmarkSweepRepository:
             diag = getattr(exc.orig, "diag", None)
             constraint = getattr(cause, "constraint_name", None) or getattr(diag, "constraint_name", None)
             if constraint == BENCHMARK_ACTIVE_SWEEP_INDEX:
-                raise BusinessRuleViolation("Another sweep is already active") from exc
+                raise BusinessRuleViolationError("Another sweep is already active") from exc
             raise
         return result.rowcount == 1
 

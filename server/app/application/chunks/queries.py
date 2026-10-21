@@ -10,7 +10,7 @@ from application.chunks.mappers import to_chunk_dto
 from application.identity import UserContextFactory
 from domain.knowledge.access_control import check_document_access
 from domain.knowledge.chunk import decode_cursor
-from domain.shared.exceptions import BusinessRuleViolation, EntityNotFound
+from domain.shared.exceptions import BusinessRuleViolationError, EntityNotFoundError
 from domain.shared.pagination import CursorPage
 
 
@@ -35,7 +35,7 @@ def validate_chunk_acl(document: Document, chunks: list[ChunkRecord]) -> None:
             or chunk.group_id != document.group_id
         ):
             msg = "Chunk ACL does not match document ACL"
-            raise BusinessRuleViolation(msg)
+            raise BusinessRuleViolationError(msg)
 
 
 class ChunkQueryService:
@@ -64,7 +64,7 @@ class ChunkQueryService:
 
             if doc is None:
                 msg = "Document"
-                raise EntityNotFound(msg, document_id)
+                raise EntityNotFoundError(msg, document_id)
 
             ctx = await self._user_ctx_factory.build(uow, user_id, user_kind, user_role)
             check_document_access(doc, ctx)
@@ -97,7 +97,7 @@ class ChunkQueryService:
 
             if doc is None:
                 msg = "Document"
-                raise EntityNotFound(msg, document_id)
+                raise EntityNotFoundError(msg, document_id)
 
             ctx = await self._user_ctx_factory.build(uow, user_id, user_kind, user_role)
             check_document_access(doc, ctx)

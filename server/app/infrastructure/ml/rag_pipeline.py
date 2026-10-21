@@ -17,6 +17,7 @@ from domain.rag.settings import RagSettings
 from domain.identity.user_context import UserContext
 
 if TYPE_CHECKING:
+    from langchain_core.documents import Document as LCDocument
     from application.chat import PIIRedactorPort
 
 
@@ -66,7 +67,7 @@ class RagPipelineState:
     # ── Internal (set during generation step) ──────────────────────────
     _last_chunk: object | None = None
     _grouped_docs: list = field(default_factory=list)
-    _prompt_docs: list = field(default_factory=list)
+    _prompt_docs: list[tuple[LCDocument, float]] = field(default_factory=list)
 
     # ── PII ─────────────────────────────────────────────────────────────
     pii_redactor: "PIIRedactorPort | None" = None
@@ -78,3 +79,8 @@ class RagPipelineState:
 
     # ── Control ─────────────────────────────────────────────────────────
     terminal: bool = False
+
+    @property
+    def prompt_docs(self) -> list[tuple[LCDocument, float]]:
+        """Selected documents exposed to offline context diagnostics."""
+        return self._prompt_docs

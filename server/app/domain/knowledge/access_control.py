@@ -7,12 +7,12 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from domain.identity.roles import UserKind, UserRole
-from domain.identity.user_context import UserContext
 from domain.knowledge.enums import DocumentVisibility
-from domain.shared.exceptions import BusinessRuleViolation, ValidationError
+from domain.shared.exceptions import BusinessRuleViolationError, ValidationError
 
 
 if TYPE_CHECKING:
+    from domain.identity.user_context import UserContext
     from domain.knowledge.document import Document
 
 
@@ -43,7 +43,7 @@ class VisibilityCondition:
     group_ids: list[int] | None = None  # explicit group id list for group_match
 
 
-def client_conditions(user_id: int) -> list[VisibilityCondition]:
+def client_conditions() -> list[VisibilityCondition]:
     """CLIENT users can only see their own CLIENT_PRIVATE docs."""
     return [
         VisibilityCondition(
@@ -111,6 +111,7 @@ def curator_conditions(
         )
 
     all_group_ids = list(set(group_ids) | set(_managed_group_ids))
+
     if all_group_ids:
         conditions.append(
             VisibilityCondition(
@@ -123,21 +124,23 @@ def curator_conditions(
     return conditions
 
 
-def admin_conditions(for_list: bool) -> list[VisibilityCondition]:
+def admin_conditions(*, for_list: bool) -> list[VisibilityCondition]:
     """ADMIN extra conditions: full access to all internal + optional CLIENT_PRIVATE."""
     conditions: list[VisibilityCondition] = [
         VisibilityCondition(visibility=DocumentVisibility.INTERNAL_GROUP),
         VisibilityCondition(visibility=DocumentVisibility.INTERNAL_PRIVATE),
     ]
+
     if for_list:
         conditions.append(VisibilityCondition(visibility=DocumentVisibility.CLIENT_PRIVATE))
+
     return conditions
 
 
 def get_visibility_conditions(
     user_kind: UserKind,
-    user_id: int,
     group_ids: list[int],
+    *,
     for_list: bool = True,
     user_role: UserRole | None = None,
     managed_client_ids: list[int] | None = None,
@@ -151,7 +154,7 @@ def get_visibility_conditions(
 
     """
     if user_kind == UserKind.CLIENT:
-        return client_conditions(user_id)
+        return client_conditions()
 
     conditions = base_internal_conditions(user_kind, group_ids)
 
@@ -160,7 +163,7 @@ def get_visibility_conditions(
             curator_conditions(group_ids, managed_client_ids, managed_internal_ids, managed_group_ids)
         )
     elif user_role == UserRole.ADMIN:
-        conditions.extend(admin_conditions(for_list))
+        conditions.extend(admin_conditions(for_list=for_list))
 
     return conditions
 
@@ -174,28 +177,34 @@ def validate_document_visibility(
     user_kind = ctx.user_kind
     user_role = ctx.user_role
     allowed = ALLOWED_VISIBILITY_FOR_KIND.get(user_kind)
+
     if allowed is None or visibility not in allowed:
-        raise ValidationError(f"visibility='{visibility}' not available for kind='{user_kind}'")
+        msg = f"visibility='{visibility}' not available for kind='{user_kind}'"
+        raise ValidationError(msg)
 
     if visibility == DocumentVisibility.INTERNAL_PUBLIC and user_role != UserRole.ADMIN:
-        raise BusinessRuleViolation("Only admin can publish to internal_public")
+        msg = "Only admin can publish to internal_public"
+        raise BusinessRuleViolationError(msg)
 
-    if visibility == DocumentVisibility.CLIENT_PRIVATE and user_kind == UserKind.INTERNAL:
-        if user_role == UserRole.ADMIN:
-            pass  # admin always allowed
-        elif user_role == UserRole.CURATOR:
-            # curator can upload client_private only for managed clients
-            # actual client_id validation happens in DocumentService
-            pass
-        else:
-            raise BusinessRuleViolation("Only admin can upload documents for clients")
+    # Managed client validation for curators happens in DocumentService.
+    if (
+        visibility == DocumentVisibility.CLIENT_PRIVATE
+        and user_kind == UserKind.INTERNAL
+        and user_role not in (UserRole.ADMIN, UserRole.CURATOR)
+    ):
+        msg = "Only admin can upload documents for clients"
+        raise BusinessRuleViolationError(msg)
 
     if visibility == DocumentVisibility.INTERNAL_GROUP:
         if group_id is None:
-            raise ValidationError("group_id required for visibility='internal_group'")
+            msg = "group_id required for visibility='internal_group'"
+            raise ValidationError(msg)
+
         all_group_ids = set(ctx.group_ids) | set(ctx.managed_group_ids or [])
+
         if user_role != UserRole.ADMIN and group_id not in all_group_ids:
-            raise BusinessRuleViolation("You are not a member of this group")
+            msg = "You are not a member of this group"
+            raise BusinessRuleViolationError(msg)
 
 
 def compute_owner_and_group(
@@ -206,8 +215,10 @@ def compute_owner_and_group(
     """Determine owner_id and group_id for a document based on visibility."""
     if visibility == DocumentVisibility.INTERNAL_PUBLIC:
         return None, None
+
     if visibility == DocumentVisibility.INTERNAL_GROUP:
         return None, group_id
+
     return user_id, None
 
 
@@ -221,7 +232,6 @@ def can_view_document(doc: Document, ctx: UserContext) -> bool:
     DocumentVisibility.validate(doc.visibility)
     conditions = get_visibility_conditions(
         ctx.user_kind,
-        ctx.user_id,
         list(ctx.group_ids),
         for_list=True,
         user_role=ctx.user_role,
@@ -243,7 +253,6 @@ def is_in_search_scope(doc: Document, ctx: UserContext) -> bool:
     """
     conditions = get_visibility_conditions(
         ctx.user_kind,
-        ctx.user_id,
         list(ctx.group_ids),
         for_list=False,
         user_role=ctx.user_role,
@@ -259,27 +268,35 @@ def matches_any_condition(doc: Document, ctx: UserContext, conditions: list[Visi
     for cond in conditions:
         if cond.visibility.value != doc.visibility:
             continue
+
         if cond.owner_match == OwnerMatch.SELF and doc.owner_id != ctx.user_id:
             continue
-        if cond.owner_match == OwnerMatch.ASSIGNED:
-            if doc.owner_id is None or cond.owner_ids is None or doc.owner_id not in cond.owner_ids:
-                continue
+
+        if cond.owner_match == OwnerMatch.ASSIGNED and (
+            doc.owner_id is None or cond.owner_ids is None or doc.owner_id not in cond.owner_ids
+        ):
+            continue
+
         if cond.group_match:
             effective_group_ids = cond.group_ids if cond.group_ids is not None else ctx.group_ids
+
             if doc.group_id is None or doc.group_id not in effective_group_ids:
                 continue
+
         return True
+
     return False
 
 
 def check_document_access(doc: Document, ctx: UserContext) -> None:
-    """Raise BusinessRuleViolation if user cannot view the document."""
+    """Raise BusinessRuleViolationError if user cannot view the document."""
     if not can_view_document(doc, ctx):
-        raise BusinessRuleViolation("No access to this document")
+        msg = "No access to this document"
+        raise BusinessRuleViolationError(msg)
 
 
 def check_ownership(doc: Document, ctx: UserContext, action: str = "modify") -> None:
-    """Raise BusinessRuleViolation if user cannot modify/delete the document."""
+    """Raise BusinessRuleViolationError if user cannot modify/delete the document."""
     if not doc.can_be_deleted_by(
         ctx.user_id,
         ctx.user_role,
@@ -288,7 +305,8 @@ def check_ownership(doc: Document, ctx: UserContext, action: str = "modify") -> 
         managed_internal_ids=list(ctx.managed_internal_ids),
         managed_group_ids=list(ctx.managed_group_ids),
     ):
-        raise BusinessRuleViolation(f"Can only {action} your own documents")
+        msg = f"Can only {action} your own documents"
+        raise BusinessRuleViolationError(msg)
 
 
 class OwnerMatch(StrEnum):

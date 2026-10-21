@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from application.identity import UserContextFactory
 from domain.identity.roles import UserKind
 from domain.knowledge.enums import DocumentStatus
-from domain.shared.exceptions import BusinessRuleViolation, EntityNotFound
+from domain.shared.exceptions import BusinessRuleViolationError, EntityNotFoundError
 
 
 if TYPE_CHECKING:
@@ -32,7 +32,7 @@ async def load_doc_for_edit(
 
     if doc is None:
         msg = "Document"
-        raise EntityNotFound(msg, document_id)
+        raise EntityNotFoundError(msg, document_id)
 
     factory = user_ctx_factory or _default_factory
     ctx = await factory.build(uow, user_id, UserKind.INTERNAL, user_role)
@@ -46,7 +46,7 @@ async def load_doc_for_edit(
         managed_group_ids=list(ctx.managed_group_ids),
     ):
         msg = "No permission to edit chunks for this document"
-        raise BusinessRuleViolation(msg)
+        raise BusinessRuleViolationError(msg)
 
     return doc, ctx
 
@@ -68,11 +68,11 @@ async def load_doc_for_add(
 
     if doc is None:
         msg = "Document"
-        raise EntityNotFound(msg, document_id)
+        raise EntityNotFoundError(msg, document_id)
 
     if doc.status not in (DocumentStatus.DONE, DocumentStatus.INDEXING):
         msg = "Can only add chunks to documents with status 'done' or 'indexing'"
-        raise BusinessRuleViolation(msg)
+        raise BusinessRuleViolationError(msg)
 
     factory = user_ctx_factory or _default_factory
     ctx = await factory.build(uow, user_id, UserKind.INTERNAL, user_role)
@@ -86,6 +86,6 @@ async def load_doc_for_add(
         managed_group_ids=list(ctx.managed_group_ids),
     ):
         msg = "No permission to add chunks for this document"
-        raise BusinessRuleViolation(msg)
+        raise BusinessRuleViolationError(msg)
 
     return doc, ctx

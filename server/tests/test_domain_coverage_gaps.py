@@ -10,14 +10,14 @@ sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.par
 
 from domain.runtime.config import ConfigParameter
 from domain.shared.exceptions import (
-    AppException,
+    AppError,
     AuthenticationError,
-    BusinessRuleViolation,
-    ClientException,
+    BusinessRuleViolationError,
+    AppClientError,
     DatabaseError,
-    EntityNotFound,
+    EntityNotFoundError,
     PermissionDeniedError,
-    ServerException,
+    AppServerError,
     ValidationError,
 )
 from domain.rag.prompts import (
@@ -33,47 +33,47 @@ from domain.rag.breadth import Breadth
 
 
 # ===========================================================================
-# AppException Tests
+# AppError Tests
 # ===========================================================================
 
 
 class TestAppException:
     def test_str(self):
-        exc = AppException("msg")
+        exc = AppError("msg")
         assert str(exc) == "msg"
 
     def test_repr(self):
-        exc = AppException("msg", errors={"k": "v"})
-        assert repr(exc) == "AppException(message='msg', errors={'k': 'v'})"
+        exc = AppError("msg", errors={"k": "v"})
+        assert repr(exc) == "AppError(message='msg', errors={'k': 'v'})"
 
     def test_repr_without_errors(self):
-        exc = AppException("msg")
-        assert repr(exc) == "AppException(message='msg', errors=None)"
+        exc = AppError("msg")
+        assert repr(exc) == "AppError(message='msg', errors=None)"
 
     def test_as_dict_with_errors(self):
-        exc = AppException("msg", errors={"detail": "x"})
+        exc = AppError("msg", errors={"detail": "x"})
         assert exc.as_dict() == {"message": "msg", "errors": {"detail": "x"}}
 
     def test_as_dict_without_errors(self):
-        exc = AppException("msg")
+        exc = AppError("msg")
         assert exc.as_dict() == {"message": "msg"}
 
     def test_as_dict_with_empty_errors(self):
-        exc = AppException("msg", errors={})
+        exc = AppError("msg", errors={})
         assert exc.as_dict() == {"message": "msg"}
 
 
 # ===========================================================================
-# ServerException Tests
+# AppServerError Tests
 # ===========================================================================
 
 
 class TestServerException:
     def test_is_app_exception(self):
-        assert issubclass(ServerException, AppException)
+        assert issubclass(AppServerError, AppError)
 
     def test_message(self):
-        exc = ServerException("server error")
+        exc = AppServerError("server error")
         assert exc.message == "server error"
 
 
@@ -93,17 +93,17 @@ class TestDatabaseError:
         assert exc.errors == {"detail": "connection refused"}
 
     def test_is_server_exception(self):
-        assert issubclass(DatabaseError, ServerException)
+        assert issubclass(DatabaseError, AppServerError)
 
 
 # ===========================================================================
-# ClientException Tests
+# AppClientError Tests
 # ===========================================================================
 
 
 class TestClientException:
     def test_is_app_exception(self):
-        assert issubclass(ClientException, AppException)
+        assert issubclass(AppClientError, AppError)
 
 
 # ===========================================================================
@@ -137,18 +137,18 @@ class TestValidationError:
 
 
 # ===========================================================================
-# EntityNotFound Tests
+# EntityNotFoundError Tests
 # ===========================================================================
 
 
 class TestEntityNotFound:
     def test_message_and_errors(self):
-        exc = EntityNotFound("User", 42)
+        exc = EntityNotFoundError("User", 42)
         assert exc.message == "User with id=42 not found"
         assert exc.errors == {"user": "User with id=42 not found", "id": "42"}
 
     def test_string_identifier(self):
-        exc = EntityNotFound("Document", "abc-123")
+        exc = EntityNotFoundError("Document", "abc-123")
         assert "abc-123" in exc.message
         assert exc.errors["id"] == "abc-123"
 
@@ -191,13 +191,13 @@ class TestPermissionDeniedError:
 
 
 # ===========================================================================
-# BusinessRuleViolation Tests
+# BusinessRuleViolationError Tests
 # ===========================================================================
 
 
 class TestBusinessRuleViolation:
     def test_is_client_exception(self):
-        assert issubclass(BusinessRuleViolation, ClientException)
+        assert issubclass(BusinessRuleViolationError, AppClientError)
 
 
 # ===========================================================================

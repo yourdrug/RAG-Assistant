@@ -127,7 +127,7 @@ async def test_resume_only_accepts_terminal_failed_or_cancelled_sweeps(status):
 
 @pytest.mark.asyncio
 async def test_resume_waits_for_cancelled_worker_to_stop():
-    from domain.shared.exceptions import BusinessRuleViolation
+    from domain.shared.exceptions import BusinessRuleViolationError
     from domain.runtime.jobs import BackgroundJobStatus
 
     factory = FakeUnitOfWorkFactory()
@@ -138,7 +138,7 @@ async def test_resume_waits_for_cancelled_worker_to_stop():
         return_value=SimpleNamespace(status=BackgroundJobStatus.RUNNING.value)
     )
     factory._uow.benchmark_sweeps.requeue = AsyncMock()
-    with pytest.raises(BusinessRuleViolation, match="still stopping"):
+    with pytest.raises(BusinessRuleViolationError, match="still stopping"):
         await BenchmarkSweepService(factory).resume(1)
     factory._uow.benchmark_sweeps.requeue.assert_not_awaited()
 

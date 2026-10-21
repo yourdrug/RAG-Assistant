@@ -136,47 +136,47 @@ class TestShouldEnumerateCases:
     """Business rule: detect when context has conditional/exclusive rules."""
 
     def test_single_chunk_not_enough(self):
-        assert should_enumerate_cases("вопрос", ["один чанк"]) is False
+        assert should_enumerate_cases(["один чанк"]) is False
 
     def test_empty_context(self):
-        assert should_enumerate_cases("вопрос", []) is False
+        assert should_enumerate_cases([]) is False
 
     def test_two_chunks_with_conditions(self):
         texts = [
             "В случае нарушения штраф 10000 руб.",
             "При условии соответствия выдаётся сертификат",
         ]
-        assert should_enumerate_cases("вопрос", texts) is True
+        assert should_enumerate_cases(texts) is True
 
     def test_two_chunks_without_conditions(self):
         texts = [
             "Маркировка товаров обязательна",
             "Коды выдаются оператором",
         ]
-        assert should_enumerate_cases("вопрос", texts) is False
+        assert should_enumerate_cases(texts) is False
 
     def test_one_chunk_with_conditions_not_enough(self):
         texts = ["В случае нарушения штраф 10000 руб."]
-        assert should_enumerate_cases("вопрос", texts) is False
+        assert should_enumerate_cases(texts) is False
 
     def test_percentage_in_context(self):
         texts = ["Штраф составляет 5% от суммы", "НДС 20% от стоимости"]
-        assert should_enumerate_cases("вопрос", texts) is True
+        assert should_enumerate_cases(texts) is True
 
     def test_exception_marker(self):
         texts = [
             "За исключением случаев force majeure",
             "При условии соответствия выдаётся сертификат",
         ]
-        assert should_enumerate_cases("вопрос", texts) is True
+        assert should_enumerate_cases(texts) is True
 
     def test_none_entries_in_context(self):
         texts = [None, "В случае нарушения штраф", "При условии оплаты"]
-        assert should_enumerate_cases("вопрос", texts) is True
+        assert should_enumerate_cases(texts) is True
 
     def test_empty_string_entries(self):
         texts = ["", "В случае нарушения штраф", "При условии оплаты"]
-        assert should_enumerate_cases("вопрос", texts) is True
+        assert should_enumerate_cases(texts) is True
 
 
 # ===========================================================================

@@ -11,7 +11,7 @@ from domain.identity.user import User
 from domain.knowledge.document import Document
 from domain.knowledge.enums import DocumentVisibility
 from domain.runtime.jobs import BackgroundJob, BackgroundJobStatus, JobType
-from domain.shared.exceptions import BusinessRuleViolation, EntityNotFound
+from domain.shared.exceptions import BusinessRuleViolationError, EntityNotFoundError
 from fakes import FakeUnitOfWorkFactory
 from infrastructure.worker.document_deletion import delete_document
 
@@ -50,7 +50,7 @@ async def test_authorized_request_only_queues_and_keeps_document_until_worker_ru
 @pytest.mark.asyncio
 async def test_unowned_document_is_rejected_before_creating_or_queuing_job():
     factory, uow, doc, enqueuer, service = await harness()
-    with pytest.raises(BusinessRuleViolation):
+    with pytest.raises(BusinessRuleViolationError):
         await service.enqueue(doc.id, 2, UserKind.INTERNAL, UserRole.USER)
     uow.background_jobs.create.assert_not_awaited()
     enqueuer.enqueue_document_deletion.assert_not_awaited()
@@ -74,10 +74,10 @@ async def test_job_status_requires_document_ownership_and_matching_job():
     )
     uow.background_jobs.get_by_id = AsyncMock(return_value=job)
     assert await service.get(doc.id, 42, 1, UserKind.INTERNAL, UserRole.USER) is job
-    with pytest.raises(BusinessRuleViolation):
+    with pytest.raises(BusinessRuleViolationError):
         await service.get(doc.id, 42, 2, UserKind.INTERNAL, UserRole.USER)
     job.related_id = doc.id + 1
-    with pytest.raises(EntityNotFound):
+    with pytest.raises(EntityNotFoundError):
         await service.get(doc.id, 42, 1, UserKind.INTERNAL, UserRole.USER)
 
 

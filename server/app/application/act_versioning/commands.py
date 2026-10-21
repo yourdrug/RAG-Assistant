@@ -18,7 +18,7 @@ from domain.knowledge.acts.policy import (
 from domain.knowledge.acts.timeline import ActVersionTimeline
 from domain.knowledge.enums import DocumentVisibility
 from domain.shared.dates import parse_date_guess
-from domain.shared.exceptions import EntityNotFound, ValidationError
+from domain.shared.exceptions import EntityNotFoundError, ValidationError
 
 
 if TYPE_CHECKING:
@@ -362,7 +362,7 @@ class ActVersionCommands:
 
         if target_act is None:
             entity = "RegulatoryAct"
-            raise EntityNotFound(entity, version.act_id)
+            raise EntityNotFoundError(entity, version.act_id)
 
         versions = await uow.act_versions.list_by_act(version.act_id, for_update=True)
         previous = [item for item in versions if item.id != version.id]

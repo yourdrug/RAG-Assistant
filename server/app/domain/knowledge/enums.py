@@ -5,7 +5,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Literal
 
-from domain.shared.enums import LifecycleStatusMixin, ValidatedEnumMixin
+from domain.shared.enums import LifecycleStatus, ValidatedStrEnum
 
 
 class DocDomain(StrEnum):
@@ -22,8 +22,7 @@ DocDomainSelection = Literal[DocDomain.GENERAL, DocDomain.LEGAL, DocDomain.DECRE
 
 
 class DocumentStatus(
-    LifecycleStatusMixin,
-    StrEnum,
+    LifecycleStatus,
     terminal=frozenset({"done", "failed"}),
     active=frozenset({"pending", "processing", "indexing"}),
 ):
@@ -43,7 +42,7 @@ DOCUMENT_SLOT_STATUSES = (
 )
 
 
-class DocumentVisibility(ValidatedEnumMixin, StrEnum, label="visibility"):
+class DocumentVisibility(ValidatedStrEnum, label="visibility"):
     INTERNAL_PUBLIC = "internal_public"
     INTERNAL_GROUP = "internal_group"
     INTERNAL_PRIVATE = "internal_private"

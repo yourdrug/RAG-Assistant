@@ -8,10 +8,16 @@ the infrastructure layer.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date
+from typing import TYPE_CHECKING
 
 from domain.identity.roles import UserKind, UserRole
-from domain.identity.user_context import CuratorScope, UserContext
+from domain.identity.user_context import UserContext
+
+
+if TYPE_CHECKING:
+    from datetime import date
+
+    from domain.identity.user_context import CuratorScope
 
 
 @dataclass(frozen=True)

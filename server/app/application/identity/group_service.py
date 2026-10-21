@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 from application.identity.user_context_factory import UserContextFactory
 from domain.identity.roles import UserKind
-from domain.shared.exceptions import EntityNotFound, ValidationError
+from domain.shared.exceptions import EntityNotFoundError, ValidationError
 
 
 if TYPE_CHECKING:
@@ -52,7 +52,7 @@ class GroupService:
 
             if target is None:
                 entity = "User"
-                raise EntityNotFound(entity, user_id)
+                raise EntityNotFoundError(entity, user_id)
 
             if target.kind != UserKind.INTERNAL.value:
                 msg = "Only internal employees can be added to groups"

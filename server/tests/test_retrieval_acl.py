@@ -157,7 +157,7 @@ async def test_decomposition_and_legal_fallback_preserve_acl(decomposition, sub_
     from infrastructure.ml.rag.helpers import retrieve_with_decomposition
 
     af = with_temporal_filter(build_qdrant_filter(_user(), [1, 2]), None)
-    conditions = get_visibility_conditions("internal", 5, [1, 2], for_list=False)
+    conditions = get_visibility_conditions("internal", [1, 2], for_list=False)
     rag = MagicMock()
     rag.features.decomposition_enabled = decomposition
     ml = _make_ml_clients()
@@ -205,7 +205,7 @@ async def test_legal_rerank_fallback_preserves_acl_and_temporal_filter():
     from infrastructure.ml.rag.helpers import rerank_and_enrich
 
     af = with_temporal_filter(build_qdrant_filter(_user(), [1, 2]), None)
-    conditions = get_visibility_conditions("internal", 5, [1, 2], for_list=False)
+    conditions = get_visibility_conditions("internal", [1, 2], for_list=False)
     ctx = RagContext(
         as_of_date=None,
         user_id=5,

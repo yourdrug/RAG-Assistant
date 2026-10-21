@@ -8,9 +8,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
-from domain.chat.message import Message
 from domain.identity.roles import UserRole
+
+
+if TYPE_CHECKING:
+    from domain.chat.message import Message
 
 
 @dataclass
@@ -27,6 +31,7 @@ class Conversation:
     def can_be_viewed_by(self, user_id: int, user_role: str) -> bool:
         if user_role == UserRole.ADMIN:
             return True
+
         return self.user_id == user_id
 
 

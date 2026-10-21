@@ -6,10 +6,13 @@ Legacy evidence is reconstructed from retrieved + selected. This cannot recover
 rejected neighbors; exact legacy context matches are reported explicitly.
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any
 
 from langchain_core.documents import Document
 
@@ -32,12 +35,23 @@ from infrastructure.ml.rag.rag_steps import step_build_context
 from infrastructure.ml.rag_pipeline import RagPipelineState
 
 
-def chunk_key(item) -> str:
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from langchain_core.prompts import ChatPromptTemplate
+
+    from domain.rag.settings import RagSettings
+
+
+type ScoredDocument = tuple[Document, float]
+
+
+def chunk_key(item: ScoredDocument) -> str:
     doc = item[0]
     return content_hash(doc.metadata.get("source", "") + "\n" + doc.page_content)
 
 
-def reconstruct_candidates(evidence: dict) -> list:
+def reconstruct_candidates(evidence: dict[str, Any]) -> list[ScoredDocument]:
     if evidence.get("prompt_candidates") is not None:
         saved = evidence["prompt_candidates"]
     else:
@@ -54,7 +68,9 @@ def reconstruct_candidates(evidence: dict) -> list:
     return candidates
 
 
-def sequential_pack(candidates, budget, count_tokens):
+def sequential_pack(
+    candidates: list[ScoredDocument], budget: int, count_tokens: Callable[[str], int]
+) -> tuple[str, list[ScoredDocument], list[str]]:
     chosen = []
     rejected = []
     for item in candidates:
@@ -67,19 +83,28 @@ def sequential_pack(candidates, budget, count_tokens):
     return context, selected, rejected
 
 
-def legacy_selection(candidates, prompt, question, input_budget, *, grouped, unified):
+def legacy_selection(
+    candidates: list[ScoredDocument],
+    prompt: ChatPromptTemplate,
+    question: str,
+    input_budget: int,
+    *,
+    grouped: bool,
+    unified: bool,
+) -> tuple[str, list[ScoredDocument], list[dict[str, Any]]]:
     """Frozen section/document-first packing and tail trimming, plus ablations."""
     if grouped:
         ordered = [item for group in group_by_document(group_by_section(candidates)) for item in group]
     else:
         ordered = sorted(candidates, key=lambda item: item[1], reverse=True)
 
-    def full_tokens(context):
+    def full_tokens(context: str) -> int:
         return estimate_message_tokens(prompt.format_messages(context=context, history=[], question=question))
 
     context_budget = input_budget - full_tokens("")
     if context_budget <= 0:
-        raise ValueError("Frozen base prompt exhausts the input budget")
+        msg = "Frozen base prompt exhausts the input budget"
+        raise ValueError(msg)
     count = full_tokens if unified else len
     budget = input_budget if unified else context_budget * CHARS_PER_TOKEN
     trace = []
@@ -96,19 +121,22 @@ def legacy_selection(candidates, prompt, question, input_budget, *, grouped, uni
         if tokens <= input_budget:
             return context, selected, trace
         if not selected:
-            raise ValueError("No complete block fits the frozen prompt")
+            msg = "No complete block fits the frozen prompt"
+            raise ValueError(msg)
         iteration["tail_removed"] = chunk_key(selected[-1])
         ordered = selected[:-1]
 
 
-def compact_exclusion(item):
+def compact_exclusion(item: dict[str, Any]) -> dict[str, Any]:
     return {
         "chunk": content_hash(item["metadata"].get("source", "") + "\n" + item["content"]),
         **{key: value for key, value in item.items() if key not in {"metadata", "content"}},
     }
 
 
-def replay_question(question: dict, rag, domain_keys) -> dict:
+def replay_question(
+    question: dict[str, Any], rag: RagSettings, domain_keys: tuple[str, ...]
+) -> dict[str, Any]:
     evidence = question["evidence"]
     candidates = reconstruct_candidates(evidence)
     ctx = RagContext(1, UserKind.INTERNAL, UserRole.ADMIN)
@@ -118,7 +146,7 @@ def replay_question(question: dict, rag, domain_keys) -> dict:
     query_domain = classify_query_domain(question["question"])
     prompt = build_prompt(
         breadth,
-        domain_addendum=domain_prompt_addendum(query_domain, ctx, breadth, domain_keys),
+        domain_addendum=domain_prompt_addendum(query_domain, ctx, domain_keys),
         enumerate_cases=enumerate_cases,
     )
     num_ctx = rag.llm_num_ctx_broad if breadth == Breadth.BROAD else rag.llm_num_ctx_narrow
@@ -156,7 +184,7 @@ def replay_question(question: dict, rag, domain_keys) -> dict:
         active_evidence.reset(token)
     variants["new"] = {
         "context": captured.context,
-        "selected": state._prompt_docs,
+        "selected": state.prompt_docs,
         "exclusions": [compact_exclusion(item) for item in captured.exclusions],
         "trace": [],
     }
@@ -192,7 +220,7 @@ def replay_question(question: dict, rag, domain_keys) -> dict:
     }
 
 
-def replay(snapshot: dict) -> dict:
+def replay(snapshot: dict[str, Any]) -> dict[str, Any]:
     rag = build_rag_settings(SimpleNamespace(**snapshot["runtime"]))
     domain_keys = (DocDomain.LEGAL.value, DocDomain.GENERAL.value)
     return {
@@ -203,7 +231,7 @@ def replay(snapshot: dict) -> dict:
     }
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", type=Path)
     parser.add_argument("output", type=Path)

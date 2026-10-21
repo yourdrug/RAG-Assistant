@@ -338,9 +338,7 @@ async def test_split_answer_policies_preserve_cache_prompt_scope(cache_redis, mo
     await step_check_cache(state, keys)
     first_hash = state.q_hash
     assert contexts[-1]["domain_prompts"] == {
-        key: [
-            policy_for(key).prompt_addendum(breadth, state.ctx.as_of_date) for breadth in ("narrow", "broad")
-        ]
+        key: [policy_for(key).prompt_addendum(state.ctx.as_of_date) for breadth in ("narrow", "broad")]
         for key in keys
     }
     await step_check_cache(state, tuple(reversed(keys)))

@@ -1,6 +1,7 @@
 """Regression cases for the symbol-level domain migration tool."""
 
 import ast
+from importlib import import_module
 import json
 from pathlib import Path
 import runpy
@@ -179,3 +180,12 @@ def test_table_resolves_runtime_repository_model_imports() -> None:
     assert "from domain.runtime.jobs import BackgroundJob" in result
     assert "from domain.runtime.config import ConfigParameter" in result
     assert REWRITE(result, moves) == result
+
+
+def test_table_domain_targets_exist() -> None:
+    moves = json.loads(SCRIPT.with_name("domain_moves.json").read_text())
+    targets = {target for target in moves.values() if target.startswith("domain.")}
+
+    for target in sorted(targets):
+        module, symbol = target.rsplit(".", 1)
+        assert hasattr(import_module(module), symbol), target

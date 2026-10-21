@@ -133,7 +133,7 @@ class SQLAlchemyBenchmarkRunRepository:
         )
         return list((await self._db.scalars(query)).all())
 
-    async def set_artifact(self, run_id: int, format: str, metadata: dict) -> None:
+    async def set_artifact(self, run_id: int, report_format: str, metadata: dict) -> None:
         artifacts = await self._db.scalar(
             select(BenchmarkRunModel.artifacts).where(BenchmarkRunModel.id == run_id).with_for_update()
         )
@@ -142,7 +142,7 @@ class SQLAlchemyBenchmarkRunRepository:
         await self._db.execute(
             update(BenchmarkRunModel)
             .where(BenchmarkRunModel.id == run_id)
-            .values(artifacts={**artifacts, format: metadata})
+            .values(artifacts={**artifacts, report_format: metadata})
         )
 
     async def get_sweep_run_ids(self, sweep_id: int, limit: int) -> list[int]:

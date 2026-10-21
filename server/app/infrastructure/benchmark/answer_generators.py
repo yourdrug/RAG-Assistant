@@ -139,7 +139,6 @@ class StandaloneBenchmarkGenerator:
         )
         self._visibility_conditions = get_visibility_conditions(
             user_kind=UserKind.INTERNAL,
-            user_id=ctx.user_id,
             group_ids=[],
             for_list=False,
             user_role=UserRole.ADMIN,

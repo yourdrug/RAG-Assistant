@@ -6,12 +6,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 
-from domain.shared.enums import LifecycleStatusMixin
+from domain.shared.enums import LifecycleStatus
 
 
 class BackgroundJobStatus(
-    LifecycleStatusMixin,
-    StrEnum,
+    LifecycleStatus,
     terminal=frozenset({"done", "failed"}),
     active=frozenset({"pending", "running"}),
 ):

@@ -7,10 +7,31 @@ depend only on the maintenance subset.
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, TypedDict, Unpack, runtime_checkable
 
-from domain.knowledge.document import Document
-from domain.knowledge.enums import DocumentVisibility
+
+if TYPE_CHECKING:
+    from domain.knowledge.document import Document
+    from domain.knowledge.enums import DocumentVisibility
+
+
+class DocumentStatusUpdate(TypedDict, total=False):
+    status: str | None
+    error: str | None
+    chunks: int | None
+    chars: int | None
+    warning: str | None
+    quality_score: float | None
+    expected_version: int | None
+
+
+class DocumentListOptions(TypedDict, total=False):
+    user_role: str | None
+    limit: int
+    offset: int
+    managed_client_ids: list[int] | None
+    managed_internal_ids: list[int] | None
+    managed_group_ids: list[int] | None
 
 
 @runtime_checkable
@@ -26,13 +47,7 @@ class DocumentCrudRepository(Protocol):
     async def update_status(
         self,
         document_id: int,
-        status: str | None = None,
-        error: str | None = None,
-        chunks: int | None = None,
-        chars: int | None = None,
-        warning: str | None = None,
-        quality_score: float | None = None,
-        expected_version: int | None = None,
+        **changes: Unpack[DocumentStatusUpdate],
     ) -> bool: ...
     async def set_source_path(self, document_id: int, source_path: str) -> None: ...
     async def set_domain(self, document_id: int, doc_domain: str) -> None: ...
@@ -51,6 +66,7 @@ class DocumentCrudRepository(Protocol):
         owner_id: int | None,
         filename: str,
         group_id: int | None,
+        *,
         for_update: bool = False,
     ) -> Document | None: ...
     async def find_active_slots_by_filenames(
@@ -61,16 +77,11 @@ class DocumentCrudRepository(Protocol):
         user_kind: str,
         user_id: int,
         group_ids: list[int],
-        user_role: str | None = None,
-        limit: int = 200,
-        offset: int = 0,
-        managed_client_ids: list[int] | None = None,
-        managed_internal_ids: list[int] | None = None,
-        managed_group_ids: list[int] | None = None,
+        **options: Unpack[DocumentListOptions],
     ) -> list[Document]: ...
     async def list_all(self, limit: int = 200, offset: int = 0) -> list[Document]: ...
     async def list_warned(self, quality_threshold: float = 0.3) -> list[Document]: ...
-    async def set_has_manual_edits(self, document_id: int, value: bool) -> None: ...
+    async def set_has_manual_edits(self, document_id: int, *, value: bool) -> None: ...
     async def update_chunk_stats(self, document_id: int, chunks: int, chars: int) -> None: ...
     async def list_distinct_filenames(self, search: str | None = None, limit: int = 100) -> list[str]: ...
     async def update_filename(self, document_id: int, new_filename: str, new_source_path: str) -> None: ...

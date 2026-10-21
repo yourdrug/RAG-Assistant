@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
+from typing import Any
 
 
 class MessageRole(StrEnum):
@@ -22,11 +23,15 @@ class Message:
     conversation_id: int = 0
     role: MessageRole = MessageRole.USER
     content: str = ""
-    sources: list[dict] = field(default_factory=list)
+    sources: list[dict[str, Any]] = field(default_factory=list)
     creation_date: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def __post_init__(self) -> None:
         if isinstance(self.role, str):
             self.role = MessageRole(self.role)
-        if self.sources is None:
-            self.sources = []
+
+        self.sources = normalize_sources(self.sources)
+
+
+def normalize_sources(sources: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    return [] if sources is None else sources

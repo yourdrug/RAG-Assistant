@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 _LEGAL_PROMPT_RULES = (
     "- Обязательно указывай номер статьи/пункта, если он есть в контексте "
     "(например: «Согласно ст. 15 ФЗ-XXX» или «п. 3.2 Договора»).\n"
-    "- Не перефразируй формулировки нормативных актов — цитируй максимально близко к тексту.\n"  # noqa: RUF001 — Russian prompt.
+    "- \u041d\u0435 перефразируй формулировки нормативных актов — цитируй максимально близко к тексту.\n"
 )
 
 _DECREE_PROMPT_RULES = (
@@ -25,8 +25,7 @@ _DECREE_PROMPT_RULES = (
 
 
 def versioned_prompt_date_stamp(as_of_date: date | None) -> str:
-    """Generate the shared date-stamp bullet for versioned domain prompt addenda."""  # noqa: D202
-
+    """Generate the shared date-stamp bullet for versioned domain prompt addenda."""
     if as_of_date is None:
         return ""
 
@@ -43,7 +42,6 @@ class AnswerPolicy:
 
     def prompt_addendum(
         self,
-        breadth: str,  # noqa: ARG002 — Both breadth modes share these rules.
         as_of_date: date | None = None,
     ) -> str | None:
         if self.rules is None:

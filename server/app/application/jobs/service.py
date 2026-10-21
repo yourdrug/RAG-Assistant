@@ -6,7 +6,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from domain.runtime.jobs import BackgroundJob, BackgroundJobStatus
-from domain.shared.exceptions import EntityNotFound
+from domain.shared.exceptions import EntityNotFoundError
 
 
 if TYPE_CHECKING:
@@ -42,7 +42,7 @@ class JobService:
 
         if job is None:
             entity_name = "BackgroundJob"
-            raise EntityNotFound(entity_name, job_id)
+            raise EntityNotFoundError(entity_name, job_id)
 
         return job
 

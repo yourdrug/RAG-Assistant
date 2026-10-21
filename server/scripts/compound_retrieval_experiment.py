@@ -5,6 +5,8 @@ identical ACL/temporal filters, fetch_k, reranker and final context budget. A fa
 comparison of automatic decomposition must be a separate experiment.
 """
 
+from __future__ import annotations
+
 import argparse
 import asyncio
 from dataclasses import replace
@@ -12,6 +14,7 @@ from functools import partial
 import json
 import logging
 from pathlib import Path
+from typing import Any
 
 from langchain_core.documents import Document
 
@@ -30,6 +33,8 @@ from infrastructure.storage.file_storage import LazyStorage
 
 
 logger = logging.getLogger("default")
+FINAL_TOP_K = 8
+
 QUERIES = {
     149: [
         "Структура сведений EDI-провайдеров ссылка на классификатор дополнительной таможенной информации",
@@ -37,29 +42,33 @@ QUERIES = {
         "Какой орган утверждает классификатор дополнительной таможенной информации?",
     ],
     159: [
-        "Кто такой EDI-провайдер и какую роль играет в передаче сведений в ПК СПТ постановление МНС N 11?",
-        "Кто такой EDI-провайдер и какую роль играет в передаче сведений в ПК СПТ постановление МНС N 13?",
+        (
+            "Кто такой EDI-провайдер и какую роль играет в передаче сведений в ПК СПТ "
+            "постановление \u041c\u041d\u0421 N 11?"
+        ),
+        (
+            "Кто такой EDI-провайдер и какую роль играет в передаче сведений в ПК СПТ "
+            "постановление \u041c\u041d\u0421 N 13?"
+        ),
     ],
     160: [
-        "Требования к электронной цифровой подписи Закон N 113-З",
-        "Требования к ЭЦП постановление МНС N 11 представление сведений EDI-провайдерами",
+        "Требования к электронной цифровой подписи Закон N 113-\u0417",
+        "Требования к ЭЦП постановление \u041c\u041d\u0421 N 11 представление сведений EDI-провайдерами",
     ],
 }
 
 
-def record(doc, score=None):
+def record(doc: Document, score: float | None = None) -> dict[str, Any]:
     return {"content": doc.page_content, "metadata": doc.metadata, "score": score}
 
 
-async def compare(cases, user_id):
+async def compare(cases: list[dict[str, Any]], user_id: int) -> dict[str, Any]:
     storage = LazyStorage()
     registry = MLClientRegistry(bm25_loader=partial(load_configured_bm25_snapshot, storage))
     settings = build_rag_settings()
     settings = replace(settings, retriever=replace(settings.retriever, fetch_k=30, top_k=8))
     user = RagContext(user_id, UserKind.INTERNAL, UserRole.ADMIN).to_user_context()
-    conditions = get_visibility_conditions(
-        UserKind.INTERNAL, user_id, [], for_list=False, user_role=UserRole.ADMIN
-    )
+    conditions = get_visibility_conditions(UserKind.INTERNAL, [], for_list=False, user_role=UserRole.ADMIN)
     access_filter = with_temporal_filter(build_qdrant_filter(user, []), None)
     report = {
         "experiment": "manual_act_queries",
@@ -120,7 +129,7 @@ async def compare(cases, user_id):
     return report
 
 
-async def balance_saved_results(report):
+async def balance_saved_results(report: dict[str, Any]) -> dict[str, Any]:
     """Rerank saved per-query candidates, then reserve equal slots per part."""
     registry = MLClientRegistry()
     try:
@@ -141,7 +150,7 @@ async def balance_saved_results(report):
                     merged.setdefault(content_hash(doc.page_content), (doc, score))
             # Fill unused/deduplicated slots from the original global ranking.
             for item in case["arms"]["per_act"]["ranked"]:
-                if len(merged) >= 8:
+                if len(merged) >= FINAL_TOP_K:
                     break
                 doc = Document(page_content=item["content"], metadata=item["metadata"])
                 merged.setdefault(content_hash(doc.page_content), (doc, item["score"]))
@@ -157,7 +166,7 @@ async def balance_saved_results(report):
     return report
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", type=Path)
     parser.add_argument("--user-id", type=int)

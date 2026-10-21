@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from application.jobs.service import JobService
 from domain.runtime.jobs import BackgroundJob
-from domain.shared.exceptions import ClientException, EntityNotFound
+from domain.shared.exceptions import AppClientError, EntityNotFoundError
 from domain.runtime.jobs import BackgroundJobStatus
 from domain.identity.roles import UserKind, UserRole
 from fakes import FakeUnitOfWorkFactory
@@ -27,7 +27,7 @@ def test_job_detail_exposes_full_error_only_to_admin(role):
     service = SimpleNamespace(get=AsyncMock(return_value=job))
     app = FastAPI()
     app.include_router(router)
-    app.add_exception_handler(ClientException, handle_client_exception)
+    app.add_exception_handler(AppClientError, handle_client_exception)
     app.dependency_overrides[get_current_user] = lambda: CurrentUser(
         id=7, email="user@example.com", role=role.value, kind=UserKind.INTERNAL.value, is_active=True
     )
@@ -48,5 +48,5 @@ def test_job_detail_exposes_full_error_only_to_admin(role):
 async def test_missing_job_raises_not_found():
     factory = FakeUnitOfWorkFactory()
     factory._uow.background_jobs.get_by_id = AsyncMock(return_value=None)
-    with pytest.raises(EntityNotFound):
+    with pytest.raises(EntityNotFoundError):
         await JobService(factory).get(17)

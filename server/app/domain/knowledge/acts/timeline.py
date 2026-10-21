@@ -4,9 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import date
+from typing import TYPE_CHECKING
 
-from domain.knowledge.acts.models import ActVersion
-from domain.shared.exceptions import EntityNotFound
+from domain.shared.exceptions import EntityNotFoundError
+
+
+if TYPE_CHECKING:
+    from domain.knowledge.acts.models import ActVersion
 
 
 @dataclass(frozen=True)
@@ -20,13 +24,17 @@ class ActVersionTimeline:
         for version in self.versions:
             if version.id == version_id:
                 return replace(version)
-        raise EntityNotFound("ActVersion", str(version_id))
+
+        msg = "ActVersion"
+        raise EntityNotFoundError(msg, str(version_id))
 
     def is_latest(self, effective_date: date | None, *, today: date) -> bool:
         if effective_date is None:
             return not any(version.is_current for version in self.versions)
+
         if effective_date > today:
             return False
+
         current_dates = [
             version.effective_from
             for version in self.versions
@@ -37,6 +45,7 @@ class ActVersionTimeline:
     def successor_date(self, effective_date: date | None) -> date | None:
         if effective_date is None:
             return None
+
         later_dates = [
             version.effective_from
             for version in self.versions
@@ -47,15 +56,21 @@ class ActVersionTimeline:
     def insert_boundary(self, new_date: date | None, *, today: date) -> ActVersionTimeline:
         """Close preceding editions when inserting an upload or relinked edition."""
         versions = [replace(version) for version in self.versions]
+
         if new_date is None:
             return ActVersionTimeline(tuple(versions))
+
         new_is_current = self.is_latest(new_date, today=today)
+
         for version in versions:
-            if version.effective_from is None or version.effective_from <= new_date:
-                if version.effective_to is None or version.effective_to > new_date:
-                    version.effective_to = new_date
+            if (version.effective_from is None or version.effective_from <= new_date) and (
+                version.effective_to is None or version.effective_to > new_date
+            ):
+                version.effective_to = new_date
+
             if new_is_current and version.is_current:
                 version.is_current = False
+
         return ActVersionTimeline(tuple(versions))
 
     def changed_versions(
@@ -79,12 +94,15 @@ class ActVersionTimeline:
         Returns copies so validation can finish before any repository writes.
         """
         self.get_version(edited.id)
+
         if end_provided:
             edited.validate_dates(explicit_end=edited.effective_to)
 
         explicit_ends = self.explicit_ends()
+
         if end_provided:
             explicit_ends[edited.id] = edited.effective_to
+
         versions = tuple(edited if version.id == edited.id else version for version in self.versions)
         return self.rebuild(versions, explicit_ends, today=today)
 
@@ -96,10 +114,12 @@ class ActVersionTimeline:
         """Separate expiry dates from boundaries derived from the old adjacency."""
         old_order = sorted(self.versions, key=self.order_key)
         ends: dict[int | None, date | None] = {}
+
         for index, version in enumerate(old_order):
             successor = old_order[index + 1] if index + 1 < len(old_order) else None
             derived = successor is not None and version.effective_to == successor.effective_from
             ends[version.id] = None if derived else version.effective_to
+
         return ends
 
     def remove(self, version_id: int, *, today: date) -> ActVersionTimeline:
@@ -116,6 +136,7 @@ class ActVersionTimeline:
         today: date,
     ) -> ActVersionTimeline:
         ordered = sorted((replace(version) for version in versions), key=self.order_key)
+
         for index, version in enumerate(ordered):
             successor = ordered[index + 1] if index + 1 < len(ordered) else None
             boundary = successor.effective_from if successor is not None else None
@@ -130,6 +151,8 @@ class ActVersionTimeline:
             if (version.effective_from is None or version.effective_from <= today)
             and (version.effective_to is None or today < version.effective_to)
         ]
+
         if eligible:
             eligible[-1].is_current = True
+
         return ActVersionTimeline(tuple(ordered))

@@ -10,18 +10,25 @@ from collections import Counter
 
 from domain.knowledge.enums import PageContentType
 
+
 # Characters that signal uniform replacement (encoding errors, OCR failures)
+MIN_REPLACEMENT_CHARS = 3
+UNIFORM_REPLACEMENT_RATIO = 0.4
+MIN_NORMAL_CHAR_RATIO = 0.6
+
 _UNIFORM_REPLACEMENT_CHARS = frozenset("?_#\ufffd\u0000\x00")
 
 
-def _is_uniform_replacement(text: str) -> bool:
+def is_uniform_replacement(text: str) -> bool:
     """Detect text that is mostly a single repeated replacement character."""
     non_ws = text.replace(" ", "").replace("\n", "").replace("\t", "")
-    if len(non_ws) < 3:
+
+    if len(non_ws) < MIN_REPLACEMENT_CHARS:
         return False
+
     char, count = Counter(non_ws).most_common(1)[0]
     ratio = count / len(non_ws)
-    return ratio > 0.4 and char in _UNIFORM_REPLACEMENT_CHARS
+    return ratio > UNIFORM_REPLACEMENT_RATIO and char in _UNIFORM_REPLACEMENT_CHARS
 
 
 def is_garbled(text: str) -> bool:
@@ -31,19 +38,23 @@ def is_garbled(text: str) -> bool:
     """
     if not text:
         return False
+
     # Table content (pipes, dashes, numbers) is not garbled
     if "|" in text and "---" in text:
         return False
-    if _is_uniform_replacement(text):
+
+    if is_uniform_replacement(text):
         return True
+
     total = len(text)
     normal = sum(1 for c in text if c.isalnum() or c in " .,;:!-—\n\t()[]«»\"'")
-    return (normal / total) < 0.6
+    return (normal / total) < MIN_NORMAL_CHAR_RATIO
 
 
 def classify_content(
     text: str,
     chars: int,
+    *,
     has_table: bool = False,
     scan_threshold: int = 50,
 ) -> tuple[PageContentType, str]:
@@ -58,15 +69,24 @@ def classify_content(
     Types: TEXT, SCAN, GARBLED, EMPTY, TABLE.
     """
     if chars == 0:
-        if has_table:
-            return PageContentType.TABLE, "таблица (без текстового слоя)"
-        return PageContentType.EMPTY, "пустая"
+        return (
+            (PageContentType.TABLE, "таблица (без текстового слоя)")
+            if has_table
+            else (PageContentType.EMPTY, "пустая")
+        )
+
     if scan_threshold > 0 and chars < scan_threshold:
-        if has_table:
-            return PageContentType.TABLE, "таблица"
-        return PageContentType.SCAN, f"скан/изображение ({chars} симв)"
+        return (
+            (PageContentType.TABLE, "таблица")
+            if has_table
+            else (PageContentType.SCAN, f"скан/изображение ({chars} симв)")
+        )
+
     if is_garbled(text):
-        if has_table:
-            return PageContentType.TABLE, "таблица"
-        return PageContentType.GARBLED, f"мусорный текст ({chars} симв)"
+        return (
+            (PageContentType.TABLE, "таблица")
+            if has_table
+            else (PageContentType.GARBLED, f"мусорный текст ({chars} симв)")
+        )
+
     return PageContentType.TEXT, f"текст ({chars} симв)"

@@ -13,7 +13,7 @@ import pytest  # noqa: E402
 from application.identity import CreateUserCommand, LoginCommand  # noqa: E402
 from application.identity import AuthService, UserManagementService  # noqa: E402
 from domain.identity.user import User  # noqa: E402
-from domain.shared.exceptions import BusinessRuleViolation, ValidationError  # noqa: E402
+from domain.shared.exceptions import BusinessRuleViolationError, ValidationError  # noqa: E402
 from domain.identity.roles import UserKind, UserRole  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -174,5 +174,5 @@ class TestToggleActive:
         user = User(id=1, email="admin@test.com", role=UserRole.ADMIN, kind=UserKind.INTERNAL)
         uow.users.get_by_id.return_value = user
 
-        with pytest.raises(BusinessRuleViolation):
+        with pytest.raises(BusinessRuleViolationError):
             await service.toggle_active(user_id=1, is_active=False, admin_id=1)

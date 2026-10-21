@@ -7,7 +7,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from domain.chat.message import MessageRole
-from domain.shared.exceptions import EntityNotFound, PermissionDeniedError
+from domain.shared.exceptions import EntityNotFoundError, PermissionDeniedError
 
 
 if TYPE_CHECKING:
@@ -75,7 +75,7 @@ class ConversationService:
 
             if conv is None:
                 msg = "Conversation"
-                raise EntityNotFound(msg, conversation_id)
+                raise EntityNotFoundError(msg, conversation_id)
 
             if not conv.can_be_viewed_by(user_id, user_role):
                 raise PermissionDeniedError

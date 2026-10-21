@@ -13,9 +13,12 @@ def parse_bool(value: str) -> bool:
     """Parse a string to boolean, raising ValueError on failure."""
     if value.lower() in ("true", "1", "yes", "on"):
         return True
+
     if value.lower() in ("false", "0", "no", "off"):
         return False
-    raise ValueError(f"Cannot parse '{value}' as boolean")
+
+    msg = f"Cannot parse '{value}' as boolean"
+    raise ValueError(msg)
 
 
 class ConfigValueType(StrEnum):
@@ -45,6 +48,7 @@ class ConfigParameter:
         """
         if self.value_type != ConfigValueType.STR:
             return raw_value
+
         return raw_value.strip().strip('"').strip("'")
 
     def validate(self, raw_value: str) -> None:
@@ -56,24 +60,38 @@ class ConfigParameter:
             try:
                 parse_bool(raw_value)
             except ValueError:
-                raise ValidationError(f"Value for '{self.key}' must be boolean") from None
+                msg = f"Value for '{self.key}' must be boolean"
+                raise ValidationError(msg) from None
             return
+
         if self.value_type == ConfigValueType.STR:
-            normalized = self.normalize(raw_value)
-            if self.allowed_values is not None and normalized not in self.allowed_values:
-                allowed = ", ".join(self.allowed_values)
-                raise ValidationError(f"Value for '{self.key}' must be one of: {allowed}")
+            self.validate_string(raw_value)
             return
+
         if self.value_type not in (ConfigValueType.INT, ConfigValueType.FLOAT):
             return
+
         try:
             val = int(raw_value) if self.value_type == ConfigValueType.INT else float(raw_value)
         except ValueError as e:
-            raise ValidationError(f"Invalid value for '{self.key}': {e}") from e
+            msg = f"Invalid value for '{self.key}': {e}"
+            raise ValidationError(msg) from e
+
         if self.min_value is not None and val < self.min_value:
-            raise ValidationError(f"Value for '{self.key}' must be >= {self.min_value}")
+            msg = f"Value for '{self.key}' must be >= {self.min_value}"
+            raise ValidationError(msg)
+
         if self.max_value is not None and val > self.max_value:
-            raise ValidationError(f"Value for '{self.key}' must be <= {self.max_value}")
+            msg = f"Value for '{self.key}' must be <= {self.max_value}"
+            raise ValidationError(msg)
+
+    def validate_string(self, raw_value: str) -> None:
+        normalized = self.normalize(raw_value)
+
+        if self.allowed_values is not None and normalized not in self.allowed_values:
+            allowed = ", ".join(self.allowed_values)
+            msg = f"Value for '{self.key}' must be one of: {allowed}"
+            raise ValidationError(msg)
 
 
 @dataclass(frozen=True)

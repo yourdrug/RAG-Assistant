@@ -28,8 +28,7 @@ def normalize_unicode(text: str) -> str:
        to their canonical ASCII forms where applicable.
     """
     text = _ZERO_WIDTH_RE.sub("", text)
-    text = unicodedata.normalize("NFKC", text)
-    return text
+    return unicodedata.normalize("NFKC", text)
 
 
 # ---------------------------------------------------------------------------
@@ -39,7 +38,7 @@ def normalize_unicode(text: str) -> str:
 # Each pattern is (pattern_id, category, compiled_regex, severity).
 # Severity: "block" = reject immediately, "flag" = log + allow.
 
-INJECTION_PATTERNS: list[tuple[str, str, re.Pattern, str]] = [
+INJECTION_PATTERNS: list[tuple[str, str, re.Pattern[str], str]] = [
     # -- Direct instruction override --
     (
         "d001",
@@ -202,9 +201,11 @@ def detect_injection(text: str) -> list[tuple[str, str]]:
     """
     normalized = normalize_unicode(text)
     matches: list[tuple[str, str]] = []
+
     for pid, cat, rx in _BLOCK_PATTERNS + _FLAG_PATTERNS:
         if rx.search(normalized):
             matches.append((pid, cat))
+
     return matches
 
 

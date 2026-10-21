@@ -11,7 +11,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 
 from domain.rag.answer_policy import policy_for
-from domain.rag.breadth import Breadth
 from infrastructure.ml.rag.helpers import domain_prompt_addendum
 
 from domain.ingestion.profiles.protocol import (
@@ -76,7 +75,7 @@ class TestGeneralProfile:
         assert GeneralDomainProfile().extract_references("any text") == []
 
     def test_prompt_addendum_none(self):
-        assert policy_for("general").prompt_addendum("narrow") is None
+        assert policy_for("general").prompt_addendum() is None
 
 
 class TestDecreeProfile:
@@ -164,12 +163,12 @@ class TestLegalProfile:
         assert len(article_refs) >= 1
 
     def test_prompt_addendum_contains_rules(self):
-        addendum = policy_for("legal").prompt_addendum("narrow")
+        addendum = policy_for("legal").prompt_addendum()
         assert addendum is not None
         assert "статьи" in addendum.lower() or "пункта" in addendum.lower()
 
     def test_prompt_addendum_with_as_of_date(self):
-        addendum = policy_for("legal").prompt_addendum("narrow", as_of_date=date(2026, 1, 1))
+        addendum = policy_for("legal").prompt_addendum(as_of_date=date(2026, 1, 1))
         assert addendum is not None
         assert "01.01.2026" in addendum
 
@@ -292,14 +291,13 @@ class TestAnswerPolicies:
             policy = policy_for(domain)
             assert policy.retrieval_fallback_to_full_corpus() is True
 
-            for breadth in ("narrow", "broad"):
-                assert policy.prompt_addendum(breadth) == rules
-                assert policy.prompt_addendum(breadth, date(2026, 1, 1)) == rules + stamp
+            assert policy.prompt_addendum() == rules
+            assert policy.prompt_addendum(date(2026, 1, 1)) == rules + stamp
 
     def test_general_and_unknown_domains_have_no_addendum_or_fallback(self):
         for domain in ("general", "unknown", ""):
             policy = policy_for(domain)
-            assert policy.prompt_addendum("narrow") is None
+            assert policy.prompt_addendum() is None
             assert policy.retrieval_fallback_to_full_corpus() is False
 
     def test_document_profiles_do_not_own_answer_rules(self):
@@ -310,9 +308,7 @@ class TestAnswerPolicies:
 
     def test_rag_addendum_respects_registered_domains(self):
         ctx = SimpleNamespace(as_of_date=None)
-        assert domain_prompt_addendum("legal", ctx, Breadth.NARROW, None) is None
-        assert domain_prompt_addendum("legal", ctx, Breadth.NARROW, ("general",)) is None
-        assert domain_prompt_addendum("unknown", ctx, Breadth.NARROW, ("unknown",)) is None
-        assert domain_prompt_addendum("legal", ctx, Breadth.NARROW, ("legal",)) == (
-            policy_for("legal").prompt_addendum("narrow")
-        )
+        assert domain_prompt_addendum("legal", ctx, None) is None
+        assert domain_prompt_addendum("legal", ctx, ("general",)) is None
+        assert domain_prompt_addendum("unknown", ctx, ("unknown",)) is None
+        assert domain_prompt_addendum("legal", ctx, ("legal",)) == (policy_for("legal").prompt_addendum())

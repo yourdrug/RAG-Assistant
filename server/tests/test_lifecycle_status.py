@@ -1,14 +1,12 @@
 """Status classification stays consistent across domain lifecycles."""
 
-from enum import StrEnum
-
 import pytest
 
 from domain.benchmark.sweep import BenchmarkSweepStatus
 from domain.knowledge.enums import DocumentStatus
 from domain.knowledge.index_sync import OutboxStatus
 from domain.runtime.jobs import BackgroundJobStatus
-from domain.shared.enums import LifecycleStatusMixin
+from domain.shared.enums import LifecycleStatus
 
 
 @pytest.mark.parametrize(
@@ -31,8 +29,25 @@ def test_status_classification(
 
 
 def test_lifecycle_defaults_are_neutral() -> None:
-    class NeutralStatus(LifecycleStatusMixin, StrEnum):
+    class NeutralStatus(LifecycleStatus):
         UNKNOWN = "unknown"
 
     assert not NeutralStatus.UNKNOWN.is_terminal
     assert not NeutralStatus.UNKNOWN.is_active
+
+
+def test_lifecycle_inherits_classification_and_keeps_overrides_local() -> None:
+    class ConfiguredStatus(LifecycleStatus, terminal=frozenset({"done"}), active=frozenset({"waiting"})):
+        pass
+
+    class InheritedStatus(ConfiguredStatus):
+        WAITING = "waiting"
+        DONE = "done"
+
+    class ResetStatus(ConfiguredStatus, terminal=frozenset(), active=frozenset()):
+        DONE = "done"
+
+    assert InheritedStatus.WAITING.is_active
+    assert InheritedStatus.DONE.is_terminal
+    assert not ResetStatus.DONE.is_terminal
+    assert not ResetStatus.DONE.is_active

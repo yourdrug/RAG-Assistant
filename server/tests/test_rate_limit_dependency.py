@@ -11,7 +11,7 @@ from fastapi import Depends, FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from application.ports.rate_limit import RateLimitPolicyName  # noqa: E402
-from domain.shared.exceptions import AuthenticationError, ClientException  # noqa: E402
+from domain.shared.exceptions import AuthenticationError, AppClientError  # noqa: E402
 from domain.identity.roles import UserKind, UserRole  # noqa: E402
 from presentation.api.auth_dependencies import get_current_user  # noqa: E402
 from presentation.api.dependencies import create_rate_limiter  # noqa: E402
@@ -38,7 +38,7 @@ def _unauthorized() -> CurrentUser:
 
 def _client(limiter, *, authenticate: bool = True) -> TestClient:
     app = FastAPI()
-    app.add_exception_handler(ClientException, handle_client_exception)
+    app.add_exception_handler(AppClientError, handle_client_exception)
 
     @app.post("/limited", dependencies=[Depends(rate_limit(RateLimitPolicyName.SEARCH))])
     async def limited(current_user: CurrentUser = Depends(get_current_user)):

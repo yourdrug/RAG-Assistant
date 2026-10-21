@@ -66,9 +66,22 @@ class BlankLinesTransformer(cst.CSTTransformer):
 
         for index, statement in enumerate(body):
             needs_gap = index > 0 and (self.is_target(body[index - 1]) or self.is_target(statement))
+
+            if index == 1 and self.is_docstring(body[0]):
+                needs_gap = False
+
             fixed.append(self.add_blank_line_before(statement) if needs_gap else statement)
 
         return fixed
+
+    @staticmethod
+    def is_docstring(statement: cst.BaseStatement) -> bool:
+        return (
+            isinstance(statement, cst.SimpleStatementLine)
+            and len(statement.body) == 1
+            and isinstance(statement.body[0], cst.Expr)
+            and isinstance(statement.body[0].value, cst.SimpleString | cst.ConcatenatedString)
+        )
 
     def is_target(self, statement: cst.BaseStatement) -> bool:
         return isinstance(statement, self.targets)

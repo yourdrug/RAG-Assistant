@@ -2,13 +2,38 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
-from datetime import date, datetime
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, TypedDict, Unpack, runtime_checkable
 
-from domain.knowledge.chunk import ChunkInsert, ChunkRecord, ChunkStats
-from domain.knowledge.enums import DocDomain
-from domain.shared.pagination import CursorPage
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+    from datetime import date, datetime
+
+    from domain.knowledge.chunk import ChunkInsert, ChunkRecord, ChunkStats
+    from domain.shared.pagination import CursorPage
+
+
+class ChunkInsertOptions(TypedDict, total=False):
+    owner_id: int | None
+    group_id: int | None
+    doc_domain: str
+    domain_metadata: dict[str, Any] | None
+    act_version_id: int | None
+    effective_from: date | None
+    effective_to: date | None
+    is_current: bool
+
+
+class ManualChunkInsertOptions(TypedDict, total=False):
+    owner_id: int | None
+    group_id: int | None
+    manual: bool
+    content_hash: str | None
+    context_metadata: dict[str, Any] | None
+    act_version_id: int | None
+    effective_from: date | None
+    effective_to: date | None
+    is_current: bool
 
 
 @runtime_checkable
@@ -25,14 +50,7 @@ class ChunkCrudRepository(Protocol):
         filename: str,
         visibility: str,
         chunks: list[ChunkInsert],
-        owner_id: int | None = None,
-        group_id: int | None = None,
-        doc_domain: str = DocDomain.GENERAL.value,
-        domain_metadata: dict | None = None,
-        act_version_id: int | None = None,
-        effective_from: date | None = None,
-        effective_to: date | None = None,
-        is_current: bool = True,
+        **options: Unpack[ChunkInsertOptions],
     ) -> list[int]: ...
 
     async def get_by_id(self, chunk_id: int) -> ChunkRecord | None: ...
@@ -50,16 +68,9 @@ class ChunkCrudRepository(Protocol):
         content: str,
         filename: str,
         visibility: str,
+        *,
         doc_domain: str,
-        owner_id: int | None = None,
-        group_id: int | None = None,
-        manual: bool = False,
-        content_hash: str | None = None,
-        context_metadata: dict | None = None,
-        act_version_id: int | None = None,
-        effective_from: date | None = None,
-        effective_to: date | None = None,
-        is_current: bool = True,
+        **options: Unpack[ManualChunkInsertOptions],
     ) -> int: ...
 
     async def delete_one(self, chunk_id: int) -> None: ...
@@ -101,7 +112,9 @@ class ChunkCorpusRepository(Protocol):
 class ChunkVersioningRepository(Protocol):
     """Temporal versioning operations for act-versioned chunks."""
 
-    async def set_current_by_act_version_ids(self, act_version_ids: list[int], is_current: bool) -> int: ...
+    async def set_current_by_act_version_ids(
+        self, act_version_ids: list[int], *, is_current: bool
+    ) -> int: ...
 
     async def update_temporal_by_act_version_id(
         self, act_version_id: int, effective_from: date | None, effective_to: date | None

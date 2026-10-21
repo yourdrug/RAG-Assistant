@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from domain.runtime.config import ConfigParameter
-from domain.runtime.jobs import BackgroundJob
+
+if TYPE_CHECKING:
+    from domain.runtime.config import ConfigParameter
+    from domain.runtime.jobs import BackgroundJob
 
 
 @runtime_checkable

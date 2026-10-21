@@ -409,7 +409,6 @@ class TestBM25PredicateInvariant:
             user_role="user",
             get_conditions_fn=lambda: get_visibility_conditions(
                 UserKind.INTERNAL,
-                10,
                 [5],
                 for_list=False,
                 user_role=UserRole.USER,
@@ -427,7 +426,6 @@ class TestBM25PredicateInvariant:
             user_role="admin",
             get_conditions_fn=lambda: get_visibility_conditions(
                 UserKind.INTERNAL,
-                1,
                 [],
                 for_list=False,
                 user_role=UserRole.ADMIN,
@@ -445,7 +443,6 @@ class TestBM25PredicateInvariant:
             user_role="curator",
             get_conditions_fn=lambda: get_visibility_conditions(
                 UserKind.INTERNAL,
-                10,
                 [5],
                 for_list=False,
                 user_role=UserRole.CURATOR,

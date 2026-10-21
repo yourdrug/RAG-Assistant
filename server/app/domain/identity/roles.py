@@ -2,17 +2,15 @@
 
 from __future__ import annotations
 
-from enum import StrEnum
-
-from domain.shared.enums import ValidatedEnumMixin
+from domain.shared.enums import ValidatedStrEnum
 
 
-class UserRole(ValidatedEnumMixin, StrEnum, label="role"):
+class UserRole(ValidatedStrEnum, label="role"):
     ADMIN = "admin"
     CURATOR = "curator"
     USER = "user"
 
 
-class UserKind(ValidatedEnumMixin, StrEnum, label="kind"):
+class UserKind(ValidatedStrEnum, label="kind"):
     INTERNAL = "internal"
     CLIENT = "client"

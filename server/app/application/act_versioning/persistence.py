@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from domain.knowledge.acts.timeline import ActVersionTimeline
 from domain.knowledge.index_sync import OutboxOperation, VectorOutboxEntry
-from domain.shared.exceptions import EntityNotFound
+from domain.shared.exceptions import EntityNotFoundError
 
 
 if TYPE_CHECKING:
@@ -25,7 +25,7 @@ class ActVersionPersistence:
 
         if version is None:
             entity = "ActVersion"
-            raise EntityNotFound(entity, version_id)
+            raise EntityNotFoundError(entity, version_id)
 
         timeline = ActVersionTimeline()
 
@@ -51,7 +51,7 @@ class ActVersionPersistence:
 
         await self.uow.act_versions.update(version)
         chunks: ChunkVersioningRepository = self.uow.chunks
-        await chunks.set_current_by_act_version_ids([version.id], version.is_current)
+        await chunks.set_current_by_act_version_ids([version.id], is_current=version.is_current)
         await chunks.update_temporal_by_act_version_id(
             version.id, effective_from=version.effective_from, effective_to=version.effective_to
         )

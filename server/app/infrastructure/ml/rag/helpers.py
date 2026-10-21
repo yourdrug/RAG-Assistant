@@ -46,15 +46,12 @@ log = logging.getLogger("default")
 def domain_prompt_addendum(
     query_domain: str,
     ctx,
-    breadth: Breadth,
     domain_keys: tuple[str, ...] | None,
 ) -> str | None:
     """Answer rules for a registered domain."""
     if domain_keys is None or query_domain not in domain_keys:
         return None
-    return policy_for(query_domain).prompt_addendum(
-        breadth.value if hasattr(breadth, "value") else breadth, as_of_date=ctx.as_of_date
-    )
+    return policy_for(query_domain).prompt_addendum(as_of_date=ctx.as_of_date)
 
 
 async def run_retrieval(
@@ -430,7 +427,7 @@ async def rerank_and_enrich(
             user=ctx.to_user_context(),
         )
 
-    final_top_k = select_final_top_k(breadth, enumerate_cases, rag)
+    final_top_k = select_final_top_k(breadth, enumerate_cases=enumerate_cases, rag_settings=rag)
     if active_evidence.get() is not None:
         capture_exclusions(
             [exclusion_record(item, ExclusionReason.FINAL_TOP_K, "retrieval") for item in docs[final_top_k:]]

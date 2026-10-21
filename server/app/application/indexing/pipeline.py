@@ -298,7 +298,9 @@ async def process_chunks_in_uow(
     total_chars = sum(len(rc.page_content) for rc in chunks)
     await uow.documents.update_status(
         document_id,
-        DocumentStatus.INDEXING.value if options.get("set_indexing", True) else DocumentStatus.DONE.value,
+        status=DocumentStatus.INDEXING.value
+        if options.get("set_indexing", True)
+        else DocumentStatus.DONE.value,
         chunks=len(chunks),
         chars=total_chars,
     )

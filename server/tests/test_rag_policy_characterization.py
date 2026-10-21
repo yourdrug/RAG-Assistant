@@ -41,7 +41,7 @@ from domain.rag.retrieval import (
 )
 def test_system_prompt_text_is_unchanged(breadth, enumerate_cases, with_addendum, expected_digest):
     addendum = "  Правило {article}: {{точный текст}}  " if with_addendum else None
-    prompt = build_system_prompt(breadth, addendum, enumerate_cases)
+    prompt = build_system_prompt(breadth, addendum, enumerate_cases=enumerate_cases)
     assert sha256(prompt.encode()).hexdigest() == expected_digest
 
 
@@ -78,8 +78,8 @@ def test_breadth_rule_priority(question, expected):
 
 
 def test_enumeration_counts_chunks_not_markers_and_ignores_question():
-    assert not should_enumerate_cases("Сколько нужно?", ["Если платёж - 5%, но не менее 10", "Описание"])
-    assert should_enumerate_cases("Что такое платёж?", [None, "5%", "ПРИ УСЛОВИИ оплаты"])
+    assert not should_enumerate_cases(["Если платёж - 5%, но не менее 10", "Описание"])
+    assert should_enumerate_cases([None, "5%", "ПРИ УСЛОВИИ оплаты"])
 
 
 def test_unicode_obfuscation_is_normalized_before_escaping():
@@ -102,20 +102,25 @@ def test_unicode_obfuscation_is_normalized_before_escaping():
 def test_context_budget_reservations_and_floor(
     breadth, enumerate_cases, history_chars, question_chars, expected
 ):
-    assert compute_context_budget(breadth, enumerate_cases, history_chars, question_chars, 4096, 8192) == (
-        expected
-    )
+    assert compute_context_budget(
+        breadth,
+        enumerate_cases=enumerate_cases,
+        history_chars=history_chars,
+        question_chars=question_chars,
+        num_ctx_narrow=4096,
+        num_ctx_broad=8192,
+    ) == (expected)
 
 
 def test_context_budget_custom_limits():
     assert (
         compute_context_budget(
             Breadth.NARROW,
-            False,
-            4000,
-            1000,
-            8000,
-            16000,
+            enumerate_cases=False,
+            history_chars=4000,
+            question_chars=1000,
+            num_ctx_narrow=8000,
+            num_ctx_broad=16000,
             chars_per_token=2,
             reserved_overhead=1000,
             min_context_tokens=500,
@@ -141,5 +146,7 @@ def test_retrieval_params_preserve_weights_and_settings(breadth, query, boosted)
         "use_exact_ref_boost": boosted,
     }
     assert settings.hybrid_search.sparse_weight == 0.5
-    assert select_final_top_k(breadth, False, settings) == (4 if breadth == Breadth.NARROW else 10)
-    assert select_final_top_k(breadth, True, settings) == 10
+    assert select_final_top_k(breadth, enumerate_cases=False, rag_settings=settings) == (
+        4 if breadth == Breadth.NARROW else 10
+    )
+    assert select_final_top_k(breadth, enumerate_cases=True, rag_settings=settings) == 10

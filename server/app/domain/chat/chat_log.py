@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import Any
 
 
 @dataclass
@@ -12,7 +13,7 @@ class ChatLog:
     conversation_id: int | None = None
     question: str = ""
     answer: str = ""
-    sources: list[dict] = field(default_factory=list)
+    sources: list[dict[str, Any]] = field(default_factory=list)
     latency_ms: int | None = None
     model_used: str | None = None
     breadth: str | None = None

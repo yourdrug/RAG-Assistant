@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import math
-import re
 from pathlib import PurePosixPath
+import re
+from typing import Any
 
 
 def parse_source_hints(source_hint: str | None) -> tuple[str, ...]:
     if source_hint is None:
         return ()
+
     return tuple(part.strip().lower() for part in source_hint.split(";") if part.strip())
 
 
@@ -42,29 +44,36 @@ def source_name(source: str) -> str:
     return PurePosixPath(source.replace("\\", "/")).name.casefold()
 
 
-def matches_fragment(fragment: dict, document: dict) -> bool:
+def matches_fragment(fragment: dict[str, Any], document: dict[str, Any]) -> bool:
     metadata = document["metadata"]
+
     if source_name(fragment["source"]) != source_name(metadata.get("source", "")):
         return False
+
     if fragment.get("section") and normalize_text(fragment["section"]) != normalize_text(
         metadata.get("section", "")
     ):
         return False
+
     if fragment.get("pages"):
         pages = metadata.get("pages") or []
+
         if metadata.get("page") is not None:
             pages = [*pages, metadata["page"]]
+
         if metadata.get("page_start") is not None:
             pages = [
                 *pages,
                 *range(metadata["page_start"], metadata.get("page_end", metadata["page_start"]) + 1),
             ]
+
         if not set(fragment["pages"]).issubset(pages):
             return False
+
     return normalize_text(fragment["text"]) in normalize_text(document["content"])
 
 
-def requirement_coverage(requirements: list, text: str) -> tuple[float | None, list]:
+def requirement_coverage(requirements: list[Any], text: str) -> tuple[float | None, list[Any]]:
     normalized = normalize_text(text)
     missing = [
         group
@@ -76,39 +85,53 @@ def requirement_coverage(requirements: list, text: str) -> tuple[float | None, l
     return (1 - len(missing) / len(requirements) if requirements else None), missing
 
 
+def evaluate_fragment_ranks(
+    fragments: list[dict[str, Any]],
+    retrieved: list[dict[str, Any]],
+    metrics: dict[str, Any],
+    diagnostics: dict[str, Any],
+) -> None:
+    ranks = [
+        next((rank for rank, doc in enumerate(retrieved, 1) if matches_fragment(f, doc)), None)
+        for f in fragments
+    ]
+    found = [r for r in ranks if r is not None]
+    metrics["fragment_recall_at_k"] = len(found) / len(fragments)
+    metrics["fragment_mrr"] = 1 / min(found) if found else 0.0
+    # Each expected fragment contributes once. Duplicate chunks cannot inflate nDCG.
+    seen: set[int] = set()
+    dcg = 0.0
+
+    for rank, doc in enumerate(retrieved, 1):
+        new = {i for i, f in enumerate(fragments) if i not in seen and matches_fragment(f, doc)}
+
+        if new:
+            dcg += 1 / math.log2(rank + 1)
+            seen.update(new)
+
+    ideal = sum(1 / math.log2(rank + 1) for rank in range(1, min(len(retrieved), len(fragments)) + 1))
+    metrics["fragment_ndcg_at_k"] = dcg / ideal if ideal else 0.0
+    diagnostics["missing_fragments"] = [f for f, rank in zip(fragments, ranks, strict=True) if rank is None]
+
+
 def evaluate_evidence(
-    annotations: dict | None,
-    retrieved: list[dict] | None,
-    selected: list[dict] | None,
+    annotations: dict[str, Any] | None,
+    retrieved: list[dict[str, Any]] | None,
+    selected: list[dict[str, Any]] | None,
     context: str | None,
     answer: str,
-) -> tuple[dict, dict]:
+) -> tuple[dict[str, Any], dict[str, Any]]:
     metrics = dict.fromkeys(EVIDENCE_METRICS)
-    diagnostics: dict = {"missing_fragments": None, "missing_context_fragments": None}
+    diagnostics: dict[str, Any] = {"missing_fragments": None, "missing_context_fragments": None}
+
     if annotations is None:
         return metrics, diagnostics
+
     fragments = annotations.get("expected_fragments", [])
+
     if fragments and retrieved is not None:
-        ranks = [
-            next((rank for rank, doc in enumerate(retrieved, 1) if matches_fragment(f, doc)), None)
-            for f in fragments
-        ]
-        found = [r for r in ranks if r is not None]
-        metrics["fragment_recall_at_k"] = len(found) / len(fragments)
-        metrics["fragment_mrr"] = 1 / min(found) if found else 0.0
-        # Each expected fragment contributes once. Duplicate chunks cannot inflate nDCG.
-        seen: set[int] = set()
-        dcg = 0.0
-        for rank, doc in enumerate(retrieved, 1):
-            new = {i for i, f in enumerate(fragments) if i not in seen and matches_fragment(f, doc)}
-            if new:
-                dcg += 1 / math.log2(rank + 1)
-                seen.update(new)
-        ideal = sum(1 / math.log2(rank + 1) for rank in range(1, min(len(retrieved), len(fragments)) + 1))
-        metrics["fragment_ndcg_at_k"] = dcg / ideal if ideal else 0.0
-        diagnostics["missing_fragments"] = [
-            f for f, rank in zip(fragments, ranks, strict=True) if rank is None
-        ]
+        evaluate_fragment_ranks(fragments, retrieved, metrics, diagnostics)
+
     if fragments and selected is not None and context is not None:
         missing = [
             f
@@ -118,17 +141,20 @@ def evaluate_evidence(
         ]
         metrics["context_fragment_recall"] = 1 - len(missing) / len(fragments)
         diagnostics["missing_context_fragments"] = missing
+
     for kind in ("fact", "condition"):
         requirements = annotations.get(f"required_{kind}s", [])
+
         for stage, text in (("context", context), ("answer", answer)):
             if text is not None:
                 score, missing = requirement_coverage(requirements, text)
                 metrics[f"{stage}_{kind}_coverage"] = score
                 diagnostics[f"missing_{stage}_{kind}s"] = missing
+
     return metrics, diagnostics
 
 
-def has_retrieval_labels(question: dict) -> bool:
+def has_retrieval_labels(question: dict[str, Any]) -> bool:
     annotations = question.get("annotations") or {}
     return bool(
         parse_source_hints(question.get("source_hint"))
@@ -137,7 +163,7 @@ def has_retrieval_labels(question: dict) -> bool:
     )
 
 
-def evaluate_retrieval(question: dict, documents: list[dict] | None) -> dict:
+def evaluate_retrieval(question: dict[str, Any], documents: list[dict[str, Any]] | None) -> dict[str, Any]:
     """Shared A/B scoring; missing evidence never falls back to filename success.
 
     MRR is the first matching fragment (or legacy source). Completion RR
@@ -163,8 +189,10 @@ def evaluate_retrieval(question: dict, documents: list[dict] | None) -> dict:
     result["labelled"] = has_retrieval_labels(question)
     hints = parse_source_hints(question.get("source_hint"))
     result["mrr_labelled"] = bool(fragments or (hints and not result["annotated"]))
+
     if documents is None:
         return result
+
     if hints:
         rank = next(
             (
@@ -176,6 +204,7 @@ def evaluate_retrieval(question: dict, documents: list[dict] | None) -> dict:
         )
         result["source_hit_rate"] = int(rank is not None)
         result["source_mrr"] = 1 / rank if rank else 0.0
+
     if not result["annotated"]:
         result["hit_rate"] = result["source_hit_rate"]
         result["mrr"] = result["source_mrr"]
@@ -184,12 +213,15 @@ def evaluate_retrieval(question: dict, documents: list[dict] | None) -> dict:
     evidence, _ = evaluate_evidence(
         annotations, documents, None, "\n".join(doc["content"] for doc in documents), ""
     )
-    result["fragment_recall_at_k"] = evidence["fragment_recall_at_k"]
-    result["fragment_mrr"] = evidence["fragment_mrr"]
-    result["retrieval_fact_coverage"] = evidence["context_fact_coverage"]
-    result["mrr"] = evidence["fragment_mrr"]
-    result["hit_rate"] = 0
-    result["evidence_completion_rr"] = 0.0
+    result.update(
+        fragment_recall_at_k=evidence["fragment_recall_at_k"],
+        fragment_mrr=evidence["fragment_mrr"],
+        retrieval_fact_coverage=evidence["context_fact_coverage"],
+        mrr=evidence["fragment_mrr"],
+        hit_rate=0,
+        evidence_completion_rr=0.0,
+    )
+
     for rank in range(1, len(documents) + 1):
         prefix = documents[:rank]
         fragment_hit = not fragments or any(matches_fragment(f, doc) for f in fragments for doc in prefix)
@@ -199,22 +231,26 @@ def evaluate_retrieval(question: dict, documents: list[dict] | None) -> dict:
             or not hints
             or any(matches_source_hints(doc["metadata"].get("source", ""), hints) for doc in prefix)
         )
+
         if fragment_hit and facts_hit and source_hit:
             result["hit_rate"] = 1
             result["evidence_completion_rr"] = 1 / rank
             break
+
     return result
 
 
-def summarize_retrieval(results: list[dict]) -> dict:
+def summarize_retrieval(results: list[dict[str, Any]]) -> dict[str, Any]:
     """Preserve annotation/source diagnostics and count unavailable labelled cases."""
     summary = {}
+
     for metric in ("hit_rate", "mrr", "source_hit_rate", "source_mrr"):
         values = [r.get("retriever_metrics", {}).get(metric) for r in results]
         available = [value for value in values if value is not None]
         key = "hit_rate" if metric == "hit_rate" else f"avg_{metric}"
         summary[key] = round(sum(available) / len(available), 4) if available else None
         summary[f"{metric}_evaluated_count"] = len(available)
+
     labelled = [r for r in results if r.get("retriever_metrics", {}).get("labelled")]
     annotated = [r for r in labelled if r["retriever_metrics"].get("annotated")]
     summary["retrieval_labelled_count"] = len(labelled)
@@ -228,13 +264,15 @@ def summarize_retrieval(results: list[dict]) -> dict:
     return summary
 
 
-def summarize_evidence(results: list[dict]) -> dict:
+def summarize_evidence(results: list[dict[str, Any]]) -> dict[str, Any]:
     summary = {}
+
     for metric in EVIDENCE_METRICS:
         values = [r.get("evidence_metrics", {}).get(metric) for r in results]
         available = [v for v in values if v is not None]
         summary[f"avg_{metric}"] = round(sum(available) / len(available), 4) if available else None
         summary[f"{metric}_evaluated_count"] = len(available)
+
         if metric.startswith("fragment_") or metric == "context_fragment_recall":
             annotation = "expected_fragments"
         elif "fact" in metric:
@@ -243,9 +281,11 @@ def summarize_evidence(results: list[dict]) -> dict:
             annotation = "required_conditions"
         else:
             continue
+
         summary[f"{metric}_expected_count"] = sum(
             bool((r.get("annotations") or {}).get(annotation)) for r in results
         )
+
     sizes = [
         r["evidence"]["context_chars"]
         for r in results

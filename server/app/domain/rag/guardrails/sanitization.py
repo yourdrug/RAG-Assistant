@@ -7,10 +7,10 @@ from domain.rag.guardrails.injection import normalize_unicode
 
 # Replace double brackets before single ones to preserve the visible delimiters.
 _MARKER_ESCAPE_TABLE: dict[str, str] = {
-    "\u003c\u003c": "\u2039\u2039",  # << → ‹‹
-    "\u003e\u003e": "\u203a\u203a",  # >> → ››
-    "\u003c": "\u2039",  # < → ‹
-    "\u003e": "\u203a",  # > → ›
+    "\u003c\u003c": "\u2039\u2039",
+    "\u003e\u003e": "\u203a\u203a",
+    "\u003c": "\u2039",
+    "\u003e": "\u203a",
 }
 
 
@@ -28,6 +28,8 @@ def sanitize_for_prompt(text: str) -> str:
       ``<critical_rules>``) to close or spoof system-prompt blocks.
     """
     text = normalize_unicode(text)
+
     for raw, escaped in _MARKER_ESCAPE_TABLE.items():
         text = text.replace(raw, escaped)
+
     return text

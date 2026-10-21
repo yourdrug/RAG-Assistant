@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 from domain.knowledge.enums import DocDomain
 from domain.rag.breadth import Breadth
@@ -13,7 +14,7 @@ class RagResult:
     """Structured result from the RAG pipeline with metadata for logging."""
 
     answer: str
-    sources: list[dict] = field(default_factory=list)
+    sources: list[dict[str, Any]] = field(default_factory=list)
     breadth: str = Breadth.NARROW.value
     domain: str = DocDomain.GENERAL.value
     retrieval_count: int = 0

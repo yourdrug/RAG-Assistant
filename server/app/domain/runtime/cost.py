@@ -1,28 +1,38 @@
 """USD accounting in integer nanodollars; tariffs are versioned data."""
 
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation, ROUND_CEILING
+from decimal import ROUND_CEILING, Decimal, InvalidOperation
 
-from domain.shared.exceptions import BusinessRuleViolation
+from domain.shared.exceptions import BusinessRuleViolationError
+
 
 UNDISPATCHED_COST_SOURCE = "not_dispatched"
 
 
-class BudgetError(BusinessRuleViolation):
+class BudgetError(BusinessRuleViolationError):
     """A paid operation cannot safely be admitted."""
+
+
+def validated_usd_units(value: str | Decimal) -> int:
+    amount = Decimal(value)
+
+    if not amount.is_finite() or amount < 0:
+        raise ValueError
+
+    units = int((amount * 1_000_000_000).to_integral_value(rounding=ROUND_CEILING))
+
+    if units > 2**53 - 1:
+        raise ValueError
+
+    return units
 
 
 def usd_units(value: str | Decimal) -> int:
     try:
-        amount = Decimal(value)
-        if not amount.is_finite() or amount < 0:
-            raise ValueError
-        units = int((amount * 1_000_000_000).to_integral_value(rounding=ROUND_CEILING))
-        if units > 2**53 - 1:
-            raise ValueError
-        return units
+        return validated_usd_units(value)
     except (InvalidOperation, ValueError, OverflowError):
-        raise BudgetError("Invalid USD amount") from None
+        msg = "Invalid USD amount"
+        raise BudgetError(msg) from None
 
 
 @dataclass(frozen=True)
@@ -47,11 +57,16 @@ class CostRate:
             or input_tokens > self.context_tokens
             or output_tokens > self.context_tokens
         ):
-            raise BudgetError("Unsupported billing unit or unbounded token budget")
+            msg = "Unsupported billing unit or unbounded token budget"
+            raise BudgetError(msg)
+
         usd_units(self.input_usd_per_million)
         usd_units(self.output_usd_per_million)
+
         if self.input_usd_per_million <= 0 or (not self.input_only and self.output_usd_per_million <= 0):
-            raise BudgetError("Paid token tariffs must be positive")
+            msg = "Paid token tariffs must be positive"
+            raise BudgetError(msg)
+
         return usd_units(
             (input_tokens * self.input_usd_per_million + output_tokens * self.output_usd_per_million)
             / 1_000_000

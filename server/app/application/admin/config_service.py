@@ -21,7 +21,7 @@ from domain.runtime.setting_keys import (
     SECRET_SETTING_KEYS,
     STATIC_SETTING_KEYS,
 )
-from domain.shared.exceptions import EntityNotFound, ValidationError
+from domain.shared.exceptions import EntityNotFoundError, ValidationError
 
 
 if TYPE_CHECKING:
@@ -116,7 +116,7 @@ class ConfigService:
 
             if param is None:
                 entity_name = "ConfigParameter"
-                raise EntityNotFound(entity_name, f"{key}[domain={domain_key or 'global'}]")
+                raise EntityNotFoundError(entity_name, f"{key}[domain={domain_key or 'global'}]")
 
             normalized = self.normalize_parameter(param, raw_value, key, domain_key)
             old_value = param.value
@@ -147,7 +147,7 @@ class ConfigService:
 
             if not any((row.key, row.domain_key) == (key, domain_key) for row in rows):
                 entity_name = "ConfigParameter"
-                raise EntityNotFound(entity_name, f"{key}[domain={domain_key or 'global'}]")
+                raise EntityNotFoundError(entity_name, f"{key}[domain={domain_key or 'global'}]")
 
             validated_version = self._provider_configuration.status_for(rows).saved_version
             await self._provider_configuration.validate_snapshot_change(rows, key, raw_value, domain_key)

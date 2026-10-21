@@ -10,7 +10,7 @@ from application.act_versioning.persistence import ActVersionPersistence
 from application.indexing import enqueue_delete_by_document
 from domain.identity.roles import UserKind
 from domain.knowledge.access_control import check_ownership
-from domain.shared.exceptions import EntityNotFound
+from domain.shared.exceptions import EntityNotFoundError
 
 
 if TYPE_CHECKING:
@@ -62,7 +62,7 @@ class DocumentDeleteCommand:
 
             if doc is None:
                 msg = "Document"
-                raise EntityNotFound(msg, document_id)
+                raise EntityNotFoundError(msg, document_id)
 
             ctx = await self._user_ctx_factory.build(uow, user_id, user_kind, user_role)
             check_ownership(doc, ctx, "delete")

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from domain.identity.api_key import ApiKey, ApiKeyClientInfo
-from domain.identity.group import GroupInfo, GroupMemberInfo
-from domain.identity.user import User
+
+if TYPE_CHECKING:
+    from domain.identity.api_key import ApiKey, ApiKeyClientInfo
+    from domain.identity.group import GroupInfo, GroupMemberInfo
+    from domain.identity.user import User
 
 
 @runtime_checkable
@@ -19,7 +21,7 @@ class UserRepository(Protocol):
     async def exists_admin(self) -> bool: ...
     async def list_all(self, limit: int | None = None, offset: int = 0) -> list[User]: ...
     async def count_all(self) -> int: ...
-    async def set_active(self, user_id: int, is_active: bool) -> bool: ...
+    async def set_active(self, user_id: int, *, is_active: bool) -> bool: ...
     async def update_role(self, user_id: int, role: str) -> bool: ...
 
 

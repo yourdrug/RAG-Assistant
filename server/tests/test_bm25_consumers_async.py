@@ -30,7 +30,7 @@ def test_benchmark_sparse_passes_scope_and_collects_sparse_only_payload():
         clients,
         access_filter=scope,
         documents=documents,
-        visibility_conditions=get_visibility_conditions("internal", 1, [], for_list=False),
+        visibility_conditions=get_visibility_conditions("internal", [], for_list=False),
         user_id=1,
         user_group_ids=[],
     )

@@ -638,7 +638,6 @@ class TestACLInvariant:
         for kind, uid, role, groups, managed in test_cases:
             conds = get_visibility_conditions(
                 UserKind(kind),
-                uid,
                 groups,
                 for_list=False,
                 user_role=UserRole(role),

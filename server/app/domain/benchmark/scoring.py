@@ -2,6 +2,7 @@
 
 import math
 
+
 METRIC_SCALES = {
     "hit_rate": 1.0,
     "mrr": 1.0,
@@ -36,15 +37,26 @@ def validate_objective_weights(
 ) -> dict[str, float]:
     """Omitted metrics have zero weight; never introduce hidden objectives."""
     if set(weights) - METRIC_SCALES.keys():
-        raise ValueError("Unknown objective metric")
+        msg = "Unknown objective metric"
+        raise ValueError(msg)
+
     resolved = dict.fromkeys(METRIC_SCALES, 0.0)
+
     for metric, value in weights.items():
         weight = float(value)
+
         if not math.isfinite(weight) or weight < 0:
-            raise ValueError("Objective weights must be finite and non-negative")
+            msg = "Objective weights must be finite and non-negative"
+            raise ValueError(msg)
+
         resolved[metric] = weight
+
     if not any(resolved.values()):
-        raise ValueError("At least one objective weight must be positive")
+        msg = "At least one objective weight must be positive"
+        raise ValueError(msg)
+
     if require_retrieval and not any(resolved[key] > 0 for key in RETRIEVAL_OBJECTIVES):
-        raise ValueError("At least one retrieval objective weight must be positive")
+        msg = "At least one retrieval objective weight must be positive"
+        raise ValueError(msg)
+
     return resolved

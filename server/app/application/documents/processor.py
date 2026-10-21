@@ -71,7 +71,9 @@ class DocumentProcessor:
         log.error("Document processing failed for doc %d: %s", document_id, e, exc_info=e)
         try:
             async with self._uow_factory.create(master=True) as uow:
-                await uow.documents.update_status(document_id, DocumentStatus.FAILED.value, error=str(e))
+                await uow.documents.update_status(
+                    document_id, status=DocumentStatus.FAILED.value, error=str(e)
+                )
         except Exception:
             log.exception("Failed to mark document as failed")
 
@@ -95,7 +97,7 @@ class DocumentProcessor:
         t_start = time.monotonic()
         try:
             async with self._uow_factory.create(master=True) as uow:
-                await uow.documents.update_status(document_id, DocumentStatus.PROCESSING.value)
+                await uow.documents.update_status(document_id, status=DocumentStatus.PROCESSING.value)
 
             ctx.temp_path = await self._file_storage.download_to_temp(command.storage_key)
             content = await self._content.parse(ctx.temp_path, command.original_filename, document_id)

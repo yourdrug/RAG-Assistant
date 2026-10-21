@@ -90,7 +90,7 @@ async def persist_document_result(
         if command.warning_message:
             await uow.documents.update_status(
                 document_id,
-                DocumentStatus.INDEXING.value,
+                status=DocumentStatus.INDEXING.value,
                 warning=command.warning_message,
                 quality_score=command.quality.bad_ratio if command.quality else None,
             )

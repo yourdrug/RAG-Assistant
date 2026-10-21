@@ -21,7 +21,7 @@ from domain.rag.prompt_blocks import (
 
 DECOMPOSITION_ASSESSMENT_SYSTEM = (
     "Оцени, является ли вопрос составным (содержит 2+ независимых подтемы).\n"
-    "Если да — разбей его на 2-4 независимых подвопроса.\n"
+    "Если да — разбей \u0435\u0433\u043e на 2-4 независимых подвопроса.\n"
     "Если нет — верни needs_decomposition=false."
 )
 
@@ -45,6 +45,7 @@ def build_context_message() -> str:
 def build_system_prompt(
     breadth: str = Breadth.NARROW,
     domain_addendum: str | None = None,
+    *,
     enumerate_cases: bool = False,
     question: str = "",
 ) -> str:

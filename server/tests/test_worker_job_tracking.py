@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 import pytest  # noqa: E402
-from domain.shared.exceptions import BusinessRuleViolation  # noqa: E402
+from domain.shared.exceptions import BusinessRuleViolationError  # noqa: E402
 from domain.benchmark.sweep import BenchmarkSweepStatus  # noqa: E402
 from domain.benchmark.sweep import SweepEvaluationMode  # noqa: E402
 
@@ -241,7 +241,7 @@ class _CreateSweepBody:
 class TestSweepDoubleSubmitGuard:
     def test_create_rejected_when_active_sweep_exists(self):
         service = BenchmarkSweepService(_SweepFactory(_ActiveSweepRepo()))
-        with pytest.raises(BusinessRuleViolation):
+        with pytest.raises(BusinessRuleViolationError):
             asyncio.run(service.create(_CreateSweepBody()))
 
     def test_create_allowed_when_no_active_sweep(self):

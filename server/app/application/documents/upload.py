@@ -19,9 +19,9 @@ from domain.knowledge.acts.policy import same_document_scope
 from domain.knowledge.document import Document
 from domain.knowledge.enums import DocDomain, DocumentStatus, DocumentVisibility
 from domain.shared.exceptions import (
-    BusinessRuleViolation,
-    EntityNotFound,
-    UniqueConstraintViolation,
+    BusinessRuleViolationError,
+    EntityNotFoundError,
+    UniqueConstraintError,
     ValidationError,
 )
 
@@ -80,7 +80,7 @@ class DocumentUploadCommand:
             managed_client_ids is None or client_id not in managed_client_ids
         ):
             msg = "You can only upload documents for assigned clients"
-            raise BusinessRuleViolation(msg)
+            raise BusinessRuleViolationError(msg)
 
         return client_id
 
@@ -92,7 +92,7 @@ class DocumentUploadCommand:
             DocumentStatus.INDEXING,
         ):
             msg = "This document is already being processed"
-            raise BusinessRuleViolation(msg)
+            raise BusinessRuleViolationError(msg)
 
     async def persist_upload(
         self,
@@ -106,9 +106,9 @@ class DocumentUploadCommand:
     ) -> tuple[Document, str]:
         try:
             saved_doc = await uow.documents.save(doc)
-        except UniqueConstraintViolation as exc:
+        except UniqueConstraintError as exc:
             msg = "This document is already being uploaded by a concurrent request"
-            raise BusinessRuleViolation(msg) from exc
+            raise BusinessRuleViolationError(msg) from exc
 
         if saved_doc.id is None:
             msg = "Document save returned None id"
@@ -187,7 +187,7 @@ class DocumentUploadCommand:
 
             if final_doc is None:
                 msg = "Document"
-                raise EntityNotFound(msg, saved_id)
+                raise EntityNotFoundError(msg, saved_id)
 
             return DocumentDTO.from_entity(final_doc, storage_key=key, replace_id=pending_replace_id)
 
@@ -217,7 +217,7 @@ class DocumentUploadCommand:
 
                 if not same_document_scope(existing, doc):
                     msg = "Replacement must have the same visibility scope"
-                    raise BusinessRuleViolation(msg)
+                    raise BusinessRuleViolationError(msg)
 
         if existing:
             doc.filename = await resolve_unique_filename(
@@ -240,7 +240,7 @@ class DocumentUploadCommand:
 
             if not groups:
                 msg = "Group"
-                raise EntityNotFound(msg, group_id)
+                raise EntityNotFoundError(msg, group_id)
 
     @staticmethod
     def require_document_id(doc: Document) -> int:

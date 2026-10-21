@@ -3,14 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Generic, TypeVar
-
-
-T = TypeVar("T")
 
 
 @dataclass(frozen=True)
-class CursorPage(Generic[T]):
+class CursorPage[T]:
     """A page of results returned by cursor-based (keyset) pagination.
 
     ``items`` holds the page rows in natural ascending order.

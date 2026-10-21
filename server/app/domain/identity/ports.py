@@ -6,12 +6,12 @@ the domain layer depends only on this protocol.
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Any, Protocol
 
 
 class TokenProvider(Protocol):
     def create_token(self, user_id: int, role: str) -> str: ...
-    def decode_token(self, token: str) -> dict: ...
+    def decode_token(self, token: str) -> dict[str, Any]: ...
 
 
 class PasswordHasher(Protocol):

@@ -28,7 +28,7 @@ from domain.knowledge.chunk import ChunkInsert, extract_chunk_context
 from domain.chat.conversation import Conversation
 from domain.chat.message import Message
 from domain.knowledge.index_sync import OutboxStatus, VectorOutboxEntry
-from domain.shared.exceptions import EntityNotFound
+from domain.shared.exceptions import EntityNotFoundError
 from domain.ingestion.repositories import IngestionRegistryEntry
 from domain.rag.stream_events import SourcesEvent, TextChunk
 from domain.knowledge.enums import DocumentVisibility
@@ -429,7 +429,7 @@ class FakeDocumentRepository:
     ) -> None:
         doc = self._documents.get(document_id)
         if doc is None:
-            raise EntityNotFound("Document", document_id)
+            raise EntityNotFoundError("Document", document_id)
         doc.visibility = visibility
         doc.owner_id = owner_id
         doc.group_id = group_id

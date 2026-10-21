@@ -25,7 +25,7 @@ from domain.rag.stream_events import (
     TextChunk,
     UsageReport,
 )
-from domain.shared.exceptions import BusinessRuleViolation, EntityNotFound, PermissionDeniedError
+from domain.shared.exceptions import BusinessRuleViolationError, EntityNotFoundError, PermissionDeniedError
 
 
 if TYPE_CHECKING:
@@ -157,7 +157,7 @@ async def test_stream_preserves_order_and_usage_then_emits_meta() -> None:
 async def test_excessive_curator_scope_stops_before_retrieval() -> None:
     fixture = chat_fixture()
     fixture.settings.curator_scope_max_ids = 2
-    with pytest.raises(BusinessRuleViolation, match="exceeds retrieval limit"):
+    with pytest.raises(BusinessRuleViolationError, match="exceeds retrieval limit"):
         await fixture.service.sync_chat("question", 7, 1, UserKind.INTERNAL, UserRole.CURATOR)
     fixture.rag.invoke.assert_not_awaited()
     fixture.uow.messages.save.assert_not_awaited()
@@ -195,7 +195,7 @@ async def test_missing_conversation_does_not_load_messages() -> None:
     fixture = chat_fixture()
     fixture.uow.conversations.get_by_id.return_value = None
     service = ConversationService(fixture.factory, AsyncMock(), fixture.settings)
-    with pytest.raises(EntityNotFound):
+    with pytest.raises(EntityNotFoundError):
         await service.get_history(7, 1, UserRole.USER)
     fixture.uow.messages.list_page.assert_not_awaited()
 

@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from config import settings
 from domain.knowledge.enums import SourceType
 from domain.knowledge.document import Document
-from domain.shared.exceptions import EntityNotFound, UniqueConstraintViolation
+from domain.shared.exceptions import EntityNotFoundError, UniqueConstraintError
 from domain.knowledge.access_control import get_visibility_conditions
 from domain.knowledge.enums import DOCUMENT_SLOT_STATUSES, DocumentStatus
 from domain.knowledge.access_control import OwnerMatch
@@ -46,7 +46,7 @@ class SQLAlchemyDocumentRepository:
         try:
             await self._db.flush()
         except IntegrityError as exc:
-            raise UniqueConstraintViolation(detail=str(exc)) from exc
+            raise UniqueConstraintError(detail=str(exc)) from exc
         await self._db.refresh(orm)
         document.id = orm.id
         return document
@@ -146,7 +146,7 @@ class SQLAlchemyDocumentRepository:
         )
         orm = result.scalar_one_or_none()
         if orm is None:
-            raise EntityNotFound("Document", document_id)
+            raise EntityNotFoundError("Document", document_id)
         orm.visibility = visibility.value
         orm.owner_id = owner_id
         orm.group_id = group_id
@@ -154,7 +154,7 @@ class SQLAlchemyDocumentRepository:
         try:
             await self._db.flush()
         except IntegrityError as exc:
-            raise UniqueConstraintViolation(detail=str(exc)) from exc
+            raise UniqueConstraintError(detail=str(exc)) from exc
 
     async def find_ingestion_documents(self, keys: list[str]) -> list[Document]:
         result = await self._db.execute(
@@ -241,7 +241,6 @@ class SQLAlchemyDocumentRepository:
     ) -> list[Document]:
         conditions = get_visibility_conditions(
             UserKind(user_kind),
-            user_id,
             group_ids,
             user_role=UserRole(user_role) if user_role else None,
             managed_client_ids=managed_client_ids,

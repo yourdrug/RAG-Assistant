@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from application.benchmark import SweepCreateDTO
 from application.benchmark import BenchmarkSweepService
 from domain.benchmark.sweep import BenchmarkSweep
-from domain.shared.exceptions import BusinessRuleViolation
+from domain.shared.exceptions import BusinessRuleViolationError
 from domain.benchmark.sweep import BenchmarkStrategy
 from domain.benchmark.sweep import BenchmarkSweepStatus
 from infrastructure.database.models import BenchmarkSweepModel
@@ -49,7 +49,7 @@ async def test_concurrent_service_create_has_one_winner(pg_engine):
         timeout=10,
     )
     assert sum(isinstance(result, BenchmarkSweep) for result in results) == 1
-    assert sum(isinstance(result, BusinessRuleViolation) for result in results) == 1
+    assert sum(isinstance(result, BusinessRuleViolationError) for result in results) == 1
     async with sessions.begin() as session:
         assert (await session.scalar(select(func.count()).select_from(BenchmarkSweepModel))) == 1
         repo = SQLAlchemyBenchmarkSweepRepository(session)
@@ -113,7 +113,7 @@ async def test_resume_cannot_displace_an_active_sweep(pg_engine):
         await repo.create(BenchmarkSweep())
         terminal = await repo.create(BenchmarkSweep(status=BenchmarkSweepStatus.CANCELLED.value))
     async with sessions.begin() as session:
-        with pytest.raises(BusinessRuleViolation):
+        with pytest.raises(BusinessRuleViolationError):
             async with session.begin_nested():
                 await SQLAlchemyBenchmarkSweepRepository(session).requeue(terminal.id)
 

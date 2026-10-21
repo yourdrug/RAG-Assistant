@@ -3,8 +3,8 @@
 All exceptions carry a ``message`` and optional ``errors`` dict and expose
 ``as_dict()`` for uniform JSON serialization in API error responses.
 
-- ``ClientException``  -- 4xx errors (bad input, not found, forbidden)
-- ``ServerException``  -- 5xx errors (database failures, unexpected errors)
+- ``AppClientError``  -- 4xx errors (bad input, not found, forbidden)
+- ``AppServerError``  -- 5xx errors (database failures, unexpected errors)
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from typing import Any
 # ── Base ─────────────────────────────────────────────────────────────────────
 
 
-class AppException(Exception):
+class AppError(Exception):
     """Base exception for all application errors."""
 
     def __init__(self, message: str, errors: dict[str, Any] | None = None) -> None:
@@ -41,21 +41,21 @@ class AppException(Exception):
 # ── Server ────────────────────────────────────────────────────────────────────
 
 
-class ServerException(AppException):
+class AppServerError(AppError):
     """Server-side error (5xx)."""
 
 
-class DatabaseError(ServerException):
+class DatabaseError(AppServerError):
     """Database operation failure."""
 
     def __init__(self, detail: str | None = None) -> None:
         super().__init__(
-            message="Ошибка взаимодействия с БД",
+            message="Ошибка взаимодействия \u0441 БД",
             errors={"detail": detail} if detail else None,
         )
 
 
-class UniqueConstraintViolation(DatabaseError):
+class UniqueConstraintError(DatabaseError):
     """A unique/integrity constraint was violated in the database."""
 
     def __init__(self, detail: str | None = None) -> None:
@@ -65,11 +65,11 @@ class UniqueConstraintViolation(DatabaseError):
 # ── Client ────────────────────────────────────────────────────────────────────
 
 
-class ClientException(AppException):
+class AppClientError(AppError):
     """Client-side error (4xx)."""
 
 
-class ValidationError(ClientException):
+class ValidationError(AppClientError):
     """Business rule or invariant violated (422)."""
 
     def __init__(
@@ -86,7 +86,7 @@ class ValidationError(ClientException):
         super().__init__(message=message, errors=errors)
 
 
-class EntityNotFound(ClientException):
+class EntityNotFoundError(AppClientError):
     """Requested entity not found (404)."""
 
     def __init__(self, entity_name: str, identifier: str | int) -> None:
@@ -97,21 +97,21 @@ class EntityNotFound(ClientException):
         )
 
 
-class BusinessRuleViolation(ClientException):
+class BusinessRuleViolationError(AppClientError):
     """Domain operation violates a business rule (409)."""
 
 
-class AuthenticationError(ClientException):
+class AuthenticationError(AppClientError):
     """Authentication failed — invalid/expired token (401)."""
 
-    def __init__(self, detail: str = "Не авторизован") -> None:
+    def __init__(self, detail: str = "\u041d\u0435 авторизован") -> None:
         super().__init__(
             message=detail,
             errors={"detail": detail},
         )
 
 
-class PermissionDeniedError(ClientException):
+class PermissionDeniedError(AppClientError):
     """Insufficient permissions (403)."""
 
     def __init__(self, required: str | list[str] | None = None) -> None:
@@ -125,7 +125,7 @@ class PermissionDeniedError(ClientException):
         super().__init__(message="Недостаточно прав", errors=errors or None)
 
 
-class LLMUnavailableError(ServerException):
+class LLMUnavailableError(AppServerError):
     """LLM provider temporarily unavailable (circuit breaker OPEN or timeout).
 
     Used by infrastructure/resilience/circuit_breaker.py and caught by
@@ -139,7 +139,7 @@ class LLMUnavailableError(ServerException):
         )
 
 
-class SemaphoreTimeoutError(ClientException):
+class SemaphoreTimeoutError(AppClientError):
     """Semaphore acquire timed out — server under load (429 Too Many Requests).
 
     Raised by ``TimeoutSemaphore`` when the concurrency limit is reached
@@ -153,7 +153,7 @@ class SemaphoreTimeoutError(ClientException):
         )
 
 
-class RateLimitExceededError(ClientException):
+class RateLimitExceededError(AppClientError):
     """Request rate limit exceeded (429 Too Many Requests).
 
     Carries the retry delay and the limit of the tightest policy window so the

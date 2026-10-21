@@ -11,7 +11,7 @@ from application.documents.conflicts import resolve_upload_version_group
 from application.identity import UserContextFactory
 from domain.knowledge.chunk import ChunkInsert
 from domain.knowledge.document import Document
-from domain.shared.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
+from domain.shared.exceptions import BusinessRuleViolationError, EntityNotFoundError, ValidationError
 from domain.knowledge.enums import DocumentStatus
 from domain.identity.user_context import UserContext
 from domain.knowledge.enums import DocumentVisibility
@@ -125,9 +125,9 @@ async def test_resolve_version_group_explicit_replaces_no_version_group():
 
 @pytest.mark.asyncio
 async def test_resolve_version_group_explicit_not_found():
-    """replaces_document_id points to nonexistent doc → EntityNotFound."""
+    """replaces_document_id points to nonexistent doc → EntityNotFoundError."""
     cmd, query, uow, _ = _service()
-    with pytest.raises(EntityNotFound):
+    with pytest.raises(EntityNotFoundError):
         await resolve_upload_version_group(
             uow, existing=None, replaces_document_id=999, pending_replace_id=None
         )
@@ -295,12 +295,12 @@ async def test_upload_internal_group_no_group_id():
 
 @pytest.mark.asyncio
 async def test_upload_active_processing_rejected():
-    """Existing doc in PENDING/PROCESSING/INDEXING → BusinessRuleViolation."""
+    """Existing doc in PENDING/PROCESSING/INDEXING → BusinessRuleViolationError."""
     cmd, query, uow, _ = _service()
     pending_doc = _make_doc(doc_id=10, status=DocumentStatus.PENDING, filename="doc.pdf")
     await uow.documents.save(pending_doc)
 
-    with pytest.raises(BusinessRuleViolation, match="already being processed"):
+    with pytest.raises(BusinessRuleViolationError, match="already being processed"):
         await cmd.upload(
             filename="doc.pdf",
             file_data=b"data",
@@ -316,8 +316,8 @@ async def test_upload_active_processing_rejected():
 async def test_upload_unique_constraint_violation_translates_to_conflict():
     """A database uniqueness violation is translated to an application conflict."""
     cmd, query, uow, fs = _service()
-    # Make save raise UniqueConstraintViolation
-    from domain.shared.exceptions import UniqueConstraintViolation
+    # Make save raise UniqueConstraintError
+    from domain.shared.exceptions import UniqueConstraintError
 
     original_save = uow.documents.save
 
@@ -327,12 +327,12 @@ async def test_upload_unique_constraint_violation_translates_to_conflict():
         nonlocal call_count
         call_count += 1
         if call_count == 1:
-            raise UniqueConstraintViolation("dup")
+            raise UniqueConstraintError("dup")
         return await original_save(doc)
 
     uow.documents.save = failing_save
 
-    with pytest.raises(BusinessRuleViolation, match="already being uploaded"):
+    with pytest.raises(BusinessRuleViolationError, match="already being uploaded"):
         await cmd.upload(
             filename="doc.pdf",
             file_data=b"data",
@@ -386,9 +386,9 @@ async def test_delete_document_happy_path():
 
 @pytest.mark.asyncio
 async def test_delete_document_not_found():
-    """delete_document: non-existent doc → EntityNotFound."""
+    """delete_document: non-existent doc → EntityNotFoundError."""
     cmd, _, _, _ = _service()
-    with pytest.raises(EntityNotFound):
+    with pytest.raises(EntityNotFoundError):
         await cmd.delete_document(document_id=999, user_id=1, user_role="admin")
 
 
@@ -485,15 +485,15 @@ async def test_rename_document_unsupported_extension():
 
 @pytest.mark.asyncio
 async def test_rename_document_not_found():
-    """rename_document: non-existent doc → EntityNotFound."""
+    """rename_document: non-existent doc → EntityNotFoundError."""
     cmd, _, _, _ = _service()
-    with pytest.raises(EntityNotFound):
+    with pytest.raises(EntityNotFoundError):
         await cmd.rename_document(document_id=999, new_filename="new.pdf", user_id=1, user_role="admin")
 
 
 @pytest.mark.asyncio
 async def test_rename_document_conflict_with_pending_doc():
-    """rename_document: existing doc with same name in PENDING → BusinessRuleViolation."""
+    """rename_document: existing doc with same name in PENDING → BusinessRuleViolationError."""
     cmd, query, uow, _ = _service()
     # Create two docs with different IDs but same name-slot target
     doc1 = _make_doc(doc_id=1, filename="a.pdf", owner_id=1, group_id=None)
@@ -501,7 +501,7 @@ async def test_rename_document_conflict_with_pending_doc():
     await uow.documents.save(doc1)
     await uow.documents.save(doc2)
 
-    with pytest.raises(BusinessRuleViolation, match="already being processed"):
+    with pytest.raises(BusinessRuleViolationError, match="already being processed"):
         await cmd.rename_document(document_id=1, new_filename="b.pdf", user_id=1, user_role="admin")
 
 
@@ -713,9 +713,9 @@ async def test_get_document_happy_path():
 
 @pytest.mark.asyncio
 async def test_get_document_not_found():
-    """get_document: non-existent doc → EntityNotFound."""
+    """get_document: non-existent doc → EntityNotFoundError."""
     _, query, _, _ = _service()
-    with pytest.raises(EntityNotFound):
+    with pytest.raises(EntityNotFoundError):
         await query.get_document(document_id=999, user_id=1, user_kind="internal", user_role="admin")
 
 
@@ -818,7 +818,7 @@ async def test_list_source_files_empty():
 
 @pytest.mark.asyncio
 async def test_delete_document_not_owner_not_admin():
-    """Non-owner non-admin → BusinessRuleViolation (via check_ownership)."""
+    """Non-owner non-admin → BusinessRuleViolationError (via check_ownership)."""
     cmd, query, uow, _ = _service()
     doc = _make_doc(doc_id=1, owner_id=10)
     await uow.documents.save(doc)
@@ -837,5 +837,5 @@ async def test_delete_document_not_owner_not_admin():
         )
 
     with patch.object(UserContextFactory, "build", _user_ctx):
-        with pytest.raises(BusinessRuleViolation):
+        with pytest.raises(BusinessRuleViolationError):
             await cmd.delete_document(document_id=1, user_id=99, user_role="user")

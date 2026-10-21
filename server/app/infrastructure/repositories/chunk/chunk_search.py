@@ -96,7 +96,6 @@ def build_acl_clauses(
     user_role_raw = user.user_role if hasattr(user, "user_role") else user.get("role", "user")
     conditions = get_visibility_conditions(
         UserKind(user_kind),
-        user_id,
         group_ids,
         for_list=False,
         user_role=UserRole(user_role_raw),

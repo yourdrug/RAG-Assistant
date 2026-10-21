@@ -7,7 +7,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from domain.shared.exceptions import ClientException
+from domain.shared.exceptions import AppClientError
 from domain.benchmark.question import DEFAULT_DATASET
 from domain.identity.roles import UserKind, UserRole
 from presentation.api.auth_dependencies import get_current_user
@@ -28,7 +28,7 @@ def test_dataset_catalog_requires_admin(role):
     service = SimpleNamespace(list_datasets=AsyncMock(return_value=datasets))
     app = FastAPI()
     app.include_router(router)
-    app.add_exception_handler(ClientException, handle_client_exception)
+    app.add_exception_handler(AppClientError, handle_client_exception)
     app.dependency_overrides[create_auth_service] = lambda: None
     app.dependency_overrides[create_api_key_service] = lambda: None
     app.dependency_overrides[create_api_key_provider] = lambda: None

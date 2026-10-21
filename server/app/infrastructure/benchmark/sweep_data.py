@@ -33,7 +33,6 @@ class SweepDataSource:
             access_filter=access_filter,
             visibility_conditions=get_visibility_conditions(
                 user_kind=UserKind.INTERNAL,
-                user_id=0,
                 group_ids=[],
                 for_list=False,
                 user_role=UserRole.ADMIN,

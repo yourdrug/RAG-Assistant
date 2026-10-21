@@ -7,8 +7,11 @@ concurrent access and durability across container restarts.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
+
+
+if TYPE_CHECKING:
+    from datetime import datetime
 
 
 @dataclass

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from application.identity.dto import ToggleActiveResult, UserDTO
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user import User
-from domain.shared.exceptions import BusinessRuleViolation, EntityNotFound
+from domain.shared.exceptions import BusinessRuleViolationError, EntityNotFoundError
 
 
 if TYPE_CHECKING:
@@ -38,7 +38,7 @@ class UserManagementService:
 
             if await uow.users.get_by_email(command.email) is not None:
                 msg = "User with this email already exists"
-                raise BusinessRuleViolation(msg)
+                raise BusinessRuleViolationError(msg)
 
             user.hashed_password = await self._hasher.hash(command.password)
             saved = await uow.users.save(user)
@@ -79,10 +79,10 @@ class UserManagementService:
 
             if user is None:
                 msg = "User"
-                raise EntityNotFound(msg, user_id)
+                raise EntityNotFoundError(msg, user_id)
 
             user.deactivate_self_prohibited(admin_id)
-            await uow.users.set_active(user_id, is_active)
+            await uow.users.set_active(user_id, is_active=is_active)
             return ToggleActiveResult(id=user_id, is_active=is_active)
 
     async def change_role(self, command: ChangeRoleCommand, admin_id: int) -> UserDTO:
@@ -93,7 +93,7 @@ class UserManagementService:
 
             if user is None:
                 msg = "User"
-                raise EntityNotFound(msg, command.user_id)
+                raise EntityNotFoundError(msg, command.user_id)
 
             old_role = user.role
             new_role = UserRole.validate(command.new_role)

@@ -20,7 +20,7 @@ from application.identity import UserContextFactory
 from domain.knowledge.chunk import ChunkInsert
 from domain.knowledge.document import Document
 from domain.knowledge.acts.models import ActVersion
-from domain.shared.exceptions import BusinessRuleViolation, ValidationError
+from domain.shared.exceptions import BusinessRuleViolationError, ValidationError
 from domain.knowledge.enums import DocumentStatus
 from domain.knowledge.enums import DocumentVisibility
 from domain.identity.roles import UserRole
@@ -145,7 +145,7 @@ async def test_explicit_replacement_requires_ownership_and_is_deferred(owner_id)
     h = harness()
     old = await seed(h, owner_id=owner_id)
     if owner_id != 1:
-        with pytest.raises(BusinessRuleViolation, match="your own documents"):
+        with pytest.raises(BusinessRuleViolationError, match="your own documents"):
             await upload(h, replaces_document_id=old.id)
         h.storage.upload_file.assert_not_awaited()
     else:
@@ -160,7 +160,7 @@ async def test_explicit_replacement_requires_ownership_and_is_deferred(owner_id)
 async def test_explicit_replacement_cannot_change_visibility_scope():
     h = harness()
     old = await seed(h)
-    with pytest.raises(BusinessRuleViolation, match="same visibility scope"):
+    with pytest.raises(BusinessRuleViolationError, match="same visibility scope"):
         await upload(h, replaces_document_id=old.id, visibility="internal_public", user_role="admin")
     h.storage.upload_file.assert_not_awaited()
 
@@ -172,7 +172,7 @@ async def test_explicit_replacement_rejects_add_new_flag_and_active_target():
     with pytest.raises(ValidationError, match="rename_on_conflict"):
         await upload(h, replaces_document_id=old.id, rename_on_conflict=True)
     old.status = DocumentStatus.PROCESSING
-    with pytest.raises(BusinessRuleViolation, match="already being processed"):
+    with pytest.raises(BusinessRuleViolationError, match="already being processed"):
         await upload(h, filename="other.pdf", replaces_document_id=old.id)
     h.storage.upload_file.assert_not_awaited()
 
@@ -268,7 +268,7 @@ async def test_write_ownership_is_checked_before_side_effects(operation, owner):
     else:
         action = h.command.rename_document(doc.id, "new.pdf", 1, "user")
     if owner != 1:
-        with pytest.raises(BusinessRuleViolation, match="your own documents"):
+        with pytest.raises(BusinessRuleViolationError, match="your own documents"):
             await action
         assert h.factory.events == [("begin", True), "rollback"]
         assert h.uow.vector_outbox._entries == {}
@@ -287,7 +287,7 @@ async def test_curator_upload_rejects_missing_invalid_or_unassigned_client(clien
     h = harness()
     if kind:
         h.uow.users.add_user(9, kind=kind)
-    error = BusinessRuleViolation if kind == "client" else ValidationError
+    error = BusinessRuleViolationError if kind == "client" else ValidationError
     with pytest.raises(error):
         await upload(h, visibility="client_private", user_role="curator", client_id=client_id)
     assert h.uow.documents._documents == {}

@@ -17,7 +17,7 @@ from domain.benchmark.sweep import (
     validate_sweep_mode,
 )
 from domain.runtime.jobs import BackgroundJobStatus
-from domain.shared.exceptions import BusinessRuleViolation, EntityNotFound, ValidationError
+from domain.shared.exceptions import BusinessRuleViolationError, EntityNotFoundError, ValidationError
 
 
 if TYPE_CHECKING:
@@ -106,7 +106,7 @@ class BenchmarkQuestionService:
 
         if updated is None:
             message = "BenchmarkQuestion"
-            raise EntityNotFound(message, question_id)
+            raise EntityNotFoundError(message, question_id)
 
         return updated
 
@@ -116,7 +116,7 @@ class BenchmarkQuestionService:
 
         if not deleted:
             message = "BenchmarkQuestion"
-            raise EntityNotFound(message, question_id)
+            raise EntityNotFoundError(message, question_id)
 
         return True
 
@@ -151,7 +151,7 @@ class BenchmarkSweepService:
         async with self._uow_factory.create(master=True) as uow:
             if await uow.benchmark_sweeps.has_active():
                 message = "Another sweep is pending or running — cancel it or wait for it to finish"
-                raise BusinessRuleViolation(message)
+                raise BusinessRuleViolationError(message)
 
             sweep_entity = BenchmarkSweep(
                 strategy=BenchmarkStrategy(body.strategy),
@@ -171,7 +171,7 @@ class BenchmarkSweepService:
 
         if sweep is None:
             message = "BenchmarkSweep"
-            raise EntityNotFound(message, sweep_id)
+            raise EntityNotFoundError(message, sweep_id)
 
         return sweep
 
@@ -187,7 +187,7 @@ class BenchmarkSweepService:
 
             if sweep is None:
                 message = "BenchmarkSweep"
-                raise EntityNotFound(message, sweep_id)
+                raise EntityNotFoundError(message, sweep_id)
 
             if sweep.status not in (BenchmarkSweepStatus.PENDING.value, BenchmarkSweepStatus.RUNNING.value):
                 message = f"Cannot cancel sweep in '{sweep.status}' status"
@@ -201,7 +201,7 @@ class BenchmarkSweepService:
 
             if sweep is None:
                 message = "BenchmarkSweep"
-                raise EntityNotFound(message, sweep_id)
+                raise EntityNotFoundError(message, sweep_id)
 
             if sweep.job_id is not None:
                 job = await uow.background_jobs.get_by_id(sweep.job_id)
@@ -211,7 +211,7 @@ class BenchmarkSweepService:
                     BackgroundJobStatus.RUNNING.value,
                 ):
                     message = "The previous sweep job is still stopping; retry after it finishes"
-                    raise BusinessRuleViolation(message)
+                    raise BusinessRuleViolationError(message)
 
             if not await uow.benchmark_sweeps.requeue(sweep_id):
                 message = "Only failed or cancelled sweeps can be resumed"
@@ -262,7 +262,7 @@ class BenchmarkRunService:
 
         if run is None:
             message = "BenchmarkRun"
-            raise EntityNotFound(message, run_id)
+            raise EntityNotFoundError(message, run_id)
 
         return run
 
@@ -285,7 +285,7 @@ class BenchmarkRunService:
             found_ids = {r.id for r in runs}
             missing = [i for i in ids if i not in found_ids]
             message = "BenchmarkRuns"
-            raise EntityNotFound(message, str(missing))
+            raise EntityNotFoundError(message, str(missing))
 
         diff: dict[str, list[dict[str, Any]]] = {}
         all_keys: set[str] = set()

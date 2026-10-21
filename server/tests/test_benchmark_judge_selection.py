@@ -11,7 +11,7 @@ from pydantic import ValidationError
 from application.ports.rate_limit import RateLimitDecision
 from application.benchmark import BenchmarkSweepService
 from domain.benchmark.sweep import BenchmarkSweep
-from domain.shared.exceptions import ClientException
+from domain.shared.exceptions import AppClientError
 from domain.benchmark.sweep import BenchmarkSweepStatus
 from domain.identity.roles import UserKind, UserRole
 from domain.benchmark.sweep import SweepEvaluationMode
@@ -56,7 +56,7 @@ def test_api_preserves_selected_judge_and_requires_admin(role, mode, operation):
     queue = SimpleNamespace(enqueue_sweep=AsyncMock())
     app = FastAPI()
     app.include_router(router)
-    app.add_exception_handler(ClientException, handle_client_exception)
+    app.add_exception_handler(AppClientError, handle_client_exception)
     user = CurrentUser(
         id=7, email="user@example.com", role=role.value, kind=UserKind.INTERNAL.value, is_active=True
     )

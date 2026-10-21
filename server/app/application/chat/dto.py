@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, Any
 
 
 if TYPE_CHECKING:
-    from datetime import datetime
-
     from domain.chat.message import Message
     from domain.rag.stream_events import UsageReport
 
@@ -38,17 +36,6 @@ class CreateChatLogCommand:
     domain: str | None = None
     input_tokens: int | None = None
     output_tokens: int | None = None
-
-
-class ChatLogListOptions(TypedDict, total=False):
-    user_id: int | None
-    user_ids: list[int] | None
-    domain: str | None
-    date_from: datetime | None
-    date_to: datetime | None
-    search: str | None
-    limit: int
-    offset: int
 
 
 @dataclass(frozen=True, kw_only=True)
