@@ -1021,3 +1021,63 @@ async def test_instructor_retry_cannot_bypass_worker_replay_block(runtime, monke
         assert dispatches == [True]
     finally:
         await client.client.close()
+
+
+@pytest.mark.asyncio
+async def test_worker_operation_ids_follow_requests_when_parallel_order_changes(runtime):
+    observed = {}
+    token = billing_principal.set('user:1')
+
+    @bill_job_to_initiator
+    async def run(ctx, questions):
+        for question in questions:
+            async with httpx.AsyncClient(transport=PaidAsyncTransport(
+                runtime=runtime,
+                transport=httpx.MockTransport(lambda request: httpx.Response(200, json={})),
+            )) as client:
+                await client.post('https://openrouter.ai/api/v1/chat/completions', json={
+                    'model': 'm', 'max_tokens': 10,
+                    'messages': [{'role': 'user', 'content': question}],
+                })
+            observed[(ctx['job_try'], question)] = (
+                runtime.service.ledger.reserve.await_args.kwargs['operation_id']
+            )
+
+    try:
+        await run({'job_id': 'job', 'job_try': 1}, ['a', 'b'], cost_principal='user:1')
+        await run({'job_id': 'job', 'job_try': 2}, ['b', 'a'], cost_principal='user:1')
+        assert observed[(1, 'a')] == observed[(2, 'a')]
+        assert observed[(1, 'b')] == observed[(2, 'b')]
+        assert observed[(1, 'a')] != observed[(1, 'b')]
+    finally:
+        billing_principal.reset(token)
+
+
+@pytest.mark.asyncio
+async def test_cancelled_stream_retains_response_id_without_refund(runtime):
+    runtime.catalog.contract.return_value = ModelBillingContract(
+        'tokens', 'llm', 100,
+        frozenset({'model', 'max_tokens', 'messages', 'stream'}), 'verified',
+    )
+
+    class Chunks(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield b'data: {"id":"gen-cancelled","choices":[]}\n\n'
+            raise asyncio.CancelledError
+
+    token = billing_principal.set('user:1')
+    try:
+        async with httpx.AsyncClient(transport=PaidAsyncTransport(
+            runtime=runtime, transport=httpx.MockTransport(lambda request: httpx.Response(
+                200, headers={'content-type': 'text/event-stream'}, stream=Chunks(),
+            )),
+        )) as client:
+            with pytest.raises(asyncio.CancelledError):
+                await client.post('https://openrouter.ai/api/v1/chat/completions', json={
+                    'model': 'm', 'max_tokens': 10, 'messages': [], 'stream': True,
+                })
+        runtime.service.ledger.reserve.assert_awaited_once()
+        runtime.service.ledger.reconcile.assert_not_called()
+        assert runtime.service.ledger.remember_response.await_args.args[2] == 'gen-cancelled'
+    finally:
+        billing_principal.reset(token)

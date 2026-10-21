@@ -21,6 +21,7 @@ from domain.rag.breadth import Breadth
 from domain.runtime.enums import LLMProvider
 from langchain.schema import Document
 
+from infrastructure.ml.clients.factories import FAST_OPENROUTER_MODEL
 from infrastructure.ml.clients.llm_schemas import JudgeScore
 from infrastructure.ml.clients.managed_sync_instructor import ManagedSyncInstructor
 from infrastructure.ml.clients.client_lease import sync_client_operation
@@ -164,7 +165,7 @@ def get_judge_model() -> str:
     if settings.llm_provider == LLMProvider.OLLAMA:
         return settings.llm_model
     # OpenRouter: use fast/cheap model for judge calls
-    return "meta-llama/llama-3.1-8b-instruct"
+    return FAST_OPENROUTER_MODEL
 
 
 def get_judge_client(model: str):

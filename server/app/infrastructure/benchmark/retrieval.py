@@ -1,16 +1,12 @@
 """Benchmark retrieval — dense, sparse, hybrid search and reranking."""
 
 import logging
-import httpx
-from infrastructure.budget.transport import PaidSyncTransport, PaidAsyncTransport
 from pathlib import Path
 
 from config import get_setting, settings
 from domain.runtime.enums import LLMProvider
+from infrastructure.ml.clients.factories import ChatModelRole, build_chat_model
 from langchain.schema import Document
-from langchain_ollama import ChatOllama
-from langchain_openai import ChatOpenAI
-from pydantic import SecretStr
 
 from infrastructure.ml.rag.rag_retrieval import search_sparse_points
 from application.search import HybridRetriever
@@ -183,19 +179,4 @@ def retrieve_with_scores_hybrid(
 
 def build_llm(model: str, base_url: str, provider: str = LLMProvider.OLLAMA):
     """Build LLM instance based on provider."""
-    if provider == LLMProvider.OPENROUTER:
-        return ChatOpenAI(
-            model_name=model,
-            openai_api_key=SecretStr(settings.openrouter_api_key) if settings.openrouter_api_key else None,
-            openai_api_base=settings.openrouter_base_url,
-            temperature=0.0,
-            max_tokens=settings.llm_num_predict_broad,
-            max_retries=0,
-            http_client=httpx.Client(follow_redirects=False, transport=PaidSyncTransport()),
-            http_async_client=httpx.AsyncClient(follow_redirects=False, transport=PaidAsyncTransport()),
-        )
-    return ChatOllama(
-        model=model,
-        base_url=base_url,
-        temperature=0.0,
-    )
+    return build_chat_model(provider, ChatModelRole.BENCHMARK, model_name=model, base_url=base_url)
