@@ -12,7 +12,9 @@ from domain.knowledge.enums import PageContentType
 from domain.ingestion.preview import PreviewUnitKind
 
 from domain.ingestion.preview import DryRunPageResult
-from infrastructure.ml.ingestion import ocr_image_paddle, ocr_image_surya, parse_docx_sections
+from infrastructure.ml.ingestion.ocr import ocr_image_paddle, ocr_image_surya
+from infrastructure.ml.ingestion.docx import parse_docx_sections
+from infrastructure.ml.ingestion.sections import Section
 from infrastructure.ml.ingestion.ocr_vl import OCRServiceError, recognize_page
 
 logger = logging.getLogger("default")
@@ -47,7 +49,7 @@ class DocxPreviewStrategy:
     def analyze(self, path: Path) -> tuple[list[DryRunPageResult], dict[str, int], int]:
         sections = parse_docx_sections(path)
         if not sections:
-            sections = [(None, "")]
+            sections = [Section(None, "")]
 
         image_only_blobs = _extract_images_without_alt(path)
 
@@ -56,14 +58,14 @@ class DocxPreviewStrategy:
         total_chars = 0
 
         img_idx = 0
-        for idx, (heading, content) in enumerate(sections):
+        for idx, section in enumerate(sections):
+            heading, content = section.heading, section.content
             stripped = content.strip()
             chars = len(stripped)
             total_chars += chars
 
-            is_table = stripped.startswith("\x00TABLE:")
+            is_table = section.kind == PageContentType.TABLE
             if is_table:
-                stripped = stripped[len("\x00TABLE:") :].strip()
                 chars = len(stripped)
                 ptype = PageContentType.TABLE
                 label = f"Таблица {idx + 1}"

@@ -184,7 +184,15 @@ async def test_benchmark_compare_route_and_roles(asgi_client, role, status):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("filename,data", [("bad.exe", b"text"), ("bad.pdf", b"%PDF-broken")])
+@pytest.mark.parametrize(
+    "filename,data",
+    [
+        ("bad.exe", b"text"),
+        ("bad.pdf", b"%PDF-broken"),
+        ("legacy.doc", b"\xd0\xcf\x11\xe0 ole2"),
+        ("legacy.DOC", b"\xd0\xcf\x11\xe0 ole2"),
+    ],
+)
 async def test_file_validation_returns_422_before_upload(asgi_client, filename, data):
     sign_in("admin")
     command = SimpleNamespace(upload=AsyncMock())

@@ -3,6 +3,9 @@
 Pure python-docx driven transformations, no OCR/Qdrant/embeddings.
 """
 
+from infrastructure.ml.ingestion.sections import Section
+from domain.knowledge.enums import PageContentType
+
 import sys
 from pathlib import Path
 
@@ -681,14 +684,14 @@ class TestParseDocx:
 
 
 class TestParseDocxSections:
-    def test_returns_list_of_tuples(self, tmp_path):
+    def test_returns_typed_sections(self, tmp_path):
         doc = _make_doc()
         _add_heading(doc, "Title", level=1)
         _add_para(doc, "Content here")
         path = _save(doc, tmp_path)
         sections = parse_docx_sections(path)
         assert isinstance(sections, list)
-        assert all(isinstance(s, tuple) for s in sections)
+        assert all(isinstance(s, Section) for s in sections)
 
     def test_splits_by_headings(self, tmp_path):
         doc = _make_doc()
@@ -698,7 +701,7 @@ class TestParseDocxSections:
         _add_para(doc, "Content 2")
         path = _save(doc, tmp_path)
         sections = parse_docx_sections(path)
-        headings = [h for h, _ in sections]
+        headings = [s.heading for s in sections]
         assert any("Chapter 1" in (h or "") for h in headings)
         assert any("Chapter 2" in (h or "") for h in headings)
 
@@ -710,7 +713,7 @@ class TestParseDocxSections:
         path = _save(doc, tmp_path)
         sections = parse_docx_sections(path)
         # The section under "Section A" should have a breadcrumb like "Part 1 > Section A"
-        headings = [h for h, _ in sections]
+        headings = [s.heading for s in sections]
         assert any(h and "Part 1 > Section A" in h for h in headings)
 
     def test_title_style_treated_as_heading(self, tmp_path):
@@ -719,7 +722,7 @@ class TestParseDocxSections:
         _add_para(doc, "Body text")
         path = _save(doc, tmp_path)
         sections = parse_docx_sections(path)
-        headings = [h for h, _ in sections]
+        headings = [s.heading for s in sections]
         assert any(h and "Main Title" in h for h in headings)
 
     def test_tables_appended_as_table_section(self, tmp_path):
@@ -730,7 +733,7 @@ class TestParseDocxSections:
         path = _save(doc, tmp_path)
         sections = parse_docx_sections(path)
         # With interleaving, table appears under the "Intro" heading
-        table_sections = [(h, c) for h, c in sections if "\x00TABLE:" in c]
+        table_sections = [(s.heading, s.content) for s in sections if s.kind == PageContentType.TABLE]
         assert len(table_sections) >= 1
         assert "| A | B |" in table_sections[0][1]
 
@@ -740,7 +743,7 @@ class TestParseDocxSections:
         # _extract_notes returns [] when no footnotes part exists
         path = _save(doc, tmp_path)
         sections = parse_docx_sections(path)
-        fn_sections = [(h, c) for h, c in sections if h == "Footnotes"]
+        fn_sections = [(s.heading, s.content) for s in sections if s.heading == "Footnotes"]
         # No footnotes part in the document
         assert len(fn_sections) == 0
 
@@ -754,9 +757,9 @@ class TestParseDocxSections:
         sections = parse_docx_sections(path)
         headings_and_content = list(sections)
         # "Empty Chapter" should not appear as a section with content
-        for h, c in headings_and_content:
-            if h and "Empty Chapter" in h:
-                assert c.strip() != ""
+        for section in headings_and_content:
+            if section.heading and "Empty Chapter" in section.heading:
+                assert section.content.strip() != ""
 
     def test_list_items_preserved_in_sections(self, tmp_path):
         doc = _make_doc()
@@ -765,7 +768,7 @@ class TestParseDocxSections:
         doc.add_paragraph("Item B", style="List Bullet")
         path = _save(doc, tmp_path)
         sections = parse_docx_sections(path)
-        all_content = " ".join(c for _, c in sections)
+        all_content = " ".join(s.content for s in sections)
         assert "Item A" in all_content
         assert "Item B" in all_content
 
@@ -776,8 +779,8 @@ class TestParseDocxSections:
         sections = parse_docx_sections(path)
         # Should return one section with None heading
         assert len(sections) >= 1
-        assert sections[0][0] is None
-        assert "Just plain text" in sections[0][1]
+        assert sections[0].heading is None
+        assert "Just plain text" in sections[0].content
 
     def test_nested_heading_levels(self, tmp_path):
         doc = _make_doc()
@@ -791,7 +794,7 @@ class TestParseDocxSections:
         _add_para(doc, "H2 second")
         path = _save(doc, tmp_path)
         sections = parse_docx_sections(path)
-        breadcrumbs = [h for h, _ in sections if h]
+        breadcrumbs = [s.heading for s in sections if s.heading]
         assert any("H1 > H2" in b for b in breadcrumbs)
         assert any("H1 > H2 > H3" in b for b in breadcrumbs)
 
@@ -802,7 +805,7 @@ class TestParseDocxSections:
         _add_para(doc, "Content")
         path = _save(doc, tmp_path)
         sections = parse_docx_sections(path)
-        breadcrumbs = [h for h, _ in sections if h]
+        breadcrumbs = [s.heading for s in sections if s.heading]
         assert any("Doc Title > Chapter 1" in b for b in breadcrumbs)
 
     def test_same_level_heading_resets_breadcrumb(self, tmp_path):
@@ -813,7 +816,7 @@ class TestParseDocxSections:
         _add_para(doc, "b content")
         path = _save(doc, tmp_path)
         sections = parse_docx_sections(path)
-        a_sections = [(h, c) for h, c in sections if h and "B" in h and "A" not in h]
+        a_sections = [s for s in sections if s.heading and "B" in s.heading and "A" not in s.heading]
         assert len(a_sections) >= 1
 
 

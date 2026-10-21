@@ -84,14 +84,14 @@ class PreviewFile(BaseModel):
 
     def model_post_init(self, __context: object) -> None:
         ext = Path(self.filename).suffix.lower()
-        if ext not in DRY_RUN_EXTENSIONS:
-            raise ValueError(
-                f"Unsupported file type: {ext}. Supported: {', '.join(sorted(DRY_RUN_EXTENSIONS))}"
-            )
         if ext == ".doc":
             raise ValueError(
                 "Файлы .doc (старый формат Word 97-2003) не поддерживаются. "
                 "Конвертируйте файл в .docx и повторите попытку."
+            )
+        if ext not in DRY_RUN_EXTENSIONS:
+            raise ValueError(
+                f"Unsupported file type: {ext}. Supported: {', '.join(sorted(DRY_RUN_EXTENSIONS))}"
             )
 
 

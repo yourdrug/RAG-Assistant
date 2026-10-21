@@ -29,14 +29,16 @@ from infrastructure.ml.langchain_document_parser import LangchainDocumentParser,
 @pytest.fixture
 def pipeline():
     settings = DomainSettingsAdapter()
+    values = {}
     registry = DomainProfileRegistry()
     for profile_type in (DecreeDomainProfile, LegalDomainProfile):
         profile = profile_type(settings)
         registry.register(profile)
         for default in profile.config_defaults():
-            settings.set(default.key, profile.key, default.value)
-        settings.set(f"{profile.key}_chunk_size", profile.key, "1200")
-        settings.set(f"{profile.key}_chunk_overlap", profile.key, "200")
+            values[default.key, profile.key] = default.value
+        values[f"{profile.key}_chunk_size", profile.key] = "1200"
+        values[f"{profile.key}_chunk_overlap", profile.key] = "200"
+    settings.replace_snapshot(values)
     return LangchainDocumentParser(registry, settings), LangchainDocumentSplitter(registry, settings)
 
 
@@ -194,7 +196,7 @@ def test_api_cli_same_chunks_and_structural_metadata(tmp_path, pipeline, extensi
     elif extension == ".pdf":
         path.write_bytes(b"fixture")
         monkeypatch.setattr(
-            "infrastructure.ml.langchain_document_parser.parse_pdf",
+            "infrastructure.ml.ingestion.registry.parse_pdf",
             lambda _: [
                 Document(
                     page_content="Service is available only if", metadata={"source": str(path), "page": 1}

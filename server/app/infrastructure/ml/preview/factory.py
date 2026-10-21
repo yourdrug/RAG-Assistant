@@ -4,15 +4,7 @@ from __future__ import annotations
 
 
 from application.documents import DocumentPreviewStrategy
-from infrastructure.ml.preview.docx_preview_strategy import DocxPreviewStrategy
-from infrastructure.ml.preview.pdf_preview_strategy import PdfPreviewStrategy
-from infrastructure.ml.preview.rtf_preview_strategy import RtfPreviewStrategy
-
-_EXTENSION_MAP: dict[str, type[DocumentPreviewStrategy]] = {
-    ".pdf": PdfPreviewStrategy,
-    ".docx": DocxPreviewStrategy,
-    ".rtf": RtfPreviewStrategy,
-}
+from infrastructure.ml.ingestion.registry import FORMAT_HANDLERS, FormatContext
 
 
 class PreviewStrategyFactory:
@@ -30,20 +22,11 @@ class PreviewStrategyFactory:
                 "Legacy .doc format (Word 97-2003) is not supported for preview. "
                 "Convert the file to .docx and try again."
             )
-        cls = _EXTENSION_MAP.get(ext)
-        if cls is None:
+        handler = FORMAT_HANDLERS.get(ext)
+        if handler is None or handler.preview is None:
             raise ValueError(f"Unsupported extension for dry-run preview: {ext}")
-        if cls is PdfPreviewStrategy:
-            return PdfPreviewStrategy(diag_service)  # type: ignore[arg-type]
-        if cls is DocxPreviewStrategy:
-            return DocxPreviewStrategy()
-        if cls is RtfPreviewStrategy:
-            return RtfPreviewStrategy(
-                domain_registry=domain_registry,
-                domain_settings=domain_settings,
-            )
-        raise ValueError(f"No strategy for {ext}")
+        return handler.preview(FormatContext(domain_registry, domain_settings, diag_service))
 
     @staticmethod
     def supported_extensions() -> set[str]:
-        return set(_EXTENSION_MAP.keys())
+        return {ext for ext, handler in FORMAT_HANDLERS.items() if handler.preview is not None}

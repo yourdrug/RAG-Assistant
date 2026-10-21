@@ -26,12 +26,14 @@ from infrastructure.ml.rag.rag_formatting import format_docs
 @pytest.fixture
 def pipeline():
     settings = DomainSettingsAdapter()
+    values = {}
     registry = DomainProfileRegistry()
     for profile_type in (DecreeDomainProfile, LegalDomainProfile):
         profile = profile_type(settings)
         registry.register(profile)
         for default in profile.config_defaults():
-            settings.set(default.key, profile.key, default.value)
+            values[default.key, profile.key] = default.value
+    settings.replace_snapshot(values)
     return LangchainDocumentParser(registry, settings), LangchainDocumentSplitter(registry, settings)
 
 

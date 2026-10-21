@@ -2,13 +2,29 @@
 
 from __future__ import annotations
 
+import logging
 import re
+from typing import TYPE_CHECKING
 from collections import Counter
 from pathlib import Path
 
-from striprtf.striprtf import rtf_to_text
+from infrastructure.ml.ingestion.table_formatting import render_table
+from infrastructure.ml.ingestion.sections import ParsedFormat, Section
+from infrastructure.ml.ingestion.structural_metadata import unit_metadata
+from infrastructure.ml.rtf_decree_parser import parse_decree_rtf
 
+from striprtf.striprtf import rtf_to_text
+from domain.knowledge.enums import PageContentType
 from infrastructure.ml.ingestion.rtf_walker import Segment, Table, _walk_paragraphs
+
+if TYPE_CHECKING:
+    from domain.ingestion.ports import DomainSettingsPort
+    from domain.ingestion.profiles.decree import DecreeDomainProfile
+    from domain.ingestion.profiles.registry import DomainProfileRegistry
+
+log = logging.getLogger(__name__)
+_DECREE_FINGERPRINT_PREFIX_CHARS = 3000
+MIN_DOCUMENT_CHARS = 20
 
 
 # --- Raw byte -> text decoding ---------------------------------------------
@@ -102,17 +118,7 @@ def _most_common_size(segments: list[Segment]) -> float | None:
 
 
 def _table_to_markdown(table: Table) -> str:
-    rows = table.rows
-    if not rows:
-        return ""
-    max_cols = max(len(r) for r in rows)
-    for r in rows:
-        while len(r) < max_cols:
-            r.append("")
-    header = "| " + " | ".join(rows[0]) + " |"
-    separator = "|" + "|".join(["---"] * max_cols) + "|"
-    body = ["| " + " | ".join(row) + " |" for row in rows[1:]]
-    return "\n".join([header, separator] + body) if body else header
+    return render_table(table.rows)
 
 
 def extract_rtf_tables(rtf_raw: str) -> list[str]:
@@ -160,9 +166,9 @@ def _split_by_headings(
     baseline: float | None,
     size_to_level: dict[float, int],
     fallback_level: int,
-) -> list[tuple[str | None, str]]:
+) -> list[Section]:
     """Walk segments, splitting on detected headings into (heading, content) pairs."""
-    sections: list[tuple[str | None, str]] = []
+    sections: list[Section] = []
     stack: list[tuple[int, str]] = []
     current_heading: str | None = None
     current_lines: list[str] = []
@@ -170,14 +176,14 @@ def _split_by_headings(
     def flush():
         content = "\n".join(current_lines).strip()
         if content:
-            sections.append((current_heading, content))
+            sections.append(Section(current_heading, content))
 
     for seg in segments:
         if seg.table:
             md = _table_to_markdown(seg.table)
             if md:
                 flush()
-                sections.append((current_heading, "\x00TABLE:" + md))
+                sections.append(Section(current_heading, md, PageContentType.TABLE))
                 current_lines = []
         elif seg.paragraph:
             if _is_heading(seg, baseline):
@@ -208,15 +214,100 @@ def _fallback_flat_text(segments: list[Segment]) -> str:
     return "\n".join(all_text)
 
 
-def parse_rtf_sections(file_path: Path) -> list[tuple[str | None, str]]:
+def parse_rtf_sections(file_path: Path) -> list[Section]:
     r"""Split RTF into (heading, content) sections using paragraph formatting."""
     raw = _read_rtf_text(file_path)
     segments = _walk_paragraphs(raw, codepage=_detect_codepage(raw))
     if not segments:
-        return [(None, rtf_to_text(raw))]
+        return [Section(None, rtf_to_text(raw))]
     baseline = _most_common_size(segments)
     size_to_level, fallback_level = _build_heading_index(segments, baseline)
     sections = _split_by_headings(segments, baseline, size_to_level, fallback_level)
     if not sections:
-        return [(None, _fallback_flat_text(segments))]
+        return [Section(None, _fallback_flat_text(segments))]
     return sections
+
+
+class RtfDocumentParser:
+    """Apply decree and generic section fallbacks for ingestion."""
+
+    def __init__(
+        self,
+        domain_registry: DomainProfileRegistry | None = None,
+        domain_settings: DomainSettingsPort | None = None,
+    ) -> None:
+        self._domain_registry = domain_registry
+        self._domain_settings = domain_settings
+
+    def parse(self, file_path: Path) -> ParsedFormat:
+        """RTF parsing: decree-structured split, generic heuristic split, or flat text.
+
+        Tries the domain-specific decree splitter first (most precise when it
+        applies). If that doesn't match, falls back to the generic
+        formatting-based section splitter (parse_rtf_sections); if that
+        finds no headings either (flat/unstructured RTF), falls back further
+        to a single flat document — the same behavior as before this path
+        existed, so plain RTF files never regress.
+        """
+        text, _meta = parse_rtf(file_path)
+        if not text or len(text.strip()) < MIN_DOCUMENT_CHARS:
+            message = "Too little text in document"
+            raise RuntimeError(message)
+
+        decree_docs = self.try_parse_decree_rtf(file_path, text)
+        if decree_docs is not None:
+            return decree_docs
+
+        try:
+            sections = parse_rtf_sections(file_path)
+        except Exception:
+            log.exception("Structured RTF parsing failed for %s — falling back to flat parse", file_path.name)
+            sections = None
+
+        page_meta = {}
+        title = extract_doc_title(file_path)
+        if title:
+            page_meta["doc_title"] = title
+
+        if sections and len(sections) > 1:
+            return ParsedFormat(sections, page_meta)
+
+        return ParsedFormat([Section(None, text)], page_meta, structured=False)
+
+    def get_decree_profile(self) -> DecreeDomainProfile | None:
+        if self._domain_registry is None or self._domain_settings is None:
+            return None
+        try:
+            profile = self._domain_registry.get("decree")
+        except KeyError:
+            return None
+        return profile if profile.content_boundaries() else None  # type: ignore[return-value]
+
+    def try_parse_decree_rtf(self, file_path: Path, text: str) -> ParsedFormat | None:
+        """Decree-structured RTF path; None = fall through to flat RTF parsing.
+
+        Uses the same deterministic fingerprint as document classification,
+        applied to the file prefix for speed (see TZ section 5.2).
+        """
+        profile = self.get_decree_profile()
+        if profile is None or not profile.structural_fingerprint(text[:_DECREE_FINGERPRINT_PREFIX_CHARS]):
+            return None
+        try:
+            if self._domain_settings is None:
+                return None
+            units, doc_metadata = parse_decree_rtf(file_path, profile, self._domain_settings)
+        except Exception:
+            log.exception("Decree RTF parsing failed for %s — falling back to flat parse", file_path.name)
+            return None
+
+        docs = []
+        for unit in units:
+            if not unit.content.strip():
+                continue
+            metadata = unit_metadata(unit, profile, {"source": file_path.name, **doc_metadata})
+            docs.append(Section(None, unit.content, metadata=metadata))
+        if not docs or sum(len(d.content) for d in docs) < MIN_DOCUMENT_CHARS:
+            message = "Too little text in document"
+            raise RuntimeError(message)
+        log.info("Decree RTF detected: %d structural units from %s", len(docs), file_path.name)
+        return ParsedFormat(docs, structured=False)

@@ -14,7 +14,7 @@ from langchain.schema import Document
 from config import settings
 from domain.knowledge.enums import PageContentType
 from infrastructure.ml.ingestion.ocr import ocr_pdf_pages, ocr_vl_pdf_pages
-from infrastructure.ml.ingestion.table_formatting import markdown_cell
+from infrastructure.ml.ingestion.table_formatting import markdown_cell, render_table
 from infrastructure.ml.ingestion.utils import clean_pdf_text
 
 log = logging.getLogger("detailed")
@@ -59,19 +59,8 @@ def pymupdf_table_to_markdown(table) -> str:
     if not data or len(data) < 1:
         return ""
 
-    # Normalize column count
-    max_cols = max(len(row) for row in data)
-    rows = []
-    for row in data:
-        normalized = [markdown_cell(cell) for cell in row]
-        while len(normalized) < max_cols:
-            normalized.append("")
-        rows.append(normalized)
-
-    header = "| " + " | ".join(rows[0]) + " |"
-    separator = "|" + "|".join(["---"] * max_cols) + "|"
-    body = ["| " + " | ".join(row) + " |" for row in rows[1:]]
-    return "\n".join([header, separator] + body) if body else header
+    rows = [[markdown_cell(cell) for cell in row] for row in data]
+    return render_table(rows)
 
 
 def _order_blocks_columnwise(blocks: list, page_width: float) -> list[str]:

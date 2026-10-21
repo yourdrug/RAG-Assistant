@@ -40,7 +40,7 @@ class SplitContext:
 class DocumentParserPort(Protocol):
     """Parses a file into domain RawDocuments.
 
-    The adapter handles format-specific logic (PARSERS registry, merge_pdf_pages,
+    The adapter handles format-specific logic (format handler registry, merge_pdf_pages,
     tuple convention) and returns domain-typed documents. Callers own
     workflow-specific quality assessment and error reporting.
     """

@@ -64,7 +64,7 @@ def _service(uow: FakeUnitOfWork | None = None, file_storage=None):
     uow = uow or FakeUnitOfWork()
     factory = FakeUnitOfWorkFactory(uow)
     fs = file_storage or MagicMock()
-    fs.supported_extensions = (".pdf", ".docx", ".doc", ".txt", ".md")
+    fs.supported_extensions = (".pdf", ".docx", ".txt", ".md")
     fs.upload_file = AsyncMock()
     fs.delete_file = AsyncMock()
     context_factory = UserContextFactory()

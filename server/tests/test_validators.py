@@ -117,9 +117,11 @@ class TestFileContentMagicBytes:
         with pytest.raises(ValidationError, match="does not match"):
             FileContent(data=b"random bytes", filename="doc.rtf")
 
-    def test_doc_valid(self):
-        fc = FileContent(data=b"\xd0\xcf\x11\xe0 ole2", filename="doc.doc")
-        assert fc.filename == "doc.doc"
+    @pytest.mark.parametrize("filename", ["legacy.doc", "legacy.DOC"])
+    @pytest.mark.parametrize("check_structural", [False, True])
+    def test_legacy_doc_is_rejected(self, filename, check_structural):
+        with pytest.raises(ValidationError, match="Unsupported file extension"):
+            FileContent(data=b"\xd0\xcf\x11\xe0 ole2", filename=filename, check_structural=check_structural)
 
     def test_txt_no_magic_check(self):
         fc = FileContent(data=b"any content", filename="doc.txt")

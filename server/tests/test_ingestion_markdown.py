@@ -2,6 +2,8 @@
 normalization, code fence masking, date extraction, and doc title extraction.
 """
 
+from domain.knowledge.enums import PageContentType
+
 import sys
 from pathlib import Path
 
@@ -156,7 +158,7 @@ class TestParseMarkdownSections:
         content = "# H1\nBody1\n## H2\nBody2"
         f = self._write_md(tmp_path, content)
         sections = parse_markdown_sections(f)
-        headings = [h for h, _ in sections]
+        headings = [s.heading for s in sections]
         assert "H1" in headings[0]
         assert "H1 > H2" in headings[1]
 
@@ -165,7 +167,7 @@ class TestParseMarkdownSections:
         f = self._write_md(tmp_path, content)
         sections = parse_markdown_sections(f)
         assert len(sections) >= 2
-        headings = [h for h, _ in sections]
+        headings = [s.heading for s in sections]
         assert "Title One" in headings[0]
         assert "Title Two" in headings[1]
 
@@ -175,23 +177,23 @@ class TestParseMarkdownSections:
         sections = parse_markdown_sections(f)
         assert len(sections) >= 3
         # Deepest section has full breadcrumb
-        assert "H1 > H2 > H3" in sections[2][0]
+        assert "H1 > H2 > H3" in sections[2].heading
         # Intermediate section has partial breadcrumb
-        assert sections[1][0] == "H1 > H2"
+        assert sections[1].heading == "H1 > H2"
 
     def test_leading_text_before_first_header(self, tmp_path):
         content = "Intro text.\n# First Header\nBody"
         f = self._write_md(tmp_path, content)
         sections = parse_markdown_sections(f)
         # First section should have heading=None for leading text
-        assert sections[0][0] is None
-        assert "Intro text" in sections[0][1]
+        assert sections[0].heading is None
+        assert "Intro text" in sections[0].content
 
     def test_code_blocks_not_treated_as_headers(self, tmp_path):
         content = "# Real Header\nBody\n```\n# Fake Header\n```\nMore"
         f = self._write_md(tmp_path, content)
         sections = parse_markdown_sections(f)
-        headings = [h for h, _ in sections if h is not None]
+        headings = [s.heading for s in sections if s.heading is not None]
         assert len(headings) == 1
         assert "Real Header" in headings[0]
 
@@ -200,8 +202,8 @@ class TestParseMarkdownSections:
         f = self._write_md(tmp_path, content)
         sections = parse_markdown_sections(f)
         types = []
-        for _, text in sections:
-            if text.startswith("\x00TABLE:"):
+        for section in sections:
+            if section.kind == PageContentType.TABLE:
                 types.append("table")
             else:
                 types.append("text")
@@ -212,7 +214,7 @@ class TestParseMarkdownSections:
         content = "# Header\n```python\nprint('hello')\n```"
         f = self._write_md(tmp_path, content)
         sections = parse_markdown_sections(f)
-        all_content = " ".join(t for _, t in sections)
+        all_content = " ".join(s.content for s in sections)
         assert "print('hello')" in all_content
 
     def test_no_headers_returns_single_section(self, tmp_path):
@@ -220,8 +222,8 @@ class TestParseMarkdownSections:
         f = self._write_md(tmp_path, content)
         sections = parse_markdown_sections(f)
         assert len(sections) == 1
-        assert sections[0][0] is None
-        assert "Just some text" in sections[0][1]
+        assert sections[0].heading is None
+        assert "Just some text" in sections[0].content
 
 
 # ---------------------------------------------------------------------------

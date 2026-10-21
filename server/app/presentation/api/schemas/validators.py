@@ -52,13 +52,6 @@ def _is_valid_pdf(data: bytes) -> bool:
     return b"%%EOF" in tail
 
 
-def _is_ole2_document(data: bytes) -> bool:
-    """Verify OLE2 compound document header structure."""
-    if len(data) < 512:
-        return False
-    return data[26:28] == b"\x3e\x00" and data[30:32] == b"\xfe\xff" and data[32] == 0x09
-
-
 # ---------------------------------------------------------------------------
 # File content validation model
 # ---------------------------------------------------------------------------
@@ -68,7 +61,7 @@ class FileContent(BaseModel):
     """Validate uploaded file extension and content.
 
     Use ``check_structural=True`` to additionally verify container format
-    structure (PDF %%EOF, ZIP EOCD, OLE2 header) — raises 400 on mismatch.
+    structure (PDF %%EOF, ZIP EOCD) — raises 400 on mismatch.
     """
 
     data: bytes
@@ -97,8 +90,6 @@ class FileContent(BaseModel):
                 raise ValueError("File content is not a valid PDF (missing EOF marker)")
             if ext == ".docx":
                 validate_docx_archive(BytesIO(self.data))
-            if ext == ".doc" and not _is_ole2_document(self.data):
-                raise ValueError("File content is not a valid OLE2 compound document (.doc)")
 
         return self
 

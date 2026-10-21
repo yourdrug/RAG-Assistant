@@ -1,6 +1,4 @@
-"""Re-exports for backward compatibility: ``from infrastructure.ml.ingestion import X``."""
-
-from config import settings  # noqa: F401 — re-exported for test patching
+"""Ingestion parsing, OCR and chunking exports."""
 
 from infrastructure.ml.ingestion.docx import (
     docx_table_to_markdown,
@@ -24,16 +22,13 @@ from infrastructure.ml.ingestion.pdf import (
     parse_pdf,
     pymupdf_table_to_markdown,
 )
-from infrastructure.ml.ingestion.registry import PARSERS
 from infrastructure.ml.ingestion.rtf import parse_rtf
 from infrastructure.ml.ingestion.splitting import (
-    GENERAL_SEPARATORS,
     LEGAL_SEPARATORS,
     TABLE_BATCH_ROWS,
     extract_article_number,
     merge_pdf_pages,
     split_documents,
-    split_documents_legal,
 )
 from infrastructure.ml.ingestion.txt import parse_txt
 from infrastructure.ml.ingestion.utils import clean_pdf_text
@@ -64,13 +59,9 @@ __all__ = [
     # Splitting
     "merge_pdf_pages",
     "split_documents",
-    "split_documents_legal",
     "extract_article_number",
-    "GENERAL_SEPARATORS",
     "LEGAL_SEPARATORS",
     "TABLE_BATCH_ROWS",
     # Utils
     "clean_pdf_text",
-    # Registry
-    "PARSERS",
 ]

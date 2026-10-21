@@ -45,8 +45,8 @@ def test_docx_public_parsers_keep_body_order_and_breadcrumbs(tmp_path):
     assert text.index("Before") < text.index("| Name") < text.index("After")
     sections = parse_docx_sections(path)
     assert len(sections) == 3
-    assert all(heading == "Guide > Fees" for heading, _ in sections)
-    assert sections[1][1].startswith("\x00TABLE:")
+    assert all(s.heading == "Guide > Fees" for s in sections)
+    assert sections[1].kind == PageContentType.TABLE
 
 
 @pytest.mark.parametrize("extension", [".txt", ".md", ".docx", ".rtf", ".pdf"])

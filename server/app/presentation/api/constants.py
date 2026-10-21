@@ -63,7 +63,6 @@ CONFIDENCE_KEY = "_confidence"
 MAGIC_BYTES: dict[str, list[bytes]] = {
     ".pdf": [b"%PDF"],
     ".docx": [b"PK\x03\x04"],  # ZIP-based
-    ".doc": [b"\xd0\xcf\x11\xe0"],  # OLE2
     ".rtf": [b"{\\rtf"],
     ".md": [],  # plain text, no reliable magic
     ".txt": [],  # plain text
@@ -85,7 +84,7 @@ STATIC_CONFIG_KEYS: frozenset[str] = frozenset({"data_dir"})
 # ---------------------------------------------------------------------------
 # Dry-run preview: accepted file extensions
 # ---------------------------------------------------------------------------
-DRY_RUN_EXTENSIONS: frozenset[str] = frozenset({".pdf", ".docx", ".doc", ".rtf"})
+DRY_RUN_EXTENSIONS: frozenset[str] = frozenset({".pdf", ".docx", ".rtf"})
 
 
 # ---------------------------------------------------------------------------

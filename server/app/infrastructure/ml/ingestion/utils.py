@@ -56,7 +56,7 @@ def clean_pdf_text(text: str) -> str:
       page-number-only lines (running headers/footers).
     - Preserves paragraph breaks ("\\n\\n") instead of collapsing them to a
       single newline: downstream splitters (see splitting.py
-      GENERAL_SEPARATORS) rely on "\\n\\n" as the primary chunk boundary, so
+      text_document_chunks) rely on "\\n\\n" as the primary chunk boundary, so
       destroying it here would make paragraph-aware splitting a no-op.
     """
     # Fix hyphenation at line breaks — only for mid-word breaks.

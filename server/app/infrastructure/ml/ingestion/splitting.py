@@ -13,11 +13,13 @@ from infrastructure.ml.ingestion.table_chunks import table_document_chunks
 from infrastructure.ml.ingestion.page_joining import join_page_word, page_word_evidence
 from infrastructure.ml.ingestion.text_chunks import (
     document_slice,
+    locate_span,
     pack_step_documents,
     text_document_chunks,
 )
 
 from config import settings
+from domain.ingestion.content_splitter import MIN_STRUCTURAL_CHUNK_CHARS, split_by_content
 from domain.knowledge.enums import DocDomain
 from domain.knowledge.enums import PageContentType
 
@@ -30,17 +32,6 @@ log = logging.getLogger("detailed")
 
 TABLE_BATCH_ROWS = 15  # max data rows per table chunk (excl. header+separator)
 
-GENERAL_SEPARATORS = [
-    "\n# ",
-    "\n## ",
-    "\n### ",
-    "\n#### ",
-    "\n\n",
-    "\n",
-    " ",
-    "",
-]
-
 LEGAL_SEPARATORS = [
     "\nГлава ",
     "\nРаздел ",
@@ -50,22 +41,6 @@ LEGAL_SEPARATORS = [
     "\nПункт ",
     "\n\n",
     "\n",
-    " ",
-    "",
-]
-
-# Sentence-aware separators: prefer sentence boundaries, then word, then char
-SENTENCE_SEPARATORS = [
-    "\n\n",
-    "\n",
-    ". ",
-    "! ",
-    "? ",
-    ".\n",
-    "!\n",
-    "?\n",
-    "; ",
-    ": ",
     " ",
     "",
 ]
@@ -262,6 +237,7 @@ def split_documents(
     sentence splitting for oversized blocks. Table row batches retain their
     original position and repeat headers in every domain.
     """
+    chunker = Chunker(domain, profile, settings, chunk_settings)
     chunks: list[Document] = []
     table_counts: dict[str, int] = {}
     for doc in merge_pdf_pages(docs):
@@ -274,17 +250,9 @@ def split_documents(
                 page_content=doc.page_content,
                 metadata={**doc.metadata, "table_id": f"table-{table_counts[source]}"},
             )
-            chunks.extend(
-                table_document_chunks(
-                    doc, settings_chunk_size(domain, settings, chunk_settings), TABLE_BATCH_ROWS
-                )
-            )
-        elif profile is not None and profile.content_boundaries() and settings is not None:
-            chunks.extend(_split_structured([doc], profile, settings))
-        elif domain == DocDomain.LEGAL.value:
-            chunks.extend(split_documents_legal([doc], settings, chunk_settings))
+            chunks.extend(table_document_chunks(doc, chunker.table_size, TABLE_BATCH_ROWS))
         else:
-            chunks.extend(_split_char_general([doc], chunk_settings=chunk_settings))
+            chunks.extend(chunker.split(doc))
 
     # Filter out empty/whitespace-only chunks that cause TEI errors
     before = len(chunks)
@@ -305,57 +273,88 @@ def split_documents(
     return chunks
 
 
-def _split_structured(
-    docs: list[Document],
-    profile: "DocumentProfile",
-    domain_settings: "DomainSettingsPort",
-) -> list[Document]:
-    """Content-based splitting via the profile's structural boundary hierarchy.
+class Chunker:
+    """Resolve a document profile's limits once and preserve its splitting policy."""
 
-    For structured domains (decree, legal), units are first split by content
-    boundaries (point/subpoint/sentence). Units still exceeding chunk_size
-    are further split using boundary-aware separators from the profile,
-    then RecursiveCharacterTextSplitter as final fallback.
-    """
-    from domain.ingestion.content_splitter import MIN_STRUCTURAL_CHUNK_CHARS, split_by_content
+    def __init__(
+        self,
+        domain: str,
+        profile: DocumentProfile | None = None,
+        domain_settings: DomainSettingsPort | None = None,
+        chunk_settings: ChunkSettingsPort | None = None,
+    ) -> None:
+        config = chunk_settings or settings
+        self.profile = (
+            profile if profile and profile.content_boundaries() and domain_settings is not None else None
+        )
+        self.domain_settings = domain_settings
+        self.table_size = settings_chunk_size(domain, domain_settings, chunk_settings)
+        self.patterns: list[re.Pattern[str]] = []
+        self.max_unit_chars: int | None = None
+        if self.profile is not None and domain_settings is not None:
+            key = self.profile.key
+            self.chunk_size = (
+                self.table_size
+                if key == domain and chunk_settings is None
+                else settings_chunk_size(key, domain_settings)
+            )
+            default_overlap = (
+                settings.legal_chunk_overlap
+                if key == DocDomain.LEGAL.value
+                else settings.decree_chunk_overlap
+            )
+            self.chunk_overlap = domain_setting(domain_settings, f"{key}_chunk_overlap", key, default_overlap)
+            self.patterns = [level.pattern for level in self.profile.content_boundaries()]
+        elif domain == DocDomain.LEGAL.value:
+            self.chunk_size = self.table_size
+            self.chunk_overlap = domain_setting(
+                domain_settings, "legal_chunk_overlap", domain, config.legal_chunk_overlap, allow_zero=True
+            )
+            self.patterns = [re.compile(re.escape(separator)) for separator in LEGAL_SEPARATORS if separator]
+        else:
+            self.chunk_size = config.chunk_size
+            self.chunk_overlap = config.chunk_overlap
 
-    max_unit_chars = int(domain_settings.get("max_unit_chars", domain_key=profile.key))
-    chunk_size = settings_chunk_size(profile.key, domain_settings)
-    default_overlap = (
-        settings.legal_chunk_overlap
-        if profile.key == DocDomain.LEGAL.value
-        else settings.decree_chunk_overlap
-    )
-    chunk_overlap = _get_domain_setting(
-        domain_settings, f"{profile.key}_chunk_overlap", profile.key, default_overlap
-    )
-    patterns = [level.pattern for level in profile.content_boundaries()]
-    result: list[Document] = []
-    for doc in docs:
+    def split(self, doc: Document) -> list[Document]:
+        if self.profile is not None:
+            return self.split_structured(doc)
+        documents = [doc] if self.patterns else pack_step_documents(doc, self.chunk_size)
+        return [
+            chunk
+            for item in documents
+            for chunk in text_document_chunks(item, self.chunk_size, self.chunk_overlap, self.patterns)
+        ]
+
+    def split_structured(self, doc: Document) -> list[Document]:
+        if self.profile is None:
+            message = "Structured splitting requires a profile"
+            raise RuntimeError(message)
         if "unit_kind" in doc.metadata:
-            result.extend(text_document_chunks(doc, chunk_size, chunk_overlap, patterns))
-            continue
+            return text_document_chunks(doc, self.chunk_size, self.chunk_overlap, self.patterns)
+        if self.max_unit_chars is None:
+            if self.domain_settings is None:
+                message = "Structured splitting requires domain settings"
+                raise RuntimeError(message)
+            self.max_unit_chars = int(self.domain_settings.get("max_unit_chars", domain_key=self.profile.key))
         units = split_by_content(
             doc.page_content,
-            profile.content_boundaries(),
-            max_unit_chars,
+            self.profile.content_boundaries(),
+            self.max_unit_chars,
             min_chunk_chars=MIN_STRUCTURAL_CHUNK_CHARS,
         )
         cursor = 0
+        result: list[Document] = []
         for unit in units:
             unit_doc = document_slice(doc, unit.content, cursor)
-            unit_doc.metadata.update(unit_metadata(unit, profile, doc.metadata))
-            # The sliced provenance must not be overwritten by document-wide offsets.
+            spans = unit_doc.metadata.get("_page_spans")
+            unit_doc.metadata.update(unit_metadata(unit, self.profile, doc.metadata))
             if "_page_spans" in doc.metadata:
-                sliced = document_slice(doc, unit.content, cursor)
-                unit_doc.metadata["_page_spans"] = sliced.metadata["_page_spans"]
-                from infrastructure.ml.ingestion.text_chunks import locate_span
-
+                unit_doc.metadata["_page_spans"] = spans
                 located = locate_span(doc.page_content, unit.content, cursor)
                 if located is not None:
                     cursor = located[1]
-            result.extend(text_document_chunks(unit_doc, chunk_size, chunk_overlap, patterns))
-    return result
+            result.extend(text_document_chunks(unit_doc, self.chunk_size, self.chunk_overlap, self.patterns))
+        return result
 
 
 def settings_chunk_size(domain: str, domain_settings=None, chunk_settings=None) -> int:
@@ -367,70 +366,18 @@ def settings_chunk_size(domain: str, domain_settings=None, chunk_settings=None) 
         default = settings.decree_chunk_size
     else:
         return global_settings.chunk_size
-    return _get_domain_setting(domain_settings, f"{domain}_chunk_size", domain, default)
+    return domain_setting(domain_settings, f"{domain}_chunk_size", domain, default)
 
 
-def _get_domain_setting(settings, key: str, domain_key: str, default: int) -> int:
+def domain_setting(settings, key: str, domain_key: str, default: int, *, allow_zero: bool = False) -> int:
     """Read a domain-specific setting with fallback to default."""
     if settings is None:
         return default
     try:
         val = int(settings.get(key, domain_key=domain_key))
-        return val if val > 0 else default
+        return val if val > 0 or (allow_zero and val == 0) else default
     except (KeyError, ValueError, TypeError):
         return default
-
-
-def _split_char_general(
-    docs: list[Document],
-    chunk_settings: "ChunkSettingsPort | None" = None,
-) -> list[Document]:
-    """Pack complete steps and split oversized text within the final budget."""
-    config = chunk_settings or settings
-    chunks: list[Document] = []
-    for doc in docs:
-        for step in pack_step_documents(doc, config.chunk_size):
-            chunks.extend(text_document_chunks(step, config.chunk_size, config.chunk_overlap))
-    return chunks
-
-
-def split_documents_legal(
-    docs: list[Document],
-    domain_settings: "DomainSettingsPort | None" = None,
-    chunk_settings: "ChunkSettingsPort | None" = None,
-) -> list[Document]:
-    """Split legal documents into chunks with larger size and legal-aware separators.
-
-    Reads legal_chunk_size and legal_chunk_overlap from domain settings if
-    available, otherwise falls back to chunk_settings or global defaults.
-    """
-    if chunk_settings is not None:
-        chunk_size = chunk_settings.legal_chunk_size
-        chunk_overlap = chunk_settings.legal_chunk_overlap
-    else:
-        chunk_size = settings.legal_chunk_size
-        chunk_overlap = settings.legal_chunk_overlap
-    if domain_settings is not None:
-        try:
-            chunk_size = int(domain_settings.get("legal_chunk_size", DocDomain.LEGAL.value))
-        except (KeyError, ValueError):
-            pass
-        try:
-            chunk_overlap = int(domain_settings.get("legal_chunk_overlap", DocDomain.LEGAL.value))
-        except (KeyError, ValueError):
-            pass
-
-    patterns = [re.compile(re.escape(separator)) for separator in LEGAL_SEPARATORS if separator]
-    chunks = [
-        chunk for doc in docs for chunk in text_document_chunks(doc, chunk_size, chunk_overlap, patterns)
-    ]
-    # Filter out empty/whitespace-only chunks that cause TEI errors
-    before = len(chunks)
-    chunks = [c for c in chunks if c.page_content.strip()]
-    if len(chunks) < before:
-        log.warning("Filtered %d empty chunks during legal split", before - len(chunks))
-    log.info("Split %d legal documents into %d chunks", len(docs), len(chunks))
-    return chunks
 
 
 def extract_article_number(chunk_text: str) -> str | None:

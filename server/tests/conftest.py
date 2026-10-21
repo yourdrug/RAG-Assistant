@@ -114,5 +114,5 @@ def mock_vector_store():
 def mock_file_storage():
     """Mock FileStorage."""
     mock = MagicMock()
-    mock.supported_extensions = (".pdf", ".docx", ".doc", ".txt", ".md")
+    mock.supported_extensions = (".pdf", ".docx", ".txt", ".md")
     return mock

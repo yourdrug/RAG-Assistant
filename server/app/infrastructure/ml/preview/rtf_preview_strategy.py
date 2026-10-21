@@ -11,7 +11,7 @@ from domain.knowledge.enums import PageContentType
 from domain.ingestion.preview import PreviewUnitKind
 
 from domain.ingestion.preview import DryRunPageResult
-from infrastructure.ml.ingestion import parse_rtf
+from infrastructure.ml.ingestion.rtf import parse_rtf
 from infrastructure.ml.rtf_decree_parser import parse_decree_rtf
 
 if TYPE_CHECKING:

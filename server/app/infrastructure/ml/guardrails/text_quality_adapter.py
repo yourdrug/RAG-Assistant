@@ -1,12 +1,12 @@
-"""Adapter bridging TextQualityAssessorPort to the pdf_diag heuristic."""
+"""Adapter bridging TextQualityAssessorPort to domain text quality rules."""
 
 from __future__ import annotations
 
-from infrastructure.ml.pdf_diag import is_garbled
+from domain.ingestion.text_quality import is_garbled
 
 
 class TextQualityAssessorAdapter:
-    """Implements TextQualityAssessorPort using the existing pdf_diag heuristic."""
+    """Implements TextQualityAssessorPort using the shared text quality heuristic."""
 
     def is_garbled(self, text: str) -> bool:
         return is_garbled(text)

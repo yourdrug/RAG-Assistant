@@ -89,4 +89,4 @@ def test_normal_docx_passes_upload_and_both_worker_parsers(tmp_path):
     validated = validate_uploaded_file(path.read_bytes(), path.name)
     assert validated.data == path.read_bytes()
     assert "Normal body text" in parse_docx(path)[0]
-    assert any("Normal body text" in text for _, text in parse_docx_sections(path))
+    assert any("Normal body text" in text for text in (s.content for s in parse_docx_sections(path)))

@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from domain.ingestion.preview import PDFQualityReport
+
+if TYPE_CHECKING:
+    from domain.ingestion.preview import PDFQualityReport
+
 from infrastructure.ml.ingestion import extract_article_number, extract_date_from_filename
 from infrastructure.ml.pdf_diag import assess_pdf_extraction_quality
 
@@ -23,11 +27,4 @@ class MLPDFQualityAssessor:
     """Adapts PDF quality assessment behind PDFQualityAssessorPort."""
 
     def assess(self, pdf_path: Path, documents: list) -> PDFQualityReport:
-        r = assess_pdf_extraction_quality(pdf_path, documents)
-        return PDFQualityReport(
-            total_pages=r.total_pages,
-            n_ok=r.n_ok,
-            n_missing=r.n_missing,
-            n_garbled=r.n_garbled,
-            bad_ratio=r.bad_ratio,
-        )
+        return assess_pdf_extraction_quality(pdf_path, documents)

@@ -8,8 +8,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
+from infrastructure.ml.ingestion.registry import FORMAT_HANDLERS
 from infrastructure.ml.ingestion import (  # noqa: E402
-    PARSERS,
     clean_pdf_text,
     merge_pdf_pages,
     parse_markdown,
@@ -191,22 +191,21 @@ class TestParseTxt:
 
 
 # ---------------------------------------------------------------------------
-# PARSERS registry
+# Format handler registry
 # ---------------------------------------------------------------------------
 
 
-class TestParsersRegistry:
+class TestFormatHandlersRegistry:
     def test_expected_extensions_registered(self):
-        # .pdf is handled by parse_pdf() separately, not in PARSERS dict
-        expected = {".docx", ".doc", ".rtf", ".md", ".txt"}
-        assert set(PARSERS.keys()) == expected
+        expected = {".pdf", ".docx", ".rtf", ".md", ".txt"}
+        assert set(FORMAT_HANDLERS.keys()) == expected
 
-    def test_docx_and_doc_share_parser(self):
-        assert PARSERS[".docx"] is PARSERS[".doc"]
+    def test_legacy_doc_is_not_registered(self):
+        assert ".doc" not in FORMAT_HANDLERS
 
     def test_all_parsers_are_callable(self):
-        for ext, parser in PARSERS.items():
-            assert callable(parser), f"Parser for {ext} is not callable"
+        for ext, handler in FORMAT_HANDLERS.items():
+            assert callable(handler.parse), f"Parser for {ext} is not callable"
 
 
 # ---------------------------------------------------------------------------
@@ -282,7 +281,7 @@ class TestSplitDocuments:
 
         long_text = "word " * 200  # ~1000 chars
         docs = [Document(page_content=long_text, metadata={"source": "t.txt"})]
-        with patch("infrastructure.ml.ingestion.settings") as mock_settings:
+        with patch("infrastructure.ml.ingestion.splitting.settings") as mock_settings:
             mock_settings.chunk_size = 900
             mock_settings.chunk_overlap = 150
             chunks = split_documents(docs)
@@ -306,7 +305,7 @@ class TestSplitDocuments:
         p1 = "A" * 500
         p2 = "B" * 500
         docs = [Document(page_content=f"{p1}\n\n{p2}", metadata={"source": "t.txt"})]
-        with patch("infrastructure.ml.ingestion.settings") as mock_settings:
+        with patch("infrastructure.ml.ingestion.splitting.settings") as mock_settings:
             mock_settings.chunk_size = 600
             mock_settings.chunk_overlap = 100
             chunks = split_documents(docs)

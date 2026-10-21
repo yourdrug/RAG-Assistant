@@ -6,7 +6,7 @@ from pathlib import Path
 
 from application.ingestion import FileMeta, SplitContext
 from domain.ingestion.raw_document import RawDocument
-from infrastructure.ml.ingestion.registry import PARSERS
+from infrastructure.ml.ingestion.registry import FORMAT_HANDLERS
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
 
 
@@ -17,7 +17,7 @@ class IngestionDocumentParser:
         self._parser = parser if parser is not None else LangchainDocumentParser()
 
     def supports(self, extension: str) -> bool:
-        return extension.lower() in PARSERS or extension.lower() == ".pdf"
+        return extension.lower() in FORMAT_HANDLERS
 
     def parse(self, path: Path, meta: FileMeta) -> list[RawDocument]:
         if not self.supports(meta.extension):

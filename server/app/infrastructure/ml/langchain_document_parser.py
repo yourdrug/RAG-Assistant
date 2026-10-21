@@ -6,44 +6,24 @@ parser/splitter pair used by the shared application-port adapters.
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from langchain.schema import Document
 
+from domain.ingestion.doc_type import DOC_TYPE_SAMPLE_CHARS, classify_doc_type
 from domain.ingestion.raw_document import RawDocument
 from domain.knowledge.enums import DocDomain
-from infrastructure.ml.ingestion import (
-    PARSERS,
-    parse_docx,
-    parse_docx_sections,
-    parse_markdown_sections,
-    parse_pdf,
-)
-from infrastructure.ml.ingestion import split_documents as _split_documents
+from infrastructure.ml.ingestion.splitting import split_documents
+from infrastructure.ml.ingestion.registry import FORMAT_HANDLERS, FormatContext
+from domain.knowledge.enums import PageContentType
 from infrastructure.ml.ingestion.amendment_context import attach_table_replacement_scope
-from infrastructure.ml.ingestion.markdown import extract_doc_title as _extract_md_title
-from infrastructure.ml.ingestion.rtf import extract_doc_title as _extract_rtf_title
-from infrastructure.ml.ingestion.rtf import parse_rtf, parse_rtf_sections
-from infrastructure.ml.ingestion.structural_metadata import unit_metadata
 from infrastructure.ml.ingestion.markdown import extract_date_from_filename
-from infrastructure.ml.rtf_decree_parser import parse_decree_rtf
 
 if TYPE_CHECKING:
+    from infrastructure.ml.ingestion.sections import Section
     from domain.ingestion.ports import DomainSettingsPort
-    from domain.ingestion.profiles.decree import DecreeDomainProfile
     from domain.ingestion.profiles.registry import DomainProfileRegistry
-
-log = logging.getLogger("detailed")
-
-_DECREE_FINGERPRINT_PREFIX_CHARS = 3000
-
-# Keyword-based document-type classification — delegated to domain layer.
-from domain.ingestion.doc_type import (  # noqa: E402
-    DOC_TYPE_SAMPLE_CHARS,
-    classify_doc_type,
-)
 
 
 def _lc_to_raw(docs) -> list[RawDocument]:
@@ -71,15 +51,7 @@ def _populate_heading_metadata(metadata: dict, heading: str | None, ctx: dict) -
         metadata["sibling_headings"] = ctx["siblings"][heading]
 
 
-def _normalize_table_content(content: str) -> tuple[str, bool]:
-    r"""Detect ``\x00TABLE:`` prefix and strip it; returns (cleaned_content, is_table)."""
-    if content.startswith("\x00TABLE:"):
-        return content[len("\x00TABLE:") :], True
-    return content, False
-
-
-def _build_section_metadata(
-    content: str,
+def build_section_metadata(
     heading: str | None,
     ctx: dict,
     file_path: Path,
@@ -102,7 +74,7 @@ def _build_section_metadata(
     return metadata
 
 
-def _heading_context(sections: list[tuple[str | None, str]]) -> dict:
+def heading_context(sections: list[Section]) -> dict:
     """Derive level/parent/siblings/prev/next/toc from a list of breadcrumb headings.
 
     Breadcrumbs already look like "Раздел 1 > Пункт 1.1" (see
@@ -114,7 +86,8 @@ def _heading_context(sections: list[tuple[str | None, str]]) -> dict:
     """
     order: list[str] = []
     seen: set[str] = set()
-    for heading, _content in sections:
+    for section in sections:
+        heading = section.heading
         if heading and heading not in seen:
             seen.add(heading)
             order.append(heading)
@@ -169,7 +142,7 @@ class LangchainDocumentParser:
         self._domain_settings = domain_settings
 
     def parse(self, file_path: Path, *, filename: str | None = None) -> list[RawDocument]:
-        docs = self._parse(file_path)
+        docs = self.parse_format(file_path)
         if filename:
             for doc in docs:
                 doc.metadata["source"] = filename
@@ -177,46 +150,21 @@ class LangchainDocumentParser:
                     doc.metadata["doc_title"] = Path(filename).stem
         return docs
 
-    def _parse(self, file_path: Path) -> list[RawDocument]:
+    def parse_format(self, file_path: Path) -> list[RawDocument]:
         ext = file_path.suffix.lower()
-
-        if ext == ".pdf":
-            docs = _lc_to_raw(parse_pdf(file_path))
-            return self._apply_doc_level_fallbacks(docs, file_path)
-
-        if ext == ".md":
-            page_meta = {}
-            title = _extract_md_title(file_path)
-            if title:
-                page_meta["doc_title"] = title
-            md_sections = parse_markdown_sections(file_path)
-            docs = self._sections_to_documents(md_sections, file_path, page_meta or None)
-            return self._apply_doc_level_fallbacks(docs, file_path)
-
-        if ext in (".docx", ".doc"):
-            sections = parse_docx_sections(file_path)
-            # Get page metadata from docx page break detection
-            _text, page_meta = parse_docx(file_path)
-            docs = self._sections_to_documents(sections, file_path, page_meta)
-            return self._apply_doc_level_fallbacks(docs, file_path)
-
-        if ext == ".rtf":
-            return self._apply_doc_level_fallbacks(self._parse_rtf(file_path), file_path)
-
-        parser = PARSERS.get(ext)
-        if parser is None:
+        handler = FORMAT_HANDLERS.get(ext)
+        if handler is None:
             raise RuntimeError(f"Unsupported format: {ext}")
-
-        result = parser(file_path)
-        # Parsers may return str or tuple[str, dict]
-        if isinstance(result, tuple):
-            text, _meta = result
+        parsed = handler.parse(file_path, FormatContext(self._domain_registry, self._domain_settings))
+        if parsed.structured:
+            docs = self.sections_to_documents(parsed.sections, file_path, parsed.metadata)
         else:
-            text = result
-        if not text or len(text.strip()) < 20:
-            raise RuntimeError("Too little text in document")
-
-        docs = [RawDocument(page_content=text, metadata={"source": file_path.name})]
+            docs = [
+                RawDocument(
+                    section.content, {"source": file_path.name, **parsed.metadata, **section.metadata}
+                )
+                for section in parsed.sections
+            ]
         return self._apply_doc_level_fallbacks(docs, file_path)
 
     @staticmethod
@@ -252,99 +200,25 @@ class LangchainDocumentParser:
                 d.metadata.setdefault("doc_type", doc_type)
         return docs
 
-    def _parse_rtf(self, file_path: Path) -> list[RawDocument]:
-        """RTF parsing: decree-structured split, generic heuristic split, or flat text.
-
-        Tries the domain-specific decree splitter first (most precise when it
-        applies). If that doesn't match, falls back to the generic
-        formatting-based section splitter (parse_rtf_sections); if that
-        finds no headings either (flat/unstructured RTF), falls back further
-        to a single flat document — the same behavior as before this path
-        existed, so plain RTF files never regress.
-        """
-        text, _meta = parse_rtf(file_path)
-        if not text or len(text.strip()) < 20:
-            raise RuntimeError("Too little text in document")
-
-        decree_docs = self._try_parse_decree_rtf(file_path, text)
-        if decree_docs is not None:
-            return decree_docs
-
-        try:
-            sections = parse_rtf_sections(file_path)
-        except Exception:
-            log.exception("Structured RTF parsing failed for %s — falling back to flat parse", file_path.name)
-            sections = None
-
-        page_meta = {}
-        title = _extract_rtf_title(file_path)
-        if title:
-            page_meta["doc_title"] = title
-
-        if sections and len(sections) > 1:
-            return self._sections_to_documents(sections, file_path, page_meta or None)
-
-        metadata = {"source": file_path.name, **page_meta}
-        return [RawDocument(page_content=text, metadata=metadata)]
-
-    def _get_decree_profile(self) -> "DecreeDomainProfile | None":
-        if self._domain_registry is None or self._domain_settings is None:
-            return None
-        try:
-            profile = self._domain_registry.get("decree")
-        except KeyError:
-            return None
-        return profile if profile.content_boundaries() else None  # type: ignore[return-value]
-
-    def _try_parse_decree_rtf(self, file_path: Path, text: str) -> "list[RawDocument] | None":
-        """Decree-structured RTF path; None = fall through to flat RTF parsing.
-
-        Uses the same deterministic fingerprint as document classification,
-        applied to the file prefix for speed (see TZ section 5.2).
-        """
-        profile = self._get_decree_profile()
-        if profile is None or not profile.structural_fingerprint(text[:_DECREE_FINGERPRINT_PREFIX_CHARS]):
-            return None
-        try:
-            if self._domain_settings is None:
-                return None
-            units, doc_metadata = parse_decree_rtf(file_path, profile, self._domain_settings)
-        except Exception:
-            log.exception("Decree RTF parsing failed for %s — falling back to flat parse", file_path.name)
-            return None
-
-        docs = []
-        for unit in units:
-            if not unit.content.strip():
-                continue
-            metadata = unit_metadata(unit, profile, {"source": file_path.name, **doc_metadata})
-            docs.append(RawDocument(page_content=unit.content, metadata=metadata))
-        if not docs or sum(len(d.page_content) for d in docs) < 20:
-            raise RuntimeError("Too little text in document")
-        log.info("Decree RTF detected: %d structural units from %s", len(docs), file_path.name)
-        return docs
-
     @staticmethod
-    def _sections_to_documents(
-        sections: list[tuple[str | None, str]],
+    def sections_to_documents(
+        sections: list[Section],
         file_path: Path,
         page_meta: dict | None = None,
     ) -> list[RawDocument]:
-        ctx = _heading_context(sections)
-        total = len([1 for _h, c in sections if c.strip()])
+        ctx = heading_context(sections)
+        total = sum(bool(section.content.strip()) for section in sections)
         docs: list[RawDocument] = []
         chunk_index = 0
-        for heading, content in sections:
+        for section in sections:
+            heading, content = section.heading, section.content
             if not content.strip():
                 continue
 
-            content, is_table = _normalize_table_content(content)
-            if not content.strip():
-                continue
+            is_table = section.kind == PageContentType.TABLE
 
             chunk_index += 1
-            metadata = _build_section_metadata(
-                content,
+            metadata = build_section_metadata(
                 heading,
                 ctx,
                 file_path,
@@ -353,6 +227,7 @@ class LangchainDocumentParser:
                 total,
                 is_table,
             )
+            metadata.update(section.metadata)
             docs.append(RawDocument(page_content=content, metadata=metadata))
 
         if not docs:
@@ -390,7 +265,7 @@ class LangchainDocumentSplitter:
             if doc_date:
                 doc.metadata.setdefault("doc_date", doc_date)
         return _lc_to_raw(
-            _split_documents(
+            split_documents(
                 docs,
                 domain=domain,
                 profile=profile,

@@ -6,6 +6,8 @@ import html
 import re
 from pathlib import Path
 
+from infrastructure.ml.ingestion.sections import Section
+
 from domain.knowledge.enums import PageContentType
 
 _MD_HEADER_RE = re.compile(r"^(#{1,6})\s+(.*)$", re.MULTILINE)
@@ -132,7 +134,7 @@ def split_markdown_tables(content: str) -> list[tuple[str, str]]:
     return segments if segments else [(PageContentType.TEXT.value, content)]
 
 
-def parse_markdown_sections(file_path: Path) -> list[tuple[str | None, str]]:
+def parse_markdown_sections(file_path: Path) -> list[Section]:
     r"""Split markdown into (heading, content) by header structure.
 
     Content between two headers belongs to the previous header. Text before
@@ -145,8 +147,7 @@ def parse_markdown_sections(file_path: Path) -> list[tuple[str | None, str]]:
     immediate header text — this keeps a deeply nested section's chunks
     self-describing for retrieval even without their siblings for context.
 
-    Table blocks within sections are yielded as separate (heading, content) tuples
-    with a special prefix '\\x00TABLE:' to signal content_type: table downstream.
+    Table blocks are separate sections with an explicit table kind.
     """
     raw = file_path.read_text(encoding="utf-8", errors="replace")
     raw = _normalize_setext_headers(raw)
@@ -156,20 +157,18 @@ def parse_markdown_sections(file_path: Path) -> list[tuple[str | None, str]]:
 
     if not matches:
         segments = split_markdown_tables(_clean_markdown_text(raw))
-        sections: list[tuple[str | None, str]] = []
+        sections: list[Section] = []
         for ctype, text in segments:
-            prefix = "\x00TABLE:" if ctype == PageContentType.TABLE.value else ""
-            sections.append((None, prefix + text))
+            sections.append(Section(None, text, PageContentType(ctype)))
         return sections
 
-    result: list[tuple[str | None, str]] = []
+    result: list[Section] = []
     if matches[0].start() > 0:
         lead_raw = _unmask_code_fences(masked[: matches[0].start()], fence_blocks)
         lead = _clean_markdown_text(lead_raw)
         if lead:
             for ctype, text in split_markdown_tables(lead):
-                prefix = "\x00TABLE:" if ctype == PageContentType.TABLE.value else ""
-                result.append((None, prefix + text))
+                result.append(Section(None, text, PageContentType(ctype)))
 
     # Track heading hierarchy to build breadcrumb paths, e.g. "H1 > H2 > H3".
     stack: list[tuple[int, str]] = []
@@ -188,8 +187,7 @@ def parse_markdown_sections(file_path: Path) -> list[tuple[str | None, str]]:
         content = _clean_markdown_text(content_raw)
         if content:
             for ctype, text in split_markdown_tables(content):
-                prefix = "\x00TABLE:" if ctype == PageContentType.TABLE.value else ""
-                result.append((breadcrumb, prefix + text))
+                result.append(Section(breadcrumb, text, PageContentType(ctype)))
 
     return result
 

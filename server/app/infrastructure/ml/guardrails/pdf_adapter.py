@@ -2,10 +2,29 @@
 
 from __future__ import annotations
 
+import logging
+
 import fitz
 
+from domain.ingestion.text_quality import classify_content
 from infrastructure.ml.ingestion import clean_pdf_text, ocr_pdf_pages
-from infrastructure.ml.pdf_diag import classify_page
+
+
+logger = logging.getLogger(__name__)
+
+
+def page_has_tables(page) -> bool:
+    try:
+        tables = page.find_tables()
+        return bool(tables and tables.tables)
+    except Exception:
+        logger.debug("PDF table detection failed", exc_info=True)
+        return False
+
+
+def classify_page(text: str, chars: int, page=None) -> tuple[str, str]:
+    ptype, description = classify_content(text, chars, has_table=page is not None and page_has_tables(page))
+    return ptype.value, description
 
 
 class FitzPDFDocument:
@@ -19,11 +38,7 @@ class FitzPDFDocument:
         return doc.load_page(index).get_text("text")
 
     def find_tables(self, page) -> bool:
-        try:
-            tables = page.find_tables()
-            return bool(tables and tables.tables)
-        except Exception:
-            return False
+        return page_has_tables(page)
 
     def render_page_image(self, doc, index: int, dpi: int = 100) -> bytes:
         page = doc.load_page(index)

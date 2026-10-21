@@ -308,7 +308,7 @@ class TestParseRtfSections:
         f.write_text(_rtf("Just text"), encoding="utf-8")
         sections = parse_rtf_sections(f)
         assert len(sections) == 1
-        assert sections[0][0] is None  # no heading
+        assert sections[0].heading is None  # no heading
 
 
 class TestExtractRtfTables:
