@@ -1,0 +1,22 @@
+# Opt-in GPU trial: docker compose -f docker-compose.yml -f docker-compose.ocr-vl.yml up -d --build ocr-vl
+# Select paddleocr_vl in admin settings after the service is healthy.
+services:
+  ocr-vl:
+    build: ./services/ocr_vl
+    gpus: all
+    volumes:
+      - ocr_vl_models:/root/.paddlex
+    ports:
+      - "127.0.0.1:8088:8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10m
+    networks:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  ocr_vl_models:

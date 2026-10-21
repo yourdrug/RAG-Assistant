@@ -6,9 +6,12 @@ import functools
 import logging
 
 import numpy as np
+import fitz
+from langchain.schema import Document
 from PIL import Image
 
 from config import settings
+from infrastructure.ml.ingestion.ocr_vl import recognize_page
 
 log = logging.getLogger("detailed")
 
@@ -127,8 +130,38 @@ def ocr_image_surya(image) -> str:
     return "\n".join(_order_ocr_entries(entries, min_confidence))
 
 
+def ocr_vl_pdf_pages(doc, page_nums: list[int], filename: str) -> list[Document]:
+    results = []
+    for page_num in page_nums:
+        page = doc.load_page(page_num - 1)
+        pix = page.get_pixmap(dpi=settings.ocr_dpi, colorspace=fitz.csRGB, alpha=False)
+        image = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+        result = recognize_page(image)
+        results.extend(
+            Document(
+                page_content=block.text.strip(),
+                metadata={
+                    "page": page_num,
+                    "source": filename,
+                    "content_type": block.kind,
+                    "ocr_engine": "paddleocr_vl",
+                    "has_images": True,
+                    "image_count": len(page.get_images(full=True)),
+                    "text_quality": 0.0,
+                },
+            )
+            for block in result.blocks
+        )
+    return results
+
+
 def ocr_pdf_pages(doc, page_nums: list[int], filename: str) -> dict:
-    import fitz
+    if settings.ocr_engine == "paddleocr_vl":
+        documents = ocr_vl_pdf_pages(doc, page_nums, filename)
+        return {
+            number: "\n\n".join(d.page_content for d in documents if d.metadata["page"] == number)
+            for number in page_nums
+        }
 
     results = {}
     zoom = settings.ocr_dpi / 72

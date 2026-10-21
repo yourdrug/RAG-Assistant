@@ -138,6 +138,9 @@ class Settings(BaseSettings):
 
     # ── OCR ─────────────────────────────────────────────────────────────────
     ocr_engine: str = "paddleocr"
+    # Deployment-only endpoint: never supplied by an uploaded document or dynamic settings.
+    ocr_vl_url: str = "http://ocr-vl:8080"
+    ocr_vl_timeout: float = Field(default=180, gt=0)
     ocr_enabled: bool = True
     ocr_lang_paddle: str = "ru"
     ocr_lang_surya: list = ["ru", "en"]

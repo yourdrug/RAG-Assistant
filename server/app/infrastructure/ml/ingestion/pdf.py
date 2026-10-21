@@ -13,7 +13,7 @@ from langchain.schema import Document
 
 from config import settings
 from domain.knowledge.enums import PageContentType
-from infrastructure.ml.ingestion.ocr import ocr_pdf_pages
+from infrastructure.ml.ingestion.ocr import ocr_pdf_pages, ocr_vl_pdf_pages
 from infrastructure.ml.ingestion.table_formatting import markdown_cell
 from infrastructure.ml.ingestion.utils import clean_pdf_text
 
@@ -365,6 +365,15 @@ def _compute_text_quality(page) -> float:
         return 0.0
 
 
+def page_needs_vl(page) -> bool:
+    """Image-dominated scans may contain a long, misleading OCR header."""
+    area = page.rect.width * page.rect.height
+    return area > 0 and any(
+        (item["bbox"][2] - item["bbox"][0]) * (item["bbox"][3] - item["bbox"][1]) >= area * 0.5
+        for item in page.get_image_info()
+    )
+
+
 def _process_page(
     doc: fitz.Document,
     page_num: int,
@@ -384,6 +393,9 @@ def _process_page(
         "image_count": len(image_list),
         "text_quality": round(_compute_text_quality(page), 3),
     }
+
+    if ocr_enabled and settings.ocr_engine == "paddleocr_vl" and page_needs_vl(page):
+        return PageResult(ocr_needed=True, meta=page_meta)
 
     table_docs = _extract_page_tables(page, file_path, page_num)
 
@@ -421,6 +433,8 @@ def _process_ocr_batch(
     file_path: Path,
 ) -> list[Document]:
     """Run OCR on flagged pages and return the resulting Documents."""
+    if settings.ocr_engine == "paddleocr_vl":
+        return ocr_vl_pdf_pages(doc, ocr_pages_needed, str(file_path))
     pages: list[Document] = []
     ocr_results = ocr_pdf_pages(doc, ocr_pages_needed, file_path.name)
     for page_num, ocr_text in ocr_results.items():
@@ -445,7 +459,11 @@ def _apply_document_metadata(pages: list[Document], doc_metadata: dict, is_scann
 
 
 def parse_pdf(file_path: Path) -> list[Document]:
-    doc = fitz.open(str(file_path))
+    with fitz.open(str(file_path)) as doc:
+        return parse_pdf_document(doc, file_path)
+
+
+def parse_pdf_document(doc: fitz.Document, file_path: Path) -> list[Document]:
     n_pages = len(doc)
     doc_metadata = _extract_doc_metadata(doc)
 
@@ -482,6 +500,6 @@ def parse_pdf(file_path: Path) -> list[Document]:
         pages.extend(_process_ocr_batch(doc, ocr_pages_needed, text_to_compare, file_path))
 
     is_scanned = len(ocr_page_set) >= n_pages * 0.8 if n_pages > 0 else False
-    doc.close()
+    pages.sort(key=lambda page: page.metadata["page"])
     _apply_document_metadata(pages, doc_metadata, is_scanned)
     return pages

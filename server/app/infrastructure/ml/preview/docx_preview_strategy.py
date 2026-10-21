@@ -13,6 +13,7 @@ from domain.ingestion.preview import PreviewUnitKind
 
 from domain.ingestion.preview import DryRunPageResult
 from infrastructure.ml.ingestion import ocr_image_paddle, ocr_image_surya, parse_docx_sections
+from infrastructure.ml.ingestion.ocr_vl import OCRServiceError, recognize_page
 
 logger = logging.getLogger("default")
 
@@ -137,9 +138,13 @@ class DocxPreviewStrategy:
                     img = Image.open(io.BytesIO(blob))
                     if settings.ocr_engine in ("paddleocr", "auto"):
                         text = ocr_image_paddle(img)
+                    elif settings.ocr_engine == "paddleocr_vl":
+                        text = "\n\n".join(block.text for block in recognize_page(img).blocks)
                     else:
                         text = ocr_image_surya(img)
                     ocr_results[u.page] = text
+                except OCRServiceError:
+                    raise
                 except Exception:
                     logger.warning("OCR failed for image unit %d", u.page)
 

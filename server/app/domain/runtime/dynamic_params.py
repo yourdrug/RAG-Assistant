@@ -254,7 +254,13 @@ DYNAMIC_PARAMS: list[DynamicParam] = [
     DynamicParam("deepinfra_rerank_model", str, DynamicParamCategory.ML, "DeepInfra reranker model"),
     # ── OCR ─────────────────────────────────────────────────────
     DynamicParam("ocr_enabled", bool, DynamicParamCategory.OCR, "Enable OCR processing"),
-    DynamicParam("ocr_engine", str, DynamicParamCategory.OCR, "OCR engine", allowed=["paddleocr", "surya"]),
+    DynamicParam(
+        "ocr_engine",
+        str,
+        DynamicParamCategory.OCR,
+        "OCR engine",
+        allowed=["paddleocr", "surya", "paddleocr_vl"],
+    ),
     DynamicParam("ocr_dpi", int, DynamicParamCategory.OCR, "OCR DPI for scanned pages", 72, 600),
     DynamicParam("ocr_min_chars", int, DynamicParamCategory.OCR, "Min chars to consider page text", 0, 500),
     DynamicParam("ocr_lang_surya", list, DynamicParamCategory.OCR, "Surya OCR languages"),

@@ -136,7 +136,7 @@ async def dry_run_preview(
     domain_settings=Depends(create_domain_settings),
     storage_cfg=Depends(create_storage_config),
 ):
-    """Phase 1: Fast dry-run — text layer only, no OCR."""
+    """Preview extraction; the selected PaddleOCR-VL engine also parses scans."""
     filename = file.filename or "unnamed"
     try:
         PreviewFile(filename=filename)
