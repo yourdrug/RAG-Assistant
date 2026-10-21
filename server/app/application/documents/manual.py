@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import logging
 from typing import TYPE_CHECKING
 
@@ -67,4 +68,6 @@ class ManualDocumentService:
                 title,
             )
 
-            return DocumentDTO.from_entity(saved_doc, chunks=0, chars=0, source_type=SourceType.MANUAL.value)
+            return replace(
+                DocumentDTO.from_entity(saved_doc), chunks=0, chars=0, source_type=SourceType.MANUAL.value
+            )

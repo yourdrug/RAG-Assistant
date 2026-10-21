@@ -54,34 +54,40 @@ class DocumentDTO:
     outbox_failed_details: list[dict[str, object]] | None = None
 
     @classmethod
-    def from_entity(cls, doc: Document, **overrides: object) -> DocumentDTO:
+    def from_entity(
+        cls,
+        doc: Document,
+        *,
+        storage_key: str | None = None,
+        replace_id: int | None = None,
+        in_search_scope: bool = True,
+    ) -> DocumentDTO:
         if doc.id is None:
             msg = "Document must have an id to convert to DTO"
             raise ValueError(msg)
 
-        defaults: dict[str, object] = {
-            "source_path": doc.source_path,
-            "creation_date": doc.creation_date,
-            "indexed_at": doc.indexed_at,
-            "error_message": doc.error_message,
-            "warning_message": doc.warning_message,
-            "quality_score": doc.quality_score,
-            "chunks": doc.chunks,
-            "chars": doc.chars,
-            "owner_id": doc.owner_id,
-            "group_id": doc.group_id,
-            "doc_domain": doc.doc_domain,
-            "source_type": doc.source_type,
-            "has_manual_edits": doc.has_manual_edits,
-            "version_group_id": doc.version_group_id,
-        }
-        defaults.update(overrides)
         return cls(
             id=doc.id,
             filename=doc.filename,
             visibility=doc.visibility,
             status=doc.status,
-            **defaults,  # type: ignore[arg-type]
+            source_path=doc.source_path,
+            creation_date=doc.creation_date,
+            indexed_at=doc.indexed_at,
+            error_message=doc.error_message,
+            warning_message=doc.warning_message,
+            quality_score=doc.quality_score,
+            chunks=doc.chunks,
+            chars=doc.chars,
+            owner_id=doc.owner_id,
+            group_id=doc.group_id,
+            doc_domain=doc.doc_domain,
+            source_type=doc.source_type,
+            has_manual_edits=doc.has_manual_edits,
+            version_group_id=doc.version_group_id,
+            storage_key=storage_key,
+            replace_id=replace_id,
+            in_search_scope=in_search_scope,
         )
 
 
