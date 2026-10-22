@@ -12,6 +12,24 @@ import pytest
 APP = Path(__file__).resolve().parents[1] / "app"
 
 
+def test_worker_does_not_import_composition() -> None:
+    violations = []
+
+    for path in (APP / "infrastructure" / "worker").glob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] == "composition":
+                violations.append(f"{path.name}:{node.lineno}")
+
+            if isinstance(node, ast.Import):
+                violations.extend(
+                    f"{path.name}:{node.lineno}"
+                    for alias in node.names
+                    if alias.name.split(".")[0] == "composition"
+                )
+
+    assert not violations, violations
+
+
 def test_infrastructure_has_no_function_local_project_imports() -> None:
     roots = {path.stem for path in APP.iterdir()}
     local_imports = []

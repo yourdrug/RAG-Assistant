@@ -6,6 +6,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from application.benchmark.sweep_jobs import SweepJobService
+
 from infrastructure.benchmark.checkpoint import DatabaseBenchmarkCheckpoints
 from fakes import FakeUnitOfWorkFactory
 
@@ -188,13 +190,12 @@ async def test_worker_retains_partial_sweep_for_resume_and_reports_counts(monkey
             "full_metrics": {"judge_evaluated_count": 47, "total_questions": 50, "judge_error_count": 3},
         }
     ]
-    monkeypatch.setattr(
-        sweep, "create_sweep_engine", lambda infra: SimpleNamespace(run_sweep=AsyncMock(return_value=results))
-    )
+    engine = SimpleNamespace(run_sweep=AsyncMock(return_value=results))
     persist = AsyncMock(return_value=None)
-    monkeypatch.setattr(sweep, "save_sweep_results", persist)
     monkeypatch.setattr(sweep, "publish_sweep_event", AsyncMock())
-    await sweep.run_sweep_task(sweep_context(factory), sweep_id=1, job_id=2)
+    ctx = sweep_context(factory, engine=engine)
+    ctx["sweep_jobs"].save_sweep_results = persist
+    await sweep.run_sweep_task(ctx, sweep_id=1, job_id=2)
     persist.assert_awaited_once()
     assert "Оценено 47 из 50, ошибок 3" in factory.jobs.mark_failed.await_args.args[1]
     factory.sweeps.delete_checkpoints.assert_not_awaited()
@@ -203,15 +204,14 @@ async def test_worker_retains_partial_sweep_for_resume_and_reports_counts(monkey
 
 @pytest.mark.asyncio
 async def test_worker_never_persists_incomplete_config_as_winner():
-    from infrastructure.worker.sweep import save_sweep_results
     from domain.benchmark.sweep import BenchmarkSweep
     from fakes import FakeUnitOfWorkFactory
 
     factory = FakeUnitOfWorkFactory()
     factory._uow.benchmark_runs.create = AsyncMock()
     factory._uow.benchmark_sweeps.set_best_run = AsyncMock()
-    winner = await save_sweep_results(
-        factory, BenchmarkSweep(), 1, [{"config": {}, "composite_score": None, "llm_evaluated": True}]
+    winner = await SweepJobService(factory, AsyncMock(), AsyncMock()).save_sweep_results(
+        BenchmarkSweep(), 1, [{"config": {}, "composite_score": None, "llm_evaluated": True}]
     )
     assert winner is None
     factory._uow.benchmark_runs.create.assert_awaited_once()

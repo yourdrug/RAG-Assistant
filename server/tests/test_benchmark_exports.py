@@ -11,6 +11,8 @@ from unittest.mock import AsyncMock
 
 import httpx
 import pytest
+
+from application.benchmark import BenchmarkResultService
 from fastapi import FastAPI
 
 from application.benchmark import BenchmarkExportService, EXPORT_CHUNK_BYTES
@@ -205,8 +207,10 @@ async def test_worker_retry_reuses_committed_run(monkeypatch):
     monkeypatch.setattr(tasks, 'load_benchmark_questions', AsyncMock(return_value=[{'question': 'q'}]))
     monkeypatch.setattr(runtime, 'run_tracked_job', tracked)
     reports = SimpleNamespace(save_report=AsyncMock(return_value=False))
-    monkeypatch.setattr(tasks, 'BenchmarkExportService', lambda *args: reports)
+
     ctx = {
+        'benchmark_results': BenchmarkResultService(factory),
+        'benchmark_exports': reports,
         'container': SimpleNamespace(
             infrastructure=SimpleNamespace(
                 db=SimpleNamespace(uow_factory=factory),

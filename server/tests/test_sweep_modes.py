@@ -7,6 +7,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+
+from application.benchmark.sweep_jobs import SweepJobService
 from langchain.schema import Document
 from pydantic import ValidationError
 
@@ -386,7 +388,6 @@ async def test_partial_missing_context_cannot_improve_composite_by_excluding_cas
 @pytest.mark.asyncio
 async def test_worker_saves_evidence_scores_and_selection_scope():
     from fakes import FakeUnitOfWorkFactory
-    from infrastructure.worker.sweep import save_sweep_results
 
     factory = FakeUnitOfWorkFactory()
     sweep = BenchmarkSweep(evaluation_mode=SweepEvaluationMode.FULL.value)
@@ -414,7 +415,7 @@ async def test_worker_saves_evidence_scores_and_selection_scope():
             },
         }
     ]
-    assert await save_sweep_results(factory, sweep, 1, results) == 3
+    assert await SweepJobService(factory, AsyncMock(), AsyncMock()).save_sweep_results(sweep, 1, results) == 3
     assert created[0].summary_metrics["avg_context_fact_coverage"] == 1
     assert created[0].summary_metrics["evaluation_mode"] == SweepEvaluationMode.FULL
     assert created[0].summary_metrics["fragment_recall_at_k_evaluated_count"] == 7

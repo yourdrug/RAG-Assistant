@@ -12,6 +12,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from application.benchmark import BenchmarkResultService
+
+from application.benchmark.sweep_jobs import SweepJobService
+
 from config import settings
 from domain.benchmark.judge import judge_coverage
 from infrastructure.benchmark.judging import grouped_judge
@@ -209,7 +213,6 @@ async def test_request_concurrency_is_bounded_across_questions(monkeypatch):
 @pytest.mark.asyncio
 async def test_all_config_results_saved_and_resume_updates_existing_rows():
     from domain.benchmark.sweep import BenchmarkSweep
-    from infrastructure.worker.sweep import save_sweep_results
 
     factory = FakeUnitOfWorkFactory()
     repo = factory._uow.benchmark_runs
@@ -228,12 +231,14 @@ async def test_all_config_results_saved_and_resume_updates_existing_rows():
             "full_metrics": {"judge_error_count": 1, "results": [{"answer": "b"}]},
         },
     ]
-    winner = await save_sweep_results(factory, BenchmarkSweep(), 42, results)
+    winner = await SweepJobService(factory, AsyncMock(), AsyncMock()).save_sweep_results(
+        BenchmarkSweep(), 42, results
+    )
     assert winner is not None
     assert len(repo.runs) == 2
     assert any(run.summary_metrics["judge_error_count"] == 1 for run in repo.runs.values())
     results[1]["full_metrics"]["judge_error_count"] = 0
-    await save_sweep_results(factory, BenchmarkSweep(), 42, results)
+    await SweepJobService(factory, AsyncMock(), AsyncMock()).save_sweep_results(BenchmarkSweep(), 42, results)
     assert len(repo.runs) == 2
     assert all(run.summary_metrics["judge_error_count"] != 1 for run in repo.runs.values())
 
@@ -348,7 +353,6 @@ async def test_service_returns_current_results_without_consulting_report_files(t
 
 @pytest.mark.asyncio
 async def test_result_detail_api_serializes_per_question_list():
-    from application.benchmark import BenchmarkResultService
     from domain.benchmark.run import BenchmarkRun
     from presentation.api.routes.benchmark import get_benchmark_result
 
@@ -367,7 +371,6 @@ async def test_result_detail_api_serializes_per_question_list():
 async def test_failure_does_not_overwrite_acknowledged_cancellation(monkeypatch):
     from domain.benchmark.sweep import BenchmarkSweep
     from domain.benchmark.sweep import BenchmarkSweepStatus
-    from infrastructure.worker import sweep
 
     factory = FakeUnitOfWorkFactory()
     factory._uow.benchmark_sweeps.get_by_id = AsyncMock(
@@ -377,10 +380,12 @@ async def test_failure_does_not_overwrite_acknowledged_cancellation(monkeypatch)
         )
     )
     factory._uow.benchmark_sweeps.update_status = AsyncMock()
-    monkeypatch.setattr(sweep, "publish_sweep_event", AsyncMock())
-    assert await sweep.record_sweep_failure(factory, 42, "judge failed") is True
+    publish = AsyncMock()
+    assert (
+        await SweepJobService(factory, publish, AsyncMock()).record_sweep_failure(42, "judge failed") is True
+    )
     factory._uow.benchmark_sweeps.update_status.assert_not_awaited()
-    assert sweep.publish_sweep_event.await_args.args[1]["cancelled"] is True
+    assert publish.await_args.args[1]["cancelled"] is True
 
 
 @pytest.mark.asyncio

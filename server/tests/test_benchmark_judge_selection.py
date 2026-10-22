@@ -3,9 +3,11 @@
 from infrastructure.worker import runtime
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
+
+from application.benchmark.sweep_jobs import SweepJobService
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
@@ -105,7 +107,6 @@ async def test_worker_uses_saved_judge_instead_of_main_model(monkeypatch, select
     factory = FakeUnitOfWorkFactory()
     factory._uow.benchmark_sweeps.get_by_id = AsyncMock(return_value=saved)
     engine = SimpleNamespace(run_sweep=AsyncMock(return_value=[]))
-    monkeypatch.setattr(worker, "create_sweep_engine", MagicMock(return_value=engine))
     monkeypatch.setattr(worker, "publish_sweep_event", AsyncMock())
     monkeypatch.setattr(worker.settings, "llm_model", "main-model")
     monkeypatch.setattr(worker.settings, "benchmark_judge_model", configured)
@@ -115,5 +116,14 @@ async def test_worker_uses_saved_judge_instead_of_main_model(monkeypatch, select
 
     monkeypatch.setattr(runtime, "run_tracked_job", run_action)
     container = SimpleNamespace(infrastructure=SimpleNamespace(db=SimpleNamespace(uow_factory=factory)))
-    await worker.run_sweep_task({"container": container}, sweep_id=1, job_id=2)
+
+    await worker.run_sweep_task(
+        {
+            "container": container,
+            "sweep_engine": engine,
+            "sweep_jobs": SweepJobService(factory, worker.publish_sweep_event, AsyncMock()),
+        },
+        sweep_id=1,
+        job_id=2,
+    )
     assert engine.run_sweep.call_args.kwargs["judge_model"] == expected

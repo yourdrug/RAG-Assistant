@@ -1,4 +1,4 @@
-"""Worker sweep tasks — parameter sweep orchestration for Arq background jobs."""
+"""Arq sweep execution, cancellation and Redis event delivery."""
 
 from __future__ import annotations
 
@@ -7,20 +7,14 @@ import json
 import logging
 from typing import Any
 
+from application.benchmark.sweep_jobs import validate_sweep_coverage
+from application.benchmark.sweep_ports import SweepCancelled
 from config import settings
 from infrastructure.redis.redis_client import redis_client
-from domain.benchmark.run import BenchmarkRun
-from application.benchmark import BenchmarkExportService
-from domain.benchmark.evaluation import EVIDENCE_METRICS
-from domain.benchmark.sweep import BenchmarkSweepStatus
-from composition.service_providers import create_sweep_engine
-from application.benchmark.sweep_ports import SweepCancelled
-from infrastructure.benchmark.checkpoint import fingerprint
-
 from infrastructure.worker.runtime import job
-from infrastructure.worker.outcomes import IncompleteEvaluation, job_error_message
+from infrastructure.worker.outcomes import job_error_message
 
-logger = logging.getLogger("default")
+logger = logging.getLogger(__name__)
 
 
 async def publish_sweep_event(sweep_id: int, message: dict) -> None:
@@ -29,100 +23,6 @@ async def publish_sweep_event(sweep_id: int, message: dict) -> None:
         await redis_client.async_redis.publish(f"sweep:{sweep_id}", json.dumps(message, default=str))
     except Exception:
         logger.debug("Failed to publish sweep event to Redis", exc_info=True)
-
-
-async def handle_sweep_cancelled(uow_factory, sweep_id: int) -> None:
-    logger.info("Sweep %d cancelled — stopping early", sweep_id)
-    async with uow_factory.create(master=True) as uow:
-        await uow.benchmark_sweeps.update_status(sweep_id, BenchmarkSweepStatus.CANCELLED.value)
-    await publish_sweep_event(sweep_id, {"done": True, "cancelled": True})
-
-
-async def save_sweep_results(uow_factory, sweep, sweep_id: int, results: list[dict]) -> int | None:
-    """Persist every config, including partial results; return the eligible winner."""
-    best_run_id = None
-
-    for result in results:
-        run_id = await save_sweep_run(uow_factory, sweep, sweep_id, result)
-
-        if best_run_id is None and result.get("composite_score") is not None:
-            best_run_id = run_id
-
-    async with uow_factory.create(master=True) as uow:
-        if best_run_id is not None:
-            await uow.benchmark_sweeps.set_best_run(sweep_id, best_run_id)
-        # Completion is set only after checking coverage and cancellation.
-    return best_run_id
-
-
-async def save_sweep_run(uow_factory, sweep, sweep_id: int, best: dict) -> int | None:
-    config = best.get("config", {})
-    full = best.get("full_metrics", {})
-    metrics = {
-        "hit_rate": full.get("hit_rate") if full else best.get("avg_hit_rate"),
-        "mrr": full.get("avg_mrr") if full else best.get("avg_mrr"),
-        "composite": best.get("composite_score"),
-        "faithfulness": best.get("full_metrics", {}).get("avg_faithfulness"),
-        "relevancy": full.get("avg_relevancy"),
-        "correctness": full.get("avg_correctness"),
-        "evaluation_mode": sweep.evaluation_mode,
-        "evaluated_config_count": best.get("evaluated_config_count", 0),
-        "scored_config_count": best.get("scored_config_count", 0),
-        "search_config_count": best.get("search_config_count", 0),
-        **{
-            key: full.get(key)
-            for key in (
-                "total_questions",
-                "judge_evaluated_count",
-                "judge_error_count",
-                "total_input_tokens",
-                "total_output_tokens",
-                "total_judge_input_tokens",
-                "total_judge_output_tokens",
-                "total_judge_calls",
-                "usage_scope",
-            )
-        },
-    }
-    # Keep evidence averages and coverage counts so a composite score can be
-    # explained without reopening the original report files.
-    diagnostics = full or best
-    metrics.update(
-        {
-            key: value
-            for key, value in diagnostics.items()
-            if key in {f"avg_{metric}" for metric in EVIDENCE_METRICS}
-            or key.startswith(("avg_fragment_", "avg_context_", "avg_retrieval_", "avg_source_"))
-            or key.endswith(("_evaluated_count", "_expected_count"))
-            or key.startswith("retrieval_")
-        }
-    )
-    async with uow_factory.create(master=True) as uow:
-        runtime = await uow.benchmark_sweeps.load_checkpoint(sweep_id, "runtime.json")
-        dataset_snapshot = await uow.benchmark_sweeps.load_checkpoint(sweep_id, "dataset.json")
-
-        if runtime is not None:
-            metrics.update(
-                collection_name=runtime.get("collection_name"),
-                qdrant_url=runtime.get("qdrant_url"),
-                corpus_generation=runtime.get("corpus_generation"),
-                corpus_namespace=runtime.get("corpus_namespace"),
-                embedding_identity=runtime.get("embedding_identity"),
-            )
-
-        if dataset_snapshot is not None:
-            metrics["dataset_hash"] = fingerprint(dataset_snapshot)
-
-        run_entity = BenchmarkRun(
-            sweep_id=sweep_id,
-            config_json=config,
-            summary_metrics=metrics,
-            dataset=sweep.dataset,
-            llm_evaluated=best.get("llm_evaluated", False),
-            per_question_results=best.get("full_metrics", {}).get("results"),
-        )
-        run_entity = await uow.benchmark_runs.save_for_sweep(run_entity)
-    return run_entity.id
 
 
 async def run_cancellable_sweep(engine, sweep, progress_callback, is_cancelled) -> list[dict]:
@@ -159,142 +59,40 @@ async def run_sweep_task(
     job_id: int,
 ) -> None:
     """Run a parameter sweep as a background job (cooperatively cancellable)."""
-    uow_factory = ctx["container"].infrastructure.db.uow_factory
+    service = ctx["sweep_jobs"]
 
     async def is_cancelled() -> bool:
-        return await sweep_job_cancelled(uow_factory, sweep_id, job_id)
+        return await service.sweep_job_cancelled(sweep_id, job_id)
 
-    sweep = await start_sweep_job(uow_factory, sweep_id, job_id)
+    sweep = await service.start_sweep_job(sweep_id, job_id)
 
     if sweep is None:
         return
 
     async def progress_callback(ev: int, tot: int, res: dict | None) -> None:
-        await record_sweep_progress(uow_factory, sweep, sweep_id, ev, tot, res)
+        await service.record_sweep_progress(sweep, sweep_id, ev, tot, res)
 
     try:
-        engine = create_sweep_engine(ctx["container"].infrastructure)
+        engine = ctx["sweep_engine"]
         results = await run_cancellable_sweep(engine, sweep, progress_callback, is_cancelled)
-        best_run_id = await save_sweep_results(uow_factory, sweep, sweep_id, results)
+        best_run_id = await service.save_sweep_results(sweep, sweep_id, results)
         validate_sweep_coverage(results)
     except SweepCancelled:
-        await handle_sweep_cancelled(uow_factory, sweep_id)
+        await service.handle_sweep_cancelled(sweep_id)
         return
     except asyncio.CancelledError:
-        await record_sweep_failure(uow_factory, sweep_id, "Task cancelled (timeout or worker shutdown)")
+        await service.record_sweep_failure(sweep_id, "Task cancelled (timeout or worker shutdown)")
         raise
     except Exception as exc:
-        cancelled = await record_sweep_failure(uow_factory, sweep_id, job_error_message(exc))
+        cancelled = await service.record_sweep_failure(sweep_id, job_error_message(exc))
 
         if cancelled:
             return
 
         raise
 
-    await complete_sweep(uow_factory, sweep_id, results, best_run_id)
+    await service.complete_sweep(sweep_id, results, best_run_id)
     try:
-        await save_sweep_reports(ctx, uow_factory, sweep_id, len(results))
+        await service.save_sweep_reports(sweep_id, len(results))
     except Exception:
         logger.exception("Sweep reports deferred: sweep=%s", sweep_id)
-
-
-def validate_sweep_coverage(results: list[dict]) -> None:
-    evaluated = [r["full_metrics"] for r in results if r.get("llm_evaluated")]
-    error_count = sum(r.get("judge_error_count", 0) for r in evaluated)
-    incomplete = sum(r.get("evaluation_complete") is False for r in results)
-
-    if error_count or incomplete:
-        total = sum(r.get("total_questions", 0) for r in evaluated)
-        complete = sum(r.get("judge_evaluated_count", 0) for r in evaluated)
-        # All configurations have run. Retain checkpoints and expose Resume
-        # using the existing failed-sweep lifecycle, even with a valid winner.
-        raise IncompleteEvaluation(
-            f"Оценено {complete} из {total}, ошибок {error_count}. "
-            f"Неполных конфигураций: {incomplete}. Resume выполнит недостающие оценки."
-        )
-
-
-async def complete_sweep(uow_factory, sweep_id: int, results: list[dict], best_run_id: int | None) -> None:
-    async with uow_factory.create(master=True) as uow:
-        current = await uow.benchmark_sweeps.get_by_id(sweep_id, for_update=True)
-
-        if current is not None and current.status == BenchmarkSweepStatus.CANCELLED.value:
-            await publish_sweep_event(sweep_id, {"done": True, "cancelled": True})
-            return
-
-        await uow.benchmark_sweeps.update_status(sweep_id, BenchmarkSweepStatus.DONE.value)
-    try:
-        async with uow_factory.create(master=True) as uow:
-            await uow.benchmark_sweeps.delete_checkpoints(sweep_id)
-    except Exception:
-        logger.exception("Sweep checkpoint cleanup deferred to cron: sweep=%s", sweep_id)
-    await publish_sweep_event(
-        sweep_id,
-        {"done": True, "best_run_id": best_run_id, "total_results": len(results)},
-    )
-    logger.info("Sweep %d completed: %d results, best_run_id=%s", sweep_id, len(results), best_run_id)
-
-
-def inactive_sweep_job(sweep, job_id: int) -> bool:
-    return sweep.status != BenchmarkSweepStatus.PENDING.value or (
-        sweep.job_id is not None and sweep.job_id != job_id
-    )
-
-
-async def sweep_job_cancelled(uow_factory, sweep_id: int, job_id: int) -> bool:
-    async with uow_factory.create(master=True) as uow:
-        sweep = await uow.benchmark_sweeps.get_by_id(sweep_id)
-        return sweep is not None and (
-            sweep.status == BenchmarkSweepStatus.CANCELLED.value
-            or (sweep.job_id is not None and sweep.job_id != job_id)
-        )
-
-
-async def record_sweep_progress(uow_factory, sweep, sweep_id, ev, tot, res) -> None:
-    async with uow_factory.create(master=True) as uow:
-        await uow.benchmark_sweeps.update_progress(sweep_id, ev, tot)
-
-    if res and res.get("phase") == "full_evaluation" and "config" in res:
-        await save_sweep_run(uow_factory, sweep, sweep_id, res)
-
-    await publish_sweep_event(sweep_id, {"evaluated": ev, "total": tot, "latest": res})
-
-
-async def start_sweep_job(uow_factory, sweep_id: int, job_id: int):
-    async with uow_factory.create(master=True) as uow:
-        sweep = await uow.benchmark_sweeps.get_by_id(sweep_id, for_update=True)
-
-        if sweep is None:
-            raise ValueError(f"Sweep {sweep_id} not found")
-
-        if inactive_sweep_job(sweep, job_id):
-            logger.info("Ignoring inactive or superseded sweep job %d", job_id)
-            return
-
-        await uow.benchmark_sweeps.update_status(sweep_id, BenchmarkSweepStatus.RUNNING.value)
-        await uow.benchmark_sweeps.update_progress(sweep_id, 0, 0)
-    return sweep
-
-
-async def record_sweep_failure(uow_factory, sweep_id: int, message: str) -> bool:
-    async with uow_factory.create(master=True) as uow:
-        current = await uow.benchmark_sweeps.get_by_id(sweep_id, for_update=True)
-        cancelled = current is not None and current.status == BenchmarkSweepStatus.CANCELLED.value
-
-        if not cancelled:
-            await uow.benchmark_sweeps.update_status(sweep_id, BenchmarkSweepStatus.FAILED.value)
-    event: dict[str, bool | str] = (
-        {"done": True, "cancelled": True} if cancelled else {"done": True, "error": message}
-    )
-    await publish_sweep_event(sweep_id, event)
-    return cancelled
-
-
-async def save_sweep_reports(ctx, uow_factory, sweep_id: int, count: int) -> None:
-    export_service = BenchmarkExportService(uow_factory, ctx["container"].infrastructure.ml.file_storage)
-    async with uow_factory.create(master=True) as uow:
-        run_ids = await uow.benchmark_runs.get_sweep_run_ids(sweep_id, limit=count)
-
-    for run_id in run_ids:
-        for format in ("csv", "json"):
-            await export_service.save_report(run_id, format)

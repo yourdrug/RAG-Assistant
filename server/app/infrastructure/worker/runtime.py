@@ -10,9 +10,10 @@ from typing import TYPE_CHECKING, Any
 
 from arq import Retry
 
+from application.benchmark.sweep_jobs import IncompleteEvaluationError
 from infrastructure.budget.job_context import job_billing_scope
 from infrastructure.worker.admission import document_admission
-from infrastructure.worker.outcomes import IncompleteEvaluation, job_error_message
+from infrastructure.worker.outcomes import job_error_message
 
 
 if TYPE_CHECKING:
@@ -82,7 +83,7 @@ async def run_tracked_job(
             logger.warning("Worker: job %d cancelled (%s) — persisting failed state", job_id, description)
             await mark_job_failed_safe(uow_factory, job_id, "Task cancelled (timeout or worker shutdown)")
             raise
-        except IncompleteEvaluation as exc:
+        except IncompleteEvaluationError as exc:
             logger.warning("Worker: job %d incomplete (%s): %s", job_id, description, exc)
             await mark_job_failed_safe(uow_factory, job_id, str(exc))
         except Exception as e:

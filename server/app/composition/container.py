@@ -11,10 +11,11 @@ from __future__ import annotations
 import dataclasses
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from composition.application import ApplicationContainer
 from composition.infrastructure import InfrastructureContainer
+from composition.worker import worker_dependencies
 from config import settings
 from domain.runtime.enums import AppStage
 
@@ -83,6 +84,10 @@ class Container:
             len(dataclasses.fields(self.infrastructure)),
             len(dataclasses.fields(self.application)),
         )
+
+    def worker_dependencies(self) -> dict[str, Any]:
+        """Assemble worker services after configuration bootstrap."""
+        return worker_dependencies(self.infrastructure)
 
     async def dispose(self) -> None:
         """Tear down all resources in reverse order.

@@ -5,16 +5,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from composition.service_providers import (
-    create_document_processor,
-    create_ingestion_service,
-)
 from application.documents.dto import ProcessDocumentCommand
 from domain.knowledge.enums import DocumentVisibility
 from application.benchmark import load_benchmark_questions
 from domain.benchmark.run import BenchmarkRun
-from application.benchmark import BenchmarkResultService
-from application.benchmark import BenchmarkExportService
 from infrastructure.benchmark.corpus import benchmark_corpus, corpus_metadata
 from infrastructure.benchmark.checkpoint import fingerprint
 from infrastructure.worker.runtime import job
@@ -45,7 +39,7 @@ async def process_document(
     """Process an uploaded document (parse → split → vectorize → store)."""
     infra = ctx["container"].infrastructure
     uow_factory = infra.db.uow_factory
-    processor = create_document_processor(infra, uow_factory=uow_factory)
+    processor = ctx["document_processor"]
 
     async with uow_factory.create() as uow:
         doc = await uow.documents.get_by_id(document_id)
@@ -94,8 +88,7 @@ async def ingest_document_scope(
     force: bool = False,
 ) -> None:
     """Dispatch ingestion with the same service and validated visibility scope."""
-    infra = ctx["container"].infrastructure
-    service = create_ingestion_service(infra, uow_factory=infra.db.uow_factory)
+    service = ctx["ingestion_service"]
     vis = DocumentVisibility.validate(visibility)
 
     if single:
@@ -141,7 +134,7 @@ async def run_benchmark(
     """Run RAG quality benchmark (non-blocking async version)."""
     uow_factory = ctx["container"].infrastructure.db.uow_factory
 
-    service = BenchmarkResultService(uow_factory)
+    service = ctx["benchmark_results"]
     existing = await service.get_job_result(job_id)
 
     if existing is None:
@@ -174,7 +167,7 @@ async def run_benchmark(
             )
 
     if existing.id is not None:
-        exports = BenchmarkExportService(uow_factory, ctx["container"].infrastructure.ml.file_storage)
+        exports = ctx["benchmark_exports"]
 
         for format in ("json", "csv"):
             try:

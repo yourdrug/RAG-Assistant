@@ -724,8 +724,6 @@ layers = [
 
 # Temporary exact legacy edges; other imports remain checked. See ../LINT_DEBT.md.
 ignore_imports = [
-    "infrastructure.worker.sweep -> composition.service_providers",
-    "infrastructure.worker.tasks -> composition.service_providers",
     "presentation.api.dependencies -> composition.container",
     "presentation.api.schemas.validators -> infrastructure.storage.docx_validation",
     "presentation.cli.__main__ -> infrastructure.logging.logging_config",

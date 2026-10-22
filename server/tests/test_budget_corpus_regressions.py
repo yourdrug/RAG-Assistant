@@ -285,7 +285,6 @@ async def test_worker_report_uses_pinned_corpus_after_switch(monkeypatch):
         ),
         application=SimpleNamespace(rag_service=SimpleNamespace()),
     )
-    monkeypatch.setattr(tasks, 'BenchmarkResultService', lambda factory: service)
     monkeypatch.setattr(tasks, 'load_benchmark_questions', AsyncMock(return_value=[{'question': 'q'}]))
 
     async def evaluate(**kwargs):
@@ -301,7 +300,8 @@ async def test_worker_report_uses_pinned_corpus_after_switch(monkeypatch):
     monkeypatch.setattr(runtime, 'run_tracked_job', tracked)
     try:
         await tasks.run_benchmark(
-            {'container': container}, dataset='main', top_k=1, judge_model='judge', job_id=1
+            {'container': container, 'benchmark_results': service},
+            dataset='main', top_k=1, judge_model='judge', job_id=1
         )
         report = service.record_result.call_args.args[0]
         assert report.config_json['collection_name'] == 'v1'

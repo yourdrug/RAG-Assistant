@@ -6,6 +6,8 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from application.benchmark.sweep_jobs import SweepJobService
+from composition import worker as worker_composition
 from domain.benchmark.sweep import BenchmarkSweep, BenchmarkSweepStatus
 from infrastructure.benchmark.sweep.strategies import EnumeratedSweepStrategy
 from infrastructure.worker import sweep
@@ -28,6 +30,13 @@ async def test_worker_initializes_breakers_after_config_resync(monkeypatch):
         ),
     )
     monkeypatch.setattr(worker, "Container", Mock(return_value=container))
+    dependencies = {"sweep_engine": object()}
+
+    def assemble():
+        container.infrastructure.bootstrap_configuration.assert_awaited_once_with(role="worker")
+        return dependencies
+
+    container.worker_dependencies = assemble
     monkeypatch.setattr(database, "connect", AsyncMock())
     monkeypatch.setattr(redis_client, "init", AsyncMock())
     monkeypatch.setattr(circuit_breaker, "_breakers", {})
@@ -51,7 +60,7 @@ async def test_worker_initializes_breakers_after_config_resync(monkeypatch):
     ctx = {}
     await worker.on_startup(ctx)
     assert ctx["container"] is container
-    listener.start.assert_awaited_once()
+    assert ctx["sweep_engine"] is dependencies["sweep_engine"]
     ctx["config_resync_task"].cancel()
     await asyncio.gather(ctx["config_resync_task"], return_exceptions=True)
 
@@ -107,7 +116,7 @@ async def test_sweep_saves_answer_coverage_in_history_summary():
         },
     }
 
-    await sweep.save_sweep_run(factory, factory.saved, 1, best)
+    await SweepJobService(factory, AsyncMock(), AsyncMock()).save_sweep_run(factory.saved, 1, best)
 
     saved = factory.runs.save_for_sweep.await_args.args[0]
     assert saved.summary_metrics["avg_answer_condition_coverage"] == 0.6667
@@ -115,10 +124,12 @@ async def test_sweep_saves_answer_coverage_in_history_summary():
     assert saved.summary_metrics["answer_condition_coverage_evaluated_count"] == 6
 
 
-def sweep_context(factory, attempt=1):
+def sweep_context(factory, attempt=1, *, engine=None):
     return {
         "container": SimpleNamespace(infrastructure=SimpleNamespace(db=SimpleNamespace(uow_factory=factory))),
         "job_try": attempt,
+        "sweep_engine": engine,
+        "sweep_jobs": SweepJobService(factory, sweep.publish_sweep_event, AsyncMock()),
     }
 
 
@@ -140,9 +151,8 @@ async def test_progress_is_committed_before_publication_and_done(monkeypatch):
         return []
 
     engine = SimpleNamespace(run_sweep=run_sweep)
-    monkeypatch.setattr(sweep, "create_sweep_engine", lambda infra: engine)
     monkeypatch.setattr(sweep, "publish_sweep_event", publish)
-    await sweep.run_sweep_task(sweep_context(factory), sweep_id=1, job_id=2)
+    await sweep.run_sweep_task(sweep_context(factory, engine=engine), sweep_id=1, job_id=2)
     assert [e.get("evaluated") for e in events[:-1]] == [1, 0, 1]
     assert events[-1]["done"] is True
     factory.sweeps.update_status.assert_awaited_with(1, BenchmarkSweepStatus.DONE.value)
@@ -155,9 +165,8 @@ async def test_failed_sweep_retries_then_records_error_and_notifies(monkeypatch,
     factory = SweepFactory()
     engine = SimpleNamespace(run_sweep=AsyncMock(side_effect=KeyError("llm_auxiliary missing")))
     publish = AsyncMock()
-    monkeypatch.setattr(sweep, "create_sweep_engine", lambda infra: engine)
     monkeypatch.setattr(sweep, "publish_sweep_event", publish)
-    await sweep.run_sweep_task(sweep_context(factory, attempt), sweep_id=1, job_id=2)
+    await sweep.run_sweep_task(sweep_context(factory, attempt, engine=engine), sweep_id=1, job_id=2)
     factory.sweeps.update_status.assert_awaited_with(1, BenchmarkSweepStatus.FAILED.value)
     assert "llm_auxiliary missing" in factory.jobs.mark_failed.await_args.args[1]
     assert publish.await_args.args[1]["done"] is True
@@ -170,10 +179,9 @@ async def test_empty_timeout_message_is_saved_and_published(monkeypatch):
     factory = SweepFactory()
     engine = SimpleNamespace(run_sweep=AsyncMock(side_effect=TimeoutError()))
     publish = AsyncMock()
-    monkeypatch.setattr(sweep, "create_sweep_engine", lambda infra: engine)
     monkeypatch.setattr(sweep, "publish_sweep_event", publish)
 
-    await sweep.run_sweep_task(sweep_context(factory), sweep_id=1, job_id=2)
+    await sweep.run_sweep_task(sweep_context(factory, engine=engine), sweep_id=1, job_id=2)
 
     factory.sweeps.update_status.assert_awaited_with(1, BenchmarkSweepStatus.FAILED.value)
     factory.jobs.mark_failed.assert_awaited_once_with(2, "TimeoutError")
@@ -185,10 +193,9 @@ async def test_empty_timeout_message_is_saved_and_published(monkeypatch):
 async def test_timeout_marks_sweep_and_job_failed(monkeypatch):
     factory = SweepFactory()
     engine = SimpleNamespace(run_sweep=AsyncMock(side_effect=asyncio.CancelledError()))
-    monkeypatch.setattr(sweep, "create_sweep_engine", lambda infra: engine)
     monkeypatch.setattr(sweep, "publish_sweep_event", AsyncMock())
     with pytest.raises(asyncio.CancelledError):
-        await sweep.run_sweep_task(sweep_context(factory), sweep_id=1, job_id=2)
+        await sweep.run_sweep_task(sweep_context(factory, engine=engine), sweep_id=1, job_id=2)
     factory.sweeps.update_status.assert_awaited_with(1, BenchmarkSweepStatus.FAILED.value)
     factory.jobs.mark_failed.assert_awaited_once()
 
@@ -226,12 +233,77 @@ async def test_partial_judge_coverage_is_failed_and_resumable_without_traceback(
         "full_metrics": {"total_questions": 30, "judge_evaluated_count": 27, "judge_error_count": 3},
     }
     engine = SimpleNamespace(run_sweep=AsyncMock(return_value=[result]))
-    monkeypatch.setattr(sweep, "create_sweep_engine", lambda infra: engine)
     monkeypatch.setattr(sweep, "publish_sweep_event", AsyncMock())
-    await sweep.run_sweep_task(sweep_context(factory), sweep_id=1, job_id=2)
+    await sweep.run_sweep_task(sweep_context(factory, engine=engine), sweep_id=1, job_id=2)
     factory.sweeps.update_status.assert_awaited_with(1, BenchmarkSweepStatus.FAILED.value)
     factory.jobs.mark_done.assert_not_awaited()
     assert "27 из 30" in factory.jobs.mark_failed.await_args.args[1]
     records = [record for record in caplog.records if "incomplete" in record.message]
     assert records and all(record.exc_info is None for record in records)
     assert sweep.publish_sweep_event.await_args.args[1]["error"]
+
+
+def test_worker_dependencies_are_assembled_in_composition(monkeypatch):
+    factory = object()
+    storage = object()
+    infra = SimpleNamespace(db=SimpleNamespace(uow=factory), ml=SimpleNamespace(file_storage=storage))
+    processor, ingestion, engine = object(), object(), object()
+    for name, service in (
+        ("create_document_processor", processor),
+        ("create_ingestion_service", ingestion),
+        ("create_sweep_engine", engine),
+    ):
+        monkeypatch.setattr(worker_composition, name, Mock(return_value=service))
+
+    dependencies = worker_composition.worker_dependencies(infra)
+
+    assert dependencies["document_processor"] is processor
+    assert dependencies["ingestion_service"] is ingestion
+    assert dependencies["sweep_engine"] is engine
+    assert dependencies["sweep_jobs"].uow_factory is factory
+    assert dependencies["sweep_jobs"].publish is sweep.publish_sweep_event
+    worker_composition.create_document_processor.assert_called_once_with(infra)
+    worker_composition.create_ingestion_service.assert_called_once_with(infra)
+    worker_composition.create_sweep_engine.assert_called_once_with(infra)
+
+
+@pytest.mark.asyncio
+async def test_failed_progress_commit_does_not_publish_success():
+    factory = SweepFactory()
+    publish = AsyncMock()
+
+    class FailingCommit(SweepUow):
+        async def __aexit__(self, *args):
+            message = "commit failed"
+            raise RuntimeError(message)
+
+    factory.create = lambda master=False: FailingCommit(factory)
+    service = SweepJobService(factory, publish, AsyncMock())
+
+    with pytest.raises(RuntimeError, match="commit failed"):
+        await service.record_sweep_progress(factory.saved, 1, 1, 2, None)
+
+    publish.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_sweep_notifies_after_commit_and_retains_checkpoints():
+    factory = SweepFactory()
+    factory.saved.status = BenchmarkSweepStatus.CANCELLED.value
+    committed = []
+
+    class CommitBeforeNotification(SweepUow):
+        async def __aexit__(self, *args):
+            await super().__aexit__(*args)
+            committed.append(True)
+
+    async def publish(sweep_id, event):
+        assert committed == [True]
+        assert sweep_id == 1
+        assert event == {"done": True, "cancelled": True}
+
+    factory.create = lambda master=False: CommitBeforeNotification(factory)
+    await SweepJobService(factory, publish, AsyncMock()).complete_sweep(1, [], None)
+
+    factory.sweeps.update_status.assert_not_awaited()
+    factory.sweeps.delete_checkpoints.assert_not_awaited()

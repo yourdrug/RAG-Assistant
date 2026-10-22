@@ -6,6 +6,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+
+from application.benchmark import BenchmarkResultService
 from application.benchmark import BenchmarkService
 from pydantic import ValidationError
 
@@ -159,10 +161,11 @@ async def test_worker_loads_selected_dataset_before_evaluation(monkeypatch):
 
     factory, repo, _ = dataset_factory([BenchmarkQuestion(id=72, question="Database case")])
     ctx = {
+        "benchmark_results": BenchmarkResultService(factory),
         "container": SimpleNamespace(
             infrastructure=SimpleNamespace(db=SimpleNamespace(uow_factory=factory)),
             application=SimpleNamespace(rag_service=object()),
-        )
+        ),
     }
     run = AsyncMock(return_value=[])
     ctx["container"].infrastructure.ml = SimpleNamespace(

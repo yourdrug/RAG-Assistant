@@ -205,13 +205,11 @@ def test_cli_registry_formats_shared_dto(monkeypatch: pytest.MonkeyPatch) -> Non
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("single", [False, True])
-async def test_worker_uses_shared_factory_and_forwards_scope(
+async def test_worker_uses_injected_service_and_forwards_scope(
     monkeypatch: pytest.MonkeyPatch, single: bool
 ) -> None:
     service = SimpleNamespace(run_single=AsyncMock(), run_full=AsyncMock())
-    factory = MagicMock(return_value=service)
     infra = SimpleNamespace(db=SimpleNamespace(uow_factory=MagicMock()))
-    monkeypatch.setattr(worker_tasks, "create_ingestion_service", factory)
 
     async def tracked(
         uow: object, job_id: int, action: Callable[[], Awaitable[None]], **options: object
@@ -222,7 +220,7 @@ async def test_worker_uses_shared_factory_and_forwards_scope(
         await action()
 
     monkeypatch.setattr(runtime, "run_tracked_job", tracked)
-    ctx = {"container": SimpleNamespace(infrastructure=infra), "job_try": 2}
+    ctx = {"container": SimpleNamespace(infrastructure=infra), "job_try": 2, "ingestion_service": service}
 
     if single:
         await worker_tasks.run_single_ingest(
@@ -259,5 +257,3 @@ async def test_worker_uses_shared_factory_and_forwards_scope(
             group_id=7,
             client_id=None,
         )
-
-    factory.assert_called_once_with(infra, uow_factory=infra.db.uow_factory)

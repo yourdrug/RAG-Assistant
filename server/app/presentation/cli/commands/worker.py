@@ -121,6 +121,7 @@ async def on_startup(ctx: dict) -> None:
         ctx["container"] = container
         container.init(database)
         await container.infrastructure.bootstrap_configuration(role="worker")
+        ctx.update(container.worker_dependencies())
         listener = container.infrastructure.events.config_listener
         if listener is None:
             raise RuntimeError("Config listener must be initialized in worker")
