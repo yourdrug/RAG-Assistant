@@ -35,6 +35,7 @@ class ManagedSyncInstructor:
         with self._lock:
             if self._retired and id(self) not in active_client_leases.get():
                 raise RuntimeError("Judge client was retired; acquire the current judge client")
+
             self._active += 1
             self._idle.clear()
         token = active_client_leases.set(active_client_leases.get() | {id(self)})
@@ -44,8 +45,10 @@ class ManagedSyncInstructor:
             active_client_leases.reset(token)
             with self._lock:
                 self._active -= 1
+
                 if not self._active:
                     self._idle.set()
+
             if self._retired:
                 self.retire()
 
@@ -57,6 +60,7 @@ class ManagedSyncInstructor:
         with self._lock:
             if not self._retired or self._active or self._closed:
                 return
+
             self._closed = True
         try:
             self.client.client.close()
@@ -74,6 +78,7 @@ class ManagedSyncInstructor:
             with self._close_lock:
                 self.close_if_idle()
             return
+
         if self._close_task is None or self._close_task.done():
             self._close_task = loop.create_task(asyncio.to_thread(self.close_when_idle))
             self._close_task.add_done_callback(self.report_close_failure)
@@ -89,6 +94,7 @@ class ManagedSyncInstructor:
 
     async def close(self) -> None:
         self.retire()
+
         if self._close_task is not None:
             try:
                 await asyncio.shield(self._close_task)

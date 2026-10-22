@@ -94,6 +94,7 @@ class LLMCircuitBreaker:
         if self._state == CBState.OPEN:
             if time.monotonic() - self._opened_at >= self._timeout_duration:
                 return
+
             CB_FAILURES.labels(operation=self._operation_name).inc()
             self._update_metrics()
             raise CircuitBreakerError(
@@ -116,6 +117,7 @@ class LLMCircuitBreaker:
         """Report a successful call. Under lock, check and transition if needed."""
         async with self._lock:
             self._transition_to_half_open_if_needed()
+
             if self._state == CBState.HALF_OPEN:
                 self._state = CBState.CLOSED
                 self._failure_count = 0
@@ -125,12 +127,14 @@ class LLMCircuitBreaker:
                 )
             elif self._state == CBState.CLOSED:
                 self._failure_count = 0
+
             self._update_metrics()
 
     async def report_failure(self) -> None:
         """Report a failed call. Under lock, increment counter and potentially open."""
         async with self._lock:
             self._transition_to_half_open_if_needed()
+
             if self._state == CBState.HALF_OPEN:
                 # Any failure during half-open probe reopens immediately
                 self._state = CBState.OPEN
@@ -141,6 +145,7 @@ class LLMCircuitBreaker:
                 )
             else:
                 self._failure_count += 1
+
                 if self._failure_count >= self._fail_max:
                     self._state = CBState.OPEN
                     self._opened_at = time.monotonic()
@@ -149,6 +154,7 @@ class LLMCircuitBreaker:
                         self._operation_name,
                         self._failure_count,
                     )
+
             self._update_metrics()
 
     # -- Unified call API (for simple use cases) ------------------------------
@@ -211,12 +217,14 @@ def init_breakers(
 ) -> None:
     """Create the standard LLM breakers.  Call once during app startup."""
     _breakers.clear()
+
     for name in ("llm_generate", "llm_auxiliary"):
         _breakers[name] = LLMCircuitBreaker(
             fail_max=fail_max,
             timeout_duration=timeout_duration,
             operation_name=name,
         )
+
     log.info(
         "LLM circuit breakers initialised (fail_max=%d, timeout=%ds)",
         fail_max,

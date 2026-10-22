@@ -19,8 +19,10 @@ def verify_docx_entry_size(archive: ZipFile, entry: ZipInfo) -> None:
     """Check real expansion in bounded reads, including forged ZIP size fields."""
     if entry.compress_type not in (ZIP_STORED, ZIP_DEFLATED):
         raise ValueError("DOCX ZIP compression must be stored or deflated")
+
     if entry.flag_bits & ZIP_ENCRYPTED_FLAG:
         raise ValueError("Encrypted DOCX ZIP entries are not supported")
+
     bounded_entry = copy(entry)
     # ZipExtFile truncates output to file_size. Raise that artificial boundary
     # while streaming so an underreported size cannot conceal extra expansion.
@@ -29,8 +31,10 @@ def verify_docx_entry_size(archive: ZipFile, entry: ZipInfo) -> None:
     with archive.open(bounded_entry) as member:
         while data := member.read(DOCX_READ_CHUNK_BYTES):
             actual_size += len(data)
+
             if actual_size > entry.file_size:
                 raise ValueError("DOCX ZIP entry has inconsistent uncompressed size")
+
     if actual_size != entry.file_size:
         raise ValueError("DOCX ZIP entry has inconsistent uncompressed size")
 
@@ -40,15 +44,21 @@ def validate_docx_archive(source: Path | BinaryIO) -> None:
     try:
         with ZipFile(source) as archive:
             entries = archive.infolist()
+
             if len(entries) > DOCX_MAX_ARCHIVE_ENTRIES:
                 raise ValueError(f"DOCX archive exceeds {DOCX_MAX_ARCHIVE_ENTRIES} entries")
+
             total_size = 0
+
             for entry in entries:
                 total_size += entry.file_size
+
                 if total_size > DOCX_MAX_UNCOMPRESSED_BYTES:
                     raise ValueError("DOCX archive exceeds the maximum uncompressed size (100 MiB)")
+
                 if entry.file_size > DOCX_MAX_COMPRESSION_RATIO * entry.compress_size:
                     raise ValueError("DOCX archive exceeds the maximum compression ratio (200:1)")
+
             for entry in entries:
                 verify_docx_entry_size(archive, entry)
     except (BadZipFile, ZlibError, EOFError) as exc:

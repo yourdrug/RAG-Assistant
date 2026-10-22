@@ -17,14 +17,18 @@ class PreviewStrategyFactory:
         domain_settings=None,
     ) -> DocumentPreviewStrategy:
         ext = extension.lower()
+
         if ext == ".doc":
             raise ValueError(
                 "Legacy .doc format (Word 97-2003) is not supported for preview. "
                 "Convert the file to .docx and try again."
             )
+
         handler = FORMAT_HANDLERS.get(ext)
+
         if handler is None or handler.preview is None:
             raise ValueError(f"Unsupported extension for dry-run preview: {ext}")
+
         return handler.preview(FormatContext(domain_registry, domain_settings, diag_service))
 
     @staticmethod

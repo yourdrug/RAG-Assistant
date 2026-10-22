@@ -1,12 +1,14 @@
 """Characterize the public judge factory before changing its cached pool ownership."""
 
+from infrastructure.benchmark.judging import clients as judge_clients
+
 import httpx
 import asyncio
 import pytest
 from openai import OpenAI
 
 from config import settings
-from infrastructure.benchmark import judge
+from infrastructure.benchmark.judging import judge
 
 
 @pytest.fixture
@@ -41,8 +43,8 @@ def judge_http(monkeypatch):
         kwargs["http_client"] = pool
         return OpenAI(**kwargs)
 
-    monkeypatch.setattr(judge, "OpenAI", create)
-    monkeypatch.setattr(judge, "_judge_client_cache", {})
+    monkeypatch.setattr(judge_clients, "OpenAI", create)
+    monkeypatch.setattr(judge_clients, "_judge_client_cache", {})
     yield requests, pools
     for pool in pools:
         pool.close()
@@ -50,8 +52,8 @@ def judge_http(monkeypatch):
 
 def test_judge_client_reuses_model_and_returns_validated_score(judge_http, monkeypatch):
     monkeypatch.setattr(settings, "ollama_base_url", "http://ollama:11434")
-    client = judge.get_judge_client("test-model")
-    assert judge.get_judge_client("test-model") is client
+    client = judge_clients.get_judge_client("test-model")
+    assert judge_clients.get_judge_client("test-model") is client
     result = judge.judge_with_structured_output(client, "evaluate", "test-model")
     assert result.score == 7
     assert result.reason == "supported"
@@ -60,10 +62,10 @@ def test_judge_client_reuses_model_and_returns_validated_score(judge_http, monke
 
 def test_next_judge_call_uses_new_endpoint_and_closes_idle_previous_pool(judge_http, monkeypatch):
     monkeypatch.setattr(settings, "ollama_base_url", "http://old:11434")
-    old = judge.get_judge_client("test-model")
+    old = judge_clients.get_judge_client("test-model")
     assert judge.judge_with_structured_output(old, "evaluate", "test-model").score == 7
     monkeypatch.setattr(settings, "ollama_base_url", "http://new:11434")
-    new = judge.get_judge_client("test-model")
+    new = judge_clients.get_judge_client("test-model")
     assert judge.judge_with_structured_output(new, "evaluate", "test-model").score == 7
     assert judge_http[0][-1].url.host == "new"
     assert judge_http[1][0].is_closed
@@ -86,7 +88,7 @@ async def test_queued_judge_preserves_client_until_worker_admission(judge_http, 
     await queued.wait()
     try:
         monkeypatch.setattr(settings, "ollama_base_url", "http://new:11434")
-        judge.retire_judge_clients()
+        judge_clients.retire_judge_clients()
 
         release.set()
         result = await call
@@ -95,14 +97,14 @@ async def test_queued_judge_preserves_client_until_worker_admission(judge_http, 
     finally:
         release.set()
         await asyncio.gather(call, return_exceptions=True)
-        await judge.close_judge_clients()
+        await judge_clients.close_judge_clients()
 
 
 @pytest.mark.asyncio
 async def test_container_shutdown_waits_for_owned_benchmark_pool_cleanup(judge_http):
     from composition.container import Container
 
-    judge.get_judge_client("test-model")
+    judge_clients.get_judge_client("test-model")
     assert not judge_http[1][0].is_closed
     await Container().infrastructure.dispose()
     assert judge_http[1][0].is_closed
@@ -121,8 +123,8 @@ def test_judge_constructor_cannot_mix_old_origin_with_new_provider_credentials(j
 
     monkeypatch.setattr(settings, "llm_provider", LLMProvider.OLLAMA.value)
     monkeypatch.setattr(settings, "ollama_base_url", "http://ollama:11434")
-    monkeypatch.setattr(judge, "_judge_client_lock", UpdatingLock())
-    client = judge.get_judge_client("test-model")
+    monkeypatch.setattr(judge_clients, "_judge_client_lock", UpdatingLock())
+    client = judge_clients.get_judge_client("test-model")
     result = judge.judge_with_structured_output(client, "evaluate", "test-model")
     assert result.score == 7
     request = judge_http[0][0]

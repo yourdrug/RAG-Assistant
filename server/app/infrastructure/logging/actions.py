@@ -33,8 +33,10 @@ def log_action(action: str, user_id: int | None = None, details: dict[str, Any] 
 
     """
     parts = [action]
+
     if user_id is not None:
         parts.append(f"user={user_id}")
+
     if details:
         for k, v in details.items():
             parts.append(f"{k}={v}")

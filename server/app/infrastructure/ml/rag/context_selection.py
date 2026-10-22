@@ -53,6 +53,7 @@ def select_context(docs, budget: int, count_tokens, query_parts: list[str], excl
     """
     if budget <= 0:
         raise ValueError("max_context_tokens must be positive")
+
     ranked = sorted(
         enumerate(docs),
         key=lambda pair: -(float(pair[1][1]) if isinstance(pair[1], tuple) else 0.0),
@@ -62,18 +63,23 @@ def select_context(docs, budget: int, count_tokens, query_parts: list[str], excl
     covered: set[str] = set()
     seen: set[tuple] = set()
     remaining = []
+
     for index, item in ranked:
         doc, score = item if isinstance(item, tuple) else (item, 0.0)
         scoped = sanitize_for_prompt(content_with_parent_scope(doc))
         # Equal text can have different legal scope/source metadata. Only merge
         # blocks with the same document, header and complete parent conditions.
         identity = (document_identity(doc), build_header(doc, 1), content_hash(scoped))
+
         if identity in seen:
             if exclusions is not None:
                 exclusions.append(exclusion_record(item, ExclusionReason.DUPLICATE, "context"))
+
             continue
+
         seen.add(identity)
         remaining.append((index, item, float(score), set(tokenize(scoped)) if parts else set()))
+
     score_range = max((entry[2] for entry in remaining), default=0.0) - min(
         (entry[2] for entry in remaining), default=0.0
     )
@@ -81,6 +87,7 @@ def select_context(docs, budget: int, count_tokens, query_parts: list[str], excl
     coverage_weight = CONTEXT_COVERAGE_WEIGHT * score_range
     chosen: list[Document | tuple[Document, float]] = []
     context, selected = "", []
+
     while remaining:
 
         def priority(entry):
@@ -96,11 +103,13 @@ def select_context(docs, budget: int, count_tokens, query_parts: list[str], excl
         _, item, _, terms = entry
         trial_context, trial_selected = render_selected_docs([*chosen, item])
         trial_tokens = count_tokens(trial_context)
+
         if trial_tokens <= budget:
             chosen.append(item)
             covered.update(terms)
             context, selected = trial_context, trial_selected
             continue
+
         if exclusions is not None:
             single_context, _ = render_selected_docs([item])
             single_tokens = count_tokens(single_context)
@@ -110,4 +119,5 @@ def select_context(docs, budget: int, count_tokens, query_parts: list[str], excl
                     item, reason, "context", tokens=trial_tokens, single_tokens=single_tokens, budget=budget
                 )
             )
+
     return context, selected

@@ -88,12 +88,14 @@ class RedisBucketFactory(BucketFactory):
 
     async def get(self, item: RateItem) -> RedisBucket:
         cached = self.buckets.get(item.name)
+
         if cached is not None:
             self.buckets.move_to_end(item.name)
             return cached
 
         async with self._creation_lock:
             cached = self.buckets.get(item.name)
+
             if cached is not None:
                 self.buckets.move_to_end(item.name)
                 return cached
@@ -111,9 +113,11 @@ class RedisBucketFactory(BucketFactory):
     async def aclose(self) -> None:
         task = self._leaker.aio_leak_task if self._leaker is not None else None
         self.close()
+
         if task is not None:
             task.cancel()
             result = (await asyncio.gather(task, return_exceptions=True))[0]
+
             if isinstance(result, Exception):
                 logger.error(
                     "Rate limit background expiry failed before shutdown",

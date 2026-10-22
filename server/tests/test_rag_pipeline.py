@@ -1,7 +1,7 @@
-"""Tests for the RAG pipeline state and extracted helpers from rag_service.py.
+"""Tests for frozen RAG stages and the existing domain and adapter helpers.
 
 Covers:
-- RagPipelineState dataclass
+- Frozen request and prepared-query DTOs
 - _is_not_found_answer helper
 - _build_rag_settings helper
 - _prepare_history_dicts
@@ -9,6 +9,8 @@ Covers:
 - _compute_effective_weights
 - _resolve_fetch_top_k
 """
+
+from infrastructure.ml.rag.rag_steps import RagOperations
 
 import sys
 from pathlib import Path
@@ -26,10 +28,9 @@ from domain.rag.settings import (  # noqa: E402
     RetrieverConfig,
 )
 from domain.rag.prompt_blocks import NOT_FOUND_PATTERNS  # noqa: E402
-from infrastructure.ml.rag_pipeline import RagPipelineState  # noqa: E402
 from infrastructure.ml.rag.rag_config import build_rag_settings as _build_rag_settings  # noqa: E402
 from infrastructure.ml.rag.rag_postprocess import is_not_found_answer as _is_not_found_answer  # noqa: E402
-from infrastructure.ml.rag_service import RagService  # noqa: E402
+from composition.service_providers import create_rag_service  # noqa: E402
 
 
 def _make_rag(**overrides):
@@ -64,69 +65,25 @@ def _make_rag(**overrides):
 
 def _make_service():
     mock_ml = MagicMock()
-    return RagService(ml_clients=mock_ml, document_access=MagicMock())
+    return create_rag_service(ml_clients=mock_ml, document_access=MagicMock())
 
 
 # ---------------------------------------------------------------------------
-# RagPipelineState
+# Frozen stage values
 # ---------------------------------------------------------------------------
 
 
-class TestRagPipelineState:
-    def _make_state(self, **overrides):
-        defaults = {
-            "rag": _make_rag(),
-            "t_pipeline_start": 0.0,
-            "query_for_search": "test query",
-            "question": "test question",
-            "history_messages": [],
-            "ctx": RagContext(user_id=1, user_kind="individual"),
-            "user": {"id": 1, "kind": "individual"},
-            "access_filter": None,
-            "retrieval_filter": None,
-        }
-        defaults.update(overrides)
-        return RagPipelineState(**defaults)
+def test_request_and_stage_results_are_frozen():
+    from dataclasses import FrozenInstanceError
+    from application.rag.dto import RagRequest, PreparedQuery
+    import pytest
 
-    def test_creation_with_required_fields(self):
-        state = self._make_state()
-        assert state.query_for_search == "test query"
-        assert state.breadth is None
-        assert state.fetch_k == 0
-        assert state.rerank_top_n == 0
-        assert state.docs == []
-        assert state.sources == []
-        assert state.terminal is False
-
-    def test_defaults_for_optional_fields(self):
-        state = self._make_state()
-        assert state.effective_dense_weight == 0.0
-        assert state.effective_sparse_weight == 0.0
-        assert state.use_exact_ref_boost is False
-        assert state.query_domain == ""
-        assert state.avg_sim == 0.0
-        assert state.full_answer == ""
-        assert state.confidence == 0.0
-        assert state.usage_report is None
-        assert state.q_hash == ""
-        assert state.vis_hash == ""
-
-    def test_mutable_fields_can_be_updated(self):
-        state = self._make_state()
-        state.breadth = Breadth.BROAD
-        state.fetch_k = 40
-        state.docs = [("doc1", 0.9)]
-        state.terminal = True
-        assert state.breadth == Breadth.BROAD
-        assert state.fetch_k == 40
-        assert len(state.docs) == 1
-        assert state.terminal is True
-
-    def test_independent_lists(self):
-        state1 = self._make_state()
-        state2 = self._make_state()
-        state1.docs.append(("doc", 0.5))
-        assert state2.docs == []
+    request = RagRequest("question", (), RagContext(1, "internal"), _make_rag(), 0, "req", "model")
+    prepared = PreparedQuery(request, "query")
+    with pytest.raises(FrozenInstanceError):
+        prepared.query = "changed"
+    assert not hasattr(request, "docs")
+    assert not hasattr(prepared, "terminal")
 
 
 # ---------------------------------------------------------------------------
@@ -200,12 +157,12 @@ class TestBuildRagSettings:
 
 class TestPrepareHistoryDicts:
     def test_empty_history(self):
-        result = RagService._prepare_history_dicts([])
+        result = RagOperations.prepare_history_dicts([])
         assert result == []
 
     def test_dict_history_passthrough(self):
         history = [{"role": "user", "content": "hello"}]
-        result = RagService._prepare_history_dicts(history)
+        result = RagOperations.prepare_history_dicts(history)
         assert len(result) == 1
         assert result[0]["role"] == "user"
 
@@ -214,7 +171,7 @@ class TestPrepareHistoryDicts:
             {"role": "user", "content": "hi"},  # < 3 chars after strip
             {"role": "user", "content": "hello world"},
         ]
-        result = RagService._prepare_history_dicts(history)
+        result = RagOperations.prepare_history_dicts(history)
         # Short messages may be filtered
         assert all(len(m.get("content", "")) >= 3 for m in result)
 

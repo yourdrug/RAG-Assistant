@@ -38,10 +38,12 @@ pool_lock = asyncio.Lock()
 async def get_pool():
     """Lazily create and reuse one arq pool per process."""
     global _pool
+
     if _pool is None:
         async with pool_lock:
             if _pool is None:
                 _pool = await create_pool(RedisSettings.from_dsn(settings.redis_url))
+
     return _pool
 
 
@@ -71,9 +73,11 @@ async def enqueue_arq(
     """
     if billing_principal.get() is not None:
         kwargs["cost_principal"] = billing_principal.get()
+
     kwargs.setdefault('cost_operation_id', str(uuid4()))
     pool = await get_pool()
     job = await pool.enqueue_job(func_name, _queue_name=queue_name, _job_id=arq_job_id, **kwargs)
+
     if job is None:
         logger.warning(
             "Duplicate enqueue suppressed: %s (job_id=%s already queued/running)",
@@ -82,6 +86,7 @@ async def enqueue_arq(
         )
     else:
         logger.info("Enqueued task %s to queue %s (job_id=%s)", func_name, queue_name, arq_job_id)
+
     return job
 
 
@@ -214,5 +219,6 @@ async def enqueue_document_deletion(*, document_id: int, user_id: int, job_id: i
         user_id=user_id,
         job_id=job_id,
     )
+
     if job is None:
         raise RuntimeError("Document deletion job was not enqueued")

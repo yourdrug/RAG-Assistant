@@ -88,8 +88,10 @@ def with_domain_filter(access_filter: Filter, doc_domain: str) -> Filter:
         key="metadata.doc_domain",
         match=MatchValue(value=doc_domain),
     )
+
     if access_filter is not None:
         return Filter(must=[access_filter, domain_condition])
+
     return Filter(must=[domain_condition])
 
 
@@ -141,4 +143,5 @@ def with_temporal_filter(access_filter: Filter, as_of_date: date | None) -> Filt
 
     if access_filter is not None:
         return Filter(must=[access_filter, temporal_condition])
+
     return Filter(must=[temporal_condition])

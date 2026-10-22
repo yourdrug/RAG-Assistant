@@ -93,7 +93,7 @@ class TestApplicationContainer:
         container.infrastructure.configuration = configuration
 
         chat_redactor = container.application.chat_service._pii_redactor
-        rag_redactor = container.application.rag_service._pii_redactor
+        rag_redactor = container.application.rag_service.preparation.pii_redactor
         assert chat_redactor is rag_redactor
         text = "Контакт: private@example.com"
         assert chat_redactor.redact(text) == text

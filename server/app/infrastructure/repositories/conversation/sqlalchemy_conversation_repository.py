@@ -26,8 +26,10 @@ class SQLAlchemyConversationRepository:
             select(ConversationModel).where(ConversationModel.id == conversation_id)
         )
         orm = result.scalar_one_or_none()
+
         if orm is None:
             return None
+
         return Conversation(
             id=orm.id, user_id=orm.user_id, creation_date=orm.creation_date, summary=orm.summary
         )
@@ -37,8 +39,10 @@ class SQLAlchemyConversationRepository:
             select(ConversationModel).where(ConversationModel.id == conversation_id).with_for_update()
         )
         orm = result.scalar_one_or_none()
+
         if orm is None:
             return None
+
         return Conversation(
             id=orm.id, user_id=orm.user_id, creation_date=orm.creation_date, summary=orm.summary
         )
@@ -49,10 +53,12 @@ class SQLAlchemyConversationRepository:
                 select(ConversationModel).where(ConversationModel.id == conversation.id)
             )
             orm = result.scalar_one_or_none()
+
             if orm is not None:
                 orm.user_id = conversation.user_id
                 await self._db.flush()
                 return conversation
+
         orm = ConversationModel(user_id=conversation.user_id)
         self._db.add(orm)
         await self._db.flush()
@@ -63,8 +69,10 @@ class SQLAlchemyConversationRepository:
     async def get_or_create(self, conversation_id: int | None, user_id: int) -> Conversation:
         if conversation_id:
             conv = await self.get_by_id(conversation_id)
+
             if conv and conv.is_owned_by(user_id):
                 return conv
+
         return await self.create(user_id)
 
     async def get_owner_id(self, conversation_id: int) -> int | None:
@@ -78,6 +86,7 @@ class SQLAlchemyConversationRepository:
             select(ConversationModel).where(ConversationModel.id == conversation_id)
         )
         orm = result.scalar_one_or_none()
+
         if orm is not None:
             orm.summary = summary
             await self._db.flush()
@@ -94,6 +103,7 @@ class SQLAlchemyConversationRepository:
         from sqlalchemy import ColumnElement, update
 
         expected_clause: ColumnElement[bool]
+
         if expected_summary is None:
             expected_clause = ConversationModel.summary.is_(None)
         else:

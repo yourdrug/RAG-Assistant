@@ -13,11 +13,13 @@ from fakes import FakeUnitOfWorkFactory
 from application.benchmark import compute_summary_from_results
 from domain.benchmark.judge import judge_coverage
 from domain.benchmark.sweep import SweepEvaluationMode
-from infrastructure.benchmark import judge, metrics, evidence_judge
-from infrastructure.benchmark.answer_generators import BenchmarkAnswer
-from infrastructure.benchmark.case_evaluator import BenchmarkCaseEvaluator
-from infrastructure.benchmark.sweep_full_evaluation import SweepFullEvaluator
-from infrastructure.benchmark.sweep_settings import LiveSweepSettings
+from infrastructure.benchmark.judging import judge
+from infrastructure.benchmark.evaluation import metrics
+from infrastructure.benchmark.judging import evidence_judge
+from infrastructure.benchmark.evaluation.answer_generators import BenchmarkAnswer
+from infrastructure.benchmark.evaluation.case_evaluator import BenchmarkCaseEvaluator
+from application.benchmark.sweep_evaluation import SweepFullEvaluator
+from infrastructure.benchmark.sweep.settings import LiveSweepSettings
 from infrastructure.ml.clients.llm_schemas import JudgeScore
 
 

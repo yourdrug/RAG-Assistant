@@ -9,6 +9,7 @@ import json
 import logging
 from pathlib import Path
 from time import perf_counter
+from typing import Any
 
 from langchain_core.documents import Document
 
@@ -24,9 +25,10 @@ from domain.rag.evidence.grounded_response import (
 logger = logging.getLogger("default")
 
 
-def evaluate(case):
+def evaluate(case: dict[str, Any]) -> dict[str, Any]:
     docs = [(Document(**item), 0.9) for item in case.get("docs", [])]
     started = perf_counter()
+
     if case["kind"] == "timing":
         answer = extractive_timing_response(docs, case["question"])
     elif case["kind"] == "procedure":
@@ -35,8 +37,10 @@ def evaluate(case):
         answer = "\n".join(evidence_reading_map(case["context"], case["question"]))
     else:
         answer = missing_field_response(case["context"], case["question"])
+
         if answer is None:
             answer = extractive_table_comparison_response(case["context"], case["question"])
+
     elapsed = perf_counter() - started
     checks = {
         "declined": answer is None if case.get("expect_decline") else True,
@@ -54,7 +58,7 @@ def evaluate(case):
     }
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", type=Path)
     parser.add_argument("--out", type=Path, required=True)
@@ -68,10 +72,13 @@ def main():
         "results": results,
     }
     args.out.write_text(json.dumps(output, ensure_ascii=False, indent=2) + "\n")
+
     for case in results:
         if not case["passed"]:
             logger.warning("Probe %s failed: %s", case["id"], case["answer"])
+
     logger.warning("%s/%s probes passed", output["passed"], output["total"])
+
     if output["passed"] != output["total"]:
         raise SystemExit(1)
 

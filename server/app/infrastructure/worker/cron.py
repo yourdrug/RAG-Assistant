@@ -20,9 +20,11 @@ logger = logging.getLogger("default")
 def add_bm25_batch(index, rows) -> int:
     """Tokenize one bounded chunk batch into the private rebuild index."""
     text_bytes = 0
+
     for content, visibility, owner_id, group_id in rows:
         index.add_text(content, visibility=visibility, owner_id=owner_id, group_id=group_id)
         text_bytes += len(content.encode("utf-8"))
+
     return text_bytes
 
 
@@ -31,6 +33,7 @@ async def cron_job_cleanup(ctx: dict[str, Any]) -> None:
     uow_factory = ctx["container"].infrastructure.db.uow_factory
     async with uow_factory.create(master=True) as uow:
         deleted = await uow.background_jobs.delete_old(days=settings.job_cleanup_days)
+
         if deleted:
             logger.info("Cron: cleaned up %d old background jobs", deleted)
 
@@ -46,10 +49,13 @@ async def cron_recover_orphaned_jobs(ctx: dict[str, Any]) -> None:
             timeout_minutes=settings.stale_pending_timeout_minutes
         )
         await uow.benchmark_sweeps.fail_dead_jobs()
+
     if orphaned_ids:
         logger.warning("Cron: recovered %d orphaned jobs: %s", len(orphaned_ids), orphaned_ids)
+
     for job in stale_pending:
         logger.warning("Cron: failed stale pending job %d (%s)", job.id, job.job_type)
+
     await _fail_documents_of_dead_jobs(uow_factory, stale_pending)
 
 
@@ -58,11 +64,14 @@ async def _fail_documents_of_dead_jobs(uow_factory, dead_jobs) -> None:
     doc_ids = [
         job.related_id for job in dead_jobs if job.job_type == "document_processing" and job.related_id
     ]
+
     if not doc_ids:
         return
+
     async with uow_factory.create(master=True) as uow:
         for doc_id in doc_ids:
             doc = await uow.documents.get_by_id(doc_id)
+
             if doc is not None and doc.status.value in ("pending", "processing"):
                 await uow.documents.update_status(
                     doc_id,
@@ -77,6 +86,7 @@ async def cron_recover_stuck_processing(ctx: dict[str, Any]) -> None:
     uow_factory = ctx["container"].infrastructure.db.uow_factory
     async with uow_factory.create(master=True) as uow:
         stuck_ids = await uow.documents.mark_stuck_processing_failed()
+
     for doc_id in stuck_ids:
         logger.warning("Cron: marked stuck PROCESSING document %d as failed", doc_id)
 
@@ -99,11 +109,14 @@ async def cron_bm25_rebuild(ctx: dict[str, Any]) -> None:
     total_text_bytes = 0
     async with uow_factory.create(master=True) as uow:
         corpus: ChunkCorpusRepository = uow.chunks
+
         async for row in corpus.iter_all_contents_with_acl(batch_size=1000):
             pending_rows.append(row)
+
             if len(pending_rows) >= 250:
                 total_text_bytes += await asyncio.to_thread(add_bm25_batch, bm25_index, pending_rows)
                 pending_rows.clear()
+
         if pending_rows:
             total_text_bytes += await asyncio.to_thread(add_bm25_batch, bm25_index, pending_rows)
 

@@ -2,6 +2,7 @@
 
 import hashlib
 
+from qdrant_client import QdrantClient
 from qdrant_client.models import Modifier, SparseVector
 
 from domain.shared.exceptions import ValidationError
@@ -11,83 +12,108 @@ from infrastructure.corpus.snapshot import CorpusSnapshot
 from infrastructure.repositories.vector.sparse_vectors import SPARSE_VECTOR_NAME
 
 
-ACL_FIELDS = ('document_id', 'visibility', 'owner_id', 'group_id', 'content_hash', 'doc_domain')
+ACL_FIELDS = ("document_id", "visibility", "owner_id", "group_id", "content_hash", "doc_domain")
 
 
 def corpus_digest(rows) -> str:
     return hashlib.sha256(
-        repr(sorted((row['id'], *(row[key] for key in ACL_FIELDS), row['content']) for row in rows)).encode()
+        repr(sorted((row["id"], *(row[key] for key in ACL_FIELDS), row["content"]) for row in rows)).encode()
     ).hexdigest()
 
 
 def build_corpus_bm25(rows):
     return BM25Index(
-        [row['content'] for row in rows],
-        hashes=[row['content_hash'] for row in rows],
-        doc_visibility=[row['visibility'] for row in rows],
-        doc_owner_id=[row['owner_id'] for row in rows],
-        doc_group_id=[row['group_id'] for row in rows],
+        [row["content"] for row in rows],
+        hashes=[row["content_hash"] for row in rows],
+        doc_visibility=[row["visibility"] for row in rows],
+        doc_owner_id=[row["owner_id"] for row in rows],
+        doc_group_id=[row["group_id"] for row in rows],
     )
 
 
 def validate_corpus(client, endpoint, name, identity, dimension, rows) -> CorpusSnapshot:
     snapshot = validate_corpus_binding(client, endpoint, name, identity, dimension)
     physical = snapshot.physical_collection
-    expected = {row['id']: row for row in rows}
+    expected = {row["id"]: row for row in rows}
     seen: set[int | str] = set()
     offset = None
+
     while True:
         points, offset = client.scroll(
-            collection_name=physical, offset=offset, limit=256,
-            with_payload=True, with_vectors=[SPARSE_VECTOR_NAME]
+            collection_name=physical,
+            offset=offset,
+            limit=256,
+            with_payload=True,
+            with_vectors=[SPARSE_VECTOR_NAME],
         )
+
         for point in points:
             validate_corpus_point(point, expected, seen, identity)
             seen.add(point.id)
+
         if offset is None:
             break
+
     if seen != set(expected):
-        raise ValidationError('Selected corpus is missing PostgreSQL chunks')
+        raise ValidationError("Selected corpus is missing PostgreSQL chunks")
+
     return CorpusSnapshot(endpoint, name, physical, identity)
 
 
 def validate_corpus_point(point, expected, seen, identity):
     row = expected.get(point.id)
     payload = point.payload or {}
-    metadata = payload.get('metadata') or {}
+    metadata = payload.get("metadata") or {}
+
     if row is None or point.id in seen:
-        raise ValidationError('Selected corpus contains unknown or duplicate chunk IDs')
+        raise ValidationError("Selected corpus contains unknown or duplicate chunk IDs")
+
     if any(key not in metadata or metadata[key] != row[key] for key in ACL_FIELDS):
-        raise ValidationError('Selected corpus ACL/content metadata differs from PostgreSQL')
-    if metadata.get('embedding_model') != identity or payload.get('page_content') != row['content']:
-        raise ValidationError('Selected corpus content or embedding identity differs from PostgreSQL')
+        raise ValidationError("Selected corpus ACL/content metadata differs from PostgreSQL")
+
+    if metadata.get("embedding_model") != identity or payload.get("page_content") != row["content"]:
+        raise ValidationError("Selected corpus content or embedding identity differs from PostgreSQL")
 
     vectors = point.vector
     sparse = vectors.get(SPARSE_VECTOR_NAME) if isinstance(vectors, dict) else None
+
     if not isinstance(sparse, SparseVector):
-        raise ValidationError('Selected corpus chunk has no BM25 sparse vector')
-    if not sparse.indices and tokenize(row['content']):
-        raise ValidationError('Selected corpus chunk has an empty BM25 sparse vector for tokenized content')
+        raise ValidationError("Selected corpus chunk has no BM25 sparse vector")
+
+    if not sparse.indices and tokenize(row["content"]):
+        raise ValidationError("Selected corpus chunk has an empty BM25 sparse vector for tokenized content")
 
 
-def validate_corpus_binding(client, endpoint, name, identity, dimension):
+def validate_corpus_binding(
+    client: QdrantClient, endpoint: str, name: str, identity: str, dimension: int
+) -> CorpusSnapshot:
     names = {item.name for item in client.get_collections().collections}
     aliases = {item.alias_name: item.collection_name for item in client.get_aliases().aliases}
     physical = aliases.get(name, name)
+
     if physical not in names:
-        raise ValidationError('Selected corpus does not exist')
+        raise ValidationError("Selected corpus does not exist")
+
     info = client.get_collection(physical)
     vectors = info.config.params.vectors
-    if getattr(vectors, 'size', None) != dimension:
-        raise ValidationError('Selected corpus has incompatible vector dimension')
+
+    if getattr(vectors, "size", None) != dimension:
+        raise ValidationError("Selected corpus has incompatible vector dimension")
+
     sparse = info.config.params.sparse_vectors or {}
+
     if SPARSE_VECTOR_NAME not in sparse or sparse[SPARSE_VECTOR_NAME].modifier != Modifier.IDF:
         raise ValidationError("Selected corpus has no compatible BM25 sparse index")
-    binding = physical + '__embedding_identity'
+
+    binding = physical + "__embedding_identity"
     fingerprint = hashlib.sha256(identity.encode()).hexdigest()
+
     if binding not in names:
-        raise ValidationError('Selected corpus has no immutable embedding identity')
+        raise ValidationError("Selected corpus has no immutable embedding identity")
+
     binding_vectors = client.get_collection(binding).config.params.vectors
+
     if not isinstance(binding_vectors, dict) or set(binding_vectors) != {fingerprint}:
-        raise ValidationError('Selected corpus has incompatible embedding identity')
+        raise ValidationError("Selected corpus has incompatible embedding identity")
+
     return CorpusSnapshot(endpoint, name, physical, identity)

@@ -83,4 +83,5 @@ def create_llm_instructor_client(model: str | None = None):
             api_key="ollama",
         )
         resolved_model = model or settings.llm_model
+
     return client, resolved_model

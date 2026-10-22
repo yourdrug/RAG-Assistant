@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from application.documents import DocumentAccessPort
     from application.ports.ml_clients import MLClientPort
     from domain.rag.ports import ChunkRetrievalRepository
-    from infrastructure.ml.rag_pipeline import RagPipelineState
+    from infrastructure.ml.rag.retrieval_work import RetrievalWork
 
 
 class RetrievalPipeline:
@@ -27,7 +27,7 @@ class RetrievalPipeline:
         self.chunk_search = chunk_search
         self.document_access = document_access
 
-    async def run(self, query: str, state: RagPipelineState) -> RagPipelineState:
+    async def run(self, query: str, state: RetrievalWork) -> RetrievalWork:
         candidates, state.sub_queries = await retrieve_with_decomposition(query, state, self.ml_clients)
 
         if state.use_exact_ref_boost:

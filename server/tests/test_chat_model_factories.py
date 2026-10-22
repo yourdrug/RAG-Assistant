@@ -8,7 +8,7 @@ import pytest
 
 from config import Settings, settings
 from domain.runtime.enums import LLMProvider
-from infrastructure.benchmark import judge
+from infrastructure.benchmark.judging import clients as judge_clients
 from infrastructure.ml.clients import factories
 
 
@@ -136,4 +136,4 @@ def test_judge_and_auxiliary_share_default_model(
     monkeypatch.setattr(settings, "llm_provider", LLMProvider.OPENROUTER)
     monkeypatch.setattr(settings, "benchmark_judge_model", "")
     factories.create_fast_llm_for_auxiliary()
-    assert judge.get_judge_model() == constructors.openrouter.call_args.kwargs["model_name"]
+    assert judge_clients.get_judge_model() == constructors.openrouter.call_args.kwargs["model_name"]

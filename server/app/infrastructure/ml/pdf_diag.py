@@ -24,8 +24,10 @@ def assess_pdf_extraction_quality(pdf_path: Path, extracted_docs: list) -> PDFQu
         doc.close()
 
     by_page: dict[int, str] = {}
+
     for d in extracted_docs:
         page_num = d.metadata.get("page")
+
         if page_num is not None:
             by_page[page_num] = by_page.get(page_num, "") + d.page_content
 

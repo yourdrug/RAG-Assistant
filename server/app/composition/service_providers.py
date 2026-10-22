@@ -11,9 +11,17 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from infrastructure.benchmark.sweep_engine import SweepEngine
+from application.rag.service import RagService as ApplicationRagService
+from infrastructure.ml.rag.rag_steps import RagOperations
+from application.benchmark.sweep import SweepEngine
+from application.benchmark.sweep_evaluation import SweepFullEvaluator
+from infrastructure.benchmark.sweep.data import SweepDataSource
+from infrastructure.benchmark.sweep.scoring import score_stage_candidates
+from infrastructure.benchmark.sweep.strategies import default_strategy_factories
+from infrastructure.benchmark.corpus import benchmark_corpus, corpus_metadata
+from contextlib import asynccontextmanager
 from infrastructure.benchmark.checkpoint import DatabaseBenchmarkCheckpoints
-from infrastructure.benchmark.sweep_settings import LiveSweepSettings
+from infrastructure.benchmark.sweep.settings import LiveSweepSettings
 from application.documents import DocumentProcessor
 from application.documents.dto import DocumentProcessingDependencies
 from composition.utils import _require
@@ -24,18 +32,51 @@ from infrastructure.ingestion.document_parser_adapter import (
 
 if TYPE_CHECKING:
     from composition.infrastructure import InfrastructureContainer
+    from application.chat import PIIRedactorPort
+    from application.documents import DocumentAccessPort
+    from application.ports.ml_clients import MLClientPort
+    from application.benchmark import BenchmarkCheckpoints
+    from application.benchmark.sweep import SweepBenchmarkPort
+    from application.benchmark.sweep_ports import SweepSettingsPort, SweepSearchStrategy
+    from collections.abc import Callable, AsyncIterator
+    from domain.rag.ports import ChunkRetrievalRepository
     from infrastructure.uow_factory import UnitOfWorkFactory
 
 log = logging.getLogger("default")
 
 
-def create_sweep_engine(infra: InfrastructureContainer):
-    """Bind sweep execution to the already initialized benchmark and ML services."""
+def build_sweep_engine(
+    uow_factory: UnitOfWorkFactory,
+    benchmark_service: SweepBenchmarkPort | None = None,
+    ml_clients: MLClientPort | None = None,
+    *,
+    runtime: SweepSettingsPort | None = None,
+    strategies: dict[str, Callable[[dict], SweepSearchStrategy]] | None = None,
+    checkpoint_factory: Callable[[int], BenchmarkCheckpoints] | None = None,
+) -> SweepEngine:
+    @asynccontextmanager
+    async def corpus() -> AsyncIterator[dict]:
+        async with benchmark_corpus(ml_clients) as snapshot:
+            yield corpus_metadata(snapshot)
+
+    runtime = runtime if runtime is not None else LiveSweepSettings()
     return SweepEngine(
+        data=SweepDataSource(uow_factory, ml_clients),
+        benchmark_service=benchmark_service,
+        runtime=runtime,
+        full_evaluator=SweepFullEvaluator(runtime),
+        strategies=strategies if strategies is not None else default_strategy_factories(),
+        scoring=score_stage_candidates,
+        corpus=corpus,
+        checkpoint_factory=checkpoint_factory,
+    )
+
+
+def create_sweep_engine(infra: InfrastructureContainer) -> SweepEngine:
+    return build_sweep_engine(
         uow_factory=_require(infra.db.uow_factory, "uow_factory"),
         benchmark_service=_require(infra.ml.benchmark_service, "benchmark_service"),
         ml_clients=_require(infra.ml.ml_clients, "ml_clients"),
-        runtime=LiveSweepSettings(),
         checkpoint_factory=lambda sweep_id: DatabaseBenchmarkCheckpoints(
             _require(infra.db.uow_factory, "uow_factory"), sweep_id
         ),
@@ -154,3 +195,27 @@ def create_document_processor(
 
 # Compatibility for integrations using the former application facade factory.
 create_ingest_app_service = create_ingestion_service
+
+
+def create_rag_service(
+    ml_clients: MLClientPort,
+    chunk_search: ChunkRetrievalRepository | None = None,
+    domain_keys: tuple[str, ...] | None = None,
+    pii_redactor: PIIRedactorPort | None = None,
+    *,
+    document_access: DocumentAccessPort,
+) -> ApplicationRagService:
+    operations = RagOperations(
+        ml_clients, chunk_search, domain_keys, pii_redactor, document_access=document_access
+    )
+    return ApplicationRagService(
+        preparation=operations,
+        safety=operations,
+        cache=operations,
+        retrieval=operations,
+        evidence=operations,
+        context=operations,
+        generation=operations,
+        finalization=operations,
+        corpus=operations.corpus,
+    )

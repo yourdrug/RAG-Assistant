@@ -15,31 +15,31 @@ from infrastructure.ml.cache.answers import compute_question_hash, compute_visib
 
 
 if TYPE_CHECKING:
-    from infrastructure.ml.rag_pipeline import RagPipelineState
+    from application.rag.dto import PreparedQuery
 
 
 class CacheKeyBuilder:
     @staticmethod
-    def build(state: RagPipelineState, domain_keys: tuple[str, ...] | None = None) -> tuple[str, str]:
+    def build(state: PreparedQuery, domain_keys: tuple[str, ...] | None = None) -> tuple[str, str]:
         vis_hash = compute_visibility_scope_hash(
-            state.ctx.user_kind,
-            state.ctx.user_id,
-            state.ctx.user_group_ids,
-            user_role=state.ctx.user_role,
-            curator_scope=state.ctx.curator_scope,
+            state.request.ctx.user_kind,
+            state.request.ctx.user_id,
+            state.request.ctx.user_group_ids,
+            user_role=state.request.ctx.user_role,
+            curator_scope=state.request.ctx.curator_scope,
         )
         q_hash = compute_question_hash(
-            state.query_for_search,
+            state.query,
             context={
-                "as_of_date": (state.ctx.as_of_date or date.today()).isoformat(),  # noqa: DTZ011
-                "depth": state.ctx.depth,
-                "summary": state.ctx.summary,
-                "question": state.question,
+                "as_of_date": (state.request.ctx.as_of_date or date.today()).isoformat(),  # noqa: DTZ011
+                "depth": state.request.ctx.depth,
+                "summary": state.request.ctx.summary,
+                "question": state.request.question,
                 "history": [
-                    {"role": message.type, "content": str(message.content)}
-                    for message in state.history_messages
+                    {"role": message.role, "content": str(message.content)}
+                    for message in state.request.history
                 ],
-                "rag_settings": asdict(state.rag),
+                "rag_settings": asdict(state.request.settings),
                 "corpus_revision": state.cache_revision,
                 "llm_provider": settings.llm_provider,
                 "llm_model": settings.llm_model,
@@ -55,16 +55,16 @@ class CacheKeyBuilder:
                 "evidence_policy": EVIDENCE_POLICY_VERSION,
                 "domain_prompts": {
                     domain_key: [
-                        policy_for(domain_key).prompt_addendum(state.ctx.as_of_date),
-                        policy_for(domain_key).prompt_addendum(state.ctx.as_of_date),
+                        policy_for(domain_key).prompt_addendum(state.request.ctx.as_of_date),
+                        policy_for(domain_key).prompt_addendum(state.request.ctx.as_of_date),
                     ]
                     for domain_key in domain_keys
                 }
                 if domain_keys is not None
                 else {},
                 "system_prompts": [
-                    build_system_prompt(Breadth.NARROW, question=state.question),
-                    build_system_prompt(Breadth.BROAD, enumerate_cases=True, question=state.question),
+                    build_system_prompt(Breadth.NARROW, question=state.request.question),
+                    build_system_prompt(Breadth.BROAD, enumerate_cases=True, question=state.request.question),
                 ],
             },
         )

@@ -8,9 +8,14 @@ import pytest
 from config import _settings_overrides, get_setting, settings
 from domain.knowledge.chunk import ChunkInsert
 from domain.benchmark.sweep import BenchmarkSweep
-from infrastructure.benchmark import evidence_judge, judge, metrics, persistence
-from infrastructure.benchmark.runner import run_benchmark_async
-from infrastructure.benchmark.sweep_engine import SweepEngine, SweepCancelled
+from infrastructure.benchmark.judging import evidence_judge
+from infrastructure.benchmark.judging import judge
+from infrastructure.benchmark.evaluation import metrics
+from infrastructure.benchmark.judging import context_judge
+from infrastructure.benchmark.reporting import progress as persistence
+from infrastructure.benchmark.evaluation.runner import run_benchmark_async
+from application.benchmark.sweep_ports import SweepCancelled
+from composition.service_providers import build_sweep_engine
 from infrastructure.repositories.chunk.sqlalchemy_chunk_repository import SQLAlchemyChunkRepository
 
 
@@ -25,7 +30,7 @@ def benchmark_io(monkeypatch):
     score = AsyncMock(return_value={"faithfulness": 8, "relevancy": 7, "correctness": None})
     monkeypatch.setattr(judge, "judge_answer_async", score)
     monkeypatch.setattr(
-        metrics, "compute_context_precision_recall", lambda *a, **kw: {"context_precision": 6}
+        context_judge, "compute_context_precision_recall", lambda *a, **kw: {"context_precision": 6}
     )
     monkeypatch.setattr(metrics, "estimate_cost_usd", lambda *a: 0.25)
     monkeypatch.setattr(persistence, "log_question_result", lambda *a: None)
@@ -85,7 +90,7 @@ async def test_benchmark_restores_cache_scope_and_propagates_pipeline_error(benc
 
 @pytest.fixture
 def grid_engine(monkeypatch):
-    engine = SweepEngine(uow_factory=None)
+    engine = build_sweep_engine(uow_factory=None)
     monkeypatch.setattr(
         engine, "load_questions", AsyncMock(return_value=[{"question": "q", "source_hint": "doc"}])
     )

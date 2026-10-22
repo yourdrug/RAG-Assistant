@@ -12,7 +12,10 @@ from enum import StrEnum
 
 import httpx
 from domain.runtime.enums import MLProvider
-from infrastructure.corpus.control import corpus_write_guard, raw_corpus_client
+from functools import partial
+from infrastructure.corpus.locks import corpus_write_guard
+from infrastructure.corpus.clients import raw_corpus_client
+from infrastructure.database.database import database
 from infrastructure.corpus import snapshot as corpus_snapshot
 from infrastructure.corpus.snapshot import BoundQdrantClient, CorpusSnapshot
 from infrastructure.budget.transport import PaidSyncTransport, PaidAsyncTransport
@@ -40,6 +43,7 @@ def create_embeddings(model: Settings | None = None):
         max_connections=model.embedding_http_max_connections,
         max_keepalive_connections=model.embedding_http_max_keepalive_connections,
     )
+
     if model.ml_provider == MLProvider.DEEPINFRA.value:
         log.info("Creating DeepInfra embeddings client (model=%s) ...", model.deepinfra_embed_model)
         client = DeepInfraEmbeddingsClient(
@@ -70,6 +74,7 @@ def create_reranker(model: Settings | None = None):
         max_connections=model.rerank_http_max_connections,
         max_keepalive_connections=model.rerank_http_max_keepalive_connections,
     )
+
     if model.ml_provider == MLProvider.DEEPINFRA.value:
         log.info("Creating DeepInfra reranker client (model=%s) ...", model.deepinfra_rerank_model)
         return DeepInfraRerankerClient(
@@ -123,6 +128,7 @@ def build_chat_model(
     role_temperature = (
         0 if role in (ChatModelRole.AUXILIARY, ChatModelRole.BENCHMARK) else model.llm_temperature
     )
+
     if provider == LLMProvider.OPENROUTER:
         default_name = FAST_OPENROUTER_MODEL if role == ChatModelRole.AUXILIARY else model.openrouter_model
         parameters = {
@@ -135,11 +141,15 @@ def build_chat_model(
             "http_client": httpx.Client(follow_redirects=False, transport=PaidSyncTransport()),
             "http_async_client": httpx.AsyncClient(follow_redirects=False, transport=PaidAsyncTransport()),
         }
+
         if role != ChatModelRole.BENCHMARK:
             parameters["request_timeout"] = 10 if role == ChatModelRole.AUXILIARY else 120
+
         if role not in (ChatModelRole.AUXILIARY, ChatModelRole.BENCHMARK):
             parameters["stream_usage"] = True
+
         return ChatOpenAI(**parameters)
+
     parameters = {
         "model": model_name if model_name is not None else model.llm_model,
         "base_url": base_url if base_url is not None else model.ollama_base_url,
@@ -147,6 +157,7 @@ def build_chat_model(
         if temperature is not None
         else (0 if role == ChatModelRole.BENCHMARK else model.llm_temperature),
     }
+
     if role != ChatModelRole.BENCHMARK:
         parameters.update(
             top_p=top_p if top_p is not None else model.llm_top_p,
@@ -155,8 +166,10 @@ def build_chat_model(
             else (model.llm_num_ctx_broad if role == ChatModelRole.BROAD else model.llm_num_ctx_narrow),
             client_kwargs={"timeout": model.llm_request_timeout},
         )
+
     if role in (ChatModelRole.NARROW, ChatModelRole.BROAD):
         parameters["num_predict"] = num_predict if num_predict is not None else output_limits[role]
+
     return ChatOllama(**parameters)
 
 
@@ -233,7 +246,7 @@ def create_qdrant_client() -> BoundQdrantClient:
         configured_embedding_identity(),
     )
     raw = raw_corpus_client(snapshot.endpoint)
-    return BoundQdrantClient(raw, snapshot, corpus_write_guard)
+    return BoundQdrantClient(raw, snapshot, partial(corpus_write_guard, database))
 
 
 # ---------------------------------------------------------------------------
@@ -260,8 +273,10 @@ async def fetch_openrouter_models() -> list[dict]:
             data = r.json()
 
             models = []
+
             for m in data.get("data", []):
                 model_id = m.get("id", "")
+
                 if any(skip in model_id.lower() for skip in ["embedding", "vision", "tts", "whisper"]):
                     continue
 

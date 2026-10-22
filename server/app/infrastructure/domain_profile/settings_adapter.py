@@ -18,8 +18,10 @@ class DomainSettingsAdapter:
         a silent fallback to a global value.
         """
         cache_key = (key, domain_key)
+
         if cache_key in self._cache:
             return self._cache[cache_key]
+
         raise KeyError(f"Config parameter '{key}' not found for domain '{domain_key}'")
 
     def snapshot(self) -> dict[tuple[str, str], str]:

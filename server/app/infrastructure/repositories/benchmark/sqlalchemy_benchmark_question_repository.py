@@ -78,11 +78,14 @@ class SQLAlchemyBenchmarkQuestionRepository:
         stmt = select(BenchmarkQuestionModel).where(BenchmarkQuestionModel.id == question_id)
         result = await self._db.execute(stmt)
         orm = result.scalar_one_or_none()
+
         if orm is None:
             return None
+
         for key, value in fields.items():
             if hasattr(orm, key):
                 setattr(orm, key, value)
+
         await self._db.flush()
         await self._db.refresh(orm)
         return self._to_entity(orm)
@@ -91,8 +94,10 @@ class SQLAlchemyBenchmarkQuestionRepository:
         stmt = select(BenchmarkQuestionModel).where(BenchmarkQuestionModel.id == question_id)
         result = await self._db.execute(stmt)
         orm = result.scalar_one_or_none()
+
         if orm is None:
             return False
+
         await self._db.delete(orm)
         return True
 
@@ -132,8 +137,10 @@ class SQLAlchemyBenchmarkQuestionRepository:
     def _apply_filters(stmt, *, dataset=None, tag=None, search=None, is_active=None):
         if dataset is not None:
             stmt = stmt.where(BenchmarkQuestionModel.dataset == dataset)
+
         if tag is not None:
             stmt = stmt.where(BenchmarkQuestionModel.tags.op("@>")(f'["{tag}"]'))
+
         if search:
             pattern = f"%{search}%"
             stmt = stmt.where(
@@ -141,8 +148,10 @@ class SQLAlchemyBenchmarkQuestionRepository:
                 | BenchmarkQuestionModel.expected_answer.ilike(pattern)
                 | BenchmarkQuestionModel.notes.ilike(pattern)
             )
+
         if is_active is not None:
             stmt = stmt.where(BenchmarkQuestionModel.is_active == is_active)
+
         return stmt
 
     @staticmethod

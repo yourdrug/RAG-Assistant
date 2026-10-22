@@ -8,9 +8,9 @@ from langchain_core.messages import AIMessage, AIMessageChunk
 
 from domain.rag.context import RagContext
 from domain.identity.roles import UserKind, UserRole
-from infrastructure.benchmark.answer_generators import BenchmarkAnswer, RagBenchmarkGenerator
-from infrastructure.benchmark.case_evaluator import BenchmarkCaseEvaluator
-from infrastructure.benchmark.token_usage import judge_usage, record_judge_usage
+from infrastructure.benchmark.evaluation.answer_generators import BenchmarkAnswer, RagBenchmarkGenerator
+from infrastructure.benchmark.evaluation.case_evaluator import BenchmarkCaseEvaluator
+from infrastructure.benchmark.judging.token_usage import judge_usage, record_judge_usage
 from infrastructure.ml.clients.managed_llm import ManagedLLM
 from infrastructure.ml.usage_capture import active_llm_usage, record_model_response, summarize_usage
 
@@ -199,14 +199,14 @@ async def test_failed_judge_preserves_paid_responses_for_checkpoint(monkeypatch)
     async def generate(*args):
         return BenchmarkAnswer('answer', '', {}, None, None)
 
-    async def judge(*args):
+    async def judge(*args, **kwargs):
         record_judge_usage(
             SimpleNamespace(usage={'prompt_tokens': 15, 'completion_tokens': 4, 'cost': 0.002})
         )
         raise RuntimeError('judge validation failed')
 
     evaluator = BenchmarkCaseEvaluator(SimpleNamespace(generate=generate), 'model')
-    monkeypatch.setattr(evaluator, 'judge_generated', judge)
+    monkeypatch.setattr('infrastructure.benchmark.evaluation.case_evaluator.judge_generated', judge)
     records = []
     token = judge_usage.set(records)
     try:

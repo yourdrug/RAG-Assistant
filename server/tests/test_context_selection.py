@@ -18,7 +18,7 @@ from infrastructure.ml.rag.context_selection import ExclusionReason
 from infrastructure.ml.rag.prompt_budget import estimate_message_tokens, estimate_text_tokens
 from infrastructure.ml.rag.rag_formatting import format_docs_with_selection, render_selected_docs
 from infrastructure.ml.rag.rag_reranking import deduplicate_docs, rerank_documents
-from infrastructure.ml.rag.rag_steps import step_build_context
+from rag_stage_fixtures import build_context as step_build_context
 from test_rag_improvements import doc, state_for
 
 

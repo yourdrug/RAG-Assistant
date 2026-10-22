@@ -301,6 +301,7 @@ def record_llm_usage(
     """
     if input_tokens is not None and input_tokens > 0:
         LLM_TOKEN_USAGE.labels(model=model, direction="input", operation=operation).inc(input_tokens)
+
     if output_tokens is not None and output_tokens > 0:
         LLM_TOKEN_USAGE.labels(model=model, direction="output", operation=operation).inc(output_tokens)
 
@@ -325,6 +326,7 @@ def record_rag_answer(
     is_not_found = any(p in lower for p in NOT_FOUND_PATTERNS)
     answer_type = "not_found" if is_not_found else "found"
     RAG_QUERIES_TOTAL.labels(breadth=breadth, answer_type=answer_type).inc()
+
     if is_not_found:
         RAG_NOT_FOUND_TOTAL.inc()
 
@@ -336,8 +338,10 @@ def record_rag_answer(
 
 async def _collect_db_pool_metrics() -> None:
     engine = database.master_node.async_engine if database.master_node else None
+
     if engine is None:
         return
+
     pool = cast(QueuePool, engine.pool)
     DB_POOL_IN_USE.set(pool.checkedout())
     DB_POOL_IDLE.set(pool.checkedin())
@@ -362,6 +366,7 @@ async def collect_bm25_metrics(
         bm25 = await bm25_loader()
     else:
         raise ValueError("BM25 metrics require an explicit registry or loader")
+
     if bm25 is not None:
         BM25_INDEX_SIZE.set(len(bm25.hashes))
 
@@ -370,8 +375,10 @@ async def _collect_ollama_metrics() -> None:
     async with httpx.AsyncClient(timeout=3) as http:
         # /api/ps returns actually loaded models with real VRAM usage
         r = await http.get(f"{settings.ollama_base_url}/api/ps")
+
         if r.status_code == 200:
             data = r.json()
+
             for model in data.get("models", []):
                 model_name = model.get("name", "unknown")
                 vram = model.get("size_vram", 0)

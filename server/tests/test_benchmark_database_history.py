@@ -8,7 +8,7 @@ import pytest
 
 from application.benchmark import BenchmarkResultService
 from domain.benchmark.run import BenchmarkRun
-from infrastructure.benchmark.benchmark_history_adapter import BenchmarkHistoryAdapter
+from infrastructure.benchmark.reporting.benchmark_history_adapter import BenchmarkHistoryAdapter
 
 
 class Factory:

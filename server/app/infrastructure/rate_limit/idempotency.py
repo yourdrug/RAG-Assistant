@@ -46,6 +46,7 @@ class IdempotencyStore:
             "token": token,
         }
         encoded = json.dumps(entry, separators=(",", ":"))
+
         if await self._redis.set(redis_key, encoded, nx=True, ex=self._ttl):
             return {
                 "status": IdempotencyClaimStatus.ACQUIRED.value,
@@ -54,6 +55,7 @@ class IdempotencyStore:
             }
 
         raw = await self._redis.get(redis_key)
+
         if raw is None:
             # The first reservation expired between SET NX and GET. Retry once
             # through the same atomic SET NX path.
@@ -63,32 +65,41 @@ class IdempotencyStore:
                     "redis_key": redis_key,
                     "token": token,
                 }
+
             raw = await self._redis.get(redis_key)
+
         if raw is None:
             raise RuntimeError("Idempotency reservation disappeared during claim")
 
         existing = json.loads(raw)
+
         if existing.get("operation") != operation or existing.get("fingerprint") != fingerprint:
             return {"status": IdempotencyClaimStatus.CONFLICT.value}
+
         if existing.get("state") == IdempotencyClaimStatus.COMPLETED.value:
             return {
                 "status": IdempotencyClaimStatus.COMPLETED.value,
                 "result": existing.get("result"),
             }
+
         return {"status": IdempotencyClaimStatus.IN_PROGRESS.value}
 
     async def complete(self, reservation: dict[str, Any], result: dict[str, Any]) -> None:
         """Store the response only if this request still owns the reservation."""
         redis_key = reservation["redis_key"]
         token = reservation["token"]
+
         for _ in range(_MAX_WATCH_RETRIES):
             try:
                 async with self._redis.pipeline(transaction=True) as pipe:
                     await pipe.watch(redis_key)
                     raw = await pipe.get(redis_key)
+
                     if raw is None:
                         raise RuntimeError("Idempotency reservation was lost before completion")
+
                     entry = json.loads(raw)
+
                     if not isinstance(entry, dict) or entry.get("token") != token:
                         raise RuntimeError("Idempotency reservation was lost before completion")
 
@@ -105,4 +116,5 @@ class IdempotencyStore:
                 return
             except WatchError:
                 continue
+
         raise RuntimeError("Idempotency reservation changed repeatedly before completion")

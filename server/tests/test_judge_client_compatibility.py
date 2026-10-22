@@ -1,5 +1,8 @@
 """Exercise real Instructor provider validation and request/response handling offline."""
 
+from infrastructure.benchmark.judging import clients as judge_clients
+
+
 import json
 
 import httpx
@@ -8,8 +11,8 @@ import pytest
 from openai import OpenAI
 
 from domain.runtime.enums import LLMProvider
-from infrastructure.benchmark import judge
-from infrastructure.benchmark.token_usage import judge_usage
+from infrastructure.benchmark.judging import judge
+from infrastructure.benchmark.judging.token_usage import judge_usage
 
 
 @pytest.mark.parametrize(
@@ -46,7 +49,7 @@ def test_judge_client_provider_compatibility(monkeypatch, provider, base_url, mo
     monkeypatch.setattr(judge.settings, "openrouter_base_url", "https://openrouter.ai/api/v1")
     monkeypatch.setattr(judge.settings, "openrouter_api_key", "test-key")
     monkeypatch.setattr(judge.settings, "ollama_base_url", "http://localhost:11434")
-    monkeypatch.setattr(judge, "_judge_client_cache", {})
+    monkeypatch.setattr(judge_clients, "_judge_client_cache", {})
     records = []
     token = judge_usage.set(records)
     with OpenAI(
@@ -61,11 +64,11 @@ def test_judge_client_provider_compatibility(monkeypatch, provider, base_url, mo
             assert kwargs["max_retries"] == 0
             return raw
 
-        monkeypatch.setattr(judge, "OpenAI", create_raw)
+        monkeypatch.setattr(judge_clients, "OpenAI", create_raw)
         try:
-            client = judge.get_judge_client("judge-model")
+            client = judge_clients.get_judge_client("judge-model")
             assert client.mode == mode
-            assert judge.get_judge_client("judge-model") is client
+            assert judge_clients.get_judge_client("judge-model") is client
             score = judge.judge_with_structured_output(client, "Evaluate the answer", "judge-model")
         finally:
             judge_usage.reset(token)

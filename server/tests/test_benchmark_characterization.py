@@ -74,7 +74,7 @@ def _result(
 
 class TestComputeRetrieverMetrics:
     def test_with_matching_source_hint(self):
-        from infrastructure.benchmark.metrics import compute_retriever_metrics
+        from infrastructure.benchmark.evaluation.metrics import compute_retriever_metrics
 
         docs = [(_doc("text", source="report.pdf"), 0.9)]
         result = compute_retriever_metrics(docs, source_hint="report")
@@ -83,7 +83,7 @@ class TestComputeRetrieverMetrics:
         assert result["avg_similarity"] == pytest.approx(0.9, abs=0.01)
 
     def test_with_no_match_source_hint(self):
-        from infrastructure.benchmark.metrics import compute_retriever_metrics
+        from infrastructure.benchmark.evaluation.metrics import compute_retriever_metrics
 
         docs = [(_doc("text", source="other.pdf"), 0.9)]
         result = compute_retriever_metrics(docs, source_hint="report")
@@ -91,7 +91,7 @@ class TestComputeRetrieverMetrics:
         assert result["mrr"] == 0.0
 
     def test_with_none_source_hint(self):
-        from infrastructure.benchmark.metrics import compute_retriever_metrics
+        from infrastructure.benchmark.evaluation.metrics import compute_retriever_metrics
 
         docs = [(_doc("text"), 0.9)]
         result = compute_retriever_metrics(docs, source_hint=None)
@@ -100,14 +100,14 @@ class TestComputeRetrieverMetrics:
         assert result["avg_similarity"] == pytest.approx(0.9, abs=0.01)
 
     def test_empty_docs(self):
-        from infrastructure.benchmark.metrics import compute_retriever_metrics
+        from infrastructure.benchmark.evaluation.metrics import compute_retriever_metrics
 
         result = compute_retriever_metrics([], source_hint="x")
         assert result["hit_rate"] == 0
         assert result["avg_similarity"] == 0.0
 
     def test_mrr_first_rank(self):
-        from infrastructure.benchmark.metrics import compute_retriever_metrics
+        from infrastructure.benchmark.evaluation.metrics import compute_retriever_metrics
 
         docs = [
             (_doc("a", source="target.pdf"), 0.9),
@@ -117,7 +117,7 @@ class TestComputeRetrieverMetrics:
         assert result["mrr"] == 1.0
 
     def test_mrr_second_rank(self):
-        from infrastructure.benchmark.metrics import compute_retriever_metrics
+        from infrastructure.benchmark.evaluation.metrics import compute_retriever_metrics
 
         docs = [
             (_doc("a", source="other.pdf"), 0.9),
@@ -127,7 +127,7 @@ class TestComputeRetrieverMetrics:
         assert result["mrr"] == pytest.approx(0.5, abs=0.01)
 
     def test_retrieved_sources_extracted(self):
-        from infrastructure.benchmark.metrics import compute_retriever_metrics
+        from infrastructure.benchmark.evaluation.metrics import compute_retriever_metrics
 
         docs = [(_doc("text", source="a.pdf"), 0.9), (_doc("text2", source="b.pdf"), 0.8)]
         result = compute_retriever_metrics(docs, source_hint=None)
@@ -141,7 +141,7 @@ class TestComputeRetrieverMetrics:
 
 class TestComputeSummaryMetrics:
     def test_unknown_cost_does_not_become_zero_in_total(self):
-        from infrastructure.benchmark.metrics import compute_summary_metrics
+        from infrastructure.benchmark.evaluation.metrics import compute_summary_metrics
 
         results = [{**_result(), 'cost_usd': 0.02}, {**_result(), 'cost_usd': None}]
         summary = compute_summary_metrics(results)
@@ -150,7 +150,7 @@ class TestComputeSummaryMetrics:
         assert summary['cost_complete'] is False
 
     def test_basic_summary(self):
-        from infrastructure.benchmark.metrics import compute_summary_metrics
+        from infrastructure.benchmark.evaluation.metrics import compute_summary_metrics
 
         results = [_result(), _result(faithfulness=6.0, relevancy=5.0)]
         summary = compute_summary_metrics(results)
@@ -159,41 +159,41 @@ class TestComputeSummaryMetrics:
         assert summary["avg_relevancy"] == pytest.approx(6.0, abs=0.1)
 
     def test_with_correctness(self):
-        from infrastructure.benchmark.metrics import compute_summary_metrics
+        from infrastructure.benchmark.evaluation.metrics import compute_summary_metrics
 
         results = [_result(correctness=9.0), _result(correctness=7.0)]
         summary = compute_summary_metrics(results)
         assert summary["avg_correctness"] == pytest.approx(8.0, abs=0.1)
 
     def test_without_correctness(self):
-        from infrastructure.benchmark.metrics import compute_summary_metrics
+        from infrastructure.benchmark.evaluation.metrics import compute_summary_metrics
 
         results = [_result(correctness=None)]
         summary = compute_summary_metrics(results)
         assert summary["avg_correctness"] is None
 
     def test_hit_rate_avg(self):
-        from infrastructure.benchmark.metrics import compute_summary_metrics
+        from infrastructure.benchmark.evaluation.metrics import compute_summary_metrics
 
         results = [_result(hit_rate=1), _result(hit_rate=0)]
         summary = compute_summary_metrics(results)
         assert summary["hit_rate"] == pytest.approx(0.5, abs=0.01)
 
     def test_total_time(self):
-        from infrastructure.benchmark.metrics import compute_summary_metrics
+        from infrastructure.benchmark.evaluation.metrics import compute_summary_metrics
 
         results = [_result(latency=1.0), _result(latency=2.0)]
         summary = compute_summary_metrics(results)
         assert summary["total_time_sec"] == pytest.approx(3.0, abs=0.1)
 
     def test_empty_results(self):
-        from infrastructure.benchmark.metrics import compute_summary_metrics
+        from infrastructure.benchmark.evaluation.metrics import compute_summary_metrics
 
         summary = compute_summary_metrics([])
         assert summary["total_questions"] == 0
 
     def test_context_metrics(self):
-        from infrastructure.benchmark.metrics import compute_summary_metrics
+        from infrastructure.benchmark.evaluation.metrics import compute_summary_metrics
 
         results = [_result(context_precision=8.0, context_recall=7.0)]
         summary = compute_summary_metrics(results)
@@ -208,19 +208,19 @@ class TestComputeSummaryMetrics:
 
 class TestExtractSourceName:
     def test_from_filename(self):
-        from infrastructure.benchmark.metrics import _extract_source_name
+        from infrastructure.benchmark.evaluation.metrics import _extract_source_name
 
         doc = _doc("text", filename="report.pdf")
         assert _extract_source_name(doc) == "report.pdf"
 
     def test_from_source_path(self):
-        from infrastructure.benchmark.metrics import _extract_source_name
+        from infrastructure.benchmark.evaluation.metrics import _extract_source_name
 
         doc = _doc("text", source="/path/to/report.pdf")
         assert _extract_source_name(doc) == "report.pdf"
 
     def test_no_metadata(self):
-        from infrastructure.benchmark.metrics import _extract_source_name
+        from infrastructure.benchmark.evaluation.metrics import _extract_source_name
 
         doc = Document(page_content="text", metadata={})
         assert _extract_source_name(doc) == "?"
@@ -233,16 +233,16 @@ class TestExtractSourceName:
 
 class TestSafeAvg:
     def test_normal(self):
-        from infrastructure.benchmark.metrics import _safe_avg
+        from infrastructure.benchmark.evaluation.metrics import _safe_avg
 
         assert _safe_avg([1.0, 2.0, 3.0]) == 2.0
 
     def test_empty(self):
-        from infrastructure.benchmark.metrics import _safe_avg
+        from infrastructure.benchmark.evaluation.metrics import _safe_avg
 
         assert _safe_avg([]) == 0
 
     def test_single(self):
-        from infrastructure.benchmark.metrics import _safe_avg
+        from infrastructure.benchmark.evaluation.metrics import _safe_avg
 
         assert _safe_avg([5.0]) == 5.0

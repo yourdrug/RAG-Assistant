@@ -52,6 +52,7 @@ def snapshot_documents(docs: list) -> list[dict]:
 
 def capture_retrieval(docs: list) -> None:
     evidence = active_evidence.get()
+
     if evidence is not None:
         evidence.retrieved = snapshot_documents(docs)
         # A relevance gate can terminate before prompt building: no context reaches the LLM.
@@ -61,15 +62,18 @@ def capture_retrieval(docs: list) -> None:
 
 def capture_exclusions(exclusions: list[dict]) -> None:
     evidence = active_evidence.get()
+
     if evidence is not None:
         evidence.exclusions.extend(exclusions)
 
 
 def capture_prompt(docs: list, selected: list, context: str, *, exclusions=None, budget=None) -> None:
     evidence = active_evidence.get()
+
     if evidence is not None:
         if evidence.retrieved is None:
             evidence.retrieved = snapshot_documents(docs)
+
         evidence.selected = snapshot_documents(selected)
         evidence.context = context
         evidence.prompt_candidates = snapshot_documents(docs)

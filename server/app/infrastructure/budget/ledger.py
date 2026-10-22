@@ -61,8 +61,10 @@ class PostgresRedisBudget:
                     {'provider': provider, 'model': model, 'version': rate_version},
                 )
             ).scalar_one()
+
             if violated:
                 raise BudgetError('Violated tariff; publish a verified new version')
+
             existing = (
                 (
                     await session.execute(
@@ -75,9 +77,11 @@ class PostgresRedisBudget:
                 .mappings()
                 .one_or_none()
             )
+
             if existing is not None:
                 if existing['principal'] != principal:
                     raise BudgetError('Operation ID belongs to another principal')
+
                 # Only a proven absence of HTTP dispatch permits rearming this request.
                 if not (
                     existing['cost_source'] == UNDISPATCHED_COST_SOURCE
@@ -90,6 +94,7 @@ class PostgresRedisBudget:
                     == (provider, model, operation)
                 ):
                     return False
+
             totals = (
                 (
                     await session.execute(
@@ -118,18 +123,22 @@ class PostgresRedisBudget:
                 daily_units,
                 operation_id,
             )
+
             if not admitted:
                 raise BudgetError('Rolling USD budget exceeded')
+
             statement = '''
                 INSERT INTO cost_usage (operation_id, principal, provider, model, operation,
                                         rate_version, reserved_units, request_fingerprint)
                 VALUES (:id, :principal, :provider, :model, :operation, :version, :units, :fingerprint)
             '''
+
             if existing is not None:
                 statement = '''UPDATE cost_usage SET rate_version=:version, reserved_units=:units,
                     actual_units=NULL, settled_at=NULL, billable_units=NULL, cost_source=NULL,
                     reconciliation_evidence=NULL, dispatch_state='reserved', created_at=now()
                     WHERE operation_id=:id'''
+
             await session.execute(
                 text(statement),
                 {
@@ -150,6 +159,7 @@ class PostgresRedisBudget:
     ):
         if isinstance(actual_units, bool) or not isinstance(actual_units, int) or actual_units < 0:
             raise BudgetError("Invalid actual charge")
+
         async with self.session_factory() as session, session.begin():
             tariff = (
                 await session.execute(
@@ -158,8 +168,10 @@ class PostgresRedisBudget:
                     {'id': operation_id, 'principal': principal},
                 )
             ).one_or_none()
+
             if tariff is None:
                 raise BudgetError('Unknown reservation')
+
             await self.lock(session, f'tariff:{tariff.provider}:{tariff.model}:{tariff.rate_version}')
             await self.lock(session, principal)
             row = (
@@ -175,8 +187,10 @@ class PostgresRedisBudget:
                 .mappings()
                 .one_or_none()
             )
+
             if row is None:
                 raise BudgetError('Unknown reservation')
+
             if row['actual_units'] is not None:
                 if (
                     row['actual_units'] != actual_units
@@ -184,7 +198,9 @@ class PostgresRedisBudget:
                     or (cost_source is not None and row['cost_source'] != cost_source)
                 ):
                     raise BudgetError('Conflicting usage reconciliation')
+
                 return
+
             await session.execute(
                 text('''
                 UPDATE cost_usage SET actual_units=:units, settled_at=now(),
@@ -201,6 +217,7 @@ class PostgresRedisBudget:
                     'source': cost_source or ('administrative' if evidence else 'provider'),
                 },
             )
+
         if actual_units > row['reserved_units']:
             # Record the debt before surfacing an invalid provider/tariff contract.
             raise BudgetError('Provider charge exceeded reservation; billing contract must be reviewed')
@@ -245,6 +262,7 @@ class PostgresRedisBudget:
             '''),
                 vars(rate),
             )
+
             if result.scalar_one_or_none() is None:
                 raise BudgetError('Tariff version already exists; publish a new version')
 
@@ -279,6 +297,7 @@ class PostgresRedisBudget:
                     AND dispatch_state='reserved' RETURNING operation_id"""),
                 {'id': operation_id, 'principal': principal},
             )
+
             if result.scalar_one_or_none() is None:
                 raise BudgetError('Reservation is not available for dispatch')
 
@@ -291,6 +310,7 @@ class PostgresRedisBudget:
                 RETURNING operation_id'''),
                 {'response': response_id, 'id': operation_id, 'principal': principal},
             )
+
             if result.scalar_one_or_none() is None:
                 raise BudgetError('Unknown reservation or conflicting provider response ID')
 
@@ -301,6 +321,8 @@ class PostgresRedisBudget:
                     text('SELECT principal FROM cost_usage WHERE operation_id=:id'), {'id': operation_id}
                 )
             ).scalar_one_or_none()
+
         if principal is None:
             raise BudgetError('Unknown reservation')
+
         await self.reconcile(principal, operation_id, actual_units, evidence=evidence)

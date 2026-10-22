@@ -33,9 +33,12 @@ class OpenRouterBillingCatalog:
                     'https://deepinfra.com/Qwen/Qwen3-Reranker-0.6B/api',
                 ),
             }
+
             if model not in contracts:
                 raise BudgetError('Unverified DeepInfra billing contract')
+
             return contracts[model]
+
         context = await self.openrouter_context(provider, model)
         return ModelBillingContract(
             'tokens',
@@ -71,6 +74,7 @@ class OpenRouterBillingCatalog:
     async def openrouter_context(self, provider: str, model: str) -> int:
         if provider != 'openrouter' or model == 'openrouter/auto' or model.endswith(':online'):
             raise BudgetError('Unsupported billing contract')
+
         validate_endpoints(settings)
         async with httpx.AsyncClient(timeout=10, follow_redirects=False) as client:
             response = await client.get(
@@ -83,6 +87,8 @@ class OpenRouterBillingCatalog:
             data = response.json()
         entry = next((item for item in data.get('data', []) if item.get('id') == model), None)
         context = entry.get('context_length') if entry else None
+
         if not isinstance(context, int) or isinstance(context, bool) or context <= 0:
             raise BudgetError('Provider model/context bound is unknown; paid call blocked')
+
         return context

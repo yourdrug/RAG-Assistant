@@ -71,12 +71,14 @@ def compute_visibility_scope_hash(
         )
     else:
         scope_repr = ""
+
     return content_hash(f"{user_kind}:{user_role}:{user_id}:{sorted(group_ids)}:{scope_repr}")
 
 
 def compute_question_hash(question_text: str, context: dict | None = None) -> str:
     """Hash question and answer-affecting request context for exact-match lookup."""
     normalized = question_text.strip().lower()
+
     if context:
         normalized = json.dumps(
             {"question": normalized, "context": context},
@@ -85,6 +87,7 @@ def compute_question_hash(question_text: str, context: dict | None = None) -> st
             default=str,
             separators=(",", ":"),
         )
+
     return content_hash(normalized)
 
 
@@ -112,6 +115,7 @@ def _encode_entry(entry: dict) -> str:
 def _decode_entry(raw) -> dict:
     if isinstance(raw, bytes) and raw.startswith(b"\x1f\x8b"):
         return json.loads(gzip.decompress(raw))
+
     return json.loads(gzip.decompress(base64.b64decode(raw, validate=True)))
 
 
@@ -132,12 +136,15 @@ async def find_cached_answer(
         r = redis_client.async_redis
         key = _cache_key(question_hash, visibility_scope_hash)
         raw = await r.get(key)
+
         if raw is None:
             return None
 
         entry = _decode_entry(raw)
+
         if expected_revision is not None and await get_corpus_revision() != expected_revision:
             return None
+
         entry["hit_count"] = entry.get("hit_count", 0) + 1
 
         await r.set(key, _encode_entry(entry), keepttl=True, xx=True)
@@ -173,6 +180,7 @@ async def store_cached_answer(
             "hit_count": 0,
             "created_at": time.time(),
         }
+
         if expected_revision is not None:
             indexes = [_doc_index_key(doc_id) for doc_id in set(document_ids or [])]
             # Redis shares the EVAL stub between sync and async clients; this
@@ -191,12 +199,15 @@ async def store_cached_answer(
                 ),
             )
             return
+
         pipe = r.pipeline(transaction=True)
         pipe.set(key, _encode_entry(entry), ex=CACHE_TTL_SECONDS)
+
         if document_ids:
             for doc_id in document_ids:
                 pipe.sadd(_doc_index_key(doc_id), key)
                 pipe.expire(_doc_index_key(doc_id), DOC_INDEX_TTL)
+
         await pipe.execute()
 
         log.info("Cached answer for question hash=%s (ttl=%ds)", question_hash[:12], CACHE_TTL_SECONDS)
@@ -208,22 +219,29 @@ async def _delete_cache_entries(keys: list[str]) -> int:
     """Delete cache entries and clean up their reverse index links atomically."""
     if not keys:
         return 0
+
     r = redis_client.async_redis
     pipe = r.pipeline()
+
     for key in keys:
         pipe.get(key)
+
     raw_results = await pipe.execute()
 
     pipe2 = r.pipeline()
+
     for key, raw in zip(keys, raw_results, strict=True):
         if raw is not None:
             try:
                 entry = _decode_entry(raw)
+
                 for doc_id in entry.get("document_ids", []):
                     pipe2.srem(_doc_index_key(doc_id), key)
             except Exception:
                 log.debug("Failed to clean reverse index for %s", key)
+
         pipe2.delete(key)
+
     await pipe2.execute()
     return sum(1 for raw in raw_results if raw is not None)
 
@@ -250,6 +268,7 @@ async def invalidate_by_document_ids(
 
         for doc_id in document_ids:
             members = await r.smembers(_doc_index_key(doc_id))  # type: ignore[misc]
+
             if members:
                 keys_to_delete.update(m for m in members)
 
@@ -257,9 +276,12 @@ async def invalidate_by_document_ids(
 
         if invalidated:
             log.info("Invalidated %d cache entries for document_ids=%s", invalidated, document_ids)
+
         return invalidated
     except Exception:
         log.exception("Cache invalidation failed")
+
         if raise_on_error:
             raise
+
         return 0

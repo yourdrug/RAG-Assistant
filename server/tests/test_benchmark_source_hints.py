@@ -1,15 +1,17 @@
 """Regression coverage for source labels across all benchmark paths."""
 
+from infrastructure.benchmark.sweep.settings import settings_snapshot
+
 from unittest.mock import AsyncMock
 
 import pytest
 from langchain.schema import Document
 
 from domain.benchmark.sweep import BenchmarkSweep
-from infrastructure.benchmark.case_metrics import compute_retriever_metrics_from_sources
-from infrastructure.benchmark.metrics import compute_retriever_metrics, compute_summary_metrics
-from infrastructure.benchmark.sweep_engine import SweepEngine
-from infrastructure.benchmark.sweep_scoring import score_config_cheap
+from infrastructure.benchmark.evaluation.case_metrics import compute_retriever_metrics_from_sources
+from infrastructure.benchmark.evaluation.metrics import compute_retriever_metrics, compute_summary_metrics
+from composition.service_providers import build_sweep_engine
+from infrastructure.benchmark.sweep.scoring import score_config_cheap
 
 
 def sweep_score(questions, filenames):
@@ -21,6 +23,7 @@ def sweep_score(questions, filenames):
         {},
         {str(i): doc for i, doc in enumerate(docs)},
         {"hit_rate": 1},
+        defaults=settings_snapshot(),
     )
 
 
@@ -103,7 +106,7 @@ def test_summary_excludes_blank_hints_from_average():
 
 @pytest.mark.asyncio
 async def test_sweep_does_not_fetch_candidates_for_blank_hints(monkeypatch):
-    engine = SweepEngine(uow_factory=None)
+    engine = build_sweep_engine(uow_factory=None)
     valid = {'question': 'valid', 'source_hint': 'first.pdf; second.pdf'}
     monkeypatch.setattr(
         engine,

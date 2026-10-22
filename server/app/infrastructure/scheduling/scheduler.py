@@ -98,7 +98,9 @@ class Scheduler:
         """Safety net: process pending outbox entries if NOTIFY was missed."""
         if self._outbox_dispatcher is None:
             return
+
         processed = await self._outbox_dispatcher.run_once(batch_size=50)
+
         if processed:
             logger.info("Outbox dispatch (periodic): processed %d entries", processed)
 
@@ -107,7 +109,9 @@ class Scheduler:
         """Fix documents stuck in 'indexing' with no pending outbox entries."""
         if self._outbox_dispatcher is None:
             return
+
         fixed = await self._outbox_dispatcher.reconcile_stuck_documents()
+
         if fixed:
             logger.info("Outbox reconcile: fixed %d stuck documents", fixed)
 

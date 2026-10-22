@@ -23,6 +23,7 @@ log = logging.getLogger("default")
 async def close_llm_pools(client) -> None:
     """Close the owning clients exposed by OpenAI, Ollama and Instructor."""
     resources = []
+
     if hasattr(client, "root_async_client"):
         resources += [client.root_async_client, client.root_client]
     elif hasattr(client, "_async_client"):
@@ -31,20 +32,26 @@ async def close_llm_pools(client) -> None:
         resources.append(client.client)
     else:
         resources.append(client)
+
     seen = set()
+
     for resource in resources:
         # Ollama's wrapper owns an httpx client.
         if type(resource).__module__.startswith("ollama"):
             resource = resource._client
+
         if resource is None or id(resource) in seen:
             continue
+
         seen.add(id(resource))
         close = getattr(resource, "aclose", None) or getattr(resource, "close", None)
+
         if close is not None:
             if inspect.iscoroutinefunction(close):
                 await close()
             else:
                 result = await asyncio.to_thread(close)
+
                 if inspect.isawaitable(result):
                     await result
 
@@ -54,9 +61,11 @@ class ManagedLLM(Runnable):
 
     def __init__(self, client):
         self.client = client
+
         if hasattr(client, 'root_async_client') and hasattr(client, 'async_client'):
             if not isinstance(client.async_client, UsageCapturingCompletions):
                 client.async_client = UsageCapturingCompletions(client.async_client)
+
         self._active = 0
         self._retired = False
         self._close_task = None
@@ -70,6 +79,7 @@ class ManagedLLM(Runnable):
     async def lease(self):
         if self._retired and id(self) not in active_client_leases.get():
             raise RuntimeError("LLM client was retired; acquire the current client from the registry")
+
         token = active_client_leases.set(active_client_leases.get() | {id(self)})
         self._active += 1
         self._idle.clear()
@@ -78,6 +88,7 @@ class ManagedLLM(Runnable):
         finally:
             active_client_leases.reset(token)
             self._active -= 1
+
             if self._active == 0:
                 self._idle.set()
 
@@ -105,6 +116,7 @@ class ManagedLLM(Runnable):
                     if active_llm_usage.get() is not None:
                         metadata.update(getattr(item, 'response_metadata', {}) or {})
                         accumulated = item if accumulated is None else accumulated + item
+
                     yield item
             finally:
                 if accumulated is not None:
@@ -114,6 +126,7 @@ class ManagedLLM(Runnable):
                         SimpleNamespace(**raw_response) if raw_response.get('usage') else accumulated,
                         model=getattr(self.client, 'model_name', '') or getattr(self.client, 'model', ''),
                     )
+
                 active_stream_response.reset(capture_token)
 
     def retire(self) -> None:
@@ -122,6 +135,7 @@ class ManagedLLM(Runnable):
             loop = asyncio.get_running_loop()
         except RuntimeError:
             return  # Shutdown will close it when invalidation came from a sync caller.
+
         if self._close_task is None:
             self._close_task = loop.create_task(self.close_when_idle())
 
@@ -135,6 +149,7 @@ class ManagedLLM(Runnable):
 
     async def close(self):
         self.retire()
+
         if self._close_task is not None:
             await self._close_task
 

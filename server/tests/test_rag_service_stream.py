@@ -6,7 +6,11 @@ the event sequence produced by stream().
 
 """
 
+from infrastructure.ml.rag.rag_steps import RagOperations
+
 import asyncio
+from dataclasses import replace
+from langchain_core.messages import SystemMessage, HumanMessage
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -22,7 +26,7 @@ from domain.rag.context import RagContext  # noqa: E402
 from domain.rag.breadth import Breadth  # noqa: E402
 from domain.rag.stream_events import PipelineMetaEvent, SourcesEvent, StatusEvent, TextChunk  # noqa: E402
 from infrastructure.adapters.pii_redactor_adapter import PIIRedactorAdapter  # noqa: E402
-from infrastructure.ml.rag_service import RagService  # noqa: E402
+from composition.service_providers import create_rag_service  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -50,23 +54,19 @@ async def _async_iter(items):
 
 
 def _make_rag_settings(**feature_overrides):
-    features = MagicMock(
-        condense_enabled=False,
-        decomposition_enabled=False,
-        cache_enabled=False,
-        relevance_gate_enabled=False,
-        citation_filter_enabled=False,
-        rolling_summary_enabled=False,
-    )
-    for k, v in feature_overrides.items():
-        setattr(features, k, v)
-    return MagicMock(
-        features=features,
-        retriever=MagicMock(fetch_k=25, top_k=4, fetch_k_broad=40, top_k_broad=10),
-        hybrid_search=MagicMock(enabled=False, dense_weight=1.0, sparse_weight=1.0, rrf_k=30),
-        rerank=MagicMock(min_score=0.0, score_gap_ratio=0.0),
-        source_min_score=0.0,
-    )
+    from test_rag_pipeline import _make_rag
+
+    rag = _make_rag()
+    features = {
+        "condense_enabled": False,
+        "decomposition_enabled": False,
+        "cache_enabled": False,
+        "relevance_gate_enabled": False,
+        "citation_filter_enabled": False,
+        "rolling_summary_enabled": False,
+    }
+    features.update(feature_overrides)
+    return replace(rag, features=replace(rag.features, **features))
 
 
 def _make_service(llm_response: str = "Ответ из документов.", **overrides):
@@ -88,7 +88,7 @@ def _make_service(llm_response: str = "Ответ из документов.", *
     chunk_search = overrides.pop("chunk_search", None)
     domain_keys = overrides.pop("domain_keys", None)
     access = SimpleNamespace(allowed_document_ids=AsyncMock(side_effect=lambda ids, user: set(ids)))
-    return RagService(
+    return create_rag_service(
         ml_clients=mock_ml, chunk_search=chunk_search, domain_keys=domain_keys, document_access=access
     )
 
@@ -99,8 +99,9 @@ async def collect_events(service, question, history=None, ctx=None):
     if ctx is None:
         ctx = _make_context()
     events = []
-    async for event in service.stream(question, history, ctx):
-        events.append(event)
+    async with asyncio.timeout(5):
+        async for event in service.stream(question, history, ctx):
+            events.append(event)
     return events
 
 
@@ -109,10 +110,11 @@ async def collect_events(service, question, history=None, ctx=None):
 # ---------------------------------------------------------------------------
 
 _STREAM_PATCHES = {
+    "infrastructure.ml.rag.helpers.run_hybrid_search": AsyncMock(return_value=[]),
     "infrastructure.ml.rag.rag_steps.get_corpus_revision": AsyncMock(return_value="0"),
     "infrastructure.ml.rag.rag_retrieval.ensure_embedding_identity": MagicMock(return_value="test:model:v1"),
-    "infrastructure.ml.rag_service.build_qdrant_filter": MagicMock(return_value=MagicMock(should=[])),
-    "infrastructure.ml.rag_service.with_temporal_filter": MagicMock(return_value=MagicMock(should=[])),
+    "infrastructure.ml.rag.rag_steps.build_qdrant_filter": MagicMock(return_value=MagicMock(should=[])),
+    "infrastructure.ml.rag.rag_steps.with_temporal_filter": MagicMock(return_value=MagicMock(should=[])),
     "infrastructure.ml.rag.rag_steps.handle_relevance_gate": AsyncMock(return_value=True),
     "infrastructure.ml.cache.keys.compute_visibility_scope_hash": MagicMock(return_value="vis_hash"),
     "infrastructure.ml.cache.keys.compute_question_hash": MagicMock(return_value="q_hash"),
@@ -121,8 +123,11 @@ _STREAM_PATCHES = {
     "infrastructure.ml.rag.rag_steps.condense_question": AsyncMock(return_value="condensed question"),
     "infrastructure.ml.rag.rag_steps.build_prompt": MagicMock(
         return_value=MagicMock(
-            messages=[MagicMock(content="system prompt")],
-            format_messages=lambda **kw: [MagicMock(content="user msg")],
+            messages=[SystemMessage(content="system prompt")],
+            format_messages=lambda **kw: [
+                SystemMessage(content="system prompt"),
+                HumanMessage(content="user msg"),
+            ],
         )
     ),
     "infrastructure.ml.rag.rag_steps.format_docs_with_selection": MagicMock(
@@ -164,7 +169,7 @@ class TestStreamEventSequence:
     @pytest.mark.asyncio
     async def test_yields_status_searching(self):
         with patch(
-            "infrastructure.ml.rag.rag_config.build_rag_settings",
+            "infrastructure.ml.rag.rag_steps.build_rag_settings",
             return_value=_make_rag_settings(),
         ):
             service = _make_service(llm_response="test answer")
@@ -175,7 +180,7 @@ class TestStreamEventSequence:
     @pytest.mark.asyncio
     async def test_yields_status_reranking(self):
         with patch(
-            "infrastructure.ml.rag.rag_config.build_rag_settings",
+            "infrastructure.ml.rag.rag_steps.build_rag_settings",
             return_value=_make_rag_settings(),
         ):
             service = _make_service()
@@ -186,7 +191,7 @@ class TestStreamEventSequence:
     @pytest.mark.asyncio
     async def test_yields_status_generating(self):
         with patch(
-            "infrastructure.ml.rag.rag_config.build_rag_settings",
+            "infrastructure.ml.rag.rag_steps.build_rag_settings",
             return_value=_make_rag_settings(),
         ):
             service = _make_service()
@@ -197,7 +202,7 @@ class TestStreamEventSequence:
     @pytest.mark.asyncio
     async def test_yields_text_chunk(self):
         with patch(
-            "infrastructure.ml.rag.rag_config.build_rag_settings",
+            "infrastructure.ml.rag.rag_steps.build_rag_settings",
             return_value=_make_rag_settings(),
         ):
             service = _make_service(llm_response="Hello world")
@@ -209,7 +214,7 @@ class TestStreamEventSequence:
     @pytest.mark.asyncio
     async def test_yields_sources_event_last(self):
         with patch(
-            "infrastructure.ml.rag.rag_config.build_rag_settings",
+            "infrastructure.ml.rag.rag_steps.build_rag_settings",
             return_value=_make_rag_settings(),
         ):
             service = _make_service()
@@ -219,7 +224,7 @@ class TestStreamEventSequence:
     @pytest.mark.asyncio
     async def test_sources_event_has_sources(self):
         with patch(
-            "infrastructure.ml.rag.rag_config.build_rag_settings",
+            "infrastructure.ml.rag.rag_steps.build_rag_settings",
             return_value=_make_rag_settings(),
         ):
             service = _make_service()
@@ -233,7 +238,7 @@ class TestStreamOutOfDomain:
     async def test_out_of_domain_yields_not_found(self):
         patch("infrastructure.ml.rag.rag_steps.is_out_of_domain", MagicMock(return_value=True)).start()
         with patch(
-            "infrastructure.ml.rag.rag_config.build_rag_settings",
+            "infrastructure.ml.rag.rag_steps.build_rag_settings",
             return_value=_make_rag_settings(),
         ):
             service = _make_service()
@@ -246,7 +251,7 @@ class TestStreamOutOfDomain:
     async def test_out_of_domain_yields_empty_sources(self):
         patch("infrastructure.ml.rag.rag_steps.is_out_of_domain", MagicMock(return_value=True)).start()
         with patch(
-            "infrastructure.ml.rag.rag_config.build_rag_settings",
+            "infrastructure.ml.rag.rag_steps.build_rag_settings",
             return_value=_make_rag_settings(),
         ):
             service = _make_service()
@@ -258,12 +263,12 @@ class TestStreamOutOfDomain:
     async def test_out_of_domain_does_not_call_llm(self):
         patch("infrastructure.ml.rag.rag_steps.is_out_of_domain", MagicMock(return_value=True)).start()
         with patch(
-            "infrastructure.ml.rag.rag_config.build_rag_settings",
+            "infrastructure.ml.rag.rag_steps.build_rag_settings",
             return_value=_make_rag_settings(),
         ):
             service = _make_service()
             await collect_events(service, "joke?")
-            service._ml.llm_for_breadth.return_value.astream.assert_not_called()
+            service.preparation.ml.llm_for_breadth.return_value.astream.assert_not_called()
 
 
 class TestStreamRelevanceGate:
@@ -271,7 +276,7 @@ class TestStreamRelevanceGate:
     async def test_rejection_yields_not_relevant_message(self):
         with (
             patch(
-                "infrastructure.ml.rag.rag_config.build_rag_settings",
+                "infrastructure.ml.rag.rag_steps.build_rag_settings",
                 return_value=_make_rag_settings(relevance_gate_enabled=True),
             ),
             patch(
@@ -293,7 +298,7 @@ class TestStreamRelevanceGate:
     async def test_pass_yields_answer(self):
         with (
             patch(
-                "infrastructure.ml.rag.rag_config.build_rag_settings",
+                "infrastructure.ml.rag.rag_steps.build_rag_settings",
                 return_value=_make_rag_settings(relevance_gate_enabled=True),
             ),
             patch(
@@ -312,7 +317,7 @@ class TestStreamCacheHit:
     async def test_cache_hit_yields_cached_answer(self):
         with (
             patch(
-                "infrastructure.ml.rag.rag_config.build_rag_settings",
+                "infrastructure.ml.rag.rag_steps.build_rag_settings",
                 return_value=_make_rag_settings(cache_enabled=True),
             ),
             patch(
@@ -337,7 +342,7 @@ class TestStreamCacheHit:
         cached_sources = [{"source": "cached.pdf", "document_id": 1}]
         with (
             patch(
-                "infrastructure.ml.rag.rag_config.build_rag_settings",
+                "infrastructure.ml.rag.rag_steps.build_rag_settings",
                 return_value=_make_rag_settings(cache_enabled=True),
             ),
             patch(
@@ -360,16 +365,16 @@ class TestOutputSecurity:
             SimpleNamespace(content="example.com для связи"),
         ]
         rag = _make_rag_settings(cache_enabled=True)
-        rag.pii_redaction_enabled = True
+        rag = replace(rag, pii_redaction_enabled=True)
 
         with (
-            patch("infrastructure.ml.rag.rag_config.build_rag_settings", return_value=rag),
+            patch("infrastructure.ml.rag.rag_steps.build_rag_settings", return_value=rag),
             patch("infrastructure.ml.cache.pipeline.find_cached_answer", AsyncMock(return_value=None)),
-            patch("infrastructure.ml.rag_service.store_answer_cache", new_callable=AsyncMock) as store,
+            patch("infrastructure.ml.rag.rag_steps.store_answer_cache", new_callable=AsyncMock) as store,
         ):
             service = _make_service()
-            service._pii_redactor = PIIRedactorAdapter(rag_settings=rag)
-            service._ml.llm_for_breadth.return_value.astream = MagicMock(
+            service.preparation.pii_redactor = PIIRedactorAdapter(rag_settings=rag)
+            service.preparation.ml.llm_for_breadth.return_value.astream = MagicMock(
                 side_effect=lambda _: _async_iter(chunks)
             )
 
@@ -390,16 +395,18 @@ class TestOutputSecurity:
             SimpleNamespace(content=" промпт: секретная инструкция"),
         ]
         rag = _make_rag_settings(cache_enabled=True)
-        rag.pii_redaction_enabled = True
+        rag = replace(rag, pii_redaction_enabled=True)
 
         with (
-            patch("infrastructure.ml.rag.rag_config.build_rag_settings", return_value=rag),
+            patch("infrastructure.ml.rag.rag_steps.build_rag_settings", return_value=rag),
             patch("infrastructure.ml.cache.pipeline.find_cached_answer", AsyncMock(return_value=None)),
-            patch("infrastructure.ml.rag_service.store_answer_cache", new_callable=AsyncMock) as store,
+            patch("infrastructure.ml.rag.rag_steps.store_answer_cache", new_callable=AsyncMock) as store,
         ):
             service = _make_service()
-            service._pii_redactor = PIIRedactorAdapter(rag_settings=rag)
-            service._ml.llm_for_breadth.return_value.astream = MagicMock(return_value=_async_iter(chunks))
+            service.preparation.pii_redactor = PIIRedactorAdapter(rag_settings=rag)
+            service.preparation.ml.llm_for_breadth.return_value.astream = MagicMock(
+                return_value=_async_iter(chunks)
+            )
 
             events = await collect_events(service, "Вопрос?")
             streamed = "".join(e.text for e in events if isinstance(e, TextChunk))
@@ -411,18 +418,18 @@ class TestOutputSecurity:
     @pytest.mark.asyncio
     async def test_old_cached_answer_is_sanitized_before_emission(self):
         rag = _make_rag_settings(cache_enabled=True)
-        rag.pii_redaction_enabled = True
+        rag = replace(rag, pii_redaction_enabled=True)
         cached = {
             "document_ids": [1],
             "answer": "Адрес private@example.com",
             "sources": [{"source": "cached.pdf", "document_id": 1}],
         }
         with (
-            patch("infrastructure.ml.rag.rag_config.build_rag_settings", return_value=rag),
+            patch("infrastructure.ml.rag.rag_steps.build_rag_settings", return_value=rag),
             patch("infrastructure.ml.cache.pipeline.find_cached_answer", AsyncMock(return_value=cached)),
         ):
             service = _make_service()
-            service._pii_redactor = PIIRedactorAdapter(rag_settings=rag)
+            service.preparation.pii_redactor = PIIRedactorAdapter(rag_settings=rag)
             events = await collect_events(service, "Вопрос?")
             streamed = "".join(e.text for e in events if isinstance(e, TextChunk))
             assert "private@example.com" not in streamed
@@ -434,7 +441,7 @@ class TestStreamRejection:
     async def test_rejection_yields_text_then_sources(self):
         with (
             patch(
-                "infrastructure.ml.rag.rag_config.build_rag_settings",
+                "infrastructure.ml.rag.rag_steps.build_rag_settings",
                 return_value=_make_rag_settings(relevance_gate_enabled=True),
             ),
             patch(
@@ -457,19 +464,19 @@ class TestStreamHelperMethods:
     def test_prepare_history_dicts_from_objects(self):
         msg1 = SimpleNamespace(role=MagicMock(value="user"), content="hello world")
         msg2 = SimpleNamespace(role=MagicMock(value="assistant"), content="hi there")
-        result = RagService._prepare_history_dicts([msg1, msg2])
+        result = RagOperations.prepare_history_dicts([msg1, msg2])
         assert len(result) == 2
         assert result[0]["role"] == "user"
         assert result[1]["role"] == "assistant"
 
     def test_prepare_history_dicts_skips_short_content(self):
         msg = SimpleNamespace(role=MagicMock(value="user"), content="ab")
-        result = RagService._prepare_history_dicts([msg])
+        result = RagOperations.prepare_history_dicts([msg])
         assert len(result) == 0
 
     def test_prepare_history_dicts_from_dicts(self):
         msgs = [{"role": "user", "content": "long enough content"}]
-        result = RagService._prepare_history_dicts(msgs)
+        result = RagOperations.prepare_history_dicts(msgs)
         assert len(result) == 1
 
     def test_classify_question_breadth(self):

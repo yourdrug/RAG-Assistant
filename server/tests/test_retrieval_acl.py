@@ -5,7 +5,7 @@ are correctly passed to qdrant_dense_search and resolve_hashes_batch,
 rather than being silently dropped.
 """
 
-from infrastructure.ml.rag_pipeline import RagPipelineState
+from infrastructure.ml.rag.retrieval_work import RetrievalWork
 from domain.rag.context import RagContext
 from domain.identity.user_context import UserContext
 from domain.identity.roles import UserKind, UserRole
@@ -172,7 +172,7 @@ async def test_decomposition_and_legal_fallback_preserve_acl(decomposition, sub_
     ):
         candidates, actual_queries = await retrieve_with_decomposition(
             "query",
-            RagPipelineState(
+            RetrievalWork(
                 fetch_k=10,
                 retrieval_filter=af,
                 rag=rag,
@@ -235,7 +235,7 @@ async def test_legal_rerank_fallback_preserves_acl_and_temporal_filter():
         await rerank_and_enrich(
             "query",
             [],
-            RagPipelineState(
+            RetrievalWork(
                 rag=rag,
                 breadth=Breadth.NARROW,
                 query_domain="legal",

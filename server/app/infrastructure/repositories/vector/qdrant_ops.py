@@ -43,6 +43,7 @@ def _validate_embedding_batch(vectors, expected_count: int, expected_dimension: 
             "Embedding provider returned an incomplete batch "
             f"({len(vectors)} vectors for {expected_count} chunks)"
         )
+
     for vector_index, vector in enumerate(vectors):
         if len(vector) != expected_dimension:
             raise ValueError(
@@ -86,21 +87,26 @@ def _delete_internal_points(client) -> int:
 def ensure_collection(client, vector_size: int, reset: bool = False) -> None:
     ensure_embedding_identity(client)
     existing = [c.name for c in client.get_collections().collections]
+
     if collection_for(client) in existing:
         info = client.get_collection(collection_for(client))
         # Validate vector dimension matches expected size
         vectors_config = info.config.params.vectors
         existing_dim = vectors_config.size if hasattr(vectors_config, "size") else None
+
         if existing_dim is not None and existing_dim != vector_size:
             raise ValueError(
                 f"Collection '{collection_for(client)}' has vector dimension {existing_dim}, "
                 f"but the current embedding model requires {vector_size}. "
                 f"To migrate: create a new collection with the correct dimension and re-ingest documents."
             )
+
         sparse = info.config.params.sparse_vectors or {}
+
         if SPARSE_VECTOR_NAME not in sparse or sparse[SPARSE_VECTOR_NAME].modifier != Modifier.IDF:
             msg = "Collection has no compatible BM25 sparse index; recreate it and re-ingest"
             raise ValueError(msg)
+
         if reset:
             log.info(
                 "Smart reset: deleting CLI-ingested points (owner_id=None) from collection '%s' ...",
@@ -118,7 +124,9 @@ def ensure_collection(client, vector_size: int, reset: bool = False) -> None:
                 existing_dim,
             )
             _ensure_payload_indexes(client)
+
         return
+
     log.info("Creating collection '%s' (dim=%d) ...", collection_for(client), vector_size)
     try:
         client.create_collection(
@@ -147,6 +155,7 @@ def _ensure_payload_indexes(client) -> None:
         ("metadata.doc_type", PayloadSchemaType.KEYWORD),
         ("metadata.has_dates", PayloadSchemaType.BOOL),
     ]
+
     for field_name, field_type in acl_fields:
         try:
             client.create_payload_index(
@@ -182,6 +191,7 @@ async def _upsert_with_semaphore(client, points: list, write_semaphore=None) -> 
 def _tag_embedding_model(chunks, identity):
     for doc in chunks:
         doc.metadata["embedding_model"] = identity
+
     return chunks
 
 
@@ -225,12 +235,14 @@ async def upload_document_batches(
     # Filter out empty/whitespace-only chunks that would cause TEI errors
     original_count = len(chunks)
     chunks = [c for c in chunks if c.page_content.strip()]
+
     if len(chunks) < original_count:
         log.warning(
             "Filtered %d empty/whitespace chunks → %d remaining",
             original_count - len(chunks),
             len(chunks),
         )
+
     if not chunks:
         log.warning("No non-empty chunks to upload — skipping Qdrant upload")
         return
@@ -247,6 +259,7 @@ async def upload_document_batches(
     # Pre-compute all content hashes (faster than per-doc)
     texts = [doc.page_content for doc in chunks]
     hashes = [content_hash(t) for t in texts]
+
     for doc, h in zip(chunks, hashes, strict=False):
         doc.metadata["content_hash"] = h
 
@@ -261,6 +274,7 @@ async def upload_document_batches(
 
     # Embed + upsert in sub-batches to limit peak memory and give visible progress
     pending_points: list[PointStruct] = []
+
     for batch_start in range(0, total, embed_batch):
         batch_end = min(batch_start + embed_batch, total)
         batch_texts = texts[batch_start:batch_end]

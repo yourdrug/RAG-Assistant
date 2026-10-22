@@ -74,13 +74,17 @@ class SQLAlchemyRegulatoryActRepository:
             .returning(RegulatoryActModel.id)
         )
         act.id = await self._session.scalar(stmt)
+
         if act.id is None:
             existing = await self.find_by_type_and_number(
                 act.act_type, act.act_number, act.act_date, act.visibility_scope
             )
+
             if existing is None:
                 raise RuntimeError("Regulatory act conflict did not resolve to an existing identity")
+
             return existing
+
         return act
 
     async def list_all(self) -> list[RegulatoryAct]:

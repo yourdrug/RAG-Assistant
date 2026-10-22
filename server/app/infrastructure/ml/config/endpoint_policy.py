@@ -23,6 +23,7 @@ CLOUD_ORIGINS = {
 def endpoint_origin(value: str) -> str:
     try:
         parsed = urlsplit(value)
+
         if (
             parsed.scheme not in {"http", "https"}
             or not parsed.hostname
@@ -34,6 +35,7 @@ def endpoint_origin(value: str) -> str:
             or any(character.isspace() or ord(character) < 32 for character in value)
         ):
             raise ValueError
+
         port = parsed.port or (443 if parsed.scheme == "https" else 80)
         return f"{parsed.scheme}://{parsed.hostname.lower()}:{port}"
     except ValueError:
@@ -44,18 +46,23 @@ def endpoint_origin(value: str) -> str:
 
 def validate_endpoints(candidate: Settings) -> None:
     internal = {endpoint_origin(value) for value in candidate.ml_internal_allowed_origins}
+
     for key in ENDPOINT_KEYS:
         value = getattr(candidate, key)
+
         # Empty inactive internal services remain supported for cloud-only deployments.
         if not value and key not in CLOUD_ORIGINS:
             continue
+
         origin = endpoint_origin(value)
         allowed = {CLOUD_ORIGINS[key]} if key in CLOUD_ORIGINS else internal
+
         if origin not in allowed:
             raise ValidationError(f"ML endpoint origin is not deployment-approved: {key}")
 
 
 def validate_pools(candidate: Settings) -> None:
     errors = candidate.check_http_pools()
+
     if errors:
         raise ValidationError("; ".join(errors))

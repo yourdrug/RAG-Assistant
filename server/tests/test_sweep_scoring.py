@@ -1,5 +1,7 @@
 """Characterization and regression contracts for sweep scoring and final selection."""
 
+from infrastructure.benchmark.sweep.settings import settings_snapshot
+
 from unittest.mock import AsyncMock
 from types import SimpleNamespace
 
@@ -11,10 +13,11 @@ from config import get_setting
 from domain.benchmark.scoring import DEFAULT_OBJECTIVE_WEIGHTS
 from domain.benchmark.sweep import BenchmarkSweep
 from domain.benchmark.sweep import BenchmarkStrategy
-from infrastructure.benchmark.sweep_engine import SweepEngine
-from infrastructure.benchmark.sweep_full_evaluation import SweepFullEvaluator
-from infrastructure.benchmark.sweep_scoring import compute_composite_score, score_config_cheap
-from infrastructure.benchmark.sweep_settings import LiveSweepSettings
+from composition.service_providers import build_sweep_engine
+from infrastructure.ml.rag.rag_steps import chunk_value
+from application.benchmark.sweep_evaluation import SweepFullEvaluator
+from infrastructure.benchmark.sweep.scoring import compute_composite_score, score_config_cheap
+from infrastructure.benchmark.sweep.settings import LiveSweepSettings
 from presentation.api.schemas.benchmark import SweepCreateRequest
 
 
@@ -27,6 +30,7 @@ def score_documents(documents, annotations=None, source_hint="law.pdf", rerank_s
         {str(i): doc for i, doc in enumerate(documents)},
         {"hit_rate": 0.5, "mrr": 0.5},
         rerank_scores=rerank_scores,
+        defaults=settings_snapshot(),
     )
 
 
@@ -99,7 +103,7 @@ async def test_reranker_scores_all_combinations_but_llm_only_scores_shortlist(mo
     wrong = Document(page_content="article 29", metadata={"source": "law.pdf"})
     correct = Document(page_content="article 17", metadata={"source": "law.pdf", "section": "17"})
     predict = AsyncMock(return_value=[0.9, 0.4])
-    engine = SweepEngine(
+    engine = build_sweep_engine(
         uow_factory=None, ml_clients=SimpleNamespace(reranker=lambda: SimpleNamespace(predict=predict))
     )
     question = {
@@ -113,6 +117,14 @@ async def test_reranker_scores_all_combinations_but_llm_only_scores_shortlist(mo
             {},
             {"wrong": wrong, "correct": correct},
         )
+    )
+    cache.return_value = (
+        {
+            query: [(key, score, chunk_value(doc)) for key, score, doc in hits]
+            for query, hits in cache.return_value[0].items()
+        },
+        cache.return_value[1],
+        {key: chunk_value(doc) for key, doc in cache.return_value[2].items()},
     )
     monkeypatch.setattr(engine, "cache_candidates", cache)
     thresholds = []
@@ -148,7 +160,7 @@ async def test_reranker_scores_all_combinations_but_llm_only_scores_shortlist(mo
 @pytest.mark.asyncio
 @pytest.mark.parametrize("strategy", [BenchmarkStrategy.RANDOM, BenchmarkStrategy.OPTUNA_TPE])
 async def test_sampled_reranker_trials_respect_llm_budget(monkeypatch, strategy):
-    engine = SweepEngine(uow_factory=None)
+    engine = build_sweep_engine(uow_factory=None)
     monkeypatch.setattr(
         engine, "load_questions", AsyncMock(return_value=[{"question": "q", "source_hint": "law.pdf"}])
     )

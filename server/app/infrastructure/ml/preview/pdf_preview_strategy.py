@@ -30,6 +30,7 @@ class PdfPreviewStrategy:
     def analyze(self, path: Path) -> tuple[list[DryRunPageResult], dict[str, int], int]:
         if settings.ocr_enabled and settings.ocr_engine == "paddleocr_vl":
             return self.analyze_vl(path)
+
         page_results, types_count, total_chars = self._svc.analyze_text_layer(path)
         enriched = [
             DryRunPageResult(
@@ -51,12 +52,15 @@ class PdfPreviewStrategy:
     def analyze_vl(self, path: Path) -> tuple[list[DryRunPageResult], dict[str, int], int]:
         documents = parse_pdf(path)
         grouped: dict[int, list[Document]] = {}
+
         for document in documents:
             grouped.setdefault(document.metadata["page"], []).append(document)
+
         # Preserve blank native pages as well as OCR pages in the preview.
         original, _, _ = self._svc.analyze_text_layer(path)
         results = []
         counts = PageContentType.empty_counts()
+
         for unit in original:
             blocks = grouped.get(unit.page, [])
             text = "\n\n".join(block.page_content for block in blocks)
@@ -81,6 +85,7 @@ class PdfPreviewStrategy:
                 )
             )
             counts[kind] = counts.get(kind, 0) + 1
+
         return results, counts, sum(unit.chars for unit in results)
 
     def ocr_problem_units(
@@ -93,6 +98,7 @@ class PdfPreviewStrategy:
         result, ocr_types_count, _total_chars = self._svc.ocr_problem_pages(path, filtered)
         merged = []
         by_page = {u.page: u for u in result}
+
         for u in units:
             if u.page in by_page:
                 updated = by_page[u.page]
@@ -116,6 +122,7 @@ class PdfPreviewStrategy:
         # Recompute types_count from ALL merged units (not just OCR'd ones)
         types_count = PageContentType.empty_counts()
         total_chars = 0
+
         for u in merged:
             types_count[u.type] = types_count.get(u.type, 0) + 1
             total_chars += u.chars

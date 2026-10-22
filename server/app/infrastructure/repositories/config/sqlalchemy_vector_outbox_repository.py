@@ -84,13 +84,16 @@ class SQLAlchemyVectorOutboxRepository:
             )
         )
         orms = result.scalars().all()
+
         for orm in orms:
             orm.status = OutboxStatus.PENDING.value
             orm.locked_by = None
             orm.locked_at = None
             orm.last_error = "Recovered from stuck in_progress (dispatcher crash)"
+
         if orms:
             await self._db.flush()
+
         return len(orms)
 
     async def mark_done(self, entry_id: int) -> None:
@@ -98,6 +101,7 @@ class SQLAlchemyVectorOutboxRepository:
             select(VectorStoreOutboxModel).where(VectorStoreOutboxModel.id == entry_id)
         )
         orm = result.scalar_one_or_none()
+
         if orm:
             entity = VectorOutboxEntry(
                 id=orm.id,
@@ -115,8 +119,10 @@ class SQLAlchemyVectorOutboxRepository:
             select(VectorStoreOutboxModel).where(VectorStoreOutboxModel.id == entry_id)
         )
         orm = result.scalar_one_or_none()
+
         if orm is None:
             return
+
         entity = VectorOutboxEntry(
             id=orm.id,
             status=OutboxStatus(orm.status),
@@ -127,8 +133,10 @@ class SQLAlchemyVectorOutboxRepository:
         orm.attempts = entity.attempts
         orm.last_error = entity.last_error
         orm.status = entity.status.value
+
         if not entity.is_dead_letter:
             orm.next_attempt_at = datetime.now(tz=UTC) + timedelta(seconds=backoff_seconds)
+
         await self._db.flush()
 
     async def mark_dead_letter(self, entry_id: int, error: str) -> None:
@@ -136,6 +144,7 @@ class SQLAlchemyVectorOutboxRepository:
             select(VectorStoreOutboxModel).where(VectorStoreOutboxModel.id == entry_id)
         )
         orm = result.scalar_one_or_none()
+
         if orm:
             orm.status = OutboxStatus.DEAD_LETTER.value
             orm.last_error = error[:2000]
@@ -154,6 +163,7 @@ class SQLAlchemyVectorOutboxRepository:
 
     async def count_by_documents(self, document_ids: list[int]) -> dict[int, dict[str, int]]:
         counts = {did: {"pending": 0, "failed": 0} for did in document_ids}
+
         if not document_ids:
             return counts
 
@@ -174,8 +184,10 @@ class SQLAlchemyVectorOutboxRepository:
             .where(VectorStoreOutboxModel.aggregate_id.in_(document_ids))
             .group_by(VectorStoreOutboxModel.aggregate_id)
         )
+
         for row in result.mappings().all():
             counts[row["aggregate_id"]] = {"pending": row["pending"], "failed": row["failed"]}
+
         return counts
 
     async def get_failed_details(self, document_id: int) -> list[dict[str, object]]:
@@ -201,6 +213,7 @@ class SQLAlchemyVectorOutboxRepository:
             )
         )
         details: dict[int, list[dict[str, object]]] = {}
+
         for row in result.mappings().all():
             details.setdefault(row["aggregate_id"], []).append(
                 {
@@ -210,6 +223,7 @@ class SQLAlchemyVectorOutboxRepository:
                     "last_error": row["last_error"],
                 }
             )
+
         return details
 
     async def list_dead_letters(self, limit: int = 50) -> list[VectorOutboxEntry]:

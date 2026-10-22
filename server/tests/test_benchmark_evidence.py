@@ -1,5 +1,6 @@
 """Evidence-based benchmark regressions independent of external models and indexes."""
 
+from infrastructure.benchmark.judging import context_judge
 import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -14,8 +15,8 @@ from domain.benchmark.question import validate_annotations
 from domain.rag.context import RagContext
 from domain.rag.result import RagResult
 from domain.identity.roles import UserKind
-from infrastructure.benchmark.answer_generators import BenchmarkAnswer, RagBenchmarkGenerator
-from infrastructure.benchmark.case_evaluator import BenchmarkCaseEvaluator
+from infrastructure.benchmark.evaluation.answer_generators import BenchmarkAnswer, RagBenchmarkGenerator
+from infrastructure.benchmark.evaluation.case_evaluator import BenchmarkCaseEvaluator
 from infrastructure.ml.rag.benchmark_evidence import (
     BenchmarkEvidence,
     active_evidence,
@@ -114,7 +115,7 @@ def test_unavailable_evidence_and_unannotated_cases_are_not_zero_scores():
     ],
 )
 def test_annotation_validation_shared_by_runner_and_api(annotations):
-    from infrastructure.benchmark.runner import validate_questions
+    from infrastructure.benchmark.evaluation.runner import validate_questions
     from presentation.api.schemas.benchmark import BenchmarkQuestionCreate
 
     with pytest.raises(ValueError):
@@ -200,14 +201,15 @@ async def test_capture_resets_on_generation_failure():
 
 @pytest.mark.asyncio
 async def test_case_output_contains_diagnostics_and_real_evidence(monkeypatch):
-    from infrastructure.benchmark import judge, evidence_judge, metrics
+    from infrastructure.benchmark.judging import judge
+    from infrastructure.benchmark.judging import evidence_judge
 
     monkeypatch.setattr(
         judge,
         "judge_answer_async",
         AsyncMock(return_value={"faithfulness": 8, "relevancy": 8, "correctness": 8}),
     )
-    monkeypatch.setattr(metrics, "compute_context_precision_recall", lambda *a, **k: {})
+    monkeypatch.setattr(context_judge, "compute_context_precision_recall", lambda *a, **k: {})
     monkeypatch.setattr(
         evidence_judge, "judge_evidence", lambda *a, **kw: {"scores": {"refusal_score": 10}, "details": {}}
     )
@@ -242,7 +244,7 @@ async def test_case_output_contains_diagnostics_and_real_evidence(monkeypatch):
 
 
 def test_judge_failures_are_unavailable_with_diagnostics(monkeypatch):
-    from infrastructure.benchmark import evidence_judge
+    from infrastructure.benchmark.judging import evidence_judge
 
     monkeypatch.setattr(evidence_judge, "get_judge_client", lambda *a: object())
 
@@ -256,7 +258,7 @@ def test_judge_failures_are_unavailable_with_diagnostics(monkeypatch):
 
 
 def test_legacy_annotations_skip_extra_judge(monkeypatch):
-    from infrastructure.benchmark import evidence_judge
+    from infrastructure.benchmark.judging import evidence_judge
 
     def fail(*args):
         raise AssertionError("legacy case must not call judge")
@@ -276,8 +278,8 @@ def test_real_prompt_capture_keeps_parent_scope_and_raw_retrieval():
     from domain.rag.breadth import Breadth
     from domain.identity.roles import UserRole
     from domain.identity.user_context import UserContext
-    from infrastructure.ml.rag.rag_steps import step_build_context
-    from infrastructure.ml.rag_pipeline import RagPipelineState
+    from rag_stage_fixtures import build_context as step_build_context
+    from rag_stage_fixtures import stage_fixture
     from test_rag_pipeline import _make_rag
 
     raw = [(Document(page_content="Submit application", metadata={"source": "rules.pdf"}), 0.9)]
@@ -293,7 +295,7 @@ def test_real_prompt_capture_keeps_parent_scope_and_raw_retrieval():
             0.9,
         )
     ]
-    state = RagPipelineState(
+    state = stage_fixture(
         rag=_make_rag(),
         t_pipeline_start=0,
         question="Q",
@@ -317,7 +319,7 @@ def test_real_prompt_capture_keeps_parent_scope_and_raw_retrieval():
 
 
 def test_judge_client_failure_is_reported_and_missing_context_is_not_scored(monkeypatch):
-    from infrastructure.benchmark import evidence_judge
+    from infrastructure.benchmark.judging import evidence_judge
 
     def fail(*args):
         raise RuntimeError("client offline")

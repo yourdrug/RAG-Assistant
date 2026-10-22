@@ -60,10 +60,13 @@ class ApiKeyProvider:
         """Return a cached value, None for known-invalid keys, or MISS if absent."""
         try:
             raw = await redis_client.async_redis.get(f"{_REDIS_CACHE_PREFIX}{key_hash}")
+
             if raw is None:
                 return MISS
+
             if raw == _CACHE_MISS_SENTINEL:
                 return None
+
             return json.loads(raw)
         except Exception:
             logger.warning("Redis GET failed for api_key cache, treating as MISS")
@@ -107,6 +110,7 @@ class ApiKeyProvider:
         try:
             # Look up key_hash from id index
             key_hash = await redis_client.async_redis.get(f"{_REDIS_ID_INDEX_PREFIX}{api_key_id}")
+
             if key_hash is not None:
                 await redis_client.async_redis.delete(f"{_REDIS_CACHE_PREFIX}{key_hash}")
                 await redis_client.async_redis.delete(f"{_REDIS_ID_INDEX_PREFIX}{api_key_id}")

@@ -39,8 +39,10 @@ def s3_client_kwargs() -> dict[str, Any]:
             s3={"addressing_style": "path"} if custom_endpoint else {},
         ),
     }
+
     if custom_endpoint:
         kwargs["endpoint_url"] = settings.s3_endpoint
+
     return kwargs
 
 
@@ -51,6 +53,7 @@ async def finish_owned_task(task: asyncio.Task):
             await asyncio.shield(task)
         except asyncio.CancelledError:
             continue
+
     return task.result()
 
 
@@ -103,6 +106,7 @@ class S3Storage:
 
     def check_loop(self) -> None:
         loop = asyncio.get_running_loop()
+
         if self._loop is None:
             self._loop = loop
         elif self._loop is not loop:
@@ -116,6 +120,7 @@ class S3Storage:
     async def initialize_client(self):
         if not self._active:
             raise RuntimeError("S3 client initialization requires an active storage operation")
+
         async with self._init_lock:
             if self._client is None:
                 context = get_session().create_client("s3", **self._kwargs)
@@ -124,13 +129,16 @@ class S3Storage:
                 client = await context.__aenter__()
                 self._context = context
                 self._client = client
+
             return self._client
 
     @asynccontextmanager
     async def operation(self):
         self.check_loop()
+
         if self._closing:
             raise RuntimeError("S3 storage is closed")
+
         self._active += 1
         self._idle.clear()
         acquired = False
@@ -141,7 +149,9 @@ class S3Storage:
         finally:
             if acquired:
                 self._limit.release()
+
             self._active -= 1
+
             if not self._active:
                 self._idle.set()
 
@@ -149,10 +159,12 @@ class S3Storage:
         items: list[FileItem] = []
         async with self.operation() as client:
             paginator = client.get_paginator("list_objects_v2")
+
             async for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix):
                 for obj in page.get("Contents", []):
                     key = obj["Key"]
                     extension = Path(key).suffix.lower()
+
                     if extension in self._extensions:
                         items.append(
                             FileItem(
@@ -168,6 +180,7 @@ class S3Storage:
             except ClientError as exc:
                 if exc.response.get("Error", {}).get("Code") in S3_MISSING_CODES:
                     return None
+
                 raise
         return FileItem(
             key,
@@ -203,6 +216,7 @@ class S3Storage:
                 try:
                     while block := await body.read(S3_DOWNLOAD_CHUNK_BYTES):
                         await run_storage_io(write_download_block, handle, block)
+
                     await run_storage_io(close_download, handle, remove=False)
                 except asyncio.CancelledError as exc:
                     try:
@@ -255,11 +269,14 @@ class S3Storage:
                 async for block in blocks:
                     for start in range(0, len(block), part_size):
                         buffer.extend(block[start : start + part_size])
+
                         if len(buffer) >= part_size:
                             await send_part(bytes(buffer[:part_size]))
                             del buffer[:part_size]
+
                 if buffer or not parts:
                     await send_part(bytes(buffer))
+
                 await client.complete_multipart_upload(
                     Bucket=self.bucket, Key=key, UploadId=upload_id, MultipartUpload={"Parts": parts}
                 )
@@ -286,6 +303,7 @@ class S3Storage:
             if exc.response.get("Error", {}).get("Code") == "NoSuchKey":
                 log.warning("S3 copy: source key '%s' does not exist, skipping", old_key)
                 return False
+
             raise
         return True
 
@@ -301,6 +319,7 @@ class S3Storage:
 
     async def close_client(self) -> None:
         await self._idle.wait()
+
         if self._context is not None:
             try:
                 await self._context.__aexit__(None, None, None)
@@ -311,8 +330,10 @@ class S3Storage:
     async def aclose(self) -> None:
         self.check_loop()
         self._closing = True
+
         if self._close_task is None:
             self._close_task = asyncio.create_task(self.close_client())
+
         try:
             await asyncio.shield(self._close_task)
         except asyncio.CancelledError:
@@ -334,8 +355,10 @@ class LazyStorage:
         with self._lock:
             if self._closed:
                 raise RuntimeError("Storage is closed")
+
             if self._resolved is None:
                 self._resolved = create_storage()
+
             return self._resolved
 
     @property
@@ -374,12 +397,14 @@ class LazyStorage:
 
     async def close_backends(self, backends) -> None:
         error = None
+
         for backend in backends:
             try:
                 await backend.aclose()
             except Exception as exc:
                 if error is None:
                     error = exc
+
         if error is not None:
             raise error
 
@@ -388,8 +413,10 @@ class LazyStorage:
             if self._close_task is None:
                 self._closed = True
                 backends = [*self._retired]
+
                 if self._resolved is not None:
                     backends.append(self._resolved)
+
                 self._retired.clear()
                 self._resolved = None
                 self._close_task = asyncio.create_task(self.close_backends(backends))

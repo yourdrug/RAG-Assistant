@@ -41,7 +41,7 @@ from infrastructure.metrics.metrics import RAG_STAGE_DURATION, RAG_DECOMPOSED_TO
 from infrastructure.repositories.vector.acl import with_domain_filter
 
 if TYPE_CHECKING:
-    from infrastructure.ml.rag_pipeline import RagPipelineState
+    from infrastructure.ml.rag.retrieval_work import RetrievalWork
 
 log = logging.getLogger("default")
 
@@ -54,10 +54,11 @@ def domain_prompt_addendum(
     """Answer rules for a registered domain."""
     if domain_keys is None or query_domain not in domain_keys:
         return None
+
     return policy_for(query_domain).prompt_addendum(as_of_date=ctx.as_of_date)
 
 
-async def run_retrieval(query_for_search: str, state: RagPipelineState, ml_clients) -> list[LCDocument]:
+async def run_retrieval(query_for_search: str, state: RetrievalWork, ml_clients) -> list[LCDocument]:
     """Run hybrid search with legal-domain fallback."""
     if state.query_domain == DocDomain.LEGAL.value:
         legal_filter = with_domain_filter(state.retrieval_filter, DocDomain.LEGAL.value)
@@ -73,6 +74,7 @@ async def run_retrieval(query_for_search: str, state: RagPipelineState, ml_clien
             user_id=state.user.user_id,
             user_group_ids=state.ctx.user_group_ids,
         )
+
         if not candidates:
             log.info("Legal-filtered retrieval returned 0 candidates — fallback on entire corpus")
             candidates = await run_hybrid_search(
@@ -100,6 +102,7 @@ async def run_retrieval(query_for_search: str, state: RagPipelineState, ml_clien
             user_id=state.user.user_id,
             user_group_ids=state.ctx.user_group_ids,
         )
+
     return candidates
 
 
@@ -113,6 +116,7 @@ async def apply_exact_search(
     """Augment candidates with exact substring matches."""
     if chunk_search is None:
         return
+
     try:
         exact_results = await chunk_search.search_substring(
             query=query_for_search,
@@ -121,10 +125,13 @@ async def apply_exact_search(
             mode=SearchMode.EXACT.value,
             as_of_date=ctx.as_of_date,
         )
+
         if exact_results:
             existing_hashes = {content_hash(d.page_content) for d in candidates}
+
             for r in exact_results:
                 h = content_hash(r.content)
+
                 if h not in existing_hashes:
                     candidates.append(
                         LCDocument(
@@ -133,6 +140,7 @@ async def apply_exact_search(
                         )
                     )
                     existing_hashes.add(h)
+
             log.info("Exact-search added %d additional candidates", len(exact_results))
     except Exception as e:
         log.warning("Exact-search failed: %s", e)
@@ -155,6 +163,7 @@ async def apply_legal_rerank_fallback(
     """Fallback: rerank entire corpus for legal queries that got no docs."""
     if docs:
         return docs
+
     log.info("Legal query got no docs after rerank — fallback on entire corpus with rerank")
     fallback_candidates = await run_hybrid_search(
         query_for_search,
@@ -166,8 +175,10 @@ async def apply_legal_rerank_fallback(
         user_id=user_id,
         user_group_ids=user_group_ids,
     )
+
     if document_access is not None:
         fallback_candidates = await filter_documents(fallback_candidates, document_access, user)
+
     async with ml_clients.reranker_semaphore:
         return await rerank_documents(
             query_for_search,
@@ -196,6 +207,7 @@ async def assess_sufficiency(
 
     if llm_client is None:
         llm_client = ml_clients.instructor_client
+
         if settings.llm_provider == LLMProvider.OLLAMA:
             model = settings.llm_model
         else:
@@ -231,7 +243,7 @@ async def assess_sufficiency(
 
 
 async def retrieve_with_decomposition(
-    query: str, state: RagPipelineState, ml_clients
+    query: str, state: RetrievalWork, ml_clients
 ) -> tuple[list[LCDocument], list[str]]:
     """Run hybrid retrieval with optional multi-query decomposition.
 
@@ -254,8 +266,10 @@ async def retrieve_with_decomposition(
             retrieval_tasks = [run_retrieval(sq, state, ml_clients) for sq in sub_queries]
             all_candidates_lists = await asyncio.gather(*retrieval_tasks)
             merged: list[LCDocument] = []
+
             for c in all_candidates_lists:
                 merged.extend(c)
+
             candidates = deduplicate_docs(merged)
 
             RAG_DECOMPOSED_TOTAL.inc()
@@ -273,16 +287,18 @@ async def retrieve_with_decomposition(
     for probe in evidence_search_queries(query)[1:]:
         if probe in sub_queries:
             continue
+
         extra = await run_retrieval(probe, state, ml_clients)
         candidates = deduplicate_docs([*candidates, *extra])
         sub_queries.append(probe)
+
     return candidates, sub_queries
 
 
 async def rerank_and_enrich(
     query: str,
     candidates: list[LCDocument],
-    state: RagPipelineState,
+    state: RetrievalWork,
     ml_clients,
     chunk_search,
     *,
@@ -295,9 +311,12 @@ async def rerank_and_enrich(
     if state.breadth is None:
         message = "state.breadth must be set before reranking"
         raise ValueError(message)
+
     candidates = await augment_field_candidates(query, candidates, chunk_search, state.ctx)
+
     if document_access is not None:
         candidates = await filter_documents(candidates, document_access, state.ctx.to_user_context())
+
     t0 = time.monotonic()
     async with ml_clients.reranker_semaphore:
         docs = await rerank_documents(
@@ -331,10 +350,12 @@ async def rerank_and_enrich(
     final_top_k = select_final_top_k(
         state.breadth, enumerate_cases=state.enumerate_cases, rag_settings=state.rag
     )
+
     if active_evidence.get() is not None:
         capture_exclusions(
             [exclusion_record(item, ExclusionReason.FINAL_TOP_K, "retrieval") for item in docs[final_top_k:]]
         )
+
     docs = docs[:final_top_k]
     capture_retrieval(docs)
     avg_sim = sum(s for _, s in docs) / len(docs) if docs else 0.0
@@ -361,6 +382,7 @@ async def rerank_and_enrich(
     if document_access is not None:
         docs = await filter_scored_documents(docs, document_access, state.ctx.to_user_context())
         avg_sim = sum(score for _, score in docs) / len(docs) if docs else 0.0
+
     docs = filter_scope_candidates(docs, query, "context")
     docs = await enrich_linked_context(docs, query, chunk_search, state.ctx.to_user_context())
     docs = await enrich_applicable_context(docs, query, chunk_search, state.ctx.to_user_context())

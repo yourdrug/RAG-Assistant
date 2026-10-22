@@ -65,9 +65,12 @@ class PostgresConfigListener:
             try:
                 await self.connect_and_listen()
                 disconnect_event = asyncio.Event()
+
                 if self._conn is not None:
                     self._conn.add_termination_listener(lambda _c, _de=disconnect_event: _de.set())
+
                 await disconnect_event.wait()
+
                 if not self._stopped:
                     log.warning(
                         "Postgres LISTEN connection lost — reconnecting in %.0fs", _RECONNECT_DELAY_SEC
@@ -126,26 +129,32 @@ class PostgresConfigListener:
 
     async def safe_close(self) -> None:
         CONFIG_LISTENER_CONNECTED.set(0)
+
         if self._conn is not None and not self._conn.is_closed():
             try:
                 await self._conn.close()
             except Exception:
                 log.debug("Failed to close config listener connection", exc_info=True)
+
         self._conn = None
 
     async def stop(self) -> None:
         self._stopped = True
+
         if self._supervisor_task is not None:
             self._supervisor_task.cancel()
             try:
                 await self._supervisor_task
             except asyncio.CancelledError:
                 pass
+
         if self._background_tasks:
             for task in self._background_tasks:
                 task.cancel()
+
             await asyncio.gather(*self._background_tasks, return_exceptions=True)
             self._background_tasks.clear()
+
         await self.safe_close()
         log.info("Postgres LISTEN '%s' stopped", _CHANNEL)
 

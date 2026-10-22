@@ -71,6 +71,7 @@ class OutputVerdict:
     def reason(self) -> str:
         if not self.safe:
             return f"output_issue:{','.join(self.matches)}"
+
         return "clean"
 
 
@@ -90,18 +91,21 @@ class OutputScanner:
         matches: list[str] = []
 
         leak_detected = False
+
         for i, rx in enumerate(_LEAK_PATTERNS):
             if rx.search(text):
                 leak_detected = True
                 matches.append(f"leak_p{i}")
 
         echo_detected = False
+
         for i, rx in enumerate(_ECHO_PATTERNS):
             if rx.search(text):
                 echo_detected = True
                 matches.append(f"echo_p{i}")
 
         marker_forgery = bool(_MARKER_FORGERY_RE.search(text))
+
         if marker_forgery:
             matches.append("marker_forgery")
 
@@ -125,6 +129,8 @@ class OutputScanner:
     def sanitize_output(self, text: str) -> tuple[str, OutputVerdict]:
         """Return an answer safe to publish after scanning the complete text."""
         verdict = self.scan(text)
+
         if verdict.leak_detected or verdict.echo_detected:
             return BLOCKED_OUTPUT_MESSAGE, verdict
+
         return self.clean_output(text), verdict

@@ -48,17 +48,23 @@ def join_page_word(before: str, after: str, evidence: tuple[set[str], set[str]])
     """Return adjusted page edges if a word or range continues across pages."""
     left = _TRAILING_WORD_RE.search(before)
     right = _LEADING_WORD_RE.match(after)
+
     if left is None or right is None:
         return None
+
     stem, hyphen = left.groups()
     suffix = right.group(1)
     words, compounds = evidence
+
     if stem.isdigit() and suffix.isdigit():
         return before.rstrip(), after.lstrip()
+
     if not stem.isalpha() or not suffix.isalpha():
         return None
+
     joined = (stem + suffix).lower()
     compound = (stem + "-" + suffix).lower()
+
     if hyphen == "\u00ad" or joined in words:
         remove = True
     elif compound in compounds or stem.lower() in _COMPOUND_PREFIXES:
@@ -66,4 +72,5 @@ def join_page_word(before: str, after: str, evidence: tuple[set[str], set[str]])
     else:
         # Uppercase identifiers and proper-name compounds keep their hyphen.
         remove = stem[-1].islower() and suffix[0].islower()
+
     return before.rstrip()[:-1] if remove else before.rstrip(), after.lstrip()

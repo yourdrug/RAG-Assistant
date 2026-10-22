@@ -62,11 +62,13 @@ async def load_bm25_index_from_s3(storage: FileStorage) -> BM25Index | None:
             except OSError:
                 if not cancelled:
                     raise
+
                 # Cleanup failure must not replace request cancellation.
                 log.warning("Failed to remove BM25 snapshot after cancellation: %s", temp_path, exc_info=True)
     except ClientError as exc:
         if exc.response.get("Error", {}).get("Code") in S3_MISSING_CODES:
             return None
+
         raise BM25LoadError("Failed to load BM25 snapshot from S3") from exc
     except (BotoCoreError, HTTPClientError, OSError, ValueError, KeyError, TypeError) as exc:
         raise BM25LoadError("Failed to read/parse BM25 snapshot") from exc
@@ -76,13 +78,17 @@ def validate_snapshot_column(field: str, values, count: int, value_type: type) -
     """Validate parallel snapshot columns before they reach scoring/ACL code."""
     if values is None:
         return  # Legacy snapshots omit hashes/ACL and retain existing defaults.
+
     if not isinstance(values, list) or len(values) != count:
         raise ValueError(f"BM25 snapshot {field} must match texts length")
+
     for value in values:
         if value is None and field != "hashes":
             continue
+
         if not isinstance(value, value_type) or isinstance(value, bool):
             raise ValueError(f"Invalid BM25 snapshot {field} value")
+
         if field == "doc_visibility" and isinstance(value, str):
             DocumentVisibility(value)
 
@@ -91,9 +97,12 @@ def validate_snapshot(data) -> None:
     """Reject malformed persisted data without catching unrelated programming errors."""
     if not isinstance(data, dict) or not isinstance(data.get("texts"), list):
         raise ValueError("BM25 snapshot texts must be a list")
+
     texts = data["texts"]
+
     if not all(isinstance(text, str) for text in texts):
         raise ValueError("BM25 snapshot texts must contain strings")
+
     for field, value_type in (
         ("hashes", str),
         ("doc_visibility", str),
@@ -101,12 +110,16 @@ def validate_snapshot(data) -> None:
         ("doc_group_id", int),
     ):
         validate_snapshot_column(field, data.get(field), len(texts), value_type)
+
     for field in ("k1", "b"):
         if field not in data:
             continue
+
         value = data[field]
+
         if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value):
             raise ValueError(f"BM25 snapshot {field} must be a finite number")
+
         if value < 0 or (field == "b" and value > 1):
             raise ValueError(f"Invalid BM25 snapshot {field} range")
 

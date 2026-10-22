@@ -25,4 +25,5 @@ def corpus_metadata(snapshot) -> dict:
             'embedding_identity': snapshot.embedding_identity,
             'corpus_namespace': snapshot.namespace,
         }
+
     return {'collection_name': settings.collection_name, 'qdrant_url': settings.qdrant_url}

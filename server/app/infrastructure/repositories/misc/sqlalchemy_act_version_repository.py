@@ -14,8 +14,10 @@ def as_date(value) -> date | None:
     """Normalize a Date/DateTime column value into a date."""
     if value is None:
         return None
+
     if isinstance(value, datetime):
         return value.date()
+
     return value
 
 
@@ -66,6 +68,7 @@ class SQLAlchemyActVersionRepository:
             await self._session.execute(
                 select(DocumentModel.id).where(DocumentModel.id == document_id).with_for_update()
             )
+
         stmt = (
             select(ActVersionModel)
             .where(ActVersionModel.document_id == document_id)
@@ -76,10 +79,12 @@ class SQLAlchemyActVersionRepository:
             )
             .limit(1)
         )
+
         if for_update:
             # Document locking also covers the absence of an edition. Lock the
             # selected edition itself to serialize with date/timeline updates.
             stmt = stmt.with_for_update()
+
         result = await self._session.execute(stmt)
         m = result.scalar_one_or_none()
         return self.to_entity(m) if m else None
@@ -98,9 +103,12 @@ class SQLAlchemyActVersionRepository:
             await self._session.execute(
                 select(RegulatoryActModel.id).where(RegulatoryActModel.id == act_id).with_for_update()
             )
+
         stmt = select(ActVersionModel).where(ActVersionModel.act_id == act_id).order_by(ActVersionModel.id)
+
         if for_update:
             stmt = stmt.with_for_update().execution_options(populate_existing=True)
+
         result = await self._session.execute(stmt)
         return [self.to_entity(m) for m in result.scalars()]
 
@@ -121,8 +129,10 @@ class SQLAlchemyActVersionRepository:
 
     async def update(self, version: ActVersion) -> None:
         m = await self._session.get(ActVersionModel, version.id)
+
         if m is None:
             return
+
         m.effective_from = version.effective_from
         m.effective_to = version.effective_to
         m.act_id = version.act_id

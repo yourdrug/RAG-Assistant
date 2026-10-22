@@ -23,14 +23,18 @@ async def augment_field_candidates(question, candidates, chunk_search, ctx):
     reranker thresholds and final prompt budgeting. Never fabricate a value.
     """
     fields = requested_fields(question)
+
     if chunk_search is None or not fields:
         return candidates
+
     document_ids = list(dict.fromkeys(doc.metadata.get("document_id") for doc in candidates))
     seen = {content_hash(doc.page_content) for doc in candidates}
     result = [doc for doc in candidates if table_message_matches(question, doc.page_content)]
+
     for number, name in fields[:2]:
         if any(matching_field_rows(doc.page_content, number, name) for doc in result):
             continue
+
         for document_id in [value for value in document_ids if value is not None][:MAX_FIELD_DOCUMENTS]:
             try:
                 matches = await chunk_search.search_substring(
@@ -44,16 +48,21 @@ async def augment_field_candidates(question, candidates, chunk_search, ctx):
             except Exception:
                 log.warning("Field lookup failed for document_id=%s", document_id, exc_info=True)
                 continue
+
             for match in matches:
                 if match.document_id != document_id or match.content_type != PageContentType.TABLE.value:
                     continue
+
                 if not (
                     matching_field_rows(match.content, number, name)
                     and table_message_matches(question, match.content)
                 ):
                     continue
+
                 identity = content_hash(match.content)
+
                 if identity not in seen:
                     result.append(Document(page_content=match.content, metadata=chunk_result_metadata(match)))
                     seen.add(identity)
+
     return result

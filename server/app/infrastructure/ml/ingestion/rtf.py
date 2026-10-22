@@ -33,11 +33,13 @@ MIN_DOCUMENT_CHARS = 20
 def _read_rtf_text(file_path: Path) -> str:
     """Read raw RTF bytes, trying encodings that preserve the RTF structure."""
     raw = file_path.read_bytes()
+
     for enc in ("utf-8", "cp1251", "latin-1"):
         try:
             return raw.decode(enc)
         except (UnicodeDecodeError, ValueError):
             continue
+
     return raw.decode("latin-1")
 
 
@@ -60,8 +62,10 @@ _CODEPAGE_MAP = {
 
 def _detect_codepage(rtf: str) -> str:
     m = _ANSICPG_RE.search(rtf[:1000])
+
     if m:
         return _CODEPAGE_MAP.get(m.group(1), "cp1251")
+
     return "cp1251"
 
 
@@ -69,14 +73,20 @@ def _extract_rtf_info(rtf_raw: str) -> dict:
     r"""Extract author and creation date from the RTF \\info group."""
     result: dict = {}
     m = _TITLE_GROUP_RE.search(rtf_raw)
+
     if m:
         result["title"] = m.group(1).strip()
+
     m = _AUTHOR_GROUP_RE.search(rtf_raw)
+
     if m:
         result["author"] = m.group(1).strip()
+
     m = _CREATED_GROUP_RE.search(rtf_raw)
+
     if m:
         result["created_date"] = f"{m.group(1)}-{m.group(2).zfill(2)}-{m.group(3).zfill(2)}"
+
     return result
 
 
@@ -89,8 +99,10 @@ def parse_rtf(file_path: Path) -> tuple[str, dict]:
     meta.update(info)
     meta["codepage"] = _detect_codepage(raw)
     page_count = len(_PAGE_RE.findall(raw))
+
     if page_count > 0:
         meta["estimated_page_count"] = page_count
+
     return rtf_text, meta
 
 
@@ -112,8 +124,10 @@ _MAX_HEADING_WORDS = 12
 
 def _most_common_size(segments: list[Segment]) -> float | None:
     sizes = [s.paragraph.font_size for s in segments if s.paragraph and s.paragraph.font_size]
+
     if not sizes:
         return None
+
     return Counter(sizes).most_common(1)[0][0]
 
 
@@ -125,24 +139,32 @@ def extract_rtf_tables(rtf_raw: str) -> list[str]:
     r"""Extract tables from RTF by detecting \\intbl/\\cell/\\row control words."""
     segments = _walk_paragraphs(rtf_raw, codepage=_detect_codepage(rtf_raw))
     tables = []
+
     for seg in segments:
         if seg.table:
             md = _table_to_markdown(seg.table)
+
             if md:
                 tables.append(md)
+
     return tables
 
 
 def _is_heading(seg: Segment, baseline: float | None) -> bool:
     """Return True if *seg* looks like a document heading."""
     p = seg.paragraph
+
     if p is None:
         return False
+
     word_count = len(p.text.split())
+
     if word_count == 0 or word_count > _MAX_HEADING_WORDS:
         return False
+
     if _NUMBERED_HEADING_RE.match(p.text):
         return True
+
     return bool(baseline is not None and p.bold and p.font_size and p.font_size > baseline)
 
 
@@ -175,12 +197,14 @@ def _split_by_headings(
 
     def flush():
         content = "\n".join(current_lines).strip()
+
         if content:
             sections.append(Section(current_heading, content))
 
     for seg in segments:
         if seg.table:
             md = _table_to_markdown(seg.table)
+
             if md:
                 flush()
                 sections.append(Section(current_heading, md, PageContentType.TABLE))
@@ -190,13 +214,16 @@ def _split_by_headings(
                 flush()
                 p = seg.paragraph
                 level = size_to_level.get(p.font_size, fallback_level) if p.font_size else fallback_level
+
                 while stack and stack[-1][0] >= level:
                     stack.pop()
+
                 stack.append((level, p.text))
                 current_heading = " > ".join(h for _, h in stack)
                 current_lines = []
             else:
                 current_lines.append(seg.paragraph.text)
+
     flush()
     return sections
 
@@ -204,13 +231,16 @@ def _split_by_headings(
 def _fallback_flat_text(segments: list[Segment]) -> str:
     """Collect all paragraph text and table markdown into a single string."""
     all_text: list[str] = []
+
     for seg in segments:
         if seg.paragraph:
             all_text.append(seg.paragraph.text)
         elif seg.table:
             md = _table_to_markdown(seg.table)
+
             if md:
                 all_text.append(md)
+
     return "\n".join(all_text)
 
 
@@ -218,13 +248,17 @@ def parse_rtf_sections(file_path: Path) -> list[Section]:
     r"""Split RTF into (heading, content) sections using paragraph formatting."""
     raw = _read_rtf_text(file_path)
     segments = _walk_paragraphs(raw, codepage=_detect_codepage(raw))
+
     if not segments:
         return [Section(None, rtf_to_text(raw))]
+
     baseline = _most_common_size(segments)
     size_to_level, fallback_level = _build_heading_index(segments, baseline)
     sections = _split_by_headings(segments, baseline, size_to_level, fallback_level)
+
     if not sections:
         return [Section(None, _fallback_flat_text(segments))]
+
     return sections
 
 
@@ -250,11 +284,13 @@ class RtfDocumentParser:
         existed, so plain RTF files never regress.
         """
         text, _meta = parse_rtf(file_path)
+
         if not text or len(text.strip()) < MIN_DOCUMENT_CHARS:
             message = "Too little text in document"
             raise RuntimeError(message)
 
         decree_docs = self.try_parse_decree_rtf(file_path, text)
+
         if decree_docs is not None:
             return decree_docs
 
@@ -266,6 +302,7 @@ class RtfDocumentParser:
 
         page_meta = {}
         title = extract_doc_title(file_path)
+
         if title:
             page_meta["doc_title"] = title
 
@@ -277,6 +314,7 @@ class RtfDocumentParser:
     def get_decree_profile(self) -> DecreeDomainProfile | None:
         if self._domain_registry is None or self._domain_settings is None:
             return None
+
         try:
             profile = self._domain_registry.get("decree")
         except KeyError:
@@ -290,24 +328,31 @@ class RtfDocumentParser:
         applied to the file prefix for speed (see TZ section 5.2).
         """
         profile = self.get_decree_profile()
+
         if profile is None or not profile.structural_fingerprint(text[:_DECREE_FINGERPRINT_PREFIX_CHARS]):
             return None
+
         try:
             if self._domain_settings is None:
                 return None
+
             units, doc_metadata = parse_decree_rtf(file_path, profile, self._domain_settings)
         except Exception:
             log.exception("Decree RTF parsing failed for %s — falling back to flat parse", file_path.name)
             return None
 
         docs = []
+
         for unit in units:
             if not unit.content.strip():
                 continue
+
             metadata = unit_metadata(unit, profile, {"source": file_path.name, **doc_metadata})
             docs.append(Section(None, unit.content, metadata=metadata))
+
         if not docs or sum(len(d.content) for d in docs) < MIN_DOCUMENT_CHARS:
             message = "Too little text in document"
             raise RuntimeError(message)
+
         log.info("Decree RTF detected: %d structural units from %s", len(docs), file_path.name)
         return ParsedFormat(docs, structured=False)

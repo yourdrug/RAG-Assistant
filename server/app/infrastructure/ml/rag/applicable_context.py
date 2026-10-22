@@ -34,8 +34,10 @@ async def timing_reference_scope(doc, question, chunk_search, user) -> str | Non
     text = content_with_parent_scope(doc)
     reference = timing_reference(text)
     category = listed_goods_polarities(question)
+
     if not reference or len(category) != 1:
         return None
+
     metadata = doc.metadata
     options = {
         "user": user,
@@ -46,21 +48,27 @@ async def timing_reference_scope(doc, question, chunk_search, user) -> str | Non
     definitions = timing_definitions(
         await chunk_search.search_substring(query=TIMING_DEFINITIONS_QUERY, **options), metadata, reference
     )
+
     if len(definitions) != 1:
         return None
+
     appendices = timing_appendices(
         await chunk_search.search_substring(query=TIMING_APPENDICES_QUERY, **options), metadata
     )
+
     if len(appendices) != 1:
         return None
+
     clauses = timing_clauses(
         await chunk_search.search_substring(query=TIMING_CLAUSES_QUERY, **options),
         metadata,
         category,
         appendices[0].chunk_index,
     )
+
     if len(clauses) != 1:
         return None
+
     return "\n".join(c.content for c in (definitions[0], appendices[0], clauses[0]))
 
 
@@ -72,14 +80,17 @@ async def enrich_applicable_context(docs, question, chunk_search, user):
     """
     if chunk_search is None:
         return docs
+
     docs = await enrich_amendment_scope(docs, question, chunk_search, user)
     result = []
     lookups = 0
     fields = requested_fields(question)
+
     for doc, score in docs:
         metadata = doc.metadata
         scope = None
         timing_scope = None
+
         if metadata.get("document_id") and lookups < MAX_SCOPE_LOOKUPS:
             try:
                 if (
@@ -108,36 +119,47 @@ async def enrich_applicable_context(docs, question, chunk_search, user):
                     metadata["document_id"],
                     exc_info=True,
                 )
+
         if scope:
             doc = copy(doc)
             doc.metadata = {
                 **metadata,
                 "parent_units": [*metadata.get("parent_units", []), {"content": scope}],
             }
+
             if timing_scope:
                 doc.metadata["verified_timing_scope"] = timing_scope
+
         result.append((doc, score))
+
     return result
 
 
 async def enrich_amendment_scope(docs, question, chunk_search, user):
     requested = act_numbers(question)
+
     if not amendment_requested(question):
         return docs
+
     links: dict[tuple, list[str]] = {}
+
     for doc, _ in docs:
         metadata = doc.metadata
         identity = (metadata.get("document_id"), metadata.get("act_version_id"))
+
         if not all(identity) or identity in links or len(links) >= MAX_AMENDMENT_LOOKUPS:
             continue
+
         number = metadata.get("act_number")
         actual = (
             {normalize_act_number(str(number))}
             if number
             else act_numbers(metadata.get("doc_title") or metadata.get("source", ""))
         )
+
         if actual != requested:
             continue
+
         links[identity] = []
         try:
             roots = await chunk_search.search_substring(
@@ -151,13 +173,19 @@ async def enrich_amendment_scope(docs, question, chunk_search, user):
             log.warning("Amendment root lookup failed for document_id=%s", identity[0], exc_info=True)
             continue
         targets = amendment_targets(roots, metadata)
+
         if len(targets) == 1:
             links[identity] = sorted(targets)
+
     result = []
+
     for doc, score in docs:
         target = links.get((doc.metadata.get("document_id"), doc.metadata.get("act_version_id")))
+
         if target:
             doc = copy(doc)
             doc.metadata = {**doc.metadata, "verified_amended_acts": target}
+
         result.append((doc, score))
+
     return result

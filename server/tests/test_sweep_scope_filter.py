@@ -1,13 +1,15 @@
 """Sweep scoring must honor the exclusions made while caching reranker scores."""
 
+from infrastructure.benchmark.sweep.settings import settings_snapshot
+
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 from langchain.schema import Document
 
-from infrastructure.benchmark.sweep_reranking import cache_reranker_scores
-from infrastructure.benchmark.sweep_scoring import score_config_cheap
+from infrastructure.benchmark.sweep.reranking import cache_reranker_scores
+from infrastructure.benchmark.sweep.scoring import score_config_cheap
 
 
 @pytest.mark.asyncio
@@ -44,6 +46,7 @@ async def test_phase_a_honors_query_scope_exclusions(sparse_only, include_matchi
         candidates,
         {"hit_rate": 1},
         rerank_scores=scores,
+        defaults=settings_snapshot(),
     )
 
     assert metrics["avg_hit_rate"] == int(include_matching)
@@ -61,4 +64,5 @@ def test_phase_a_does_not_hide_missing_scores_for_eligible_candidates():
             {"eligible": doc},
             {"hit_rate": 1},
             rerank_scores={"question": {}},
+            defaults=settings_snapshot(),
         )

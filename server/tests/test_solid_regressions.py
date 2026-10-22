@@ -1,5 +1,7 @@
 """Failures discovered while reviewing the benchmark execution paths."""
 
+from infrastructure.benchmark.judging import context_judge
+
 import asyncio
 import threading
 from types import SimpleNamespace
@@ -10,13 +12,14 @@ import pytest
 from config import get_setting
 from domain.benchmark.sweep import BenchmarkSweep
 from domain.benchmark.sweep import BenchmarkStrategy
-from infrastructure.benchmark.runner import run_benchmark_async
-from infrastructure.benchmark.sweep_engine import SweepEngine, SweepCancelled
+from infrastructure.benchmark.evaluation.runner import run_benchmark_async
+from application.benchmark.sweep_ports import SweepCancelled
+from composition.service_providers import build_sweep_engine
 
 
 @pytest.fixture
 def optuna_engine(monkeypatch):
-    engine = SweepEngine(uow_factory=None)
+    engine = build_sweep_engine(uow_factory=None)
     monkeypatch.setattr(
         engine, "load_questions", AsyncMock(return_value=[{"question": "q", "source_hint": "doc"}])
     )
@@ -117,7 +120,7 @@ async def test_full_pipeline_uses_requested_retrieval_limits(monkeypatch):
 @pytest.mark.asyncio
 async def test_rag_generator_preserves_sweep_scope_and_restores_it_on_cancellation():
     from config import _settings_overrides
-    from infrastructure.benchmark.answer_generators import RagBenchmarkGenerator
+    from infrastructure.benchmark.evaluation.answer_generators import RagBenchmarkGenerator
 
     inherited = {"retriever_fetch_k": 23, "dense_weight": 0.75, "cache_enabled": True}
     token = _settings_overrides.set(inherited)
@@ -139,7 +142,7 @@ async def test_rag_generator_preserves_sweep_scope_and_restores_it_on_cancellati
 
 @pytest.mark.asyncio
 async def test_async_judge_uses_explicit_model(monkeypatch):
-    from infrastructure.benchmark import judge
+    from infrastructure.benchmark.judging import judge
 
     create = MagicMock(return_value=SimpleNamespace(score=8.0, reason="ok"))
     client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
@@ -151,13 +154,13 @@ async def test_async_judge_uses_explicit_model(monkeypatch):
 
 
 def test_context_judge_uses_same_explicit_model(monkeypatch):
-    from infrastructure.benchmark import judge, metrics
+    from infrastructure.benchmark.judging import judge
 
     score = MagicMock(return_value=SimpleNamespace(score=8.0, reason="ok"))
     monkeypatch.setattr(judge, "get_judge_client", lambda model: object())
     monkeypatch.setattr(judge, "get_judge_model", lambda: "default-model")
     monkeypatch.setattr(judge, "judge_with_structured_output", score)
-    result = metrics.compute_context_precision_recall(
+    result = context_judge.compute_context_precision_recall(
         "question", "answer", context_override="context", judge_model="requested-model"
     )
     assert result["context_precision"] == 8.0

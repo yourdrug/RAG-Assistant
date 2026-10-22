@@ -18,7 +18,8 @@ from domain.benchmark.sweep import BenchmarkSweepStatus  # noqa: E402
 from domain.benchmark.sweep import SweepEvaluationMode  # noqa: E402
 
 from application.benchmark import BenchmarkSweepService  # noqa: E402
-from infrastructure.benchmark.sweep_engine import SweepCancelled, SweepEngine  # noqa: E402
+from application.benchmark.sweep_ports import SweepCancelled
+from composition.service_providers import build_sweep_engine  # noqa: E402
 from infrastructure.worker import runtime as worker_tasks  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -164,11 +165,11 @@ class TestRunTrackedJob:
 
 class TestSweepCancellation:
     def test_check_cancelled_noop_without_callback(self):
-        engine = SweepEngine(uow_factory=None)
+        engine = build_sweep_engine(uow_factory=None)
         asyncio.run(engine.check_cancelled(None, "anywhere"))
 
     def test_check_cancelled_raises_when_requested(self):
-        engine = SweepEngine(uow_factory=None)
+        engine = build_sweep_engine(uow_factory=None)
 
         async def cancelled() -> bool:
             return True
@@ -177,7 +178,7 @@ class TestSweepCancellation:
             asyncio.run(engine.check_cancelled(cancelled, "phase A"))
 
     def test_check_cancelled_continues_when_not_requested(self):
-        engine = SweepEngine(uow_factory=None)
+        engine = build_sweep_engine(uow_factory=None)
 
         async def not_cancelled() -> bool:
             return False

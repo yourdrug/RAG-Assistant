@@ -27,8 +27,10 @@ class SQLAlchemyBenchmarkSweepRepository:
 
     async def get_by_id(self, sweep_id: int, *, for_update: bool = False) -> BenchmarkSweep | None:
         stmt = select(BenchmarkSweepModel).where(BenchmarkSweepModel.id == sweep_id)
+
         if for_update:
             stmt = stmt.with_for_update()
+
         result = await self._db.execute(stmt)
         orm = result.scalar_one_or_none()
         return self.to_entity(orm) if orm else None
@@ -57,10 +59,12 @@ class SQLAlchemyBenchmarkSweepRepository:
             cause = exc.orig.__cause__ if exc.orig is not None else None
             diag = getattr(exc.orig, "diag", None)
             constraint = getattr(cause, "constraint_name", None) or getattr(diag, "constraint_name", None)
+
             if constraint == BENCHMARK_ACTIVE_SWEEP_INDEX:
                 raise BusinessRuleViolationError(
                     "Another sweep is pending or running — cancel it or wait for it to finish"
                 ) from exc
+
             raise
         await self._db.refresh(orm)
         return self.to_entity(orm)
@@ -94,8 +98,10 @@ class SQLAlchemyBenchmarkSweepRepository:
             cause = exc.orig.__cause__ if exc.orig is not None else None
             diag = getattr(exc.orig, "diag", None)
             constraint = getattr(cause, "constraint_name", None) or getattr(diag, "constraint_name", None)
+
             if constraint == BENCHMARK_ACTIVE_SWEEP_INDEX:
                 raise BusinessRuleViolationError("Another sweep is already active") from exc
+
             raise
         return result.rowcount == 1
 
@@ -253,16 +259,20 @@ class SQLAlchemyBenchmarkSweepRepository:
             .with_for_update(skip_locked=True)
         )
         count = 0
+
         for sweep in (await self._db.scalars(query)).all():
             if sweep.job_id is not None:
                 job = await self._db.get(BackgroundJobModel, sweep.job_id)
+
                 if job is not None and job.status in (
                     BackgroundJobStatus.PENDING.value,
                     BackgroundJobStatus.RUNNING.value,
                 ):
                     continue
+
             await self._db.execute(
                 delete(BenchmarkCheckpointModel).where(BenchmarkCheckpointModel.sweep_id == sweep.id)
             )
             count += 1
+
         return count

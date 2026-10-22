@@ -37,7 +37,7 @@ from domain.ingestion.profiles.registry import DomainProfileRegistry
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from infrastructure.initialization import seed_domain_config_defaults, seed_config_defaults
 from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
-from infrastructure.benchmark.judge import close_judge_clients
+from infrastructure.benchmark.judging.clients import close_judge_clients
 from infrastructure.ml.ingestion.ocr import invalidate_paddle_ocr_cache
 from infrastructure.ml.config.config_subscribers import (
     audit_log_config_change,
@@ -166,7 +166,7 @@ class MLContainer:
             domain_settings=domain_settings,
         )
         self.metrics_registry = PrometheusMetricsRegistry()
-        self.benchmark_service = BenchmarkService(rag_service=None, runner=BenchmarkExecutor())
+        self.benchmark_service = BenchmarkService(rag_service=None, runner=BenchmarkExecutor(self.ml_clients))
         self.summary_updater = RollingSummaryUpdater(ml_clients=self.ml_clients)
         self.content_extractor = MLContentExtractor()
         self.pdf_quality_assessor = MLPDFQualityAssessor()
@@ -300,7 +300,7 @@ class ServiceContainer:
         from infrastructure.adapters.job_enqueuer_adapter import JobEnqueuerAdapter
         from infrastructure.adapters.config_masker_adapter import ConfigMaskerAdapter
         from infrastructure.adapters.log_buffer_adapter import LogBufferAdapter
-        from infrastructure.benchmark.benchmark_history_adapter import BenchmarkHistoryAdapter
+        from infrastructure.benchmark.reporting.benchmark_history_adapter import BenchmarkHistoryAdapter
         from infrastructure.rate_limit.idempotency import IdempotencyStore
         from infrastructure.redis.redis_client import redis_client
 
@@ -405,7 +405,7 @@ class InfrastructureContainer:
             cache_invalidator=self.services.cache_invalidator,
         )
         self.corpus_control = PostgresCorpusControl(
-            session_factory, self.ml.clients, self.events.config_listener
+            database_manager, self.ml.clients, self.events.config_listener
         )
         self.subscribe_config_events()
 

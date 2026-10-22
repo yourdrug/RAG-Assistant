@@ -55,6 +55,7 @@ class DeepInfraEmbeddingsClient(ManagedHTTPPool):
     async def embed_documents(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
+
         r = await self.post(
             f"{self._base_url}/embeddings",
             headers=self.headers(),
@@ -101,8 +102,10 @@ class DeepInfraRerankerClient(ManagedHTTPPool):
     async def predict(self, pairs: list[tuple[str, str]]) -> list[float]:
         if not pairs:
             return []
+
         if any(pair[0] != pairs[0][0] for pair in pairs):
             raise BudgetError("Reranking pairs must share one query")
+
         query = pairs[0][0]
         documents = [p[1] for p in pairs]
         payload = {"queries": [query], "documents": documents}
@@ -119,8 +122,10 @@ class DeepInfraRerankerClient(ManagedHTTPPool):
     def predict_sync(self, pairs: list[tuple[str, str]]) -> list[float]:
         if not pairs:
             return []
+
         if any(pair[0] != pairs[0][0] for pair in pairs):
             raise BudgetError("Reranking pairs must share one query")
+
         query = pairs[0][0]
         documents = [p[1] for p in pairs]
         payload = {"queries": [query], "documents": documents}

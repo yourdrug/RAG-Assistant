@@ -1,6 +1,7 @@
 """Metric scales and explicit objective weights for benchmark sweeps."""
 
 import math
+from typing import Any
 
 
 METRIC_SCALES = {
@@ -40,7 +41,7 @@ def validate_objective_weights(
         msg = "Unknown objective metric"
         raise ValueError(msg)
 
-    resolved = dict.fromkeys(METRIC_SCALES, 0.0)
+    resolved = dict[str, Any].fromkeys(METRIC_SCALES, 0.0)
 
     for metric, value in weights.items():
         weight = float(value)
@@ -60,3 +61,45 @@ def validate_objective_weights(
         raise ValueError(msg)
 
     return resolved
+
+
+def compute_composite_score(
+    metrics: dict[str, Any],
+    weights: dict[str, Any] | None = None,
+) -> float:
+    """Weighted mean on a common 0-1 scale, using only available metrics.
+
+    Phase A uses retrieval metrics only. Final selection requires all
+    positively weighted metrics to be available (see SweepFullEvaluator).
+    """
+    resolved = validate_objective_weights(
+        DEFAULT_OBJECTIVE_WEIGHTS if weights is None else weights, require_retrieval=False
+    )
+    total = 0.0
+    total_weight = 0.0
+
+    for key, weight in resolved.items():
+        value = metrics.get(key)
+
+        if weight > 0 and value is not None:
+            total += float(value) / METRIC_SCALES[key] * weight
+            total_weight += weight
+
+    return total / total_weight if total_weight > 0 else 0.0
+
+
+def has_complete_objectives(full: dict[str, Any], metrics: dict[str, Any], weights: dict[str, Any]) -> bool:
+    for key, weight in weights.items():
+        if weight <= 0:
+            continue
+
+        value = metrics[key]
+
+        if value is None or not math.isfinite(float(value)):
+            return False
+
+        # Unavailable evidence must not improve an average by removing misses.
+        if full.get(f"{key}_evaluated_count", 0) < full.get(f"{key}_expected_count", 0):
+            return False
+
+    return True

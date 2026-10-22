@@ -30,6 +30,7 @@ class ManagedHTTPPool:
     async def lease(self):
         if self._retired and id(self) not in active_client_leases.get():
             raise RuntimeError("Inference client was retired; acquire the current registry client")
+
         token = active_client_leases.set(active_client_leases.get() | {id(self)})
         self._active += 1
         self._idle.clear()
@@ -38,6 +39,7 @@ class ManagedHTTPPool:
         finally:
             active_client_leases.reset(token)
             self._active -= 1
+
             if not self._active:
                 self._idle.set()
 
@@ -53,6 +55,7 @@ class ManagedHTTPPool:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             return
+
         if self._close_task is None:
             self._close_task = loop.create_task(self.close_when_idle())
 
@@ -62,6 +65,7 @@ class ManagedHTTPPool:
 
     async def close(self) -> None:
         self.retire()
+
         if self._close_task is not None:
             try:
                 await asyncio.shield(self._close_task)

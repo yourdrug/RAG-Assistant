@@ -59,15 +59,18 @@ def _stem_russian(word: str) -> str:
     """Strip common Russian suffixes to normalize word forms."""
     if len(word) < 5:
         return word
+
     for suffix in _RU_SUFFIXES:
         if word.endswith(suffix) and len(word) - len(suffix) >= 3:
             return word[: -len(suffix)]
+
     return word
 
 
 def stem_token(token: str) -> str:
     """Apply stemming to a single token."""
     token = token.replace("ё", "е")
+
     if token.isascii():
         for suffix in [
             "tion",
@@ -83,7 +86,10 @@ def stem_token(token: str) -> str:
         ]:
             if token.endswith(suffix) and len(token) - len(suffix) >= 3:
                 return token[: -len(suffix)]
+
         return token
+
     if re.match(r"[а-яё]", token):
         return _stem_russian(token)
+
     return token

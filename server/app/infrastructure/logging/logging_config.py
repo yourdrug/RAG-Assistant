@@ -49,6 +49,7 @@ LOG_FORMAT = os.getenv("LOG_FORMAT", "text")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 
 _valid_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+
 if LOG_LEVEL not in _valid_levels:
     LOG_LEVEL = "INFO"
 

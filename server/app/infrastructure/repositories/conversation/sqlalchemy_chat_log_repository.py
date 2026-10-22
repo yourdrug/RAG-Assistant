@@ -96,17 +96,23 @@ class SQLAlchemyChatLogRepository:
     ):
         if user_id is not None:
             stmt = stmt.where(ChatLogModel.user_id == user_id)
+
         if user_ids is not None:
             stmt = stmt.where(ChatLogModel.user_id.in_(user_ids))
+
         if domain is not None:
             stmt = stmt.where(ChatLogModel.domain == domain)
+
         if date_from is not None:
             stmt = stmt.where(ChatLogModel.creation_date >= date_from)
+
         if date_to is not None:
             stmt = stmt.where(ChatLogModel.creation_date <= date_to)
+
         if search:
             pattern = f"%{search}%"
             stmt = stmt.where(ChatLogModel.question.ilike(pattern) | ChatLogModel.answer.ilike(pattern))
+
         return stmt
 
     @staticmethod

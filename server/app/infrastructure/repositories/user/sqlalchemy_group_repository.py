@@ -26,6 +26,7 @@ class SQLAlchemyGroupRepository:
     async def list_by_ids(self, ids: list[int]) -> list[GroupInfo]:
         if not ids:
             return []
+
         result = await self._db.execute(
             select(GroupModel).where(GroupModel.id.in_(ids)).order_by(GroupModel.name)
         )
@@ -50,6 +51,7 @@ class SQLAlchemyGroupRepository:
             )
         )
         orm = result.scalar_one_or_none()
+
         if orm:
             await self._db.delete(orm)
             await self._db.flush()

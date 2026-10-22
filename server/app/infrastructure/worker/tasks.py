@@ -49,6 +49,7 @@ async def process_document(
 
     async with uow_factory.create() as uow:
         doc = await uow.documents.get_by_id(document_id)
+
     if doc is None:
         logger.info(
             "Worker: document %d already deleted — skipping processing",
@@ -96,6 +97,7 @@ async def ingest_document_scope(
     infra = ctx["container"].infrastructure
     service = create_ingestion_service(infra, uow_factory=infra.db.uow_factory)
     vis = DocumentVisibility.validate(visibility)
+
     if single:
         await service.run_single(
             path, force=force, domain=domain, visibility=vis, group_id=group_id, client_id=client_id
@@ -141,9 +143,9 @@ async def run_benchmark(
 
     service = BenchmarkResultService(uow_factory)
     existing = await service.get_job_result(job_id)
+
     if existing is None:
-        rag_service = ctx["container"].application.rag_service
-        registry = getattr(rag_service, '_ml', None)
+        registry = ctx["container"].infrastructure.ml.ml_clients
         async with benchmark_corpus(registry) as corpus:
             questions = await load_benchmark_questions(uow_factory, dataset)
             summary = await ctx["container"].infrastructure.ml.benchmark_service.run(
@@ -170,8 +172,10 @@ async def run_benchmark(
                     llm_evaluated=True,
                 )
             )
+
     if existing.id is not None:
         exports = BenchmarkExportService(uow_factory, ctx["container"].infrastructure.ml.file_storage)
+
         for format in ("json", "csv"):
             try:
                 await exports.save_report(existing.id, format)

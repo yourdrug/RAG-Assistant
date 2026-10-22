@@ -42,11 +42,13 @@ class SQLAlchemyApiKeyRepository:
             ApiKeyModel.id == api_key_id,
             ApiKeyModel.revoked_at.is_(None),
         )
+
         if user_id is not None:
             stmt = stmt.where(ApiKeyModel.user_id == user_id)
 
         result = await self._db.execute(stmt)
         orm = result.scalar_one_or_none()
+
         if orm is None:
             return False
 
@@ -67,6 +69,7 @@ class SQLAlchemyApiKeyRepository:
             .limit(1)
         )
         row = result.one_or_none()
+
         if row is None:
             return None
 
@@ -83,6 +86,7 @@ class SQLAlchemyApiKeyRepository:
     async def touch_last_used(self, api_key_id: int) -> None:
         result = await self._db.execute(select(ApiKeyModel).where(ApiKeyModel.id == api_key_id))
         orm = result.scalar_one_or_none()
+
         if orm:
             orm.last_used_at = datetime.now(tz=UTC)
             await self._db.flush()

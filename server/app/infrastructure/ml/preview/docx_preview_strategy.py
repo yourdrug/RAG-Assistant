@@ -30,11 +30,14 @@ def _extract_images_without_alt(docx_path: Path) -> list[bytes]:
 
     def _handler(image: object) -> dict:
         alt = getattr(image, "alt_text", None)
+
         if not alt:
             opener = getattr(image, "open", None)
+
             if opener is not None:
                 with opener() as f:
                     images.append(f.read())
+
         return {}
 
     with open(docx_path, "rb") as f:
@@ -48,6 +51,7 @@ class DocxPreviewStrategy:
 
     def analyze(self, path: Path) -> tuple[list[DryRunPageResult], dict[str, int], int]:
         sections = parse_docx_sections(path)
+
         if not sections:
             sections = [Section(None, "")]
 
@@ -58,6 +62,7 @@ class DocxPreviewStrategy:
         total_chars = 0
 
         img_idx = 0
+
         for idx, section in enumerate(sections):
             heading, content = section.heading, section.content
             stripped = content.strip()
@@ -65,6 +70,7 @@ class DocxPreviewStrategy:
             total_chars += chars
 
             is_table = section.kind == PageContentType.TABLE
+
             if is_table:
                 chars = len(stripped)
                 ptype = PageContentType.TABLE
@@ -122,28 +128,35 @@ class DocxPreviewStrategy:
         image_only_blobs = _extract_images_without_alt(path)
 
         problem_units = [u for u in units if u.page in unit_ids and u.type == PageContentType.IMAGE_ONLY]
+
         if not problem_units:
             # Compute summary from existing units even when nothing to OCR
             types_count = PageContentType.empty_counts()
             total_chars = 0
+
             for u in units:
                 types_count[u.type] = types_count.get(u.type, 0) + 1
                 total_chars += u.chars
+
             return units, types_count, total_chars
 
         ocr_results: dict[int, str] = {}
+
         for u in problem_units:
             blob_idx = u.page - 1
+
             if blob_idx < len(image_only_blobs):
                 blob = image_only_blobs[blob_idx]
                 try:
                     img = Image.open(io.BytesIO(blob))
+
                     if settings.ocr_engine in ("paddleocr", "auto"):
                         text = ocr_image_paddle(img)
                     elif settings.ocr_engine == "paddleocr_vl":
                         text = "\n\n".join(block.text for block in recognize_page(img).blocks)
                     else:
                         text = ocr_image_surya(img)
+
                     ocr_results[u.page] = text
                 except OCRServiceError:
                     raise
@@ -154,9 +167,11 @@ class DocxPreviewStrategy:
         total_chars = 0
 
         merged: list[DryRunPageResult] = []
+
         for u in units:
             if u.page in ocr_results and ocr_results[u.page]:
                 ocr_text = ocr_results[u.page].strip()
+
                 if ocr_text:
                     merged.append(
                         DryRunPageResult(
@@ -175,6 +190,7 @@ class DocxPreviewStrategy:
                     merged.append(u)
             else:
                 merged.append(u)
+
             new_types[merged[-1].type] = new_types.get(merged[-1].type, 0) + 1
             total_chars += merged[-1].chars
 

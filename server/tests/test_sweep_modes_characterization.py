@@ -1,5 +1,6 @@
 """Public benchmark contracts captured before extending evaluation modes."""
 
+from infrastructure.benchmark.judging import context_judge
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -9,8 +10,8 @@ import pytest
 from application.benchmark import compute_summary_from_results
 from domain.rag.context import RagContext
 from domain.identity.roles import UserKind
-from infrastructure.benchmark.answer_generators import BenchmarkAnswer
-from infrastructure.benchmark.case_evaluator import BenchmarkCaseEvaluator
+from infrastructure.benchmark.evaluation.answer_generators import BenchmarkAnswer
+from infrastructure.benchmark.evaluation.case_evaluator import BenchmarkCaseEvaluator
 from infrastructure.ml.rag.benchmark_evidence import BenchmarkEvidence
 
 
@@ -23,14 +24,15 @@ def individual_judge_mode(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_case_evaluator_preserves_question_and_actual_context(monkeypatch):
-    from infrastructure.benchmark import evidence_judge, judge, metrics
+    from infrastructure.benchmark.judging import evidence_judge
+    from infrastructure.benchmark.judging import judge
 
     monkeypatch.setattr(
         judge,
         "judge_answer_async",
         AsyncMock(return_value={"faithfulness": 8, "relevancy": 7, "correctness": 9}),
     )
-    monkeypatch.setattr(metrics, "compute_context_precision_recall", lambda *a, **k: {})
+    monkeypatch.setattr(context_judge, "compute_context_precision_recall", lambda *a, **k: {})
     monkeypatch.setattr(evidence_judge, "judge_evidence", lambda *a, **kw: {"scores": {}, "details": {}})
     documents = [{"content": "article 17", "metadata": {"source": "law.pdf"}}]
     evidence = BenchmarkEvidence(documents, documents, "actual prompt")

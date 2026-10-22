@@ -36,6 +36,7 @@ class InProcessEventBus:
     def unsubscribe(self, event_type: type, handler: Callable) -> None:
         """Remove an owned subscription without disturbing other containers."""
         handlers = self._handlers.get(event_type, [])
+
         if handler in handlers:
             handlers.remove(handler)
 

@@ -54,8 +54,10 @@ class SQLAlchemyDocumentRepository:
 
     async def get_by_id(self, document_id: int, *, for_update: bool = False) -> Document | None:
         stmt = select(DocumentModel).where(DocumentModel.id == document_id)
+
         if for_update:
             stmt = stmt.with_for_update().execution_options(populate_existing=True)
+
         result = await self._db.execute(stmt)
         orm = result.scalar_one_or_none()
         return self._to_entity(orm) if orm else None
@@ -63,6 +65,7 @@ class SQLAlchemyDocumentRepository:
     async def delete(self, document_id: int) -> None:
         result = await self._db.execute(select(DocumentModel).where(DocumentModel.id == document_id))
         orm = result.scalar_one_or_none()
+
         if orm:
             await self._db.delete(orm)
             await self._db.flush()
@@ -70,6 +73,7 @@ class SQLAlchemyDocumentRepository:
     async def get_by_ids(self, document_ids: list[int]) -> list[Document]:
         if not document_ids:
             return []
+
         result = await self._db.execute(select(DocumentModel).where(DocumentModel.id.in_(document_ids)))
         return [self._to_entity(orm) for orm in result.scalars().all()]
 
@@ -99,31 +103,42 @@ class SQLAlchemyDocumentRepository:
             )
         else:
             result = await self._db.execute(select(DocumentModel).where(DocumentModel.id == document_id))
+
         orm = result.scalar_one_or_none()
+
         if orm is None:
             return False
 
         if status is not None:
             orm.status = status
+
         orm.error_message = error
+
         if warning is not None:
             orm.warning_message = warning
+
         if quality_score is not None:
             orm.quality_score = quality_score
+
         if chunks is not None:
             orm.chunks = chunks
+
         if chars is not None:
             orm.chars = chars
+
         if status == DocumentStatus.DONE.value:
             orm.indexed_at = datetime.now(tz=UTC)
+
         if expected_version is not None:
             orm.version = expected_version + 1
+
         await self._db.flush()
         return True
 
     async def set_source_path(self, document_id: int, source_path: str) -> None:
         result = await self._db.execute(select(DocumentModel).where(DocumentModel.id == document_id))
         orm = result.scalar_one_or_none()
+
         if orm:
             orm.source_path = source_path
             await self._db.flush()
@@ -131,6 +146,7 @@ class SQLAlchemyDocumentRepository:
     async def set_domain(self, document_id: int, doc_domain: str) -> None:
         result = await self._db.execute(select(DocumentModel).where(DocumentModel.id == document_id))
         orm = result.scalar_one_or_none()
+
         if orm:
             orm.doc_domain = doc_domain
             await self._db.flush()
@@ -146,8 +162,10 @@ class SQLAlchemyDocumentRepository:
             select(DocumentModel).where(DocumentModel.id == document_id).with_for_update()
         )
         orm = result.scalar_one_or_none()
+
         if orm is None:
             raise EntityNotFoundError("Document", document_id)
+
         orm.visibility = visibility.value
         orm.owner_id = owner_id
         orm.group_id = group_id
@@ -186,18 +204,22 @@ class SQLAlchemyDocumentRepository:
             DocumentModel.ingestion_key.is_(None),
             DocumentModel.status.in_(DOCUMENT_SLOT_STATUSES),
         ]
+
         if owner_id is None:
             conditions.append(DocumentModel.owner_id.is_(None))
         else:
             conditions.append(DocumentModel.owner_id == owner_id)
+
         if group_id is None:
             conditions.append(DocumentModel.group_id.is_(None))
         else:
             conditions.append(DocumentModel.group_id == group_id)
 
         stmt = select(DocumentModel).where(*conditions).order_by(DocumentModel.creation_date.desc()).limit(1)
+
         if for_update:
             stmt = stmt.with_for_update()
+
         result = await self._db.execute(stmt)
         orm = result.scalar_one_or_none()
         return self._to_entity(orm) if orm else None
@@ -250,6 +272,7 @@ class SQLAlchemyDocumentRepository:
         )
 
         or_clauses = []
+
         for cond in conditions:
             and_parts = [DocumentModel.visibility == cond.visibility.value]
 
@@ -302,6 +325,7 @@ class SQLAlchemyDocumentRepository:
     async def set_has_manual_edits(self, document_id: int, value: bool) -> None:
         result = await self._db.execute(select(DocumentModel).where(DocumentModel.id == document_id))
         orm = result.scalar_one_or_none()
+
         if orm:
             orm.has_manual_edits = value
             await self._db.flush()
@@ -309,6 +333,7 @@ class SQLAlchemyDocumentRepository:
     async def update_chunk_stats(self, document_id: int, chunks: int, chars: int) -> None:
         result = await self._db.execute(select(DocumentModel).where(DocumentModel.id == document_id))
         orm = result.scalar_one_or_none()
+
         if orm:
             orm.chunks = chunks
             orm.chars = chars
@@ -318,8 +343,10 @@ class SQLAlchemyDocumentRepository:
         stmt = select(distinct(DocumentModel.filename)).where(
             DocumentModel.status == DocumentStatus.DONE.value
         )
+
         if search:
             stmt = stmt.where(DocumentModel.filename.ilike(f"%{search}%"))
+
         stmt = stmt.order_by(DocumentModel.filename).limit(limit)
         result = await self._db.execute(stmt)
         return [row[0] for row in result.all() if row[0]]
@@ -327,6 +354,7 @@ class SQLAlchemyDocumentRepository:
     async def update_filename(self, document_id: int, new_filename: str, new_source_path: str) -> None:
         result = await self._db.execute(select(DocumentModel).where(DocumentModel.id == document_id))
         orm = result.scalar_one_or_none()
+
         if orm:
             orm.filename = new_filename
             orm.source_path = new_source_path
@@ -345,8 +373,10 @@ class SQLAlchemyDocumentRepository:
             )
         )
         orms = result.scalars().all()
+
         for orm in orms:
             await self._db.delete(orm)
+
         await self._db.flush()
         return len(orms)
 
@@ -359,12 +389,14 @@ class SQLAlchemyDocumentRepository:
             )
         )
         orm = result.scalar_one_or_none()
+
         if orm:
             orm.status = DocumentStatus.DONE.value
             orm.indexed_at = datetime.now(tz=UTC)
             orm.version = orm.version + 1
             await self._db.flush()
             return True
+
         return False
 
     async def mark_stuck_processing_failed(self) -> list[int]:
@@ -378,10 +410,12 @@ class SQLAlchemyDocumentRepository:
         )
         orms = result.scalars().all()
         ids = []
+
         for orm in orms:
             orm.status = DocumentStatus.FAILED.value
             orm.error_message = "Processing timed out"
             ids.append(orm.id)
+
         await self._db.flush()
         return ids
 
@@ -395,8 +429,10 @@ class SQLAlchemyDocumentRepository:
             .with_for_update(skip_locked=True)
         )
         ids = list(candidates.all())
+
         if not ids:
             return []
+
         unfinished = (
             select(VectorStoreOutboxModel.id)
             .where(

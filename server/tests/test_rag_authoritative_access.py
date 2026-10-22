@@ -1,6 +1,6 @@
 """Stale cache/index data must not bypass the primary database ACL."""
 
-from infrastructure.ml.rag_pipeline import RagPipelineState
+from rag_stage_fixtures import stage_fixture
 from domain.rag.context import RagContext
 from domain.identity.user_context import UserContext
 from domain.identity.roles import UserKind, UserRole
@@ -17,7 +17,7 @@ from domain.knowledge.document import Document
 from domain.rag.breadth import Breadth
 from domain.knowledge.enums import DocumentVisibility
 from infrastructure.ml.rag.document_access import cache_is_accessible, filter_scored_documents
-from infrastructure.ml.rag.rag_steps import step_check_cache
+from rag_stage_fixtures import check_cache as step_check_cache
 from fakes import FakeUnitOfWorkFactory
 from test_rag_improvements import state_for
 from test_rag_pipeline import _make_rag
@@ -166,7 +166,7 @@ async def test_neighbor_expansion_cannot_reintroduce_forbidden_evidence(database
     docs, _, _ = await helpers.rerank_and_enrich(
         "question",
         [visible, hidden],
-        RagPipelineState(
+        stage_fixture(
             rag=_make_rag(),
             breadth=Breadth.NARROW,
             query_domain="general",
@@ -190,24 +190,28 @@ async def test_neighbor_expansion_cannot_reintroduce_forbidden_evidence(database
 
 
 @pytest.mark.asyncio
-async def test_self_rag_retry_reuses_authorized_pipeline_and_replaces_query_evidence(
+async def test_self_rag_retry_reuses_authorized_pipeline_and_replaces_query_evidence(  # noqa: PLR0915
+
     database_access, monkeypatch
 ):
     from infrastructure.ml.rag import retrieval_pipeline, rag_steps
-    from infrastructure.ml.rag.retrieval_pipeline import RetrievalPipeline
 
     access, _ = database_access
     visible = Chunk(page_content="allowed", metadata={"document_id": 1})
     hidden = Chunk(page_content="secret", metadata={"document_id": 2})
-    state = state_for([], query_for_search="initial")
-    state.use_exact_ref_boost = True
-    scope = object()
-    state.retrieval_filter = scope
+    from composition.service_providers import create_rag_service
+    from application.rag.dto import PreparedContext, ContextBudget, SanitizedAnswer, CompletedAnswer
+    from rag_stage_fixtures import retrieval_result
+    from datetime import date
+    from domain.identity.user_context import CuratorScope
+    ctx = RagContext(1, UserKind.INTERNAL, UserRole.CURATOR, [10],
+        CuratorScope(managed_internal_ids=(88,)), as_of_date=date(2025, 1, 1))
     searches = []
 
     async def retrieve(query, request, clients):
-        assert request is state and request.retrieval_filter is scope
-        assert request.user == state.ctx.to_user_context()
+        assert request.ctx == ctx
+        assert request.user == ctx.to_user_context()
+        assert request.retrieval_filter is not None
         searches.append(query)
         return [visible, hidden], [query, "probe " + query]
 
@@ -220,15 +224,33 @@ async def test_self_rag_retry_reuses_authorized_pipeline_and_replaces_query_evid
     monkeypatch.setattr(retrieval_pipeline, "rerank_and_enrich", rerank)
     monkeypatch.setattr(retrieval_pipeline, "apply_exact_search", exact)
     monkeypatch.setattr(rag_steps, "handle_relevance_gate", AsyncMock(side_effect=[False, True]))
+    monkeypatch.setattr(rag_steps, "assess_sufficiency",
+        AsyncMock(return_value=SimpleNamespace(is_sufficient=False, suggested_refinement="refined")))
+    rag = replace(_make_rag(), features=replace(_make_rag().features, condense_enabled=False))
+    monkeypatch.setattr(rag_steps, "build_rag_settings", lambda: rag)
+    service = create_rag_service(None, document_access=access)
+    captured = []
+    original_retrieve = service.retrieval.retrieve
+
+    async def with_exact(query, previous=None):
+        if previous is None:
+            seed = retrieval_result(state_for([], ctx=ctx))
+            previous = replace(seed, exact_ref_boost=True)
+        result = await original_retrieve(query, previous)
+        captured.append(result)
+        return result
+
+    monkeypatch.setattr(service.retrieval, "retrieve", with_exact)
+    def build(result):
+        return PreparedContext(result, (), (), result.documents, ContextBudget(0, 0, 0, 0), "answer", None)
+    monkeypatch.setattr(service.context, "build", build)
     monkeypatch.setattr(
-        rag_steps,
-        "assess_sufficiency",
-        AsyncMock(return_value=SimpleNamespace(is_sufficient=False, suggested_refinement="refined")),
+        service.generation, "generate",
+        AsyncMock(side_effect=lambda context: SanitizedAnswer(context, "answer", None, 0)),
     )
-    await RetrievalPipeline(None, None, access).run("initial", state)
-    result, events = await rag_steps.step_self_rag(state, None, None, access)
-    assert result is state and events is None
+    monkeypatch.setattr(service.finalization, "finalize", lambda answer: CompletedAnswer(answer, (), 0.9))
+    _ = [event async for event in service.stream("initial", [], ctx)]
     assert searches == ["initial", "refined"]
     assert [call.args[0] for call in exact.await_args_list] == searches
-    assert state.sub_queries == ["refined", "probe refined"]
-    assert state.candidates == [visible] and state.docs == [(visible, 0.9)]
+    assert captured[-1].sub_queries == ("refined", "probe refined")
+    assert [d.chunk.content for d in captured[-1].documents] == ["allowed"]

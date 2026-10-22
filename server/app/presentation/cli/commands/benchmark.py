@@ -10,7 +10,7 @@ import typer
 
 from application.benchmark import BenchmarkExportService
 from application.benchmark import BenchmarkImportService
-from infrastructure.benchmark.legacy_import import load_legacy_runs
+from infrastructure.benchmark.reporting.legacy_import import load_legacy_runs
 from infrastructure.database.database import database
 from infrastructure.uow_factory import UnitOfWorkFactory
 from infrastructure.storage.file_storage import run_storage_io

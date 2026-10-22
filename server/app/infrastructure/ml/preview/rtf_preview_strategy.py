@@ -38,6 +38,7 @@ class RtfPreviewStrategy:
     def _decree_fingerprint_hits(self, text: str) -> bool:
         if self._domain_registry is None or self._domain_settings is None:
             return False
+
         try:
             profile = self._domain_registry.get("decree")
         except KeyError:
@@ -78,6 +79,7 @@ class RtfPreviewStrategy:
         """Decree-structured preview: one unit per structural SplitUnit."""
         if self._domain_registry is None or self._domain_settings is None:
             return self._analyze_flat(raw_text)
+
         profile = self._domain_registry.get("decree")
         try:
             split_units, _doc_metadata = parse_decree_rtf(path, profile, self._domain_settings)  # type: ignore[arg-type]
@@ -88,10 +90,13 @@ class RtfPreviewStrategy:
         types_count = PageContentType.empty_counts()
         units: list[DryRunPageResult] = []
         total_chars = 0
+
         for i, unit in enumerate(split_units, start=1):
             content = unit.content.strip()
+
             if not content:
                 continue
+
             chars = len(content)
             total_chars += chars
             ptype, _desc = classify_content(content, chars, scan_threshold=0)
@@ -108,8 +113,10 @@ class RtfPreviewStrategy:
                     label=unit.heading or unit.unit_kind,
                 )
             )
+
         if not units:
             return self._analyze_flat(raw_text)
+
         return units, types_count, total_chars
 
     def _analyze_flat(self, raw_text: str) -> tuple[list[DryRunPageResult], dict[str, int], int]:

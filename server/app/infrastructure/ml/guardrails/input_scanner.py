@@ -32,8 +32,10 @@ class InputVerdict:
     def reason(self) -> str:
         if self.blocked:
             return f"injection_detected:{','.join(m[0] for m in self.matches)}"
+
         if self.flagged:
             return f"injection_suspicious:{','.join(m[0] for m in self.matches)}"
+
         return "clean"
 
 

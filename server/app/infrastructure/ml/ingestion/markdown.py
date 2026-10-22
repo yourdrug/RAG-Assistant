@@ -48,6 +48,7 @@ def _mask_code_fences(raw: str) -> tuple[str, list[str]]:
 def _unmask_code_fences(text: str, blocks: list[str]) -> str:
     for idx, block in enumerate(blocks):
         text = text.replace(_FENCE_PLACEHOLDER.format(idx), block)
+
     return text
 
 
@@ -85,16 +86,20 @@ def _clean_markdown_text(text: str) -> str:
 def _flush_text_segment(current_text: list[str], segments: list[tuple[str, str]]) -> None:
     if current_text:
         text = "\n".join(current_text).strip()
+
         if text:
             segments.append((PageContentType.TEXT.value, text))
+
         current_text.clear()
 
 
 def _flush_table_segment(current_table: list[str], segments: list[tuple[str, str]]) -> None:
     if current_table:
         table_text = "\n".join(current_table).strip()
+
         if table_text:
             segments.append((PageContentType.TABLE.value, table_text))
+
         current_table.clear()
 
 
@@ -114,15 +119,18 @@ def split_markdown_tables(content: str) -> list[tuple[str, str]]:
 
     for line in lines:
         is_table_line = bool(_MD_TABLE_RE.match(line.strip()))
+
         if is_table_line:
             if not in_table:
                 _flush_text_segment(current_text, segments)
                 in_table = True
+
             current_table.append(line)
         else:
             if in_table:
                 _flush_table_segment(current_table, segments)
                 in_table = False
+
             current_text.append(line)
 
     if in_table:
@@ -158,14 +166,18 @@ def parse_markdown_sections(file_path: Path) -> list[Section]:
     if not matches:
         segments = split_markdown_tables(_clean_markdown_text(raw))
         sections: list[Section] = []
+
         for ctype, text in segments:
             sections.append(Section(None, text, PageContentType(ctype)))
+
         return sections
 
     result: list[Section] = []
+
     if matches[0].start() > 0:
         lead_raw = _unmask_code_fences(masked[: matches[0].start()], fence_blocks)
         lead = _clean_markdown_text(lead_raw)
+
         if lead:
             for ctype, text in split_markdown_tables(lead):
                 result.append(Section(None, text, PageContentType(ctype)))
@@ -176,8 +188,10 @@ def parse_markdown_sections(file_path: Path) -> list[Section]:
     for i, m in enumerate(matches):
         level = len(m.group(1))
         heading = m.group(2).strip()
+
         while stack and stack[-1][0] >= level:
             stack.pop()
+
         stack.append((level, heading))
         breadcrumb = " > ".join(h for _, h in stack)
 
@@ -185,6 +199,7 @@ def parse_markdown_sections(file_path: Path) -> list[Section]:
         end = matches[i + 1].start() if i + 1 < len(matches) else len(masked)
         content_raw = _unmask_code_fences(masked[start:end], fence_blocks)
         content = _clean_markdown_text(content_raw)
+
         if content:
             for ctype, text in split_markdown_tables(content):
                 result.append(Section(breadcrumb, text, PageContentType(ctype)))
@@ -201,13 +216,17 @@ def parse_markdown(file_path: Path) -> str:
 def extract_date_from_filename(filename: str) -> str | None:
     """Find YYYY-MM-DD or DD.MM.YYYY date in filename — simple heuristic for metadata."""
     m = _DATE_IN_FILENAME_RE.search(filename)
+
     if not m:
         return None
+
     date_str = m.group(1)
+
     # Normalize DD.MM.YYYY to YYYY-MM-DD
     if "." in date_str:
         parts = date_str.split(".")
         date_str = f"{parts[2]}-{parts[1]}-{parts[0]}"
+
     return date_str
 
 
@@ -223,6 +242,8 @@ def extract_doc_title(file_path: Path) -> str | None:
     raw = _normalize_setext_headers(raw)
     masked, _blocks = _mask_code_fences(raw)
     m = _MD_HEADER_RE.search(masked)
+
     if not m:
         return None
+
     return m.group(2).strip() or None

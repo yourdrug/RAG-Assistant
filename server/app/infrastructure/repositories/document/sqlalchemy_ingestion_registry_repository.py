@@ -27,8 +27,10 @@ class SQLAlchemyIngestionRegistryRepository:
         stmt = select(IngestionRegistryModel).where(IngestionRegistryModel.ingestion_key == filename)
         result = await self._session.execute(stmt)
         orm = result.scalar_one_or_none()
+
         if orm is None:
             return None
+
         return self._to_entry(orm)
 
     async def upsert(self, entry: IngestionRegistryEntry) -> None:
@@ -37,6 +39,7 @@ class SQLAlchemyIngestionRegistryRepository:
         )
         result = await self._session.execute(stmt)
         orm = result.scalar_one_or_none()
+
         if orm is not None:
             orm.file_hash = entry.file_hash
             orm.source = entry.source
@@ -54,12 +57,14 @@ class SQLAlchemyIngestionRegistryRepository:
                 indexed_at=entry.indexed_at,
             )
             self._session.add(orm)
+
         await self._session.flush()
 
     async def delete(self, filename: str) -> None:
         stmt = select(IngestionRegistryModel).where(IngestionRegistryModel.ingestion_key == filename)
         result = await self._session.execute(stmt)
         orm = result.scalar_one_or_none()
+
         if orm is not None:
             await self._session.delete(orm)
             await self._session.flush()
@@ -72,8 +77,10 @@ class SQLAlchemyIngestionRegistryRepository:
 
     async def is_already_indexed(self, filename: str, file_hash: str) -> bool:
         entry = await self.get(filename)
+
         if entry is None:
             return False
+
         return entry.file_hash == file_hash
 
     @staticmethod

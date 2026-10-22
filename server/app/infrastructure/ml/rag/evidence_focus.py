@@ -15,11 +15,14 @@ def format_generation_messages(prompt, *, context, history, question):
     anchors = evidence_reading_map(context, question) + reading_anchors(context, question)
     selected = []
     size = 0
+
     for anchor in anchors:
         if size + len(anchor) > MAX_FOCUS_CHARS:
             continue
+
         selected.append(anchor)
         size += len(anchor)
+
     if selected:
         messages.insert(
             -1,
@@ -30,4 +33,5 @@ def format_generation_messages(prompt, *, context, history, question):
                 )
             ),
         )
+
     return messages

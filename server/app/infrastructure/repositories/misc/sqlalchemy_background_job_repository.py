@@ -47,6 +47,7 @@ class SQLAlchemyBackgroundJobRepository:
     async def mark_running(self, job_id: int) -> None:
         result = await self._db.execute(select(BackgroundJobModel).where(BackgroundJobModel.id == job_id))
         orm = result.scalar_one_or_none()
+
         if orm:
             entity = self._to_entity(orm)
             entity.mark_running()
@@ -57,6 +58,7 @@ class SQLAlchemyBackgroundJobRepository:
     async def mark_done(self, job_id: int) -> None:
         result = await self._db.execute(select(BackgroundJobModel).where(BackgroundJobModel.id == job_id))
         orm = result.scalar_one_or_none()
+
         if orm:
             entity = self._to_entity(orm)
             entity.mark_done()
@@ -67,6 +69,7 @@ class SQLAlchemyBackgroundJobRepository:
     async def mark_failed(self, job_id: int, error: str) -> None:
         result = await self._db.execute(select(BackgroundJobModel).where(BackgroundJobModel.id == job_id))
         orm = result.scalar_one_or_none()
+
         if orm:
             entity = self._to_entity(orm)
             entity.mark_failed(error)
@@ -116,8 +119,10 @@ class SQLAlchemyBackgroundJobRepository:
     async def get_by_id(self, job_id: int) -> BackgroundJob | None:
         result = await self._db.execute(select(BackgroundJobModel).where(BackgroundJobModel.id == job_id))
         orm = result.scalar_one_or_none()
+
         if not orm:
             return None
+
         return self._to_entity(orm)
 
     async def count_by_status(self) -> dict[str, int]:
@@ -146,6 +151,7 @@ class SQLAlchemyBackgroundJobRepository:
     async def touch_heartbeat(self, job_id: int) -> None:
         result = await self._db.execute(select(BackgroundJobModel).where(BackgroundJobModel.id == job_id))
         orm = result.scalar_one_or_none()
+
         if orm:
             orm.heartbeat_at = datetime.now(tz=UTC)
             await self._db.flush()
@@ -160,6 +166,7 @@ class SQLAlchemyBackgroundJobRepository:
         )
         orms = result.scalars().all()
         failed = []
+
         for orm in orms:
             entity = self._to_entity(orm)
             entity.mark_failed("Stale pending — exceeded timeout")
@@ -167,5 +174,6 @@ class SQLAlchemyBackgroundJobRepository:
             orm.finished_at = entity.finished_at
             orm.error_message = entity.error_message
             failed.append(entity)
+
         await self._db.flush()
         return failed

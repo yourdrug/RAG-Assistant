@@ -22,6 +22,7 @@ class IngestionDocumentParser:
     def parse(self, path: Path, meta: FileMeta) -> list[RawDocument]:
         if not self.supports(meta.extension):
             return []
+
         docs = self._parser.parse(path, filename=meta.filename)
         base = {
             "source": meta.source_key,

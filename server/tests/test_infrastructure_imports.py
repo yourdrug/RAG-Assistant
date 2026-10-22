@@ -44,7 +44,15 @@ def test_infrastructure_has_no_function_local_project_imports() -> None:
         "infrastructure.ml.rag.rag_formatting",
         "infrastructure.ml.clients.factories",
         "infrastructure.metrics.metrics",
-        "infrastructure.benchmark.metrics",
+        "infrastructure.benchmark.evaluation.metrics",
+        "infrastructure.benchmark.evaluation.runner",
+        "infrastructure.benchmark.judging.clients",
+        "infrastructure.benchmark.judging.grouped_judge",
+        "application.benchmark.sweep",
+        "infrastructure.benchmark.reporting.benchmark_history_adapter",
+        "infrastructure.corpus.control",
+        "composition.infrastructure",
+        "infrastructure.worker.sweep",
     ],
 )
 def test_infrastructure_entrypoint_imports_in_fresh_process(module: str) -> None:

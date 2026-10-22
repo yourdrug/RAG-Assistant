@@ -71,11 +71,13 @@ async def resolve_hashes_batch(
 
     points = results[0] if isinstance(results, tuple) else results
     resolved = {}
+
     for point in points:
         payload = point.payload or {}
         page_content = payload.get("page_content", "")
         metadata = payload.get("metadata", {})
         h = metadata.get("content_hash") or payload.get("content_hash")
+
         if h:
             resolved[h] = LCDocument(page_content=page_content, metadata=metadata)
 
@@ -127,6 +129,7 @@ async def qdrant_dense_search(
         )
 
     docs = []
+
     for point in results:
         payload = point.payload or {}
         page_content = payload.get("page_content", "")
@@ -134,6 +137,7 @@ async def qdrant_dense_search(
         h = metadata.get("content_hash") or payload.get("content_hash") or content_hash(page_content)
         doc = LCDocument(page_content=page_content, metadata=metadata)
         docs.append((h, point.score, doc))
+
     return docs
 
 
@@ -141,9 +145,12 @@ def search_sparse_points(client, query: str, k: int, access_filter) -> list[Scor
     """Return sparse hits with payload; apply the complete ACL/temporal scope before top-k."""
     if access_filter is None:
         raise RuntimeError("Sparse search requires an ACL filter")
+
     vector = sparse_query(query)
+
     if not vector.vector.indices:
         return []
+
     return client.search(
         collection_name=settings.collection_name,
         query_vector=vector,
@@ -193,15 +200,20 @@ async def run_hybrid_search(
     """Run Qdrant dense+sparse retrieval with identical filters and weighted RRF."""
     if access_filter is None:
         raise RuntimeError("run_hybrid_search() requires access_filter for ACL enforcement.")
+
     if visibility_conditions is None or user_id is None or user_group_ids is None:
         raise RuntimeError("run_hybrid_search() requires visibility_conditions, user_id and user_group_ids.")
+
     if not visibility_conditions:
         return []
+
     started = time.monotonic()
+
     if not rag.hybrid_search.enabled:
         dense = await qdrant_dense_search(query, fetch_k, access_filter, ml_clients)
         RAG_STAGE_DURATION.labels("dense_search").observe(time.monotonic() - started)
         return [doc for _, _, doc in dense]
+
     dense, sparse = await asyncio.gather(
         qdrant_dense_search(query, fetch_k, access_filter, ml_clients),
         qdrant_sparse_search(query, rag.hybrid_search.bm25_fetch_k, access_filter, ml_clients),

@@ -23,6 +23,7 @@ class PostgresConfigBroadcaster:
         """Send pg_notify within an existing session (same transaction as UPDATE)."""
         if not isinstance(session, AsyncSession):
             raise TypeError(f"Expected AsyncSession, got {type(session)}")
+
         try:
             await session.execute(
                 text("SELECT pg_notify(:channel, :payload)"),

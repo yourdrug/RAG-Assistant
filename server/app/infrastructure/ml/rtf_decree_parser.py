@@ -37,13 +37,16 @@ def parse_decree_rtf(
 
     header_zone = raw[:_HEADER_ZONE_CHARS]
     doc_metadata: dict = {}
+
     if m := _DECREE_NUMBER_RE.search(header_zone):
         doc_metadata["decree_number"] = m.group(1)
+
     if m := _DECREE_DATE_RE.search(header_zone):
         doc_metadata["decree_date"] = m.group(1)
 
     split_match = _POSTANOVLYAYU_RE.search(raw)
     max_chars = int(settings.get("max_unit_chars", domain_key=profile.key))
+
     if split_match is None:
         # Decree-constatation without a postanovlyayushchaya part — boundaries
         # still apply: the coarsest level finds no matches and hands the text
@@ -56,8 +59,10 @@ def parse_decree_rtf(
     body = raw[split_match.end() :]
 
     units: list[SplitUnit] = []
+
     if preamble:
         units.append(SplitUnit(None, preamble, "preamble"))
+
     units.extend(
         split_by_content(
             body, profile.content_boundaries(), max_chars, min_chunk_chars=MIN_STRUCTURAL_CHUNK_CHARS

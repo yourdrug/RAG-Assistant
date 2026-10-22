@@ -42,6 +42,7 @@ class RedisClient:
         """Return the async Redis connection. Raises if not initialised."""
         if self._redis is None:
             raise RuntimeError("RedisClient not initialised — call await redis_client.init() first")
+
         return self._redis
 
     async def init(self) -> None:

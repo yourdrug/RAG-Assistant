@@ -1,5 +1,9 @@
 """Accounting belongs to physical dispatch, before SDK validation."""
 
+from infrastructure.benchmark.judging import clients as judge_clients
+
+from infrastructure.benchmark.judging import requests as judge_requests
+
 import asyncio
 import json
 from decimal import Decimal
@@ -11,7 +15,7 @@ from instructor.core.exceptions import InstructorRetryException
 from infrastructure.ml.clients import factories, managed_http, deepinfra_clients
 from infrastructure.ml.clients.managed_llm import ManagedLLM
 from domain.runtime.enums import LLMProvider
-from infrastructure.benchmark import judge, grouped_judge
+from infrastructure.benchmark.judging import judge
 
 from application.budget import BudgetPolicy, CostBudgetService, billing_principal
 from domain.runtime.cost import BudgetError, CostRate, ModelBillingContract
@@ -808,7 +812,7 @@ async def test_both_judge_factories_use_physical_accounting(runtime, monkeypatch
         )
 
     monkeypatch.setattr(
-        judge,
+        judge_clients,
         'PaidSyncTransport',
         lambda: PaidSyncTransport(
             runtime=runtime,
@@ -816,7 +820,7 @@ async def test_both_judge_factories_use_physical_accounting(runtime, monkeypatch
         ),
     )
     monkeypatch.setattr(
-        grouped_judge,
+        judge_clients,
         'PaidAsyncTransport',
         lambda: PaidAsyncTransport(
             runtime=runtime,
@@ -831,9 +835,9 @@ async def test_both_judge_factories_use_physical_accounting(runtime, monkeypatch
             async def checkpoint(value):
                 pass
 
-            client = grouped_judge.create_async_judge_client()
+            client = judge_clients.create_async_judge_client()
             try:
-                await grouped_judge.judge_batch(
+                await judge_requests.judge_batch(
                     client,
                     'm',
                     {'question': 'q', 'answer': 'a'},
@@ -847,11 +851,11 @@ async def test_both_judge_factories_use_physical_accounting(runtime, monkeypatch
             finally:
                 await client.close()
         else:
-            judge.retire_judge_clients()
+            judge_clients.retire_judge_clients()
             client = await asyncio.to_thread(judge.get_judge_client, 'm')
             result = await asyncio.to_thread(judge.judge_with_structured_output, client, 'score this', 'm')
             assert result.score == 8
-            await judge.close_judge_clients()
+            await judge_clients.close_judge_clients()
         runtime.service.ledger.reserve.assert_awaited_once()
         runtime.service.ledger.reconcile.assert_awaited_once()
     finally:

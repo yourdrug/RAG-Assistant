@@ -24,8 +24,8 @@ from infrastructure.ml.ingestion.pdf import parse_pdf, pymupdf_table_to_markdown
 from infrastructure.ml.ingestion.splitting import split_documents
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser, LangchainDocumentSplitter
 from infrastructure.ml.rag.rag_formatting import CHARS_PER_TOKEN, format_docs, format_docs_with_selection
-from infrastructure.ml.rag.rag_steps import step_build_context
-from infrastructure.ml.rag_pipeline import RagPipelineState
+from rag_stage_fixtures import build_context as step_build_context
+from rag_stage_fixtures import stage_fixture
 
 
 @pytest.fixture
@@ -173,7 +173,7 @@ def test_nonpositive_context_budget_is_rejected(tokens):
 def test_no_usable_context_stops_before_generation():
     from test_rag_pipeline import _make_rag
 
-    state = RagPipelineState(
+    state = stage_fixture(
         rag=_make_rag(),
         t_pipeline_start=0,
         question="Explain the eligibility rules.",

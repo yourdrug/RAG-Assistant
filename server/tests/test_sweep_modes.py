@@ -1,5 +1,8 @@
 """Sweep modes, shortlist diversity and shared A/B evidence scoring."""
 
+from infrastructure.benchmark.sweep.settings import settings_snapshot
+
+from infrastructure.benchmark.judging import context_judge
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -16,17 +19,17 @@ from domain.benchmark.sweep import BenchmarkStrategy
 from domain.rag.context import RagContext
 from domain.identity.roles import UserKind
 from domain.benchmark.sweep import SweepEvaluationMode
-from infrastructure.benchmark.answer_generators import BenchmarkAnswer
-from infrastructure.benchmark.case_evaluator import BenchmarkCaseEvaluator
-from infrastructure.benchmark.sweep_engine import SweepEngine
-from infrastructure.benchmark.sweep_full_evaluation import SweepFullEvaluator
-from infrastructure.benchmark.sweep_scoring import (
+from infrastructure.benchmark.evaluation.answer_generators import BenchmarkAnswer
+from infrastructure.benchmark.evaluation.case_evaluator import BenchmarkCaseEvaluator
+from composition.service_providers import build_sweep_engine
+from application.benchmark.sweep_evaluation import SweepFullEvaluator
+from infrastructure.benchmark.sweep.search_space import generate_grid_points
+from infrastructure.benchmark.sweep.scoring import (
     compute_composite_score,
-    generate_grid_points,
     score_config_cheap,
 )
-from infrastructure.benchmark.sweep_settings import LiveSweepSettings
-from infrastructure.benchmark.sweep_strategies import SweepCancelled
+from infrastructure.benchmark.sweep.settings import LiveSweepSettings
+from application.benchmark.sweep_ports import SweepCancelled
 from infrastructure.ml.rag.benchmark_evidence import BenchmarkEvidence
 from presentation.api.helpers import sweep_create_to_dto, sweep_to_response
 from presentation.api.schemas.benchmark import SweepCreateRequest
@@ -90,7 +93,7 @@ def test_unknown_search_strategy_is_rejected(strategy):
 async def test_full_mode_evaluates_all_25_combinations_and_can_find_last_winner(monkeypatch, budget):
     runtime = LiveSweepSettings()
     previous = runtime.top_k
-    engine = SweepEngine(None, runtime=runtime)
+    engine = build_sweep_engine(None, runtime=runtime)
     snapshot = [{**question(), "id": 17}]
     monkeypatch.setattr(engine, "load_questions", AsyncMock(return_value=snapshot))
     monkeypatch.setattr(engine, "cache_candidates", AsyncMock(return_value=({}, {}, {})))
@@ -129,13 +132,15 @@ async def test_full_mode_evaluates_all_25_combinations_and_can_find_last_winner(
 @pytest.mark.asyncio
 async def test_full_mode_requires_judge_before_expensive_preparation():
     with pytest.raises(ValueError, match="requires a judge"):
-        await SweepEngine(None).run_sweep(BenchmarkSweep(evaluation_mode=SweepEvaluationMode.FULL.value))
+        await build_sweep_engine(None).run_sweep(
+            BenchmarkSweep(evaluation_mode=SweepEvaluationMode.FULL.value)
+        )
 
 
 @pytest.mark.parametrize("parameter", ["chunk_size", "llm_model"])
 @pytest.mark.asyncio
 async def test_full_mode_rejects_parameters_that_cannot_be_applied(monkeypatch, parameter):
-    engine = SweepEngine(None)
+    engine = build_sweep_engine(None)
     load = AsyncMock()
     monkeypatch.setattr(engine, "load_questions", load)
     with pytest.raises(ValueError, match="supports retrieval parameters only"):
@@ -155,7 +160,7 @@ async def test_full_mode_can_optimize_only_judge_quality(monkeypatch):
         evaluation_mode=SweepEvaluationMode.FULL,
         objective_weights={"faithfulness": 1},
     )
-    engine = SweepEngine(None)
+    engine = build_sweep_engine(None)
     monkeypatch.setattr(engine, "load_questions", AsyncMock(return_value=[{"question": "unlabelled"}]))
     monkeypatch.setattr(engine, "cache_candidates", AsyncMock(return_value=({}, {}, {})))
     run = AsyncMock(side_effect=[{"avg_faithfulness": 2}, {"avg_faithfulness": 9}])
@@ -222,14 +227,15 @@ async def test_full_mode_can_be_cancelled_and_restores_settings():
 
 @pytest.fixture
 def mock_judges(monkeypatch):
-    from infrastructure.benchmark import evidence_judge, judge, metrics
+    from infrastructure.benchmark.judging import evidence_judge
+    from infrastructure.benchmark.judging import judge
 
     monkeypatch.setattr(
         judge,
         "judge_answer_async",
         AsyncMock(return_value={"faithfulness": 10, "relevancy": 10, "correctness": 10}),
     )
-    monkeypatch.setattr(metrics, "compute_context_precision_recall", lambda *a, **k: {})
+    monkeypatch.setattr(context_judge, "compute_context_precision_recall", lambda *a, **k: {})
     monkeypatch.setattr(evidence_judge, "judge_evidence", lambda *a, **kw: {"scores": {}, "details": {}})
 
 
@@ -249,6 +255,7 @@ async def test_a_and_b_share_fragment_scoring_even_when_legacy_source_is_a_hit(
         {},
         {"h": doc},
         {"hit_rate": 1},
+        defaults=settings_snapshot(),
     )
     evidence = BenchmarkEvidence([document(text)], [document(text)], text)
     answer = BenchmarkAnswer(text, text, {"hit_rate": 1, "mrr": 1}, 1, 1, evidence=evidence)

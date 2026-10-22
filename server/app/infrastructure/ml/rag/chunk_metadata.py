@@ -6,10 +6,13 @@ from domain.shared.hashing import content_hash
 
 def chunk_result_metadata(chunk: ChunkRecord) -> dict:
     metadata = extract_chunk_context(chunk.context_metadata)
+
     for key in ("section", "heading", "heading_level", "content_type", "doc_title", "doc_type"):
         value = getattr(chunk, key)
+
         if value is not None:
             metadata[key] = value
+
     metadata.update(
         source=chunk.filename,
         document_id=chunk.document_id,

@@ -1,5 +1,7 @@
 """Date/versioning regressions through the real services and local Qdrant engine."""
 
+from rag_stage_fixtures import check_cache
+
 from datetime import date
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -366,7 +368,7 @@ async def test_cache_key_changes_each_day_for_current_state_but_not_for_explicit
         def today(cls):
             return cls.current
 
-    monkeypatch.setattr(rag_steps, "date", Clock)
+    monkeypatch.setattr("infrastructure.ml.cache.keys.date", Clock)
     monkeypatch.setattr(rag_steps, "check_cache", AsyncMock(return_value=None))
     monkeypatch.setattr(rag_steps, "get_corpus_revision", AsyncMock(return_value="0"))
     ctx = SimpleNamespace(
@@ -382,13 +384,13 @@ async def test_cache_key_changes_each_day_for_current_state_but_not_for_explicit
     rag = _make_rag()
     rag = replace(rag, features=replace(rag.features, cache_enabled=True))
     state = SimpleNamespace(ctx=ctx, query_for_search="rules", question="rules", history_messages=[], rag=rag)
-    await rag_steps.step_check_cache(state)
+    await check_cache(state)
     first_hash = state.q_hash
     Clock.current = date(2024, 1, 2)
-    await rag_steps.step_check_cache(state)
+    await check_cache(state)
     assert state.q_hash != first_hash
     ctx.as_of_date = date(2024, 1, 1)
-    await rag_steps.step_check_cache(state)
+    await check_cache(state)
     assert state.q_hash == first_hash
 
 

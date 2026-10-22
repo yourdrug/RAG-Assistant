@@ -17,6 +17,7 @@ class SQLAlchemyChunkVersioningRepository:
     async def set_current_by_act_version_ids(self, act_version_ids: list[int], is_current: bool) -> int:
         if not act_version_ids:
             return 0
+
         result = await self._session.execute(
             update(ChunkModel)
             .where(ChunkModel.act_version_id.in_(act_version_ids))

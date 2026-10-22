@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 
 from application.benchmark import compute_summary_from_results
-from infrastructure.benchmark.metrics import compute_summary_metrics
+from infrastructure.benchmark.evaluation.metrics import compute_summary_metrics
 
 
 @pytest.mark.parametrize("observed_cost", [0.02, 0.0, None])

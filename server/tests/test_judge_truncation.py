@@ -8,7 +8,7 @@ import pytest
 from instructor.core.exceptions import IncompleteOutputException
 from openai import OpenAI
 
-from infrastructure.benchmark.judge import (
+from infrastructure.benchmark.judging.judge import (
     JUDGE_EXPANDED_OUTPUT_TOKENS,
     JUDGE_OUTPUT_TOKENS,
     judge_with_structured_output,

@@ -47,9 +47,12 @@ class PostgresOutboxListener:
             try:
                 await self._connect_and_listen()
                 disconnect_event = asyncio.Event()
+
                 if self._conn is not None:
                     self._conn.add_termination_listener(lambda _c, _de=disconnect_event: _de.set())
+
                 await disconnect_event.wait()
+
                 if not self._stopped:
                     log.warning(
                         "Outbox LISTEN connection lost — reconnecting in %.0fs",
@@ -78,6 +81,7 @@ class PostgresOutboxListener:
         """Process any pending outbox entries (safety net after reconnect)."""
         try:
             processed = await self._dispatcher.run_once(batch_size=100)
+
             if processed:
                 log.info("Outbox resync (%s): processed %d entries", trigger, processed)
         except Exception:
@@ -103,21 +107,26 @@ class PostgresOutboxListener:
                 await self._conn.close()
             except Exception:
                 log.debug("Failed to close outbox listener connection", exc_info=True)
+
         self._conn = None
 
     async def stop(self) -> None:
         self._stopped = True
+
         if self._supervisor_task is not None:
             self._supervisor_task.cancel()
             try:
                 await self._supervisor_task
             except asyncio.CancelledError:
                 pass
+
         if self._background_tasks:
             for task in self._background_tasks:
                 task.cancel()
+
             await asyncio.gather(*self._background_tasks, return_exceptions=True)
             self._background_tasks.clear()
+
         await self._safe_close()
         log.info("Outbox LISTEN '%s' stopped", _CHANNEL)
 

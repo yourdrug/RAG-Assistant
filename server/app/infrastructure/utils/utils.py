@@ -23,10 +23,12 @@ def Singleton(aClass: type[T]) -> T:
     class Wrapper:
         def __call__(self, *args: Any, **kwargs: Any) -> T:
             nonlocal _instance
+
             if _instance is None:
                 with _lock:
                     if _instance is None:
                         _instance = aClass(*args, **kwargs)
+
             return _instance
 
     return Wrapper()  # type: ignore[return-value]

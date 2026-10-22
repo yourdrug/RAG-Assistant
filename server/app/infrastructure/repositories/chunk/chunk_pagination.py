@@ -16,6 +16,7 @@ def build_cursor_forward_conditions(
     """Build WHERE conditions for forward cursor pagination."""
     if cursor is None:
         return []
+
     ci, cid = cursor
     return [
         or_(

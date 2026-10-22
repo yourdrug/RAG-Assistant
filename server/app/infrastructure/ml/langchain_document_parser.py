@@ -38,15 +38,20 @@ def _populate_heading_metadata(metadata: dict, heading: str | None, ctx: dict) -
     """Set the 6 heading-related metadata keys from heading context."""
     if not heading:
         return
+
     metadata["section"] = heading
     metadata["heading"] = ctx["immediate"][heading]
     metadata["heading_level"] = ctx["level"][heading]
+
     if ctx["parent"][heading]:
         metadata["parent_section"] = ctx["parent"][heading]
+
     if ctx["prev"][heading]:
         metadata["prev_heading"] = ctx["prev"][heading]
+
     if ctx["next"][heading]:
         metadata["next_heading"] = ctx["next"][heading]
+
     if ctx["siblings"][heading]:
         metadata["sibling_headings"] = ctx["siblings"][heading]
 
@@ -62,15 +67,20 @@ def build_section_metadata(
 ) -> dict:
     """Assemble the full metadata dict for a single section document."""
     metadata: dict = {"source": file_path.name}
+
     if page_meta:
         metadata.update(page_meta)
+
     if is_table:
         metadata["content_type"] = "table"
+
     metadata["chunk_index"] = chunk_index
     metadata["total_chunks"] = total
     _populate_heading_metadata(metadata, heading, ctx)
+
     if ctx["toc"]:
         metadata["toc"] = ctx["toc"]
+
     return metadata
 
 
@@ -86,8 +96,10 @@ def heading_context(sections: list[Section]) -> dict:
     """
     order: list[str] = []
     seen: set[str] = set()
+
     for section in sections:
         heading = section.heading
+
         if heading and heading not in seen:
             seen.add(heading)
             order.append(heading)
@@ -98,12 +110,14 @@ def heading_context(sections: list[Section]) -> dict:
     parent = {h: (" > ".join(parts[h][:-1]) or None) for h in order}
 
     groups: dict[str | None, list[str]] = {}
+
     for h in order:
         groups.setdefault(parent[h], []).append(h)
 
     prev_h: dict[str, str | None] = {}
     next_h: dict[str, str | None] = {}
     siblings: dict[str, list[str]] = {}
+
     for group in groups.values():
         for i, h in enumerate(group):
             prev_h[h] = immediate[group[i - 1]] if i > 0 else None
@@ -112,8 +126,10 @@ def heading_context(sections: list[Section]) -> dict:
 
     toc: list[str] = []
     seen_toc: set[str] = set()
+
     if level:
         top_level = min(level.values())
+
         for h in order:
             if level[h] == top_level and immediate[h] not in seen_toc:
                 seen_toc.add(immediate[h])
@@ -143,19 +159,25 @@ class LangchainDocumentParser:
 
     def parse(self, file_path: Path, *, filename: str | None = None) -> list[RawDocument]:
         docs = self.parse_format(file_path)
+
         if filename:
             for doc in docs:
                 doc.metadata["source"] = filename
+
                 if doc.metadata.get("_doc_title_fallback"):
                     doc.metadata["doc_title"] = Path(filename).stem
+
         return docs
 
     def parse_format(self, file_path: Path) -> list[RawDocument]:
         ext = file_path.suffix.lower()
         handler = FORMAT_HANDLERS.get(ext)
+
         if handler is None:
             raise RuntimeError(f"Unsupported format: {ext}")
+
         parsed = handler.parse(file_path, FormatContext(self._domain_registry, self._domain_settings))
+
         if parsed.structured:
             docs = self.sections_to_documents(parsed.sections, file_path, parsed.metadata)
         else:
@@ -165,6 +187,7 @@ class LangchainDocumentParser:
                 )
                 for section in parsed.sections
             ]
+
         return self._apply_doc_level_fallbacks(docs, file_path)
 
     @staticmethod
@@ -179,15 +202,19 @@ class LangchainDocumentParser:
             return docs
 
         doc_title = next((d.metadata.get("doc_title") for d in docs if d.metadata.get("doc_title")), None)
+
         if not doc_title:
             # Fall back to the top segment of the first breadcrumb (e.g. a
             # level-1 "# Title" that has no body content of its own, so it
             # never became a standalone section — still the best title we have).
             first_section = next((d.metadata.get("section") for d in docs if d.metadata.get("section")), None)
+
             if first_section:
                 doc_title = first_section.split(" > ")[0]
+
         if not doc_title:
             doc_title = file_path.stem
+
             for doc in docs:
                 doc.metadata["_doc_title_fallback"] = True
 
@@ -196,8 +223,10 @@ class LangchainDocumentParser:
 
         for d in docs:
             d.metadata.setdefault("doc_title", doc_title)
+
             if doc_type:
                 d.metadata.setdefault("doc_type", doc_type)
+
         return docs
 
     @staticmethod
@@ -210,8 +239,10 @@ class LangchainDocumentParser:
         total = sum(bool(section.content.strip()) for section in sections)
         docs: list[RawDocument] = []
         chunk_index = 0
+
         for section in sections:
             heading, content = section.heading, section.content
+
             if not content.strip():
                 continue
 
@@ -232,6 +263,7 @@ class LangchainDocumentParser:
 
         if not docs:
             raise RuntimeError("Too little text in document")
+
         attach_table_replacement_scope(docs)
         return docs
 
@@ -257,13 +289,18 @@ class LangchainDocumentSplitter:
     ) -> list[RawDocument]:
         profile = profile or self._get_profile(domain)
         docs = _raw_to_lc(documents)
+
         for doc in docs:
             filename = doc.metadata.get("filename") or Path(doc.metadata.get("source", "")).name
+
             if doc.metadata.pop("_doc_title_fallback", False):
                 doc.metadata["doc_title"] = Path(filename).stem
+
             doc_date = extract_date_from_filename(filename)
+
             if doc_date:
                 doc.metadata.setdefault("doc_date", doc_date)
+
         return _lc_to_raw(
             split_documents(
                 docs,
@@ -276,6 +313,7 @@ class LangchainDocumentSplitter:
     def _get_profile(self, domain: str):
         if self._domain_registry is None:
             return None
+
         try:
             return self._domain_registry.get(domain)
         except KeyError:

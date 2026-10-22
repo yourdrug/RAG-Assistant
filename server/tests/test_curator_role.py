@@ -550,7 +550,7 @@ class TestRagServiceCuratorScope:
 
     def test_rag_init_state_integration(self):
         """RagService._init_state with CuratorScope calls build_qdrant_filter with managed-ids."""
-        from unittest.mock import patch
+        from unittest.mock import MagicMock, patch
 
         from domain.identity.user_context import CuratorScope
         from domain.rag.context import RagContext
@@ -562,18 +562,17 @@ class TestRagServiceCuratorScope:
             user_role="curator",
             curator_scope=scope,
         )
-        with patch("infrastructure.ml.rag_service.build_qdrant_filter") as mock_filter:
+        with patch("infrastructure.ml.rag.rag_steps.build_qdrant_filter") as mock_filter:
             mock_filter.return_value = type("F", (), {"should": []})()
-            with patch("infrastructure.ml.rag_service.build_rag_settings"):
-                with patch("infrastructure.ml.rag_service.with_temporal_filter"):
-                    from infrastructure.ml.rag_service import RagService
+            with patch("infrastructure.ml.rag.rag_steps.build_rag_settings"):
+                with patch("infrastructure.ml.rag.rag_steps.with_temporal_filter"):
+                    from composition.service_providers import create_rag_service
 
-                    svc = RagService.__new__(RagService)
-                    svc._ml = None
-                    svc._chunk_search = None
-                    svc._domain_keys = None
-                    svc._pii_redactor = None
-                    svc._init_state("test question", [], ctx)
+                    from application.rag.dto import PreparedQuery
+
+                    svc = create_rag_service(None, document_access=MagicMock())
+                    request = svc.preparation.request("test question", [], ctx)
+                    svc.retrieval.retrieval_work(PreparedQuery(request, "test question"))
                     mock_filter.assert_called_once_with(
                         UserContext(
                             user_id=1,

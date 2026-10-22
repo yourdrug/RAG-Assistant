@@ -1,5 +1,8 @@
 """Regressions for zero tariffs and corpus switches during evaluations."""
 
+from infrastructure.benchmark.sweep import candidates as sweep_candidates
+
+
 from infrastructure.worker import runtime
 
 import asyncio
@@ -20,9 +23,9 @@ from pydantic import ValidationError
 from application.budget import BudgetAdminService, BudgetPolicy, CostBudgetService
 from domain.benchmark.sweep import BenchmarkSweep
 from domain.runtime.cost import BudgetError, CostRate
-from infrastructure.benchmark import runner, sweep_scoring
+from infrastructure.benchmark.evaluation import runner
 from infrastructure.benchmark.corpus import corpus_metadata
-from infrastructure.benchmark.sweep_engine import SweepEngine
+from composition.service_providers import build_sweep_engine
 from infrastructure.budget.provider_catalog import OpenRouterBillingCatalog
 from infrastructure.budget.runtime import BudgetRuntime
 from infrastructure.budget.transport import PaidAsyncTransport, prepare_inference_body
@@ -196,15 +199,16 @@ async def test_benchmark_pins_all_parallel_and_queued_questions(monkeypatch, tmp
         }
 
     monkeypatch.setattr(runner.BenchmarkCaseEvaluator, 'evaluate', evaluate)
-    monkeypatch.setattr(runner.persistence, 'log_question_result', lambda *args: None)
-    monkeypatch.setattr(runner.persistence, 'log_summary', lambda *args: None)
+    monkeypatch.setattr(runner.progress, 'log_question_result', lambda *args: None)
+    monkeypatch.setattr(runner.progress, 'log_summary', lambda *args: None)
     try:
         await runner.run_benchmark_async(
             [{'question': 'q', 'annotations': {'expected_refusal': True}}] * 3,
             1,
             'judge',
             max_concurrent=2,
-            rag_service=SimpleNamespace(_ml=registry),
+            rag_service=SimpleNamespace(),
+            corpus_resource=registry,
         )
         assert observed == [old] * 3
         assert list(tmp_path.iterdir()) == []
@@ -227,7 +231,7 @@ async def test_candidate_cache_keeps_client_across_switch(monkeypatch):
         return []
     old.client.search.side_effect = search
     try:
-        await sweep_scoring.cache_candidates(
+        await sweep_candidates.cache_candidates(
             [{'question': 'alpha'}, {'question': 'beta'}], 1, ml_clients=registry,
             access_filter=Filter(), visibility_conditions=[object()], user_id=0, user_group_ids=[],
         )
@@ -245,7 +249,7 @@ async def test_sweep_pins_preparation_and_rejects_resume_on_changed_corpus(tmp_p
     factory = FakeUnitOfWorkFactory()
     def checkpoints(sweep_id):
         return DatabaseBenchmarkCheckpoints(factory, sweep_id)
-    engine = SweepEngine(None, ml_clients=registry, checkpoint_factory=checkpoints)
+    engine = build_sweep_engine(None, ml_clients=registry, checkpoint_factory=checkpoints)
     engine.load_questions = AsyncMock(return_value=[{'question': 'q', 'source_hint': 'law.pdf'}])
 
     async def phase_a(*args):
@@ -254,7 +258,7 @@ async def test_sweep_pins_preparation_and_rejects_resume_on_changed_corpus(tmp_p
 
     async def phase_b(*args, **kwargs):
         assert registry.qdrant_client() is old
-        assert kwargs['run'].corpus is old.snapshot
+        assert kwargs['run'].corpus == corpus_metadata(old.snapshot)
         old.client.close.assert_not_called()
         return []
 
@@ -276,8 +280,10 @@ async def test_worker_report_uses_pinned_corpus_after_switch(monkeypatch):
     service = SimpleNamespace(get_job_result=AsyncMock(return_value=None), record_result=AsyncMock())
     service.record_result.return_value = SimpleNamespace(id=None)
     container = SimpleNamespace(
-        infrastructure=SimpleNamespace(db=SimpleNamespace(uow_factory=object())),
-        application=SimpleNamespace(rag_service=SimpleNamespace(_ml=registry)),
+        infrastructure=SimpleNamespace(
+            db=SimpleNamespace(uow_factory=object()), ml=SimpleNamespace(ml_clients=registry)
+        ),
+        application=SimpleNamespace(rag_service=SimpleNamespace()),
     )
     monkeypatch.setattr(tasks, 'BenchmarkResultService', lambda factory: service)
     monkeypatch.setattr(tasks, 'load_benchmark_questions', AsyncMock(return_value=[{'question': 'q'}]))
@@ -289,7 +295,9 @@ async def test_worker_report_uses_pinned_corpus_after_switch(monkeypatch):
     async def tracked(factory, job_id, action, **kwargs):
         await action()
 
-    container.infrastructure.ml = SimpleNamespace(benchmark_service=SimpleNamespace(run=evaluate))
+    container.infrastructure.ml = SimpleNamespace(
+        ml_clients=registry, benchmark_service=SimpleNamespace(run=evaluate)
+    )
     monkeypatch.setattr(runtime, 'run_tracked_job', tracked)
     try:
         await tasks.run_benchmark(

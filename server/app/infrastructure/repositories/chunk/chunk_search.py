@@ -105,6 +105,7 @@ def build_acl_clauses(
     )
 
     acl_clauses = []
+
     for cond in conditions:
         parts = [ChunkModel.visibility == cond.visibility.value]
 
@@ -136,8 +137,10 @@ def build_exact_search_stmt(query: str, acl_clauses: list, document_id: int | No
         .order_by(ChunkModel.id)
         .limit(limit)
     )
+
     if document_id is not None:
         stmt = stmt.where(ChunkModel.document_id == document_id)
+
     return stmt
 
 
@@ -150,8 +153,10 @@ def build_fuzzy_search_stmt(query: str, acl_clauses: list, document_id: int | No
         .order_by(ChunkModel.id)
         .limit(limit)
     )
+
     if document_id is not None:
         stmt = stmt.where(ChunkModel.document_id == document_id)
+
     return stmt
 
 

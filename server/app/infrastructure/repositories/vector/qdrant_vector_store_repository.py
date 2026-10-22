@@ -35,11 +35,13 @@ class QdrantVectorStoreRepository:
     def get_qdrant_client(self) -> QdrantClient:
         if self._ml_clients is not None:
             return self._ml_clients.qdrant_client()
+
         return create_qdrant_client()
 
     def get_embeddings(self) -> EmbeddingClientPort:
         if self._ml_clients is not None:
             return self._ml_clients.embeddings()
+
         return create_embeddings()
 
     @pin_corpus_call
@@ -55,6 +57,7 @@ class QdrantVectorStoreRepository:
     ) -> None:
         if self._ml_clients is None:
             raise ValueError("ml_clients not initialized — cannot upload documents")
+
         lcdocs = [LCDocument(page_content=c.content, metadata=c.metadata) for c in chunks]
         async with self._ml_clients.ingestion_semaphore:
             await upload_to_qdrant(
@@ -93,8 +96,10 @@ class QdrantVectorStoreRepository:
 
         def upsert() -> None:
             identity = payload.get("metadata", {}).get("embedding_model")
+
             if not isinstance(identity, str) or not identity:
                 raise ValueError("Vector payload must declare its originating embedding_model")
+
             ensure_embedding_identity(client, identity)
             point = PointStruct(
                 id=point_id, vector=point_vectors(payload["page_content"], vector), payload=payload
@@ -141,6 +146,7 @@ class QdrantVectorStoreRepository:
         def delete() -> None:
             if not ids:
                 return
+
             client.delete(
                 collection_name=settings.collection_name,
                 points_selector=ids,

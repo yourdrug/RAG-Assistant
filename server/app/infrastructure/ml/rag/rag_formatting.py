@@ -44,10 +44,13 @@ def history_to_messages(history: list[dict]):
     multi-turn injection through stored conversation history.
     """
     messages: list[HumanMessage | AIMessage] = []
+
     for msg in history:
         content = sanitize_for_prompt(msg["content"])
+
         if msg["role"] == MessageRole.USER.value:
             messages.append(HumanMessage(content=content))
         else:
             messages.append(AIMessage(content=content))
+
     return messages

@@ -13,6 +13,15 @@ Lifecycle:
   - Sessions are per-request: ``get_session()`` creates a fresh ``AsyncSession``
 """
 
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager, contextmanager
+from typing import Any
+
+from sqlalchemy import Connection, Engine, create_engine
+from sqlalchemy.engine import URL
+from sqlalchemy.pool import NullPool
+from sqlalchemy.ext.asyncio import AsyncConnection
+
 from logging import (
     Logger,
     getLogger,
@@ -31,6 +40,17 @@ from infrastructure.database.dataclasses import DatabaseURL
 from infrastructure.database.enums import DatabaseNodeRole
 
 logger: Logger = getLogger("default")
+
+
+def connection_arguments() -> dict[str, Any]:
+    return {
+        "connect_timeout": 5,
+        "options": (
+            "-c timezone=Europe/Minsk "
+            f"-c statement_timeout={settings.db_statement_timeout_ms} "
+            f"-c idle_in_transaction_session_timeout={settings.db_idle_in_transaction_timeout_ms}"
+        ),
+    }
 
 
 class DatabaseNode:
@@ -80,13 +100,7 @@ class DatabaseNode:
             max_overflow=settings.db_max_overflow,
             pool_pre_ping=True,
             pool_recycle=settings.db_pool_recycle_sec,
-            connect_args={
-                "options": (
-                    "-c timezone=Europe/Minsk "
-                    f"-c statement_timeout={settings.db_statement_timeout_ms} "
-                    f"-c idle_in_transaction_session_timeout={settings.db_idle_in_transaction_timeout_ms}"
-                ),
-            },
+            connect_args=connection_arguments(),
         )
 
     async def _create_async_session_factory(
@@ -212,6 +226,8 @@ class DatabaseManager:
         self.master_node: DatabaseNode | None = None
         self.slave_nodes: list[DatabaseNode] = []
         self.current_slave_index: int = 0
+        self.master_connection_engine: Engine | None = None
+        self.async_master_connection_engine: AsyncEngine | None = None
 
     def _setup_cluster_environment(
         self,
@@ -331,6 +347,9 @@ class DatabaseManager:
                 f"Number: {self.master_node.get_number()};"
             )
 
+        if self.master_node is not None and self.master_node.async_engine is not None:
+            self.create_master_connection_engines(self.master_node.async_engine.url, connection_arguments())
+
         slaves_to_connect: list[DatabaseNode] = [
             slave for slave in self.slave_nodes if slave != self.master_node
         ]
@@ -352,6 +371,14 @@ class DatabaseManager:
         disconnect: Disconnect from all database nodes.
         """
 
+        if self.async_master_connection_engine is not None:
+            await self.async_master_connection_engine.dispose()
+            self.async_master_connection_engine = None
+
+        if self.master_connection_engine is not None:
+            self.master_connection_engine.dispose()
+            self.master_connection_engine = None
+
         slaves_to_disconnect: list[DatabaseNode] = [
             slave for slave in self.slave_nodes if slave != self.master_node
         ]
@@ -371,6 +398,37 @@ class DatabaseManager:
                 f"Role: {self.master_node.get_role()}; "
                 f"Number: {self.master_node.get_number()};"
             )
+
+    def create_master_connection_engines(self, url: URL, connect_args: dict[str, Any]) -> None:
+        """Dedicated nonpooled engines for session locks, independent of ordinary sessions."""
+        self.master_connection_engine = create_engine(
+            url,
+            poolclass=NullPool,
+            isolation_level="AUTOCOMMIT",
+            connect_args=connect_args,
+        )
+        self.async_master_connection_engine = create_async_engine(
+            url,
+            poolclass=NullPool,
+            isolation_level="AUTOCOMMIT",
+            connect_args=connect_args,
+        )
+
+    @contextmanager
+    def master_connection(self) -> Iterator[Connection]:
+        if self.master_connection_engine is None:
+            raise DatabaseError("Master connection engine is not created")
+
+        with self.master_connection_engine.connect() as connection:
+            yield connection
+
+    @asynccontextmanager
+    async def async_master_connection(self) -> AsyncIterator[AsyncConnection]:
+        if self.async_master_connection_engine is None:
+            raise DatabaseError("Async master connection engine is not created")
+
+        async with self.async_master_connection_engine.connect() as connection:
+            yield connection
 
     def get_write_session(
         self,

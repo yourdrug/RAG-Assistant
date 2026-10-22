@@ -19,12 +19,16 @@ def attach_table_replacement_scope(docs) -> None:
     for index in range(1, len(docs) - 2):
         target, old, bridge, new = docs[index - 1 : index + 3]
         matches = list(TABLE_TARGET_RE.finditer(target.page_content))
+
         if not matches or not POSITION_TARGET_END_RE.search(target.page_content):
             continue
+
         if not REPLACEMENT_BRIDGE_RE.fullmatch(bridge.page_content):
             continue
+
         if any(doc.metadata.get("content_type") != PageContentType.TABLE.value for doc in (old, new)):
             continue
+
         if (
             len(
                 {
@@ -35,6 +39,7 @@ def attach_table_replacement_scope(docs) -> None:
             != 1
         ):
             continue
+
         # Earlier amendments in the same prose section are not part of this one.
         content = "\n".join(
             [
@@ -45,5 +50,6 @@ def attach_table_replacement_scope(docs) -> None:
             ]
         )
         parent = {"content": content}
+
         for doc in (old, new):
             doc.metadata["parent_units"] = [*doc.metadata.get("parent_units", []), dict(parent)]

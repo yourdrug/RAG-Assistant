@@ -23,6 +23,7 @@ class SQLAlchemyUserRepository:
     async def get_by_ids(self, user_ids: list[int]) -> list[User]:
         if not user_ids:
             return []
+
         result = await self._db.execute(select(UserModel).where(UserModel.id.in_(user_ids)))
         return [self._to_entity(orm) for orm in result.scalars().all()]
 
@@ -58,8 +59,10 @@ class SQLAlchemyUserRepository:
 
     async def list_all(self, limit: int | None = None, offset: int = 0) -> list[User]:
         stmt = select(UserModel).order_by(UserModel.creation_date).offset(offset)
+
         if limit is not None:
             stmt = stmt.limit(limit)
+
         result = await self._db.execute(stmt)
         return [self._to_entity(orm) for orm in result.scalars().all()]
 
@@ -70,8 +73,10 @@ class SQLAlchemyUserRepository:
     async def set_active(self, user_id: int, is_active: bool) -> bool:
         result = await self._db.execute(select(UserModel).where(UserModel.id == user_id))
         orm = result.scalar_one_or_none()
+
         if orm is None:
             return False
+
         orm.is_active = is_active
         await self._db.flush()
         return True
@@ -79,8 +84,10 @@ class SQLAlchemyUserRepository:
     async def update_role(self, user_id: int, role: str) -> bool:
         result = await self._db.execute(select(UserModel).where(UserModel.id == user_id))
         orm = result.scalar_one_or_none()
+
         if orm is None:
             return False
+
         orm.role = role
         await self._db.flush()
         return True

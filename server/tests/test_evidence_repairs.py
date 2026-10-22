@@ -1,6 +1,6 @@
 """Source links, missing evidence and negation survive production assembly."""
 
-from infrastructure.ml.rag_pipeline import RagPipelineState
+from rag_stage_fixtures import stage_fixture
 from domain.rag.context import RagContext
 from domain.identity.user_context import UserContext
 from domain.identity.roles import UserKind, UserRole
@@ -36,7 +36,7 @@ from infrastructure.ml.rag.rag_formatting import format_docs_with_selection
 from infrastructure.ml.rag.rag_prompts import build_prompt
 from infrastructure.ml.rag import rag_steps
 from infrastructure.ml.rag.rag_reranking import filter_scope_candidates
-from infrastructure.ml.rag.rag_steps import step_generate, step_check_cache
+from rag_stage_fixtures import generate as step_generate, check_cache as step_check_cache
 from infrastructure.ml.rag.rag_config import build_rag_settings
 
 FIELD = "Дополнительный четырёхзначный код по классификатору дополнительной таможенной информации"
@@ -169,7 +169,7 @@ async def test_supplemental_retrieval_preserves_acl_temporal_filter_and_original
     conditions = [object()]
     docs, queries = await retrieve_with_decomposition(
         question,
-        RagPipelineState(
+        stage_fixture(
             fetch_k=30,
             retrieval_filter=acl,
             rag=SimpleNamespace(features=SimpleNamespace(decomposition_enabled=False)),
@@ -282,7 +282,7 @@ def test_extractive_procedure_keeps_complete_stage_links_in_source_order():
 async def test_missing_row_response_cannot_be_overridden_by_model_and_cache_changes_with_policy(monkeypatch):
     ctx = RagContext(1, UserKind.INTERNAL, UserRole.ADMIN)
     question = "Формат поля «УНП грузоотправителя» (позиция 18 таблицы 4.2, BLRDLN)?"
-    state = RagPipelineState(
+    state = stage_fixture(
         rag=build_rag_settings(),
         t_pipeline_start=0,
         question=question,

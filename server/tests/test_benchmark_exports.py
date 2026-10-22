@@ -15,7 +15,7 @@ from fastapi import FastAPI
 
 from application.benchmark import BenchmarkExportService, EXPORT_CHUNK_BYTES
 from application.benchmark import BenchmarkImportService
-from infrastructure.benchmark.legacy_import import load_legacy_runs
+from infrastructure.benchmark.reporting.legacy_import import load_legacy_runs
 from presentation.api.routes import benchmark
 from presentation.api.dependencies import create_benchmark_export_service
 from presentation.api.auth_dependencies import get_current_user
@@ -210,7 +210,9 @@ async def test_worker_retry_reuses_committed_run(monkeypatch):
         'container': SimpleNamespace(
             infrastructure=SimpleNamespace(
                 db=SimpleNamespace(uow_factory=factory),
-                ml=SimpleNamespace(file_storage=object(), benchmark_service=SimpleNamespace(run=evaluations)),
+                ml=SimpleNamespace(
+                    ml_clients=None, file_storage=object(), benchmark_service=SimpleNamespace(run=evaluations)
+                ),
             ),
             application=SimpleNamespace(rag_service=object()),
         )
@@ -265,10 +267,10 @@ def test_legacy_json_report_preserves_per_question_results(tmp_path):
 @pytest.mark.asyncio
 async def test_default_web_sweep_does_not_fallback_to_data_dir(monkeypatch):
     from config import settings
-    from infrastructure.benchmark.sweep_engine import SweepEngine
-    from infrastructure.benchmark.sweep_settings import LiveSweepSettings
+    from composition.service_providers import build_sweep_engine
+    from infrastructure.benchmark.sweep.settings import LiveSweepSettings
 
     monkeypatch.setattr(settings, 'data_dir', '/proc/unavailable')
     assert not hasattr(LiveSweepSettings(), "results_path")
     with pytest.raises(RuntimeError, match='database checkpoint'):
-        SweepEngine(None).create_checkpoints(7)
+        build_sweep_engine(None).create_checkpoints(7)

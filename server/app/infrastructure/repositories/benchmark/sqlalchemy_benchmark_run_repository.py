@@ -50,8 +50,10 @@ class SQLAlchemyBenchmarkRunRepository:
 
     async def save_once(self, run: BenchmarkRun) -> BenchmarkRun:
         identity = "job_id" if run.job_id is not None else "legacy_hash"
+
         if getattr(run, identity) is None:
             raise ValueError("A job or legacy import identity is required")
+
         values = {
             name: getattr(run, name)
             for name in (
@@ -74,8 +76,10 @@ class SQLAlchemyBenchmarkRunRepository:
         row = await self._db.scalar(
             select(BenchmarkRunModel).where(getattr(BenchmarkRunModel, identity) == getattr(run, identity))
         )
+
         if row is None:
             raise RuntimeError("Committed benchmark identity was not found")
+
         return self.to_entity(row)
 
     async def get_baseline(self, current: BenchmarkRun) -> BenchmarkRun | None:
@@ -92,6 +96,7 @@ class SQLAlchemyBenchmarkRunRepository:
             BenchmarkRunModel.summary_metrics["evaluation_mode"].as_string(),
         )
         stmt = stmt.where(mode_expr.is_(None) if mode is None else mode_expr == mode)
+
         for key in ("collection_name", "qdrant_url", "embedding_identity", "dataset_hash"):
             value = current.config_json.get(key, current.summary_metrics.get(key))
             expression = func.coalesce(
@@ -99,6 +104,7 @@ class SQLAlchemyBenchmarkRunRepository:
                 BenchmarkRunModel.summary_metrics[key].as_string(),
             )
             stmt = stmt.where(expression.is_(None) if value is None else expression == str(value))
+
         row = await self._db.scalar(
             stmt.order_by(BenchmarkRunModel.creation_date.desc(), BenchmarkRunModel.id.desc()).limit(1)
         )
@@ -137,8 +143,10 @@ class SQLAlchemyBenchmarkRunRepository:
         artifacts = await self._db.scalar(
             select(BenchmarkRunModel.artifacts).where(BenchmarkRunModel.id == run_id).with_for_update()
         )
+
         if artifacts is None:
             raise ValueError("Benchmark result not found")
+
         await self._db.execute(
             update(BenchmarkRunModel)
             .where(BenchmarkRunModel.id == run_id)
@@ -157,6 +165,7 @@ class SQLAlchemyBenchmarkRunRepository:
     async def save_for_sweep(self, run: BenchmarkRun) -> BenchmarkRun:
         if run.sweep_id is None:
             raise ValueError("sweep_id is required")
+
         # The parent row serializes config lookup + insert across worker retries.
         await self._db.execute(
             select(BenchmarkSweepModel.id).where(BenchmarkSweepModel.id == run.sweep_id).with_for_update()
@@ -165,8 +174,10 @@ class SQLAlchemyBenchmarkRunRepository:
             select(BenchmarkRunModel).where(BenchmarkRunModel.sweep_id == run.sweep_id)
         )
         existing = next((row for row in rows.scalars() if row.config_json == run.config_json), None)
+
         if existing is None:
             return await self.create(run)
+
         existing.summary_metrics = run.summary_metrics
         existing.per_question_results = run.per_question_results
         existing.llm_evaluated = run.llm_evaluated
@@ -185,6 +196,7 @@ class SQLAlchemyBenchmarkRunRepository:
         offset: int = 0,
     ) -> list[BenchmarkRun]:
         sort_col = getattr(BenchmarkRunModel, sort_by, BenchmarkRunModel.creation_date)
+
         if sort_order == "asc":
             stmt = select(BenchmarkRunModel).order_by(sort_col.asc())
         else:
@@ -192,6 +204,7 @@ class SQLAlchemyBenchmarkRunRepository:
 
         if sweep_id is not None:
             stmt = stmt.where(BenchmarkRunModel.sweep_id == sweep_id)
+
         if dataset is not None:
             stmt = stmt.where(BenchmarkRunModel.dataset == dataset)
 
@@ -206,16 +219,20 @@ class SQLAlchemyBenchmarkRunRepository:
         dataset: str | None = None,
     ) -> int:
         stmt = select(func.count()).select_from(BenchmarkRunModel)
+
         if sweep_id is not None:
             stmt = stmt.where(BenchmarkRunModel.sweep_id == sweep_id)
+
         if dataset is not None:
             stmt = stmt.where(BenchmarkRunModel.dataset == dataset)
+
         result = await self._db.execute(stmt)
         return result.scalar_one()
 
     async def get_by_ids(self, ids: list[int]) -> list[BenchmarkRun]:
         if not ids:
             return []
+
         stmt = (
             select(BenchmarkRunModel)
             .where(BenchmarkRunModel.id.in_(ids))
@@ -226,8 +243,10 @@ class SQLAlchemyBenchmarkRunRepository:
 
     async def get_latest(self, dataset: str | None = None) -> BenchmarkRun | None:
         stmt = select(BenchmarkRunModel).order_by(BenchmarkRunModel.creation_date.desc())
+
         if dataset is not None:
             stmt = stmt.where(BenchmarkRunModel.dataset == dataset)
+
         stmt = stmt.limit(1)
         result = await self._db.execute(stmt)
         orm = result.scalar_one_or_none()
@@ -238,13 +257,17 @@ class SQLAlchemyBenchmarkRunRepository:
         summary = dict(orm.summary_metrics or {})
         # Older sweep summaries omitted answer averages, but retained question scores.
         missing = [metric for metric in EVIDENCE_METRICS if summary.get(f"avg_{metric}") is None]
+
         if missing and orm.per_question_results:
             recovered = summarize_evidence(orm.per_question_results)
+
             for metric in missing:
                 average = recovered[f"avg_{metric}"]
+
                 if average is not None:
                     summary[f"avg_{metric}"] = average
                     summary[f"{metric}_evaluated_count"] = recovered[f"{metric}_evaluated_count"]
+
         return BenchmarkRun(
             id=orm.id,
             creation_date=orm.creation_date,

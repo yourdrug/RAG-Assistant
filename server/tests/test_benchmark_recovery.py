@@ -17,10 +17,12 @@ from openai import OpenAI
 from domain.benchmark.sweep import BenchmarkSweep
 from domain.benchmark.sweep import BenchmarkSweepStatus
 from application.benchmark import BenchmarkSweepService
-from infrastructure.benchmark import judge, persistence, runner
-from infrastructure.benchmark.case_evaluator import BenchmarkCaseEvaluator
-from infrastructure.benchmark.answer_generators import BenchmarkAnswer
-from infrastructure.benchmark.judge_rubric import JUDGE_RUBRIC_VERSION
+from infrastructure.benchmark.judging import judge
+from infrastructure.benchmark.reporting import progress
+from infrastructure.benchmark.evaluation import runner
+from infrastructure.benchmark.evaluation.case_evaluator import BenchmarkCaseEvaluator
+from infrastructure.benchmark.evaluation.answer_generators import BenchmarkAnswer
+from infrastructure.benchmark.judging.judge_rubric import JUDGE_RUBRIC_VERSION
 
 
 @pytest.fixture(autouse=True)
@@ -51,7 +53,7 @@ def test_invalid_provider_request_is_not_retried():
 
 @pytest.mark.asyncio
 async def test_resume_skips_completed_questions_and_invalidates_changed_settings(tmp_path, monkeypatch):
-    from infrastructure.benchmark import case_evaluator
+    from infrastructure.benchmark.evaluation import case_evaluator
 
     calls = []
     fail = True
@@ -65,8 +67,8 @@ async def test_resume_skips_completed_questions_and_invalidates_changed_settings
         return {"id": idx, "question": question["question"], 'judge_rubric_version': JUDGE_RUBRIC_VERSION}
 
     monkeypatch.setattr(case_evaluator.BenchmarkCaseEvaluator, "evaluate", evaluate)
-    monkeypatch.setattr(persistence, "log_question_result", lambda *a: None)
-    monkeypatch.setattr(persistence, "log_summary", lambda *a: None)
+    monkeypatch.setattr(progress, "log_question_result", lambda *a: None)
+    monkeypatch.setattr(progress, "log_summary", lambda *a: None)
     questions = [{"question": "first"}, {"question": "second"}]
     kwargs = {
         "questions": questions,
@@ -151,7 +153,7 @@ async def test_resume_waits_for_cancelled_worker_to_stop():
 
 
 def test_judge_usage_includes_validation_retry_responses():
-    from infrastructure.benchmark.token_usage import judge_usage, record_judge_usage
+    from infrastructure.benchmark.judging.token_usage import judge_usage, record_judge_usage
 
     responses = iter(["invalid json", '{"score":8,"reason":"ok"}'])
 

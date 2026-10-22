@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from composition.utils import _missing_fields, _require
-from composition.service_providers import create_ingestion_service
+from composition.service_providers import create_ingestion_service, create_rag_service
 from infrastructure.adapters.chunk_search_adapter import ChunkSearchAdapter
 
 if TYPE_CHECKING:
@@ -46,7 +46,7 @@ if TYPE_CHECKING:
     from application.documents.diagnostics import PDFDiagnosticService
     from application.documents.quality_service import QualityService
     from application.search import SearchService
-    from infrastructure.ml.rag_service import RagService
+    from application.rag.service import RagService
     from application.ingestion import IngestionService
 
     from composition.infrastructure import InfrastructureContainer
@@ -131,7 +131,6 @@ class ApplicationContainer:
             MLPageClassifier,
             MLTextCleaner,
         )
-        from infrastructure.ml.rag_service import RagService
 
         uow = _require(infra.db.uow_factory, "uow_factory")
         fs = _require(infra.ml.file_storage, "file_storage")
@@ -141,7 +140,8 @@ class ApplicationContainer:
         from application.documents import DocumentAccessService
 
         pii_redactor = PIIRedactorAdapter(rag_settings=LiveRagSettings())
-        self.rag_service = RagService(
+
+        self.rag_service = create_rag_service(
             ml_clients=ml,
             chunk_search=chunk_search,
             domain_keys=(

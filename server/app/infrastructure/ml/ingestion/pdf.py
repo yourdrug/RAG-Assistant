@@ -56,6 +56,7 @@ def pymupdf_table_to_markdown(table) -> str:
         data = table.extract()
     except Exception:
         return ""
+
     if not data or len(data) < 1:
         return ""
 
@@ -75,31 +76,38 @@ def _order_blocks_columnwise(blocks: list, page_width: float) -> list[str]:
     """
     if not blocks:
         return []
+
     if len(blocks) == 1:
         return [blocks[0][4].strip()]
 
     gap_threshold = (page_width or 1.0) * _COLUMN_GAP_RATIO
     xs = sorted(b[0] for b in blocks)
     boundaries = [xs[0]]
+
     for prev, cur in zip(xs, xs[1:], strict=False):
         if cur - prev > gap_threshold:
             boundaries.append(cur)
 
     def _column_of(x0: float) -> int:
         col = 0
+
         for i, boundary in enumerate(boundaries):
             if x0 >= boundary:
                 col = i
+
         return col
 
     columns: dict[int, list] = {}
+
     for b in blocks:
         columns.setdefault(_column_of(b[0]), []).append(b)
 
     ordered: list[str] = []
+
     for col in sorted(columns):
         col_blocks = sorted(columns[col], key=lambda b: b[1])
         ordered.extend(b[4].strip() for b in col_blocks if b[4].strip())
+
     return ordered
 
 
@@ -115,16 +123,20 @@ def _classify_page_blocks(page) -> tuple[list, list, list]:
     footer_start = height * (1 - _FOOTER_ZONE_RATIO)
 
     header, body, footer = [], [], []
+
     for b in page.get_text("blocks"):
         if len(b) <= 4 or not b[4].strip():
             continue
+
         y0, y1 = b[1], b[3]
+
         if y1 <= header_end:
             header.append(b)
         elif y0 >= footer_start:
             footer.append(b)
         else:
             body.append(b)
+
     return header, body, footer
 
 
@@ -133,9 +145,11 @@ def _extract_page_tables(page, file_path: Path, page_num: int) -> list[Document]
     docs: list[Document] = []
     try:
         tables = page.find_tables()
+
         if tables and tables.tables:
             for table in tables.tables:
                 md_table = pymupdf_table_to_markdown(table)
+
                 if md_table:
                     docs.append(
                         Document(
@@ -159,6 +173,7 @@ def _detect_tabular_heuristic(text: str, page_num: int) -> None:
     tabular_lines = sum(
         1 for line in lines if line.count("\t") >= 2 or (len(re.findall(r"  {3,}", line)) > 0)
     )
+
     if tabular_lines > 3:
         log.warning(
             "Page %d: %d tabular-looking lines but find_tables() found nothing",
@@ -169,34 +184,46 @@ def _detect_tabular_heuristic(text: str, page_num: int) -> None:
 
 def _outside_table_line(line: dict, rectangles: list) -> tuple | None:
     spans = []
+
     for span in line["spans"]:
         rect = fitz.Rect(span["bbox"])
         center = (rect.top_left + rect.bottom_right) / 2
+
         if not any(center in table_rect for table_rect in rectangles):
             spans.append(span)
+
     text = "".join(span["text"] for span in spans).strip()
+
     if not text:
         return None
+
     bbox = fitz.Rect(spans[0]["bbox"])
+
     for span in spans[1:]:
         bbox |= fitz.Rect(span["bbox"])
+
     return bbox, text
 
 
 def _outside_table_blocks(page, rectangles: list, boilerplate: set[str]):
     """Filter individual spans to retain captions sharing a block with a table."""
     text_flags = fitz.TEXTFLAGS_DICT & ~fitz.TEXT_PRESERVE_IMAGES
+
     for block in page.get_text("dict", flags=text_flags)["blocks"]:
         for line in block.get("lines", []):
             outside = _outside_table_line(line, rectangles)
+
             if outside is None:
                 continue
+
             bbox, text = outside
             in_margin = bbox.y1 <= page.rect.height * _HEADER_ZONE_RATIO or bbox.y0 >= (
                 page.rect.height * (1 - _FOOTER_ZONE_RATIO)
             )
+
             if in_margin and _DIGITS_RE.sub("#", text) in boilerplate:
                 continue
+
             yield bbox, text
 
 
@@ -213,6 +240,7 @@ def _mixed_page_documents(page, tables: list[Document], boilerplate: set[str]) -
             positioned = [(*tuple(bbox), text) for bbox, text in band]
             lines = _order_blocks_columnwise(positioned, page.rect.width)
             text = clean_pdf_text("\n".join(lines))
+
             if text:
                 ordered.append(Document(page_content=text, metadata=dict(base)))
 
@@ -222,8 +250,10 @@ def _mixed_page_documents(page, tables: list[Document], boilerplate: set[str]) -
         zip(tables, rectangles, strict=True), key=lambda item: (item[1].y0, item[1].x0)
     ):
         start = cursor
+
         while cursor < len(blocks) and blocks[cursor][0].y0 < bbox.y0:
             cursor += 1
+
         append_text(blocks[start:cursor])
         ordered.append(
             Document(
@@ -231,6 +261,7 @@ def _mixed_page_documents(page, tables: list[Document], boilerplate: set[str]) -
                 metadata={key: value for key, value in table.metadata.items() if key != "_table_bbox"},
             )
         )
+
     append_text(blocks[cursor:])
     return ordered
 
@@ -239,8 +270,10 @@ def _should_ocr(text: str, min_chars: int, ocr_enabled: bool) -> bool:
     """Return True if OCR should be triggered based on text length and settings."""
     if not text and ocr_enabled:
         return True
+
     if text and len(text.strip()) < min_chars and ocr_enabled:
         return True
+
     return False
 
 
@@ -249,18 +282,24 @@ def _select_best_text(existing_text: str | None, ocr_text: str) -> str:
     if existing_text:
         if len(ocr_text) > len(existing_text) * 1.5:
             return ocr_text
+
         return clean_pdf_text(existing_text) or ocr_text
+
     return ocr_text
 
 
 def _process_page_text(text: str, tables_found: bool, page_num: int, file_path: Path) -> Document | None:
     if text and not tables_found:
         _detect_tabular_heuristic(text, page_num)
+
     if not text or tables_found:
         return None
+
     cleaned = clean_pdf_text(text)
+
     if not cleaned:
         return None
+
     return Document(page_content=cleaned, metadata={"page": page_num, "source": str(file_path)})
 
 
@@ -272,9 +311,12 @@ def _process_ocr_result(
 ) -> Document | None:
     if not ocr_text:
         return None
+
     ocr_text = clean_pdf_text(ocr_text)
+
     if not ocr_text:
         return None
+
     final_text = _select_best_text(text_to_compare.get(page_num), ocr_text)
     return Document(page_content=final_text, metadata={"page": page_num, "source": str(file_path)})
 
@@ -293,13 +335,17 @@ def _find_boilerplate_patterns(
         return set()
 
     counts: Counter[str] = Counter()
+
     for header, _body, footer in classified_pages:
         seen_this_page = set()
+
         for b in header + footer:
             for line in b[4].strip().split("\n"):
                 norm = _DIGITS_RE.sub("#", line.strip())
+
                 if norm:
                     seen_this_page.add(norm)
+
         counts.update(seen_this_page)
 
     threshold = max(_BOILERPLATE_MIN_PAGES, int(len(classified_pages) * _BOILERPLATE_MIN_RATIO))
@@ -309,12 +355,17 @@ def _find_boilerplate_patterns(
 def _filter_boilerplate_blocks(blocks: list, boilerplate: set[str]) -> list:
     if not boilerplate:
         return blocks
+
     kept = []
+
     for b in blocks:
         lines = [ln.strip() for ln in b[4].strip().split("\n") if ln.strip()]
+
         if lines and all(_DIGITS_RE.sub("#", ln) in boilerplate for ln in lines):
             continue  # entire block is recurring boilerplate
+
         kept.append(b)
+
     return kept
 
 
@@ -327,14 +378,19 @@ def _extract_doc_metadata(doc) -> dict:
     """
     meta = doc.metadata or {}
     result: dict = {}
+
     if meta.get("title"):
         result["doc_title"] = meta["title"]
+
     if meta.get("author"):
         result["doc_author"] = meta["author"]
+
     if meta.get("subject"):
         result["doc_subject"] = meta["subject"]
+
     if meta.get("keywords"):
         result["doc_keywords"] = meta["keywords"]
+
     result["page_count"] = len(doc)
     return result
 
@@ -343,8 +399,10 @@ def _compute_text_quality(page) -> float:
     """Estimate text extraction quality as ratio of text chars to page area."""
     try:
         page_area = page.rect.width * page.rect.height
+
         if page_area <= 0:
             return 0.0
+
         text = page.get_text("text")
         char_count = len(text.strip())
         # Rough heuristic: ~0.02 chars per pixel is a "full" page of text
@@ -405,13 +463,17 @@ def _process_page(
 
     if table_docs:
         ordered = _mixed_page_documents(page, table_docs, boilerplate)
+
         for item in ordered:
             item.metadata.update(page_meta)
+
         return PageResult(meta=page_meta, ordered_docs=ordered)
 
     text_doc = _process_page_text(text, bool(table_docs), page_num, file_path)
+
     if text_doc:
         text_doc.metadata.update(page_meta)
+
     return PageResult(text_doc=text_doc, meta=page_meta, table_docs=table_docs)
 
 
@@ -424,15 +486,19 @@ def _process_ocr_batch(
     """Run OCR on flagged pages and return the resulting Documents."""
     if settings.ocr_engine == "paddleocr_vl":
         return ocr_vl_pdf_pages(doc, ocr_pages_needed, str(file_path))
+
     pages: list[Document] = []
     ocr_results = ocr_pdf_pages(doc, ocr_pages_needed, file_path.name)
+
     for page_num, ocr_text in ocr_results.items():
         ocr_doc = _process_ocr_result(page_num, ocr_text, text_to_compare, file_path)
+
         if ocr_doc:
             ocr_doc.metadata["has_images"] = True
             ocr_doc.metadata["image_count"] = len(doc.load_page(page_num - 1).get_images(full=True))
             ocr_doc.metadata["text_quality"] = 0.0
             pages.append(ocr_doc)
+
     return pages
 
 
@@ -440,8 +506,10 @@ def _apply_document_metadata(pages: list[Document], doc_metadata: dict, is_scann
     """Stamp doc-level metadata and scanned flag onto every page."""
     for p in pages:
         p.metadata.pop("_table_bbox", None)
+
         if doc_metadata:
             p.metadata.update(doc_metadata)
+
     if is_scanned:
         for p in pages:
             p.metadata["is_scanned"] = True
@@ -458,6 +526,7 @@ def parse_pdf_document(doc: fitz.Document, file_path: Path) -> list[Document]:
 
     classified = [_classify_page_blocks(doc.load_page(i)) for i in range(n_pages)]
     boilerplate = _find_boilerplate_patterns(classified)
+
     if boilerplate:
         log.info("Detected %d recurring header/footer line pattern(s)", len(boilerplate))
 
@@ -477,9 +546,11 @@ def parse_pdf_document(doc: fitz.Document, file_path: Path) -> list[Document]:
             settings.ocr_min_chars,
         )
         pages.extend(result.ordered_docs or result.table_docs)
+
         if result.ocr_needed:
             ocr_pages_needed.append(page_num)
             ocr_page_set.add(page_num)
+
             if result.text_for_comparison:
                 text_to_compare[page_num] = result.text_for_comparison
         elif result.text_doc:

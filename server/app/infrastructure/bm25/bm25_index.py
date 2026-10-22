@@ -59,6 +59,7 @@ class BM25Index:
         self._hash_to_idx = {h: i for i, h in enumerate(self.hashes)}
 
         total_len = 0
+
         for idx, text in enumerate(self.texts):
             tokens = tokenize(text)
             self.doc_lens.append(len(tokens))
@@ -76,14 +77,17 @@ class BM25Index:
         score = 0.0
         tf = self.token_freqs[doc_idx]
         dl = self.doc_lens[doc_idx]
+
         for t in query_tokens:
             if t not in tf:
                 continue
+
             term_freq = tf[t]
             idf = self._idf(t)
             numerator = term_freq * (self.k1 + 1)
             denominator = term_freq + self.k1 * (1 - self.b + self.b * dl / self.avgdl)
             score += idf * numerator / denominator
+
         return score
 
     def _doc_matches_acl(
@@ -95,6 +99,7 @@ class BM25Index:
     ) -> bool:
         """Check if doc at doc_idx matches any VisibilityCondition."""
         vis = self.doc_visibility[doc_idx]
+
         if vis is None:
             return False
 
@@ -104,27 +109,36 @@ class BM25Index:
         for cond in visibility_conditions:
             if cond.visibility.value != vis:
                 continue
+
             if cond.owner_match == "self" and owner != user_id:
                 continue
+
             if cond.owner_match == "assigned":
                 if owner is None or cond.owner_ids is None or owner not in cond.owner_ids:
                     continue
+
             if cond.group_match:
                 effective_groups = cond.group_ids if cond.group_ids is not None else user_group_ids
+
                 if group is None or group not in effective_groups:
                     continue
+
             return True
+
         return False
 
     def search(self, query: str, k: int = 25) -> list[tuple[int, float]]:
         """Return (doc_index, score) pairs sorted by descending score."""
         q_tokens = tokenize(query)
+
         if not q_tokens:
             return []
 
         candidate_indices: set[int] = set()
+
         for t in q_tokens:
             posting = self.inverted_index.get(t)
+
             if posting:
                 candidate_indices.update(posting)
 
@@ -152,12 +166,15 @@ class BM25Index:
 
         self.last_survival_ratio = None
         q_tokens = tokenize(query)
+
         if not q_tokens:
             return []
 
         candidate_indices: set[int] = set()
+
         for t in q_tokens:
             posting = self.inverted_index.get(t)
+
             if posting:
                 candidate_indices.update(posting)
 
@@ -167,6 +184,7 @@ class BM25Index:
             for i in candidate_indices
             if self._doc_matches_acl(i, visibility_conditions, user_id, user_group_ids)
         }
+
         if before_count > 0:
             self.last_survival_ratio = len(candidate_indices) / before_count
 
@@ -185,10 +203,12 @@ class BM25Index:
             "hashes": self.hashes,
         }
         has_acl = any(v is not None for v in self.doc_visibility)
+
         if has_acl:
             d["doc_visibility"] = self.doc_visibility
             d["doc_owner_id"] = self.doc_owner_id
             d["doc_group_id"] = self.doc_group_id
+
         return d
 
     @classmethod
@@ -273,25 +293,32 @@ class BM25Index:
 
         if visibility is not None:
             self.doc_visibility[index] = visibility
+
         if owner_id is not None:
             self.doc_owner_id[index] = owner_id
+
         if group_id is not None:
             self.doc_group_id[index] = group_id
 
     def index_tokens(self, tokens: list[str], index: int) -> dict[str, int]:
         frequencies = dict(Counter(tokens))
+
         for term in frequencies:
             self.doc_freq[term] = self.doc_freq.get(term, 0) + 1
             self.inverted_index.setdefault(term, set()).add(index)
+
         return frequencies
 
     def remove_tokens(self, index: int) -> None:
         for term in self.token_freqs[index]:
             self.doc_freq[term] -= 1
+
             if self.doc_freq[term] == 0:
                 del self.doc_freq[term]
+
             posting = self.inverted_index[term]
             posting.discard(index)
+
             if not posting:
                 del self.inverted_index[term]
 
@@ -314,6 +341,7 @@ class BM25Index:
         # Compact document positions require shifting only postings after the deletion.
         if removed_index == self.n_docs:
             return
+
         for term, posting in self.inverted_index.items():
             if any(position > removed_index for position in posting):
                 self.inverted_index[term] = {

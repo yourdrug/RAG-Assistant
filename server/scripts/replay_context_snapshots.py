@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 from langchain_core.documents import Document
 
+from application.rag.dto import PreparedQuery, RagRequest, RetrievalResult
 from domain.benchmark.evaluation import evaluate_evidence
 from domain.identity.roles import UserKind, UserRole
 from domain.knowledge.enums import DocDomain
@@ -31,8 +32,7 @@ from infrastructure.ml.rag.rag_config import build_rag_settings
 from infrastructure.ml.rag.rag_formatting import CHARS_PER_TOKEN, render_selected_docs
 from infrastructure.ml.rag.rag_prompts import build_prompt
 from infrastructure.ml.rag.rag_reranking import group_by_section
-from infrastructure.ml.rag.rag_steps import step_build_context
-from infrastructure.ml.rag_pipeline import RagPipelineState
+from infrastructure.ml.rag.rag_steps import RagOperations, lc_documents, scored_values
 
 
 if TYPE_CHECKING:
@@ -163,28 +163,32 @@ def replay_question(
         )
         variants[name] = {"context": context, "selected": selected, "trace": trace, "exclusions": []}
 
-    state = RagPipelineState(
-        rag=rag,
-        t_pipeline_start=0,
-        question=question["question"],
-        ctx=ctx,
-        user=ctx.to_user_context(),
-        access_filter=None,
-        retrieval_filter=None,
-        breadth=Breadth(question["breadth"]),
-        docs=candidates,
-        query_domain=query_domain,
+    request = RagRequest(question["question"], (), ctx, rag, 0, "replay", "")
+    result = RetrievalResult(
+        PreparedQuery(request, question["question"]),
+        Breadth(question["breadth"]),
+        query_domain,
+        0,
+        0,
+        0,
+        0,
+        exact_ref_boost=False,
+        candidates=(),
+        documents=scored_values(candidates),
+        sub_queries=(),
         enumerate_cases=enumerate_cases,
+        average_similarity=0,
     )
+    operations = RagOperations(None, domain_keys=domain_keys, document_access=None)
     captured = BenchmarkEvidence()
     token = active_evidence.set(captured)
     try:
-        step_build_context(state, domain_keys)
+        prepared = operations.build(result)
     finally:
         active_evidence.reset(token)
     variants["new"] = {
         "context": captured.context,
-        "selected": state.prompt_docs,
+        "selected": lc_documents(prepared.documents),
         "exclusions": [compact_exclusion(item) for item in captured.exclusions],
         "trace": [],
     }

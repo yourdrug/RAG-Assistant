@@ -9,7 +9,7 @@ Verifies that:
 
 from __future__ import annotations
 
-from infrastructure.ml.rag_pipeline import RagPipelineState
+from infrastructure.ml.rag.retrieval_work import RetrievalWork
 from domain.rag.context import RagContext
 from domain.identity.user_context import UserContext
 from domain.identity.roles import UserKind, UserRole
@@ -188,7 +188,7 @@ class TestDecomposeCallerIntegration:
 
             await retrieve_with_decomposition(
                 "complex question",
-                RagPipelineState(
+                RetrievalWork(
                     fetch_k=10,
                     retrieval_filter=None,
                     rag=mock_rag,

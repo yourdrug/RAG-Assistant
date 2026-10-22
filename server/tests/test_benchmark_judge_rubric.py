@@ -1,29 +1,33 @@
 """Judge criteria wiring, resume invalidation and sweep objective regressions."""
 
+from infrastructure.benchmark.judging import prompts as judge_prompts
+
 import json
 
 import pytest
 
 from domain.benchmark.scoring import DEFAULT_OBJECTIVE_WEIGHTS
-from infrastructure.benchmark import answer_generators, grouped_judge, runner
-from infrastructure.benchmark.case_evaluator import refresh_judge_rubric
+from infrastructure.benchmark.evaluation import answer_generators
+from infrastructure.benchmark.judging import grouped_judge
+from infrastructure.benchmark.evaluation import runner
+from infrastructure.benchmark.checkpoint import refresh_judge_rubric
 from infrastructure.benchmark.checkpoint import DatabaseBenchmarkCheckpoints
-from infrastructure.benchmark.judge import CORRECTNESS_PROMPT, FAITHFULNESS_PROMPT
-from infrastructure.benchmark.judge_rubric import (
+from infrastructure.benchmark.judging.prompts import CORRECTNESS_PROMPT, FAITHFULNESS_PROMPT
+from infrastructure.benchmark.judging.judge_rubric import (
     CORRECTNESS_CRITERIA,
     FAITHFULNESS_CRITERIA,
     JUDGE_RUBRIC_VERSION,
 )
-from infrastructure.benchmark.sweep_scoring import compute_composite_score
+from infrastructure.benchmark.sweep.scoring import compute_composite_score
 from fakes import FakeUnitOfWorkFactory
 from test_grouped_benchmark_judge import JudgeClient, case, generator, requested_metrics, response
 
 
 def test_both_judge_paths_use_the_same_claim_support_criteria():
     assert FAITHFULNESS_CRITERIA in FAITHFULNESS_PROMPT.format(context="", question="?", answer="a")
-    assert grouped_judge.INSTRUCTIONS["faithfulness"] == FAITHFULNESS_CRITERIA
+    assert judge_prompts.INSTRUCTIONS["faithfulness"] == FAITHFULNESS_CRITERIA
     assert CORRECTNESS_CRITERIA in CORRECTNESS_PROMPT.format(question="?", expected="a", answer="a")
-    assert grouped_judge.INSTRUCTIONS["correctness"] == CORRECTNESS_CRITERIA
+    assert judge_prompts.INSTRUCTIONS["correctness"] == CORRECTNESS_CRITERIA
 
 
 @pytest.mark.asyncio

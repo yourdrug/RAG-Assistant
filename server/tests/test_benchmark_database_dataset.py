@@ -14,7 +14,7 @@ from domain.benchmark.question import BenchmarkQuestion
 from domain.benchmark.run import BenchmarkRun
 from domain.benchmark.sweep import BenchmarkSweep
 from domain.benchmark.question import DEFAULT_DATASET
-from infrastructure.benchmark.sweep_engine import SweepEngine
+from composition.service_providers import build_sweep_engine
 from infrastructure.repositories.benchmark.sqlalchemy_benchmark_question_repository import (
     SQLAlchemyBenchmarkQuestionRepository,
 )
@@ -105,7 +105,7 @@ async def test_phase_b_uses_loaded_dataset_including_cases_without_source_hints(
     benchmark = SimpleNamespace(
         run=AsyncMock(return_value={"hit_rate": 1, "avg_faithfulness": 8, "avg_relevancy": 7})
     )
-    engine = SweepEngine(factory, benchmark_service=benchmark)
+    engine = build_sweep_engine(factory, benchmark_service=benchmark)
     cache = AsyncMock(return_value=({}, {}, {}))
     monkeypatch.setattr(engine, "cache_candidates", cache)
 
@@ -166,7 +166,8 @@ async def test_worker_loads_selected_dataset_before_evaluation(monkeypatch):
     }
     run = AsyncMock(return_value=[])
     ctx["container"].infrastructure.ml = SimpleNamespace(
-        benchmark_service=BenchmarkService(rag_service=object(), runner=SimpleNamespace(run=run))
+        ml_clients=None,
+        benchmark_service=BenchmarkService(rag_service=object(), runner=SimpleNamespace(run=run)),
     )
 
     async def tracked(factory_arg, job_id, action, **kwargs):

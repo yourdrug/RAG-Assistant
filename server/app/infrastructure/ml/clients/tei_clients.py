@@ -40,18 +40,23 @@ class TEIEmbeddingsClient(ManagedHTTPPool):
     async def embed_documents(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
+
         r = await self.post(f"{self._base_url}/embed", json={"inputs": texts})
         r.raise_for_status()
         data = r.json()
+
         if not isinstance(data, list):
             short = repr(data)[:200]
             raise RuntimeError(f"TEI /embed returned unexpected type {type(data).__name__}: {short}")
+
         none_indices = [i for i, v in enumerate(data) if v is None]
+
         if none_indices:
             raise RuntimeError(
                 f"TEI /embed returned None for {len(none_indices)}/{len(data)} texts "
                 f"(indices: {none_indices[:10]}{'...' if len(none_indices) > 10 else ''})"
             )
+
         return data
 
     def embed_query_sync(self, text: str) -> list[float]:
@@ -72,6 +77,7 @@ class TEIRerankerClient(ManagedHTTPPool):
     async def predict(self, pairs: list[tuple[str, str]]) -> list[float]:
         if not pairs:
             return []
+
         query = pairs[0][0]
         texts = [p[1] for p in pairs]
         payload = {"query": query, "texts": texts}
@@ -83,6 +89,7 @@ class TEIRerankerClient(ManagedHTTPPool):
     def predict_sync(self, pairs: list[tuple[str, str]]) -> list[float]:
         if not pairs:
             return []
+
         query = pairs[0][0]
         texts = [p[1] for p in pairs]
         payload = {"query": query, "texts": texts}
@@ -96,14 +103,21 @@ class TEIRerankerClient(ManagedHTTPPool):
     def ordered_scores(data: list[dict], count: int) -> list[float]:
         """TEI ranks results; its index identifies the original input text."""
         scores: dict[int, float] = {}
+
         for item in data:
             index = item.get("index")
+
             if type(index) is not int or not 0 <= index < count or index in scores:
                 raise ValueError("Invalid or duplicate TEI rerank index")
+
             score = float(item["score"])
+
             if not math.isfinite(score):
                 raise ValueError("Non-finite TEI rerank score")
+
             scores[index] = score
+
         if len(scores) != count:
             raise ValueError("Incomplete TEI rerank response")
+
         return [scores[index] for index in range(count)]

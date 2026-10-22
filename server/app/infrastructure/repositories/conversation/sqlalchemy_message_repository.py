@@ -33,6 +33,7 @@ class SQLAlchemyMessageRepository:
         rows = result.scalars().all()
 
         messages = []
+
         for orm in reversed(rows):
             messages.append(
                 Message(
@@ -43,14 +44,17 @@ class SQLAlchemyMessageRepository:
                     creation_date=orm.creation_date,
                 )
             )
+
         return messages
 
     async def list_page(
         self, conversation_id: int, limit: int, before_id: int | None = None
     ) -> list[Message]:
         query = select(MessageModel).where(MessageModel.conversation_id == conversation_id)
+
         if before_id is not None:
             query = query.where(MessageModel.id < before_id)
+
         result = await self._db.execute(query.order_by(MessageModel.id.desc()).limit(limit))
         return [
             Message(

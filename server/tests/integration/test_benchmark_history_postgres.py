@@ -144,7 +144,7 @@ async def test_fresh_sweep_worker_restores_database_without_data_dir(pg_engine, 
     from unittest.mock import AsyncMock
     from config import settings
     from infrastructure.benchmark.checkpoint import DatabaseBenchmarkCheckpoints
-    from infrastructure.benchmark.sweep_engine import SweepEngine
+    from composition.service_providers import build_sweep_engine
 
     monkeypatch.setattr(settings, 'data_dir', '/proc/unavailable')
     sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
@@ -166,7 +166,7 @@ async def test_fresh_sweep_worker_restores_database_without_data_dir(pg_engine, 
         )
 
     def new_engine():
-        return SweepEngine(
+        return build_sweep_engine(
             factory, checkpoint_factory=lambda sweep_id, root: DatabaseBenchmarkCheckpoints(factory, sweep_id)
         )
 

@@ -3,14 +3,14 @@
 [format]
 exclude = [
     "app/composition/container.py",
-    "app/infrastructure/benchmark/case_evaluator.py",
+    "app/infrastructure/benchmark/evaluation/case_evaluator.py",
     "app/infrastructure/benchmark/corpus.py",
-    "app/infrastructure/benchmark/grouped_judge.py",
-    "app/infrastructure/benchmark/legacy_import.py",
-    "app/infrastructure/benchmark/metrics.py",
-    "app/infrastructure/benchmark/persistence.py",
-    "app/infrastructure/benchmark/runner.py",
-    "app/infrastructure/benchmark/token_usage.py",
+    "app/infrastructure/benchmark/judging/grouped_judge.py",
+    "app/infrastructure/benchmark/reporting/legacy_import.py",
+    "app/infrastructure/benchmark/evaluation/metrics.py",
+    "app/infrastructure/benchmark/reporting/progress.py",
+    "app/infrastructure/benchmark/evaluation/runner.py",
+    "app/infrastructure/benchmark/judging/token_usage.py",
     "app/infrastructure/budget/job_context.py",
     "app/infrastructure/budget/ledger.py",
     "app/infrastructure/budget/provider_catalog.py",
@@ -90,30 +90,30 @@ exclude = [
 "app/infrastructure/auth/api_key_provider.py" = ["ANN201", "BLE001", "I001", "RUF002"]
 "app/infrastructure/auth/jwt_provider.py" = ["I001"]
 "app/infrastructure/benchmark/__init__.py" = ["ERA001", "I001", "RUF022", "RUF100"]
-"app/infrastructure/benchmark/answer_generators.py" = ["ANN001", "ANN002", "ANN003", "ANN201", "EM101", "I001", "TC001", "TRY003"]
-"app/infrastructure/benchmark/benchmark_history.py" = ["DTZ005", "I001", "PIE810", "PLR2004", "PLW2901", "PTH123"]
-"app/infrastructure/benchmark/case_evaluator.py" = ["ANN001", "I001", "PLC0415", "PLR0915", "Q000", "TC001", "TC003", "TC006"]
-"app/infrastructure/benchmark/case_metrics.py" = ["ANN001", "I001"]
+"app/infrastructure/benchmark/evaluation/answer_generators.py" = ["ANN001", "ANN002", "ANN003", "ANN201", "EM101", "I001", "TC001", "TRY003"]
+"app/infrastructure/benchmark/reporting/benchmark_history.py" = ["DTZ005", "I001", "PIE810", "PLR2004", "PLW2901", "PTH123"]
+"app/infrastructure/benchmark/evaluation/case_evaluator.py" = ["ANN001", "I001", "PLC0415", "PLR0915", "Q000", "TC001", "TC003", "TC006"]
+"app/infrastructure/benchmark/evaluation/case_metrics.py" = ["ANN001", "I001"]
 "app/infrastructure/benchmark/checkpoint.py" = ["ANN001", "ANN201", "ANN202"]
 "app/infrastructure/benchmark/corpus.py" = ["ANN001", "ANN201", "Q000"]
-"app/infrastructure/benchmark/evidence_judge.py" = ["ANN001", "BLE001", "C901", "I001", "RUF001"]
-"app/infrastructure/benchmark/grouped_judge.py" = ["ANN001", "BLE001", "C901", "EM101", "EM102", "I001", "PLR0913", "PLR0915", "PLR0917", "PLR2004", "Q000", "RUF001", "SIM117", "TRY003", "TRY004", "TRY301"]
-"app/infrastructure/benchmark/judge.py" = ["ANN001", "ANN201", "ARG001", "BLE001", "EM101", "I001", "PLR0913", "RUF001", "TRY003", "TRY300", "TRY400"]
-"app/infrastructure/benchmark/judge_diagnostics.py" = ["ANN001", "I001"]
-"app/infrastructure/benchmark/judge_rubric.py" = ["RUF001"]
-"app/infrastructure/benchmark/legacy_import.py" = ["ANN201", "ARG001", "EM101", "I001", "Q000", "TC003", "TRY003", "TRY004"]
-"app/infrastructure/benchmark/metrics.py" = ["ANN001", "ARG001", "BLE001", "EM101", "I001", "PLC0415", "PLR0913", "Q000", "RUF100", "TRY003"]
-"app/infrastructure/benchmark/persistence.py" = ["ANN201", "C901", "DTZ005", "I001", "PLR0915", "PLR2004", "Q000", "RUF001"]
-"app/infrastructure/benchmark/runner.py" = ["ANN001", "C901", "EM101", "FBT001", "FBT002", "I001", "PLC0414", "PLR0913", "PLR0915", "PLR0917", "Q000", "RUF021", "TC006", "TRY003", "TRY004"]
-"app/infrastructure/benchmark/source_hints.py" = ["PLC0414"]
-"app/infrastructure/benchmark/sweep_data.py" = ["ANN001", "I001", "PLC0415", "TC001"]
-"app/infrastructure/benchmark/sweep_engine.py" = ["ANN001", "C901", "EM101", "EM102", "I001", "PLC0414", "PLR0912", "PLR0913", "PLR0915", "PLR0917", "TC001", "TC003", "TC006", "TRY003"]
-"app/infrastructure/benchmark/sweep_full_evaluation.py" = ["I001", "PLR0913", "PLR0917", "TC001", "TC003"]
-"app/infrastructure/benchmark/sweep_reranking.py" = ["ANN001", "PLR0917", "TC001"]
-"app/infrastructure/benchmark/sweep_scoring.py" = ["ANN001", "ANN201", "C901", "EM101", "I001", "PLC0414", "PLC0415", "PLR0912", "PLR0913", "PLR0915", "PLR0917", "RUF002", "RUF100", "TRY003", "UP037"]
-"app/infrastructure/benchmark/sweep_settings.py" = ["ANN201", "TC003"]
-"app/infrastructure/benchmark/sweep_strategies.py" = ["ANN001", "ANN202", "EM101", "I001", "N818", "PLC0415", "TRY003"]
-"app/infrastructure/benchmark/token_usage.py" = ["ANN001", "I001", "Q000"]
+"app/infrastructure/benchmark/judging/evidence_judge.py" = ["ANN001", "BLE001", "C901", "I001", "RUF001"]
+"app/infrastructure/benchmark/judging/grouped_judge.py" = ["ANN001", "BLE001", "C901", "EM101", "EM102", "I001", "PLR0913", "PLR0915", "PLR0917", "PLR2004", "Q000", "RUF001", "SIM117", "TRY003", "TRY004", "TRY301"]
+"app/infrastructure/benchmark/judging/judge.py" = ["ANN001", "ANN201", "ARG001", "BLE001", "EM101", "I001", "PLR0913", "RUF001", "TRY003", "TRY300", "TRY400"]
+"app/infrastructure/benchmark/judging/judge_diagnostics.py" = ["ANN001", "I001"]
+"app/infrastructure/benchmark/judging/judge_rubric.py" = ["RUF001"]
+"app/infrastructure/benchmark/reporting/legacy_import.py" = ["ANN201", "ARG001", "EM101", "I001", "Q000", "TC003", "TRY003", "TRY004"]
+"app/infrastructure/benchmark/evaluation/metrics.py" = ["ANN001", "ARG001", "BLE001", "EM101", "I001", "PLC0415", "PLR0913", "Q000", "RUF100", "TRY003"]
+"app/infrastructure/benchmark/reporting/progress.py" = ["ANN201", "C901", "DTZ005", "I001", "PLR0915", "PLR2004", "Q000", "RUF001"]
+"app/infrastructure/benchmark/evaluation/runner.py" = ["ANN001", "C901", "EM101", "FBT001", "FBT002", "I001", "PLC0414", "PLR0913", "PLR0915", "PLR0917", "Q000", "RUF021", "TC006", "TRY003", "TRY004"]
+"app/infrastructure/benchmark/evaluation/source_hints.py" = ["PLC0414"]
+"app/infrastructure/benchmark/sweep/data.py" = ["ANN001", "I001", "PLC0415", "TC001"]
+"app/application/benchmark/sweep.py" = ["ANN001", "C901", "EM101", "EM102", "I001", "PLC0414", "PLR0912", "PLR0913", "PLR0915", "PLR0917", "TC001", "TC003", "TC006", "TRY003"]
+"app/application/benchmark/sweep_evaluation.py" = ["I001", "PLR0913", "PLR0917", "TC001", "TC003"]
+"app/infrastructure/benchmark/sweep/reranking.py" = ["ANN001", "PLR0917", "TC001"]
+"app/infrastructure/benchmark/sweep/scoring.py" = ["ANN001", "ANN201", "C901", "EM101", "I001", "PLC0414", "PLC0415", "PLR0912", "PLR0913", "PLR0915", "PLR0917", "RUF002", "RUF100", "TRY003", "UP037"]
+"app/infrastructure/benchmark/sweep/settings.py" = ["ANN201", "TC003"]
+"app/infrastructure/benchmark/sweep/strategies.py" = ["ANN001", "ANN202", "EM101", "I001", "N818", "PLC0415", "TRY003"]
+"app/infrastructure/benchmark/judging/token_usage.py" = ["ANN001", "I001", "Q000"]
 "app/infrastructure/bm25/__init__.py" = ["I001"]
 "app/infrastructure/bm25/bm25_index.py" = ["C901", "EM101", "EM102", "I001", "PLR0917", "SIM102", "TRY003"]
 "app/infrastructure/bm25/bm25_invalidation.py" = ["ANN001", "I001", "TRY203"]
@@ -213,8 +213,7 @@ exclude = [
 "app/infrastructure/ml/rag/rag_sources.py" = ["ANN001", "C901", "FBT001", "I001", "PLR0915", "PLR1730"]
 "app/infrastructure/ml/rag/rag_steps.py" = ["ANN001", "ANN202", "C901", "DTZ011", "EM101", "I001", "N806", "PLC0415", "PLR0911", "PLR0915", "RSE102", "SLF001", "TC001", "TC003", "TRY003"]
 "app/domain/rag/evidence/table_context.py" = ["PLR0911", "RUF001"]
-"app/infrastructure/ml/rag_pipeline.py" = ["I001", "TC001", "UP037"]
-"app/infrastructure/ml/rag_service.py" = ["C901", "I001", "PLC0415", "PLR2004", "TC001", "TC003", "RUF100"]
+"app/infrastructure/ml/rag/retrieval_work.py" = ["I001", "TC001", "UP037"]
 "app/infrastructure/ml/rtf_decree_parser.py" = ["I001", "TC003", "UP037"]
 "app/infrastructure/ml/usage_capture.py" = ["ANN001", "ANN002", "ANN003", "ANN201", "ANN204", "I001", "Q000"]
 "app/infrastructure/rate_limit/__init__.py" = ["I001", "RUF100"]
@@ -504,3 +503,23 @@ exclude = [
 "app/domain/rag/evidence/links.py" = ["RUF001", "RUF007"]
 
 "app/domain/rag/evidence/scope.py" = ["RUF001"]
+
+"app/infrastructure/benchmark/judging/clients.py" = ["ANN001", "ANN201", "ARG001", "BLE001", "EM101", "I001", "PLR0913", "RUF001", "TRY003", "TRY300", "TRY400"]
+
+"app/infrastructure/benchmark/judging/prompts.py" = ["ANN001", "ANN201", "ARG001", "BLE001", "EM101", "I001", "PLR0913", "RUF001", "TRY003", "TRY300", "TRY400"]
+
+"app/infrastructure/benchmark/judging/requests.py" = ["ANN001", "BLE001", "C901", "EM101", "EM102", "I001", "PLR0913", "PLR0915", "PLR0917", "PLR2004", "Q000", "RUF001", "SIM117", "TRY003", "TRY004", "TRY301"]
+
+"app/infrastructure/benchmark/judging/context_judge.py" = ["ANN001", "ARG001", "BLE001", "EM101", "I001", "PLC0415", "PLR0913", "Q000", "RUF100", "TRY003"]
+
+"app/infrastructure/benchmark/evaluation/case_judging.py" = ["ANN001", "I001", "PLC0415", "PLR0915", "Q000", "TC001", "TC003", "TC006"]
+
+"app/infrastructure/benchmark/sweep/search_space.py" = ["ANN001", "ANN201", "C901", "EM101", "I001", "PLC0414", "PLC0415", "PLR0912", "PLR0913", "PLR0915", "PLR0917", "RUF002", "RUF100", "TRY003", "UP037"]
+
+"app/infrastructure/benchmark/sweep/candidates.py" = ["ANN001", "ANN201", "C901", "EM101", "I001", "PLC0414", "PLC0415", "PLR0912", "PLR0913", "PLR0915", "PLR0917", "RUF002", "RUF100", "TRY003", "UP037"]
+
+"app/infrastructure/corpus/clients.py" = ["ANN001", "ANN201", "ANN204", "C901", "EM101", "I001", "INP001", "PLR0912", "PLR0915", "PLR2004", "Q000", "Q001", "TRY003", "TRY301"]
+
+"app/infrastructure/corpus/repository.py" = ["ANN001", "ANN201", "ANN204", "C901", "EM101", "I001", "INP001", "PLR0912", "PLR0915", "PLR2004", "Q000", "Q001", "TRY003", "TRY301"]
+
+"app/infrastructure/corpus/locks.py" = ["ANN001", "ANN201", "ANN204", "C901", "EM101", "I001", "INP001", "PLR0912", "PLR0915", "PLR2004", "Q000", "Q001", "TRY003", "TRY301"]

@@ -86,9 +86,11 @@ class UnitOfWorkFactory:
         # Pin a physical connection: a session lock must never leak into the pool.
         async with self._database.get_session(master=True) as session:
             engine = session.bind
+
             if engine is None:
                 msg = "Ingestion requires a bound database engine"
                 raise RuntimeError(msg)
+
             async with engine.connect() as connection:
                 try:
                     await connection.execute(text("SELECT pg_advisory_lock(724193820146)"))
@@ -129,6 +131,7 @@ class UnitOfWorkFactory:
                 ingestion_registry=SQLAlchemyIngestionRegistryRepository(session),
             ),
         )
+
         if self._config_broadcaster is not None:
             broadcaster = self._config_broadcaster
 
@@ -137,5 +140,6 @@ class UnitOfWorkFactory:
                     await broadcaster.broadcast_within_session(session, event)
 
             uow.on_event(_publish_to_broadcaster)
+
         async with uow:
             yield uow

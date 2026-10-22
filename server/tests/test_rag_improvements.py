@@ -29,9 +29,14 @@ from infrastructure.ml.rag.rag_formatting import format_docs_with_selection
 from infrastructure.ml.rag.rag_relevance import filter_cited_documents
 from infrastructure.ml.rag.rag_reranking import rerank_documents
 from infrastructure.ml.rag.rag_sources import extract_sources
-from infrastructure.ml.rag.rag_steps import step_build_context, step_check_cache, step_reject_ood
-from infrastructure.ml.rag_pipeline import RagPipelineState
-from infrastructure.ml.rag_service import RagService
+from rag_stage_fixtures import (
+    build_context as step_build_context,
+    check_cache as step_check_cache,
+    reject_ood as step_reject_ood,
+)
+from application.rag.dto import PreparedQuery
+from rag_stage_fixtures import stage_fixture
+from composition.service_providers import create_rag_service
 from fakes import FakeUnitOfWorkFactory
 from test_rag_pipeline import _make_rag
 
@@ -42,7 +47,7 @@ def doc(text, document_id, source="same.pdf"):
 
 def state_for(docs, **kwargs):
     ctx = kwargs.pop("ctx", RagContext(1, UserKind.INTERNAL, UserRole.USER))
-    return RagPipelineState(
+    return stage_fixture(
         rag=kwargs.pop("rag", _make_rag()),
         t_pipeline_start=0,
         question=kwargs.pop("question", "Как оформить договор?"),
@@ -154,8 +159,8 @@ def test_exact_token_counter_is_applied_to_the_complete_formatted_prompt():
 def test_all_search_paths_can_receive_the_full_curator_snapshot():
     scope = CuratorScope(managed_internal_ids=(10,), managed_group_ids=(20,), managed_client_ids=(30,))
     ctx = RagContext(1, UserKind.INTERNAL, UserRole.CURATOR, [2], scope)
-    service = RagService(MagicMock(), document_access=MagicMock())
-    state = service._init_state("Q", [], ctx)
+    service = create_rag_service(MagicMock(), document_access=MagicMock())
+    state = service.preparation.retrieval_work(PreparedQuery(service.preparation.request("Q", [], ctx), "Q"))
     assert state.user.group_ids == (2,)
     assert state.user.managed_internal_ids == (10,)
     assert state.user.managed_group_ids == (20,)

@@ -33,9 +33,11 @@ class PIIDetector:
     def scan(self, text: str) -> list[str]:
         """Scan text for PII patterns. Returns list of detected types."""
         found = []
+
         for pii_type, pattern in self._patterns:
             if pattern.search(text):
                 found.append(pii_type)
+
         return found
 
     def scan_and_redact(self, text: str) -> tuple[str, list[str]]:
@@ -44,10 +46,12 @@ class PIIDetector:
         Redaction replaces matched PII with ``self.mask`` (default: "***").
         """
         found = self.scan(text)
+
         if not found:
             return text, found
 
         redacted = text
+
         for pii_type, pattern in self._patterns:
             if pii_type in found:
                 redacted = pattern.sub(self._mask, redacted)

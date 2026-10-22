@@ -6,12 +6,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from composition.service_providers import build_sweep_engine
 from config import settings
 from domain.benchmark.sweep import BenchmarkStrategy, BenchmarkSweep
 from fakes import FakeUnitOfWorkFactory
 from infrastructure.benchmark.checkpoint import DatabaseBenchmarkCheckpoints
-from infrastructure.benchmark.sweep_engine import SweepEngine
-from infrastructure.benchmark.sweep_settings import settings_fingerprint, settings_snapshot
+from infrastructure.benchmark.sweep.settings import settings_fingerprint, settings_snapshot
 
 
 @pytest.fixture
@@ -34,7 +34,7 @@ async def test_resume_restores_phase_a_and_invalidates_changed_search(checkpoint
         top_n_llm=1,
     )
     question = {"question": "q", "source_hint": "law.pdf"}
-    first = SweepEngine(None, checkpoint_factory=checkpoints)
+    first = build_sweep_engine(None, checkpoint_factory=checkpoints)
     first.load_questions = AsyncMock(return_value=[question])
     first.cache_candidates = AsyncMock(return_value=({}, {}, {}))
     first._data.cache_reranker_scores = AsyncMock(return_value={})
@@ -45,7 +45,7 @@ async def test_resume_restores_phase_a_and_invalidates_changed_search(checkpoint
     original_results = first.run_phase_b.call_args.args[0]
 
     # A fresh process restores the persisted shortlist, including random samples.
-    resumed = SweepEngine(None, checkpoint_factory=checkpoints)
+    resumed = build_sweep_engine(None, checkpoint_factory=checkpoints)
     resumed.load_questions = AsyncMock(side_effect=AssertionError("dataset loaded again"))
     resumed.cache_candidates = AsyncMock(side_effect=AssertionError("retrieval repeated"))
     resumed._data.cache_reranker_scores = AsyncMock(side_effect=AssertionError("reranking repeated"))
@@ -85,7 +85,9 @@ async def test_concurrent_sweeps_keep_separate_run_state(checkpoints, monkeypatc
         observed.append((kwargs["checkpoints"]._sweep_id, kwargs["top_k"], kwargs["questions"][0]["id"]))
         return {"hit_rate": 1}
 
-    engine = SweepEngine(None, benchmark_service=SimpleNamespace(run=full), checkpoint_factory=checkpoints)
+    engine = build_sweep_engine(
+        None, benchmark_service=SimpleNamespace(run=full), checkpoint_factory=checkpoints
+    )
     monkeypatch.setattr(engine, "evaluate_phase_a", phase_a)
     monkeypatch.setattr(
         engine,

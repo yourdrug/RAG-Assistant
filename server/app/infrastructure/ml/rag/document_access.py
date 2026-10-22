@@ -28,6 +28,7 @@ async def filter_scored_documents(docs: list, access: DocumentAccessPort, user: 
 
 async def cache_is_accessible(cached: dict, access: DocumentAccessPort, user: UserContext) -> bool:
     dependencies = cached.get("document_ids")
+
     # Old/incomplete entries cannot prove which documents the answer used.
     if (
         not isinstance(dependencies, list)
@@ -35,13 +36,18 @@ async def cache_is_accessible(cached: dict, access: DocumentAccessPort, user: Us
         or not all(map(valid_document_id, dependencies))
     ):
         return False
+
     required = set(dependencies)
     sources = cached.get("sources")
+
     if not isinstance(sources, list):
         return False
+
     for source in sources:
         if not isinstance(source, dict) or not valid_document_id(source.get("document_id")):
             return False
+
         if source["document_id"] not in required:
             return False
+
     return required <= await access.allowed_document_ids(sorted(required), user)

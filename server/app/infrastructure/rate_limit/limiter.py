@@ -49,6 +49,7 @@ class PyrateRateLimiter:
     ) -> None:
         if not policies:
             raise ValueError("policies must not be empty")
+
         self._policies = policies
         self._fail_open = fail_open
         self._factory = RedisBucketFactory(redis, policies, key_prefix=key_prefix, max_buckets=max_buckets)
@@ -60,6 +61,7 @@ class PyrateRateLimiter:
 
     async def check(self, policy_name: RateLimitPolicyName, principal: str) -> RateLimitDecision:
         policy = self._policies.get(policy_name)
+
         if policy is None:
             raise ValueError(f"Unknown rate limit policy: {policy_name!r}")
 
@@ -74,8 +76,10 @@ class PyrateRateLimiter:
                 type(exc).__name__,
                 exc,
             )
+
             if self._fail_open:
                 return RateLimitDecision(allowed=True, degraded=True)
+
             return RateLimitDecision(
                 allowed=False,
                 retry_after_sec=policy.retry_after_sec,
@@ -120,10 +124,12 @@ class PyrateRateLimiter:
         fallback = (self._tightest_limit[policy_name], policy.retry_after_sec)
         try:
             bucket = self._factory.buckets.get(item_name)
+
             if bucket is None:
                 return fallback
 
             failing_rate = getattr(bucket, "failing_rate", None)
+
             if failing_rate is None:
                 return fallback
 
@@ -159,9 +165,12 @@ class DynamicRateLimiter:
         policies = build_policies(self._settings)
         enabled = self._settings.rate_limit_enabled
         fail_open = self._settings.rate_limit_fail_open
+
         if not enabled:
             return RateLimitDecision(allowed=True)
+
         signature = (tuple(policies.values()), fail_open)
+
         if signature != self._signature:
             new_generation = LimiterGeneration(
                 PyrateRateLimiter(
@@ -175,14 +184,18 @@ class DynamicRateLimiter:
             self._current = new_generation
             self._generations.add(new_generation)
             self._signature = signature
+
         generation = self._current
+
         if generation is None:
             raise RuntimeError("Rate limiter generation unavailable")
+
         generation.users += 1
         try:
             return await generation.limiter.check(policy_name, principal)
         finally:
             generation.users -= 1
+
             for retired in tuple(self._generations):
                 if retired is not self._current and retired.users == 0:
                     self._generations.discard(retired)
@@ -191,4 +204,5 @@ class DynamicRateLimiter:
     async def aclose(self) -> None:
         for generation in tuple(self._generations):
             await generation.limiter.aclose()
+
         self._generations.clear()

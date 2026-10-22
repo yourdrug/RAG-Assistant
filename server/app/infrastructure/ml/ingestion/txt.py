@@ -20,11 +20,13 @@ def _read_text_robust(file_path: Path) -> str:
     only if nothing else works.
     """
     raw = file_path.read_bytes()
+
     for enc in _ENCODINGS:
         try:
             return raw.decode(enc)
         except (UnicodeDecodeError, ValueError):
             continue
+
     return raw.decode("utf-8", errors="replace")
 
 

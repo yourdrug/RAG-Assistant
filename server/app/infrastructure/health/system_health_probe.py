@@ -72,12 +72,14 @@ class SystemHealthProbe:
                 request_timeout=5,
                 headers={"Authorization": f"Bearer {settings.openrouter_api_key}"},
             )
+
             if response.status_code < 400:
                 return HealthCheckResult(
                     status=HealthStatus.OK.value,
                     latency_ms=latency_ms,
                     models=[settings.openrouter_model],
                 )
+
             logger.warning("OpenRouter health probe returned HTTP %s", response.status_code)
             return HealthCheckResult(status=f"error: HTTP {response.status_code}")
         except Exception as e:
@@ -161,12 +163,14 @@ class QdrantInfo:
     def read_collections(client: QdrantClient) -> list[dict[str, Any]]:
         col_list = client.get_collections()
         result = []
+
         for col in col_list.collections:
             info = client.get_collection(col.name)
             vectors_cfg = info.config.params.vectors if info.config.params.vectors else None
             hnsw_cfg = info.config.hnsw_config
             vector_size = None
             vector_distance = None
+
             if isinstance(vectors_cfg, dict):
                 if vectors_cfg:
                     first = next(iter(vectors_cfg.values()))
@@ -177,6 +181,7 @@ class QdrantInfo:
                 vector_size = vectors_cfg.size
                 d = vectors_cfg.distance
                 vector_distance = str(d.value) if hasattr(d, "value") else str(d)
+
             result.append(
                 {
                     "name": col.name,
@@ -197,4 +202,5 @@ class QdrantInfo:
                     "distance": vector_distance,
                 }
             )
+
         return result

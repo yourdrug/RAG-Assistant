@@ -9,6 +9,7 @@ active_client_leases: ContextVar[frozenset[int]] = ContextVar("active_client_lea
 @asynccontextmanager
 async def client_operation(client):
     lease = getattr(client, "lease", None)
+
     if lease is None:
         yield
     else:
@@ -19,6 +20,7 @@ async def client_operation(client):
 @contextmanager
 def sync_client_operation(client):
     lease = getattr(client, "lease", None)
+
     if lease is None:
         yield
     else:

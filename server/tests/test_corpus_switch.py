@@ -6,7 +6,7 @@ import pytest
 from infrastructure.corpus.snapshot import CorpusSnapshot, BoundQdrantClient
 from qdrant_client import QdrantClient, models
 from config import settings
-from infrastructure.corpus.control import probe_active_corpus
+from infrastructure.corpus.clients import probe_active_corpus
 from qdrant_client.models import Distance, VectorParams, PointStruct, SparseVectorParams, Modifier
 from infrastructure.repositories.vector.sparse_vectors import SPARSE_VECTOR_NAME, point_vectors
 import hashlib
@@ -156,7 +156,7 @@ async def test_generic_config_update_cannot_bypass_corpus_switch():
 
 
 def test_candidate_origin_requires_deployment_approval():
-    from infrastructure.corpus.control import validate_corpus_endpoint
+    from infrastructure.corpus.clients import validate_corpus_endpoint
 
     validate_corpus_endpoint('http://qdrant:6333', 'http://qdrant:6333')
     with pytest.raises(ValidationError):
@@ -178,7 +178,7 @@ async def test_poll_catches_up_to_durable_active_generation(monkeypatch, phase, 
     registry = MLClientRegistry()
     registry.install_corpus(BoundQdrantClient(Mock(), old), object())
     listener = Mock(synchronize=AsyncMock())
-    control = module.PostgresCorpusControl(None, registry, listener)
+    control = module.PostgresCorpusControl(Mock(), registry, listener)
     control.read_state = AsyncMock(
         return_value={
             'phase': phase,
@@ -220,7 +220,7 @@ async def test_corpus_readiness_fences_stale_replicas(fault):
     registry = MLClientRegistry()
     snapshot = CorpusSnapshot('http://qdrant:6333', 'docs', 'v1', 'i', 'old')
     registry.install_corpus(BoundQdrantClient(Mock(), snapshot), object())
-    control = PostgresCorpusControl(None, registry, None)
+    control = PostgresCorpusControl(Mock(), registry, None)
     control.task = Mock(done=Mock(return_value=fault == 'monitor'))
     control.last_sync = monotonic() - (20 if fault == 'stalled' else 0)
     control.error = 'failed' if fault == 'error' else None
@@ -295,8 +295,8 @@ def test_bootstrap_checks_sparse_config_for_empty_collection(
         snapshot = CorpusSnapshot("http://qdrant:6333", "docs", "docs", "identity")
         if modifier != models.Modifier.IDF:
             with pytest.raises(ValidationError, match="sparse index"):
-                probe_active_corpus(client, snapshot, False)
+                probe_active_corpus(client, snapshot, completed=False)
         else:
-            probe_active_corpus(client, snapshot, False)
+            probe_active_corpus(client, snapshot, completed=False)
     finally:
         client.close()

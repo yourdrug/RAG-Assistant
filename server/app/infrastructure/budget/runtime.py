@@ -32,14 +32,18 @@ class BudgetRuntime:
             pass
         else:
             raise BudgetError('Synchronous paid clients must run outside the event loop')
+
         if self.loop is None or not self.loop.is_running():
             raise BudgetError('Cost backend event loop is unavailable')
+
         return asyncio.run_coroutine_threadsafe(function(*args), self.loop).result()
 
     def decode_policy(self, rows):
         values = dict(rows)
+
         if not {'cost_rate_limit_enabled', 'cost_hourly_limit', 'cost_daily_limit'} <= values.keys():
             raise BudgetError('Budget configuration is not initialized')
+
         return BudgetPolicy(
             parse_bool(values['cost_rate_limit_enabled']),
             values['cost_hourly_limit'],
@@ -53,8 +57,10 @@ class BudgetRuntime:
                 str(settings.cost_hourly_limit),
                 str(settings.cost_daily_limit),
             )
+
         if self.session_factory is None:
             raise BudgetError('Cost backend is not initialized')
+
         async with self.session_factory() as session:
             rows = (
                 await session.execute(
@@ -72,6 +78,7 @@ class BudgetRuntime:
                 str(settings.cost_hourly_limit),
                 str(settings.cost_daily_limit),
             )
+
         with psycopg.connect(
             host=settings.db_host,
             port=int(settings.db_port),
@@ -90,6 +97,7 @@ class BudgetRuntime:
     async def rate(self, provider, model):
         if self.session_factory is None:
             raise BudgetError('Cost backend is not initialized')
+
         async with self.session_factory() as session:
             row = (
                 (
@@ -106,11 +114,15 @@ class BudgetRuntime:
                 .mappings()
                 .one_or_none()
             )
+
         if row is None:
             raise BudgetError('Unknown provider/model price; paid call blocked')
+
         rate = CostRate(**row)
+
         if self.catalog is None or rate.context_tokens < await self.catalog.max_context(provider, model):
             raise BudgetError('Provider context bound changed; publish a verified tariff version')
+
         async with self.session_factory() as session:
             violated = (
                 await session.execute(
@@ -120,8 +132,10 @@ class BudgetRuntime:
                     {'provider': provider, 'model': model, 'version': rate.version},
                 )
             ).scalar_one()
+
         if violated:
             raise BudgetError('This tariff exceeded its reservation bound; paid call blocked')
+
         return rate
 
 

@@ -52,6 +52,7 @@ class BoundQdrantClient:
         with self.lock:
             if self.closed:
                 raise RuntimeError('Corpus client is closed')
+
             self.active += 1
             self.idle.clear()
         try:
@@ -59,8 +60,10 @@ class BoundQdrantClient:
         finally:
             with self.lock:
                 self.active -= 1
+
                 if not self.active:
                     self.idle.set()
+
                 self.close_if_idle()
 
     def close_if_idle(self):
@@ -84,6 +87,7 @@ class BoundQdrantClient:
         self.close()
         await asyncio.to_thread(self.idle.wait)
         self.close()
+
         if self.close_task is not None:
             await self.close_task
 
@@ -94,6 +98,7 @@ class BoundQdrantClient:
 
     def __getattr__(self, name):
         method = getattr(self.client, name)
+
         if not callable(method):
             return method
 
@@ -103,6 +108,7 @@ class BoundQdrantClient:
                 kwargs['collection_name'] = self.snapshot.physical_collection
             elif args and name == 'get_collection' and args[0] == self.snapshot.alias:
                 args = (self.snapshot.physical_collection, *args[1:])
+
             with self.lease():
                 if name in {
                     'upsert',
@@ -124,6 +130,7 @@ class BoundQdrantClient:
                     if self.write_guard is not None:
                         with self.write_guard(self.snapshot):
                             return method(*args, **kwargs)
+
                 return method(*args, **kwargs)
 
         return invoke
@@ -131,25 +138,12 @@ class BoundQdrantClient:
 
 def collection_for(client) -> str:
     snapshot = getattr(client, 'snapshot', None)
+
     if isinstance(snapshot, CorpusSnapshot):
         return snapshot.physical_collection
+
     # Compatibility for callers supplying a raw Qdrant client.
     return settings.collection_name
-
-
-def pin_corpus_stream(function):
-    @wraps(function)
-    async def stream(service, *args, **kwargs):
-        snapshot = getattr(service._ml, 'corpus_snapshot', None)
-        if not isinstance(snapshot, CorpusSnapshot):
-            async for event in function(service, *args, **kwargs):
-                yield event
-            return
-        async with service._ml.corpus_operation():
-            async for event in function(service, *args, **kwargs):
-                yield event
-
-    return stream
 
 
 def pin_corpus_call(function):
@@ -159,10 +153,13 @@ def pin_corpus_call(function):
     async def call(*args, **kwargs):
         values = parameters.bind(*args, **kwargs).arguments
         registry = values.get('ml_clients')
+
         if registry is None and 'self' in values:
             registry = getattr(values['self'], '_ml_clients', None)
+
         if registry is None or not callable(getattr(type(registry), 'corpus_operation', None)):
             return await function(*args, **kwargs)
+
         async with registry.corpus_operation():
             return await function(*args, **kwargs)
 

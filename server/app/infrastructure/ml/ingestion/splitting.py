@@ -76,38 +76,53 @@ _PROCEDURE_RE = re.compile(
 def _classify_content_shape(text: str) -> str | None:
     """Cheap structural classification: list, definition, procedure, or None."""
     lines = [ln for ln in text.split("\n") if ln.strip()]
+
     if len(lines) < _LIST_MIN_LINES:
         # Short text: check definition/procedure on full text
         if _DEFINTION_RE.search(text):
             return "definition"
+
         if _PROCEDURE_RE.search(text):
             return "procedure"
+
         return None
+
     list_lines = sum(1 for ln in lines if _LIST_LINE_RE.match(ln))
+
     if list_lines / len(lines) >= _LIST_MIN_RATIO:
         return "list"
+
     # Check definition/procedure patterns on multi-line text
     if _DEFINTION_RE.search(text):
         return "definition"
+
     if _PROCEDURE_RE.search(text):
         return "procedure"
+
     return None
 
 
 def _extract_first_sentence(text: str) -> str | None:
     """Return the first sentence of the text (up to 200 chars)."""
     text = text.strip()
+
     if not text:
         return None
+
     m = _SENTENCE_RE.search(text)
+
     if m:
         sentence = text[: m.end()].strip()
+
         if len(sentence) > 200:
             sentence = sentence[:197] + "..."
+
         return sentence
+
     # No sentence boundary found — return first 200 chars
     if len(text) > 200:
         return text[:197] + "..."
+
     return text
 
 
@@ -125,11 +140,13 @@ def _enrich_final_chunks(chunks: list[Any]) -> None:
     among final chunks, not among pre-split sections.
     """
     by_source: dict[str, list[Any]] = {}
+
     for c in chunks:
         by_source.setdefault(c.metadata.get("source", ""), []).append(c)
 
     for group in by_source.values():
         total = len(group)
+
         for i, c in enumerate(group, start=1):
             c.metadata["chunk_index"] = i
             c.metadata["total_chunks"] = total
@@ -137,16 +154,22 @@ def _enrich_final_chunks(chunks: list[Any]) -> None:
             c.metadata["word_count"] = len(c.page_content.split())
             c.metadata["sentence_count"] = len(_SENTENCE_RE.findall(c.page_content))
             dates = _DATE_RE.findall(c.page_content)
+
             if dates:
                 c.metadata["has_dates"] = True
                 c.metadata["extracted_dates"] = dates
+
             if _DIGIT_RE.search(c.page_content):
                 c.metadata["has_numbers"] = True
+
             first = _extract_first_sentence(c.page_content)
+
             if first:
                 c.metadata["first_sentence"] = first
+
             if c.metadata.get("content_type") != PageContentType.TABLE.value:
                 shape = _classify_content_shape(c.page_content)
+
                 if shape:
                     c.metadata["content_type"] = shape
 
@@ -158,18 +181,23 @@ def merge_pdf_pages(pages: list[Document]) -> list[Document]:
     own page range. Sorting within a PDF also restores OCR page order.
     """
     by_source: dict[str, list[Document]] = {}
+
     for doc in pages:
         by_source.setdefault(doc.metadata.get("source", ""), []).append(doc)
+
     result: list[Document] = []
+
     for group in by_source.values():
         if all("page" in doc.metadata for doc in group):
             group = sorted(group, key=lambda doc: doc.metadata["page"])
+
         pending: list[Document] = []
 
         for doc in group:
             is_text_page = (
                 "page" in doc.metadata and doc.metadata.get("content_type") != PageContentType.TABLE.value
             )
+
             if not is_text_page:
                 result.extend(_merge_page_run(pending))
                 pending = []
@@ -178,30 +206,39 @@ def merge_pdf_pages(pages: list[Document]) -> list[Document]:
                 if pending and doc.metadata.get("section") != pending[-1].metadata.get("section"):
                     result.extend(_merge_page_run(pending))
                     pending = []
+
                 pending.append(doc)
+
         result.extend(_merge_page_run(pending))
+
     return result
 
 
 def _merge_page_run(pages: list[Document]) -> list[Document]:
     if not pages:
         return []
+
     text = ""
     spans: list[tuple[int, int, int]] = []
     evidence = page_word_evidence([doc.page_content for doc in pages])
+
     for doc in pages:
         content = doc.page_content
+
         if text:
             joined = join_page_word(text, content, evidence)
+
             if joined is None:
                 text += _page_separator(text, content)
             else:
                 text, content = joined
                 low, _, page = spans[-1]
                 spans[-1] = (low, len(text), page)
+
         start = len(text)
         text += content
         spans.append((start, len(text), doc.metadata["page"]))
+
     meta = dict(pages[0].metadata)
     numbers = sorted({page for _, _, page in spans})
     meta.update(page_start=numbers[0], page_end=numbers[-1], pages=numbers, _page_spans=spans)
@@ -213,8 +250,10 @@ def _page_separator(before: str, after: str) -> str:
     structural_start = re.match(
         r"\s*(?:\d+(?:\.\d+)*[.)]\s|[а-я]\)\s|[-*•]\s|#{1,6}\s|Глава\s|Статья\s|Раздел\s)", after
     )
+
     if structural_start or before.rstrip().endswith((".", "!", "?", ":", ";")):
         return "\n\n"
+
     return " "
 
 
@@ -240,9 +279,11 @@ def split_documents(
     chunker = Chunker(domain, profile, settings, chunk_settings)
     chunks: list[Document] = []
     table_counts: dict[str, int] = {}
+
     for doc in merge_pdf_pages(docs):
         if not doc.page_content.strip():
             continue
+
         if doc.metadata.get("content_type") == PageContentType.TABLE.value:
             source = doc.metadata.get("source", "")
             table_counts[source] = table_counts.get(source, 0) + 1
@@ -291,6 +332,7 @@ class Chunker:
         self.table_size = settings_chunk_size(domain, domain_settings, chunk_settings)
         self.patterns: list[re.Pattern[str]] = []
         self.max_unit_chars: int | None = None
+
         if self.profile is not None and domain_settings is not None:
             key = self.profile.key
             self.chunk_size = (
@@ -318,6 +360,7 @@ class Chunker:
     def split(self, doc: Document) -> list[Document]:
         if self.profile is not None:
             return self.split_structured(doc)
+
         documents = [doc] if self.patterns else pack_step_documents(doc, self.chunk_size)
         return [
             chunk
@@ -329,13 +372,17 @@ class Chunker:
         if self.profile is None:
             message = "Structured splitting requires a profile"
             raise RuntimeError(message)
+
         if "unit_kind" in doc.metadata:
             return text_document_chunks(doc, self.chunk_size, self.chunk_overlap, self.patterns)
+
         if self.max_unit_chars is None:
             if self.domain_settings is None:
                 message = "Structured splitting requires domain settings"
                 raise RuntimeError(message)
+
             self.max_unit_chars = int(self.domain_settings.get("max_unit_chars", domain_key=self.profile.key))
+
         units = split_by_content(
             doc.page_content,
             self.profile.content_boundaries(),
@@ -344,28 +391,35 @@ class Chunker:
         )
         cursor = 0
         result: list[Document] = []
+
         for unit in units:
             unit_doc = document_slice(doc, unit.content, cursor)
             spans = unit_doc.metadata.get("_page_spans")
             unit_doc.metadata.update(unit_metadata(unit, self.profile, doc.metadata))
+
             if "_page_spans" in doc.metadata:
                 unit_doc.metadata["_page_spans"] = spans
                 located = locate_span(doc.page_content, unit.content, cursor)
+
                 if located is not None:
                     cursor = located[1]
+
             result.extend(text_document_chunks(unit_doc, self.chunk_size, self.chunk_overlap, self.patterns))
+
         return result
 
 
 def settings_chunk_size(domain: str, domain_settings=None, chunk_settings=None) -> int:
     """Use the same configured limit in every parser/splitter entry point."""
     global_settings = chunk_settings or settings
+
     if domain == DocDomain.LEGAL.value:
         default = global_settings.legal_chunk_size
     elif domain == DocDomain.DECREE.value:
         default = settings.decree_chunk_size
     else:
         return global_settings.chunk_size
+
     return domain_setting(domain_settings, f"{domain}_chunk_size", domain, default)
 
 
@@ -373,6 +427,7 @@ def domain_setting(settings, key: str, domain_key: str, default: int, *, allow_z
     """Read a domain-specific setting with fallback to default."""
     if settings is None:
         return default
+
     try:
         val = int(settings.get(key, domain_key=domain_key))
         return val if val > 0 or (allow_zero and val == 0) else default

@@ -35,6 +35,7 @@ async def publish_bm25_invalidation(*, raise_on_error: bool = False) -> None:
         log.info("BM25 invalidation published (%d subscribers)", receivers)
     except Exception:
         log.warning("Failed to publish BM25 invalidation", exc_info=True)
+
         if raise_on_error:
             raise
 
@@ -51,8 +52,10 @@ async def listen_for_bm25_invalidation(ml_clients) -> None:
     try:
         while True:
             message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=_POLL_TIMEOUT_SEC)
+
             if message is None or message.get("type") != "message":
                 continue
+
             if ml_clients is not None:
                 ml_clients.invalidate_bm25()
                 log.info("BM25 index invalidated — will reload from S3 on next access")

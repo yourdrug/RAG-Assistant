@@ -49,6 +49,7 @@ class OutboxDispatcher:
         """Process one batch of outbox entries. Returns the number of processed entries."""
         # Recover entries stuck in_progress (dispatcher crash recovery)
         recovered = await self._recover_stuck()
+
         if recovered:
             log.info("Recovered %d stuck in_progress entries", recovered)
 
@@ -77,8 +78,10 @@ class OutboxDispatcher:
                 result = await uow.vector_outbox.recover_stuck(
                     stuck_timeout_minutes=settings.stuck_job_timeout_minutes
                 )
+
                 if result:
                     log.warning("Recovered %d stuck in_progress entries (dispatcher crash)", result)
+
                 return result
         except Exception as e:
             log.warning("Failed to recover stuck entries: %s", e)
@@ -87,20 +90,24 @@ class OutboxDispatcher:
     async def _apply_one(self, entry: VectorOutboxEntry) -> None:
         try:
             await self._dispatch(entry)
+
             # Durable retry boundary for cache invalidation, including ordinary
             # chunks, deleted documents and newly uploaded documents.
             if self._cache_invalidator is not None and entry.aggregate_type == "document":
                 await self._cache_invalidator.invalidate_by_document_ids(
                     [entry.aggregate_id], raise_on_error=True
                 )
+
             async with self._uow_factory.create(master=True) as uow:
                 await uow.vector_outbox.mark_done(entry.id)
 
                 # Check if all entries for this document are done
                 if entry.aggregate_type == "document":
                     outbox_status = await uow.vector_outbox.count_by_document(entry.aggregate_id)
+
                     if outbox_status["pending"] == 0:
                         transitioned = await uow.documents.mark_done_if_indexing(entry.aggregate_id)
+
                         if transitioned:
                             log.info(
                                 "Document %d marked as done (all outbox entries applied)",
@@ -152,6 +159,7 @@ class OutboxDispatcher:
     async def refresh_document_filename(self, document_id: int) -> None:
         async with self._uow_factory.create(master=True) as uow:
             document = await uow.documents.get_by_id(document_id)
+
         if document is not None:
             await self._vector_store.update_filename_by_document_id(document_id, document.filename)
 
@@ -166,6 +174,7 @@ class OutboxDispatcher:
         document_ids: list[int] = []
         async with self._uow_factory.create(master=True) as uow:
             version = await uow.act_versions.get_by_id(version_id)
+
             if version is not None:
                 metadata = {
                     "act_id": version.act_id,
@@ -175,8 +184,10 @@ class OutboxDispatcher:
                 }
                 versions = await uow.act_versions.list_by_act(version.act_id) if version.act_id else [version]
                 document_ids = list({item.document_id for item in versions})
+
         if metadata:
             await self._vector_store.update_metadata_by_act_version(version_id, metadata)
+
         if self._cache_invalidator is not None and document_ids:
             await self._cache_invalidator.invalidate_by_document_ids(document_ids, raise_on_error=True)
 
@@ -187,12 +198,16 @@ class OutboxDispatcher:
     async def apply_upsert(self, payload: dict, document_id: int = 0) -> None:
         current_ids = await self.current_chunk_ids(document_id)
         obsolete_ids = [p["chunk_id"] for p in payload["points"] if p["chunk_id"] not in current_ids]
+
         if obsolete_ids:
             # Also clean up on retries after a failed upload-time deletion.
             await self._vector_store.delete_by_ids(obsolete_ids)
+
         points = [p for p in payload["points"] if p["chunk_id"] in current_ids]
+
         if not points:
             return
+
         chunks = [
             Chunk(
                 content=p["page_content"],
@@ -207,17 +222,21 @@ class OutboxDispatcher:
         # Ensure collection exists (no-op if it does)
         if chunks:
             await self._vector_store.ensure_collection(settings.embed_dim, reset=False)
+
         await self._vector_store.upload_documents(chunks, should_cancel=_doc_cancelled)
         # A replacement can commit while embeddings/upload are running.
         current_ids = await self.current_chunk_ids(document_id)
         obsolete_ids = [p["chunk_id"] for p in points if p["chunk_id"] not in current_ids]
+
         if obsolete_ids:
             await self._vector_store.delete_by_ids(obsolete_ids)
+
         # A rename may commit while embeddings are running. Refresh its payload last.
         await self.refresh_document_filename(document_id)
         # Another ingestion/review may have changed the edition while embedding
         # was running. Do not leave the snapshot in this upsert as the final state.
         version_ids = {chunk.metadata.get("act_version_id") for chunk in chunks}
+
         for version_id in version_ids:
             if version_id is not None:
                 await self._apply_version_metadata(version_id, {})

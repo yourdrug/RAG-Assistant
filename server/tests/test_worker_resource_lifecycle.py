@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from application.benchmark import BenchmarkService
-from infrastructure.benchmark import runner
+from infrastructure.benchmark.evaluation import runner
 from infrastructure.worker import queue, runtime, tasks
 
 
@@ -100,7 +100,8 @@ async def test_worker_benchmark_runs_container_rag_pipeline(monkeypatch):
 
     monkeypatch.setattr(runtime, "run_tracked_job", tracked)
     container.infrastructure.ml = SimpleNamespace(
-        benchmark_service=BenchmarkService(rag_service=rag, runner=SimpleNamespace(run=evaluate))
+        ml_clients=None,
+        benchmark_service=BenchmarkService(rag_service=rag, runner=SimpleNamespace(run=evaluate)),
     )
     await tasks.run_benchmark(
         {"container": container}, dataset="custom", out_dir="unused", top_k=4, judge_model="judge", job_id=8

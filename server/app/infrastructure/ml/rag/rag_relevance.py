@@ -66,16 +66,20 @@ async def check_relevance(ml_clients, question: str, docs: list) -> tuple[bool, 
 def filter_cited_sources(answer: str, sources: list[dict]) -> list[dict]:
     """Фильтрует источники, оставляя только те, на которые LLM действительно ссылалась."""
     cited = {int(m) for m in re.findall(r"\[(\d+)\]", answer)}
+
     if not cited:
         return sources
+
     return [src for i, src in enumerate(sources, 1) if src.get("citation_id", i) in cited]
 
 
 def filter_cited_documents(answer: str, docs: list) -> list:
     """Select prompt chunks by their original [N] labels before source aggregation."""
     cited = {int(m) for m in re.findall(r"\[(\d+)\]", answer)}
+
     if not cited:
         return docs
+
     return [
         item
         for index, item in enumerate(docs, 1)

@@ -19,8 +19,8 @@ from domain.rag.evidence.grounded_response import (
     scoped_evidence_response,
 )
 from infrastructure.ml.rag.rag_config import build_rag_settings
-from infrastructure.ml.rag.rag_steps import step_build_context, step_generate
-from infrastructure.ml.rag_pipeline import RagPipelineState
+from rag_stage_fixtures import build_context as step_build_context, generate as step_generate
+from rag_stage_fixtures import stage_fixture
 
 PROBES = json.loads((Path(__file__).parent / 'fixtures/evidence_scope_probes.json').read_text())['cases']
 FAILURES = {
@@ -53,7 +53,7 @@ async def test_incomplete_evidence_cannot_escape_to_a_guessing_llm(case):
     if not docs:
         docs = [(Document(page_content=case['context'], metadata={'source': 'table.docx'}), 0.95)]
     ctx = RagContext(1, UserKind.INTERNAL, UserRole.ADMIN)
-    state = RagPipelineState(
+    state = stage_fixture(
         rag=build_rag_settings(),
         t_pipeline_start=0,
         question=case['question'],

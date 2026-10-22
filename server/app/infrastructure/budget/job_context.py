@@ -14,12 +14,14 @@ job_operations: ContextVar[tuple[str, dict[str, int]] | None] = ContextVar('job_
 
 def block_job_dispatch():
     scope = job_operations.get()
+
     if scope is not None:
         scope[1]['!dispatch-blocked'] = -1
 
 
 def ensure_job_dispatch_allowed():
     scope = job_operations.get()
+
     if scope is not None and '!dispatch-blocked' in scope[1]:
         raise BudgetError('Job contains a reserved paid operation; automatic replay is blocked')
 
@@ -27,8 +29,10 @@ def ensure_job_dispatch_allowed():
 def next_operation_id(request_key: str = '') -> str:
     ensure_job_dispatch_allowed()
     scope = job_operations.get()
+
     if scope is None:
         return str(uuid4())
+
     job_id, occurrences = scope
     sequence = occurrences.get(request_key, 0)
     occurrences[request_key] = sequence + 1

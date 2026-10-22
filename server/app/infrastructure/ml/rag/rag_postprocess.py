@@ -42,6 +42,7 @@ async def handle_relevance_gate(
     """Check relevance gate. Returns True if relevant, False if rejected."""
     if not rag.features.relevance_gate_enabled:
         return True
+
     t0 = time.monotonic()
 
     breaker = circuit_breaker.get_breaker("llm_auxiliary")
@@ -55,10 +56,12 @@ async def handle_relevance_gate(
             raise
         await breaker.report_success()
     RAG_STAGE_DURATION.labels("relevance_gate").observe(time.monotonic() - t0)
+
     if not is_relevant:
         RAG_RELEVANCE_GATE_TOTAL.labels(result="rejected").inc()
         log.info("Relevance gate: rejected (reason_chars=%d)", len(reason))
         return False
+
     RAG_RELEVANCE_GATE_TOTAL.labels(result="passed").inc()
     return True
 
@@ -92,29 +95,38 @@ def resolve_temporal_conflicts(docs: list) -> list:
     for doc, score in docs:
         act_id = doc.metadata.get("act_id")
         act_version_id = doc.metadata.get("act_version_id")
+
         if act_id is None or act_version_id is None:
             non_versioned.append((doc, score))
             continue
+
         effective_from = doc.metadata.get("effective_from") or _date.min
+
         if isinstance(effective_from, str):
             try:
                 effective_from = _date.fromisoformat(effective_from)
             except ValueError:
                 effective_from = _date.min
+
         versions_by_act.setdefault(act_id, []).append((doc, score, effective_from))
 
     resolved = list(non_versioned)
+
     for act_id, versions in versions_by_act.items():
         if len(versions) == 1:
             resolved.append(versions[0][:2])
             continue
+
         versions_by_id: dict[int, list[tuple]] = {}
+
         for item in versions:
             version_id = item[0].metadata["act_version_id"]
             versions_by_id.setdefault(version_id, []).append(item)
+
         if len(versions_by_id) == 1:
             resolved.extend((doc, score) for doc, score, _ in versions)
             continue
+
         best_version = max(
             versions_by_id.values(),
             key=lambda chunks: (chunks[0][2], chunks[0][0].metadata["act_version_id"]),
@@ -136,13 +148,16 @@ def apply_citation_filter(rag: RagSettings, full_answer: str, sources: list[dict
     """Filter sources to only those cited in the LLM answer."""
     if not rag.features.citation_filter_enabled:
         return sources
+
     filtered = filter_cited_sources(full_answer, sources)
+
     if len(filtered) < len(sources):
         log.info(
             "Citation filter: kept %d/%d sources",
             len(filtered),
             len(sources),
         )
+
     return filtered
 
 
@@ -150,11 +165,14 @@ async def fetch_context_neighbors(doc, chunk_search, user, full_table, enumerate
     """Resolve one authorized table/row scope or a bounded text neighborhood."""
     document_id = doc.metadata.get("document_id")
     chunk_index = doc.metadata.get("chunk_index")
+
     if not document_id or chunk_index is None:
         return []
+
     if doc.metadata.get("content_type") != PageContentType.TABLE.value:
         if not enumerate_cases:
             return []
+
         return await chunk_search.get_neighbors(
             document_id,
             chunk_index,
@@ -162,15 +180,20 @@ async def fetch_context_neighbors(doc, chunk_search, user, full_table, enumerate
             exclude_hashes=hashes,
             user=user,
         )
+
     table_id = doc.metadata.get("table_id")
     row_start = None if full_table else doc.metadata.get("table_row_start")
     row_end = None if full_table else doc.metadata.get("table_row_end")
+
     # Legacy chunks cannot establish safe boundaries. Reindex them.
     if not table_id or (not full_table and (row_start is None or row_end is None)):
         return []
+
     scope = (document_id, table_id, row_start, row_end)
+
     if scope in scopes:
         return []
+
     scopes.add(scope)
     return await chunk_search.get_table_batches(
         document_id,
@@ -195,6 +218,7 @@ async def enrich_with_neighbors(
     from langchain.schema import Document as LCDocument
 
     full_table = requests_table_overview(query)
+
     if not full_table:
         docs = [
             (focus_table_rows(doc, query), score)
@@ -202,13 +226,16 @@ async def enrich_with_neighbors(
             else (doc, score)
             for doc, score in docs
         ]
+
     if not chunk_search:
         return docs
+
     existing_hashes = {h for h in (doc.metadata.get("content_hash") for doc, _ in docs) if h is not None}
     new_docs: list[tuple] = []
     current_chars = sum(len(doc.page_content) for doc, _ in docs)
     max_chars = max_context_tokens * CHARS_PER_TOKEN
     scopes: set[tuple] = set()
+
     for doc, score in docs:
         try:
             neighbors = await fetch_context_neighbors(
@@ -225,29 +252,39 @@ async def enrich_with_neighbors(
                 "Failed to fetch context for doc_id=%s", doc.metadata.get("document_id"), exc_info=True
             )
             continue
+
         for neighbor in neighbors:
             if not neighbor.content_hash or neighbor.content_hash in existing_hashes:
                 continue
+
             neighbor_doc = LCDocument(
                 page_content=neighbor.content,
                 metadata=chunk_result_metadata(neighbor),
             )
+
             if not full_table:
                 neighbor_doc = focus_table_rows(neighbor_doc, query)
+
             neighbor_chars = len(neighbor_doc.page_content)
+
             if current_chars + neighbor_chars > max_chars:
                 break
+
             new_docs.append((neighbor_doc, score * 0.9))
             existing_hashes.add(neighbor.content_hash)
             current_chars += neighbor_chars
+
     return docs + new_docs
 
 
 def is_not_found_answer(answer: str) -> bool:
     """Return True if the LLM answer indicates information was not found."""
     lower = answer.lower().strip()
+
     if "информация не найдена в документах" in lower:
         return True
+
     if len(lower) < 50 and not re.search(r"\[\d+\]", answer):
         return any(p in lower for p in NOT_FOUND_PATTERNS)
+
     return False

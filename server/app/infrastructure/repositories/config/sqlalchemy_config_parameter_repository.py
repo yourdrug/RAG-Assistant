@@ -34,46 +34,57 @@ class SQLAlchemyConfigParameterRepository:
         domain_key: str | None = None,
     ) -> ConfigParameter | None:
         stmt = select(ConfigParameterModel).where(ConfigParameterModel.key == key)
+
         if domain_key is not None:
             stmt = stmt.where(ConfigParameterModel.domain_key == domain_key)
         else:
             stmt = stmt.where(ConfigParameterModel.domain_key.is_(None))
+
         result = await self._db.execute(stmt)
         orm = result.scalar_one_or_none()
         return self._to_entity(orm) if orm else None
 
     async def update_value(self, key: str, value: str, domain_key: str | None = None) -> None:
         stmt = select(ConfigParameterModel).where(ConfigParameterModel.key == key).with_for_update()
+
         if domain_key is not None:
             stmt = stmt.where(ConfigParameterModel.domain_key == domain_key)
         else:
             stmt = stmt.where(ConfigParameterModel.domain_key.is_(None))
+
         result = await self._db.execute(stmt)
         orm = result.scalar_one_or_none()
+
         if orm:
             orm.value = value
             await self._db.flush()
 
     async def update_category(self, key: str, category: str, domain_key: str | None = None) -> None:
         stmt = select(ConfigParameterModel).where(ConfigParameterModel.key == key).with_for_update()
+
         if domain_key is not None:
             stmt = stmt.where(ConfigParameterModel.domain_key == domain_key)
         else:
             stmt = stmt.where(ConfigParameterModel.domain_key.is_(None))
+
         result = await self._db.execute(stmt)
         orm = result.scalar_one_or_none()
+
         if orm and orm.category != category:
             orm.category = category
             await self._db.flush()
 
     async def delete_by_key_and_domain(self, key: str, domain_key: str | None = None) -> None:
         stmt = select(ConfigParameterModel).where(ConfigParameterModel.key == key)
+
         if domain_key is not None:
             stmt = stmt.where(ConfigParameterModel.domain_key == domain_key)
         else:
             stmt = stmt.where(ConfigParameterModel.domain_key.is_(None))
+
         result = await self._db.execute(stmt)
         orm = result.scalar_one_or_none()
+
         if orm:
             await self._db.delete(orm)
             await self._db.flush()
@@ -95,6 +106,7 @@ class SQLAlchemyConfigParameterRepository:
 
     async def upsert(self, entity: ConfigParameter) -> None:
         existing = await self.get_by_key_and_domain(entity.key, entity.domain_key)
+
         if existing:
             await self.update_value(entity.key, entity.value, entity.domain_key)
         else:
@@ -107,8 +119,10 @@ class SQLAlchemyConfigParameterRepository:
     @staticmethod
     def _to_entity(orm: ConfigParameterModel) -> ConfigParameter:
         allowed = orm.allowed_values
+
         if isinstance(allowed, dict):
             allowed = allowed.get("values")
+
         return ConfigParameter(
             key=orm.key,
             value=orm.value,

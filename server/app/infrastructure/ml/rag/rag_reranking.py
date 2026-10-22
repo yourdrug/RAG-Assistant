@@ -15,26 +15,34 @@ def deduplicate_docs[DocumentT: RetrievalDocument](docs: list[DocumentT]) -> lis
     """Deduplicate retrieval candidates and preserve request-local diagnostics."""
     seen = set()
     selected: list[DocumentT] = []
+
     for doc in docs:
         identity = content_hash(doc.page_content)
+
         if identity in seen:
             if active_evidence.get() is not None:
                 capture_exclusions([exclusion_record(doc, ExclusionReason.DUPLICATE, "retrieval")])
+
             continue
+
         seen.add(identity)
         selected.append(doc)
+
     return selected
 
 
 def filter_scope_candidates(docs: list, question: str, stage: str = "reranker") -> list:
     compatible = []
+
     for item in docs:
         doc = item[0] if isinstance(item, tuple) else item
+
         if contradicts_requested_scope(question, content_with_parent_scope(doc)):
             if active_evidence.get() is not None:
                 capture_exclusions([exclusion_record(item, ExclusionReason.SCOPE_MISMATCH, stage)])
         else:
             compatible.append(item)
+
     return compatible
 
 
@@ -48,22 +56,27 @@ async def rerank_documents(
 ) -> list[tuple]:
     """Rerank, filter and retain distinct provisions within the top_n budget."""
     docs = filter_scope_candidates(docs, question)
+
     if not docs:
         return []
 
     pairs = []
+
     for doc in docs:
         source = doc.metadata.get("source", "")
         filename = doc.metadata.get("filename", "")
         doc_name = filename or Path(source).name if source else ""
         prefix = f"[{doc_name}]" if doc_name else ""
         section = doc.metadata.get("heading") or doc.metadata.get("section", "")
+
         if section:
             prefix += f" ({section})"
+
         content_with_prefix = f"{prefix} {doc.page_content}" if prefix else doc.page_content
         pairs.append((question, content_with_prefix))
 
     scores = reranker.predict(pairs)
+
     if hasattr(scores, "__await__"):
         scores = await scores
 
@@ -71,13 +84,16 @@ async def rerank_documents(
     retriever = HybridRetriever()
     eligible = retriever.apply_rerank_filters(scored, min_score=min_score, score_gap_ratio=score_gap_ratio)
     ranked = prioritize_distinct_provisions(eligible)
+
     if active_evidence.get() is not None:
         capture_exclusions(
             [exclusion_record(item, ExclusionReason.RERANK_TOP_N, "reranker") for item in ranked[top_n:]]
         )
+
     ranked = ranked[:top_n]
 
     selected = ranked
+
     if active_evidence.get() is not None:
         eligible_ids = {id(doc) for doc, _ in eligible}
         capture_exclusions(
@@ -93,6 +109,7 @@ async def rerank_documents(
                 if id(item[0]) not in eligible_ids
             ]
         )
+
     return selected
 
 
@@ -101,10 +118,13 @@ def group_by_section(docs: list[tuple]) -> list[tuple]:
     from collections import defaultdict
 
     groups: dict[str, list] = defaultdict(list)
+
     for doc, score in docs:
         section = doc.metadata.get("heading") or doc.metadata.get("section") or ""
         groups[section].append((doc, score))
+
     for group in groups.values():
         group.sort(key=lambda x: x[1], reverse=True)
+
     sorted_groups = sorted(groups.values(), key=lambda g: g[0][1], reverse=True)
     return [item for group in sorted_groups for item in group]

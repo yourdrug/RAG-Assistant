@@ -1,5 +1,9 @@
 """Grouped judge contract: independent scores, bounded calls and durable resume."""
 
+from infrastructure.benchmark.judging import prompts as judge_prompts
+
+from infrastructure.benchmark.judging import requests as judge_requests
+
 import asyncio
 import json
 from pathlib import Path
@@ -10,9 +14,9 @@ import pytest
 
 from config import settings
 from domain.benchmark.judge import judge_coverage
-from infrastructure.benchmark import grouped_judge
-from infrastructure.benchmark.answer_generators import BenchmarkAnswer
-from infrastructure.benchmark.case_evaluator import BenchmarkCaseEvaluator
+from infrastructure.benchmark.judging import grouped_judge
+from infrastructure.benchmark.evaluation.answer_generators import BenchmarkAnswer
+from infrastructure.benchmark.evaluation.case_evaluator import BenchmarkCaseEvaluator
 from infrastructure.benchmark.checkpoint import DatabaseBenchmarkCheckpoints
 from infrastructure.ml.rag.benchmark_evidence import BenchmarkEvidence
 from fakes import FakeUnitOfWorkFactory
@@ -38,7 +42,7 @@ def response(values):
 
 def requested_metrics(kwargs):
     prompt = kwargs["messages"][0]["content"]
-    return [key for key in grouped_judge.INSTRUCTIONS if f"\n{key}:" in prompt]
+    return [key for key in judge_prompts.INSTRUCTIONS if f"\n{key}:" in prompt]
 
 
 def case():
@@ -237,7 +241,7 @@ async def test_all_config_results_saved_and_resume_updates_existing_rows():
 @pytest.mark.asyncio
 async def test_cancel_interrupts_inflight_evaluation_and_awaits_cleanup():
     from domain.benchmark.sweep import BenchmarkSweep
-    from infrastructure.benchmark.sweep_engine import SweepCancelled
+    from application.benchmark.sweep_ports import SweepCancelled
     from infrastructure.worker.sweep import run_cancellable_sweep
 
     stopped = asyncio.Event()
@@ -265,8 +269,8 @@ async def test_cancel_interrupts_inflight_evaluation_and_awaits_cleanup():
 async def test_resume_24_of_30_retries_six_scores_without_regenerating_or_writing_reports(
     tmp_path, monkeypatch
 ):
-    from infrastructure.benchmark import runner
-    from infrastructure.benchmark.metrics import compute_summary_metrics
+    from infrastructure.benchmark.evaluation import runner
+    from infrastructure.benchmark.evaluation.metrics import compute_summary_metrics
 
     factory = FakeUnitOfWorkFactory()
     generated = generator()
@@ -290,7 +294,7 @@ async def test_resume_24_of_30_retries_six_scores_without_regenerating_or_writin
         )
 
     monkeypatch.setattr(grouped_judge, "create_async_judge_client", lambda: JudgeClient(create))
-    from infrastructure.benchmark import answer_generators
+    from infrastructure.benchmark.evaluation import answer_generators
 
     monkeypatch.setattr(answer_generators, "RagBenchmarkGenerator", lambda *args: generated)
     questions = [{**case(), "id": idx, "question": str(idx)} for idx in range(30)]
@@ -404,7 +408,7 @@ async def test_bad_provider_responses_retry_with_safe_useful_diagnostics(monkeyp
     async def save(value):
         snapshots.append(value)
 
-    await grouped_judge.judge_group(JudgeClient(create), "judge", {}, ["faithfulness"], scores, save)
+    await judge_requests.judge_group(JudgeClient(create), "judge", {}, ["faithfulness"], scores, save)
     assert scores["faithfulness"]["score"] == 9
     assert len(calls) == 2
     assert calls[1]["max_tokens"] == settings.benchmark_judge_retry_tokens
@@ -426,7 +430,7 @@ async def test_group_shape_failure_recovers_metrics_individually_without_rescori
         return response({keys[0]: {"score": 8, "reason": "ok"}})
 
     scores = {"relevancy": {"score": 0, "reason": "valid zero"}}
-    await grouped_judge.judge_group(
+    await judge_requests.judge_group(
         JudgeClient(create), "judge", {}, ["relevancy", "faithfulness", "correctness"], scores, AsyncMock()
     )
     assert calls == [
@@ -444,7 +448,9 @@ async def test_group_shape_failure_recovers_metrics_individually_without_rescori
 async def test_questions_really_generate_concurrently_and_return_in_dataset_order(
     monkeypatch, tmp_path, limit, explicit
 ):
-    from infrastructure.benchmark import runner, answer_generators, case_evaluator
+    from infrastructure.benchmark.evaluation import runner
+    from infrastructure.benchmark.evaluation import answer_generators
+    from infrastructure.benchmark.evaluation import case_evaluator
 
     monkeypatch.setattr(settings, "benchmark_max_concurrent", limit)
     started = asyncio.Barrier(limit)
@@ -460,8 +466,8 @@ async def test_questions_really_generate_concurrently_and_return_in_dataset_orde
 
     monkeypatch.setattr(answer_generators, "RagBenchmarkGenerator", lambda *args: object())
     monkeypatch.setattr(case_evaluator.BenchmarkCaseEvaluator, "evaluate", evaluate)
-    monkeypatch.setattr("infrastructure.benchmark.persistence.log_question_result", lambda *args: None)
-    monkeypatch.setattr("infrastructure.benchmark.persistence.log_summary", lambda *args: None)
+    monkeypatch.setattr("infrastructure.benchmark.reporting.progress.log_question_result", lambda *args: None)
+    monkeypatch.setattr("infrastructure.benchmark.reporting.progress.log_summary", lambda *args: None)
     results = await runner.run_benchmark_async(
         [{"id": i, "question": str(i)} for i in range(limit * 2)],
         4,
@@ -486,7 +492,7 @@ async def test_questions_really_generate_concurrently_and_return_in_dataset_orde
     ],
 )
 async def test_structured_logs_identify_failure_without_private_content(kind, code, caplog):
-    from infrastructure.benchmark.token_usage import judge_context
+    from infrastructure.benchmark.judging.token_usage import judge_context
 
     raw = response({"faithfulness": {"score": 8, "reason": "PRIVATE REASON"}})
     raw.id = "completion-id"
@@ -507,7 +513,7 @@ async def test_structured_logs_identify_failure_without_private_content(kind, co
         raw.choices[0].message.refusal = "PRIVATE REFUSAL"
     ctx = judge_context.set({"case_id": "case-id", "question_id": 142, "run": 1})
     try:
-        await grouped_judge.judge_batch(
+        await judge_requests.judge_batch(
             JudgeClient(AsyncMock(return_value=raw)),
             "judge",
             {"context": "PRIVATE CONTEXT"},
@@ -546,7 +552,7 @@ async def test_http_failure_logs_request_id_status_retry_after_without_provider_
         ),
         body={"private": "PRIVATE DOCUMENT"},
     )
-    retryable = await grouped_judge.judge_batch(
+    retryable = await judge_requests.judge_batch(
         JudgeClient(AsyncMock(side_effect=error)),
         "judge",
         {},
@@ -567,7 +573,7 @@ async def test_http_failure_logs_request_id_status_retry_after_without_provider_
 @pytest.mark.asyncio
 async def test_parallel_cases_keep_separate_log_correlation(monkeypatch, caplog):
     import logging
-    from infrastructure.benchmark.token_usage import judge_context
+    from infrastructure.benchmark.judging.token_usage import judge_context
 
     caplog.set_level(logging.INFO, logger="default")
 

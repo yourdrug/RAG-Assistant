@@ -37,6 +37,7 @@ class SQLAlchemyChunkCrudRepository:
             await self._session.execute(
                 select(DocumentModel.id).where(DocumentModel.id == document_id).with_for_update()
             )
+
         result = await self._session.execute(
             select(ChunkModel.id).where(ChunkModel.document_id == document_id)
         )
@@ -97,8 +98,10 @@ class SQLAlchemyChunkCrudRepository:
         stmt = select(ChunkModel).where(ChunkModel.id == chunk_id)
         result = await self._session.execute(stmt)
         orm = result.scalar_one_or_none()
+
         if orm is None:
             return None
+
         return to_chunk_search_result(orm)
 
     async def get_max_chunk_index(self, document_id: int) -> int:
@@ -118,8 +121,10 @@ class SQLAlchemyChunkCrudRepository:
         stmt = select(ChunkModel).where(ChunkModel.id == chunk_id)
         result = await self._session.execute(stmt)
         orm = result.scalar_one_or_none()
+
         if orm is None:
             raise ValueError(f"Chunk {chunk_id} not found")
+
         orm.content = content
         orm.content_hash = content_hash
         orm.edited_at = edited_at
@@ -180,6 +185,7 @@ class SQLAlchemyChunkCrudRepository:
         stmt = select(ChunkModel).where(ChunkModel.id == chunk_id)
         result = await self._session.execute(stmt)
         orm = result.scalar_one_or_none()
+
         if orm is not None:
             await self._session.delete(orm)
             await self._session.flush()
@@ -201,6 +207,7 @@ class SQLAlchemyChunkCrudRepository:
         content_hashes: list[str] | None = None,
     ) -> tuple[list[ChunkRecord], int]:
         conditions = [ChunkModel.document_id == document_id]
+
         if content_hashes:
             conditions.append(ChunkModel.content_hash.in_(content_hashes))
 
@@ -224,6 +231,7 @@ class SQLAlchemyChunkCrudRepository:
         content_hashes: list[str] | None = None,
     ) -> CursorPage[ChunkRecord]:
         conditions = [ChunkModel.document_id == document_id]
+
         if content_hashes:
             conditions.append(ChunkModel.content_hash.in_(content_hashes))
 
@@ -241,6 +249,7 @@ class SQLAlchemyChunkCrudRepository:
         # direction == "prev"
         if cursor is None:
             raise ValidationError("cursor is required when direction=prev")
+
         conditions.extend(build_cursor_backward_conditions(cursor))
         stmt = (
             select(ChunkModel)
@@ -261,8 +270,10 @@ class SQLAlchemyChunkCrudRepository:
             ChunkModel.document_id == document_id,
             ChunkModel.content_hash == content_hash,
         ]
+
         if exclude_chunk_id is not None:
             conditions.append(ChunkModel.id != exclude_chunk_id)
+
         stmt = select(ChunkModel).where(*conditions).limit(1)
         result = await self._session.execute(stmt)
         chunk = result.scalar_one_or_none()
