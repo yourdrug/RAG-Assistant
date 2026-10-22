@@ -49,8 +49,8 @@ elif (
 
 @pytest.fixture
 def deployment(tmp_path):
-    shutil.copy(ROOT / "deploy.sh", tmp_path)
     shutil.copytree(ROOT / "scripts/operations", tmp_path / "scripts/operations")
+    shutil.copytree(ROOT / "deploy", tmp_path / "deploy")
     (tmp_path / "VERSION").write_text("0.1.0")
     (tmp_path / "server").mkdir()
     (tmp_path / "server/.env").write_text("ML_PROVIDER=tei\n")
@@ -71,7 +71,7 @@ def deployment(tmp_path):
 
     def run(**updates):
         result = subprocess.run(  # noqa: S603 -- only repository scripts and controlled test fakes
-            ["/bin/bash", str(tmp_path / "deploy.sh"), "v0.6.0", "--gpu"],
+            ["/bin/bash", str(tmp_path / "deploy/deploy.sh"), "v0.6.0", "--gpu"],
             env={**env, **updates},
             capture_output=True,
             text=True,
@@ -86,7 +86,7 @@ def deployment(tmp_path):
 
 def test_success_preserves_infrastructure_and_enables_tei(deployment):
     directory, run = deployment
-    result, commands = run()
+    result, commands = run(DEPLOY_DIR="")
     assert result.returncode == 0, result.stderr
     assert not any("down" in command["args"] for command in commands)
     assert all(command["profiles"] == "tei" for command in commands)

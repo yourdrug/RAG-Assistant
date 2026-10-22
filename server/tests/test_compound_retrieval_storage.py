@@ -12,7 +12,7 @@ from infrastructure.ml.clients import factories
 
 @pytest.fixture
 def experiment():
-    path = Path(__file__).parents[1] / "scripts" / "compound_retrieval_experiment.py"
+    path = Path(__file__).parents[2] / "scripts" / "benchmark/compound_retrieval_experiment.py"
     spec = importlib.util.spec_from_file_location("compound_retrieval_experiment", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

@@ -9,8 +9,8 @@ import pytest
 
 @pytest.fixture
 def experiment(monkeypatch):
-    monkeypatch.syspath_prepend(str(Path(__file__).parents[1] / "scripts"))
-    path = Path(__file__).parents[1] / "scripts" / "procedure_evidence_experiment.py"
+    monkeypatch.syspath_prepend(str(Path(__file__).parents[2] / "scripts" / "benchmark"))
+    path = Path(__file__).parents[2] / "scripts" / "benchmark/procedure_evidence_experiment.py"
     spec = importlib.util.spec_from_file_location("procedure_experiment", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

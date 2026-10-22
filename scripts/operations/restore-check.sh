@@ -5,7 +5,7 @@ backup_dir=$(cd "${1:?Usage: restore-check.sh BACKUP_DIRECTORY}" && pwd)
 (cd "$backup_dir" && sha256sum -c SHA256SUMS)
 tar -tzf "$backup_dir/data.tar.gz" >/dev/null
 container="rag-restore-check-$(date +%s)-$$"
-cleanup() { docker rm -f "$container" >/dev/null; }
+cleanup() { docker rm -fv "$container" >/dev/null; }
 trap cleanup EXIT
 docker run -d --name "$container" --network none \
   -e POSTGRES_HOST_AUTH_METHOD=trust -e POSTGRES_DB=restorecheck \
@@ -13,7 +13,8 @@ docker run -d --name "$container" --network none \
   postgres:16.4-alpine >/dev/null
 ready=false
 for attempt in {1..30}; do
-  if docker exec "$container" pg_isready -U postgres -d restorecheck >/dev/null 2>&1; then ready=true; break; fi
+  # The initialization server accepts Unix sockets before POSTGRES_DB exists.
+  if docker exec "$container" pg_isready -h 127.0.0.1 -U postgres -d restorecheck >/dev/null 2>&1; then ready=true; break; fi
   sleep 1
 done
 [[ "$ready" == true ]] || { echo "Restore-check Postgres did not start" >&2; exit 1; }

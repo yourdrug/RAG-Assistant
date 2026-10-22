@@ -8,4 +8,4 @@ target="${2:?Specify a NEW data directory}"
 (cd "$backup_dir" && sha256sum -c SHA256SUMS)
 mkdir -m 0750 "$target"
 tar --same-owner -xzf "$backup_dir/data.tar.gz" -C "$target"
-echo "Data extracted to $target. Follow docs/operations/deployment.md before switching production."
+echo "Data extracted to $target. Stop the stack and verify ownership and release compatibility before switching production."

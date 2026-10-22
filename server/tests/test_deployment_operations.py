@@ -18,8 +18,8 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_monitor_reports_readiness_and_uses_optional_webhook(tmp_path, monkeypatch, healthy):
     operations = tmp_path / "scripts/operations"
     operations.mkdir(parents=True)
-    source = operations / "check.py"
-    shutil.copy(ROOT / "scripts/operations/check.py", source)
+    source = operations / "check_health.py"
+    shutil.copy(ROOT / "scripts/operations/check_health.py", source)
     (tmp_path / "data").mkdir()
     (tmp_path / ".deploy").mkdir()
     (tmp_path / ".deploy/last-backup-success").write_text("1000")

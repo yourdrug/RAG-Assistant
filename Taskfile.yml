@@ -119,7 +119,7 @@ tasks:
   deploy:
     desc: "Деплой на сервер (task deploy -- v0.6.0)"
     cmds:
-      - ./deploy.sh {{.CLI_ARGS}}
+      - ./deploy/deploy.sh {{.CLI_ARGS}}
 
   restart:
     desc: "Перезапустить сервис (task restart -- server)"
@@ -270,6 +270,16 @@ tasks:
     dir: server
     cmds:
       - uv run pytest -v
+
+  script:
+    desc: "Запустить Python-утилиту из scripts/: task script SCRIPT=benchmark/compare_frozen_generation.py -- --help"
+    dir: server
+    requires:
+      vars: [SCRIPT]
+    env:
+      PYTHONPATH: app
+    cmds:
+      - 'uv run python "../scripts/{{.SCRIPT}}" {{.CLI_ARGS}}'
 
   # -------------------------------------------------------------------------
   # Нагрузочное тестирование

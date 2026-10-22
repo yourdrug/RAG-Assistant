@@ -101,13 +101,13 @@ jobs:
         env:
           IMAGE: ghcr.io/${{ github.repository }}:production-${{ matrix.build_target }}-${{ steps.tag.outputs.version }}
         run: |
-          docker run --rm --env-file scripts/operations/ci.env "$IMAGE" python \
+          docker run --rm --env-file .github/ci/smoke.env "$IMAGE" python \
             -c 'from infrastructure.ml.ingestion import ocr; from paddleocr import PaddleOCR; import torch; print("OCR/ML imports OK")'
-          docker run --rm --network host --env-file scripts/operations/ci.env "$IMAGE" python main.py --help
-          docker run --rm --network host --env-file scripts/operations/ci.env \
+          docker run --rm --network host --env-file .github/ci/smoke.env "$IMAGE" python main.py --help
+          docker run --rm --network host --env-file .github/ci/smoke.env \
             --entrypoint python "$IMAGE" app/scripts/migrate.py
           # Running twice verifies that migrations are idempotent at head.
-          docker run --rm --network host --env-file scripts/operations/ci.env \
+          docker run --rm --network host --env-file .github/ci/smoke.env \
             --entrypoint python "$IMAGE" app/scripts/migrate.py
 
       - name: Publish validated server

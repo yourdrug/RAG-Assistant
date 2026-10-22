@@ -4,4 +4,4 @@ Description=RAG readiness, disk and backup checks
 Type=oneshot
 WorkingDirectory=/opt/rag-assistant
 EnvironmentFile=-/opt/rag-assistant/.operations.env
-ExecStart=/usr/bin/python3 /opt/rag-assistant/scripts/operations/check.py
+ExecStart=/usr/bin/python3 /opt/rag-assistant/scripts/operations/check_health.py

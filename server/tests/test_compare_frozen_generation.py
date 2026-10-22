@@ -10,7 +10,7 @@ import pytest
 
 @pytest.fixture
 def comparison():
-    path = Path(__file__).parents[1] / "scripts" / "compare_frozen_generation.py"
+    path = Path(__file__).parents[2] / "scripts" / "benchmark/compare_frozen_generation.py"
     spec = importlib.util.spec_from_file_location("compare_frozen_generation", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

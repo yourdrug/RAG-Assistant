@@ -6,7 +6,7 @@ import sys
 from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
@@ -25,6 +25,8 @@ from domain.shared.exceptions import ValidationError
 from infrastructure.events.in_process_event_bus import InProcessEventBus
 from infrastructure.events.postgres_config_listener import PostgresConfigListener
 from infrastructure.ml.config.provider_configuration import SettingsProviderConfiguration
+from infrastructure.ml.config.config_subscribers import audit_log_config_change
+from infrastructure.ml.ingestion.ocr import invalidate_paddle_ocr_cache
 from infrastructure.ml.ingestion import ocr
 
 
@@ -290,11 +292,16 @@ class TestSubscribeConfigEvents:
 
         with patch("composition.infrastructure.event_bus") as mock_bus:
             c.subscribe_config_events()
-            # Domain cache subscription belongs to infrastructure bootstrap.
-            assert mock_bus.subscribe.call_count == 5
-            for call_args in mock_bus.subscribe.call_args_list:
-                event_type = call_args[0][0]
-                assert event_type is ConfigParameterChanged
+            assert mock_bus.subscribe.call_args_list == [
+                call(ConfigParameterChanged, c.infrastructure.request_configuration_sync),
+                call(ConfigParameterChanged, c.infrastructure.invalidate_config_clients),
+                call(ConfigParameterChanged, invalidate_paddle_ocr_cache),
+                call(ConfigParameterChanged, audit_log_config_change),
+            ]
+            c.subscribe_config_events()
+            assert mock_bus.subscribe.call_count == 4
+            c.unsubscribe_config_events()
+            assert mock_bus.unsubscribe.call_args_list == mock_bus.subscribe.call_args_list
 
     def test_ml_clients_none_before_init(self):
         c = Container()

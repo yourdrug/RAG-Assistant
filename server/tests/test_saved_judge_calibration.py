@@ -10,7 +10,7 @@ import pytest
 
 @pytest.fixture
 def experiment():
-    path = Path(__file__).parents[1] / 'scripts' / 'calibrate_saved_judge.py'
+    path = Path(__file__).parents[2] / 'scripts' / 'benchmark/calibrate_saved_judge.py'
     spec = importlib.util.spec_from_file_location('saved_judge_calibration', path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

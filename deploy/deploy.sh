@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Usage: ./deploy.sh [v]0.6.0 [--gpu]
+# Usage: ./deploy/deploy.sh [v]0.6.0 [--gpu]
 set -Eeuo pipefail
-VERSION="${1:?Usage: ./deploy.sh <version> [--gpu]}"
+VERSION="${1:?Usage: ./deploy/deploy.sh <version> [--gpu]}"
 VERSION="${VERSION#v}"
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][a-zA-Z0-9.-]+)?$ ]] || { echo "Invalid release version" >&2; exit 1; }
 shift
@@ -9,7 +9,7 @@ export VERSION STAGE=production BUILD_TARGET=cpu
 for arg in "$@"; do
   case "$arg" in --gpu) export BUILD_TARGET=gpu ;; *) echo "Unknown option: $arg" >&2; exit 1 ;; esac
 done
-DEPLOY_DIR="${DEPLOY_DIR:-$(cd "$(dirname "$0")" && pwd)}"
+DEPLOY_DIR="${DEPLOY_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 source "$DEPLOY_DIR/scripts/operations/compose.sh"
 mkdir -p .deploy
 exec 9>.deploy/operations.lock
@@ -40,14 +40,14 @@ rollback() {
     if after_schema=$(schema_revision) && [[ "$before_schema" == "$after_schema" || "${DEPLOY_SCHEMA_BACKWARD_COMPATIBLE:-false}" == true ]]; then
       echo "Deployment failed; restoring previous application images" >&2
       export SERVER_IMAGE="$old_server" CLIENT_IMAGE="$old_client"
-      compose_args+=(-f scripts/operations/rollback.compose.yml)
+      compose_args+=(-f deploy/rollback.compose.yml)
       if compose up -d --no-deps --force-recreate --pull never --wait --wait-timeout "${DEPLOY_WAIT_TIMEOUT:-600}" server worker client; then
         echo "Previous images restored; deployment remains failed" >&2
       else
         echo "Rollback failed; inspect containers immediately" >&2
       fi
     else
-      echo "Schema changed or cannot be checked; automatic image rollback blocked. Follow docs/operations/deployment.md." >&2
+      echo "Schema changed or cannot be checked; automatic image rollback blocked. Inspect the schema and restore a verified backup before retrying an incompatible release." >&2
     fi
   fi
   exit "$failed_status"

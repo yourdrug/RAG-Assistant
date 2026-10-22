@@ -9,7 +9,7 @@ import pytest
 
 @pytest.fixture
 def baseline_script() -> ModuleType:
-    path = Path(__file__).parents[1] / "scripts" / "validate_evidence_baseline.py"
+    path = Path(__file__).parents[2] / "scripts" / "benchmark/validate_evidence_baseline.py"
     spec = importlib.util.spec_from_file_location("evidence_baseline_script", path)
     assert spec is not None
     assert spec.loader is not None

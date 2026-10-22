@@ -11,7 +11,7 @@ from domain.runtime.cost import BudgetError
 
 @pytest.fixture
 def acceptance():
-    path = Path(__file__).parents[1] / 'scripts' / 'check_paid_accounting.py'
+    path = Path(__file__).parents[2] / 'scripts' / 'billing/check_paid_accounting.py'
     spec = importlib.util.spec_from_file_location('paid_acceptance', path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

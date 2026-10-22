@@ -37,7 +37,7 @@ def test_precision_rules_apply_to_short_answers_without_conditional_expansion(br
 
 @pytest.mark.asyncio
 async def test_fixed_context_replay_sends_unchanged_evidence_without_retrieval(monkeypatch):
-    path = Path(__file__).parents[1] / "scripts" / "replay_fixed_generation.py"
+    path = Path(__file__).parents[2] / "scripts" / "benchmark/replay_fixed_generation.py"
     spec = importlib.util.spec_from_file_location("fixed_generation_replay", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

@@ -10,9 +10,12 @@ mkdir -p .deploy
 exec 9>.deploy/operations.lock
 flock -n 9 || { echo "Another deploy/backup is running" >&2; exit 1; }
 backup_root="${BACKUP_DIR:-$DEPLOY_DIR/backups}"
-backup_dir="$backup_root/$(date -u +%Y%m%dT%H%M%SZ)"
-mkdir -p "$backup_dir"
-mapfile -t running < <(compose ps --services --status running)
+mkdir -p "$backup_root"
+backup_root=$(cd "$backup_root" && pwd)
+backup_dir=$(mktemp -d "$backup_root/$(date -u +%Y%m%dT%H%M%SZ).XXXXXX")
+running_services=$(compose ps --services --status running)
+running=()
+[[ -z "$running_services" ]] || mapfile -t running <<<"$running_services"
 [[ ${#running[@]} -gt 0 ]] || { echo "No running stack to back up" >&2; exit 1; }
 resume() { compose up -d --no-deps --no-recreate --wait --wait-timeout 600 "${running[@]}"; }
 cleanup() {
@@ -39,5 +42,6 @@ if [[ -n "${BACKUP_REMOTE:-}" ]]; then
 else
   echo "BACKUP_REMOTE is not configured; backup is LOCAL ONLY" >&2
 fi
-date -u +%s > .deploy/last-backup-success
+date -u +%s > .deploy/last-backup-success.tmp
+mv .deploy/last-backup-success.tmp .deploy/last-backup-success
 printf 'Backup verified: %s\n' "$backup_dir"
