@@ -14,25 +14,17 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import AsyncIterator
-from datetime import date
-from dataclasses import asdict
 from typing import TYPE_CHECKING
 from domain.rag.retrieval import ContextBudgetExceededError
-from domain.rag.answer_policy import policy_for
 
 
 from domain.rag.classification import (
     classify_query_domain,
     classify_question_breadth,
-    has_exact_reference,  # noqa: F401 — re-exported for test patches
     is_out_of_domain,
-    should_enumerate_cases,
 )
 from domain.rag.retrieval import (
     compute_retrieval_params,
-)
-from domain.rag.prompts import (
-    build_system_prompt,
 )
 from domain.rag.breadth import BREADTH_ALIASES, Breadth
 from domain.runtime.enums import LLMProvider
@@ -40,12 +32,10 @@ from domain.rag.prompt_blocks import NOT_FOUND_ANSWER
 from domain.rag.stream_events import SourcesEvent, StreamEvent, TextChunk, UsageReport
 
 from config import settings
+from infrastructure.ml.rag.retrieval_pipeline import RetrievalPipeline
 from infrastructure.ml.rag.helpers import (
-    apply_exact_search,
     assess_sufficiency,
     domain_prompt_addendum,
-    retrieve_with_decomposition,
-    rerank_and_enrich,
 )
 from infrastructure.metrics.metrics import (
     RAG_BREADTH_TOTAL,
@@ -57,42 +47,34 @@ from infrastructure.metrics.metrics import (
     record_llm_usage,
     record_rag_answer,
 )
-from infrastructure.ml.answer_cache import (
-    compute_question_hash,
-    compute_visibility_scope_hash,
+from infrastructure.ml.cache.keys import CacheKeyBuilder
+from infrastructure.ml.cache.answers import (
     get_corpus_revision,
 )
 from infrastructure.ml.guardrails.input_scanner import InputScanner
 from infrastructure.ml.guardrails.output_scanner import OutputScanner
-from infrastructure.ml.rag.rag_cache import check_cache, handle_cache_hit
+from infrastructure.ml.cache.pipeline import check_cache, handle_cache_hit
 from infrastructure.ml.rag.rag_formatting import format_docs_with_selection
-from infrastructure.ml.rag.rag_reranking import (  # noqa: F401 — re-exported for test patches
-    deduplicate_docs,
-    group_by_section,
-    rerank_documents,
-)
-from infrastructure.ml.rag.rag_postprocess import (  # noqa: F401
-    apply_citation_filter,
-    enrich_with_neighbors,
+from infrastructure.ml.rag.rag_postprocess import (
     handle_relevance_gate,
     is_not_found_answer,
     reject_not_relevant,
-    resolve_temporal_conflicts,
 )
-from infrastructure.ml.rag.evidence_focus import EVIDENCE_POLICY_VERSION, format_generation_messages
-from infrastructure.ml.rag.grounded_response import (
+from infrastructure.ml.rag.evidence_focus import format_generation_messages
+from domain.rag.evidence.grounded_response import (
     scoped_evidence_response,
 )
-from infrastructure.ml.rag.rag_prompts import (  # noqa: F401
+from infrastructure.ml.rag.rag_prompts import (
     build_prompt,
     condense_question,
-    decompose_question,
 )
 from infrastructure.ml.rag.benchmark_evidence import capture_prompt
 from infrastructure.ml.rag.rag_sources import extract_sources
 from infrastructure.ml.rag.rag_relevance import filter_cited_documents
 from infrastructure.ml.rag.prompt_budget import estimate_message_tokens
 from shared import request_id_ctx
+from infrastructure.ml.rag.document_access import cache_is_accessible
+from infrastructure.resilience.circuit_breaker import get_breaker
 
 if TYPE_CHECKING:
     from infrastructure.ml.rag_pipeline import RagPipelineState
@@ -170,56 +152,9 @@ async def step_check_cache(
     state.cache_revision = await get_corpus_revision()
     if state.cache_revision is None:
         return state, None
-    state.vis_hash = compute_visibility_scope_hash(
-        state.ctx.user_kind,
-        state.ctx.user_id,
-        state.ctx.user_group_ids,
-        user_role=state.ctx.user_role,
-        curator_scope=state.ctx.curator_scope,
-    )
-    state.q_hash = compute_question_hash(
-        state.query_for_search,
-        context={
-            "as_of_date": (state.ctx.as_of_date or date.today()).isoformat(),
-            "depth": state.ctx.depth,
-            "summary": state.ctx.summary,
-            "question": state.question,
-            "history": [
-                {"role": message.type, "content": str(message.content)} for message in state.history_messages
-            ],
-            "rag_settings": asdict(state.rag),
-            "corpus_revision": state.cache_revision,
-            "llm_provider": settings.llm_provider,
-            "llm_model": settings.llm_model,
-            "openrouter_model": settings.openrouter_model,
-            "ml_provider": settings.ml_provider,
-            "llm_temperature": settings.llm_temperature,
-            "llm_top_p": settings.llm_top_p,
-            "embedding_revision": settings.embedding_revision,
-            "tei_embed_model": settings.tei_embed_model,
-            "deepinfra_embed_model": settings.deepinfra_embed_model,
-            "deepinfra_rerank_model": settings.deepinfra_rerank_model,
-            "retrieval_score_threshold": settings.rag_retrieval_score_threshold,
-            "evidence_policy": EVIDENCE_POLICY_VERSION,
-            "domain_prompts": {
-                domain_key: [
-                    policy_for(domain_key).prompt_addendum(state.ctx.as_of_date),
-                    policy_for(domain_key).prompt_addendum(state.ctx.as_of_date),
-                ]
-                for domain_key in domain_keys
-            }
-            if domain_keys is not None
-            else {},
-            "system_prompts": [
-                build_system_prompt(Breadth.NARROW, question=state.question),
-                build_system_prompt(Breadth.BROAD, enumerate_cases=True, question=state.question),
-            ],
-        },
-    )
+    state.q_hash, state.vis_hash = CacheKeyBuilder.build(state, domain_keys)
     cached = await check_cache(state.rag, state.q_hash, state.vis_hash, state.cache_revision)
     if cached is not None:
-        from infrastructure.ml.rag.document_access import cache_is_accessible
-
         if document_access is None or not await cache_is_accessible(cached, document_access, state.user):
             RAG_CACHE_MISSES_TOTAL.inc()
             return state, None
@@ -280,55 +215,6 @@ async def step_retrieve(
     params = compute_retrieval_params(breadth, rag, query, exact_ref_sparse_boost=rag.exact_ref_sparse_boost)
     query_domain = classify_query_domain(query)
 
-    # ── Retrieval (with optional decomposition) ──────────────────────
-    candidates, sub_queries = await retrieve_with_decomposition(
-        query,
-        params["fetch_k"],
-        state.retrieval_filter,
-        rag,
-        ml_clients,
-        breadth,
-        query_domain,
-        params["effective_dense_weight"],
-        params["effective_sparse_weight"],
-        visibility_conditions=state.visibility_conditions,
-        user_id=state.user.user_id,
-        user_group_ids=ctx.user_group_ids,
-    )
-
-    # ── Exact-search integration ─────────────────────────────────────
-    if params["use_exact_ref_boost"]:
-        await apply_exact_search(query, candidates, state.user, ctx, chunk_search)
-
-    from infrastructure.ml.rag.document_access import filter_documents
-
-    candidates = await filter_documents(candidates, document_access, state.user)
-
-    # ── Detect conditional rules on FULL candidate set ───────────────
-    enumerate_cases = should_enumerate_cases([doc.page_content for doc in candidates])
-
-    # ── Reranking + enrichment ───────────────────────────────────────
-    docs, _, avg_sim = await rerank_and_enrich(
-        query,
-        candidates,
-        rag,
-        ml_clients,
-        breadth,
-        query_domain,
-        params["rerank_top_n"],
-        state.retrieval_filter,
-        ctx,
-        state.history_messages,
-        len(state.question),
-        chunk_search,
-        enumerate_cases,
-        visibility_conditions=state.visibility_conditions,
-        user_id=state.user.user_id,
-        user_group_ids=ctx.user_group_ids,
-        document_access=document_access,
-    )
-
-    # ── Write back to state ──────────────────────────────────────────
     state.breadth = breadth
     state.fetch_k = params["fetch_k"]
     state.rerank_top_n = params["rerank_top_n"]
@@ -336,12 +222,7 @@ async def step_retrieve(
     state.effective_sparse_weight = params["effective_sparse_weight"]
     state.use_exact_ref_boost = params["use_exact_ref_boost"]
     state.query_domain = query_domain
-    state.sub_queries = sub_queries
-    state.enumerate_cases = enumerate_cases
-    state.candidates = candidates
-    state.docs = docs
-    state.avg_sim = avg_sim
-    return state
+    return await RetrievalPipeline(ml_clients, chunk_search, document_access).run(query, state)
 
 
 async def step_self_rag(
@@ -393,40 +274,7 @@ async def step_self_rag(
                 query = assessment.suggested_refinement
                 state.query_for_search = query
 
-                candidates, _ = await retrieve_with_decomposition(
-                    query,
-                    state.fetch_k,
-                    state.retrieval_filter,
-                    rag,
-                    ml_clients,
-                    breadth,
-                    state.query_domain,
-                    state.effective_dense_weight,
-                    state.effective_sparse_weight,
-                    visibility_conditions=state.visibility_conditions,
-                    user_id=state.user.user_id,
-                    user_group_ids=state.ctx.user_group_ids,
-                )
-                docs, _, _ = await rerank_and_enrich(
-                    query,
-                    candidates,
-                    rag,
-                    ml_clients,
-                    breadth,
-                    state.query_domain,
-                    state.rerank_top_n,
-                    state.retrieval_filter,
-                    state.ctx,
-                    state.history_messages,
-                    len(state.question),
-                    chunk_search,
-                    state.enumerate_cases,
-                    visibility_conditions=state.visibility_conditions,
-                    user_id=state.user.user_id,
-                    user_group_ids=state.ctx.user_group_ids,
-                    document_access=document_access,
-                )
-                state.docs = docs
+                await RetrievalPipeline(ml_clients, chunk_search, document_access).run(query, state)
                 continue
 
     avg_sim = sum(s for _, s in state.docs) / len(state.docs) if state.docs else 0.0
@@ -567,8 +415,6 @@ async def step_generate(
     t0 = time.monotonic()
     answer_parts: list[str] = []
     last_chunk = None
-
-    from infrastructure.resilience.circuit_breaker import get_breaker
 
     breaker = get_breaker("llm_generate")
     if state.grounded_answer is not None:

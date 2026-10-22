@@ -318,28 +318,28 @@ class TestClassifyBreadthRegression:
 
 class TestAnswerCacheHelpers:
     def test_question_hash_deterministic(self):
-        from infrastructure.ml.answer_cache import compute_question_hash
+        from infrastructure.ml.cache.answers import compute_question_hash
 
         h1 = compute_question_hash("Что такое ЭТТН?")
         h2 = compute_question_hash("Что такое ЭТТН?")
         assert h1 == h2
 
     def test_question_hash_case_insensitive(self):
-        from infrastructure.ml.answer_cache import compute_question_hash
+        from infrastructure.ml.cache.answers import compute_question_hash
 
         h1 = compute_question_hash("ЧТО ТАКОЕ ЭТТН?")
         h2 = compute_question_hash("что такое Эттн?")
         assert h1 == h2
 
     def test_visibility_scope_hash_deterministic(self):
-        from infrastructure.ml.answer_cache import compute_visibility_scope_hash
+        from infrastructure.ml.cache.answers import compute_visibility_scope_hash
 
         h1 = compute_visibility_scope_hash("internal_user", 42, [1, 2])
         h2 = compute_visibility_scope_hash("internal_user", 42, [1, 2])
         assert h1 == h2
 
     def test_different_users_different_hash(self):
-        from infrastructure.ml.answer_cache import compute_visibility_scope_hash
+        from infrastructure.ml.cache.answers import compute_visibility_scope_hash
 
         h1 = compute_visibility_scope_hash("internal_user", 1, [1])
         h2 = compute_visibility_scope_hash("internal_user", 2, [1])

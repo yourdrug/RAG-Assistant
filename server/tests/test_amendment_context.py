@@ -9,11 +9,8 @@ from domain.knowledge.enums import PageContentType
 from infrastructure.ml.ingestion.amendment_context import attach_table_replacement_scope
 from infrastructure.ml.ingestion.table_chunks import table_document_chunks
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser
-from infrastructure.ml.rag.evidence_focus import (
-    amendment_anchors,
-    format_generation_messages,
-    reading_anchors,
-)
+from domain.rag.evidence.focus import amendment_anchors, reading_anchors
+from infrastructure.ml.rag.evidence_focus import format_generation_messages
 from infrastructure.ml.rag.rag_formatting import format_docs_with_selection
 from infrastructure.ml.rag.rag_prompts import build_prompt
 

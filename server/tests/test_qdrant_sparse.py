@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from unittest.mock import AsyncMock, MagicMock
 
 from langchain.schema import Document
 import pytest
 from qdrant_client import QdrantClient, models
+from tenacity import wait_none
 
 from config import settings
 from domain.identity.roles import UserKind
@@ -27,7 +29,9 @@ from infrastructure.repositories.vector.sparse_vectors import (
 
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import AsyncIterator, Callable, Iterator
+
+    from application.ports.ml_clients import MLClientPort
 
 
 @pytest.fixture
@@ -261,3 +265,55 @@ async def test_hybrid_limits_and_errors(monkeypatch: pytest.MonkeyPatch) -> None
     sparse.side_effect = ValueError("sparse failed")
     with pytest.raises(ValueError, match="sparse failed"):
         await rag_retrieval.run_hybrid_search("query", 2, scope, rag, clients, **kwargs)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "method,args,client_method",
+    [
+        ("delete_by_ids", ([1],), "delete"),
+        ("set_document_id_by_source", ("old.pdf", 10), "set_payload"),
+        ("update_filename_by_document_id", (10, "new.pdf"), "set_payload"),
+        ("update_metadata_by_act_version", (17, {"is_current": False}), "set_payload"),
+    ],
+)
+async def test_payload_mutation_retry_stays_in_one_corpus_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+    method: str,
+    args: tuple[object, ...],
+    client_method: str,
+) -> None:
+    attempts: list[tuple[str, ...]] = []
+    active: list[str] = []
+    client = MagicMock()
+
+    def mutate(**kwargs: object) -> None:
+        attempts.append(tuple(active))
+
+        if len(attempts) == 1:
+            raise ConnectionError
+
+    class Registry:
+        @asynccontextmanager
+        async def corpus_operation(self) -> AsyncIterator[None]:
+            active.append("snapshot")
+            try:
+                yield
+            finally:
+                active.pop()
+
+        def qdrant_client(self) -> MagicMock:
+            assert active == ["snapshot"]
+            return client
+
+    getattr(client, client_method).side_effect = mutate
+    wrapped = getattr(QdrantVectorStoreRepository, method).__wrapped__
+    monkeypatch.setattr(wrapped.retry, "wait", wait_none())
+    repository = QdrantVectorStoreRepository(cast("MLClientPort", Registry()))
+    await getattr(repository, method)(*args)
+    assert attempts == [("snapshot",), ("snapshot",)]
+    assert active == []
+
+    if client_method == "set_payload":
+        assert client.set_payload.call_args.kwargs["key"] == "metadata"
+        assert client.set_payload.call_args.kwargs["wait"] is True

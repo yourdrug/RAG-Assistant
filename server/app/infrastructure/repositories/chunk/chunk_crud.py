@@ -4,11 +4,15 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from domain.knowledge.chunk import ChunkInsert, ChunkRecord, ChunkStats
-from domain.shared.exceptions import BusinessRuleViolationError
-from domain.shared.pagination import CursorPage
+from domain.knowledge.chunk import (
+    ChunkInsert,
+    ChunkRecord,
+    ChunkStats,
+    extract_chunk_context,
+)
 from domain.knowledge.enums import DocDomain
-from domain.knowledge.chunk import extract_chunk_context
+from domain.shared.exceptions import BusinessRuleViolationError, ValidationError
+from domain.shared.pagination import CursorPage
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,10 +20,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from infrastructure.database.models import ChunkModel, DocumentModel
 from infrastructure.repositories.chunk.chunk_mapping import to_chunk_search_result
 from infrastructure.repositories.chunk.chunk_pagination import (
-    _build_cursor_backward_conditions,
-    _build_cursor_forward_conditions,
+    build_cursor_backward_conditions,
+    build_cursor_forward_conditions,
     paginate_backward,
-    _paginate_forward,
+    paginate_forward,
 )
 
 
@@ -224,7 +228,7 @@ class SQLAlchemyChunkCrudRepository:
             conditions.append(ChunkModel.content_hash.in_(content_hashes))
 
         if direction == "next":
-            conditions.extend(_build_cursor_forward_conditions(cursor))
+            conditions.extend(build_cursor_forward_conditions(cursor))
             stmt = (
                 select(ChunkModel)
                 .where(*conditions)
@@ -232,14 +236,12 @@ class SQLAlchemyChunkCrudRepository:
                 .limit(limit + 1)
             )
             result = await self._session.execute(stmt)
-            return _paginate_forward(list(result.scalars().all()), limit, cursor)
+            return paginate_forward(list(result.scalars().all()), limit, cursor)
 
         # direction == "prev"
         if cursor is None:
-            from domain.shared.exceptions import ValidationError
-
             raise ValidationError("cursor is required when direction=prev")
-        conditions.extend(_build_cursor_backward_conditions(cursor))
+        conditions.extend(build_cursor_backward_conditions(cursor))
         stmt = (
             select(ChunkModel)
             .where(*conditions)

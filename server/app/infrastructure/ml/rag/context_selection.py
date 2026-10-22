@@ -3,14 +3,18 @@
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
+from infrastructure.ml.rag.benchmark_evidence import snapshot_documents
+
 if TYPE_CHECKING:
     from langchain_core.documents import Document
 
+from domain.rag.evidence.context import content_with_parent_scope
 from domain.rag.guardrails.sanitization import sanitize_for_prompt
 from domain.shared.hashing import content_hash
+
 from infrastructure.bm25.tokenizer import tokenize
+from infrastructure.ml.rag.context_rendering import build_header, render_selected_docs
 from infrastructure.ml.rag.document_sources import document_identity
-from infrastructure.ml.rag.rag_formatting import build_header, content_with_parent_scope, render_selected_docs
 
 
 class ExclusionReason(StrEnum):
@@ -28,7 +32,6 @@ CONTEXT_COVERAGE_WEIGHT = 0.15
 
 
 def exclusion_record(item, reason: ExclusionReason, stage: str, **details) -> dict:
-    from infrastructure.ml.rag.benchmark_evidence import snapshot_documents
 
     doc, score = item if isinstance(item, tuple) else (item, 0.0)
     return {

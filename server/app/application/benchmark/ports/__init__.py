@@ -29,7 +29,6 @@ class BenchmarkRunnerPort(Protocol):
     async def run(
         self,
         questions: list[dict[str, Any]],
-        out_dir: str | None,
         top_k: int,
         judge_model: str,
         **options: Unpack[BenchmarkRunnerOptions],

@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from application.benchmark import BenchmarkService
 from pydantic import ValidationError
 
 from application.benchmark import load_benchmark_questions
@@ -164,7 +165,9 @@ async def test_worker_loads_selected_dataset_before_evaluation(monkeypatch):
         )
     }
     run = AsyncMock(return_value=[])
-    monkeypatch.setattr(tasks, "run_benchmark_async", run)
+    ctx["container"].infrastructure.ml = SimpleNamespace(
+        benchmark_service=BenchmarkService(rag_service=object(), runner=SimpleNamespace(run=run))
+    )
 
     async def tracked(factory_arg, job_id, action, **kwargs):
         assert factory_arg is factory

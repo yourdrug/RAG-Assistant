@@ -13,7 +13,7 @@ from infrastructure.ml.ingestion.splitting import split_documents
 from infrastructure.ml.langchain_document_parser import LangchainDocumentParser
 from infrastructure.ml.rag.rag_postprocess import enrich_with_neighbors
 from infrastructure.ml.rag.prompt_budget import estimate_text_tokens
-from infrastructure.ml.rag.table_context import requests_table_overview
+from domain.rag.evidence.table_context import requests_table_overview
 
 
 @pytest.fixture

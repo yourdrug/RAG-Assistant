@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import math
+from collections import Counter
 
 from domain.shared.hashing import content_hash
 from infrastructure.bm25.tokenizer import tokenize
@@ -48,9 +49,9 @@ class BM25Index:
         self.doc_owner_id: list[int | None] = doc_owner_id or [None] * len(texts)
         self.doc_group_id: list[int | None] = doc_group_id or [None] * len(texts)
         self.last_survival_ratio: float | None = None
-        self._build()
+        self.build()
 
-    def _build(self) -> None:
+    def build(self) -> None:
         self.doc_freq.clear()
         self.token_freqs.clear()
         self.doc_lens.clear()
@@ -63,12 +64,7 @@ class BM25Index:
             self.doc_lens.append(len(tokens))
             total_len += len(tokens)
 
-            tf: dict[str, int] = {}
-            for t in tokens:
-                tf[t] = tf.get(t, 0) + 1
-                self.doc_freq[t] = self.doc_freq.get(t, 0) + (1 if tf[t] == 1 else 0)
-                self.inverted_index.setdefault(t, set()).add(idx)
-            self.token_freqs.append(tf)
+            self.token_freqs.append(self.index_tokens(tokens, idx))
 
         self.avgdl = total_len / self.n_docs if self.n_docs > 0 else 1.0
 
@@ -230,13 +226,7 @@ class BM25Index:
         doc_len = len(tokens)
         self.doc_lens.append(doc_len)
 
-        tf: dict[str, int] = {}
-        for t in tokens:
-            tf[t] = tf.get(t, 0) + 1
-            if tf[t] == 1:
-                self.doc_freq[t] = self.doc_freq.get(t, 0) + 1
-            self.inverted_index.setdefault(t, set()).add(idx)
-        self.token_freqs.append(tf)
+        self.token_freqs.append(self.index_tokens(tokens, idx))
 
         self.doc_visibility.append(visibility)
         self.doc_owner_id.append(owner_id)
@@ -264,9 +254,7 @@ class BM25Index:
         old_tokens = tokenize(self.texts[index])
         new_tokens = tokenize(new_text)
 
-        self._remove_old_tokens(
-            self.doc_freq, self.inverted_index, old_tokens, self.token_freqs[index], index
-        )
+        self.remove_tokens(index)
 
         self.texts[index] = new_text
         old_hash = self.hashes[index]
@@ -275,13 +263,7 @@ class BM25Index:
         self._hash_to_idx.pop(old_hash, None)
         self._hash_to_idx[new_hash_val] = index
 
-        new_tf: dict[str, int] = {}
-        for t in new_tokens:
-            new_tf[t] = new_tf.get(t, 0) + 1
-            if new_tf[t] == 1:
-                self.doc_freq[t] = self.doc_freq.get(t, 0) + 1
-            self.inverted_index.setdefault(t, set()).add(index)
-        self.token_freqs[index] = new_tf
+        self.token_freqs[index] = self.index_tokens(new_tokens, index)
 
         old_len = len(old_tokens)
         new_len = len(new_tokens)
@@ -296,27 +278,25 @@ class BM25Index:
         if group_id is not None:
             self.doc_group_id[index] = group_id
 
-    @staticmethod
-    def _remove_old_tokens(
-        doc_freq: dict[str, int],
-        inverted_index: dict[str, set[int]],
-        old_tokens: list[str],
-        old_tf: dict[str, int],
-        index: int,
-    ) -> None:
-        for t in old_tokens:
-            if old_tf.get(t, 0) > 0:
-                if old_tf[t] == 1 and t in doc_freq:
-                    doc_freq[t] -= 1
-                    if doc_freq[t] <= 0:
-                        del doc_freq[t]
-                if t in inverted_index:
-                    inverted_index[t].discard(index)
-                    if not inverted_index[t]:
-                        del inverted_index[t]
+    def index_tokens(self, tokens: list[str], index: int) -> dict[str, int]:
+        frequencies = dict(Counter(tokens))
+        for term in frequencies:
+            self.doc_freq[term] = self.doc_freq.get(term, 0) + 1
+            self.inverted_index.setdefault(term, set()).add(index)
+        return frequencies
+
+    def remove_tokens(self, index: int) -> None:
+        for term in self.token_freqs[index]:
+            self.doc_freq[term] -= 1
+            if self.doc_freq[term] == 0:
+                del self.doc_freq[term]
+            posting = self.inverted_index[term]
+            posting.discard(index)
+            if not posting:
+                del self.inverted_index[term]
 
     @staticmethod
-    def _remove_from_lists(
+    def remove_from_lists(
         texts: list[str],
         hashes: list[str],
         doc_lens: list[int],
@@ -330,33 +310,23 @@ class BM25Index:
         del token_freqs[index]
         return removed_len
 
-    @staticmethod
-    def _rebuild_inverted_indices(
-        inverted_index: dict[str, set[int]], removed_index: int
-    ) -> dict[str, set[int]]:
-        new_inverted: dict[str, set[int]] = {}
-        for t, posting in inverted_index.items():
-            new_posting = set()
-            for old_idx in posting:
-                if old_idx < removed_index:
-                    new_posting.add(old_idx)
-                elif old_idx > removed_index:
-                    new_posting.add(old_idx - 1)
-            if new_posting:
-                new_inverted[t] = new_posting
-        return new_inverted
+    def shift_inverted_indices(self, removed_index: int) -> None:
+        # Compact document positions require shifting only postings after the deletion.
+        if removed_index == self.n_docs:
+            return
+        for term, posting in self.inverted_index.items():
+            if any(position > removed_index for position in posting):
+                self.inverted_index[term] = {
+                    position - 1 if position > removed_index else position for position in posting
+                }
 
     def remove_text(self, index: int) -> None:
         """Remove text at given index. Updates all BM25 statistics."""
         if index < 0 or index >= self.n_docs:
             raise IndexError(f"Index {index} out of range [0, {self.n_docs})")
 
-        old_tokens = tokenize(self.texts[index])
-        old_tf = self.token_freqs[index]
-
-        self._remove_old_tokens(self.doc_freq, self.inverted_index, old_tokens, old_tf, index)
-        removed_hash = self.hashes[index]
-        removed_len = self._remove_from_lists(self.texts, self.hashes, self.doc_lens, self.token_freqs, index)
+        self.remove_tokens(index)
+        removed_len = self.remove_from_lists(self.texts, self.hashes, self.doc_lens, self.token_freqs, index)
 
         del self.doc_visibility[index]
         del self.doc_owner_id[index]
@@ -366,6 +336,5 @@ class BM25Index:
         total_len = self.avgdl * (self.n_docs + 1) - removed_len
         self.avgdl = total_len / self.n_docs if self.n_docs > 0 else 1.0
 
-        self.inverted_index = self._rebuild_inverted_indices(self.inverted_index, index)
-        self._hash_to_idx.pop(removed_hash, None)
+        self.shift_inverted_indices(index)
         self._hash_to_idx = {h: i for i, h in enumerate(self.hashes)}

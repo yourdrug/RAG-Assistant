@@ -186,7 +186,7 @@ async def test_worker_retry_reuses_committed_run(monkeypatch):
 
     factory = Factory([])
     saved = None
-    evaluations = AsyncMock(return_value=[{'id': 1}])
+    evaluations = AsyncMock(return_value={'results': [{'id': 1}], 'total_time_sec': 1})
 
     async def get_job(job_id):
         return saved
@@ -203,17 +203,14 @@ async def test_worker_retry_reuses_committed_run(monkeypatch):
     factory.repo.get_by_job_id = AsyncMock(side_effect=get_job)
     factory.repo.save_once = AsyncMock(side_effect=save)
     monkeypatch.setattr(tasks, 'load_benchmark_questions', AsyncMock(return_value=[{'question': 'q'}]))
-    monkeypatch.setattr(tasks, 'run_benchmark_async', evaluations)
-    monkeypatch.setattr(
-        tasks, 'compute_summary_from_results', lambda results: {'results': results, 'total_time_sec': 1}
-    )
     monkeypatch.setattr(runtime, 'run_tracked_job', tracked)
     reports = SimpleNamespace(save_report=AsyncMock(return_value=False))
     monkeypatch.setattr(tasks, 'BenchmarkExportService', lambda *args: reports)
     ctx = {
         'container': SimpleNamespace(
             infrastructure=SimpleNamespace(
-                db=SimpleNamespace(uow_factory=factory), ml=SimpleNamespace(file_storage=object())
+                db=SimpleNamespace(uow_factory=factory),
+                ml=SimpleNamespace(file_storage=object(), benchmark_service=SimpleNamespace(run=evaluations)),
             ),
             application=SimpleNamespace(rag_service=object()),
         )
@@ -272,6 +269,6 @@ async def test_default_web_sweep_does_not_fallback_to_data_dir(monkeypatch):
     from infrastructure.benchmark.sweep_settings import LiveSweepSettings
 
     monkeypatch.setattr(settings, 'data_dir', '/proc/unavailable')
-    assert LiveSweepSettings().results_path is None
+    assert not hasattr(LiveSweepSettings(), "results_path")
     with pytest.raises(RuntimeError, match='database checkpoint'):
-        SweepEngine(None).create_checkpoints(7, None)
+        SweepEngine(None).create_checkpoints(7)

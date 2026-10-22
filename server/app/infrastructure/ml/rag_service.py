@@ -13,16 +13,16 @@ import uuid
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING
 
-from application.ports.ml_clients import MLClientPort
 from application.documents import DocumentAccessPort
-
+from application.ports.ml_clients import MLClientPort
 from config import settings
-from infrastructure.corpus.snapshot import pin_corpus_stream
-from domain.rag.result import RagResult
-from domain.rag.retrieval import compute_reranker_score
-from domain.rag.context import RagContext
+from domain.identity.roles import UserKind, UserRole
+from domain.knowledge.access_control import get_visibility_conditions
 from domain.knowledge.enums import DocDomain
 from domain.rag.breadth import Breadth
+from domain.rag.context import RagContext
+from domain.rag.result import RagResult
+from domain.rag.retrieval import compute_reranker_score
 from domain.rag.stream_events import (
     PipelineMetaEvent,
     SourcesEvent,
@@ -31,8 +31,10 @@ from domain.rag.stream_events import (
     TextChunk,
     UsageReport,
 )
+from shared import request_id_ctx
 
-from infrastructure.ml.rag.rag_cache import store_answer_cache
+from infrastructure.corpus.snapshot import pin_corpus_stream
+from infrastructure.ml.cache.pipeline import store_answer_cache
 from infrastructure.ml.rag.rag_config import build_rag_settings
 from infrastructure.ml.rag.rag_formatting import history_to_messages
 from infrastructure.ml.rag.rag_steps import (
@@ -47,11 +49,14 @@ from infrastructure.ml.rag.rag_steps import (
     step_self_rag,
 )
 from infrastructure.ml.rag_pipeline import RagPipelineState
-from infrastructure.repositories.vector.acl import build_qdrant_filter, with_temporal_filter
-from shared import request_id_ctx
+from infrastructure.repositories.vector.acl import (
+    build_qdrant_filter,
+    with_temporal_filter,
+)
 
 if TYPE_CHECKING:
     from application.chat import PIIRedactorPort
+
     from infrastructure.adapters.chunk_search_adapter import ChunkSearchAdapter
 
 log = logging.getLogger("default")
@@ -111,9 +116,6 @@ class RagService:
 
         user = ctx.to_user_context()
         scope = ctx.curator_scope
-
-        from domain.knowledge.access_control import get_visibility_conditions
-        from domain.identity.roles import UserKind, UserRole
 
         visibility_conditions = get_visibility_conditions(
             UserKind(ctx.user_kind),

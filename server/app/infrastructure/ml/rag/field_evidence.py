@@ -9,7 +9,7 @@ from domain.rag.evidence.queries import table_message_matches
 from domain.knowledge.enums import PageContentType
 from domain.knowledge.enums import SearchMode
 from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata
-from infrastructure.ml.rag.evidence_focus import matching_field_rows, requested_fields
+from domain.rag.evidence.focus import matching_field_rows, requested_fields
 
 log = logging.getLogger("default")
 MAX_FIELD_DOCUMENTS = 3

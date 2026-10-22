@@ -616,7 +616,7 @@ class TestAssessSufficiency:
         doc.page_content = "some legal context"
         doc.metadata = {"source": "test.pdf", "document_id": 1}
 
-        with patch("config.settings") as mock_settings:
+        with patch("infrastructure.ml.rag.helpers.settings") as mock_settings:
             from domain.runtime.enums import LLMProvider
 
             mock_settings.llm_provider = LLMProvider.OLLAMA
@@ -651,7 +651,7 @@ class TestAssessSufficiency:
         doc.page_content = "some legal context"
         doc.metadata = {"source": "test.pdf", "document_id": 1}
 
-        with patch("config.settings") as mock_settings:
+        with patch("infrastructure.ml.rag.helpers.settings") as mock_settings:
             from domain.runtime.enums import LLMProvider
 
             mock_settings.llm_provider = LLMProvider.OPENROUTER
@@ -851,21 +851,21 @@ class TestPyMuPDFTableToMarkdown:
 
 class TestAnswerCacheHelpers:
     def test_same_scope_same_hash(self):
-        from infrastructure.ml.answer_cache import compute_visibility_scope_hash
+        from infrastructure.ml.cache.answers import compute_visibility_scope_hash
 
         h1 = compute_visibility_scope_hash("internal", 5, [1, 2])
         h2 = compute_visibility_scope_hash("internal", 5, [1, 2])
         assert h1 == h2
 
     def test_different_scope_different_hash(self):
-        from infrastructure.ml.answer_cache import compute_visibility_scope_hash
+        from infrastructure.ml.cache.answers import compute_visibility_scope_hash
 
         h1 = compute_visibility_scope_hash("internal", 5, [1])
         h2 = compute_visibility_scope_hash("client", 5, [1])
         assert h1 != h2
 
     def test_different_groups_different_hash(self):
-        from infrastructure.ml.answer_cache import compute_visibility_scope_hash
+        from infrastructure.ml.cache.answers import compute_visibility_scope_hash
 
         h1 = compute_visibility_scope_hash("internal", 5, [1, 2])
         h2 = compute_visibility_scope_hash("internal", 5, [1, 3])
@@ -874,21 +874,21 @@ class TestAnswerCacheHelpers:
     def test_different_users_same_scope_different_hash(self):
         # identical kind + groups must NOT share a cache scope —
         # answers/sources may reference the caller's own private documents.
-        from infrastructure.ml.answer_cache import compute_visibility_scope_hash
+        from infrastructure.ml.cache.answers import compute_visibility_scope_hash
 
         h1 = compute_visibility_scope_hash("internal", 1, [])
         h2 = compute_visibility_scope_hash("internal", 2, [])
         assert h1 != h2
 
     def test_question_hash_deterministic(self):
-        from infrastructure.ml.answer_cache import compute_question_hash
+        from infrastructure.ml.cache.answers import compute_question_hash
 
         h1 = compute_question_hash("Что такое ЭТТН?")
         h2 = compute_question_hash("Что такое ЭТТН?")
         assert h1 == h2
 
     def test_question_hash_case_insensitive(self):
-        from infrastructure.ml.answer_cache import compute_question_hash
+        from infrastructure.ml.cache.answers import compute_question_hash
 
         h1 = compute_question_hash("ЧТО ТАКОЕ ЭТТН?")
         h2 = compute_question_hash("что такое Эттн?")
@@ -1126,8 +1126,8 @@ class TestCircuitBreakerIntegration:
         mock_client.chat.completions.create = AsyncMock(return_value=mock_result)
         mock_ml.instructor_client = mock_client
 
-        with patch("infrastructure.resilience.circuit_breaker.get_breaker", return_value=mock_breaker):
-            with patch("config.settings") as mock_settings:
+        with patch("infrastructure.ml.rag.helpers.get_breaker", return_value=mock_breaker):
+            with patch("infrastructure.ml.rag.helpers.settings") as mock_settings:
                 mock_settings.llm_provider = MagicMock(value="ollama")
                 mock_settings.llm_model = "test"
                 mock_settings.llm_auxiliary_timeout = 30
@@ -1156,8 +1156,8 @@ class TestCircuitBreakerIntegration:
         mock_client.chat.completions.create = AsyncMock(side_effect=RuntimeError("LLM down"))
         mock_ml.instructor_client = mock_client
 
-        with patch("infrastructure.resilience.circuit_breaker.get_breaker", return_value=mock_breaker):
-            with patch("config.settings") as mock_settings:
+        with patch("infrastructure.ml.rag.helpers.get_breaker", return_value=mock_breaker):
+            with patch("infrastructure.ml.rag.helpers.settings") as mock_settings:
                 mock_settings.llm_provider = MagicMock(value="ollama")
                 mock_settings.llm_model = "test"
                 mock_settings.llm_auxiliary_timeout = 30

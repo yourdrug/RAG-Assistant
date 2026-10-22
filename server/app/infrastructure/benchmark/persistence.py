@@ -1,87 +1,11 @@
-"""Benchmark persistence — save results, logging, history."""
+"""Benchmark progress and summary logging."""
 
-import csv
-import json
 import logging
-import re
-from datetime import datetime
-from pathlib import Path
 
 from domain.benchmark.evaluation import EVIDENCE_METRICS
-
 from infrastructure.benchmark.metrics import compute_summary_metrics
 
 logger = logging.getLogger("default")
-
-
-def _sanitize_model_name(model: str) -> str:
-    """Replace characters invalid in filenames (e.g. ':') with underscores."""
-    return re.sub(r'[\\/:*?"<>|]', "_", model)
-
-
-def save_results(
-    results: list[dict], out_dir: str, model_name: str = "", run_id: str = "", *, corpus: dict | None = None
-):
-    out = Path(out_dir)
-    out.mkdir(parents=True, exist_ok=True)
-
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    model_tag = f"_{_sanitize_model_name(model_name)}" if model_name else ""
-    run_tag = f"_{run_id}" if run_id else ""
-
-    json_path = out / f"benchmark_{ts}{model_tag}{run_tag}.json"
-    # Preserve the list format consumed by legacy report readers.
-    export_results = [{**row, 'corpus': corpus} for row in results] if corpus is not None else results
-    json_path.write_text(json.dumps(export_results, ensure_ascii=False, indent=2), encoding="utf-8")
-
-    csv_path = out / f"benchmark_{ts}{model_tag}{run_tag}.csv"
-    fields = [
-        "id",
-        "question",
-        "faithfulness",
-        "relevancy",
-        "correctness",
-        "hit_rate",
-        "mrr",
-        "source_hit_rate",
-        "source_mrr",
-        "avg_sim",
-        "context_precision",
-        "context_recall",
-        "latency_sec",
-        *EVIDENCE_METRICS,
-        "context_chars",
-        *(corpus or {}),
-    ]
-    with csv_path.open("w", encoding="utf-8", newline="") as stream:
-        writer = csv.DictWriter(stream, fieldnames=fields)
-        writer.writeheader()
-        for result in results:
-            gm = result["generator_metrics"]
-            rm = result["retriever_metrics"]
-            cm = result.get("context_metrics", {})
-            writer.writerow(
-                {
-                    "id": result["id"],
-                    "question": result["question"],
-                    **{key: gm.get(key) for key in ("faithfulness", "relevancy", "correctness")},
-                    "hit_rate": rm.get("hit_rate"),
-                    "mrr": rm.get("mrr"),
-                    "source_hit_rate": rm.get("source_hit_rate"),
-                    "source_mrr": rm.get("source_mrr"),
-                    "avg_sim": rm.get("avg_similarity"),
-                    "context_precision": cm.get("context_precision"),
-                    "context_recall": cm.get("context_recall"),
-                    "latency_sec": round(result["latency_sec"], 2),
-                    **{key: result.get("evidence_metrics", {}).get(key) for key in EVIDENCE_METRICS},
-                    "context_chars": result.get("evidence", {}).get("context_chars"),
-                    **(corpus or {}),
-                }
-            )
-
-    logger.info("Результаты сохранены:")
-    logger.info("  JSON: %s", json_path)
-    logger.info("  CSV:  %s", csv_path)
 
 
 def log_question_result(idx: int, total: int, q: dict, result: dict):

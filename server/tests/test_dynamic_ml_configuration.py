@@ -496,29 +496,6 @@ async def test_cached_llm_family_changes_together_and_active_stream_survives(mod
         await registry.close()
 
 
-@pytest.mark.asyncio
-async def test_standalone_benchmark_refreshes_its_private_cached_embedding_pool(model, monkeypatch):
-    from infrastructure.benchmark import answer_generators
-    from domain.rag.context import RagContext
-    from domain.identity.roles import UserKind
-
-    pools = wire_http(monkeypatch, successful_response)
-    monkeypatch.setattr(answer_generators, "settings", model)
-    monkeypatch.setattr(factories, "settings", model)
-    generator = answer_generators.StandaloneBenchmarkGenerator(
-        4, 12, RagContext(user_id=7, user_kind=UserKind.INTERNAL)
-    )
-    old = generator._clients.embeddings()
-    model.tei_embed_url = "http://replacement:8080"
-    try:
-        await generator.refresh_ml_clients()
-        current = generator._clients.embeddings()
-        assert current is not old
-        assert current._base_url == "http://replacement:8080"
-        await old.close()
-        assert pools[0].is_closed
-    finally:
-        await generator.close()
 
 
 @pytest.mark.asyncio
@@ -664,45 +641,6 @@ async def test_auxiliary_call_waiting_for_semaphore_keeps_its_original_client(mo
         await registry.close()
 
 
-@pytest.mark.asyncio
-async def test_concurrent_benchmark_refresh_never_installs_obsolete_endpoint(model, monkeypatch):
-    from infrastructure.benchmark import answer_generators
-    from domain.rag.context import RagContext
-    from domain.identity.roles import UserKind
-
-    started, release = asyncio.Event(), asyncio.Event()
-    model.ml_internal_allowed_origins.append("http://newer:8080")
-
-    async def handler(request):
-        if request.url.host == "replacement" and request.url.path == "/info":
-            started.set()
-            await release.wait()
-        return successful_response(request)
-
-    pools = wire_http(monkeypatch, handler)
-    monkeypatch.setattr(answer_generators, "settings", model)
-    monkeypatch.setattr(factories, "settings", model)
-    generator = answer_generators.StandaloneBenchmarkGenerator(
-        4, 12, RagContext(user_id=7, user_kind=UserKind.INTERNAL)
-    )
-    old = generator._clients.embeddings()
-    model.tei_embed_url = "http://replacement:8080"
-    first = asyncio.create_task(generator.refresh_ml_clients())
-    await started.wait()
-    model.tei_embed_url = "http://newer:8080"
-    second = asyncio.create_task(generator.refresh_ml_clients())
-    try:
-        await asyncio.sleep(0)
-        release.set()
-        await asyncio.gather(first, second)
-        assert generator._clients.embeddings()._base_url == "http://newer:8080"
-        assert generator._ml_settings.tei_embed_url == "http://newer:8080"
-        await old.close()
-        assert sum(not pool.is_closed for pool in pools) == 1
-    finally:
-        release.set()
-        await asyncio.gather(first, second, return_exceptions=True)
-        await generator.close()
 
 
 @pytest.mark.asyncio

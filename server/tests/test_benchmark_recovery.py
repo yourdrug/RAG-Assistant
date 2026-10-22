@@ -8,13 +8,15 @@ from unittest.mock import AsyncMock
 import httpx
 import instructor
 import pytest
+
+from infrastructure.benchmark.checkpoint import DatabaseBenchmarkCheckpoints
+from fakes import FakeUnitOfWorkFactory
 from openai import OpenAI
 
 
 from domain.benchmark.sweep import BenchmarkSweep
 from domain.benchmark.sweep import BenchmarkSweepStatus
 from application.benchmark import BenchmarkSweepService
-from fakes import FakeUnitOfWorkFactory
 from infrastructure.benchmark import judge, persistence, runner
 from infrastructure.benchmark.case_evaluator import BenchmarkCaseEvaluator
 from infrastructure.benchmark.answer_generators import BenchmarkAnswer
@@ -56,23 +58,24 @@ async def test_resume_skips_completed_questions_and_invalidates_changed_settings
 
     async def evaluate(self, idx, question, run_idx, ctx, **kwargs):
         calls.append(question["question"])
+
         if fail and idx == 2:
             raise RuntimeError("provider rejected request")
+
         return {"id": idx, "question": question["question"], 'judge_rubric_version': JUDGE_RUBRIC_VERSION}
 
     monkeypatch.setattr(case_evaluator.BenchmarkCaseEvaluator, "evaluate", evaluate)
     monkeypatch.setattr(persistence, "log_question_result", lambda *a: None)
     monkeypatch.setattr(persistence, "log_summary", lambda *a: None)
-    monkeypatch.setattr(persistence, "save_results", lambda *a, **kw: None)
     questions = [{"question": "first"}, {"question": "second"}]
     kwargs = {
         "questions": questions,
-        "out_dir": str(tmp_path),
         "top_k": 4,
         "judge_model": "test",
         "max_concurrent": 1,
         "rag_service": object(),
         "resume": True,
+        "checkpoints": DatabaseBenchmarkCheckpoints(FakeUnitOfWorkFactory(), 1),
     }
     with pytest.raises(RuntimeError, match="provider rejected"):
         await runner.run_benchmark_async(**kwargs)
@@ -95,11 +98,14 @@ async def test_failed_judge_keeps_generated_answer(tmp_path, monkeypatch):
     )
     judge_call = AsyncMock(side_effect=RuntimeError("provider failed"))
     monkeypatch.setattr(judge, "judge_answer_async", judge_call)
-    evaluator = BenchmarkCaseEvaluator(generator, "test")
+    store = DatabaseBenchmarkCheckpoints(FakeUnitOfWorkFactory(), 1)
+    evaluator = BenchmarkCaseEvaluator(generator, "test", store)
     path = tmp_path / "stages.json"
+
     for _ in range(2):
         with pytest.raises(RuntimeError, match="provider failed"):
             await evaluator.evaluate(1, {"question": "test"}, 1, SimpleNamespace(), path)
+
     generator.generate.assert_awaited_once()
     assert judge_call.await_count == 2
 
@@ -117,6 +123,7 @@ async def test_resume_only_accepts_terminal_failed_or_cancelled_sweeps(status):
         return_value=status in (BenchmarkSweepStatus.FAILED, BenchmarkSweepStatus.CANCELLED)
     )
     service = BenchmarkSweepService(factory)
+
     if status in (BenchmarkSweepStatus.FAILED, BenchmarkSweepStatus.CANCELLED):
         resumed = await service.resume(1)
         assert resumed.status is BenchmarkSweepStatus.PENDING
@@ -181,3 +188,23 @@ def test_judge_usage_includes_validation_retry_responses():
     finally:
         judge_usage.reset(token)
         raw.close()
+
+
+@pytest.mark.asyncio
+async def test_resume_requires_database_store_before_starting_work(tmp_path):
+    with pytest.raises(ValueError, match="database checkpoint store"):
+        await runner.run_benchmark_async(
+            [{"question": "q"}], 4, "judge", rag_service=object(), resume=True
+        )
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.asyncio
+async def test_stage_path_requires_database_store_without_file_fallback(tmp_path):
+    generator = SimpleNamespace(generate=AsyncMock())
+    with pytest.raises(RuntimeError, match="database checkpoint store"):
+        await BenchmarkCaseEvaluator(generator, "judge").evaluate(
+            1, {"question": "q"}, 1, SimpleNamespace(), tmp_path / "stages.json"
+        )
+    generator.generate.assert_not_awaited()
+    assert list(tmp_path.iterdir()) == []

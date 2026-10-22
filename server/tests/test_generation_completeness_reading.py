@@ -6,11 +6,8 @@ from pathlib import Path
 import pytest
 
 from domain.rag.evidence.reading import evidence_reading_reminder
-from infrastructure.ml.rag.evidence_focus import (
-    enumeration_anchors,
-    format_generation_messages,
-    table_lookup_anchors,
-)
+from domain.rag.evidence.focus import enumeration_anchors, table_lookup_anchors
+from infrastructure.ml.rag.evidence_focus import format_generation_messages
 from infrastructure.ml.rag.rag_prompts import build_prompt
 
 SNAPSHOT = json.loads(

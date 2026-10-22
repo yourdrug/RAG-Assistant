@@ -1,14 +1,18 @@
 """Benchmark metrics — retriever metrics, context precision/recall, summary."""
 
-from application.benchmark.summary import summarize_benchmark_results
-from domain.benchmark.judge import result_judge_errors  # noqa: F401
-
 import logging
 from pathlib import Path
 
+from application.benchmark.summary import summarize_benchmark_results
+from config import settings
+from domain.runtime.enums import LLMProvider
 from langchain.schema import Document
 
-from infrastructure.benchmark.source_hints import matches_source_hints, parse_source_hints
+from infrastructure.benchmark import judge
+from infrastructure.benchmark.source_hints import (
+    matches_source_hints,
+    parse_source_hints,
+)
 
 logger = logging.getLogger("default")
 
@@ -83,17 +87,6 @@ def compute_context_precision_recall(
         metric_callback: Persist each metric after its judge call.
 
     """
-    from config import settings
-    from domain.runtime.enums import LLMProvider
-
-    from infrastructure.benchmark.judge import (
-        CONTEXT_PRECISION_PROMPT,
-        CONTEXT_RECALL_PROMPT,
-        get_judge_client,
-        get_judge_model,
-        judge_with_structured_output,
-    )
-
     if not context_override and not docs_with_scores:
         return {
             "context_precision": None,
@@ -102,7 +95,7 @@ def compute_context_precision_recall(
             "context_recall_reason": "No documents retrieved",
         }
 
-    model = judge_model or get_judge_model()
+    model = judge_model or judge.get_judge_model()
 
     if context_override:
         context = context_override
@@ -115,14 +108,14 @@ def compute_context_precision_recall(
 
     result = dict(saved_metrics or {})
     for key, template in (
-        ("context_precision", CONTEXT_PRECISION_PROMPT),
-        ("context_recall", CONTEXT_RECALL_PROMPT),
+        ("context_precision", judge.CONTEXT_PRECISION_PROMPT),
+        ("context_recall", judge.CONTEXT_RECALL_PROMPT),
     ):
         if result.get(key) is not None:
             continue
         try:
-            client = get_judge_client(model if settings.llm_provider == LLMProvider.OLLAMA else "")
-            score = judge_with_structured_output(
+            client = judge.get_judge_client(model if settings.llm_provider == LLMProvider.OLLAMA else "")
+            score = judge.judge_with_structured_output(
                 client, template.format(question=question, answer=answer, context=context), model
             )
             result[key] = max(0.0, min(10.0, score.score))
@@ -139,10 +132,6 @@ def compute_context_precision_recall(
     return result
 
 
-# Re-exported from domain for backward compatibility
-from domain.benchmark.stats import percentile as _percentile  # noqa: E402, F401
-
-
 # LLM pricing per 1M tokens (USD). Ollama = 0 (self-hosted).
 LLM_PRICING: dict[str, dict[str, float]] = {
     "meta-llama/llama-3.1-8b-instruct": {"input": 0.05, "output": 0.05},
@@ -151,7 +140,7 @@ LLM_PRICING: dict[str, dict[str, float]] = {
 }
 
 
-def _estimate_cost_usd(model: str, input_tokens: int, output_tokens: int) -> float:
+def estimate_cost_usd(model: str, input_tokens: int, output_tokens: int) -> float:
     """Estimate cost in USD from token counts and model pricing."""
     if model in ("ollama", "") or "ollama" in model.lower():
         return 0.0

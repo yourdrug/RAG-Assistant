@@ -2,10 +2,29 @@
 
 from contextvars import ContextVar
 
-from infrastructure.metrics.metrics import extract_usage_from_langchain
-
 active_llm_usage: ContextVar[list[dict] | None] = ContextVar('rag_model_usage', default=None)
 active_stream_response: ContextVar[dict | None] = ContextVar('rag_stream_response', default=None)
+
+
+def extract_usage_from_langchain(response) -> tuple[int | None, int | None]:
+    """Extract (input_tokens, output_tokens) from a LangChain AIMessage or chunk.
+
+    Supports both usage_metadata (LangChain v0.3+) and response_metadata.
+    Returns (None, None) if not available.
+    """
+    # Try usage_metadata first (LangChain >=0.3)
+    usage = getattr(response, "usage_metadata", None)
+    if usage and isinstance(usage, dict):
+        return usage.get("input_tokens"), usage.get("output_tokens")
+
+    # Try response_metadata (older LangChain / OpenAI format)
+    meta = getattr(response, "response_metadata", None)
+    if meta and isinstance(meta, dict):
+        usage = meta.get("usage", {})
+        if usage:
+            return usage.get("prompt_tokens"), usage.get("completion_tokens")
+
+    return None, None
 
 
 class UsageCapturingStream:

@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-
-from application.uow.factory import UnitOfWorkFactory
-from domain.knowledge.access_control import get_visibility_conditions
-from domain.identity.roles import UserKind, UserRole
-
 from application.benchmark import load_benchmark_questions
-from infrastructure.benchmark.sweep_scoring import cache_candidates
+from application.uow.factory import UnitOfWorkFactory
+from domain.identity.roles import UserKind, UserRole
+from domain.knowledge.access_control import get_visibility_conditions
+
 from infrastructure.benchmark.sweep_reranking import cache_reranker_scores
+from infrastructure.benchmark.sweep_scoring import cache_candidates
 from infrastructure.benchmark.sweep_strategies import ShouldCancel
+from infrastructure.ml.clients import factories
 from infrastructure.repositories.vector.acl import build_qdrant_filter
 
 
@@ -55,9 +55,7 @@ class SweepDataSource:
             reranker = self._ml_clients.reranker()
             return await cache_reranker_scores(questions, dense, sparse, candidates, reranker, should_cancel)
 
-        from infrastructure.ml.clients.factories import create_reranker
-
-        reranker = create_reranker()
+        reranker = factories.create_reranker()
         try:
             return await cache_reranker_scores(questions, dense, sparse, candidates, reranker, should_cancel)
         finally:

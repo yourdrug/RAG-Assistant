@@ -20,8 +20,8 @@ from domain.identity.user_context import CuratorScope
 from domain.rag.breadth import Breadth
 from domain.chat.message import MessageRole
 from domain.identity.roles import UserKind, UserRole
-from infrastructure.ml import answer_cache
-from infrastructure.ml.rag import rag_steps
+from infrastructure.ml.cache import answers as answer_cache
+from infrastructure.ml.cache import keys as cache_keys
 from domain.rag.answer_policy import policy_for
 from infrastructure.ml.clients.tei_clients import TEIRerankerClient
 from infrastructure.ml.rag.prompt_budget import estimate_message_tokens
@@ -327,13 +327,13 @@ async def test_split_answer_policies_preserve_cache_prompt_scope(cache_redis, mo
     state = state_for([], rag=rag, query_for_search="Q")
     state.ctx = replace(state.ctx, as_of_date=date(2026, 1, 1))
     contexts = []
-    original_hash = rag_steps.compute_question_hash
+    original_hash = cache_keys.compute_question_hash
 
     def capture_hash(question, *, context):
         contexts.append(context)
         return original_hash(question, context=context)
 
-    monkeypatch.setattr(rag_steps, "compute_question_hash", capture_hash)
+    monkeypatch.setattr(cache_keys, "compute_question_hash", capture_hash)
     keys = ("general", "legal", "decree")
     await step_check_cache(state, keys)
     first_hash = state.q_hash

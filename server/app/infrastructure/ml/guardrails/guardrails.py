@@ -26,8 +26,6 @@ class PIIDetector:
             log.warning("PII detected: %s", found)
     """
 
-    _default: PIIDetector | None = None
-
     def __init__(self, *, mask: str = "***") -> None:
         self._mask = mask
         self._patterns = ALL_PATTERNS
@@ -56,15 +54,3 @@ class PIIDetector:
 
         log.info("PII redacted: types=%s, input_len=%d, output_len=%d", found, len(text), len(redacted))
         return redacted, found
-
-
-def get_pii_detector() -> PIIDetector:
-    """Get or create the default PII detector instance."""
-    if PIIDetector._default is None:
-        PIIDetector._default = PIIDetector()
-    return PIIDetector._default
-
-
-def invalidate_pii_detector() -> None:
-    """Clear the cached detector instance (called on config change)."""
-    PIIDetector._default = None

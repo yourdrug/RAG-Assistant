@@ -1,4 +1,4 @@
-"""BM25 index persistence — filesystem and S3 save/load."""
+"""BM25 index persistence — S3 snapshots with temporary download parsing."""
 
 from __future__ import annotations
 
@@ -29,25 +29,6 @@ class BM25SnapshotNotReady(RuntimeError):
 
 
 BM25_S3_KEY = "_system/bm25_index.json"
-
-
-def save_bm25_index(index: BM25Index, path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(index.to_dict(), ensure_ascii=False), encoding="utf-8")
-    log.info("BM25 index saved: %d docs -> %s", index.n_docs, path)
-
-
-def load_bm25_index(path: Path) -> BM25Index | None:
-    if not path.exists():
-        return None
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        idx = BM25Index.from_dict(data)
-        log.info("BM25 index loaded: %d docs from %s", idx.n_docs, path)
-        return idx
-    except Exception as e:
-        log.warning("Failed to load BM25 index from %s: %s", path, e)
-        return None
 
 
 async def save_bm25_index_to_s3(index: BM25Index, storage) -> None:

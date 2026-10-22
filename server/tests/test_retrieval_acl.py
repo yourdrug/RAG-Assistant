@@ -5,6 +5,11 @@ are correctly passed to qdrant_dense_search and resolve_hashes_batch,
 rather than being silently dropped.
 """
 
+from infrastructure.ml.rag_pipeline import RagPipelineState
+from domain.rag.context import RagContext
+from domain.identity.user_context import UserContext
+from domain.identity.roles import UserKind, UserRole
+
 import asyncio
 import sys
 from pathlib import Path
@@ -73,9 +78,9 @@ class TestDenseSearchACLFilter:
 
         call_kwargs = mock_client.search.call_args
         applied_filter = call_kwargs.kwargs["query_filter"]
-        assert (
-            applied_filter is not None
-        ), "Must-style filter from with_temporal_filter was dropped — dense search ran without ACL!"
+        assert applied_filter is not None, (
+            "Must-style filter from with_temporal_filter was dropped — dense search ran without ACL!"
+        )
         assert applied_filter is temporal_af
 
     def test_must_style_filter_after_domain_NOT_dropped(self):
@@ -167,17 +172,22 @@ async def test_decomposition_and_legal_fallback_preserve_acl(decomposition, sub_
     ):
         candidates, actual_queries = await retrieve_with_decomposition(
             "query",
-            10,
-            af,
-            rag,
+            RagPipelineState(
+                fetch_k=10,
+                retrieval_filter=af,
+                rag=rag,
+                breadth=Breadth.NARROW,
+                query_domain="legal",
+                effective_dense_weight=1.0,
+                effective_sparse_weight=1.0,
+                visibility_conditions=conditions,
+                t_pipeline_start=0,
+                question="query",
+                access_filter=af,
+                ctx=RagContext(user_kind=UserKind.INTERNAL, user_id=5, user_group_ids=[1, 2]),
+                user=UserContext(user_id=5, user_kind=UserKind.INTERNAL, user_role=UserRole.USER),
+            ),
             ml,
-            Breadth.NARROW,
-            "legal",
-            1.0,
-            1.0,
-            visibility_conditions=conditions,
-            user_id=5,
-            user_group_ids=[1, 2],
         )
 
     assert candidates == []
@@ -225,20 +235,23 @@ async def test_legal_rerank_fallback_preserves_acl_and_temporal_filter():
         await rerank_and_enrich(
             "query",
             [],
-            rag,
+            RagPipelineState(
+                rag=rag,
+                breadth=Breadth.NARROW,
+                query_domain="legal",
+                rerank_top_n=5,
+                retrieval_filter=af,
+                ctx=ctx,
+                history_messages=[],
+                enumerate_cases=False,
+                visibility_conditions=conditions,
+                t_pipeline_start=0,
+                question="query",
+                access_filter=af,
+                user=UserContext(user_id=5, user_kind=UserKind.INTERNAL, user_role=UserRole.USER),
+            ),
             ml,
-            Breadth.NARROW,
-            "legal",
-            5,
-            af,
-            ctx,
-            [],
-            5,
             None,
-            False,
-            visibility_conditions=conditions,
-            user_id=5,
-            user_group_ids=[1, 2],
         )
 
     search.assert_awaited_once_with(

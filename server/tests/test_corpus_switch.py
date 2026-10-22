@@ -14,7 +14,7 @@ from dataclasses import replace
 from domain.shared.exceptions import ValidationError
 from infrastructure.corpus.validation import validate_corpus
 from infrastructure.ml.clients.client_registry import MLClientRegistry
-from infrastructure.ml.answer_cache import _cache_key
+from infrastructure.ml.cache.answers import _cache_key
 
 
 def test_bound_client_never_mixes_new_setting_with_old_collection():

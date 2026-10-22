@@ -59,7 +59,7 @@ async def test_fixed_context_replay_sends_unchanged_evidence_without_retrieval(m
 
 
 def test_reading_anchors_quote_exact_evidence_and_bind_note_to_previous_line():
-    from infrastructure.ml.rag.evidence_focus import reading_anchors
+    from domain.rag.evidence.focus import reading_anchors
 
     snapshot = json.loads(FIXTURE.read_text())
     cases = {case["id"]: case for case in snapshot["cases"]}
@@ -77,7 +77,7 @@ def test_reading_anchors_quote_exact_evidence_and_bind_note_to_previous_line():
 
 
 def test_editorial_anchor_requires_requested_date_and_cannot_supply_missing_evidence():
-    from infrastructure.ml.rag.evidence_focus import reading_anchors
+    from domain.rag.evidence.focus import reading_anchors
 
     context = "wrong subject;\n(абзац введен Законом от 01.01.2020)\nnext subject;"
     assert reading_anchors(context, "Кто дополнительно получил право 16.03.2026?") == []

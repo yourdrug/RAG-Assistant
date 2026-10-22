@@ -10,7 +10,7 @@ from collections.abc import AsyncIterator
 from domain.rag.breadth import Breadth
 from domain.rag.settings import RagSettings
 from domain.rag.stream_events import PipelineMetaEvent, SourcesEvent, StreamEvent, TextChunk
-from infrastructure.ml.answer_cache import find_cached_answer, store_cached_answer
+from infrastructure.ml.cache.answers import find_cached_answer, store_cached_answer
 from infrastructure.ml.guardrails.output_scanner import OutputScanner
 from infrastructure.metrics.metrics import (
     RAG_CACHE_HITS_TOTAL,

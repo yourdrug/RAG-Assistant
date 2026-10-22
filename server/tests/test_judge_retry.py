@@ -198,23 +198,3 @@ class TestJudgeAnswerAsync:
             result = await judge_answer_async("q", "a", "ctx", expected_answer="expected")
         assert "correctness" in result
         assert result["correctness"] == 7.0
-
-
-# ---------------------------------------------------------------------------
-# get_rag_answer_with_usage — still uses manual retry (LangChain, not instructor)
-# ---------------------------------------------------------------------------
-
-
-class TestGetRagAnswerWithUsage:
-    def test_retries_on_failure(self):
-        from infrastructure.benchmark.judge import get_rag_answer_with_usage
-
-        mock_llm = MagicMock()
-        mock_response = MagicMock()
-        mock_response.content = "final answer"
-        mock_llm.invoke.side_effect = [Exception("transient"), mock_response]
-
-        docs = [(SimpleNamespace(page_content="ctx", metadata={}), 0.9)]
-        answer, resp = get_rag_answer_with_usage(mock_llm, docs, "question")
-        assert answer == "final answer"
-        assert mock_llm.invoke.call_count == 2

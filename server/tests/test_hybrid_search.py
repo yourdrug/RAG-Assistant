@@ -4,15 +4,19 @@ All pure functions, no Qdrant/Ollama needed.
 """
 
 import sys
-import tempfile
+import json
+from unittest.mock import AsyncMock
+
+import pytest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 from domain.shared.hashing import content_hash
+from domain.knowledge.enums import DocumentVisibility
 from domain.rag.retrieval import rrf_merge  # noqa: E402
 from infrastructure.bm25.bm25_index import BM25Index  # noqa: E402
-from infrastructure.bm25.persistence import load_bm25_index, save_bm25_index  # noqa: E402
+from infrastructure.bm25.persistence import BM25_S3_KEY, load_bm25_index_from_s3, save_bm25_index_to_s3  # noqa: E402
 from infrastructure.bm25.tokenizer import tokenize, tokenize_raw  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -203,25 +207,53 @@ class TestContentHash:
 
 
 class TestPersistence:
-    def test_save_and_load_bm25(self):
-        texts = ["маркировка", "штрафы", "постановление"]
-        idx = BM25Index(texts)
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "bm25.json"
-            save_bm25_index(idx, path)
-            loaded = load_bm25_index(path)
-            assert loaded is not None
-            assert loaded.n_docs == 3
-            r1 = idx.search("маркировка", k=1)
-            r2 = loaded.search("маркировка", k=1)
-            assert r1[0][0] == r2[0][0]
+    @pytest.mark.asyncio
+    async def test_s3_roundtrip_preserves_scores_and_acl(self, tmp_path):
+        index = BM25Index(
+            ["маркировка маркировка", "штрафы", "постановление"],
+            doc_visibility=[
+                DocumentVisibility.INTERNAL_PUBLIC,
+                DocumentVisibility.INTERNAL_PRIVATE,
+                DocumentVisibility.INTERNAL_PUBLIC,
+            ],
+            doc_owner_id=[1, 2, 3],
+            doc_group_id=[None, 7, None],
+        )
+        storage = AsyncMock()
+        await save_bm25_index_to_s3(index, storage)
+        key, payload = storage.upload_file.call_args.args
+        assert key == BM25_S3_KEY
+        assert json.loads(payload) == index.to_dict()
+        path = tmp_path / "download.json"
+        path.write_bytes(payload)
+        storage.download_to_temp.return_value = path
+        loaded = await load_bm25_index_from_s3(storage)
+        assert loaded.to_dict() == index.to_dict()
+        assert loaded.search("маркировка") == index.search("маркировка")
+        assert not path.exists()
 
-    def test_load_nonexistent_returns_none(self):
-        assert load_bm25_index(Path("/tmp/nonexistent_bm25.json")) is None
 
-    def test_save_creates_parent_dirs(self):
-        idx = BM25Index(["test"])
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "subdir" / "bm25.json"
-            save_bm25_index(idx, path)
-            assert path.exists()
+@pytest.mark.parametrize("operation", ["replace", "remove", "remove_last", "add"])
+def test_incremental_statistics_match_rebuild_with_repeated_terms(operation):
+    index = BM25Index(["маркировка маркировка", "маркировка товары", "штрафы"])
+
+    if operation == "replace":
+        index.replace_text(0, "товары товары")
+    elif operation == "remove":
+        index.remove_text(0)
+    elif operation == "remove_last":
+        index.remove_text(index.n_docs - 1)
+    else:
+        index.add_text("товары товары")
+
+    rebuilt = BM25Index.from_dict(index.to_dict())
+    assert index.doc_freq == rebuilt.doc_freq
+    assert index.token_freqs == rebuilt.token_freqs
+    assert index.inverted_index == rebuilt.inverted_index
+    assert index.doc_lens == rebuilt.doc_lens
+    assert index.avgdl == pytest.approx(rebuilt.avgdl)
+
+    for position, value in enumerate(index.hashes):
+        assert index.find_by_hash(value) == position
+
+    assert index.search("маркировка товары") == rebuilt.search("маркировка товары")

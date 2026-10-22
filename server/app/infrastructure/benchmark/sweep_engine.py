@@ -3,15 +3,13 @@
 from __future__ import annotations
 
 import logging
-from config import get_setting, settings
-from pathlib import Path
+from config import get_setting
+from dataclasses import dataclass, field
+from functools import partial
 
 from application.benchmark import BenchmarkCheckpoints
-from infrastructure.benchmark.checkpoint import (
-    fingerprint,
-    FileBenchmarkCheckpoints,
-    import_legacy_configuration,
-)
+from infrastructure.benchmark.checkpoint import fingerprint
+from infrastructure.corpus.snapshot import CorpusSnapshot
 from collections.abc import Callable
 from typing import Protocol, TypedDict, cast
 
@@ -24,7 +22,7 @@ from infrastructure.benchmark.corpus import benchmark_corpus, corpus_metadata
 from infrastructure.benchmark.sweep_data import SweepDataSource
 from infrastructure.benchmark.sweep_full_evaluation import SweepFullEvaluator
 from infrastructure.benchmark.sweep_scoring import has_retrieval_labels, score_config_cheap
-from infrastructure.benchmark.sweep_settings import LiveSweepSettings, SweepSettingsPort
+from infrastructure.benchmark.sweep_settings import LiveSweepSettings, SweepSettingsPort, settings_snapshot
 from infrastructure.benchmark.sweep_strategies import (
     ProgressCallback,
     ShouldCancel,
@@ -56,7 +54,6 @@ class SweepBenchmarkPort(Protocol):
     async def run(
         self,
         questions: list[dict],
-        out_dir: str | None,
         top_k: int,
         judge_model: str,
         *,
@@ -72,6 +69,13 @@ class SweepResumeOptions(TypedDict, total=False):
     checkpoint_prefix: str
 
 
+@dataclass
+class SweepRun:
+    corpus: CorpusSnapshot | None = None
+    checkpoints: BenchmarkCheckpoints | None = None
+    baseline_config: dict = field(default_factory=dict)
+
+
 class SweepEngine:
     def __init__(
         self,
@@ -81,7 +85,7 @@ class SweepEngine:
         *,
         runtime: SweepSettingsPort | None = None,
         strategies: dict[str, Callable[[dict], SweepSearchStrategy]] | None = None,
-        checkpoint_factory: Callable[[int, Path | None], BenchmarkCheckpoints] | None = None,
+        checkpoint_factory: Callable[[int], BenchmarkCheckpoints] | None = None,
     ) -> None:
         self._runtime = runtime if runtime is not None else LiveSweepSettings()
         self._checkpoint_factory = checkpoint_factory
@@ -99,7 +103,7 @@ class SweepEngine:
         should_cancel: ShouldCancel | None = None,
     ) -> list[dict]:
         async with benchmark_corpus(self._ml_clients) as corpus:
-            self.corpus = corpus
+            run = SweepRun(corpus=corpus)
             mode = validate_sweep_mode(sweep.evaluation_mode, sweep.strategy)
             validate_objective_weights(
                 sweep.objective_weights, require_retrieval=mode == SweepEvaluationMode.FAST
@@ -119,24 +123,19 @@ class SweepEngine:
                 raise ValueError(f"Unknown strategy: {sweep.strategy}") from exc
             strategy = factory(sweep.search_space)
             await self.check_cancelled(should_cancel, "before sweep preparation")
-            self._checkpoint_root = (
-                Path(self._runtime.results_path) / "sweeps" / str(sweep.id)
-                if sweep.id and self._runtime.results_path is not None
-                else None
-            )
-            self._checkpoints = self.create_checkpoints(sweep.id, self._checkpoint_root)
+            run.checkpoints = self.create_checkpoints(sweep.id)
             dataset_questions = (
-                cast(list[dict] | None, await self._checkpoints.load("dataset.json"))
-                if self._checkpoints
+                cast(list[dict] | None, await run.checkpoints.load("dataset.json"))
+                if run.checkpoints
                 else None
             )
             if dataset_questions is None:
                 dataset_questions = await self.load_questions(sweep.dataset)
-                if self._checkpoints:
-                    await self._checkpoints.save("dataset.json", dataset_questions)
+                if run.checkpoints:
+                    await run.checkpoints.save("dataset.json", dataset_questions)
             questions = [q for q in dataset_questions if has_retrieval_labels(q)]
-            runtime_snapshot = await self.load_runtime_snapshot()
-            self._baseline_config = {
+            runtime_snapshot = await self.load_runtime_snapshot(run)
+            run.baseline_config = {
                 "top_k": runtime_snapshot["retriever_top_k"],
                 "fetch_k": runtime_snapshot["retriever_fetch_k"],
                 **{name: runtime_snapshot[name] for name in CHEAP_PARAMS - {"top_k", "fetch_k"}},
@@ -152,16 +151,14 @@ class SweepEngine:
             )
             phase_a_key = f"phase-a-{phase_a_identity}.json"
             results = (
-                cast(list[dict] | None, await self._checkpoints.load(phase_a_key))
-                if self._checkpoints
-                else None
+                cast(list[dict] | None, await run.checkpoints.load(phase_a_key)) if run.checkpoints else None
             )
             if results is None:
                 results = await self.evaluate_phase_a(
                     sweep, questions, strategy, progress_callback, should_cancel
                 )
-                if self._checkpoints:
-                    await self._checkpoints.save(phase_a_key, results)
+                if run.checkpoints:
+                    await run.checkpoints.save(phase_a_key, results)
             else:
                 logger.info("Sweep %s: restored phase A (%d configurations)", sweep.id, len(results))
                 await report_progress(
@@ -175,6 +172,7 @@ class SweepEngine:
                     dataset_questions,
                     sweep.objective_weights,
                     should_cancel,
+                    run=run,
                     evaluation_mode=mode,
                     progress_callback=progress_callback,
                 )
@@ -186,11 +184,9 @@ class SweepEngine:
                     result["search_config_count"] = len(results)
             return results
 
-    def create_checkpoints(self, sweep_id: int | None, root: Path | None) -> BenchmarkCheckpoints | None:
+    def create_checkpoints(self, sweep_id: int | None) -> BenchmarkCheckpoints | None:
         if self._checkpoint_factory and sweep_id:
-            return self._checkpoint_factory(sweep_id, root)
-        if root is not None:
-            return FileBenchmarkCheckpoints(root)
+            return self._checkpoint_factory(sweep_id)
         if sweep_id:
             raise RuntimeError("A database checkpoint store is required for web sweeps")
         return None
@@ -259,15 +255,12 @@ class SweepEngine:
         weights: dict,
         should_cancel: ShouldCancel | None = None,
         *,
+        run: SweepRun | None = None,
         evaluation_mode: SweepEvaluationMode = SweepEvaluationMode.FAST,
         progress_callback: ProgressCallback | None = None,
     ) -> list[dict]:
-        self._legacy_single_config = (
-            len(results) == 1
-            if evaluation_mode == SweepEvaluationMode.FULL
-            else top_n_llm == 1 or len(results) == 1
-        )
-        with self._runtime.override(getattr(self, "_baseline_config", {})):
+        run = run if run is not None else SweepRun()
+        with self._runtime.override(run.baseline_config):
             return await self._full.evaluate(
                 results,
                 top_n_llm,
@@ -275,42 +268,15 @@ class SweepEngine:
                 questions,
                 weights,
                 should_cancel,
-                self.run_full_benchmark,
+                partial(self.run_full_benchmark, run=run),
                 evaluation_mode=evaluation_mode,
                 progress_callback=progress_callback,
             )
 
-    async def run_full_benchmark(self, questions: list[dict], judge_model: str) -> dict:
+    async def run_full_benchmark(self, questions: list[dict], judge_model: str, *, run: SweepRun) -> dict:
         if self._benchmark_service is None:
             raise RuntimeError("A benchmark service must be injected for full sweep evaluation")
-        checkpoint_root = getattr(self, "_checkpoint_root", None)
-        out_dir = self._runtime.results_path
-        if checkpoint_root:
-            # The active override identifies this configuration; runner also
-            # fingerprints questions, model and effective runtime settings.
-            out_dir = str(
-                checkpoint_root
-                / fingerprint(
-                    {
-                        "top_k": self._runtime.top_k,
-                        "fetch_k": self._runtime.fetch_k,
-                        "judge": judge_model,
-                        "settings": {
-                            name: get_setting(name)
-                            for name in type(settings).model_fields
-                            if not any(part in name for part in ("key", "password", "secret", "url", "dir"))
-                            and name
-                            not in {
-                                "benchmark_judge_initial_tokens",
-                                "benchmark_judge_retry_tokens",
-                                "benchmark_judge_grouped_enabled",
-                                "benchmark_judge_max_concurrent",
-                            }
-                        },
-                    }
-                )
-            )
-        checkpoints: BenchmarkCheckpoints | None = getattr(self, "_checkpoints", None)
+        checkpoints = run.checkpoints
         extra: SweepResumeOptions = {}
         if checkpoints is not None:
             config_identity = fingerprint(
@@ -330,42 +296,23 @@ class SweepEngine:
                     {"config": config_identity, "questions": questions, "judge": judge_model}
                 )
                 await checkpoints.save(identity_key, prefix)
-                if self._checkpoint_factory and checkpoint_root is not None:
-                    await import_legacy_configuration(
-                        checkpoints,
-                        Path(cast(str, out_dir)),
-                        prefix,
-                        single_config_root=checkpoint_root if self._legacy_single_config else None,
-                    )
             extra = {"resume": True, "checkpoints": checkpoints, "checkpoint_prefix": prefix}
         return await self._benchmark_service.run(
             questions=questions,
-            out_dir=out_dir,
             top_k=self._runtime.top_k,
             judge_model=judge_model,
             **extra,
         )
 
-    async def load_runtime_snapshot(self) -> dict:
-        runtime_snapshot = {
-            name: get_setting(name)
-            for name in type(settings).model_fields
-            if not any(part in name for part in ("key", "password", "secret", "url", "dir"))
-            and name
-            not in {
-                "benchmark_judge_initial_tokens",
-                "benchmark_judge_retry_tokens",
-                "benchmark_judge_grouped_enabled",
-                "benchmark_judge_max_concurrent",
-            }
-        }
-        runtime_snapshot.update(corpus_metadata(getattr(self, "corpus", None)))
-        if self._checkpoints:
-            saved_runtime = await self._checkpoints.load("runtime.json")
+    async def load_runtime_snapshot(self, run: SweepRun) -> dict:
+        runtime_snapshot = settings_snapshot()
+        runtime_snapshot.update(corpus_metadata(run.corpus))
+        if run.checkpoints:
+            saved_runtime = await run.checkpoints.load("runtime.json")
             if saved_runtime is None:
-                await self._checkpoints.save("runtime.json", runtime_snapshot)
+                await run.checkpoints.save("runtime.json", runtime_snapshot)
             else:
-                if self.corpus is not None and cast(dict, saved_runtime).get(
+                if run.corpus is not None and cast(dict, saved_runtime).get(
                     "corpus_namespace"
                 ) != runtime_snapshot.get("corpus_namespace"):
                     raise ValueError("Sweep corpus changed; start a new sweep")

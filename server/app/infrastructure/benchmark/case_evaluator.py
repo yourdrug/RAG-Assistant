@@ -10,9 +10,10 @@ from uuid import uuid4
 from typing import cast
 
 from infrastructure.benchmark.answer_generators import BenchmarkAnswer
+from infrastructure.benchmark import judge, metrics, grouped_judge, evidence_judge
+from infrastructure.benchmark.token_usage import judge_usage, judge_context
 from infrastructure.ml.rag.benchmark_evidence import BenchmarkEvidence
 from application.benchmark import BenchmarkCheckpoints
-from infrastructure.benchmark.checkpoint import FileBenchmarkCheckpoints
 from infrastructure.benchmark.judge_rubric import JUDGE_RUBRIC_VERSION
 
 from config import settings
@@ -38,18 +39,21 @@ class BenchmarkCaseEvaluator:
     async def load_stages(self, path: Path | None) -> dict:
         if path is None:
             return {}
-        store = self._checkpoints or FileBenchmarkCheckpoints(path.parent)
-        return cast(dict, await store.load(str(path) if self._checkpoints else path.name) or {})
+        if self._checkpoints is None:
+            message = "A database checkpoint store is required for stage recovery"
+            raise RuntimeError(message)
+        return cast(dict, await self._checkpoints.load(str(path)) or {})
 
     async def save_stages(self, path: Path | None, stages: dict) -> None:
         if path is not None:
-            store = self._checkpoints or FileBenchmarkCheckpoints(path.parent)
-            await store.save(str(path) if self._checkpoints else path.name, stages)
+            if self._checkpoints is None:
+                message = "A database checkpoint store is required for stage recovery"
+                raise RuntimeError(message)
+            await self._checkpoints.save(str(path), stages)
 
     async def evaluate(
         self, idx: int, question: dict, run_idx: int, ctx: RagContext, checkpoint_path: Path | None = None
     ) -> dict:
-        from infrastructure.benchmark.token_usage import judge_usage, judge_context
 
         saved = await self.load_stages(checkpoint_path)
         context_token = judge_context.set(
@@ -91,7 +95,6 @@ class BenchmarkCaseEvaluator:
     async def evaluate_case(
         self, idx: int, question: dict, run_idx: int, ctx: RagContext, checkpoint_path: Path | None = None
     ) -> dict:
-        from infrastructure.benchmark.metrics import _estimate_cost_usd
 
         annotations = validate_annotations(question.get("annotations"))
         started = time.monotonic()
@@ -114,7 +117,6 @@ class BenchmarkCaseEvaluator:
         async def save_stage(name: str, value: dict) -> None:
             async with lock:
                 stages[name] = value
-                from infrastructure.benchmark.token_usage import judge_usage
 
                 stages["judge_usage"] = list(judge_usage.get() or [])
                 await self.save_stages(checkpoint_path, stages)
@@ -152,7 +154,7 @@ class BenchmarkCaseEvaluator:
         retriever_metrics.setdefault("retrieved_sources", [])
         evidence_metrics.update(judge_metrics["scores"])
         diagnostics["judge"] = judge_metrics["details"]
-        cost = _estimate_cost_usd(
+        cost = metrics.estimate_cost_usd(
             settings.llm_model, generated.input_tokens or 0, generated.output_tokens or 0
         )
         return {
@@ -198,14 +200,11 @@ class BenchmarkCaseEvaluator:
     async def judge_generated(
         self, question, generated, annotations, stages, save_stage
     ) -> tuple[dict, dict, dict]:
-        from infrastructure.benchmark.judge import judge_answer_async
-        from infrastructure.benchmark.metrics import compute_context_precision_recall
 
         if settings.benchmark_judge_grouped_enabled:
-            from infrastructure.benchmark.grouped_judge import judge_case_grouped
 
             saved_scores = restore_grouped_scores(stages)
-            grouped = await judge_case_grouped(
+            grouped = await grouped_judge.judge_case_grouped(
                 question,
                 generated.answer,
                 generated.context,
@@ -237,7 +236,7 @@ class BenchmarkCaseEvaluator:
                 },
             }
         else:
-            generator_metrics = await judge_answer_async(
+            generator_metrics = await judge.judge_answer_async(
                 question=question["question"],
                 answer=generated.answer,
                 context=generated.context,
@@ -253,7 +252,7 @@ class BenchmarkCaseEvaluator:
 
             context_metrics = (
                 await asyncio.to_thread(
-                    compute_context_precision_recall,
+                    metrics.compute_context_precision_recall,
                     question["question"],
                     question.get("expected_answer") or "",
                     context_override=generated.context,
@@ -264,10 +263,9 @@ class BenchmarkCaseEvaluator:
                 if generated.context
                 else {"context_precision": None, "context_recall": None}
             )
-            from infrastructure.benchmark.evidence_judge import judge_evidence
 
             judge_metrics = await asyncio.to_thread(
-                judge_evidence,
+                evidence_judge.judge_evidence,
                 question["question"],
                 generated.answer,
                 generated.evidence.context if generated.evidence else None,
@@ -290,13 +288,12 @@ def refresh_judge_rubric(stages: dict) -> bool:
 
 
 def restore_grouped_scores(stages: dict) -> dict:
-    from infrastructure.benchmark.grouped_judge import INSTRUCTIONS
 
     saved_scores = dict(stages.get("grouped_metrics", {}))
     # Import successes from older per-metric checkpoints on first resume.
     for group in ("generator_metrics", "context_metrics"):
         values = stages.get(group, {})
-        for key in INSTRUCTIONS:
+        for key in grouped_judge.INSTRUCTIONS:
             if values.get(key) is not None:
                 saved_scores.setdefault(
                     key, {"score": values[key], "reason": values.get(f"{key}_reason", "")}

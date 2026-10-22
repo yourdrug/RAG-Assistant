@@ -12,13 +12,11 @@ from composition.service_providers import (
 from application.documents.dto import ProcessDocumentCommand
 from domain.knowledge.enums import DocumentVisibility
 from application.benchmark import load_benchmark_questions
-from application.benchmark import compute_summary_from_results
 from domain.benchmark.run import BenchmarkRun
 from application.benchmark import BenchmarkResultService
 from application.benchmark import BenchmarkExportService
 from infrastructure.benchmark.corpus import benchmark_corpus, corpus_metadata
 from infrastructure.benchmark.checkpoint import fingerprint
-from infrastructure.benchmark.runner import run_benchmark_async
 from infrastructure.worker.runtime import job
 
 logger = logging.getLogger(__name__)
@@ -148,15 +146,11 @@ async def run_benchmark(
         registry = getattr(rag_service, '_ml', None)
         async with benchmark_corpus(registry) as corpus:
             questions = await load_benchmark_questions(uow_factory, dataset)
-            results = await run_benchmark_async(
+            summary = await ctx["container"].infrastructure.ml.benchmark_service.run(
                 questions=questions,
-                out_dir=None,
                 top_k=top_k,
                 judge_model=judge_model,
-                export_files=False,
-                rag_service=rag_service,
             )
-            summary = compute_summary_from_results(results)
             existing = await service.record_result(
                 BenchmarkRun(
                     job_id=job_id,
@@ -167,10 +161,10 @@ async def run_benchmark(
                         "dataset_hash": fingerprint(questions),
                         **corpus_metadata(corpus),
                     },
-                    summary_metrics={key: value for key, value in summary.items() if key != "results"},
-                    per_question_results=[
-                        {**raw, **row} for raw, row in zip(results, summary["results"], strict=True)
-                    ],
+                    summary_metrics={
+                        key: value for key, value in summary.items() if key not in {"results", "status"}
+                    },
+                    per_question_results=summary["results"],
                     duration_sec=summary["total_time_sec"],
                     dataset=dataset,
                     llm_evaluated=True,

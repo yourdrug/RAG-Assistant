@@ -11,8 +11,8 @@ from domain.rag.context import RagContext
 from domain.knowledge.enums import PageContentType
 from domain.identity.roles import UserKind, UserRole
 from infrastructure.ml.rag.applicable_context import enrich_applicable_context
-from infrastructure.ml.rag.grounded_response import extractive_timing_response, missing_field_response
-from infrastructure.ml.rag.rag_formatting import content_with_parent_scope
+from domain.rag.evidence.grounded_response import extractive_timing_response, missing_field_response
+from domain.rag.evidence.context import content_with_parent_scope
 
 USER = RagContext(1, UserKind.INTERNAL, UserRole.ADMIN).to_user_context()
 QUESTION = 'Формат поля «Код» (позиция 18 таблицы 4.2, BLRDLN)?'

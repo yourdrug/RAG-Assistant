@@ -27,7 +27,7 @@ exclude = [
     "app/infrastructure/ml/config/provider_configuration.py",
     "app/infrastructure/ml/rag/applicable_context.py",
     "app/infrastructure/ml/rag/evidence_focus.py",
-    "app/infrastructure/ml/rag/grounded_response.py",
+    "app/domain/rag/evidence/grounded_response.py",
     "app/infrastructure/ml/usage_capture.py",
     "app/infrastructure/repositories/chunk/sqlalchemy_chunk_repository.py",
     "app/infrastructure/utils/utils.py",
@@ -95,7 +95,6 @@ exclude = [
 "app/infrastructure/benchmark/case_evaluator.py" = ["ANN001", "I001", "PLC0415", "PLR0915", "Q000", "TC001", "TC003", "TC006"]
 "app/infrastructure/benchmark/case_metrics.py" = ["ANN001", "I001"]
 "app/infrastructure/benchmark/checkpoint.py" = ["ANN001", "ANN201", "ANN202"]
-"app/infrastructure/benchmark/checkpoint_cleanup.py" = ["I001", "PERF401"]
 "app/infrastructure/benchmark/corpus.py" = ["ANN001", "ANN201", "Q000"]
 "app/infrastructure/benchmark/evidence_judge.py" = ["ANN001", "BLE001", "C901", "I001", "RUF001"]
 "app/infrastructure/benchmark/grouped_judge.py" = ["ANN001", "BLE001", "C901", "EM101", "EM102", "I001", "PLR0913", "PLR0915", "PLR0917", "PLR2004", "Q000", "RUF001", "SIM117", "TRY003", "TRY004", "TRY301"]
@@ -105,9 +104,7 @@ exclude = [
 "app/infrastructure/benchmark/legacy_import.py" = ["ANN201", "ARG001", "EM101", "I001", "Q000", "TC003", "TRY003", "TRY004"]
 "app/infrastructure/benchmark/metrics.py" = ["ANN001", "ARG001", "BLE001", "EM101", "I001", "PLC0415", "PLR0913", "Q000", "RUF100", "TRY003"]
 "app/infrastructure/benchmark/persistence.py" = ["ANN201", "C901", "DTZ005", "I001", "PLR0915", "PLR2004", "Q000", "RUF001"]
-"app/infrastructure/benchmark/retrieval.py" = ["ANN001", "ANN201", "ARG001", "EM101", "I001", "PLR0913", "PLR0917", "TRY003"]
 "app/infrastructure/benchmark/runner.py" = ["ANN001", "C901", "EM101", "FBT001", "FBT002", "I001", "PLC0414", "PLR0913", "PLR0915", "PLR0917", "Q000", "RUF021", "TC006", "TRY003", "TRY004"]
-"app/infrastructure/benchmark/runner_adapter.py" = ["FBT001", "FBT002", "I001", "PLC0415", "PLR0913", "PLR0917", "TC001", "UP037"]
 "app/infrastructure/benchmark/source_hints.py" = ["PLC0414"]
 "app/infrastructure/benchmark/sweep_data.py" = ["ANN001", "I001", "PLC0415", "TC001"]
 "app/infrastructure/benchmark/sweep_engine.py" = ["ANN001", "C901", "EM101", "EM102", "I001", "PLC0414", "PLR0912", "PLR0913", "PLR0915", "PLR0917", "TC001", "TC003", "TC006", "TRY003"]
@@ -151,7 +148,7 @@ exclude = [
 "app/infrastructure/logging/logging_config.py" = ["I001", "RUF100"]
 "app/infrastructure/metrics/__init__.py" = ["I001"]
 "app/infrastructure/metrics/metrics.py" = ["ANN001", "BLE001", "EM101", "ERA001", "I001", "PLC0415", "PLR2004", "TC001", "TC003", "TC006", "TRY003"]
-"app/infrastructure/ml/answer_cache.py" = ["ANN001", "ARG001", "BLE001", "FBT001", "FBT002", "I001", "PLR0911", "PLR0913", "PLR0917", "TC001", "TC006", "TRY300"]
+"app/infrastructure/ml/cache/answers.py" = ["ANN001", "ARG001", "BLE001", "FBT001", "FBT002", "I001", "PLR0911", "PLR0913", "PLR0917", "TC001", "TC006", "TRY300"]
 "app/infrastructure/ml/clients/__init__.py" = ["RUF100"]
 "app/infrastructure/ml/clients/client_lease.py" = ["ANN001", "ANN201", "I001"]
 "app/infrastructure/ml/clients/client_registry.py" = ["ANN001", "ANN201", "ANN401", "EM101", "I001", "PYI034", "PYI036", "Q000", "RSE102", "TC003", "TRY003", "UP037", "UP041"]
@@ -202,10 +199,10 @@ exclude = [
 "app/infrastructure/ml/rag/document_sources.py" = ["ANN001"]
 "app/infrastructure/ml/rag/evidence_focus.py" = ["ANN001", "ANN201", "C901", "I001", "PLR2004", "Q000", "RUF001"]
 "app/infrastructure/ml/rag/field_evidence.py" = ["ANN001", "ANN201", "C901", "I001"]
-"app/infrastructure/ml/rag/grounded_response.py" = ["ANN001", "ANN201", "C901", "I001", "PLR0911", "PLR2004", "Q000", "RUF001", "SIM102"]
+"app/domain/rag/evidence/grounded_response.py" = ["ANN001", "ANN201", "C901", "I001", "PLR0911", "PLR2004", "Q000", "RUF001", "SIM102"]
 "app/infrastructure/ml/rag/helpers.py" = ["ANN001", "ARG001", "BLE001", "FBT001", "I001", "PLC0415", "PLR0913", "PLR0915", "PLR0917", "PLR2004", "RUF001", "SIM117", "TC001", "TC005"]
 "app/infrastructure/ml/rag/linked_context.py" = ["ANN001", "ANN201", "C901", "I001", "PLR0915", "PLW2901", "RUF001", "RUF007"]
-"app/infrastructure/ml/rag/rag_cache.py" = ["ANN001", "FBT001", "FBT002", "I001", "PLR0913", "PLR0917"]
+"app/infrastructure/ml/cache/pipeline.py" = ["ANN001", "FBT001", "FBT002", "I001", "PLR0913", "PLR0917"]
 "app/infrastructure/ml/rag/rag_config.py" = ["I001", "PLC0415"]
 "app/infrastructure/ml/rag/rag_formatting.py" = ["ANN001", "ANN201", "C901", "I001", "PLC0415", "PLR2004"]
 "app/infrastructure/ml/rag/rag_postprocess.py" = ["ANN001", "ANN201", "ARG001", "C901", "FBT001", "I001", "PLC0415", "PLR0911", "PLR0917", "PLR2004", "RUF001"]
@@ -215,7 +212,7 @@ exclude = [
 "app/infrastructure/ml/rag/rag_retrieval.py" = ["ANN001", "ANN202", "EM101", "I001", "PLR0913", "PLR0915", "PLR0917", "TRY003"]
 "app/infrastructure/ml/rag/rag_sources.py" = ["ANN001", "C901", "FBT001", "I001", "PLR0915", "PLR1730"]
 "app/infrastructure/ml/rag/rag_steps.py" = ["ANN001", "ANN202", "C901", "DTZ011", "EM101", "I001", "N806", "PLC0415", "PLR0911", "PLR0915", "RSE102", "SLF001", "TC001", "TC003", "TRY003"]
-"app/infrastructure/ml/rag/table_context.py" = ["PLR0911", "RUF001"]
+"app/domain/rag/evidence/table_context.py" = ["PLR0911", "RUF001"]
 "app/infrastructure/ml/rag_pipeline.py" = ["I001", "TC001", "UP037"]
 "app/infrastructure/ml/rag_service.py" = ["C901", "I001", "PLC0415", "PLR2004", "TC001", "TC003", "RUF100"]
 "app/infrastructure/ml/rtf_decree_parser.py" = ["I001", "TC003", "UP037"]
@@ -502,3 +499,8 @@ exclude = [
 "tests/test_worker_resource_lifecycle.py" = ["ARG002", "ARG005", "EM101", "PLR0915", "RUF043", "TRY003"]
 "tests/test_worker_sweep_lifecycle.py" = ["ARG002", "ARG005", "PLC0415", "PT018"]
 "tests/test_worker_task_registration.py" = ["I001", "PLC0415", "Q000"]
+
+"app/domain/rag/evidence/focus.py" = ["C901", "PLR2004", "RUF001"]
+"app/domain/rag/evidence/links.py" = ["RUF001", "RUF007"]
+
+"app/domain/rag/evidence/scope.py" = ["RUF001"]

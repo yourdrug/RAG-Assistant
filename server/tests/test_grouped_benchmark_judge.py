@@ -296,14 +296,12 @@ async def test_resume_24_of_30_retries_six_scores_without_regenerating_or_writin
     questions = [{**case(), "id": idx, "question": str(idx)} for idx in range(30)]
     kwargs = {
         "questions": questions,
-        "out_dir": str(tmp_path),
         "top_k": 4,
         "judge_model": "judge",
         "max_concurrent": 3,
         "rag_service": object(),
         "resume": True,
         "checkpoint_prefix": "configuration",
-        "export_files": False,
     }
     first = await runner.run_benchmark_async(**kwargs, checkpoints=DatabaseBenchmarkCheckpoints(factory, 42))
     summary = compute_summary_metrics(first)
@@ -318,23 +316,6 @@ async def test_resume_24_of_30_retries_six_scores_without_regenerating_or_writin
     assert all(keys == ["correctness"] for _, keys in calls[first_call_count:])
     assert compute_summary_metrics(second)["judge_evaluated_count"] == 30
     assert not list(tmp_path.iterdir())
-
-
-@pytest.mark.asyncio
-async def test_legacy_stages_import_preserves_valid_zero_without_local_writes(tmp_path):
-    from infrastructure.benchmark.checkpoint import import_legacy_configuration, write_checkpoint
-
-    root = tmp_path / "old-config"
-    write_checkpoint(
-        root / "checkpoints" / "old-identity" / "1-1.stages.json",
-        {"generated": {"answer": "original"}, "generator_metrics": {"faithfulness": 0}},
-    )
-    factory = FakeUnitOfWorkFactory()
-    store = DatabaseBenchmarkCheckpoints(factory, 42)
-    await import_legacy_configuration(store, root, "new-identity")
-    saved = await store.load("checkpoints/new-identity/1-1.stages.json")
-    assert saved["generator_metrics"]["faithfulness"] == 0
-    assert saved["generated"]["answer"] == "original"
 
 
 @pytest.mark.asyncio
@@ -353,13 +334,12 @@ async def test_service_returns_current_results_without_consulting_report_files(t
     run = AsyncMock(return_value=[result])
     summary = await BenchmarkService(runner=SimpleNamespace(run=run)).run(
         [{"question": "q"}],
-        str(tmp_path),
         4,
         "judge",
     )
     assert summary["avg_faithfulness"] == 8
     assert summary["results"][0]["answer"] == "a"
-    assert run.await_args.kwargs["export_files"] is False
+    assert "export_files" not in run.await_args.kwargs
 
 
 @pytest.mark.asyncio
@@ -377,25 +357,6 @@ async def test_result_detail_api_serializes_per_question_list():
     )
     result = await get_benchmark_result(7, admin=SimpleNamespace(), service=BenchmarkResultService(factory))
     assert result.model_dump()["per_question_results"] == [{"id": 1, "answer": "a", "faithfulness": 0}]
-
-
-@pytest.mark.asyncio
-async def test_legacy_single_finalist_uses_latest_attempt_after_operational_setting_change(tmp_path):
-    import os
-    from infrastructure.benchmark.checkpoint import import_legacy_configuration, write_checkpoint
-
-    root = tmp_path / "sweep"
-    write_checkpoint(root / "phase-a-old.json", [{"config": {"top_k": 4}}])
-    os.utime(root / "phase-a-old.json", (10, 10))
-    for name, timestamp in (("older", 20), ("latest", 30)):
-        write_checkpoint(root / name / "benchmark_report.json", [])
-        os.utime(root / name / "benchmark_report.json", (timestamp, timestamp))
-        write_checkpoint(root / name / "checkpoints" / "old-namespace" / "1-1.stages.json", {"answer": name})
-    factory = FakeUnitOfWorkFactory()
-    store = DatabaseBenchmarkCheckpoints(factory, 42, legacy_root=root)
-    assert await store.load("phase-a-new-hash.json") == [{"config": {"top_k": 4}}]
-    await import_legacy_configuration(store, root / "new-hash", "new", single_config_root=root)
-    assert await store.load("checkpoints/new/1-1.stages.json") == {"answer": "latest"}
 
 
 @pytest.mark.asyncio
@@ -503,12 +464,10 @@ async def test_questions_really_generate_concurrently_and_return_in_dataset_orde
     monkeypatch.setattr("infrastructure.benchmark.persistence.log_summary", lambda *args: None)
     results = await runner.run_benchmark_async(
         [{"id": i, "question": str(i)} for i in range(limit * 2)],
-        str(tmp_path),
         4,
         "judge",
         rag_service=object(),
         max_concurrent=explicit,
-        export_files=False,
     )
     assert peak == limit
     assert [result["id"] for result in results] == list(range(limit * 2))
@@ -649,7 +608,6 @@ async def test_service_passes_runtime_concurrency_through_instead_of_hardcoding_
     run = AsyncMock(return_value=[])
     await BenchmarkService(runner=SimpleNamespace(run=run)).run(
         [{"question": "q"}],
-        "unused",
         4,
         "judge",
         **({} if explicit is None else {"max_concurrent": explicit}),

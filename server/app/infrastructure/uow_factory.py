@@ -10,17 +10,11 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
+from application.uow import UnitOfWork, UnitOfWorkRepositories
+from domain.runtime.config import ConfigParameterChanged
 from sqlalchemy import text
 
-from application.uow import UnitOfWork, UnitOfWorkRepositories
-
 from infrastructure.database.database import DatabaseManager
-from infrastructure.repositories.user.sqlalchemy_api_key_repository import (
-    SQLAlchemyApiKeyRepository,
-)
-from infrastructure.repositories.misc.sqlalchemy_background_job_repository import (
-    SQLAlchemyBackgroundJobRepository,
-)
 from infrastructure.repositories.benchmark.sqlalchemy_benchmark_question_repository import (
     SQLAlchemyBenchmarkQuestionRepository,
 )
@@ -30,44 +24,50 @@ from infrastructure.repositories.benchmark.sqlalchemy_benchmark_run_repository i
 from infrastructure.repositories.benchmark.sqlalchemy_benchmark_sweep_repository import (
     SQLAlchemyBenchmarkSweepRepository,
 )
-from infrastructure.repositories.conversation.sqlalchemy_chat_log_repository import (
-    SQLAlchemyChatLogRepository,
-)
 from infrastructure.repositories.chunk.sqlalchemy_chunk_repository import (
     SQLAlchemyChunkRepository,
 )
 from infrastructure.repositories.config.sqlalchemy_config_parameter_repository import (
     SQLAlchemyConfigParameterRepository,
 )
+from infrastructure.repositories.config.sqlalchemy_vector_outbox_repository import (
+    SQLAlchemyVectorOutboxRepository,
+)
+from infrastructure.repositories.conversation.sqlalchemy_chat_log_repository import (
+    SQLAlchemyChatLogRepository,
+)
 from infrastructure.repositories.conversation.sqlalchemy_conversation_repository import (
     SQLAlchemyConversationRepository,
-)
-from infrastructure.repositories.document.sqlalchemy_document_repository import (
-    SQLAlchemyDocumentRepository,
-)
-from infrastructure.repositories.user.sqlalchemy_group_repository import (
-    SQLAlchemyGroupRepository,
 )
 from infrastructure.repositories.conversation.sqlalchemy_message_repository import (
     SQLAlchemyMessageRepository,
 )
-from infrastructure.repositories.misc.sqlalchemy_regulatory_act_repository import (
-    SQLAlchemyRegulatoryActRepository,
+from infrastructure.repositories.document.sqlalchemy_document_repository import (
+    SQLAlchemyDocumentRepository,
+)
+from infrastructure.repositories.document.sqlalchemy_ingestion_registry_repository import (
+    SQLAlchemyIngestionRegistryRepository,
 )
 from infrastructure.repositories.misc.sqlalchemy_act_version_repository import (
     SQLAlchemyActVersionRepository,
 )
+from infrastructure.repositories.misc.sqlalchemy_background_job_repository import (
+    SQLAlchemyBackgroundJobRepository,
+)
+from infrastructure.repositories.misc.sqlalchemy_regulatory_act_repository import (
+    SQLAlchemyRegulatoryActRepository,
+)
+from infrastructure.repositories.user.sqlalchemy_api_key_repository import (
+    SQLAlchemyApiKeyRepository,
+)
 from infrastructure.repositories.user.sqlalchemy_assignment_repository import (
     SQLAlchemyAssignmentRepository,
 )
+from infrastructure.repositories.user.sqlalchemy_group_repository import (
+    SQLAlchemyGroupRepository,
+)
 from infrastructure.repositories.user.sqlalchemy_user_repository import (
     SQLAlchemyUserRepository,
-)
-from infrastructure.repositories.config.sqlalchemy_vector_outbox_repository import (
-    SQLAlchemyVectorOutboxRepository,
-)
-from infrastructure.repositories.document.sqlalchemy_ingestion_registry_repository import (
-    SQLAlchemyIngestionRegistryRepository,
 )
 
 
@@ -133,8 +133,6 @@ class UnitOfWorkFactory:
             broadcaster = self._config_broadcaster
 
             async def _publish_to_broadcaster(event: object) -> None:
-                from domain.runtime.config import ConfigParameterChanged
-
                 if isinstance(event, ConfigParameterChanged):
                     await broadcaster.broadcast_within_session(session, event)
 

@@ -114,19 +114,11 @@ _STREAM_PATCHES = {
     "infrastructure.ml.rag_service.build_qdrant_filter": MagicMock(return_value=MagicMock(should=[])),
     "infrastructure.ml.rag_service.with_temporal_filter": MagicMock(return_value=MagicMock(should=[])),
     "infrastructure.ml.rag.rag_steps.handle_relevance_gate": AsyncMock(return_value=True),
-    "infrastructure.ml.rag.rag_steps.compute_visibility_scope_hash": MagicMock(return_value="vis_hash"),
-    "infrastructure.ml.rag.rag_steps.compute_question_hash": MagicMock(return_value="q_hash"),
+    "infrastructure.ml.cache.keys.compute_visibility_scope_hash": MagicMock(return_value="vis_hash"),
+    "infrastructure.ml.cache.keys.compute_question_hash": MagicMock(return_value="q_hash"),
     "infrastructure.ml.rag.rag_steps.classify_query_domain": MagicMock(return_value="general"),
     "infrastructure.ml.rag.rag_steps.is_out_of_domain": MagicMock(return_value=False),
     "infrastructure.ml.rag.rag_steps.condense_question": AsyncMock(return_value="condensed question"),
-    "infrastructure.ml.rag.rag_steps.rerank_documents": AsyncMock(
-        return_value=[
-            (SimpleNamespace(page_content="chunk1", metadata={"source": "a.pdf", "document_id": 1}), 0.9),
-            (SimpleNamespace(page_content="chunk2", metadata={"source": "a.pdf", "document_id": 1}), 0.8),
-        ]
-    ),
-    "infrastructure.ml.rag.rag_steps.deduplicate_docs": lambda docs: docs,
-    "infrastructure.ml.rag.rag_steps.group_by_section": lambda docs: docs,
     "infrastructure.ml.rag.rag_steps.build_prompt": MagicMock(
         return_value=MagicMock(
             messages=[MagicMock(content="system prompt")],
@@ -139,7 +131,6 @@ _STREAM_PATCHES = {
     "infrastructure.ml.rag.rag_steps.extract_sources": MagicMock(
         return_value=[{"source": "a.pdf", "score": 0.9}]
     ),
-    "infrastructure.ml.rag.rag_steps.apply_citation_filter": lambda rag, answer, sources: sources,
     "infrastructure.ml.rag.rag_steps.record_rag_answer": MagicMock(),
     "infrastructure.ml.rag.rag_steps.record_llm_usage": MagicMock(),
     "infrastructure.ml.rag.rag_steps.extract_usage_from_langchain": MagicMock(return_value=(100, 50)),
@@ -147,8 +138,7 @@ _STREAM_PATCHES = {
         get=MagicMock(return_value="test-req-id"), set=MagicMock()
     ),
     "infrastructure.ml.rag.rag_steps.classify_question_breadth": MagicMock(return_value="narrow"),
-    "infrastructure.ml.rag.rag_steps.has_exact_reference": MagicMock(return_value=False),
-    "infrastructure.ml.rag.rag_steps.should_enumerate_cases": MagicMock(return_value=False),
+    "infrastructure.ml.rag.retrieval_pipeline.should_enumerate_cases": MagicMock(return_value=False),
 }
 
 
@@ -326,7 +316,7 @@ class TestStreamCacheHit:
                 return_value=_make_rag_settings(cache_enabled=True),
             ),
             patch(
-                "infrastructure.ml.rag.rag_cache.find_cached_answer",
+                "infrastructure.ml.cache.pipeline.find_cached_answer",
                 AsyncMock(
                     return_value={
                         "document_ids": [1],
@@ -351,7 +341,7 @@ class TestStreamCacheHit:
                 return_value=_make_rag_settings(cache_enabled=True),
             ),
             patch(
-                "infrastructure.ml.rag.rag_cache.find_cached_answer",
+                "infrastructure.ml.cache.pipeline.find_cached_answer",
                 AsyncMock(return_value={"document_ids": [1], "answer": "cached", "sources": cached_sources}),
             ),
         ):
@@ -374,7 +364,7 @@ class TestOutputSecurity:
 
         with (
             patch("infrastructure.ml.rag.rag_config.build_rag_settings", return_value=rag),
-            patch("infrastructure.ml.rag.rag_cache.find_cached_answer", AsyncMock(return_value=None)),
+            patch("infrastructure.ml.cache.pipeline.find_cached_answer", AsyncMock(return_value=None)),
             patch("infrastructure.ml.rag_service.store_answer_cache", new_callable=AsyncMock) as store,
         ):
             service = _make_service()
@@ -404,7 +394,7 @@ class TestOutputSecurity:
 
         with (
             patch("infrastructure.ml.rag.rag_config.build_rag_settings", return_value=rag),
-            patch("infrastructure.ml.rag.rag_cache.find_cached_answer", AsyncMock(return_value=None)),
+            patch("infrastructure.ml.cache.pipeline.find_cached_answer", AsyncMock(return_value=None)),
             patch("infrastructure.ml.rag_service.store_answer_cache", new_callable=AsyncMock) as store,
         ):
             service = _make_service()
@@ -429,7 +419,7 @@ class TestOutputSecurity:
         }
         with (
             patch("infrastructure.ml.rag.rag_config.build_rag_settings", return_value=rag),
-            patch("infrastructure.ml.rag.rag_cache.find_cached_answer", AsyncMock(return_value=cached)),
+            patch("infrastructure.ml.cache.pipeline.find_cached_answer", AsyncMock(return_value=cached)),
         ):
             service = _make_service()
             service._pii_redactor = PIIRedactorAdapter(rag_settings=rag)

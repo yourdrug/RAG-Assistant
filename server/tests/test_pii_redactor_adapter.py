@@ -36,7 +36,7 @@ def test_disabled_redaction_does_not_load_detector(monkeypatch):
     redactor = PIIRedactorAdapter(rag_settings=LiveRagSettings())
     text = "private@example.com"
 
-    with patch("infrastructure.ml.guardrails.guardrails.get_pii_detector") as detector:
+    with patch.object(redactor.detector, "scan_and_redact") as detector:
         assert redactor.redact(text) == text
         assert redactor.scan_and_redact(text) == (text, [])
         detector.assert_not_called()

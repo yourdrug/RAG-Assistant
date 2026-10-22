@@ -16,38 +16,23 @@ _DAY_MS = 24 * _HOUR_MS
 
 def build_policies(settings: Settings) -> dict[RateLimitPolicyName, RateLimitPolicy]:
     """Map settings to the full policy catalog."""
+    catalog = (
+        (RateLimitPolicyName.LOGIN, ((settings.rate_limit_login_per_minute, _MINUTE_MS),), 60),
+        (
+            RateLimitPolicyName.CHAT,
+            ((settings.rate_limit_chat_per_minute, _MINUTE_MS), (settings.rate_limit_chat_per_day, _DAY_MS)),
+            60,
+        ),
+        (RateLimitPolicyName.UPLOAD, ((settings.rate_limit_upload_per_hour, _HOUR_MS),), 3600),
+        (RateLimitPolicyName.SEARCH, ((settings.rate_limit_search_per_minute, _MINUTE_MS),), 60),
+        (RateLimitPolicyName.WRITE, ((settings.rate_limit_write_per_minute, _MINUTE_MS),), 60),
+        (RateLimitPolicyName.BENCHMARK, ((settings.rate_limit_benchmark_per_hour, _HOUR_MS),), 3600),
+    )
     return {
-        RateLimitPolicyName.LOGIN: RateLimitPolicy(
-            name=RateLimitPolicyName.LOGIN,
-            rates=(RateSpec(settings.rate_limit_login_per_minute, _MINUTE_MS),),
-            retry_after_sec=60,
-        ),
-        RateLimitPolicyName.CHAT: RateLimitPolicy(
-            name=RateLimitPolicyName.CHAT,
-            rates=(
-                RateSpec(settings.rate_limit_chat_per_minute, _MINUTE_MS),
-                RateSpec(settings.rate_limit_chat_per_day, _DAY_MS),
-            ),
-            retry_after_sec=60,
-        ),
-        RateLimitPolicyName.UPLOAD: RateLimitPolicy(
-            name=RateLimitPolicyName.UPLOAD,
-            rates=(RateSpec(settings.rate_limit_upload_per_hour, _HOUR_MS),),
-            retry_after_sec=3600,
-        ),
-        RateLimitPolicyName.SEARCH: RateLimitPolicy(
-            name=RateLimitPolicyName.SEARCH,
-            rates=(RateSpec(settings.rate_limit_search_per_minute, _MINUTE_MS),),
-            retry_after_sec=60,
-        ),
-        RateLimitPolicyName.WRITE: RateLimitPolicy(
-            name=RateLimitPolicyName.WRITE,
-            rates=(RateSpec(settings.rate_limit_write_per_minute, _MINUTE_MS),),
-            retry_after_sec=60,
-        ),
-        RateLimitPolicyName.BENCHMARK: RateLimitPolicy(
-            name=RateLimitPolicyName.BENCHMARK,
-            rates=(RateSpec(settings.rate_limit_benchmark_per_hour, _HOUR_MS),),
-            retry_after_sec=3600,
-        ),
+        name: RateLimitPolicy(
+            name=name,
+            rates=tuple(RateSpec(limit, interval) for limit, interval in rates),
+            retry_after_sec=retry_after,
+        )
+        for name, rates, retry_after in catalog
     }

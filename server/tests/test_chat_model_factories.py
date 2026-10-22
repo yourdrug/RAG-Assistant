@@ -8,7 +8,7 @@ import pytest
 
 from config import Settings, settings
 from domain.runtime.enums import LLMProvider
-from infrastructure.benchmark import judge, retrieval
+from infrastructure.benchmark import judge
 from infrastructure.ml.clients import factories
 
 
@@ -128,22 +128,6 @@ def test_factory_overrides_and_breadth_fallback(constructors: SimpleNamespace, p
     else:
         assert options["num_ctx"] == model.llm_num_ctx_broad
         assert options["num_predict"] == model.llm_num_predict_broad
-
-
-@pytest.mark.parametrize("provider", list(LLMProvider))
-def test_benchmark_preserves_explicit_model_and_local_endpoint(
-    constructors: SimpleNamespace, provider: LLMProvider
-) -> None:
-    retrieval.build_llm("benchmark-model", "http://benchmark:11434", provider)
-
-    if provider == LLMProvider.OPENROUTER:
-        assert constructors.openrouter.call_args.kwargs["model_name"] == "benchmark-model"
-    else:
-        assert constructors.ollama.call_args.kwargs == {
-            "model": "benchmark-model",
-            "base_url": "http://benchmark:11434",
-            "temperature": 0,
-        }
 
 
 def test_judge_and_auxiliary_share_default_model(

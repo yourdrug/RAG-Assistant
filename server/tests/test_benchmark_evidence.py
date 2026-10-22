@@ -1,7 +1,6 @@
 """Evidence-based benchmark regressions independent of external models and indexes."""
 
 import asyncio
-import csv
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -271,31 +270,6 @@ def test_annotation_copy_does_not_mutate_dataset():
     validated = validate_annotations(annotations)
     validated["expected_fragments"][0]["text"] = "new"
     assert annotations["expected_fragments"][0]["text"] == FRAGMENT["text"]
-
-
-def test_explicit_csv_keeps_metrics_and_never_appends_local_history(tmp_path):
-    from infrastructure.benchmark.persistence import save_results
-    from infrastructure.benchmark.benchmark_history import load_history
-    from application.benchmark import compute_summary_from_results
-
-    result = {
-        "id": "q1",
-        "question": 'Вопрос, с "кавычками"\nи переносом',
-        "answer": "A",
-        "generator_metrics": {"faithfulness": 8, "relevancy": 8, "correctness": None},
-        "retriever_metrics": {"hit_rate": None, "mrr": None, "avg_similarity": 0},
-        "latency_sec": 0.5,
-        "evidence_metrics": {"fragment_recall_at_k": 0.5},
-        "evidence": {"context_chars": 12},
-    }
-    save_results([result], str(tmp_path / "results"))
-    with next((tmp_path / "results").glob("*.csv")).open(newline="") as stream:
-        row = next(csv.DictReader(stream))
-    assert row["question"] == result["question"]
-    assert row["fragment_recall_at_k"] == "0.5"
-    assert row["refusal_score"] == ""
-    assert load_history(str(tmp_path)) == []
-    assert compute_summary_from_results([result])["avg_fragment_recall_at_k"] == 0.5
 
 
 def test_real_prompt_capture_keeps_parent_scope_and_raw_retrieval():

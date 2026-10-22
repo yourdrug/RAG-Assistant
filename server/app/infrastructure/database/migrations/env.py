@@ -1,4 +1,4 @@
-"""Alembic env.py — async migrations (KinTree-style)."""
+"""Configure database metadata and run asynchronous Alembic migrations."""
 
 import asyncio
 import importlib

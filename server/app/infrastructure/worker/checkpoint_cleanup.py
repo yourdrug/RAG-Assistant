@@ -1,8 +1,9 @@
 """Periodic retention of database recovery data, serialized with sweep resume."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
-from infrastructure.benchmark.checkpoint_cleanup import CHECKPOINT_RETENTION
+
+CHECKPOINT_RETENTION = timedelta(days=1)
 
 
 async def cron_sweep_checkpoint_cleanup(ctx: dict) -> None:

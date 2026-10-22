@@ -17,6 +17,7 @@ from config import settings
 from infrastructure.ml.config.settings_adapters import LivePreviewSettings
 from infrastructure.budget.ledger import PostgresRedisBudget
 from application.budget import BudgetAdminService
+from infrastructure.benchmark.executor import BenchmarkExecutor
 from application.benchmark import BenchmarkService
 from infrastructure.budget.runtime import budget_runtime
 from infrastructure.budget.provider_catalog import OpenRouterBillingCatalog
@@ -40,7 +41,6 @@ from infrastructure.benchmark.judge import close_judge_clients
 from infrastructure.ml.ingestion.ocr import invalidate_paddle_ocr_cache
 from infrastructure.ml.config.config_subscribers import (
     audit_log_config_change,
-    invalidate_pii_detector_cache,
 )
 
 if TYPE_CHECKING:
@@ -151,7 +151,6 @@ class MLContainer:
         from infrastructure.repositories.vector.qdrant_vector_store_repository import (
             QdrantVectorStoreRepository,
         )
-        from infrastructure.benchmark.runner_adapter import AsyncBenchmarkRunner
         from application.documents import PreviewCache
 
         self.file_storage = LazyStorage()
@@ -167,7 +166,7 @@ class MLContainer:
             domain_settings=domain_settings,
         )
         self.metrics_registry = PrometheusMetricsRegistry()
-        self.benchmark_service = BenchmarkService(rag_service=None, runner=AsyncBenchmarkRunner())
+        self.benchmark_service = BenchmarkService(rag_service=None, runner=BenchmarkExecutor())
         self.summary_updater = RollingSummaryUpdater(ml_clients=self.ml_clients)
         self.content_extractor = MLContentExtractor()
         self.pdf_quality_assessor = MLPDFQualityAssessor()
@@ -438,7 +437,6 @@ class InfrastructureContainer:
             self.request_configuration_sync,
             self.invalidate_config_clients,
             invalidate_paddle_ocr_cache,
-            invalidate_pii_detector_cache,
             audit_log_config_change,
         ):
             event_bus.subscribe(ConfigParameterChanged, handler)

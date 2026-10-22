@@ -1,14 +1,12 @@
-"""Health + admin probe adapters — wraps infrastructure checks behind ports.
-
-Consolidates SystemHealthProbe (connectivity checks) with OllamaProbe/QdrantInfo
-(admin info providers) into a single module.  The admin/ directory re-exports
-these symbols for backward compatibility.
-"""
+"""Connectivity checks and admin information behind application ports."""
 
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
+from contextlib import closing
+from typing import Any
 
 import httpx
 from application.health.ports import HealthCheckResult
@@ -20,21 +18,38 @@ from qdrant_client import QdrantClient
 from sqlalchemy import text
 
 
+logger = logging.getLogger("default")
+
+
+class HttpProbe:
+    """Perform a timed HTTP request and release its client after each probe."""
+
+    async def get(
+        self, url: str, *, request_timeout: float = 3, headers: dict[str, str] | None = None
+    ) -> tuple[httpx.Response, float]:
+        started = time.perf_counter()
+        async with httpx.AsyncClient(timeout=request_timeout) as client:
+            response = await client.get(url, headers=headers)
+        return response, round((time.perf_counter() - started) * 1000, 1)
+
+
 class SystemHealthProbe:
     """Adapts infrastructure connectivity checks behind HealthProbePort."""
+
+    def __init__(self) -> None:
+        self.http = HttpProbe()
 
     async def check_tei(self) -> dict[str, HealthCheckResult]:
         async def probe(url: str) -> HealthCheckResult:
             try:
-                started = time.perf_counter()
-                async with httpx.AsyncClient(timeout=3) as client:
-                    response = await client.get(f"{url.rstrip('/')}/health")
-                    response.raise_for_status()
+                response, latency_ms = await self.http.get(f"{url.rstrip('/')}/health")
+                response.raise_for_status()
                 return HealthCheckResult(
                     status=HealthStatus.OK.value,
-                    latency_ms=round((time.perf_counter() - started) * 1000, 1),
+                    latency_ms=latency_ms,
                 )
             except (httpx.HTTPError, ValueError) as exc:
+                logger.warning("TEI health probe failed (%s)", type(exc).__name__)
                 return HealthCheckResult(status=f"error: {exc}")
 
         embed, rerank = await asyncio.gather(probe(settings.tei_embed_url), probe(settings.tei_rerank_url))
@@ -42,47 +57,48 @@ class SystemHealthProbe:
 
     async def check_ollama(self) -> HealthCheckResult:
         try:
-            t0 = time.perf_counter()
-            async with httpx.AsyncClient(timeout=3) as client:
-                r = await client.get(f"{settings.ollama_base_url}/api/tags")
-                r.raise_for_status()
-                latency_ms = round((time.perf_counter() - t0) * 1000, 1)
-                models = [m["name"] for m in r.json().get("models", [])]
-                return HealthCheckResult(status=HealthStatus.OK.value, latency_ms=latency_ms, models=models)
+            response, latency_ms = await self.http.get(f"{settings.ollama_base_url}/api/tags")
+            response.raise_for_status()
+            models = [model["name"] for model in response.json().get("models", [])]
+            return HealthCheckResult(status=HealthStatus.OK.value, latency_ms=latency_ms, models=models)
         except Exception as e:
+            logger.warning("Ollama health probe failed (%s)", type(e).__name__)
             return HealthCheckResult(status=f"error: {e}")
 
     async def check_openrouter(self) -> HealthCheckResult:
         try:
-            t0 = time.perf_counter()
-            async with httpx.AsyncClient(timeout=5) as client:
-                r = await client.get(
-                    f"{settings.openrouter_base_url}/models",
-                    headers={"Authorization": f"Bearer {settings.openrouter_api_key}"},
+            response, latency_ms = await self.http.get(
+                f"{settings.openrouter_base_url}/models",
+                request_timeout=5,
+                headers={"Authorization": f"Bearer {settings.openrouter_api_key}"},
+            )
+            if response.status_code < 400:
+                return HealthCheckResult(
+                    status=HealthStatus.OK.value,
+                    latency_ms=latency_ms,
+                    models=[settings.openrouter_model],
                 )
-                latency_ms = round((time.perf_counter() - t0) * 1000, 1)
-                if r.status_code < 400:
-                    return HealthCheckResult(
-                        status=HealthStatus.OK.value,
-                        latency_ms=latency_ms,
-                        models=[settings.openrouter_model],
-                    )
-                return HealthCheckResult(status=f"error: HTTP {r.status_code}")
+            logger.warning("OpenRouter health probe returned HTTP %s", response.status_code)
+            return HealthCheckResult(status=f"error: HTTP {response.status_code}")
         except Exception as e:
+            logger.warning("Openrouter health probe failed (%s)", type(e).__name__)
             return HealthCheckResult(status=f"error: {e}")
 
     async def check_qdrant(self) -> HealthCheckResult:
         try:
             t0 = time.perf_counter()
-            await asyncio.to_thread(self._check_qdrant_sync)
+            await asyncio.to_thread(self.check_qdrant_sync)
             latency_ms = round((time.perf_counter() - t0) * 1000, 1)
             return HealthCheckResult(status=HealthStatus.OK.value, latency_ms=latency_ms)
         except Exception as e:
+            logger.warning("Qdrant health probe failed (%s)", type(e).__name__)
             return HealthCheckResult(status=f"error: {e}")
 
-    def _check_qdrant_sync(self) -> None:
-        client = QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key, timeout=3)
-        client.get_collections()
+    def check_qdrant_sync(self) -> None:
+        with closing(
+            QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key, timeout=3)
+        ) as client:
+            client.get_collections()
 
     async def check_postgres(self) -> HealthCheckResult:
         try:
@@ -93,6 +109,7 @@ class SystemHealthProbe:
             latency_ms = round((time.perf_counter() - t0) * 1000, 1)
             return HealthCheckResult(status=HealthStatus.OK.value, latency_ms=latency_ms)
         except Exception as e:
+            logger.warning("Postgres health probe failed (%s)", type(e).__name__)
             return HealthCheckResult(status=f"error: {e}")
 
     async def check_redis(self) -> HealthCheckResult:
@@ -102,59 +119,46 @@ class SystemHealthProbe:
             latency_ms = round((time.perf_counter() - t0) * 1000, 1)
             return HealthCheckResult(status=HealthStatus.OK.value, latency_ms=latency_ms)
         except Exception as e:
+            logger.warning("Redis health probe failed (%s)", type(e).__name__)
             return HealthCheckResult(status=f"error: {e}")
 
 
 class OllamaProbe:
     """Ollama model listing — delegates connectivity check to SystemHealthProbe."""
 
-    def __init__(self, health_probe: SystemHealthProbe | None = None) -> None:
-        self._health = health_probe
+    def __init__(self, health_probe: SystemHealthProbe) -> None:
+        self.health = health_probe
 
     async def get_models(self) -> list[str]:
-        if self._health is not None:
-            result = await self._health.check_ollama()
-            return result.models or []
-        try:
-            async with httpx.AsyncClient(timeout=3) as client:
-                r = await client.get(f"{settings.ollama_base_url}/api/tags")
-                return [m["name"] for m in r.json().get("models", [])]
-        except Exception:
-            return []
+        result = await self.health.check_ollama()
+        return result.models or []
 
 
 class QdrantInfo:
-    """Qdrant collection info — delegates status check to SystemHealthProbe."""
+    """Provide collection details and reuse the system connectivity check."""
 
-    def __init__(self, health_probe: SystemHealthProbe | None = None) -> None:
-        self._health = health_probe
-        self._client: QdrantClient | None = None
-
-    def _get_client(self) -> QdrantClient:
-        if self._client is None:
-            self._client = QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key, timeout=5)
-        return self._client
+    def __init__(self, health_probe: SystemHealthProbe) -> None:
+        self.health = health_probe
 
     async def get_status(self) -> str:
-        if self._health is not None:
-            result = await self._health.check_qdrant()
-            return result.status
-        try:
-            client = self._get_client()
-            await asyncio.to_thread(client.get_collections)
-            return HealthStatus.OK.value
-        except Exception as e:
-            return f"error: {e}"
+        return (await self.health.check_qdrant()).status
 
-    async def get_collections(self) -> list[dict]:
+    async def get_collections(self) -> list[dict[str, Any]]:
         try:
-            client = self._get_client()
-            return await asyncio.to_thread(self._fetch_collections, client)
-        except Exception:
+            return await asyncio.to_thread(self.fetch_collections)
+        except Exception as exc:
+            logger.warning("Qdrant collection probe failed (%s)", type(exc).__name__)
             return []
 
     @staticmethod
-    def _fetch_collections(client: QdrantClient) -> list[dict]:
+    def fetch_collections() -> list[dict[str, Any]]:
+        with closing(
+            QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key, timeout=5)
+        ) as client:
+            return QdrantInfo.read_collections(client)
+
+    @staticmethod
+    def read_collections(client: QdrantClient) -> list[dict[str, Any]]:
         col_list = client.get_collections()
         result = []
         for col in col_list.collections:

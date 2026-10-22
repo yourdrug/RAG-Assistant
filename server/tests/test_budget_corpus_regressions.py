@@ -3,8 +3,6 @@
 from infrastructure.worker import runtime
 
 import asyncio
-import csv
-import json
 from dataclasses import replace
 from decimal import Decimal
 from types import SimpleNamespace
@@ -14,6 +12,9 @@ import httpx
 from qdrant_client.models import Filter
 
 import pytest
+
+from infrastructure.benchmark.checkpoint import DatabaseBenchmarkCheckpoints
+from fakes import FakeUnitOfWorkFactory
 from pydantic import ValidationError
 
 from application.budget import BudgetAdminService, BudgetPolicy, CostBudgetService
@@ -22,7 +23,6 @@ from domain.runtime.cost import BudgetError, CostRate
 from infrastructure.benchmark import runner, sweep_scoring
 from infrastructure.benchmark.corpus import corpus_metadata
 from infrastructure.benchmark.sweep_engine import SweepEngine
-from infrastructure.benchmark.sweep_settings import LiveSweepSettings
 from infrastructure.budget.provider_catalog import OpenRouterBillingCatalog
 from infrastructure.budget.runtime import BudgetRuntime
 from infrastructure.budget.transport import PaidAsyncTransport, prepare_inference_body
@@ -201,23 +201,13 @@ async def test_benchmark_pins_all_parallel_and_queued_questions(monkeypatch, tmp
     try:
         await runner.run_benchmark_async(
             [{'question': 'q', 'annotations': {'expected_refusal': True}}] * 3,
-            str(tmp_path),
             1,
             'judge',
             max_concurrent=2,
-            export_files=True,
             rag_service=SimpleNamespace(_ml=registry),
         )
         assert observed == [old] * 3
-        exported = json.loads(next(tmp_path.glob('benchmark_*.json')).read_text())
-        assert len(exported) == 3
-        assert all(row['corpus'] == corpus_metadata(old.snapshot) for row in exported)
-        with next(tmp_path.glob('benchmark_*.csv')).open() as stream:
-            csv_rows = list(csv.DictReader(stream))
-        assert len(csv_rows) == 3
-        assert all(
-            all(row[key] == value for key, value in corpus_metadata(old.snapshot).items()) for row in csv_rows
-        )
+        assert list(tmp_path.iterdir()) == []
         await old.aclose()
         old.client.close.assert_called_once()
         assert registry.qdrant_client() is new
@@ -252,8 +242,10 @@ async def test_candidate_cache_keeps_client_across_switch(monkeypatch):
 @pytest.mark.asyncio
 async def test_sweep_pins_preparation_and_rejects_resume_on_changed_corpus(tmp_path, monkeypatch):
     registry, old, new = corpus_pair()
-    monkeypatch.setattr(LiveSweepSettings, 'results_path', property(lambda self: str(tmp_path)))
-    engine = SweepEngine(None, ml_clients=registry)
+    factory = FakeUnitOfWorkFactory()
+    def checkpoints(sweep_id):
+        return DatabaseBenchmarkCheckpoints(factory, sweep_id)
+    engine = SweepEngine(None, ml_clients=registry, checkpoint_factory=checkpoints)
     engine.load_questions = AsyncMock(return_value=[{'question': 'q', 'source_hint': 'law.pdf'}])
 
     async def phase_a(*args):
@@ -262,7 +254,7 @@ async def test_sweep_pins_preparation_and_rejects_resume_on_changed_corpus(tmp_p
 
     async def phase_b(*args, **kwargs):
         assert registry.qdrant_client() is old
-        assert engine.corpus is old.snapshot
+        assert kwargs['run'].corpus is old.snapshot
         old.client.close.assert_not_called()
         return []
 
@@ -289,18 +281,15 @@ async def test_worker_report_uses_pinned_corpus_after_switch(monkeypatch):
     )
     monkeypatch.setattr(tasks, 'BenchmarkResultService', lambda factory: service)
     monkeypatch.setattr(tasks, 'load_benchmark_questions', AsyncMock(return_value=[{'question': 'q'}]))
-    monkeypatch.setattr(
-        tasks, 'compute_summary_from_results', lambda results: {'results': [{}], 'total_time_sec': 1}
-    )
 
     async def evaluate(**kwargs):
         registry.install_corpus(new, None)
-        return [{}]
+        return {"results": [{}], "total_time_sec": 1}
 
     async def tracked(factory, job_id, action, **kwargs):
         await action()
 
-    monkeypatch.setattr(tasks, 'run_benchmark_async', evaluate)
+    container.infrastructure.ml = SimpleNamespace(benchmark_service=SimpleNamespace(run=evaluate))
     monkeypatch.setattr(runtime, 'run_tracked_job', tracked)
     try:
         await tasks.run_benchmark(

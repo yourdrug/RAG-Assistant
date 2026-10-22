@@ -5,7 +5,8 @@ from __future__ import annotations
 from contextlib import AbstractContextManager, contextmanager
 from typing import Protocol
 
-from config import _settings_overrides, get_setting
+from config import _settings_overrides, get_setting, settings
+from infrastructure.benchmark.checkpoint import fingerprint
 
 
 class SweepSettingsPort(Protocol):
@@ -14,9 +15,6 @@ class SweepSettingsPort(Protocol):
 
     @property
     def top_k(self) -> int: ...
-
-    @property
-    def results_path(self) -> str | None: ...
 
     def override(self, config: dict) -> AbstractContextManager[None]: ...
 
@@ -29,10 +27,6 @@ class LiveSweepSettings:
     @property
     def top_k(self) -> int:
         return int(get_setting("retriever_top_k"))
-
-    @property
-    def results_path(self) -> str | None:
-        return None
 
     @contextmanager
     def override(self, config: dict):
@@ -54,3 +48,23 @@ class LiveSweepSettings:
             yield
         finally:
             _settings_overrides.reset(token)
+
+
+def settings_snapshot() -> dict:
+    return {
+        name: get_setting(name)
+        for name in type(settings).model_fields
+        if not any(part in name for part in ("key", "password", "secret", "url", "dir"))
+        and name
+        not in {
+            "benchmark_judge_initial_tokens",
+            "benchmark_judge_retry_tokens",
+            "benchmark_judge_grouped_enabled",
+            "benchmark_judge_max_concurrent",
+        }
+    }
+
+
+def settings_fingerprint() -> str:
+    """Identify effective settings without persisting credentials or operational judge knobs."""
+    return fingerprint(settings_snapshot())

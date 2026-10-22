@@ -76,10 +76,9 @@ async def test_runner_receives_defaults_and_resume_options(*, explicit_options: 
 
     service = BenchmarkService(runner=runner)
     service.set_rag_service(rag)
-    summary = await service.run([], None, 4, "judge", **options)
+    summary = await service.run([], 4, "judge", **options)
     runner.run.assert_awaited_once_with(
         questions=[],
-        out_dir=None,
         top_k=4,
         judge_model="judge",
         seed=42 if explicit_options else None,
@@ -89,7 +88,6 @@ async def test_runner_receives_defaults_and_resume_options(*, explicit_options: 
         resume=explicit_options,
         checkpoints=checkpoints if explicit_options else None,
         checkpoint_prefix="job:7" if explicit_options else None,
-        export_files=False,
     )
     assert summary["status"] == "done"
     assert summary["total_questions"] == 0
@@ -99,4 +97,4 @@ async def test_runner_receives_defaults_and_resume_options(*, explicit_options: 
 @pytest.mark.asyncio
 async def test_runner_must_be_injected() -> None:
     with pytest.raises(RuntimeError, match="A benchmark runner must be injected"):
-        await BenchmarkService().run([], None, 4, "judge")
+        await BenchmarkService().run([], 4, "judge")

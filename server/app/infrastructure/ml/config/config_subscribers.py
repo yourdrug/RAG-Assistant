@@ -6,7 +6,6 @@ import logging
 
 from domain.runtime.config import ConfigParameterChanged
 
-from infrastructure.ml.guardrails.guardrails import invalidate_pii_detector
 
 from domain.runtime.setting_keys import STATIC_SETTING_KEYS
 from domain.runtime.setting_keys import SECRET_SETTING_KEYS as SENSITIVE_KEYS
@@ -36,12 +35,3 @@ def audit_log_config_change(event: ConfigParameterChanged) -> None:
         event.changed_by,
         event.occurred_at,
     )
-
-
-def invalidate_pii_detector_cache(event: ConfigParameterChanged) -> None:
-    """Сбросить кэш PII-детектора при изменении pii_redaction_enabled."""
-    if event.key != "pii_redaction_enabled":
-        return
-
-    invalidate_pii_detector()
-    log.info("PII detector cache invalidated (pii_redaction_enabled -> %s)", event.new_value)

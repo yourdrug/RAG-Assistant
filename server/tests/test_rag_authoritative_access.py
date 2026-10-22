@@ -1,5 +1,10 @@
 """Stale cache/index data must not bypass the primary database ACL."""
 
+from infrastructure.ml.rag_pipeline import RagPipelineState
+from domain.rag.context import RagContext
+from domain.identity.user_context import UserContext
+from domain.identity.roles import UserKind, UserRole
+
 from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -9,10 +14,7 @@ from langchain_core.documents import Document as Chunk
 
 from application.documents import DocumentAccessService
 from domain.knowledge.document import Document
-from domain.rag.context import RagContext
 from domain.rag.breadth import Breadth
-from domain.identity.roles import UserKind, UserRole
-from domain.identity.user_context import UserContext
 from domain.knowledge.enums import DocumentVisibility
 from infrastructure.ml.rag.document_access import cache_is_accessible, filter_scored_documents
 from infrastructure.ml.rag.rag_steps import step_check_cache
@@ -36,7 +38,7 @@ def database_access():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    'user,expected',
+    "user,expected",
     [
         (UserContext(1, UserKind.INTERNAL, UserRole.USER), {1}),
         (UserContext(1, UserKind.INTERNAL, UserRole.USER, group_ids=(10,)), {1, 3}),
@@ -71,20 +73,20 @@ async def test_stale_index_ignores_deleted_and_inaccessible_documents(database_a
         (
             Chunk(
                 page_content=str(did),
-                metadata={'document_id': did, 'doc_visibility': DocumentVisibility.INTERNAL_PUBLIC.value},
+                metadata={"document_id": did, "doc_visibility": DocumentVisibility.INTERNAL_PUBLIC.value},
             ),
             0.9,
         )
         for did in [1, 2, 3, 4, 999]
     ]
-    docs += [(Chunk(page_content='legacy without ID'), 0.8)]
+    docs += [(Chunk(page_content="legacy without ID"), 0.8)]
     permitted = await filter_scored_documents(docs, access, user)
-    assert [doc.metadata['document_id'] for doc, _ in permitted] == [1]
+    assert [doc.metadata["document_id"] for doc, _ in permitted] == [1]
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    'dependencies,source_ids,expected',
+    "dependencies,source_ids,expected",
     [
         ([1], [1], True),
         ([1, 2], [1], False),
@@ -100,16 +102,16 @@ async def test_cache_checks_all_dependencies_not_only_citations(
 ):
     access, _ = database_access
     cached = {
-        'answer': 'sensitive',
-        'document_ids': dependencies,
-        'sources': [{'document_id': did} for did in source_ids],
+        "answer": "sensitive",
+        "document_ids": dependencies,
+        "sources": [{"document_id": did} for did in source_ids],
     }
     user = UserContext(1, UserKind.INTERNAL, UserRole.USER)
     assert await cache_is_accessible(cached, access, user) is expected
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('deleted', [False, True])
+@pytest.mark.parametrize("deleted", [False, True])
 async def test_cache_hit_becomes_miss_without_redis_invalidation(database_access, monkeypatch, deleted):
     from infrastructure.ml.rag import rag_steps
 
@@ -119,9 +121,9 @@ async def test_cache_hit_becomes_miss_without_redis_invalidation(database_access
     else:
         factory._uow.documents._documents[1].visibility = DocumentVisibility.INTERNAL_PRIVATE
         factory._uow.documents._documents[1].owner_id = 99
-    cached = {'answer': 'must not escape', 'document_ids': [1], 'sources': [{'document_id': 1}]}
-    monkeypatch.setattr(rag_steps, 'get_corpus_revision', AsyncMock(return_value='unchanged'))
-    monkeypatch.setattr(rag_steps, 'check_cache', AsyncMock(return_value=cached))
+    cached = {"answer": "must not escape", "document_ids": [1], "sources": [{"document_id": 1}]}
+    monkeypatch.setattr(rag_steps, "get_corpus_revision", AsyncMock(return_value="unchanged"))
+    monkeypatch.setattr(rag_steps, "check_cache", AsyncMock(return_value=cached))
     rag = _make_rag()
     rag = replace(rag, features=replace(rag.features, cache_enabled=True))
     state = state_for([], rag=rag)
@@ -133,16 +135,16 @@ async def test_cache_hit_becomes_miss_without_redis_invalidation(database_access
 async def test_database_failure_never_emits_cached_answer(monkeypatch):
     from infrastructure.ml.rag import rag_steps
 
-    monkeypatch.setattr(rag_steps, 'get_corpus_revision', AsyncMock(return_value='0'))
+    monkeypatch.setattr(rag_steps, "get_corpus_revision", AsyncMock(return_value="0"))
     monkeypatch.setattr(
         rag_steps,
-        'check_cache',
-        AsyncMock(return_value={'answer': 'secret', 'document_ids': [1], 'sources': [{'document_id': 1}]}),
+        "check_cache",
+        AsyncMock(return_value={"answer": "secret", "document_ids": [1], "sources": [{"document_id": 1}]}),
     )
-    access = SimpleNamespace(allowed_document_ids=AsyncMock(side_effect=RuntimeError('DB unavailable')))
+    access = SimpleNamespace(allowed_document_ids=AsyncMock(side_effect=RuntimeError("DB unavailable")))
     rag = _make_rag()
     state = state_for([], rag=replace(rag, features=replace(rag.features, cache_enabled=True)))
-    with pytest.raises(RuntimeError, match='DB unavailable'):
+    with pytest.raises(RuntimeError, match="DB unavailable"):
         await step_check_cache(state, document_access=access)
     assert not state.terminal
 
@@ -152,33 +154,81 @@ async def test_neighbor_expansion_cannot_reintroduce_forbidden_evidence(database
     from infrastructure.ml.rag import helpers
 
     access, _ = database_access
-    visible = Chunk(page_content='allowed', metadata={'document_id': 1})
-    hidden = Chunk(page_content='secret', metadata={'document_id': 2})
+    visible = Chunk(page_content="allowed", metadata={"document_id": 1})
+    hidden = Chunk(page_content="secret", metadata={"document_id": 2})
     reranker = AsyncMock(return_value=[(visible, 0.9)])
-    monkeypatch.setattr(helpers, 'rerank_documents', reranker)
+    monkeypatch.setattr(helpers, "rerank_documents", reranker)
     monkeypatch.setattr(
-        helpers, 'enrich_with_neighbors', AsyncMock(return_value=[(visible, 0.9), (hidden, 0.9)])
+        helpers, "enrich_with_neighbors", AsyncMock(return_value=[(visible, 0.9), (hidden, 0.9)])
     )
-    ml = SimpleNamespace(reranker_semaphore=__import__('asyncio').Semaphore(1), reranker=lambda: None)
+    ml = SimpleNamespace(reranker_semaphore=__import__("asyncio").Semaphore(1), reranker=lambda: None)
     ctx = RagContext(1, UserKind.INTERNAL, UserRole.USER)
     docs, _, _ = await helpers.rerank_and_enrich(
-        'question',
+        "question",
         [visible, hidden],
-        _make_rag(),
+        RagPipelineState(
+            rag=_make_rag(),
+            breadth=Breadth.NARROW,
+            query_domain="general",
+            rerank_top_n=4,
+            retrieval_filter=None,
+            ctx=ctx,
+            history_messages=[],
+            enumerate_cases=False,
+            visibility_conditions=[],
+            t_pipeline_start=0,
+            question="question",
+            access_filter=None,
+            user=UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.USER),
+        ),
         ml,
-        Breadth.NARROW,
-        'general',
-        4,
         None,
-        ctx,
-        [],
-        8,
-        None,
-        False,
-        visibility_conditions=[],
-        user_id=1,
-        user_group_ids=[],
         document_access=access,
     )
     assert reranker.call_args.args[1] == [visible]
     assert docs == [(visible, 0.9)]
+
+
+@pytest.mark.asyncio
+async def test_self_rag_retry_reuses_authorized_pipeline_and_replaces_query_evidence(
+    database_access, monkeypatch
+):
+    from infrastructure.ml.rag import retrieval_pipeline, rag_steps
+    from infrastructure.ml.rag.retrieval_pipeline import RetrievalPipeline
+
+    access, _ = database_access
+    visible = Chunk(page_content="allowed", metadata={"document_id": 1})
+    hidden = Chunk(page_content="secret", metadata={"document_id": 2})
+    state = state_for([], query_for_search="initial")
+    state.use_exact_ref_boost = True
+    scope = object()
+    state.retrieval_filter = scope
+    searches = []
+
+    async def retrieve(query, request, clients):
+        assert request is state and request.retrieval_filter is scope
+        assert request.user == state.ctx.to_user_context()
+        searches.append(query)
+        return [visible, hidden], [query, "probe " + query]
+
+    async def rerank(query, candidates, request, clients, chunk_search, **kwargs):
+        assert candidates == [visible]
+        return [(visible, 0.9)], [visible], 0.9
+
+    exact = AsyncMock()
+    monkeypatch.setattr(retrieval_pipeline, "retrieve_with_decomposition", retrieve)
+    monkeypatch.setattr(retrieval_pipeline, "rerank_and_enrich", rerank)
+    monkeypatch.setattr(retrieval_pipeline, "apply_exact_search", exact)
+    monkeypatch.setattr(rag_steps, "handle_relevance_gate", AsyncMock(side_effect=[False, True]))
+    monkeypatch.setattr(
+        rag_steps,
+        "assess_sufficiency",
+        AsyncMock(return_value=SimpleNamespace(is_sufficient=False, suggested_refinement="refined")),
+    )
+    await RetrievalPipeline(None, None, access).run("initial", state)
+    result, events = await rag_steps.step_self_rag(state, None, None, access)
+    assert result is state and events is None
+    assert searches == ["initial", "refined"]
+    assert [call.args[0] for call in exact.await_args_list] == searches
+    assert state.sub_queries == ["refined", "probe refined"]
+    assert state.candidates == [visible] and state.docs == [(visible, 0.9)]

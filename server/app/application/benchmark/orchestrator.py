@@ -35,7 +35,6 @@ class BenchmarkService:
     async def run(
         self,
         questions: list[dict[str, Any]],
-        out_dir: str | None,
         top_k: int,
         judge_model: str,
         **options: Unpack[BenchmarkRunOptions],
@@ -52,7 +51,6 @@ class BenchmarkService:
 
         results = await self._runner.run(
             questions=questions,
-            out_dir=out_dir,
             top_k=top_k,
             judge_model=judge_model,
             max_concurrent=options.get("max_concurrent"),
@@ -62,7 +60,6 @@ class BenchmarkService:
             resume=options.get("resume", False),
             checkpoints=options.get("checkpoints"),
             checkpoint_prefix=options.get("checkpoint_prefix"),
-            export_files=False,
         )
         return {**compute_summary_from_results(results), "status": "done"}
 
@@ -81,6 +78,7 @@ def compute_summary_from_results(results: list[dict[str, Any]]) -> dict[str, Any
         else None,
         "results": [
             {
+                **r,
                 "id": r["id"],
                 "question": r["question"],
                 "answer": r["answer"],

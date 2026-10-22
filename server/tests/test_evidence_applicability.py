@@ -11,7 +11,7 @@ from domain.rag.context import RagContext
 from domain.rag.breadth import Breadth
 from domain.identity.roles import UserKind, UserRole
 from domain.rag.evidence.assessment import EvidenceStatus
-from infrastructure.ml.rag.grounded_response import (
+from domain.rag.evidence.grounded_response import (
     extractive_procedure_response,
     extractive_table_comparison_response,
     extractive_timing_response,

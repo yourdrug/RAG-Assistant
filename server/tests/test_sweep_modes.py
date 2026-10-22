@@ -97,7 +97,7 @@ async def test_full_mode_evaluates_all_25_combinations_and_can_find_last_winner(
     monkeypatch.setattr(engine, "score_config_cheap", lambda *a: {"composite_score": 1})
     tested = []
 
-    async def full(questions, model):
+    async def full(questions, model, **kwargs):
         from config import get_setting
 
         assert questions is snapshot

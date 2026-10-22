@@ -94,13 +94,11 @@ async def test_resume_rejudges_old_completed_result_and_preserves_generation(tmp
     store = DatabaseBenchmarkCheckpoints(FakeUnitOfWorkFactory(), 42)
     kwargs = {
         "questions": [case()],
-        "out_dir": str(tmp_path),
         "top_k": 4,
         "judge_model": "judge",
         "rag_service": object(),
         "resume": True,
         "checkpoint_prefix": "configuration",
-        "export_files": False,
         "checkpoints": store,
     }
     await runner.run_benchmark_async(**kwargs)

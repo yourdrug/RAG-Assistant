@@ -12,7 +12,6 @@ app/infrastructure/benchmark/benchmark_history.py
 app/infrastructure/benchmark/case_evaluator.py
 app/infrastructure/benchmark/case_metrics.py
 app/infrastructure/benchmark/checkpoint.py
-app/infrastructure/benchmark/checkpoint_cleanup.py
 app/infrastructure/benchmark/corpus.py
 app/infrastructure/benchmark/evidence_judge.py
 app/infrastructure/benchmark/grouped_judge.py
@@ -21,7 +20,6 @@ app/infrastructure/benchmark/judge_diagnostics.py
 app/infrastructure/benchmark/legacy_import.py
 app/infrastructure/benchmark/metrics.py
 app/infrastructure/benchmark/persistence.py
-app/infrastructure/benchmark/retrieval.py
 app/infrastructure/benchmark/runner.py
 app/infrastructure/benchmark/sweep_data.py
 app/infrastructure/benchmark/sweep_engine.py
@@ -55,7 +53,7 @@ app/infrastructure/logging/actions.py
 app/infrastructure/logging/logging_config.py
 app/infrastructure/metrics/metrics.py
 app/infrastructure/metrics/prometheus_adapter.py
-app/infrastructure/ml/answer_cache.py
+app/infrastructure/ml/cache/answers.py
 app/infrastructure/ml/clients/client_lease.py
 app/infrastructure/ml/clients/client_registry.py
 app/infrastructure/ml/clients/deepinfra_clients.py
@@ -101,10 +99,10 @@ app/infrastructure/ml/rag/document_access.py
 app/infrastructure/ml/rag/document_sources.py
 app/infrastructure/ml/rag/evidence_focus.py
 app/infrastructure/ml/rag/field_evidence.py
-app/infrastructure/ml/rag/grounded_response.py
+app/domain/rag/evidence/grounded_response.py
 app/infrastructure/ml/rag/helpers.py
 app/infrastructure/ml/rag/linked_context.py
-app/infrastructure/ml/rag/rag_cache.py
+app/infrastructure/ml/cache/pipeline.py
 app/infrastructure/ml/rag/rag_config.py
 app/infrastructure/ml/rag/rag_formatting.py
 app/infrastructure/ml/rag/rag_postprocess.py

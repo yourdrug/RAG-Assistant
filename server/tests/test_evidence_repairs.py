@@ -1,5 +1,10 @@
 """Source links, missing evidence and negation survive production assembly."""
 
+from infrastructure.ml.rag_pipeline import RagPipelineState
+from domain.rag.context import RagContext
+from domain.identity.user_context import UserContext
+from domain.identity.roles import UserKind, UserRole
+
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -15,12 +20,11 @@ from domain.rag.evidence.queries import contradicts_requested_scope
 from domain.rag.evidence.reading import evidence_reading_rules
 from domain.rag.breadth import Breadth
 from domain.knowledge.enums import PageContentType
-from domain.identity.roles import UserKind, UserRole
-from domain.rag.context import RagContext
 from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata
-from infrastructure.ml.rag.evidence_focus import evidence_reading_map, format_generation_messages
+from domain.rag.evidence.focus import evidence_reading_map
+from infrastructure.ml.rag.evidence_focus import format_generation_messages
 from infrastructure.ml.rag.helpers import retrieve_with_decomposition
-from infrastructure.ml.rag.grounded_response import (
+from domain.rag.evidence.grounded_response import (
     missing_field_response,
     extractive_procedure_response,
     extractive_timing_response,
@@ -34,7 +38,6 @@ from infrastructure.ml.rag import rag_steps
 from infrastructure.ml.rag.rag_reranking import filter_scope_candidates
 from infrastructure.ml.rag.rag_steps import step_generate, step_check_cache
 from infrastructure.ml.rag.rag_config import build_rag_settings
-from infrastructure.ml.rag_pipeline import RagPipelineState
 
 FIELD = "Дополнительный четырёхзначный код по классификатору дополнительной таможенной информации"
 AMENDMENT_QUESTION = f"Как изменился статус поля «{FIELD}» (позиция 57 таблицы 4.1)?"
@@ -145,11 +148,11 @@ def test_missing_target_row_is_explicit_even_with_matching_name_or_number_elsewh
     mapped = "\n".join(evidence_reading_map(case["context"], case["question"]))
     assert "строка 18 «УНП грузоотправителя»" in mapped
     assert "значение не подтверждено" in mapped
-    assert 'строка 23' in mapped  # A bare row without a table identity also remains unconfirmed.
+    assert "строка 23" in mapped  # A bare row without a table identity also remains unconfirmed.
     with_row = (
         case["context"] + "\n\n---\n\nТаблица 4.2, BLRDLN\n| 18 | УНП грузоотправителя ‹br› an..15 | 2:М |"
     )
-    assert not any('строка 18' in item for item in evidence_reading_map(with_row, case["question"]))
+    assert not any("строка 18" in item for item in evidence_reading_map(with_row, case["question"]))
 
 
 @pytest.mark.asyncio
@@ -166,23 +169,28 @@ async def test_supplemental_retrieval_preserves_acl_temporal_filter_and_original
     conditions = [object()]
     docs, queries = await retrieve_with_decomposition(
         question,
-        30,
-        acl,
-        SimpleNamespace(features=SimpleNamespace(decomposition_enabled=False)),
+        RagPipelineState(
+            fetch_k=30,
+            retrieval_filter=acl,
+            rag=SimpleNamespace(features=SimpleNamespace(decomposition_enabled=False)),
+            breadth=Breadth.NARROW,
+            query_domain="legal",
+            effective_dense_weight=0.5,
+            effective_sparse_weight=0.5,
+            visibility_conditions=conditions,
+            t_pipeline_start=0,
+            question=question,
+            access_filter=acl,
+            ctx=RagContext(user_kind=UserKind.INTERNAL, user_id=1, user_group_ids=[7]),
+            user=UserContext(user_id=1, user_kind=UserKind.INTERNAL, user_role=UserRole.USER),
+        ),
         object(),
-        Breadth.NARROW,
-        "legal",
-        0.5,
-        0.5,
-        visibility_conditions=conditions,
-        user_id=1,
-        user_group_ids=[7],
     )
     assert queries == probes and [doc.page_content for doc in docs] == ["не включенных", "2.2"]
     for call in search.await_args_list:
-        assert call.args[2] is acl
-        assert call.kwargs["visibility_conditions"] is conditions
-        assert call.kwargs["user_group_ids"] == [7]
+        assert call.args[1].retrieval_filter is acl
+        assert call.args[1].visibility_conditions is conditions
+        assert call.args[1].ctx.user_group_ids == [7]
     rules = "\n".join(evidence_reading_rules(question))
     assert "НЕ включённые" in rules and "нужного подпункта нет" in rules
 
@@ -294,7 +302,7 @@ async def test_missing_row_response_cannot_be_overridden_by_model_and_cache_chan
     monkeypatch.setattr(rag_steps, "check_cache", AsyncMock(return_value=None))
     await step_check_cache(state)
     original = state.q_hash
-    monkeypatch.setattr(rag_steps, "EVIDENCE_POLICY_VERSION", "previous-policy")
+    monkeypatch.setattr("infrastructure.ml.cache.keys.EVIDENCE_POLICY_VERSION", "previous-policy")
     await step_check_cache(state)
     assert state.q_hash != original
 

@@ -9,22 +9,25 @@ import time
 from collections.abc import AsyncIterator
 from datetime import date as _date
 
-from domain.rag.breadth import Breadth
 from domain.knowledge.chunk import TABLE_CONTEXT_MAX_CHUNKS
 from domain.knowledge.enums import PageContentType
-from infrastructure.ml.rag.table_context import focus_table_rows, requests_table_overview
+from domain.rag.breadth import Breadth
+from domain.rag.evidence.table_context import requests_table_overview
 from domain.rag.prompt_blocks import NOT_FOUND_PATTERNS
 from domain.rag.settings import RagSettings
 from domain.rag.stream_events import SourcesEvent, StreamEvent, TextChunk
+
 from infrastructure.metrics.metrics import (
     RAG_RELEVANCE_GATE_TOTAL,
     RAG_STAGE_DURATION,
     RAG_TEMPORAL_VERSION_CONFLICT_TOTAL,
     record_rag_answer,
 )
-from infrastructure.ml.rag.rag_formatting import CHARS_PER_TOKEN
 from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata
+from infrastructure.ml.rag.rag_formatting import CHARS_PER_TOKEN
 from infrastructure.ml.rag.rag_relevance import check_relevance, filter_cited_sources
+from infrastructure.ml.rag.table_context import focus_table_rows
+from infrastructure.resilience import circuit_breaker
 
 log = logging.getLogger("default")
 
@@ -41,9 +44,7 @@ async def handle_relevance_gate(
         return True
     t0 = time.monotonic()
 
-    from infrastructure.resilience.circuit_breaker import get_breaker
-
-    breaker = get_breaker("llm_auxiliary")
+    breaker = circuit_breaker.get_breaker("llm_auxiliary")
     breaker.check_open()
 
     async with ml_clients.auxiliary_semaphore:

@@ -110,7 +110,7 @@ async def test_full_pipeline_uses_requested_retrieval_limits(monkeypatch):
 
     with pytest.raises(RuntimeError, match="limits checked"):
         await run_benchmark_async(
-            questions, "unused", 7, "judge", fetch_k=23, rag_service=SimpleNamespace(invoke=invoke)
+            questions, 7, "judge", fetch_k=23, rag_service=SimpleNamespace(invoke=invoke)
         )
 
 

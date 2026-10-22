@@ -1,11 +1,13 @@
 """Independent paid judge work survives errors, interruption and resume."""
 
 import asyncio
-import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+
+from infrastructure.benchmark.checkpoint import DatabaseBenchmarkCheckpoints
+from fakes import FakeUnitOfWorkFactory
 
 
 from application.benchmark import compute_summary_from_results
@@ -56,7 +58,9 @@ async def test_resume_only_missing_generator_context_and_evidence_scores(tmp_pat
     monkeypatch.setattr(evidence_judge, "get_judge_client", lambda *args: object())
     monkeypatch.setattr(judge, "judge_with_structured_output", score)
     monkeypatch.setattr(evidence_judge, "judge_with_structured_output", score)
-    evaluator = BenchmarkCaseEvaluator(generator, "judge")
+    factory = FakeUnitOfWorkFactory()
+    store = DatabaseBenchmarkCheckpoints(factory, 1)
+    evaluator = BenchmarkCaseEvaluator(generator, "judge", store)
     question = {"question": "q", "expected_answer": "a", "annotations": {"expected_refusal": True}}
     path = tmp_path / "stage.json"
     first = await evaluator.evaluate(1, question, 1, SimpleNamespace(), path)
@@ -66,7 +70,7 @@ async def test_resume_only_missing_generator_context_and_evidence_scores(tmp_pat
     assert first["context_metrics"]["context_precision"] == 0
     assert first["context_metrics"]["context_recall"] is None
     assert first["evidence_metrics"]["refusal_score"] is None
-    saved = json.loads(path.read_text())
+    saved = await store.load(str(path))
     assert saved["generator_metrics"]["faithfulness"] == 0
     assert saved["context_metrics"]["context_precision"] == 0
     assert saved["evidence_judge"]["details"]["refusal_score"]["error"]
@@ -85,6 +89,8 @@ async def test_resume_only_missing_generator_context_and_evidence_scores(tmp_pat
 @pytest.mark.asyncio
 async def test_success_checkpoint_is_written_before_next_metric(tmp_path, monkeypatch):
     path = tmp_path / "stage.json"
+    factory = FakeUnitOfWorkFactory()
+    store = DatabaseBenchmarkCheckpoints(factory, 1)
     generator = SimpleNamespace(
         generate=AsyncMock(
             return_value=BenchmarkAnswer(
@@ -98,17 +104,20 @@ async def test_success_checkpoint_is_written_before_next_metric(tmp_path, monkey
         nonlocal calls
         calls += 1
         if calls == 2:
-            assert json.loads(path.read_text())["generator_metrics"]["faithfulness"] == 8
+            assert (
+                factory._uow.benchmark_sweeps.checkpoints[1, str(path)]["generator_metrics"]["faithfulness"]
+                == 8
+            )
             raise asyncio.CancelledError()
         return JudgeScore(score=8, reason="ok")
 
     monkeypatch.setattr(judge, "get_judge_client", lambda *args: object())
     monkeypatch.setattr(judge, "judge_with_structured_output", score)
     with pytest.raises(asyncio.CancelledError):
-        await BenchmarkCaseEvaluator(generator, "judge").evaluate(
+        await BenchmarkCaseEvaluator(generator, "judge", store).evaluate(
             1, {"question": "q"}, 1, SimpleNamespace(), path
         )
-    assert json.loads(path.read_text())["generator_metrics"]["faithfulness"] == 8
+    assert (await store.load(str(path)))["generator_metrics"]["faithfulness"] == 8
 
 
 def test_missing_judge_scores_are_excluded_from_averages_but_counted_as_missing():

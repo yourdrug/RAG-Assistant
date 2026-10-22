@@ -3,7 +3,6 @@
 import asyncio
 import logging
 import threading
-import time
 import json
 
 import instructor
@@ -16,24 +15,18 @@ from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait
 from typing import Any
 
 from config import settings
-from domain.rag.prompts import build_system_prompt
-from domain.rag.breadth import Breadth
 from domain.runtime.enums import LLMProvider
-from langchain.schema import Document
 
 from infrastructure.ml.clients.factories import FAST_OPENROUTER_MODEL
 from infrastructure.ml.clients.llm_schemas import JudgeScore
 from infrastructure.ml.clients.managed_sync_instructor import ManagedSyncInstructor
 from infrastructure.ml.clients.client_lease import sync_client_operation
 from infrastructure.benchmark.token_usage import record_judge_usage
-from infrastructure.ml.rag.rag_formatting import format_docs
 
 from infrastructure.benchmark.judge_rubric import CORRECTNESS_CRITERIA, FAITHFULNESS_CRITERIA
 
 logger = logging.getLogger("default")
 
-JUDGE_MAX_RETRIES = 3
-JUDGE_RETRY_DELAY = 5.0
 JUDGE_OUTPUT_TOKENS = 2048
 JUDGE_EXPANDED_OUTPUT_TOKENS = 8192
 
@@ -48,12 +41,6 @@ RETIRED_JUDGE_CLIENTS: set[ManagedSyncInstructor] = set()
 # ---------------------------------------------------------------------------
 # Prompt templates
 # ---------------------------------------------------------------------------
-
-ANSWER_PROMPT_TEMPLATE = """\
-{system_prompt}
-
-Вопрос: {question}
-"""
 
 FAITHFULNESS_PROMPT = (
     """\
@@ -282,55 +269,6 @@ def judge_with_structured_output(
                     retry_budget,
                 )
         raise RuntimeError("Judge output budget exhausted")
-
-
-# ---------------------------------------------------------------------------
-# RAG answer generation
-# ---------------------------------------------------------------------------
-
-
-def get_rag_answer(llm, docs_with_scores: list[tuple[Document, float]], question: str) -> str:
-    """Generate answer using the production system prompt and formatted context."""
-    answer, _response = get_rag_answer_with_usage(llm, docs_with_scores, question)
-    return answer
-
-
-def get_rag_answer_with_usage(
-    llm, docs_with_scores: list[tuple[Document, float]], question: str
-) -> tuple[str, object]:
-    """Generate answer and return (answer_text, raw_llm_response) for token usage extraction."""
-    system_prompt = build_system_prompt(breadth=Breadth.NARROW.value)
-
-    context = format_docs(docs_with_scores, max_context_tokens=4000)
-    prompt_text = ANSWER_PROMPT_TEMPLATE.format(system_prompt=system_prompt, question=question)
-    full_prompt = (
-        f"{prompt_text}\n\nКонтекст из документов:\n<<DOCUMENT_CONTEXT>>\n{context}\n<<END_DOCUMENT_CONTEXT>>"
-    )
-
-    last_exc: Exception | None = None
-    for attempt in range(1, JUDGE_MAX_RETRIES + 1):
-        try:
-            response = llm.invoke(full_prompt)
-            content = response.content
-            answer = content.strip() if isinstance(content, str) else str(content).strip()
-            return answer, response
-        except Exception as exc:
-            last_exc = exc
-            if attempt < JUDGE_MAX_RETRIES:
-                delay = JUDGE_RETRY_DELAY * attempt
-                logger.warning(
-                    "RAG LLM invoke failed (attempt %d/%d): %s — retrying in %.1fs",
-                    attempt,
-                    JUDGE_MAX_RETRIES,
-                    exc,
-                    delay,
-                )
-                time.sleep(delay)
-            else:
-                logger.error("RAG LLM invoke failed after %d attempts: %s", JUDGE_MAX_RETRIES, exc)
-    if last_exc is None:
-        raise RuntimeError("LLM judge failed with no exception recorded")
-    raise last_exc
 
 
 # ---------------------------------------------------------------------------

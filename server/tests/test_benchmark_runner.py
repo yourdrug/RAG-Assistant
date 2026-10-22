@@ -26,7 +26,7 @@ def test_validate_questions_rejects_invalid_cases(questions):
 
 
 def test_compute_retriever_metrics_no_source_hint():
-    from infrastructure.benchmark.runner import compute_retriever_metrics_from_sources
+    from infrastructure.benchmark.case_metrics import compute_retriever_metrics_from_sources
 
     sources = [
         {"source": "doc1.pdf", "max_score": 0.9},
@@ -42,7 +42,7 @@ def test_compute_retriever_metrics_no_source_hint():
 
 
 def test_compute_retriever_metrics_with_hint_hit():
-    from infrastructure.benchmark.runner import compute_retriever_metrics_from_sources
+    from infrastructure.benchmark.case_metrics import compute_retriever_metrics_from_sources
 
     sources = [
         {"source": "contracts/report.pdf", "max_score": 0.9},
@@ -56,7 +56,7 @@ def test_compute_retriever_metrics_with_hint_hit():
 
 
 def test_compute_retriever_metrics_with_hint_hit_at_rank2():
-    from infrastructure.benchmark.runner import compute_retriever_metrics_from_sources
+    from infrastructure.benchmark.case_metrics import compute_retriever_metrics_from_sources
 
     sources = [
         {"source": "other.pdf", "max_score": 0.9},
@@ -70,7 +70,7 @@ def test_compute_retriever_metrics_with_hint_hit_at_rank2():
 
 
 def test_compute_retriever_metrics_with_hint_no_hit():
-    from infrastructure.benchmark.runner import compute_retriever_metrics_from_sources
+    from infrastructure.benchmark.case_metrics import compute_retriever_metrics_from_sources
 
     sources = [
         {"source": "other.pdf", "max_score": 0.9},
@@ -83,7 +83,7 @@ def test_compute_retriever_metrics_with_hint_no_hit():
 
 
 def test_compute_retriever_metrics_empty_sources():
-    from infrastructure.benchmark.runner import compute_retriever_metrics_from_sources
+    from infrastructure.benchmark.case_metrics import compute_retriever_metrics_from_sources
 
     result = compute_retriever_metrics_from_sources([], source_hint="anything")
 
@@ -92,7 +92,7 @@ def test_compute_retriever_metrics_empty_sources():
 
 
 def test_compute_retriever_metrics_missing_max_score():
-    from infrastructure.benchmark.runner import compute_retriever_metrics_from_sources
+    from infrastructure.benchmark.case_metrics import compute_retriever_metrics_from_sources
 
     sources = [{"source": "doc.pdf"}]  # no max_score key
 

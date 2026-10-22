@@ -12,6 +12,8 @@ from domain.rag.settings import (
     RetrieverConfig,
 )
 
+from infrastructure.ml.config.settings_adapters import LiveRagSettings
+
 if TYPE_CHECKING:
     from application.ports.rag_settings import RagSettingsPort
 
@@ -23,8 +25,6 @@ def build_rag_settings(port: RagSettingsPort | None = None) -> RagSettings:
     singleton (backward-compatible default).
     """
     if port is None:
-        from infrastructure.ml.config.settings_adapters import LiveRagSettings
-
         port = LiveRagSettings()
 
     return RagSettings(

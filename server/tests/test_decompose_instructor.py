@@ -9,6 +9,11 @@ Verifies that:
 
 from __future__ import annotations
 
+from infrastructure.ml.rag_pipeline import RagPipelineState
+from domain.rag.context import RagContext
+from domain.identity.user_context import UserContext
+from domain.identity.roles import UserKind, UserRole
+
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -183,17 +188,22 @@ class TestDecomposeCallerIntegration:
 
             await retrieve_with_decomposition(
                 "complex question",
-                10,
-                None,
-                mock_rag,
+                RagPipelineState(
+                    fetch_k=10,
+                    retrieval_filter=None,
+                    rag=mock_rag,
+                    breadth=Breadth.NARROW,
+                    query_domain="general",
+                    effective_dense_weight=0.7,
+                    effective_sparse_weight=0.3,
+                    visibility_conditions=[],
+                    t_pipeline_start=0,
+                    question="complex question",
+                    access_filter=None,
+                    ctx=RagContext(user_kind=UserKind.INTERNAL, user_id=0, user_group_ids=[]),
+                    user=UserContext(user_id=0, user_kind=UserKind.INTERNAL, user_role=UserRole.USER),
+                ),
                 mock_ml,
-                Breadth.NARROW,
-                "general",
-                0.7,
-                0.3,
-                visibility_conditions=[],
-                user_id=0,
-                user_group_ids=[],
             )
             mock_decompose.assert_called_once()
             call_kwargs = mock_decompose.call_args

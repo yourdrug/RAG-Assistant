@@ -11,7 +11,7 @@ from langchain.schema import Document as LCDocument
 from application.search import HybridRetriever
 from domain.knowledge.document import Document
 from domain.knowledge.chunk import ChunkRecord
-from infrastructure.ml import answer_cache
+from infrastructure.ml.cache import answers as answer_cache
 from infrastructure.ml.clients.managed_llm import ManagedLLM, ManagedInstructor
 from infrastructure.redis.redis_client import RedisClient
 from infrastructure.repositories.vector.embedding_identity import ensure_embedding_identity

@@ -12,13 +12,14 @@ from time import perf_counter
 
 from langchain_core.documents import Document
 
-from infrastructure.ml.rag.evidence_focus import evidence_reading_map
-from infrastructure.ml.rag.grounded_response import (
+from domain.rag.evidence.focus import evidence_reading_map
+from domain.rag.evidence.grounded_response import (
     extractive_procedure_response,
     extractive_table_comparison_response,
     extractive_timing_response,
     missing_field_response,
 )
+
 
 logger = logging.getLogger("default")
 

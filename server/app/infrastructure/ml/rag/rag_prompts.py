@@ -6,13 +6,11 @@ import re
 
 import httpx
 from config import settings
+from domain.chat.message import MessageRole
 from domain.rag.evidence.reading import evidence_reading_reminder
 from domain.rag.prompts import build_context_message, build_system_prompt  # noqa: F401
-from domain.chat.message import MessageRole
 from domain.rag.retrieval import ContextBudgetExceededError
-from infrastructure.ml.rag.prompt_budget import estimate_message_tokens
-from infrastructure.ml.clients.client_lease import client_operation
-from infrastructure.ml.clients.llm_schemas import DecompositionCheck
+from domain.runtime.enums import LLMProvider
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from tenacity import (
     retry,
@@ -20,6 +18,10 @@ from tenacity import (
     stop_after_attempt,
     wait_exponential_jitter,
 )
+
+from infrastructure.ml.clients.client_lease import client_operation
+from infrastructure.ml.clients.llm_schemas import DecompositionCheck
+from infrastructure.ml.rag.prompt_budget import estimate_message_tokens
 
 _RETRYABLE_ERRORS = (TimeoutError, ConnectionError, httpx.TransportError, OSError)
 
@@ -134,12 +136,7 @@ async def decompose_question(
         log.warning("decompose_question called without instructor_client, returning original")
         return [question]
 
-    from config import settings as _settings
-    from domain.runtime.enums import LLMProvider
-
-    model = (
-        _settings.llm_model if _settings.llm_provider == LLMProvider.OLLAMA else _settings.openrouter_model
-    )
+    model = settings.llm_model if settings.llm_provider == LLMProvider.OLLAMA else settings.openrouter_model
 
     async def _call() -> DecompositionCheck:
         return await asyncio.wait_for(
@@ -149,11 +146,11 @@ async def decompose_question(
                     {"role": "system", "content": DECOMPOSE_SYSTEM},
                     {"role": "user", "content": question},
                 ],
-                max_tokens=_settings.llm_num_predict_narrow,
+                max_tokens=settings.llm_num_predict_narrow,
                 response_model=DecompositionCheck,
                 max_retries=2,
             ),
-            timeout=_settings.llm_auxiliary_timeout,
+            timeout=settings.llm_auxiliary_timeout,
         )
 
     async with client_operation(instructor_client):

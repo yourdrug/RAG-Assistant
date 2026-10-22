@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from infrastructure.ml.answer_cache import invalidate_by_document_ids as _invalidate
+from infrastructure.ml.cache.answers import invalidate_by_document_ids as _invalidate
 
 
 class CacheInvalidatorAdapter:

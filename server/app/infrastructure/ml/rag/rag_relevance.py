@@ -2,6 +2,9 @@
 
 import re
 
+import config
+from domain.runtime.enums import LLMProvider
+
 from infrastructure.ml.clients.client_lease import client_operation
 from infrastructure.ml.clients.llm_schemas import RelevanceCheck
 from infrastructure.ml.rag.rag_formatting import format_docs
@@ -25,14 +28,15 @@ async def check_relevance(ml_clients, question: str, docs: list) -> tuple[bool, 
 
     import asyncio
 
-    from config import settings
-    from domain.runtime.enums import LLMProvider
-
     context = format_docs(docs, max_context_tokens=2000)
     prompt_text = f"Вопрос: {question}\n\nКонтекст из документов:\n{context}"
 
     client = ml_clients.instructor_client
-    model = settings.llm_model if settings.llm_provider == LLMProvider.OLLAMA else settings.openrouter_model
+    model = (
+        config.settings.llm_model
+        if config.settings.llm_provider == LLMProvider.OLLAMA
+        else config.settings.openrouter_model
+    )
 
     async with client_operation(client):
         try:
@@ -43,17 +47,17 @@ async def check_relevance(ml_clients, question: str, docs: list) -> tuple[bool, 
                         {"role": "system", "content": RELEVANCE_SYSTEM},
                         {"role": "user", "content": prompt_text},
                     ],
-                    max_tokens=settings.llm_num_predict_narrow,
+                    max_tokens=config.settings.llm_num_predict_narrow,
                     response_model=RelevanceCheck,
                     max_retries=1,
                 ),
-                timeout=settings.llm_auxiliary_timeout,
+                timeout=config.settings.llm_auxiliary_timeout,
             )
         except TimeoutError as exc:
             raise TimeoutError(
                 f"RAG relevance gate LLM request timed out "
-                f"(provider={settings.llm_provider}, model={model}, "
-                f"LLM_AUXILIARY_TIMEOUT={settings.llm_auxiliary_timeout}s)"
+                f"(provider={config.settings.llm_provider}, model={model}, "
+                f"LLM_AUXILIARY_TIMEOUT={config.settings.llm_auxiliary_timeout}s)"
             ) from exc
 
     return result.is_relevant, result.reason

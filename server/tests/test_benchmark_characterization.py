@@ -4,10 +4,8 @@ Locks down the pure-logic functions BEFORE refactoring.
 LLM judge calls and Qdrant/retrieval are fully mocked.
 """
 
-import json
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -229,115 +227,6 @@ class TestExtractSourceName:
 
 
 # ---------------------------------------------------------------------------
-# _sanitize_model_name
-# ---------------------------------------------------------------------------
-
-
-class TestSanitizeModelName:
-    def test_colon_replaced(self):
-        from infrastructure.benchmark.persistence import _sanitize_model_name
-
-        assert _sanitize_model_name("model:v2") == "model_v2"
-
-    def test_clean_name_unchanged(self):
-        from infrastructure.benchmark.persistence import _sanitize_model_name
-
-        assert _sanitize_model_name("model-v2") == "model-v2"
-
-    def test_special_chars(self):
-        from infrastructure.benchmark.persistence import _sanitize_model_name
-
-        result = _sanitize_model_name('a/b:c*d?"e<f>g|h')
-        assert "/" not in result
-        assert ":" not in result
-        assert "*" not in result
-
-
-# ---------------------------------------------------------------------------
-# apply_rerank_filters
-# ---------------------------------------------------------------------------
-
-
-class TestApplyRerankFilters:
-    def test_min_score_filters_low(self):
-        from infrastructure.benchmark.retrieval import apply_rerank_filters
-
-        with patch("infrastructure.benchmark.retrieval.get_setting") as mock_get:
-            mock_get.side_effect = lambda key: {
-                "rag.rerank_min_score": 0.5,
-                "rag.rerank_score_gap_ratio": None,
-            }.get(key)
-            docs = [
-                (_doc("a"), 0.9),
-                (_doc("b"), 0.3),
-                (_doc("c"), 0.7),
-            ]
-            result = apply_rerank_filters(docs)
-            assert len(result) == 2
-            assert all(s >= 0.5 for _, s in result)
-
-    def test_gap_ratio_filters(self):
-        from infrastructure.benchmark.retrieval import apply_rerank_filters
-
-        with patch("infrastructure.benchmark.retrieval.get_setting") as mock_get:
-            mock_get.side_effect = lambda key: {
-                "rag.rerank_min_score": None,
-                "rag.rerank_score_gap_ratio": 0.5,
-            }.get(key)
-            docs = [
-                (_doc("a"), 1.0),
-                (_doc("b"), 0.6),
-                (_doc("c"), 0.3),
-            ]
-            result = apply_rerank_filters(docs)
-            # cutoff = 1.0 * 0.5 = 0.5, so 0.3 is filtered
-            assert len(result) == 2
-
-    def test_no_filters(self):
-        from infrastructure.benchmark.retrieval import apply_rerank_filters
-
-        with patch("infrastructure.benchmark.retrieval.get_setting", return_value=None):
-            docs = [(_doc("a"), 0.9), (_doc("b"), 0.1)]
-            result = apply_rerank_filters(docs)
-            assert len(result) == 2
-
-
-# ---------------------------------------------------------------------------
-# save_results (filesystem)
-# ---------------------------------------------------------------------------
-
-
-class TestSaveResults:
-    def test_creates_json_and_csv(self, tmp_path):
-        from infrastructure.benchmark.persistence import save_results
-
-        results = [_result()]
-        out_dir = str(tmp_path / "bench_out")
-        save_results(results, out_dir, model_name="test-model")
-
-        out = Path(out_dir)
-        json_files = list(out.glob("benchmark_*.json"))
-        csv_files = list(out.glob("benchmark_*.csv"))
-        assert len(json_files) == 1
-        assert len(csv_files) == 1
-
-        data = json.loads(json_files[0].read_text())
-        assert len(data) == 1
-        assert data[0]["id"] == "q1"
-
-    def test_csv_has_header(self, tmp_path):
-        from infrastructure.benchmark.persistence import save_results
-
-        results = [_result()]
-        out_dir = str(tmp_path / "bench_csv")
-        save_results(results, out_dir)
-
-        csv_path = list(Path(out_dir).glob("benchmark_*.csv"))[0]
-        lines = csv_path.read_text().split("\n")
-        assert lines[0].startswith("id,question,faithfulness")
-
-
-# ---------------------------------------------------------------------------
 # _safe_avg
 # ---------------------------------------------------------------------------
 
@@ -357,35 +246,3 @@ class TestSafeAvg:
         from infrastructure.benchmark.metrics import _safe_avg
 
         assert _safe_avg([5.0]) == 5.0
-
-
-# ---------------------------------------------------------------------------
-# get_rag_answer (mocked LLM)
-# ---------------------------------------------------------------------------
-
-
-class TestGetRagAnswer:
-    def test_returns_llm_response(self):
-        from infrastructure.benchmark.judge import get_rag_answer
-
-        mock_llm = MagicMock()
-        mock_response = MagicMock()
-        mock_response.content = "The answer is 42."
-        mock_llm.invoke.return_value = mock_response
-
-        docs = [(_doc("context text"), 0.9)]
-        result = get_rag_answer(mock_llm, docs, "What is the answer?")
-        assert result == "The answer is 42."
-
-    def test_retries_on_exception(self):
-        from infrastructure.benchmark.judge import get_rag_answer
-
-        mock_llm = MagicMock()
-        mock_response = MagicMock()
-        mock_response.content = "ok"
-        mock_llm.invoke.side_effect = [Exception("fail"), mock_response]
-
-        docs = [(_doc("text"), 0.9)]
-        result = get_rag_answer(mock_llm, docs, "q")
-        assert result == "ok"
-        assert mock_llm.invoke.call_count == 2

@@ -117,7 +117,7 @@ async def test_reranker_scores_all_combinations_but_llm_only_scores_shortlist(mo
     monkeypatch.setattr(engine, "cache_candidates", cache)
     thresholds = []
 
-    async def evaluate_current_settings(questions, judge_model):
+    async def evaluate_current_settings(questions, judge_model, **kwargs):
         thresholds.append(get_setting(parameter))
         return {"hit_rate": 1, "avg_mrr": 0.5}
 

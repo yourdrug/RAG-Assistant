@@ -12,8 +12,8 @@ from domain.rag.evidence.applicability import (
     timing_question,
 )
 from domain.rag.evidence.assessment import EvidenceAssessment, EvidenceFragment, EvidenceStatus
-from infrastructure.ml.rag.evidence_focus import evidence_reading_map, requested_fields, matching_field_rows
-from infrastructure.ml.rag.rag_formatting import content_with_parent_scope
+from domain.rag.evidence.focus import evidence_reading_map, requested_fields, matching_field_rows
+from domain.rag.evidence.context import content_with_parent_scope
 
 
 def missing_field_response(context: str, question: str) -> str | None:
@@ -37,13 +37,13 @@ def evidence_fragments(docs) -> list[EvidenceFragment]:
     fragments = []
     for doc, _ in docs:
         metadata = doc.metadata
-        source = metadata.get('citation_id')
+        source = metadata.get("citation_id")
         if not source:
             continue
-        numbers = act_numbers(metadata.get('doc_title', ''))
-        if metadata.get('act_number'):
-            numbers = {str(metadata['act_number']).replace('/', '').replace('-', '')}
-        filename_numbers = act_numbers(metadata.get('source', ''))
+        numbers = act_numbers(metadata.get("doc_title", ""))
+        if metadata.get("act_number"):
+            numbers = {str(metadata["act_number"]).replace("/", "").replace("-", "")}
+        filename_numbers = act_numbers(metadata.get("source", ""))
         if numbers and filename_numbers and numbers != filename_numbers:
             continue
         numbers = numbers or filename_numbers
@@ -51,27 +51,27 @@ def evidence_fragments(docs) -> list[EvidenceFragment]:
             EvidenceFragment(
                 text=content_with_parent_scope(doc),
                 source=source,
-                document_id=metadata.get('document_id') or metadata.get('source'),
-                version_id=metadata.get('act_version_id'),
+                document_id=metadata.get("document_id") or metadata.get("source"),
+                version_id=metadata.get("act_version_id"),
                 act_number=next(iter(numbers)) if len(numbers) == 1 else None,
-                chunk_index=metadata.get('chunk_index', 0),
-                linked_scope=metadata.get('verified_timing_scope', ''),
+                chunk_index=metadata.get("chunk_index", 0),
+                linked_scope=metadata.get("verified_timing_scope", ""),
             )
         )
     return fragments
 
 
 def render_evidence_assessment(assessment: EvidenceAssessment) -> str:
-    parts = [f'{claim.quote} [{claim.source}]' for claim in assessment.claims]
+    parts = [f"{claim.quote} [{claim.source}]" for claim in assessment.claims]
     if assessment.status == EvidenceStatus.CONFLICT:
         parts.append(
-            'Конфликт источников: нельзя подтвердить применимый акт, редакцию или единственный режим.'
+            "Конфликт источников: нельзя подтвердить применимый акт, редакцию или единственный режим."
         )
     elif assessment.missing:
         parts.append(
-            'Не подтверждены: ' + ', '.join(assessment.missing) + '. Нельзя подтвердить полный вывод.'
+            "Не подтверждены: " + ", ".join(assessment.missing) + ". Нельзя подтвердить полный вывод."
         )
-    return '\n\n'.join(parts)
+    return "\n\n".join(parts)
 
 
 def scoped_evidence_response(
@@ -89,25 +89,25 @@ def scoped_evidence_response(
         missing = missing_field_response(context, question)
         if missing:
             return missing, EvidenceAssessment(
-                EvidenceStatus.INSUFFICIENT, missing=('целевая строка таблицы',)
+                EvidenceStatus.INSUFFICIENT, missing=("целевая строка таблицы",)
             )
         answer = extractive_table_comparison_response(context, question)
         if answer:
             return answer, EvidenceAssessment(EvidenceStatus.COMPLETE)
-        if re.search(r'измен|замен|статус|обязательност', question, re.IGNORECASE):
+        if re.search(r"измен|замен|статус|обязательност", question, re.IGNORECASE):
             return amendment_field_response(context, question)
-        if 'формат' in question.casefold():
+        if "формат" in question.casefold():
             parts = []
             for number, name in requested_fields(question):
                 values, changes = field_format_evidence(context, question, number, name)
                 if len(values) == 1 and not changes:
                     value, source = next(iter(values.items()))
                     parts.append(
-                        f'Поле {number} «{name}»: в целевой строке указан формат {value}. [{source}]'
+                        f"Поле {number} «{name}»: в целевой строке указан формат {value}. [{source}]"
                     )
-            parts.append('История изменения и полный вывод не подтверждены доступным контекстом.')
+            parts.append("История изменения и полный вывод не подтверждены доступным контекстом.")
             status = EvidenceStatus.PARTIAL if len(parts) > 1 else EvidenceStatus.INSUFFICIENT
-            return '\n\n'.join(parts), EvidenceAssessment(status, missing=('история изменения',))
+            return "\n\n".join(parts), EvidenceAssessment(status, missing=("история изменения",))
         return field_rows_response(context, question)
     return None, None
 
@@ -116,17 +116,17 @@ def amendment_field_response(context: str, question: str) -> tuple[str, Evidence
     parts = []
     for source, block in sourced_context_blocks(context):
         for projection in evidence_reading_map(block, question):
-            if projection.startswith('Поле ') and 'ПОСЛЕ изменения' in projection:
-                if f'{projection} [{source}]' not in parts:
-                    parts.append(f'{projection} [{source}]')
+            if projection.startswith("Поле ") and "ПОСЛЕ изменения" in projection:
+                if f"{projection} [{source}]" not in parts:
+                    parts.append(f"{projection} [{source}]")
     if not parts:
         return (
-            'Операция замены целевого поля не подтверждена. Нельзя сделать вывод об изменении.',
-            EvidenceAssessment(EvidenceStatus.INSUFFICIENT, missing=('операция замены поля',)),
+            "Операция замены целевого поля не подтверждена. Нельзя сделать вывод об изменении.",
+            EvidenceAssessment(EvidenceStatus.INSUFFICIENT, missing=("операция замены поля",)),
         )
     # Quote the verified replacement only; do not infer history of other fields.
-    parts.append('Приведены подтверждённые замены; история остальных полей не подтверждена.')
-    return '\n\n'.join(parts), EvidenceAssessment(EvidenceStatus.PARTIAL)
+    parts.append("Приведены подтверждённые замены; история остальных полей не подтверждена.")
+    return "\n\n".join(parts), EvidenceAssessment(EvidenceStatus.PARTIAL)
 
 
 def field_rows_response(context: str, question: str) -> tuple[str, EvidenceAssessment]:
@@ -140,12 +140,12 @@ def field_rows_response(context: str, question: str) -> tuple[str, EvidenceAsses
         }
         if len(rows) != 1:
             return (
-                'Единственная применимая строка поля не подтверждена. Нельзя сделать полный вывод.',
-                EvidenceAssessment(EvidenceStatus.CONFLICT, missing=('единственная строка поля',)),
+                "Единственная применимая строка поля не подтверждена. Нельзя сделать полный вывод.",
+                EvidenceAssessment(EvidenceStatus.CONFLICT, missing=("единственная строка поля",)),
             )
         row, source = next(iter(rows.items()))
-        parts.append(f'{row} [{source}]')
-    return '\n\n'.join(parts), EvidenceAssessment(EvidenceStatus.COMPLETE)
+        parts.append(f"{row} [{source}]")
+    return "\n\n".join(parts), EvidenceAssessment(EvidenceStatus.COMPLETE)
 
 
 def applicable_table_context(docs, context: str, question: str) -> str:
@@ -153,23 +153,23 @@ def applicable_table_context(docs, context: str, question: str) -> str:
     if not requested:
         return context
     allowed = set(requested)
-    if re.search(r'измен|постановлением|замен', question, re.IGNORECASE):
+    if re.search(r"измен|постановлением|замен", question, re.IGNORECASE):
         for doc, score in docs:
             fragments = evidence_fragments([(doc, score)])
             if fragments and fragments[0].act_number in requested:
-                allowed.update(doc.metadata.get('verified_amended_acts', ()))
+                allowed.update(doc.metadata.get("verified_amended_acts", ()))
     fragments = evidence_fragments(docs)
     for number in allowed:
         if evidence_conflicts([f for f in fragments if f.act_number == number]):
-            return ''
+            return ""
     by_source = {f.source: f for f in fragments}
     blocks = []
     for source, block in sourced_context_blocks(context):
         fragment = by_source.get(source)
-        identities = {fragment.act_number} if fragment else act_numbers(block.splitlines()[0].split('|')[0])
+        identities = {fragment.act_number} if fragment else act_numbers(block.splitlines()[0].split("|")[0])
         if len(identities) == 1 and identities <= allowed:
-            blocks.append(block if re.match(r'\s*\[\d+\] ', block) else f'[{source}] {block}')
-    return '\n\n---\n\n'.join(blocks)
+            blocks.append(block if re.match(r"\s*\[\d+\] ", block) else f"[{source}] {block}")
+    return "\n\n---\n\n".join(blocks)
 
 
 def sourced_context_blocks(context: str) -> list[tuple[int, str]]:

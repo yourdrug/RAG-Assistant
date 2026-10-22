@@ -10,9 +10,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, cast
 from collections.abc import Awaitable, Callable
-
+from typing import TYPE_CHECKING, cast
 
 import httpx
 from application.ports.ml_clients import MLClientPort
@@ -23,6 +22,8 @@ from prometheus_client import Counter, Gauge, Histogram
 from sqlalchemy.pool import QueuePool
 
 from infrastructure.database.database import database
+from infrastructure.ml.clients import factories
+from infrastructure.ml.usage_capture import extract_usage_from_langchain  # noqa: F401
 
 if TYPE_CHECKING:
     from infrastructure.bm25.bm25_index import BM25Index
@@ -304,27 +305,6 @@ def record_llm_usage(
         LLM_TOKEN_USAGE.labels(model=model, direction="output", operation=operation).inc(output_tokens)
 
 
-def extract_usage_from_langchain(response) -> tuple[int | None, int | None]:
-    """Extract (input_tokens, output_tokens) from a LangChain AIMessage or chunk.
-
-    Supports both usage_metadata (LangChain v0.3+) and response_metadata.
-    Returns (None, None) if not available.
-    """
-    # Try usage_metadata first (LangChain >=0.3)
-    usage = getattr(response, "usage_metadata", None)
-    if usage and isinstance(usage, dict):
-        return usage.get("input_tokens"), usage.get("output_tokens")
-
-    # Try response_metadata (older LangChain / OpenAI format)
-    meta = getattr(response, "response_metadata", None)
-    if meta and isinstance(meta, dict):
-        usage = meta.get("usage", {})
-        if usage:
-            return usage.get("prompt_tokens"), usage.get("completion_tokens")
-
-    return None, None
-
-
 # ---------------------------------------------------------------------------
 # Helper: record RAG pipeline answer metrics (called after generation)
 # ---------------------------------------------------------------------------
@@ -365,12 +345,7 @@ async def _collect_db_pool_metrics() -> None:
 
 
 async def _collect_qdrant_metrics(ml_clients: MLClientPort | None) -> None:
-    if ml_clients is not None:
-        client = ml_clients.qdrant_client()
-    else:
-        from infrastructure.ml.clients.factories import create_qdrant_client
-
-        client = create_qdrant_client()
+    client = ml_clients.qdrant_client() if ml_clients is not None else factories.create_qdrant_client()
     # Sync qdrant-client call — must not run on the event loop.
     info = await asyncio.to_thread(client.get_collection, settings.collection_name)
     QDRANT_POINTS.set(info.points_count or 0)

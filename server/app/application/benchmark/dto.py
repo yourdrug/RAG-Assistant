@@ -124,4 +124,3 @@ class BenchmarkRunOptions(TypedDict, total=False):
 
 class BenchmarkRunnerOptions(BenchmarkRunOptions, total=False):
     rag_service: ChatRAGPort | None
-    export_files: bool

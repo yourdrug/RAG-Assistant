@@ -11,9 +11,12 @@ import logging
 import time
 from typing import TYPE_CHECKING
 
+from config import settings
+from domain.runtime.enums import LLMProvider
+from infrastructure.resilience.circuit_breaker import get_breaker
+from infrastructure.ml.rag.document_access import filter_documents, filter_scored_documents
 from domain.knowledge.enums import DocDomain
 from domain.rag.answer_policy import policy_for
-from domain.rag.breadth import Breadth
 from domain.rag.prompts import SUFFICIENCY_ASSESSMENT_SYSTEM
 from domain.rag.retrieval import select_final_top_k, compute_context_budget
 from domain.knowledge.enums import SearchMode
@@ -34,11 +37,11 @@ from infrastructure.ml.rag.rag_prompts import decompose_question
 from infrastructure.ml.rag.linked_context import enrich_linked_context
 from infrastructure.ml.rag.field_evidence import augment_field_candidates
 from infrastructure.ml.rag.applicable_context import enrich_applicable_context
-from infrastructure.metrics.metrics import RAG_STAGE_DURATION
+from infrastructure.metrics.metrics import RAG_STAGE_DURATION, RAG_DECOMPOSED_TOTAL
 from infrastructure.repositories.vector.acl import with_domain_filter
 
 if TYPE_CHECKING:
-    pass
+    from infrastructure.ml.rag_pipeline import RagPipelineState
 
 log = logging.getLogger("default")
 
@@ -54,62 +57,48 @@ def domain_prompt_addendum(
     return policy_for(query_domain).prompt_addendum(as_of_date=ctx.as_of_date)
 
 
-async def run_retrieval(
-    query_for_search: str,
-    fetch_k: int,
-    access_filter,
-    rag,
-    ml_clients,
-    breadth: Breadth,
-    query_domain: str,
-    effective_dense_weight: float,
-    effective_sparse_weight: float,
-    *,
-    visibility_conditions: list,
-    user_id: int,
-    user_group_ids: list[int],
-) -> list[LCDocument]:
+async def run_retrieval(query_for_search: str, state: RagPipelineState, ml_clients) -> list[LCDocument]:
     """Run hybrid search with legal-domain fallback."""
-    if query_domain == DocDomain.LEGAL.value:
-        legal_filter = with_domain_filter(access_filter, DocDomain.LEGAL.value)
+    if state.query_domain == DocDomain.LEGAL.value:
+        legal_filter = with_domain_filter(state.retrieval_filter, DocDomain.LEGAL.value)
         candidates = await run_hybrid_search(
             query_for_search,
-            fetch_k,
+            state.fetch_k,
             legal_filter,
-            rag,
+            state.rag,
             ml_clients=ml_clients,
-            dense_weight=effective_dense_weight,
-            sparse_weight=effective_sparse_weight,
-            visibility_conditions=visibility_conditions,
-            user_id=user_id,
-            user_group_ids=user_group_ids,
+            dense_weight=state.effective_dense_weight,
+            sparse_weight=state.effective_sparse_weight,
+            visibility_conditions=state.visibility_conditions,
+            user_id=state.user.user_id,
+            user_group_ids=state.ctx.user_group_ids,
         )
         if not candidates:
             log.info("Legal-filtered retrieval returned 0 candidates — fallback on entire corpus")
             candidates = await run_hybrid_search(
                 query_for_search,
-                fetch_k,
-                access_filter,
-                rag,
+                state.fetch_k,
+                state.retrieval_filter,
+                state.rag,
                 ml_clients=ml_clients,
-                dense_weight=effective_dense_weight,
-                sparse_weight=effective_sparse_weight,
-                visibility_conditions=visibility_conditions,
-                user_id=user_id,
-                user_group_ids=user_group_ids,
+                dense_weight=state.effective_dense_weight,
+                sparse_weight=state.effective_sparse_weight,
+                visibility_conditions=state.visibility_conditions,
+                user_id=state.user.user_id,
+                user_group_ids=state.ctx.user_group_ids,
             )
     else:
         candidates = await run_hybrid_search(
             query_for_search,
-            fetch_k,
-            access_filter,
-            rag,
+            state.fetch_k,
+            state.retrieval_filter,
+            state.rag,
             ml_clients=ml_clients,
-            dense_weight=effective_dense_weight,
-            sparse_weight=effective_sparse_weight,
-            visibility_conditions=visibility_conditions,
-            user_id=user_id,
-            user_group_ids=user_group_ids,
+            dense_weight=state.effective_dense_weight,
+            sparse_weight=state.effective_sparse_weight,
+            visibility_conditions=state.visibility_conditions,
+            user_id=state.user.user_id,
+            user_group_ids=state.ctx.user_group_ids,
         )
     return candidates
 
@@ -178,8 +167,6 @@ async def apply_legal_rerank_fallback(
         user_group_ids=user_group_ids,
     )
     if document_access is not None:
-        from infrastructure.ml.rag.document_access import filter_documents
-
         fallback_candidates = await filter_documents(fallback_candidates, document_access, user)
     async with ml_clients.reranker_semaphore:
         return await rerank_documents(
@@ -200,17 +187,12 @@ async def assess_sufficiency(
     Uses instructor's ``max_retries=1`` (combined with auxiliary semaphore timeout
     to bound total hold time).
     """
-    import asyncio
-
     if not docs:
         return SufficiencyAssessment(
             is_sufficient=False,
             reasoning="No documents retrieved",
             suggested_refinement=question,
         )
-
-    from config import settings
-    from domain.runtime.enums import LLMProvider
 
     if llm_client is None:
         llm_client = ml_clients.instructor_client
@@ -221,8 +203,6 @@ async def assess_sufficiency(
 
     context = format_docs(docs, max_context_tokens=2000)
     user_msg = f"Вопрос: {question}\n\nКонтекст:\n{context}"
-
-    from infrastructure.resilience.circuit_breaker import get_breaker
 
     breaker = get_breaker("llm_auxiliary")
     breaker.check_open()
@@ -251,25 +231,13 @@ async def assess_sufficiency(
 
 
 async def retrieve_with_decomposition(
-    query: str,
-    fetch_k: int,
-    retrieval_filter,
-    rag,
-    ml_clients,
-    breadth: Breadth,
-    query_domain: str,
-    effective_dense_weight: float,
-    effective_sparse_weight: float,
-    *,
-    visibility_conditions: list,
-    user_id: int,
-    user_group_ids: list[int],
+    query: str, state: RagPipelineState, ml_clients
 ) -> tuple[list[LCDocument], list[str]]:
     """Run hybrid retrieval with optional multi-query decomposition.
 
     Returns (candidates, sub_queries).
     """
-    if rag.features.decomposition_enabled:
+    if state.rag.features.decomposition_enabled:
         t0 = time.monotonic()
         try:
             sub_queries = await decompose_question(
@@ -280,46 +248,15 @@ async def retrieve_with_decomposition(
             sub_queries = [query]
 
         if len(sub_queries) < 2:
-            candidates = await run_retrieval(
-                query,
-                fetch_k,
-                retrieval_filter,
-                rag,
-                ml_clients,
-                breadth,
-                query_domain,
-                effective_dense_weight,
-                effective_sparse_weight,
-                visibility_conditions=visibility_conditions,
-                user_id=user_id,
-                user_group_ids=user_group_ids,
-            )
+            candidates = await run_retrieval(query, state, ml_clients)
             RAG_STAGE_DURATION.labels("decompose").observe(time.monotonic() - t0)
         else:
-            retrieval_tasks = [
-                run_retrieval(
-                    sq,
-                    fetch_k,
-                    retrieval_filter,
-                    rag,
-                    ml_clients,
-                    breadth,
-                    query_domain,
-                    effective_dense_weight,
-                    effective_sparse_weight,
-                    visibility_conditions=visibility_conditions,
-                    user_id=user_id,
-                    user_group_ids=user_group_ids,
-                )
-                for sq in sub_queries
-            ]
+            retrieval_tasks = [run_retrieval(sq, state, ml_clients) for sq in sub_queries]
             all_candidates_lists = await asyncio.gather(*retrieval_tasks)
             merged: list[LCDocument] = []
             for c in all_candidates_lists:
                 merged.extend(c)
             candidates = deduplicate_docs(merged)
-
-            from infrastructure.metrics.metrics import RAG_DECOMPOSED_TOTAL
 
             RAG_DECOMPOSED_TOTAL.inc()
             RAG_STAGE_DURATION.labels("decompose").observe(time.monotonic() - t0)
@@ -330,39 +267,13 @@ async def retrieve_with_decomposition(
                 sum(len(c) for c in all_candidates_lists),
             )
     else:
-        candidates = await run_retrieval(
-            query,
-            fetch_k,
-            retrieval_filter,
-            rag,
-            ml_clients,
-            breadth,
-            query_domain,
-            effective_dense_weight,
-            effective_sparse_weight,
-            visibility_conditions=visibility_conditions,
-            user_id=user_id,
-            user_group_ids=user_group_ids,
-        )
+        candidates = await run_retrieval(query, state, ml_clients)
         sub_queries = [query]
 
     for probe in evidence_search_queries(query)[1:]:
         if probe in sub_queries:
             continue
-        extra = await run_retrieval(
-            probe,
-            fetch_k,
-            retrieval_filter,
-            rag,
-            ml_clients,
-            breadth,
-            query_domain,
-            effective_dense_weight,
-            effective_sparse_weight,
-            visibility_conditions=visibility_conditions,
-            user_id=user_id,
-            user_group_ids=user_group_ids,
-        )
+        extra = await run_retrieval(probe, state, ml_clients)
         candidates = deduplicate_docs([*candidates, *extra])
         sub_queries.append(probe)
     return candidates, sub_queries
@@ -371,63 +282,55 @@ async def retrieve_with_decomposition(
 async def rerank_and_enrich(
     query: str,
     candidates: list[LCDocument],
-    rag,
+    state: RagPipelineState,
     ml_clients,
-    breadth: Breadth,
-    query_domain: str,
-    rerank_top_n: int,
-    access_filter,
-    ctx,
-    history_messages: list,
-    question_chars: int,
     chunk_search,
-    enumerate_cases: bool,
     *,
-    visibility_conditions: list,
-    user_id: int,
-    user_group_ids: list[int],
     document_access=None,
 ) -> tuple[list[tuple[LCDocument, float]], list[LCDocument], float]:
     """Rerank candidates, apply temporal/legal fixes, trim, enrich with neighbors.
 
     Returns (docs_with_scores, final_docs, avg_sim).
     """
-    candidates = await augment_field_candidates(query, candidates, chunk_search, ctx)
+    if state.breadth is None:
+        message = "state.breadth must be set before reranking"
+        raise ValueError(message)
+    candidates = await augment_field_candidates(query, candidates, chunk_search, state.ctx)
     if document_access is not None:
-        from infrastructure.ml.rag.document_access import filter_documents
-
-        candidates = await filter_documents(candidates, document_access, ctx.to_user_context())
+        candidates = await filter_documents(candidates, document_access, state.ctx.to_user_context())
     t0 = time.monotonic()
     async with ml_clients.reranker_semaphore:
         docs = await rerank_documents(
             query,
             candidates,
-            top_n=rerank_top_n,
+            top_n=state.rerank_top_n,
             reranker=ml_clients.reranker(),
-            min_score=rag.rerank.min_score,
-            score_gap_ratio=rag.rerank.score_gap_ratio,
+            min_score=state.rag.rerank.min_score,
+            score_gap_ratio=state.rag.rerank.score_gap_ratio,
         )
     RAG_STAGE_DURATION.labels("rerank").observe(time.monotonic() - t0)
 
-    if ctx.as_of_date is not None:
+    if state.ctx.as_of_date is not None:
         docs = resolve_temporal_conflicts(docs)
 
-    if query_domain == DocDomain.LEGAL.value:
+    if state.query_domain == DocDomain.LEGAL.value:
         docs = await apply_legal_rerank_fallback(
             query,
-            access_filter,
-            rag,
-            rerank_top_n,
+            state.retrieval_filter,
+            state.rag,
+            state.rerank_top_n,
             docs,
             ml_clients,
-            visibility_conditions=visibility_conditions,
-            user_id=user_id,
-            user_group_ids=user_group_ids,
+            visibility_conditions=state.visibility_conditions,
+            user_id=state.user.user_id,
+            user_group_ids=state.ctx.user_group_ids,
             document_access=document_access,
-            user=ctx.to_user_context(),
+            user=state.ctx.to_user_context(),
         )
 
-    final_top_k = select_final_top_k(breadth, enumerate_cases=enumerate_cases, rag_settings=rag)
+    final_top_k = select_final_top_k(
+        state.breadth, enumerate_cases=state.enumerate_cases, rag_settings=state.rag
+    )
     if active_evidence.get() is not None:
         capture_exclusions(
             [exclusion_record(item, ExclusionReason.FINAL_TOP_K, "retrieval") for item in docs[final_top_k:]]
@@ -437,32 +340,30 @@ async def rerank_and_enrich(
     avg_sim = sum(s for _, s in docs) / len(docs) if docs else 0.0
 
     max_context_tokens = compute_context_budget(
-        breadth=breadth,
-        enumerate_cases=enumerate_cases,
-        history_chars=sum(len(m.content) for m in history_messages),
-        question_chars=question_chars,
-        num_ctx_narrow=rag.llm_num_ctx_narrow,
-        num_ctx_broad=rag.llm_num_ctx_broad,
-        num_predict_narrow=rag.llm_num_predict_narrow,
-        num_predict_broad=rag.llm_num_predict_broad,
+        breadth=state.breadth,
+        enumerate_cases=state.enumerate_cases,
+        history_chars=sum(len(m.content) for m in state.history_messages),
+        question_chars=len(state.question),
+        num_ctx_narrow=state.rag.llm_num_ctx_narrow,
+        num_ctx_broad=state.rag.llm_num_ctx_broad,
+        num_predict_narrow=state.rag.llm_num_predict_narrow,
+        num_predict_broad=state.rag.llm_num_predict_broad,
     )
     docs = await enrich_with_neighbors(
         docs,
-        enumerate_cases,
+        state.enumerate_cases,
         chunk_search,
         max_context_tokens,
-        user=ctx.to_user_context(),
+        user=state.ctx.to_user_context(),
         query=query,
     )
 
     if document_access is not None:
-        from infrastructure.ml.rag.document_access import filter_scored_documents
-
-        docs = await filter_scored_documents(docs, document_access, ctx.to_user_context())
+        docs = await filter_scored_documents(docs, document_access, state.ctx.to_user_context())
         avg_sim = sum(score for _, score in docs) / len(docs) if docs else 0.0
     docs = filter_scope_candidates(docs, query, "context")
-    docs = await enrich_linked_context(docs, query, chunk_search, ctx.to_user_context())
-    docs = await enrich_applicable_context(docs, query, chunk_search, ctx.to_user_context())
+    docs = await enrich_linked_context(docs, query, chunk_search, state.ctx.to_user_context())
+    docs = await enrich_applicable_context(docs, query, chunk_search, state.ctx.to_user_context())
     avg_sim = sum(score for _, score in docs) / len(docs) if docs else 0.0
     docs_only: list[LCDocument] = [d for d, _ in docs] if docs and isinstance(docs[0], tuple) else []
     return docs, docs_only, avg_sim
