@@ -36,7 +36,7 @@ if TYPE_CHECKING:
     from infrastructure.corpus.repository import CorpusRow
     from infrastructure.database.database import DatabaseManager
     from infrastructure.events.postgres_config_listener import PostgresConfigListener
-    from infrastructure.ml.clients.client_registry import MLClientRegistry
+    from infrastructure.corpus.resources import CorpusResources
 
 log = logging.getLogger("default")
 
@@ -45,13 +45,13 @@ class PostgresCorpusControl:
     def __init__(
         self,
         database: DatabaseManager,
-        registry: MLClientRegistry,
+        resources: CorpusResources,
         configuration_listener: PostgresConfigListener | None,
     ) -> None:
         self.database = database
         self.repository = CorpusRepository(database.get_write_session)
         self.write_guard = partial(corpus_write_guard, database)
-        self.registry = registry
+        self.resources = resources
         self.listener = configuration_listener
         self.process_id = str(uuid4())
         self.role = "cli"
@@ -61,7 +61,6 @@ class PostgresCorpusControl:
         self.error: str | None = None
         self.sync_lock = asyncio.Lock()
         self.last_sync: float | None = None
-        self.registry.corpus_readiness = self.is_ready
 
     async def read_state(self) -> CorpusRow | None:
         return await self.repository.read_state()
@@ -135,7 +134,7 @@ class PostgresCorpusControl:
         self.task = asyncio.create_task(self.monitor(), name=f"corpus-control-{role}")
 
     def install(self, client: BoundQdrantClient, index: None) -> None:
-        self.registry.install_corpus(client, index)
+        self.resources.install_corpus(client, index)
         corpus_snapshot.installed_corpus = client.snapshot
         # This synchronous publication is the sole owner of corpus settings.
         settings.qdrant_url = client.snapshot.endpoint
@@ -143,7 +142,7 @@ class PostgresCorpusControl:
 
     async def heartbeat(self, prepared: str | None = None, error: str | None = None) -> None:
         return await self.repository.heartbeat(
-            self.process_id, self.role, self.registry.corpus_snapshot, prepared, error
+            self.process_id, self.role, self.resources.corpus_snapshot, prepared, error
         )
 
     async def prepare(
@@ -184,7 +183,7 @@ class PostgresCorpusControl:
 
             active = CorpusSnapshot(**state["active"])
 
-            if self.registry.corpus_snapshot.generation != active.generation or self.error:
+            if self.resources.corpus_snapshot.generation != active.generation or self.error:
                 # A replica may miss the entire switch, including its committing phase.
                 await self.apply_candidate({**state, "phase": CorpusPhase.COMMITTING}, active)
 
@@ -211,7 +210,7 @@ class PostgresCorpusControl:
     async def apply_candidate(self, state: CorpusRow, candidate: CorpusSnapshot) -> str | None:
         prepared_id = None
         try:
-            current = self.registry.corpus_snapshot
+            current = self.resources.corpus_snapshot
 
             if current.generation != candidate.generation:
                 if self.prepared is None or self.prepared.snapshot != candidate:
@@ -294,7 +293,7 @@ class PostgresCorpusControl:
         except Exception:
             log.exception("Corpus admission journal unavailable")
             return False
-        current = self.registry.corpus_snapshot
+        current = self.resources.corpus_snapshot
         return bool(state and current is not None and current.generation == state["active"]["generation"])
 
     async def status(self) -> dict[str, Any]:

@@ -147,7 +147,7 @@ async def test_cancelled_registry_close_finishes_all_resource_cleanup():
         events.append("ml")
 
     registry._embeddings = SimpleNamespace(close=AsyncMock(side_effect=close_ml))
-    registry._qdrant_client = SimpleNamespace(close=lambda: events.append("qdrant"))
+    registry.corpus_resources.client = SimpleNamespace(close=lambda: events.append("qdrant"))
     pending = asyncio.create_task(registry.ensure_bm25_loaded())
     await started.wait()
     closing = asyncio.create_task(registry.close())

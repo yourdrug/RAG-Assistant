@@ -178,7 +178,7 @@ async def test_poll_catches_up_to_durable_active_generation(monkeypatch, phase, 
     registry = MLClientRegistry()
     registry.install_corpus(BoundQdrantClient(Mock(), old), object())
     listener = Mock(synchronize=AsyncMock())
-    control = module.PostgresCorpusControl(Mock(), registry, listener)
+    control = module.PostgresCorpusControl(Mock(), registry.corpus_resources, listener)
     control.read_state = AsyncMock(
         return_value={
             'phase': phase,
@@ -220,7 +220,8 @@ async def test_corpus_readiness_fences_stale_replicas(fault):
     registry = MLClientRegistry()
     snapshot = CorpusSnapshot('http://qdrant:6333', 'docs', 'v1', 'i', 'old')
     registry.install_corpus(BoundQdrantClient(Mock(), snapshot), object())
-    control = PostgresCorpusControl(Mock(), registry, None)
+    control = PostgresCorpusControl(Mock(), registry.corpus_resources, None)
+    registry.corpus_resources.bind_readiness(control.is_ready)
     control.task = Mock(done=Mock(return_value=fault == 'monitor'))
     control.last_sync = monotonic() - (20 if fault == 'stalled' else 0)
     control.error = 'failed' if fault == 'error' else None

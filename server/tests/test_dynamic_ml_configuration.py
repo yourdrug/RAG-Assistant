@@ -576,7 +576,7 @@ async def test_queued_retrieval_acquires_current_embedding_client_after_admissio
     monkeypatch.setattr(factories, "settings", model)
     monkeypatch.setattr(rag_retrieval, "ensure_embedding_identity", lambda *args: None)
     registry = MLClientRegistry()
-    registry._qdrant_client = SimpleNamespace(search=lambda **kwargs: [])
+    registry.corpus_resources.client = SimpleNamespace(search=lambda **kwargs: [])
     registry.embedding_semaphore = Admission()
     config = SettingsProviderConfiguration(model, bus=InProcessEventBus(), ml_clients=registry)
     search = asyncio.create_task(rag_retrieval.qdrant_dense_search("query", 1, Filter(), registry))

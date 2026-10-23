@@ -1,5 +1,8 @@
 """Immutable physical corpus and leases for requests admitted before a switch."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -10,6 +13,12 @@ import hashlib
 import threading
 from inspect import signature
 from config import settings
+
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+    from infrastructure.bm25.bm25_index import BM25Index
+    from infrastructure.corpus.resources import CorpusResources
 
 
 @dataclass(frozen=True)
@@ -31,7 +40,9 @@ installed_corpus: CorpusSnapshot | None = None
 
 log = logging.getLogger("default")
 
-active_corpus: ContextVar[tuple | None] = ContextVar('active_corpus', default=None)
+active_corpus: ContextVar[tuple[CorpusResources, BoundQdrantClient, BM25Index | None] | None] = ContextVar(
+    'active_corpus', default=None
+)
 
 
 class BoundQdrantClient:
@@ -48,7 +59,7 @@ class BoundQdrantClient:
         self.idle.set()
 
     @contextmanager
-    def lease(self):
+    def lease(self) -> Iterator[BoundQdrantClient]:
         with self.lock:
             if self.closed:
                 raise RuntimeError('Corpus client is closed')
@@ -66,7 +77,7 @@ class BoundQdrantClient:
 
                 self.close_if_idle()
 
-    def close_if_idle(self):
+    def close_if_idle(self) -> None:
         if self.retired and not self.active and not self.closed:
             self.closed = True
             try:
@@ -76,14 +87,14 @@ class BoundQdrantClient:
             else:
                 self.close_task = loop.create_task(asyncio.to_thread(self.close_raw))
 
-    def close_raw(self):
+    def close_raw(self) -> None:
         try:
             self.client.close()
         except Exception:
             self.closed = False
             log.error('Corpus pool cleanup failed; retained for shutdown retry')
 
-    async def aclose(self):
+    async def aclose(self) -> None:
         self.close()
         await asyncio.to_thread(self.idle.wait)
         self.close()
@@ -91,7 +102,7 @@ class BoundQdrantClient:
         if self.close_task is not None:
             await self.close_task
 
-    def close(self):
+    def close(self) -> None:
         with self.lock:
             self.retired = True
             self.close_if_idle()

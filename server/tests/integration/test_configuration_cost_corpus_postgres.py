@@ -151,8 +151,10 @@ async def corpus_pair(configured_engine, monkeypatch):
                 {"key": key, "value": value},
             )
     api_registry, worker_registry = MLClientRegistry(), MLClientRegistry()
-    api = PostgresCorpusControl(manager, api_registry, None)
-    worker = PostgresCorpusControl(manager, worker_registry, None)
+    api = PostgresCorpusControl(manager, api_registry.corpus_resources, None)
+    worker = PostgresCorpusControl(manager, worker_registry.corpus_resources, None)
+    api_registry.corpus_resources.bind_readiness(api.is_ready)
+    worker_registry.corpus_resources.bind_readiness(worker.is_ready)
     await api.start("api")
     await worker.start("worker")
     try:

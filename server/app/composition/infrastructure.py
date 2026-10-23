@@ -25,6 +25,8 @@ from application.benchmark import BenchmarkService
 from infrastructure.budget.runtime import BudgetRuntime
 from infrastructure.budget.provider_catalog import OpenRouterBillingCatalog
 from infrastructure.corpus.control import PostgresCorpusControl
+from infrastructure.corpus.resources import CorpusResources
+from infrastructure.ml.clients.factories import create_qdrant_client
 from infrastructure.rate_limit.limiter import DynamicRateLimiter
 from infrastructure.redis.redis_client import redis_client
 
@@ -155,7 +157,8 @@ class MLContainer:
         from application.documents import PreviewCache
 
         self.file_storage = LazyStorage()
-        self.ml_clients = MLClientRegistry(budget_runtime=budget_runtime)
+        resources = CorpusResources(create_qdrant_client)
+        self.ml_clients = MLClientRegistry(budget_runtime=budget_runtime, corpus_resources=resources)
         self.vector_store_repo = QdrantVectorStoreRepository(ml_clients=self.ml_clients)
         self.preview_cache = PreviewCache(storage=self.file_storage, settings=LivePreviewSettings())
         self.document_parser = LangchainDocumentParser(
@@ -409,8 +412,9 @@ class InfrastructureContainer:
             cache_invalidator=self.services.cache_invalidator,
         )
         self.corpus_control = PostgresCorpusControl(
-            database_manager, self.ml.clients, self.events.config_listener
+            database_manager, self.ml.clients.corpus_resources, self.events.config_listener
         )
+        self.ml.clients.corpus_resources.bind_readiness(self.corpus_control.is_ready)
         self.subscribe_config_events()
 
         self._initialized = True
