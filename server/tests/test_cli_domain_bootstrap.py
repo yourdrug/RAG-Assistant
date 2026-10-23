@@ -110,9 +110,10 @@ async def test_configuration_bootstrap_is_idempotent_and_releases_only_owned_han
     infra, bus = build_infrastructure(monkeypatch)
     observed = []
     bus.subscribe(ConfigParameterChanged, observed.append)
+    registered = list(bus._handlers[ConfigParameterChanged])
     await infra.bootstrap_configuration()
     await infra.bootstrap_configuration()
-    assert len(bus._handlers[ConfigParameterChanged]) == 6
+    assert bus._handlers[ConfigParameterChanged] == registered
     await infra.dispose()
     observed.clear()
     event = ConfigParameterChanged(

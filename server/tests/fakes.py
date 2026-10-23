@@ -31,7 +31,7 @@ from domain.knowledge.index_sync import OutboxStatus, VectorOutboxEntry
 from domain.shared.exceptions import EntityNotFoundError
 from domain.ingestion.repositories import IngestionRegistryEntry
 from domain.rag.stream_events import SourcesEvent, TextChunk
-from domain.knowledge.enums import DocumentVisibility
+from domain.knowledge.enums import DocumentStatus, DocumentVisibility
 
 # ---------------------------------------------------------------------------
 # Fake UnitOfWork
@@ -153,6 +153,11 @@ class FakeChunkRepository:
 
     async def get_ids_by_document_id(self, document_id: int, *, for_update: bool = False) -> list[int]:
         return [c["id"] for c in self._chunks if c["document_id"] == document_id]
+
+    async def get_by_ids(self, document_id: int, chunk_ids: list[int]):
+        rows, _ = await self.list_for_document(document_id, limit=len(self._chunks))
+        ids = set(chunk_ids)
+        return [row for row in rows if row.chunk_id in ids]
 
     async def iter_all_contents_with_acl(self, batch_size: int = 1000):
         for c in self._chunks:
@@ -407,6 +412,10 @@ class FakeDocumentRepository:
         return None
 
     async def mark_done_if_indexing(self, document_id: int) -> bool:
+        doc = self._documents.get(document_id)
+        if doc is None or doc.status != DocumentStatus.INDEXING:
+            return False
+        doc.status = DocumentStatus.DONE
         return True
 
     async def mark_stuck_processing_failed(self) -> list[int]:
@@ -979,6 +988,12 @@ class FakeUnitOfWorkFactory:
 
     def __init__(self, uow: FakeUnitOfWork | None = None) -> None:
         self._uow = uow or FakeUnitOfWork()
+        self._document_index_locks: dict[int, asyncio.Lock] = {}
+
+    @asynccontextmanager
+    async def document_index_lock(self, document_id: int):
+        async with self._document_index_locks.setdefault(document_id, asyncio.Lock()):
+            yield
 
     @asynccontextmanager
     async def ingestion_lock(self):

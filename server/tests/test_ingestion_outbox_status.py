@@ -11,7 +11,7 @@ from domain.ingestion.raw_document import RawDocument
 from domain.knowledge.chunk import ChunkInsert
 from domain.knowledge.document import Document
 from domain.knowledge.enums import DocumentStatus, DocumentVisibility
-from domain.knowledge.index_sync import OutboxStatus
+from domain.knowledge.index_sync import OutboxOperation, OutboxStatus, VectorOutboxEntry
 from fakes import FakeUnitOfWorkFactory  # type: ignore[import-not-found]
 from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
 
@@ -79,3 +79,25 @@ async def test_cli_document_waits_for_outbox(
     else:
         mark_done.assert_awaited_once_with(document.id)
         assert all(entry.status == OutboxStatus.DONE for entry in uow.vector_outbox._entries.values())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("other_status", list(OutboxStatus))
+async def test_document_done_requires_every_outbox_entry_done(other_status: OutboxStatus) -> None:
+    factory = FakeUnitOfWorkFactory()
+    uow = factory._uow
+    document = await uow.documents.save(Document(filename="test.md", status=DocumentStatus.INDEXING))
+    other = await uow.vector_outbox.enqueue(VectorOutboxEntry(aggregate_id=document.id))
+    other.status = other_status
+    successful = await uow.vector_outbox.enqueue(
+        VectorOutboxEntry(
+            operation=OutboxOperation.DELETE_CHUNKS,
+            aggregate_id=document.id,
+            payload={"chunk_ids": []},
+        )
+    )
+    await OutboxDispatcher(factory, AsyncMock())._apply_one(successful)
+    assert successful.status == OutboxStatus.DONE
+    assert document.status == (
+        DocumentStatus.DONE if other_status == OutboxStatus.DONE else DocumentStatus.INDEXING
+    )

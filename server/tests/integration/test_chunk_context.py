@@ -1,9 +1,12 @@
 """PostgreSQL round trips and migration contracts for chunk interpretation metadata."""
 
+import asyncio
+
 import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from domain.knowledge.chunk import ChunkInsert
 from domain.knowledge.enums import DocDomain
@@ -13,9 +16,76 @@ from domain.knowledge.enums import SearchMode
 from domain.identity.user_context import UserContext
 from domain.knowledge.enums import DocumentVisibility
 from infrastructure.database.models import DocumentModel, UserModel
+from infrastructure.database.database import DatabaseManager
 from infrastructure.repositories.chunk.sqlalchemy_chunk_repository import SQLAlchemyChunkRepository
+from infrastructure.uow_factory import UnitOfWorkFactory
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
+
+
+async def test_document_index_lock_serializes_factories_and_releases_after_error(pg_engine):
+    database = DatabaseManager()
+    database.async_master_connection_engine = create_async_engine(
+        pg_engine.url, poolclass=NullPool, isolation_level="AUTOCOMMIT"
+    )
+    first, second = UnitOfWorkFactory(database), UnitOfWorkFactory(database)
+    acquired = asyncio.Event()
+
+    async def competing_upload():
+        async with second.document_index_lock(1):
+            acquired.set()
+
+    async def failing_upload(group):
+        async with first.document_index_lock(1):
+            group.create_task(competing_upload())
+            with pytest.raises(TimeoutError):
+                await asyncio.wait_for(acquired.wait(), timeout=0.1)
+            async with second.document_index_lock(2):
+                pass
+            message = "upload failed"
+            raise ValueError(message)
+
+    try:
+        async with asyncio.timeout(5), asyncio.TaskGroup() as group:
+            with pytest.raises(ValueError, match="upload failed"):
+                await failing_upload(group)
+            await acquired.wait()
+    finally:
+        await database.async_master_connection_engine.dispose()
+
+
+async def test_batch_chunk_read_uses_committed_content_and_document_scope(pg_engine):
+    sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
+    async with sessions.begin() as session:
+        documents = [
+            DocumentModel(filename=f"outbox-{index}.txt", visibility=DocumentVisibility.INTERNAL_PUBLIC.value)
+            for index in range(2)
+        ]
+        session.add_all(documents)
+        await session.flush()
+        repository = SQLAlchemyChunkRepository(session)
+        ids = []
+
+        for document in documents:
+            ids.extend(
+                await repository.bulk_insert(
+                    document.id,
+                    document.filename,
+                    DocumentVisibility.INTERNAL_PUBLIC.value,
+                    [ChunkInsert(content="old text")],
+                )
+            )
+
+        document_id = documents[0].id
+
+    async with sessions.begin() as session:
+        await session.execute(text("UPDATE chunks SET content = 'new text' WHERE id = :id"), {"id": ids[0]})
+
+    async with sessions() as session:
+        repository = SQLAlchemyChunkRepository(session)
+        chunks = await repository.get_by_ids(document_id, [*ids, 999999])
+        assert [(chunk.chunk_id, chunk.content) for chunk in chunks] == [(ids[0], "new text")]
+        assert await repository.get_by_ids(document_id, []) == []
 
 
 async def test_context_round_trip_and_unauthorized_search(pg_engine):

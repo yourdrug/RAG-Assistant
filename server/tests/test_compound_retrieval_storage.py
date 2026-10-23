@@ -28,7 +28,12 @@ async def test_live_experiment_loads_sparse_and_closes_owned_storage(
     path.write_text('{"texts":["existing sparse evidence"],"hashes":["sparse-hash"]}')
     storage = SimpleNamespace(download_to_temp=AsyncMock(return_value=path), aclose=AsyncMock())
     monkeypatch.setattr("infrastructure.storage.file_storage.create_storage", lambda: storage)
-    monkeypatch.setattr(factories, "create_reranker", lambda: SimpleNamespace(close=AsyncMock()))
+
+    def create_reranker(*, runtime=None):
+        assert runtime is None
+        return SimpleNamespace(close=AsyncMock())
+
+    monkeypatch.setattr(factories, "create_reranker", create_reranker)
     snapshots = []
 
     async def search(query, fetch_k, access_filter, rag, registry, **kwargs):

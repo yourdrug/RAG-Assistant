@@ -1,6 +1,4 @@
-"""Configuration ownership contract; planned keys do not enable hot reload."""
-
-from pathlib import Path
+"""Executable configuration ownership and scoped database seeding contracts."""
 
 import pytest
 
@@ -8,6 +6,7 @@ from config import Settings, settings
 from domain.ingestion.profiles.decree import DecreeDomainProfile
 from domain.ingestion.profiles.general import GeneralDomainProfile
 from domain.ingestion.profiles.legal import LegalDomainProfile
+from domain.ingestion.profiles.registry import DomainProfileRegistry
 from domain.knowledge.enums import DocDomain
 import domain.runtime.dynamic_params
 from domain.runtime.enums import LLMProvider
@@ -17,42 +16,25 @@ from infrastructure import initialization
 from infrastructure.ml.config.config_subscribers import SENSITIVE_KEYS
 
 
-def catalog_sources():
-    plan = Path(__file__).resolve().parents[2] / "docs/operations/configuration-plan.md"
-    table = plan.read_text().split("## Все поля Settings\n", 1)[1].split("\n¹", 1)[0]
-    sources = {}
-    for line in table.splitlines():
-        if not line.startswith("| "):
-            continue
-        key, source, *_ = [cell.strip() for cell in line.split("|")[1:-1]]
-        if source in {"env", "secrets", "БД", "Код / метаданные"}:
-            sources[key.split()[0].lower()] = source
-    return sources
+def test_every_setting_has_exactly_one_owner():
+    groups = (
+        domain.runtime.setting_keys.STATIC_SETTING_KEYS,
+        domain.runtime.setting_keys.SECRET_SETTING_KEYS,
+        domain.runtime.setting_keys.TARGET_DYNAMIC_SETTING_KEYS,
+        domain.runtime.setting_keys.METADATA_SETTING_KEYS,
+    )
+    assert set().union(*groups) == set(Settings.model_fields)
+    assert sum(map(len, groups)) == len(Settings.model_fields)
 
 
-def test_catalog_covers_every_current_and_planned_setting():
-    sources = catalog_sources()
-    planned_pools = {
-        "embedding_http_max_connections",
-        "embedding_http_max_keepalive_connections",
-        "rerank_http_max_connections",
-        "rerank_http_max_keepalive_connections",
-    }
-    legacy_pools = {"http_pool_max_connections", "http_pool_max_keepalive"}
-    assert set(sources) == (set(Settings.model_fields) - legacy_pools) | planned_pools
-
-
-def test_target_sources_match_catalog_and_are_disjoint():
-    groups = {
-        "env": domain.runtime.setting_keys.STATIC_SETTING_KEYS,
-        "secrets": domain.runtime.setting_keys.SECRET_SETTING_KEYS,
-        "БД": domain.runtime.setting_keys.TARGET_DYNAMIC_SETTING_KEYS,
-        "Код / метаданные": domain.runtime.setting_keys.METADATA_SETTING_KEYS,
-    }
-    sources = catalog_sources()
-    for source, keys in groups.items():
-        assert keys == {key for key, owner in sources.items() if owner == source}
-    assert sum(map(len, groups.values())) == len(set().union(*groups.values()))
+def test_only_database_owned_settings_are_seeded():
+    seeded = {row.key for row in initialization.build_defaults()}
+    assert seeded == domain.runtime.setting_keys.TARGET_DYNAMIC_SETTING_KEYS
+    assert not seeded & (
+        domain.runtime.setting_keys.SECRET_SETTING_KEYS
+        | domain.runtime.setting_keys.STATIC_SETTING_KEYS
+        | domain.runtime.setting_keys.METADATA_SETTING_KEYS
+    )
 
 
 def test_future_dynamic_registry_excludes_secrets_and_static_s3():
@@ -89,23 +71,21 @@ def test_domain_parameters_keep_scope_and_stay_out_of_global_map():
     assert len(pairs) == len(set(pairs))
 
 
-def test_domain_profile_catalog_matches_scoped_defaults():
-    plan = Path(__file__).resolve().parents[2] / "docs/operations/configuration-plan.md"
-    table = plan.read_text().split("## Дополнительные настройки доменов в БД\n", 1)[1]
-    table = table.split("## Docker, сборка и frontend", 1)[0]
-    documented = {}
-    for line in table.splitlines():
-        if not line.startswith("| "):
-            continue
-        key, domain, value, *_ = [cell.strip() for cell in line.split("|")[1:-1]]
-        if domain in {d.value for d in DocDomain}:
-            documented[(key, domain)] = value
+@pytest.mark.asyncio
+async def test_domain_profile_defaults_are_seeded_in_declared_scope():
+    registry = DomainProfileRegistry()
+    for profile in (LegalDomainProfile(), DecreeDomainProfile(), GeneralDomainProfile()):
+        registry.register(profile)
     defaults = {
-        (param.key, profile.key): param.value
-        for profile in (LegalDomainProfile(), DecreeDomainProfile(), GeneralDomainProfile())
+        (param.key, profile.key): (param.value, param.value_type)
+        for profile in registry.all()
         for param in profile.config_defaults()
     }
-    assert defaults == documented
+    factory = FakeUnitOfWorkFactory()
+    await initialization.seed_domain_config_defaults(factory, registry)
+    rows = await factory._uow.config_parameters.get_all()
+    assert {(row.key, row.domain_key): (row.value, row.value_type) for row in rows} == defaults
+    assert all(row.category == f"domain:{row.domain_key}" for row in rows)
 
 
 @pytest.mark.parametrize(

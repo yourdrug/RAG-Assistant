@@ -31,6 +31,15 @@ class SQLAlchemyChunkCrudRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
+    async def get_by_ids(self, document_id: int, chunk_ids: list[int]) -> list[ChunkRecord]:
+        if not chunk_ids:
+            return []
+
+        result = await self._session.execute(
+            select(ChunkModel).where(ChunkModel.document_id == document_id, ChunkModel.id.in_(chunk_ids))
+        )
+        return [to_chunk_search_result(chunk) for chunk in result.scalars().all()]
+
     async def get_ids_by_document_id(self, document_id: int, *, for_update: bool = False) -> list[int]:
         if for_update:
             # Lock the parent even when it has no chunks, serializing replacements.

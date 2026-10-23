@@ -58,8 +58,8 @@ async def test_resume_only_missing_generator_context_and_evidence_scores(tmp_pat
             raise RuntimeError("judge truncated again")
         return JudgeScore(score=0, reason="valid zero")
 
-    monkeypatch.setattr(judge, "get_judge_client", lambda *args: object())
-    monkeypatch.setattr(evidence_judge, "get_judge_client", lambda *args: object())
+    monkeypatch.setattr(judge, "get_judge_client", lambda *args, runtime=None: object())
+    monkeypatch.setattr(evidence_judge, "get_judge_client", lambda *args, runtime=None: object())
     monkeypatch.setattr(judge, "judge_with_structured_output", score)
     monkeypatch.setattr(evidence_judge, "judge_with_structured_output", score)
     factory = FakeUnitOfWorkFactory()
@@ -115,7 +115,7 @@ async def test_success_checkpoint_is_written_before_next_metric(tmp_path, monkey
             raise asyncio.CancelledError()
         return JudgeScore(score=8, reason="ok")
 
-    monkeypatch.setattr(judge, "get_judge_client", lambda *args: object())
+    monkeypatch.setattr(judge, "get_judge_client", lambda *args, runtime=None: object())
     monkeypatch.setattr(judge, "judge_with_structured_output", score)
     with pytest.raises(asyncio.CancelledError):
         await BenchmarkCaseEvaluator(generator, "judge", store).evaluate(

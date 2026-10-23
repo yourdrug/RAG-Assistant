@@ -26,13 +26,13 @@ from domain.rag.context import RagContext
 from domain.shared.hashing import content_hash
 from infrastructure.ml.rag.benchmark_evidence import BenchmarkEvidence, active_evidence, snapshot_documents
 from infrastructure.ml.rag.document_sources import group_by_document
-from infrastructure.ml.rag.helpers import domain_prompt_addendum
+from infrastructure.ml.rag.langchain_mapping import lc_documents, scored_values
 from infrastructure.ml.rag.prompt_budget import estimate_message_tokens
 from infrastructure.ml.rag.rag_config import build_rag_settings
 from infrastructure.ml.rag.rag_formatting import CHARS_PER_TOKEN, render_selected_docs
-from infrastructure.ml.rag.rag_prompts import build_prompt
+from infrastructure.ml.rag.rag_prompts import build_prompt, domain_prompt_addendum
 from infrastructure.ml.rag.rag_reranking import group_by_section
-from infrastructure.ml.rag.rag_steps import RagOperations, lc_documents, scored_values
+from infrastructure.ml.rag.rag_steps import RagOperations
 
 
 if TYPE_CHECKING:

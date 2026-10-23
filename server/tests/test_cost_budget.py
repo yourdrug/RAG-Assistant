@@ -96,12 +96,8 @@ async def test_deepinfra_without_backend_fails_closed(monkeypatch):
     from infrastructure.ml.clients.deepinfra_clients import DeepInfraEmbeddingsClient
 
     monkeypatch.setattr(settings, 'cost_rate_limit_enabled', True)
-    client = DeepInfraEmbeddingsClient('not-a-secret', 'https://api.deepinfra.com/v1/openai', 'm')
-    try:
-        with pytest.raises(BudgetError):
-            await client.embed_query('hello')
-    finally:
-        await client.close()
+    with pytest.raises(BudgetError, match='Budget runtime must be supplied for paid clients'):
+        DeepInfraEmbeddingsClient('not-a-secret', 'https://api.deepinfra.com/v1/openai', 'm')
 
 
 @pytest.mark.asyncio

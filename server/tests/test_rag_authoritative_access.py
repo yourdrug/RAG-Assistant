@@ -151,19 +151,19 @@ async def test_database_failure_never_emits_cached_answer(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_neighbor_expansion_cannot_reintroduce_forbidden_evidence(database_access, monkeypatch):
-    from infrastructure.ml.rag import helpers
+    from infrastructure.ml.rag import retrieval_pipeline
 
     access, _ = database_access
     visible = Chunk(page_content="allowed", metadata={"document_id": 1})
     hidden = Chunk(page_content="secret", metadata={"document_id": 2})
     reranker = AsyncMock(return_value=[(visible, 0.9)])
-    monkeypatch.setattr(helpers, "rerank_documents", reranker)
+    monkeypatch.setattr(retrieval_pipeline, "rerank_documents", reranker)
     monkeypatch.setattr(
-        helpers, "enrich_with_neighbors", AsyncMock(return_value=[(visible, 0.9), (hidden, 0.9)])
+        retrieval_pipeline, "enrich_with_neighbors", AsyncMock(return_value=[(visible, 0.9), (hidden, 0.9)])
     )
     ml = SimpleNamespace(reranker_semaphore=__import__("asyncio").Semaphore(1), reranker=lambda: None)
     ctx = RagContext(1, UserKind.INTERNAL, UserRole.USER)
-    docs, _, _ = await helpers.rerank_and_enrich(
+    docs, _, _ = await retrieval_pipeline.rerank_and_enrich(
         "question",
         [visible, hidden],
         stage_fixture(

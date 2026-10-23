@@ -40,7 +40,9 @@ async def test_case_140_reference_is_not_sent_as_faithfulness_evidence(monkeypat
         payloads.append((metrics, json.loads(prompt.split("Данные JSON:\n")[1])))
         return response({key: {"score": 0, "reason": "test"} for key in metrics})
 
-    monkeypatch.setattr(grouped_judge, "create_async_judge_client", lambda: JudgeClient(create))
+    monkeypatch.setattr(
+        grouped_judge, "create_async_judge_client", lambda *, runtime=None: JudgeClient(create)
+    )
     await grouped_judge.judge_case_grouped(
         {"question": "поле?", "expected_answer": "эталон", "annotations": {"required_facts": ["эталон"]}},
         "эталон",
@@ -93,7 +95,9 @@ async def test_resume_rejudges_old_completed_result_and_preserves_generation(tmp
         return response({key: {"score": 8, "reason": "test"} for key in metrics})
 
     generated = generator()
-    monkeypatch.setattr(grouped_judge, "create_async_judge_client", lambda: JudgeClient(create))
+    monkeypatch.setattr(
+        grouped_judge, "create_async_judge_client", lambda *, runtime=None: JudgeClient(create)
+    )
     monkeypatch.setattr(answer_generators, "RagBenchmarkGenerator", lambda *args: generated)
     store = DatabaseBenchmarkCheckpoints(FakeUnitOfWorkFactory(), 42)
     kwargs = {

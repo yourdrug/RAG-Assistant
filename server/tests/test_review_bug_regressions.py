@@ -22,7 +22,7 @@ async def test_broad_config_rebuilds_cached_llm(monkeypatch, key):
     monkeypatch.setattr("infrastructure.events.in_process_event_bus.event_bus", bus)
     monkeypatch.setattr(settings, key, 8192)
 
-    def create_client(breadth):
+    def create_client(breadth, *, runtime=None):
         return SimpleNamespace(limit=getattr(settings, key), close=AsyncMock())
 
     monkeypatch.setattr("infrastructure.ml.clients.factories.create_llm_for_breadth", create_client)

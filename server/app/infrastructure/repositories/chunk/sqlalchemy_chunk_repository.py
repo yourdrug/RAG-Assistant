@@ -61,6 +61,9 @@ class SQLAlchemyChunkRepository:
     async def get_by_id(self, chunk_id: int) -> ChunkRecord | None:
         return await self._crud.get_by_id(chunk_id=chunk_id)
 
+    async def get_by_ids(self, document_id: int, chunk_ids: list[int]) -> list[ChunkRecord]:
+        return await self._crud.get_by_ids(document_id, chunk_ids)
+
     async def get_max_chunk_index(self, document_id: int) -> int:
         return await self._crud.get_max_chunk_index(document_id=document_id)
 

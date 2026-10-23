@@ -1,5 +1,6 @@
 """Replacement must converge SQL, vector outbox and the sparse corpus."""
 
+import asyncio
 from types import SimpleNamespace
 from datetime import datetime
 from unittest.mock import AsyncMock, patch
@@ -14,6 +15,7 @@ from domain.ingestion.raw_document import RawDocument
 from domain.knowledge.index_sync import OutboxOperation, OutboxStatus
 from domain.knowledge.enums import DocDomain
 from domain.knowledge.enums import DocumentVisibility
+from domain.shared.hashing import content_hash
 from fakes import FakeUnitOfWorkFactory
 from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
 
@@ -200,3 +202,63 @@ async def test_failed_inflight_cleanup_is_retried_even_after_document_deletion()
     await dispatcher._apply_one(entry)
     assert points == {}
     assert entry.status == OutboxStatus.DONE
+
+
+@pytest.mark.asyncio
+async def test_delayed_upsert_uses_current_content_of_same_chunk():
+    factory = FakeUnitOfWorkFactory()
+    await index(factory, "old text")
+    entry = next(iter(factory._uow.vector_outbox._entries.values()))
+    factory._uow.chunks._chunks[0].update(content="new text", content_hash=content_hash("new text"))
+    points = {}
+
+    async def upload(chunks, **kwargs):
+        points.update({c.metadata["chunk_id"]: (c.content, c.metadata.get("content_hash")) for c in chunks})
+
+    vector = SimpleNamespace(
+        ensure_collection=AsyncMock(),
+        upload_documents=upload,
+        delete_by_ids=AsyncMock(),
+        update_filename_by_document_id=AsyncMock(),
+    )
+    await OutboxDispatcher(factory, vector)._apply_one(entry)
+    assert points == {1: ("new text", content_hash("new text"))}
+    assert entry.status == OutboxStatus.DONE
+
+
+@pytest.mark.asyncio
+async def test_overlapping_upserts_retry_stale_write_with_current_content():
+    factory = FakeUnitOfWorkFactory()
+    await index(factory, "old text")
+    old_entry = next(iter(factory._uow.vector_outbox._entries.values()))
+    old_started = asyncio.Event()
+    new_uploaded = asyncio.Event()
+    points = {}
+
+    async def upload(chunks, **kwargs):
+        content = chunks[0].content
+        if content == "old text" and not old_started.is_set():
+            old_started.set()
+            await new_uploaded.wait()
+        points.update({c.metadata["chunk_id"]: c.content for c in chunks})
+
+    vector = SimpleNamespace(
+        ensure_collection=AsyncMock(),
+        upload_documents=upload,
+        delete_by_ids=AsyncMock(),
+        update_filename_by_document_id=AsyncMock(),
+    )
+    first, second = OutboxDispatcher(factory, vector), OutboxDispatcher(factory, vector)
+    async with asyncio.timeout(2), asyncio.TaskGroup() as group:
+        group.create_task(first._apply_one(old_entry))
+        await old_started.wait()
+        factory._uow.chunks._chunks[0].update(content="new text", content_hash=content_hash("new text"))
+        second_task = group.create_task(second.apply_upsert(old_entry.payload, document_id=1))
+        await asyncio.sleep(0)
+        assert not second_task.done()
+        new_uploaded.set()
+
+    assert old_entry.status == OutboxStatus.FAILED
+    await first._apply_one(old_entry)
+    assert points == {1: "new text"}
+    assert old_entry.status == OutboxStatus.DONE

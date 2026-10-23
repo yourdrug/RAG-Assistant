@@ -13,9 +13,10 @@ import uuid
 
 from application.ports.cache_invalidator import CacheInvalidatorPort
 from config import settings
-from domain.knowledge.chunk import Chunk
+from domain.knowledge.chunk import Chunk, ChunkRecord
 from domain.knowledge.index_sync import OutboxOperation, VectorOutboxEntry
 from domain.knowledge.index_sync import VectorIndexWriter
+from domain.shared.hashing import content_hash
 
 
 log = logging.getLogger("default")
@@ -105,7 +106,7 @@ class OutboxDispatcher:
                 if entry.aggregate_type == "document":
                     outbox_status = await uow.vector_outbox.count_by_document(entry.aggregate_id)
 
-                    if outbox_status["pending"] == 0:
+                    if outbox_status["pending"] == 0 and outbox_status["failed"] == 0:
                         transitioned = await uow.documents.mark_done_if_indexing(entry.aggregate_id)
 
                         if transitioned:
@@ -191,27 +192,54 @@ class OutboxDispatcher:
         if self._cache_invalidator is not None and document_ids:
             await self._cache_invalidator.invalidate_by_document_ids(document_ids, raise_on_error=True)
 
-    async def current_chunk_ids(self, document_id: int) -> set[int]:
+    async def current_chunks(self, document_id: int, chunk_ids: list[int]) -> dict[int, ChunkRecord]:
         async with self._uow_factory.create(master=True) as uow:
-            return set(await uow.chunks.get_ids_by_document_id(document_id))
+            return {chunk.chunk_id: chunk for chunk in await uow.chunks.get_by_ids(document_id, chunk_ids)}
+
+    async def verify_uploaded_chunks(self, document_id: int, chunks: list[Chunk]) -> None:
+        current = await self.current_chunks(document_id, [chunk.metadata["chunk_id"] for chunk in chunks])
+        obsolete_ids = [
+            chunk.metadata["chunk_id"] for chunk in chunks if chunk.metadata["chunk_id"] not in current
+        ]
+
+        if obsolete_ids:
+            await self._vector_store.delete_by_ids(obsolete_ids)
+
+        # Concurrent edits keep their IDs; a stale write must retry from SQL.
+        if any(
+            chunk.metadata["chunk_id"] in current
+            and chunk.content != current[chunk.metadata["chunk_id"]].content
+            for chunk in chunks
+        ):
+            message = "Chunk content changed during vector upload; retry required"
+            raise RuntimeError(message)
 
     async def apply_upsert(self, payload: dict, document_id: int = 0) -> None:
-        current_ids = await self.current_chunk_ids(document_id)
-        obsolete_ids = [p["chunk_id"] for p in payload["points"] if p["chunk_id"] not in current_ids]
+        async with self._uow_factory.document_index_lock(document_id):
+            await self.apply_current_upsert(payload, document_id)
+
+    async def apply_current_upsert(self, payload: dict, document_id: int) -> None:
+        chunk_ids = [p["chunk_id"] for p in payload["points"]]
+        current = await self.current_chunks(document_id, chunk_ids)
+        obsolete_ids = [chunk_id for chunk_id in chunk_ids if chunk_id not in current]
 
         if obsolete_ids:
             # Also clean up on retries after a failed upload-time deletion.
             await self._vector_store.delete_by_ids(obsolete_ids)
 
-        points = [p for p in payload["points"] if p["chunk_id"] in current_ids]
+        points = [p for p in payload["points"] if p["chunk_id"] in current]
 
         if not points:
             return
 
         chunks = [
             Chunk(
-                content=p["page_content"],
-                metadata={**p["metadata"], "chunk_id": p["chunk_id"]},
+                content=current[p["chunk_id"]].content,
+                metadata={
+                    **p["metadata"],
+                    "chunk_id": p["chunk_id"],
+                    "content_hash": content_hash(current[p["chunk_id"]].content),
+                },
             )
             for p in points
         ]
@@ -224,12 +252,7 @@ class OutboxDispatcher:
             await self._vector_store.ensure_collection(settings.embed_dim, reset=False)
 
         await self._vector_store.upload_documents(chunks, should_cancel=_doc_cancelled)
-        # A replacement can commit while embeddings/upload are running.
-        current_ids = await self.current_chunk_ids(document_id)
-        obsolete_ids = [p["chunk_id"] for p in points if p["chunk_id"] not in current_ids]
-
-        if obsolete_ids:
-            await self._vector_store.delete_by_ids(obsolete_ids)
+        await self.verify_uploaded_chunks(document_id, chunks)
 
         # A rename may commit while embeddings are running. Refresh its payload last.
         await self.refresh_document_filename(document_id)

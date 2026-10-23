@@ -246,7 +246,7 @@ async def test_case_output_contains_diagnostics_and_real_evidence(monkeypatch):
 def test_judge_failures_are_unavailable_with_diagnostics(monkeypatch):
     from infrastructure.benchmark.judging import evidence_judge
 
-    monkeypatch.setattr(evidence_judge, "get_judge_client", lambda *a: object())
+    monkeypatch.setattr(evidence_judge, "get_judge_client", lambda *a, runtime=None: object())
 
     def fail(*args):
         raise RuntimeError("judge offline")
@@ -321,7 +321,7 @@ def test_real_prompt_capture_keeps_parent_scope_and_raw_retrieval():
 def test_judge_client_failure_is_reported_and_missing_context_is_not_scored(monkeypatch):
     from infrastructure.benchmark.judging import evidence_judge
 
-    def fail(*args):
+    def fail(*args, runtime=None):
         raise RuntimeError("client offline")
 
     monkeypatch.setattr(evidence_judge, "get_judge_client", fail)

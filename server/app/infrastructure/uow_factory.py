@@ -92,6 +92,19 @@ class UnitOfWorkFactory:
                 await connection.execute(text("SELECT pg_advisory_unlock(724193820146)"))
 
     @asynccontextmanager
+    async def document_index_lock(self, document_id: int) -> AsyncGenerator[None, None]:
+        # Session lock on a nonpooled connection; no transaction spans vector I/O.
+        async with self._database.async_master_connection() as connection:
+            parameters = {"namespace": 724193, "document_id": document_id}
+            await connection.execute(text("SELECT pg_advisory_lock(:namespace, :document_id)"), parameters)
+            try:
+                yield
+            finally:
+                await connection.execute(
+                    text("SELECT pg_advisory_unlock(:namespace, :document_id)"), parameters
+                )
+
+    @asynccontextmanager
     async def create(self, *, master: bool = False) -> AsyncGenerator[UnitOfWork, None]:
         session = self._database.get_session(master=master)
         uow = UnitOfWork(

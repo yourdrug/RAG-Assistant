@@ -115,6 +115,8 @@ def _comparison_tree(clause):
         return ("cmp", col, "in", list(value))
     if clause.operator is sa_ops.ilike_op:
         return ("cmp", col, "ilike", str(value).strip("%"))
+    if clause.operator is sa_ops.regexp_match_op:
+        return ("cmp", col, "regexp", str(value).replace("[^[:alnum:]_]", r"[^\w]"))
     raise AssertionError(f"Unexpected comparison operator: {clause.operator}")
 
 
@@ -130,14 +132,15 @@ def _eval(node, row: dict, pattern: str | None) -> bool:
         return re.search(py_pattern, row["content"], re.IGNORECASE) is not None
     _, col, op, value = node
     actual = row.get(col, True if col == "is_current" else None)
-    temporal_operations = {
+    operations = {
         "is": lambda a, b: a is b,
         "is_not": lambda a, b: a is not b,
         "le": lambda a, b: a is not None and a <= b,
         "gt": lambda a, b: a is not None and a > b,
+        "regexp": lambda a, b: re.search(b, str(a or ""), flags=re.IGNORECASE) is not None,
     }
-    if op in temporal_operations:
-        return temporal_operations[op](actual, value)
+    if op in operations:
+        return operations[op](actual, value)
     if op == "eq":
         return row.get(col) == value
     if op == "in":
