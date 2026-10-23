@@ -29,8 +29,8 @@ from application.rag.service import RagService
 from domain.rag.breadth import Breadth
 from domain.rag.context import RagContext
 from domain.rag.stream_events import TextChunk
+from infrastructure.ml.rag.langchain_mapping import lc_documents, scored_values
 from infrastructure.ml.rag.rag_config import build_rag_settings
-from infrastructure.ml.rag.rag_steps import lc_documents, scored_values
 
 
 if TYPE_CHECKING:

@@ -7,6 +7,7 @@ import re
 import httpx
 from config import settings
 from domain.chat.message import MessageRole
+from domain.rag.answer_policy import policy_for
 from domain.rag.evidence.reading import evidence_reading_reminder
 from domain.rag.prompts import build_context_message, build_system_prompt  # noqa: F401
 from domain.rag.retrieval import ContextBudgetExceededError
@@ -292,3 +293,15 @@ def build_prompt(
     reminder = evidence_reading_reminder(question).replace("{", "{{").replace("}", "}}")
     messages.append(("human", "{question}" + reminder))
     return ChatPromptTemplate.from_messages(messages)
+
+
+def domain_prompt_addendum(
+    query_domain: str,
+    ctx,
+    domain_keys: tuple[str, ...] | None,
+) -> str | None:
+    """Answer rules for a registered domain."""
+    if domain_keys is None or query_domain not in domain_keys:
+        return None
+
+    return policy_for(query_domain).prompt_addendum(as_of_date=ctx.as_of_date)

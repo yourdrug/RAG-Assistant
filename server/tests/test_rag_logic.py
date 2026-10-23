@@ -587,7 +587,7 @@ class TestCheckRelevance:
 
 class TestAssessSufficiency:
     def test_empty_docs_returns_insufficient(self):
-        from infrastructure.ml.rag.helpers import assess_sufficiency
+        from infrastructure.ml.rag.rag_relevance import assess_sufficiency
 
         result = asyncio.run(assess_sufficiency("question", [], None))
         assert result.is_sufficient is False
@@ -596,7 +596,7 @@ class TestAssessSufficiency:
     def test_ollama_provider_uses_llm_model(self):
         from unittest.mock import AsyncMock, MagicMock, patch
 
-        from infrastructure.ml.rag.helpers import assess_sufficiency
+        from infrastructure.ml.rag.rag_relevance import assess_sufficiency
 
         mock_result = MagicMock()
         mock_result.is_sufficient = True
@@ -616,7 +616,7 @@ class TestAssessSufficiency:
         doc.page_content = "some legal context"
         doc.metadata = {"source": "test.pdf", "document_id": 1}
 
-        with patch("infrastructure.ml.rag.helpers.settings") as mock_settings:
+        with patch("infrastructure.ml.rag.rag_relevance.settings") as mock_settings:
             from domain.runtime.enums import LLMProvider
 
             mock_settings.llm_provider = LLMProvider.OLLAMA
@@ -631,7 +631,7 @@ class TestAssessSufficiency:
     def test_openrouter_provider_uses_openrouter_model(self):
         from unittest.mock import AsyncMock, MagicMock, patch
 
-        from infrastructure.ml.rag.helpers import assess_sufficiency
+        from infrastructure.ml.rag.rag_relevance import assess_sufficiency
 
         mock_result = MagicMock()
         mock_result.is_sufficient = False
@@ -651,7 +651,7 @@ class TestAssessSufficiency:
         doc.page_content = "some legal context"
         doc.metadata = {"source": "test.pdf", "document_id": 1}
 
-        with patch("infrastructure.ml.rag.helpers.settings") as mock_settings:
+        with patch("infrastructure.ml.rag.rag_relevance.settings") as mock_settings:
             from domain.runtime.enums import LLMProvider
 
             mock_settings.llm_provider = LLMProvider.OPENROUTER
@@ -1107,7 +1107,7 @@ class TestCircuitBreakerIntegration:
     async def test_assess_sufficiency_calls_breaker_check_open(self):
         from unittest.mock import AsyncMock, MagicMock, patch
 
-        from infrastructure.ml.rag.helpers import assess_sufficiency
+        from infrastructure.ml.rag.rag_relevance import assess_sufficiency
 
         mock_breaker = MagicMock()
         mock_breaker.report_success = AsyncMock()
@@ -1126,8 +1126,8 @@ class TestCircuitBreakerIntegration:
         mock_client.chat.completions.create = AsyncMock(return_value=mock_result)
         mock_ml.instructor_client = mock_client
 
-        with patch("infrastructure.ml.rag.helpers.get_breaker", return_value=mock_breaker):
-            with patch("infrastructure.ml.rag.helpers.settings") as mock_settings:
+        with patch("infrastructure.ml.rag.rag_relevance.get_breaker", return_value=mock_breaker):
+            with patch("infrastructure.ml.rag.rag_relevance.settings") as mock_settings:
                 mock_settings.llm_provider = MagicMock(value="ollama")
                 mock_settings.llm_model = "test"
                 mock_settings.llm_auxiliary_timeout = 30
@@ -1142,7 +1142,7 @@ class TestCircuitBreakerIntegration:
     async def test_assess_sufficiency_calls_breaker_on_failure(self):
         from unittest.mock import AsyncMock, MagicMock, patch
 
-        from infrastructure.ml.rag.helpers import assess_sufficiency
+        from infrastructure.ml.rag.rag_relevance import assess_sufficiency
 
         mock_breaker = MagicMock()
         mock_breaker.report_success = AsyncMock()
@@ -1156,8 +1156,8 @@ class TestCircuitBreakerIntegration:
         mock_client.chat.completions.create = AsyncMock(side_effect=RuntimeError("LLM down"))
         mock_ml.instructor_client = mock_client
 
-        with patch("infrastructure.ml.rag.helpers.get_breaker", return_value=mock_breaker):
-            with patch("infrastructure.ml.rag.helpers.settings") as mock_settings:
+        with patch("infrastructure.ml.rag.rag_relevance.get_breaker", return_value=mock_breaker):
+            with patch("infrastructure.ml.rag.rag_relevance.settings") as mock_settings:
                 mock_settings.llm_provider = MagicMock(value="ollama")
                 mock_settings.llm_model = "test"
                 mock_settings.llm_auxiliary_timeout = 30

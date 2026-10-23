@@ -110,7 +110,7 @@ async def collect_events(service, question, history=None, ctx=None):
 # ---------------------------------------------------------------------------
 
 _STREAM_PATCHES = {
-    "infrastructure.ml.rag.helpers.run_hybrid_search": AsyncMock(return_value=[]),
+    "infrastructure.ml.rag.retrieval_pipeline.run_hybrid_search": AsyncMock(return_value=[]),
     "infrastructure.ml.rag.rag_steps.get_corpus_revision": AsyncMock(return_value="0"),
     "infrastructure.ml.rag.rag_retrieval.ensure_embedding_identity": MagicMock(return_value="test:model:v1"),
     "infrastructure.ml.rag.rag_steps.build_qdrant_filter": MagicMock(return_value=MagicMock(should=[])),

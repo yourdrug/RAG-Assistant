@@ -83,7 +83,7 @@ async def test_cache_can_be_cancelled_between_queries():
 @pytest.mark.parametrize("failure", [RuntimeError("reranker unavailable"), asyncio.CancelledError()])
 async def test_owned_reranker_is_closed_and_failures_propagate(monkeypatch, failure):
     from infrastructure.ml.clients import factories
-    from infrastructure.ml.rag.rag_steps import chunk_value
+    from infrastructure.ml.rag.langchain_mapping import chunk_value
 
     reranker = SimpleNamespace(predict=AsyncMock(side_effect=failure), close=AsyncMock())
     monkeypatch.setattr(factories, "create_reranker", lambda: reranker)

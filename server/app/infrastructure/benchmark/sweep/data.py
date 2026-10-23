@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from application.benchmark import load_benchmark_questions
 from application.benchmark.sweep_dto import DenseCache, SparseCache, CandidateCache
-from infrastructure.ml.rag.rag_steps import chunk_value
+from infrastructure.ml.rag.langchain_mapping import chunk_value
 from langchain_core.documents import Document as LCDocument
 from copy import deepcopy
 from application.uow.factory import UnitOfWorkFactory

@@ -23,7 +23,7 @@ from domain.knowledge.enums import PageContentType
 from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata
 from domain.rag.evidence.focus import evidence_reading_map
 from infrastructure.ml.rag.evidence_focus import format_generation_messages
-from infrastructure.ml.rag.helpers import retrieve_with_decomposition
+from infrastructure.ml.rag.retrieval_pipeline import retrieve_with_decomposition
 from domain.rag.evidence.grounded_response import (
     missing_field_response,
     extractive_procedure_response,
@@ -164,7 +164,7 @@ async def test_supplemental_retrieval_preserves_acl_temporal_filter_and_original
     assert len(probes) == 2 and probes[0] == question
     assert "режиме" in probes[1] and "N 11" in probes[1]
     search = AsyncMock(side_effect=[[Document(page_content="не включенных")], [Document(page_content="2.2")]])
-    monkeypatch.setattr("infrastructure.ml.rag.helpers.run_retrieval", search)
+    monkeypatch.setattr("infrastructure.ml.rag.retrieval_pipeline.run_retrieval", search)
     acl = object()
     conditions = [object()]
     docs, queries = await retrieve_with_decomposition(

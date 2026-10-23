@@ -100,7 +100,6 @@ app/infrastructure/ml/rag/document_sources.py
 app/infrastructure/ml/rag/evidence_focus.py
 app/infrastructure/ml/rag/field_evidence.py
 app/domain/rag/evidence/grounded_response.py
-app/infrastructure/ml/rag/helpers.py
 app/infrastructure/ml/rag/linked_context.py
 app/infrastructure/ml/cache/pipeline.py
 app/infrastructure/ml/rag/rag_config.py

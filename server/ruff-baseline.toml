@@ -200,7 +200,6 @@ exclude = [
 "app/infrastructure/ml/rag/evidence_focus.py" = ["ANN001", "ANN201", "C901", "I001", "PLR2004", "Q000", "RUF001"]
 "app/infrastructure/ml/rag/field_evidence.py" = ["ANN001", "ANN201", "C901", "I001"]
 "app/domain/rag/evidence/grounded_response.py" = ["ANN001", "ANN201", "C901", "I001", "PLR0911", "PLR2004", "Q000", "RUF001", "SIM102"]
-"app/infrastructure/ml/rag/helpers.py" = ["ANN001", "ARG001", "BLE001", "FBT001", "I001", "PLC0415", "PLR0913", "PLR0915", "PLR0917", "PLR2004", "RUF001", "SIM117", "TC001", "TC005"]
 "app/infrastructure/ml/rag/linked_context.py" = ["ANN001", "ANN201", "C901", "I001", "PLR0915", "PLW2901", "RUF001", "RUF007"]
 "app/infrastructure/ml/cache/pipeline.py" = ["ANN001", "FBT001", "FBT002", "I001", "PLR0913", "PLR0917"]
 "app/infrastructure/ml/rag/rag_config.py" = ["I001", "PLC0415"]
@@ -211,7 +210,7 @@ exclude = [
 "app/infrastructure/ml/rag/rag_reranking.py" = ["ANN001", "I001", "PLC0415", "PLR0917"]
 "app/infrastructure/ml/rag/rag_retrieval.py" = ["ANN001", "ANN202", "EM101", "I001", "PLR0913", "PLR0915", "PLR0917", "TRY003"]
 "app/infrastructure/ml/rag/rag_sources.py" = ["ANN001", "C901", "FBT001", "I001", "PLR0915", "PLR1730"]
-"app/infrastructure/ml/rag/rag_steps.py" = ["ANN001", "ANN202", "C901", "DTZ011", "EM101", "I001", "N806", "PLC0415", "PLR0911", "PLR0915", "RSE102", "SLF001", "TC001", "TC003", "TRY003"]
+"app/infrastructure/ml/rag/rag_steps.py" = ["ANN001", "ANN202", "C901", "DTZ011", "EM101", "N806", "PLC0415", "PLR0911", "PLR0915", "RSE102", "SLF001", "TC001", "TC003", "TRY003"]
 "app/domain/rag/evidence/table_context.py" = ["PLR0911", "RUF001"]
 "app/infrastructure/ml/rag/retrieval_work.py" = ["I001", "TC001", "UP037"]
 "app/infrastructure/ml/rtf_decree_parser.py" = ["I001", "TC003", "UP037"]
@@ -523,3 +522,6 @@ exclude = [
 "app/infrastructure/corpus/repository.py" = ["ANN001", "ANN201", "ANN204", "C901", "EM101", "I001", "INP001", "PLR0912", "PLR0915", "PLR2004", "Q000", "Q001", "TRY003", "TRY301"]
 
 "app/infrastructure/corpus/locks.py" = ["ANN001", "ANN201", "ANN204", "C901", "EM101", "I001", "INP001", "PLR0912", "PLR0915", "PLR2004", "Q000", "Q001", "TRY003", "TRY301"]
+
+# Existing helper suppressions follow the moved retrieval orchestration.
+"app/infrastructure/ml/rag/retrieval_pipeline.py" = ["ANN001", "BLE001", "PLR0913", "PLR0915", "PLR0917", "PLR2004"]

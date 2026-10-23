@@ -159,7 +159,7 @@ class TestResolveHashesACLFilter:
 async def test_decomposition_and_legal_fallback_preserve_acl(decomposition, sub_queries):
     from domain.knowledge.access_control import get_visibility_conditions
     from domain.rag.breadth import Breadth
-    from infrastructure.ml.rag.helpers import retrieve_with_decomposition
+    from infrastructure.ml.rag.retrieval_pipeline import retrieve_with_decomposition
 
     af = with_temporal_filter(build_qdrant_filter(_user(), [1, 2]), None)
     conditions = get_visibility_conditions("internal", [1, 2], for_list=False)
@@ -167,8 +167,14 @@ async def test_decomposition_and_legal_fallback_preserve_acl(decomposition, sub_
     rag.features.decomposition_enabled = decomposition
     ml = _make_ml_clients()
     with (
-        patch("infrastructure.ml.rag.helpers.decompose_question", AsyncMock(return_value=sub_queries)),
-        patch("infrastructure.ml.rag.helpers.run_hybrid_search", AsyncMock(return_value=[])) as search,
+        patch(
+            "infrastructure.ml.rag.retrieval_pipeline.decompose_question",
+            AsyncMock(return_value=sub_queries),
+        ),
+        patch(
+            "infrastructure.ml.rag.retrieval_pipeline.run_hybrid_search",
+            AsyncMock(return_value=[]),
+        ) as search,
     ):
         candidates, actual_queries = await retrieve_with_decomposition(
             "query",
@@ -212,7 +218,7 @@ async def test_legal_rerank_fallback_preserves_acl_and_temporal_filter():
     from domain.rag.breadth import Breadth
     from domain.rag.context import RagContext
     from domain.identity.roles import UserKind, UserRole
-    from infrastructure.ml.rag.helpers import rerank_and_enrich
+    from infrastructure.ml.rag.retrieval_pipeline import rerank_and_enrich
 
     af = with_temporal_filter(build_qdrant_filter(_user(), [1, 2]), None)
     conditions = get_visibility_conditions("internal", [1, 2], for_list=False)
@@ -226,11 +232,14 @@ async def test_legal_rerank_fallback_preserves_acl_and_temporal_filter():
     rag = MagicMock()
     ml = _make_ml_clients()
     with (
-        patch("infrastructure.ml.rag.helpers.rerank_documents", AsyncMock(return_value=[])),
-        patch("infrastructure.ml.rag.helpers.run_hybrid_search", AsyncMock(return_value=[])) as search,
-        patch("infrastructure.ml.rag.helpers.enrich_with_neighbors", AsyncMock(return_value=[])),
-        patch("infrastructure.ml.rag.helpers.select_final_top_k", return_value=5),
-        patch("infrastructure.ml.rag.helpers.compute_context_budget", return_value=1000),
+        patch("infrastructure.ml.rag.retrieval_pipeline.rerank_documents", AsyncMock(return_value=[])),
+        patch(
+            "infrastructure.ml.rag.retrieval_pipeline.run_hybrid_search",
+            AsyncMock(return_value=[]),
+        ) as search,
+        patch("infrastructure.ml.rag.retrieval_pipeline.enrich_with_neighbors", AsyncMock(return_value=[])),
+        patch("infrastructure.ml.rag.retrieval_pipeline.select_final_top_k", return_value=5),
+        patch("infrastructure.ml.rag.retrieval_pipeline.compute_context_budget", return_value=1000),
     ):
         await rerank_and_enrich(
             "query",
@@ -271,3 +280,53 @@ def mock_embedding_binding(monkeypatch):
     monkeypatch.setattr(
         "infrastructure.ml.rag.rag_retrieval.ensure_embedding_identity", lambda *args: "test:model:v1"
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "domain,first_hit,expected_calls",
+    [("general", False, 1), ("legal", True, 1), ("legal", False, 2)],
+)
+async def test_retrieval_domain_fallback_only_on_empty_legal_search(domain, first_hit, expected_calls):
+    from infrastructure.ml.rag.retrieval_pipeline import run_retrieval
+
+    af = with_temporal_filter(build_qdrant_filter(_user(), [1, 2]), None)
+    ctx = RagContext(user_kind=UserKind.INTERNAL, user_id=5, user_group_ids=[1, 2])
+    work = RetrievalWork(
+        rag=MagicMock(),
+        t_pipeline_start=0,
+        question="query",
+        ctx=ctx,
+        user=ctx.to_user_context(),
+        access_filter=af,
+        retrieval_filter=af,
+        query_domain=domain,
+        fetch_k=10,
+        effective_dense_weight=0.7,
+        effective_sparse_weight=0.3,
+        visibility_conditions=[MagicMock()],
+    )
+    hit = MagicMock()
+    results = [[hit] if first_hit else []]
+    if expected_calls == 2:
+        results.append([hit])
+    with patch(
+        "infrastructure.ml.rag.retrieval_pipeline.run_hybrid_search", AsyncMock(side_effect=results)
+    ) as search:
+        candidates = await run_retrieval("query", work, MagicMock())
+
+    assert candidates == ([hit] if first_hit or expected_calls == 2 else [])
+    assert search.await_count == expected_calls
+    for call in search.await_args_list:
+        assert call.args[:2] == ("query", 10)
+        assert call.kwargs["dense_weight"] == 0.7
+        assert call.kwargs["sparse_weight"] == 0.3
+        assert call.kwargs["visibility_conditions"] is work.visibility_conditions
+        assert call.kwargs["user_id"] == 5
+        assert call.kwargs["user_group_ids"] == [1, 2]
+    if domain == "legal":
+        assert af in search.await_args_list[0].args[2].must
+    else:
+        assert search.await_args_list[0].args[2] is af
+    if expected_calls == 2:
+        assert search.await_args_list[1].args[2] is af

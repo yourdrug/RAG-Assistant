@@ -160,15 +160,15 @@ class TestDecomposeLegacyPath:
 
 
 # ---------------------------------------------------------------------------
-# Caller integration (helpers.py)
+# Caller integration (retrieval_pipeline.py)
 # ---------------------------------------------------------------------------
 
 
 class TestDecomposeCallerIntegration:
     @pytest.mark.asyncio
-    async def test_helpers_passes_instructor_client(self):
-        """Verify that helpers.py passes instructor_client to decompose_question."""
-        from infrastructure.ml.rag.helpers import retrieve_with_decomposition
+    async def test_retrieval_passes_instructor_client(self):
+        """Verify that retrieval_pipeline.py passes instructor_client to decompose_question."""
+        from infrastructure.ml.rag.retrieval_pipeline import retrieve_with_decomposition
 
         mock_rag = MagicMock()
         mock_rag.features.decomposition_enabled = True
@@ -177,10 +177,10 @@ class TestDecomposeCallerIntegration:
         sub_queries = ["q1", "q2"]
         with (
             patch(
-                "infrastructure.ml.rag.helpers.decompose_question",
+                "infrastructure.ml.rag.retrieval_pipeline.decompose_question",
                 AsyncMock(return_value=sub_queries),
             ) as mock_decompose,
-            patch("infrastructure.ml.rag.helpers.run_hybrid_search", AsyncMock(return_value=[])),
+            patch("infrastructure.ml.rag.retrieval_pipeline.run_hybrid_search", AsyncMock(return_value=[])),
         ):
             mock_ml = MagicMock()
             mock_ml.instructor_client = MagicMock()

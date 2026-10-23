@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 
 from domain.rag.answer_policy import policy_for
-from infrastructure.ml.rag.helpers import domain_prompt_addendum
+from infrastructure.ml.rag.rag_prompts import domain_prompt_addendum
 
 from domain.ingestion.profiles.protocol import (
     DocumentProfile,

@@ -435,7 +435,7 @@ module = [
     "infrastructure.ml.rag.evidence_focus",
     "infrastructure.ml.rag.field_evidence",
     "domain.rag.evidence.grounded_response",
-    "infrastructure.ml.rag.helpers",
+    "infrastructure.ml.rag.retrieval_pipeline",
     "infrastructure.ml.rag.linked_context",
     "infrastructure.ml.rag.prompt_budget",
     "infrastructure.ml.cache.pipeline",

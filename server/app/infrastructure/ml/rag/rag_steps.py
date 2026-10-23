@@ -1,34 +1,47 @@
 """Infrastructure operations for typed RAG stages."""
 
 from __future__ import annotations
+
 from collections.abc import AsyncIterator
-
-
+from contextlib import asynccontextmanager
+from dataclasses import replace
 import logging
 import time
 from typing import TYPE_CHECKING
-from domain.rag.retrieval import ContextBudgetExceededError
+import uuid
 
-
+from application.rag.dto import (
+    CompletedAnswer,
+    ContextBudget,
+    PreparedContext,
+    PreparedQuery,
+    RagRequest,
+    RetrievalResult,
+    SanitizedAnswer,
+    Sufficiency,
+    TerminalResponse,
+)
+from config import settings
+from domain.identity.roles import UserKind, UserRole
+from domain.knowledge.access_control import get_visibility_conditions
+from domain.rag.breadth import BREADTH_ALIASES, Breadth
 from domain.rag.classification import (
     classify_query_domain,
     classify_question_breadth,
     is_out_of_domain,
 )
+from domain.rag.context import RagContext
+from domain.rag.evidence.grounded_response import (
+    scoped_evidence_response,
+)
+from domain.rag.prompt_blocks import NOT_FOUND_ANSWER
 from domain.rag.retrieval import (
+    ContextBudgetExceededError,
     compute_retrieval_params,
 )
-from domain.rag.breadth import BREADTH_ALIASES, Breadth
-from domain.runtime.enums import LLMProvider
-from domain.rag.prompt_blocks import NOT_FOUND_ANSWER
 from domain.rag.stream_events import SourcesEvent, TextChunk, UsageReport
-
-from config import settings
-from infrastructure.ml.rag.retrieval_pipeline import RetrievalPipeline
-from infrastructure.ml.rag.helpers import (
-    assess_sufficiency,
-    domain_prompt_addendum,
-)
+from domain.runtime.enums import LLMProvider
+from infrastructure.corpus.snapshot import CorpusSnapshot
 from infrastructure.metrics.metrics import (
     RAG_BREADTH_TOTAL,
     RAG_CACHE_MISSES_TOTAL,
@@ -39,95 +52,51 @@ from infrastructure.metrics.metrics import (
     record_llm_usage,
     record_rag_answer,
 )
-from infrastructure.ml.cache.keys import CacheKeyBuilder
 from infrastructure.ml.cache.answers import (
     get_corpus_revision,
 )
+from infrastructure.ml.cache.keys import CacheKeyBuilder
+from infrastructure.ml.cache.pipeline import check_cache, handle_cache_hit, store_answer_cache
 from infrastructure.ml.guardrails.input_scanner import InputScanner
 from infrastructure.ml.guardrails.output_scanner import OutputScanner
-from infrastructure.ml.cache.pipeline import check_cache, handle_cache_hit
-from infrastructure.ml.rag.rag_formatting import format_docs_with_selection
+from infrastructure.ml.rag.benchmark_evidence import capture_prompt
+from infrastructure.ml.rag.document_access import cache_is_accessible
+from infrastructure.ml.rag.evidence_focus import format_generation_messages
+from infrastructure.ml.rag.langchain_mapping import (
+    chunk_value,
+    lc_documents,
+    lc_messages,
+    message_values,
+    scored_values,
+)
+from infrastructure.ml.rag.prompt_budget import estimate_message_tokens
+from infrastructure.ml.rag.rag_config import build_rag_settings
+from infrastructure.ml.rag.rag_formatting import format_docs_with_selection, history_to_messages
 from infrastructure.ml.rag.rag_postprocess import (
     handle_relevance_gate,
     is_not_found_answer,
     reject_not_relevant,
 )
-from infrastructure.ml.rag.evidence_focus import format_generation_messages
-from domain.rag.evidence.grounded_response import (
-    scoped_evidence_response,
-)
 from infrastructure.ml.rag.rag_prompts import (
     build_prompt,
     condense_question,
+    domain_prompt_addendum,
 )
-from infrastructure.ml.rag.benchmark_evidence import capture_prompt
+from infrastructure.ml.rag.rag_relevance import assess_sufficiency, filter_cited_documents
 from infrastructure.ml.rag.rag_sources import extract_sources
-from infrastructure.ml.rag.rag_relevance import filter_cited_documents
-from infrastructure.ml.rag.prompt_budget import estimate_message_tokens
-from shared import request_id_ctx
-from infrastructure.ml.rag.document_access import cache_is_accessible
+from infrastructure.ml.rag.retrieval_pipeline import RetrievalPipeline
+from infrastructure.ml.rag.retrieval_work import RetrievalWork
+from infrastructure.repositories.vector.acl import build_qdrant_filter, with_temporal_filter
 from infrastructure.resilience.circuit_breaker import get_breaker
+from shared import request_id_ctx
+
 
 if TYPE_CHECKING:
     from application.documents import DocumentAccessPort
 
 
-from contextlib import asynccontextmanager
-from dataclasses import replace
-from copy import deepcopy
-import uuid
-from langchain_core.documents import Document as LCDocument
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from application.rag.dto import (
-    RagRequest,
-    PreparedQuery,
-    RetrievalResult,
-    ScoredDocument,
-    PreparedContext,
-    ContextBudget,
-    PromptMessage,
-    SanitizedAnswer,
-    CompletedAnswer,
-    TerminalResponse,
-    Sufficiency,
-)
-from domain.knowledge.chunk import Chunk
-from domain.identity.roles import UserKind, UserRole
-from domain.knowledge.access_control import get_visibility_conditions
-from domain.rag.context import RagContext
-from infrastructure.ml.rag.rag_config import build_rag_settings
-from infrastructure.ml.rag.rag_formatting import history_to_messages
-from infrastructure.ml.rag.retrieval_work import RetrievalWork
-from infrastructure.repositories.vector.acl import build_qdrant_filter, with_temporal_filter
-from infrastructure.ml.cache.pipeline import store_answer_cache
-from infrastructure.corpus.snapshot import CorpusSnapshot
-
-
 MIN_HISTORY_CHARS = 3
 log = logging.getLogger("default")
-
-
-def chunk_value(doc) -> Chunk:
-    return Chunk(content=doc.page_content, metadata=deepcopy(doc.metadata))
-
-
-def scored_values(docs: list) -> tuple[ScoredDocument, ...]:
-    return tuple(ScoredDocument(chunk_value(doc), float(score)) for doc, score in docs)
-
-
-def lc_documents(docs: tuple[ScoredDocument, ...]) -> list:
-    return [
-        (LCDocument(page_content=d.chunk.content, metadata=deepcopy(d.chunk.metadata)), d.score) for d in docs
-    ]
-
-
-def message_values(messages: list) -> tuple[PromptMessage, ...]:
-    return tuple(PromptMessage(m.type, m.content) for m in messages)
-
-
-def lc_messages(messages: tuple[PromptMessage, ...]) -> list:
-    classes = {"system": SystemMessage, "human": HumanMessage, "ai": AIMessage}
-    return [classes[m.role](content=m.content) for m in messages]
 
 
 class RagOperations:

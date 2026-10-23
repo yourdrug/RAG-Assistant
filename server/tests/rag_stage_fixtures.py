@@ -15,13 +15,8 @@ from application.rag.dto import (
 )
 from domain.rag.breadth import Breadth
 from domain.rag.stream_events import StreamEvent, TextChunk
-from infrastructure.ml.rag.rag_steps import (
-    RagOperations,
-    lc_documents,
-    lc_messages,
-    message_values,
-    scored_values,
-)
+from infrastructure.ml.rag.langchain_mapping import lc_documents, lc_messages, message_values, scored_values
+from infrastructure.ml.rag.rag_steps import RagOperations
 
 
 def stage_fixture(**values: Any) -> SimpleNamespace:

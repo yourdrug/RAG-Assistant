@@ -18,7 +18,7 @@ from domain.identity.roles import UserKind, UserRole
 from domain.identity.user_context import UserContext
 from domain.knowledge.enums import DocumentVisibility
 from infrastructure.ml.rag.chunk_metadata import chunk_result_metadata
-from infrastructure.ml.rag.helpers import apply_exact_search
+from infrastructure.ml.rag.retrieval_pipeline import apply_exact_search
 from infrastructure.ml.rag.rag_formatting import format_docs
 from infrastructure.ml.rag.rag_postprocess import enrich_with_neighbors
 from infrastructure.repositories.chunk.chunk_mapping import to_chunk_search_result

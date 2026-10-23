@@ -14,7 +14,7 @@ from domain.benchmark.scoring import DEFAULT_OBJECTIVE_WEIGHTS
 from domain.benchmark.sweep import BenchmarkSweep
 from domain.benchmark.sweep import BenchmarkStrategy
 from composition.service_providers import build_sweep_engine
-from infrastructure.ml.rag.rag_steps import chunk_value
+from infrastructure.ml.rag.langchain_mapping import chunk_value
 from application.benchmark.sweep_evaluation import SweepFullEvaluator
 from infrastructure.benchmark.sweep.scoring import compute_composite_score, score_config_cheap
 from infrastructure.benchmark.sweep.settings import LiveSweepSettings

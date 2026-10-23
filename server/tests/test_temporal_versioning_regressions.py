@@ -28,7 +28,7 @@ from domain.shared.exceptions import ValidationError
 from domain.rag.stream_events import MetaEvent
 from fakes import FakeUnitOfWorkFactory
 from infrastructure.ml.rag.rag_postprocess import resolve_temporal_conflicts
-from infrastructure.ml.rag.helpers import apply_exact_search
+from infrastructure.ml.rag.retrieval_pipeline import apply_exact_search
 from infrastructure.repositories.vector.acl import with_temporal_filter
 from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
 from presentation.api.routes.chat import _format_sse_event
