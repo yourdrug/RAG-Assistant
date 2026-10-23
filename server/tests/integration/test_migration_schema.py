@@ -16,11 +16,13 @@ from sqlalchemy.engine import Connection, make_url
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
+from config import settings
 from domain.ingestion.profiles.registry import DomainProfileRegistry
 from infrastructure.domain_profile import register_all_profiles
 from infrastructure.domain_profile.settings_adapter import DomainSettingsAdapter
 from infrastructure.initialization import build_defaults, seed_config_defaults, seed_domain_config_defaults
 from infrastructure.uow_factory import UnitOfWorkFactory
+from scripts import migrate
 
 
 pytestmark = [pytest.mark.integration, pytest.mark.filterwarnings("error::sqlalchemy.exc.SAWarning")]
@@ -137,3 +139,16 @@ async def test_baseline_supports_idempotent_configuration_bootstrap(pg_engine: A
         cache = await uow.config_parameters.get_by_key_and_domain("cache_enabled")
         assert cache is not None
         assert cache.value == "false"
+
+
+def test_standalone_migration_uses_manager_with_special_password(
+    migration_connection: Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    url = migration_connection.engine.url
+    monkeypatch.setattr(settings, "db_user", url.username)
+    monkeypatch.setattr(settings, "db_password", "p@ss:/?#%")
+    monkeypatch.setattr(settings, "db_host", url.host or url.query.get("host", "localhost"))
+    monkeypatch.setattr(settings, "db_port", str(url.port or url.query.get("port", 5432)))
+    monkeypatch.setattr(settings, "db_name", url.database)
+    migrate.main()
+    assert "config_parameters" in inspect(migration_connection).get_table_names()

@@ -3,6 +3,7 @@
 import importlib.util
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -52,3 +53,49 @@ def test_confirmation_coverage_requires_every_path_even_when_models_match(accept
     acceptance.verify_coverage(rows, args)
     with pytest.raises(BudgetError, match='missing required'):
         acceptance.verify_coverage(rows[:-1], args)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["none", "connect", "query"])
+async def test_verification_uses_manager_and_closes_resources(  # noqa: PLR0915
+    acceptance, monkeypatch, tmp_path, failure
+):
+    confirmations = tmp_path / "confirmations.json"
+    confirmations.write_text("{}")
+    args = SimpleNamespace(
+        principal="user:1", account="test", since="2026-10-22T00:00:00+00:00", confirmations=confirmations
+    )
+    database = MagicMock(connect=AsyncMock(), disconnect=AsyncMock())
+    session = AsyncMock()
+    database.get_session.return_value.__aenter__.return_value = session
+    session.execute.return_value = MagicMock()
+    rows = [{"operation_id": "op"}]
+    session.execute.return_value.mappings.return_value.all.return_value = rows
+
+    if failure == "connect":
+        database.connect.side_effect = ConnectionError
+
+    if failure == "query":
+        session.execute.side_effect = ConnectionError
+
+    redis = MagicMock(aclose=AsyncMock())
+    monkeypatch.setattr(acceptance, "DatabaseManager", lambda: database)
+    monkeypatch.setattr(acceptance.Redis, "from_url", lambda *_args, **_kwargs: redis)
+    monkeypatch.setattr(acceptance, "BudgetRuntime", MagicMock())
+    monkeypatch.setattr(acceptance, "verify_coverage", MagicMock())
+    monkeypatch.setattr(acceptance, "verify_confirmations", MagicMock(return_value=1))
+    dispatch = AsyncMock()
+    monkeypatch.setattr(acceptance, "dispatch", dispatch)
+
+    if failure == "none":
+        await acceptance.main(args)
+        database.get_session.assert_called_once_with(master=True)
+        acceptance.verify_confirmations.assert_called_once_with(rows, {})
+    else:
+        with pytest.raises(ConnectionError):
+            await acceptance.main(args)
+
+    database.connect.assert_awaited_once_with()
+    database.disconnect.assert_awaited_once_with()
+    redis.aclose.assert_awaited_once_with()
+    dispatch.assert_not_awaited()

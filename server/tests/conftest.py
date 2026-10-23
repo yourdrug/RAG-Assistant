@@ -44,6 +44,17 @@ _TEST_DEFAULTS = {
 for _key, _val in _TEST_DEFAULTS.items():
     os.environ.setdefault(_key, _val)
 
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    if os.environ.get("RUN_INTEGRATION_TESTS") == "1":
+        return
+
+    skip_integration = pytest.mark.skip(reason="Set RUN_INTEGRATION_TESTS=1 to run integration tests")
+    for item in items:
+        if "integration" in item.keywords:
+            item.add_marker(skip_integration)
+
+
 # Initialize circuit breakers for all tests (required by step_generate, handle_relevance_gate, etc.)
 from infrastructure.resilience.circuit_breaker import init_breakers  # noqa: E402
 

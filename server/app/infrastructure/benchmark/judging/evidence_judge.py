@@ -4,6 +4,7 @@ import json
 import logging
 
 from config import settings
+from infrastructure.budget.runtime import BudgetRuntime
 from domain.runtime.enums import LLMProvider
 
 from infrastructure.benchmark.judging.judge import get_judge_client, judge_with_structured_output
@@ -13,13 +14,14 @@ from infrastructure.benchmark.judging.judge_rubric import CITATION_SUPPORT_CRITE
 logger = logging.getLogger("default")
 
 
-def judge_evidence(
+def judge_evidence(  # noqa: PLR0913
     question: str,
     answer: str,
     context: str | None,
     annotations: dict | None,
     model: str,
     *,
+    runtime: BudgetRuntime | None = None,
     saved_metrics: dict | None = None,
     metric_callback=None,
 ) -> dict:
@@ -65,7 +67,9 @@ def judge_evidence(
             + payload
         )
         try:
-            client = get_judge_client(model if settings.llm_provider == LLMProvider.OLLAMA else "")
+            client = get_judge_client(
+                model if settings.llm_provider == LLMProvider.OLLAMA else "", runtime=runtime
+            )
             score = judge_with_structured_output(client, prompt, model)
             result["scores"][metric] = max(0.0, min(10.0, score.score))
             result["details"][metric] = {"reason": score.reason}

@@ -17,6 +17,7 @@ from botocore.exceptions import ClientError
 
 from application.ports.file_storage import FileItem, FileStorage
 from config import settings
+from infrastructure.utils.async_tasks import finish_owned_task, run_sync_io
 
 log = logging.getLogger("default")
 S3_MISSING_CODES = frozenset({"404", "NoSuchKey", "NotFound"})
@@ -44,29 +45,6 @@ def s3_client_kwargs() -> dict[str, Any]:
         kwargs["endpoint_url"] = settings.s3_endpoint
 
     return kwargs
-
-
-async def finish_owned_task(task: asyncio.Task):
-    """Drain owned work even when the caller is cancelled."""
-    while not task.done():
-        try:
-            await asyncio.shield(task)
-        except asyncio.CancelledError:
-            continue
-
-    return task.result()
-
-
-async def run_storage_io(function, *args, **kwargs):
-    task = asyncio.create_task(asyncio.to_thread(function, *args, **kwargs))
-    try:
-        return await asyncio.shield(task)
-    except asyncio.CancelledError as exc:
-        try:
-            await finish_owned_task(task)
-        finally:
-            # A failed thread job must not replace the caller's cancellation.
-            raise exc
 
 
 def write_download_block(handle, block: bytes) -> None:
@@ -203,7 +181,7 @@ class S3Storage:
                 except asyncio.CancelledError as exc:
                     try:
                         handle = await finish_owned_task(creation)
-                        await run_storage_io(close_download, handle, remove=True)
+                        await run_sync_io(close_download, handle, remove=True)
                     except OSError:
                         log.warning("Failed to create/clean up S3 download after cancellation", exc_info=True)
                     finally:
@@ -211,22 +189,22 @@ class S3Storage:
                         raise exc
                 except BaseException:
                     handle = await finish_owned_task(creation)
-                    await run_storage_io(close_download, handle, remove=True)
+                    await run_sync_io(close_download, handle, remove=True)
                     raise
                 try:
                     while block := await body.read(S3_DOWNLOAD_CHUNK_BYTES):
-                        await run_storage_io(write_download_block, handle, block)
+                        await run_sync_io(write_download_block, handle, block)
 
-                    await run_storage_io(close_download, handle, remove=False)
+                    await run_sync_io(close_download, handle, remove=False)
                 except asyncio.CancelledError as exc:
                     try:
-                        await run_storage_io(close_download, handle, remove=True)
+                        await run_sync_io(close_download, handle, remove=True)
                     except OSError:
                         log.warning("Failed to clean up S3 download after cancellation", exc_info=True)
                     finally:
                         raise exc
                 except BaseException:
-                    await run_storage_io(close_download, handle, remove=True)
+                    await run_sync_io(close_download, handle, remove=True)
                     raise
                 return Path(handle.name)
 

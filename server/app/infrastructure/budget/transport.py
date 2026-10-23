@@ -17,8 +17,8 @@ from infrastructure.budget.job_context import (
     block_job_dispatch,
     ensure_job_dispatch_allowed,
 )
-from infrastructure.budget.runtime import BudgetRuntime, budget_runtime
-from infrastructure.storage.file_storage import finish_owned_task
+from infrastructure.budget.runtime import BudgetRuntime
+from infrastructure.utils.async_tasks import finish_owned_task
 
 log = logging.getLogger('default')
 
@@ -297,7 +297,9 @@ class PaidResponseStream(httpx.AsyncByteStream):
 
 
 class PaidAsyncTransport(httpx.AsyncBaseTransport):
-    def __init__(self, *, runtime=budget_runtime, transport=None):
+    def __init__(self, *, runtime: BudgetRuntime | None, transport=None):
+        if runtime is None:
+            raise BudgetError('Budget runtime must be supplied for paid clients')
         self.runtime = runtime
         self.transport = transport or httpx.AsyncHTTPTransport(retries=0)
 
@@ -352,7 +354,9 @@ class PaidAsyncTransport(httpx.AsyncBaseTransport):
 class PaidSyncTransport(httpx.BaseTransport):
     """Sync I/O remains on its caller thread; only ledger work uses the owner loop."""
 
-    def __init__(self, *, runtime=budget_runtime, transport=None):
+    def __init__(self, *, runtime: BudgetRuntime | None, transport=None):
+        if runtime is None:
+            raise BudgetError('Budget runtime must be supplied for paid clients')
         self.runtime = runtime
         self.transport = transport or httpx.HTTPTransport(retries=0)
 

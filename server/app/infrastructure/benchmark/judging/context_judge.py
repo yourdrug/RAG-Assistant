@@ -4,6 +4,7 @@ import logging
 from infrastructure.benchmark.judging.prompts import CONTEXT_PRECISION_PROMPT, CONTEXT_RECALL_PROMPT
 
 from config import settings
+from infrastructure.budget.runtime import BudgetRuntime
 from domain.runtime.enums import LLMProvider
 from langchain.schema import Document
 from infrastructure.benchmark.judging import judge
@@ -20,6 +21,7 @@ def compute_context_precision_recall(
     context_override: str | None = None,
     *,
     judge_model: str | None = None,
+    runtime: BudgetRuntime | None = None,
     saved_metrics: dict | None = None,
     metric_callback=None,
 ) -> dict:
@@ -33,6 +35,7 @@ def compute_context_precision_recall(
         context_override: If provided, use this as the context string directly
             instead of extracting from docs_with_scores.
         judge_model: Explicit judge model; falls back to the configured model when omitted.
+        runtime: Billing resources owned by the calling container.
         saved_metrics: Successful scores reused on resume.
         metric_callback: Persist each metric after its judge call.
 
@@ -67,7 +70,9 @@ def compute_context_precision_recall(
             continue
 
         try:
-            client = judge.get_judge_client(model if settings.llm_provider == LLMProvider.OLLAMA else "")
+            client = judge.get_judge_client(
+                model if settings.llm_provider == LLMProvider.OLLAMA else "", runtime=runtime
+            )
             score = judge.judge_with_structured_output(
                 client, template.format(question=question, answer=answer, context=context), model
             )

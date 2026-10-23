@@ -53,6 +53,16 @@ def connection_arguments() -> dict[str, Any]:
     }
 
 
+def configured_database_url() -> DatabaseURL:
+    return DatabaseURL(
+        settings.db_user,
+        settings.db_password,
+        settings.db_host,
+        settings.db_port,
+        settings.db_name,
+    )
+
+
 class DatabaseNode:
     """
     DatabaseNode: Class for async connection to PostgreSQL database using SQLAlchemy.
@@ -236,13 +246,7 @@ class DatabaseManager:
         _setup_cluster_environment: Setup for cluster environment.
         """
 
-        master_url: DatabaseURL = DatabaseURL(
-            settings.db_user,
-            settings.db_password,
-            settings.db_host,
-            settings.db_port,
-            settings.db_name,
-        )
+        master_url: DatabaseURL = configured_database_url()
 
         self.master_node = DatabaseNode(
             node_role=DatabaseNodeRole.MASTER,
@@ -284,13 +288,7 @@ class DatabaseManager:
         _setup_single_node_environment: Setup for single node environment.
         """
 
-        master_url: DatabaseURL = DatabaseURL(
-            settings.db_user,
-            settings.db_password,
-            settings.db_host,
-            settings.db_port,
-            settings.db_name,
-        )
+        master_url: DatabaseURL = configured_database_url()
 
         self.master_node = DatabaseNode(
             node_role=DatabaseNodeRole.MASTER,
@@ -384,14 +382,16 @@ class DatabaseManager:
         ]
 
         for slave_node in slaves_to_disconnect:
-            await slave_node.disconnect()
+            if slave_node.async_engine is not None:
+                await slave_node.disconnect()
+
             logger.info(
                 "Disconnected from slave database. Role: %s; Number: %s;",
                 slave_node.get_role(),
                 slave_node.get_number(),
             )
 
-        if self.master_node:
+        if self.master_node is not None and self.master_node.async_engine is not None:
             await self.master_node.disconnect()
             logger.info(
                 "Disconnected from master database. "
@@ -414,21 +414,70 @@ class DatabaseManager:
             connect_args=connect_args,
         )
 
+    @property
+    def master_url(self) -> URL:
+        engine = self.async_master_connection_engine or self.master_connection_engine
+
+        if engine is not None:
+            return engine.url
+
+        if self.master_node is not None:
+            if self.master_node.async_engine is not None:
+                return self.master_node.async_engine.url
+
+            return self.master_node.node_url.url
+
+        return configured_database_url().url
+
     @contextmanager
-    def master_connection(self) -> Iterator[Connection]:
-        if self.master_connection_engine is None:
+    def master_connection(self, *, connect_args: dict[str, Any] | None = None) -> Iterator[Connection]:
+        """Use the dedicated engine, or a scoped engine for standalone tools."""
+        engine = self.master_connection_engine
+        owned = engine is None or connect_args is not None
+
+        if owned:
+            engine = create_engine(
+                self.master_url,
+                poolclass=NullPool,
+                isolation_level="AUTOCOMMIT",
+                connect_args=connection_arguments() | (connect_args or {}),
+            )
+
+        if engine is None:
             raise DatabaseError("Master connection engine is not created")
 
-        with self.master_connection_engine.connect() as connection:
-            yield connection
+        try:
+            with engine.connect() as connection:
+                yield connection
+        finally:
+            if owned:
+                engine.dispose()
 
     @asynccontextmanager
-    async def async_master_connection(self) -> AsyncIterator[AsyncConnection]:
-        if self.async_master_connection_engine is None:
+    async def async_master_connection(
+        self, *, connect_args: dict[str, Any] | None = None
+    ) -> AsyncIterator[AsyncConnection]:
+        """Use the dedicated engine, or a scoped engine before application startup."""
+        engine = self.async_master_connection_engine
+        owned = engine is None or connect_args is not None
+
+        if owned:
+            engine = create_async_engine(
+                self.master_url,
+                poolclass=NullPool,
+                isolation_level="AUTOCOMMIT",
+                connect_args=connection_arguments() | (connect_args or {}),
+            )
+
+        if engine is None:
             raise DatabaseError("Async master connection engine is not created")
 
-        async with self.async_master_connection_engine.connect() as connection:
-            yield connection
+        try:
+            async with engine.connect() as connection:
+                yield connection
+        finally:
+            if owned:
+                await engine.dispose()
 
     def get_write_session(
         self,

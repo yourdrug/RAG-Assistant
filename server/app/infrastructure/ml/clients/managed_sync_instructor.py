@@ -5,14 +5,16 @@ import logging
 import threading
 from types import SimpleNamespace
 from contextlib import contextmanager
+from infrastructure.budget.runtime import BudgetRuntime
 from infrastructure.ml.clients.client_lease import active_client_leases
-from infrastructure.storage.file_storage import finish_owned_task
+from infrastructure.utils.async_tasks import finish_owned_task
 
 log = logging.getLogger("default")
 
 
 class ManagedSyncInstructor:
-    def __init__(self, client):
+    def __init__(self, client, *, budget_runtime: BudgetRuntime | None = None):
+        self.budget_runtime = budget_runtime
         self.client = client
         self._lock = threading.Lock()
         self._close_lock = threading.Lock()

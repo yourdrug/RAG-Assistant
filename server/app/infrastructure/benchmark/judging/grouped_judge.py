@@ -3,6 +3,7 @@
 from infrastructure.benchmark.judging.clients import create_async_judge_client
 from infrastructure.benchmark.judging.requests import judge_group
 
+from infrastructure.budget.runtime import BudgetRuntime
 import asyncio
 import time
 
@@ -34,6 +35,7 @@ async def judge_case_grouped(
     *,
     evidence_context: str | None,
     model: str,
+    runtime: BudgetRuntime | None = None,
     saved: dict | None = None,
     callback=None,
 ) -> dict:
@@ -95,7 +97,7 @@ async def judge_case_grouped(
             )
         )
 
-    async with create_async_judge_client() as client:
+    async with create_async_judge_client(runtime=runtime) as client:
         async with asyncio.TaskGroup() as tasks:
             for payload, metrics in groups:
                 tasks.create_task(judge_group(client, model, payload, metrics, scores, persist))

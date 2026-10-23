@@ -13,7 +13,7 @@ from application.benchmark import BenchmarkImportService
 from infrastructure.benchmark.reporting.legacy_import import load_legacy_runs
 from infrastructure.database.database import database
 from infrastructure.uow_factory import UnitOfWorkFactory
-from infrastructure.storage.file_storage import run_storage_io
+from infrastructure.utils.async_tasks import run_sync_io
 
 benchmark_app = typer.Typer(help='Export database runs or import legacy reports')
 
@@ -26,7 +26,7 @@ async def export_run(run_id: int, format: str, out: Path) -> None:
         # --out is the only path that writes a local report. Exclusive creation preserves existing files.
         with out.open('xb') as stream:
             async for block in service.export(run_id, format):
-                await run_storage_io(stream.write, block)
+                await run_sync_io(stream.write, block)
     finally:
         await database.disconnect()
 

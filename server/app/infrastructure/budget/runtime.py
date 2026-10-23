@@ -1,7 +1,7 @@
 """Provider admission shared by chat, auxiliary calls and benchmark adapters."""
 
 from sqlalchemy import text
-import psycopg
+from infrastructure.database.database import database
 from domain.runtime.config import parse_bool
 
 from application.budget import BudgetPolicy, CostBudgetService
@@ -17,12 +17,14 @@ class BudgetRuntime:
         self.catalog = None
         self.bootstrapped = False
         self.loop = None
+        self.database = database
 
-    def configure(self, ledger, session_factory, catalog):
+    def configure(self, ledger, session_factory, catalog, *, database_manager=database) -> None:
         self.loop = asyncio.get_running_loop()
         self.service = CostBudgetService(ledger)
         self.session_factory = session_factory
         self.catalog = catalog
+        self.database = database_manager
 
     def run_sync(self, function, *args):
         """Use the Composition-owned async resources from a worker thread."""
@@ -71,7 +73,7 @@ class BudgetRuntime:
             ).all()
         return self.decode_policy(rows)
 
-    def policy_sync(self):
+    def policy_sync(self) -> BudgetPolicy:
         if not self.bootstrapped:
             return BudgetPolicy(
                 settings.cost_rate_limit_enabled,
@@ -79,19 +81,11 @@ class BudgetRuntime:
                 str(settings.cost_daily_limit),
             )
 
-        with psycopg.connect(
-            host=settings.db_host,
-            port=int(settings.db_port),
-            user=settings.db_user,
-            password=settings.db_password,
-            dbname=settings.db_name,
-            connect_timeout=5,
-            options='-c statement_timeout=5000',
-            autocommit=True,
-        ) as connection:
-            rows = connection.execute('''SELECT key, value FROM config_parameters
+        with self.database.master_connection() as connection:
+            connection.execute(text("SET statement_timeout = '5s'"))
+            rows = connection.execute(text('''SELECT key, value FROM config_parameters
                 WHERE domain_key IS NULL AND key IN
-                ('cost_rate_limit_enabled','cost_hourly_limit','cost_daily_limit')''').fetchall()
+                ('cost_rate_limit_enabled','cost_hourly_limit','cost_daily_limit')''')).all()
         return self.decode_policy(rows)
 
     async def rate(self, provider, model):
@@ -137,6 +131,3 @@ class BudgetRuntime:
             raise BudgetError('This tariff exceeded its reservation bound; paid call blocked')
 
         return rate
-
-
-budget_runtime = BudgetRuntime()

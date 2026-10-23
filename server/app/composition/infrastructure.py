@@ -14,12 +14,15 @@ from dataclasses import dataclass, field
 from functools import partial
 
 from config import settings
+from infrastructure.events.postgres_config_listener import PostgresConfigListener
+from infrastructure.events.postgres_outbox_listener import PostgresOutboxListener
+from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
 from infrastructure.ml.config.settings_adapters import LivePreviewSettings
 from infrastructure.budget.ledger import PostgresRedisBudget
 from application.budget import BudgetAdminService
 from infrastructure.benchmark.executor import BenchmarkExecutor
 from application.benchmark import BenchmarkService
-from infrastructure.budget.runtime import budget_runtime
+from infrastructure.budget.runtime import BudgetRuntime
 from infrastructure.budget.provider_catalog import OpenRouterBillingCatalog
 from infrastructure.corpus.control import PostgresCorpusControl
 from infrastructure.rate_limit.limiter import DynamicRateLimiter
@@ -60,7 +63,6 @@ if TYPE_CHECKING:
     from application.documents import PreviewCache
     from infrastructure.database.database import DatabaseManager
     from infrastructure.events.postgres_config_broadcaster import PostgresConfigBroadcaster
-    from infrastructure.events.postgres_config_listener import PostgresConfigListener
     from infrastructure.health.system_health_probe import OllamaProbe, QdrantInfo, SystemHealthProbe
     from infrastructure.ml.extraction.extraction_adapter import MLContentExtractor, MLPDFQualityAssessor
     from infrastructure.ml.langchain_document_parser import (
@@ -74,8 +76,6 @@ if TYPE_CHECKING:
         QdrantVectorStoreRepository,
     )
     from infrastructure.uow_factory import UnitOfWorkFactory
-    from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
-    from infrastructure.events.postgres_outbox_listener import PostgresOutboxListener
 
 log = logging.getLogger("default")
 
@@ -139,6 +139,7 @@ class MLContainer:
         uow_factory: UnitOfWorkFactory,
         domain_registry: DomainProfileRegistry | None = None,
         domain_settings: DomainSettingsAdapter | None = None,
+        budget_runtime: BudgetRuntime | None = None,
     ) -> None:
         from infrastructure.ml.extraction.extraction_adapter import MLContentExtractor, MLPDFQualityAssessor
         from infrastructure.ml.langchain_document_parser import (
@@ -154,7 +155,7 @@ class MLContainer:
         from application.documents import PreviewCache
 
         self.file_storage = LazyStorage()
-        self.ml_clients = MLClientRegistry()
+        self.ml_clients = MLClientRegistry(budget_runtime=budget_runtime)
         self.vector_store_repo = QdrantVectorStoreRepository(ml_clients=self.ml_clients)
         self.preview_cache = PreviewCache(storage=self.file_storage, settings=LivePreviewSettings())
         self.document_parser = LangchainDocumentParser(
@@ -166,7 +167,9 @@ class MLContainer:
             domain_settings=domain_settings,
         )
         self.metrics_registry = PrometheusMetricsRegistry()
-        self.benchmark_service = BenchmarkService(rag_service=None, runner=BenchmarkExecutor(self.ml_clients))
+        self.benchmark_service = BenchmarkService(
+            rag_service=None, runner=BenchmarkExecutor(self.ml_clients, budget_runtime=budget_runtime)
+        )
         self.summary_updater = RollingSummaryUpdater(ml_clients=self.ml_clients)
         self.content_extractor = MLContentExtractor()
         self.pdf_quality_assessor = MLPDFQualityAssessor()
@@ -217,19 +220,16 @@ class EventContainer:
 
     def init(
         self,
+        database: DatabaseManager,
         uow_factory: UnitOfWorkFactory,
         vector_store_repo: VectorIndexWriter,
         configuration: SettingsProviderConfiguration,
         cache_invalidator: CacheInvalidatorPort | None = None,
     ) -> None:
-        from infrastructure.events.postgres_config_listener import PostgresConfigListener
-        from infrastructure.repositories.vector.outbox_dispatcher import OutboxDispatcher
-        from infrastructure.events.postgres_outbox_listener import PostgresOutboxListener
-        from config import settings as app_settings
-
         self.config_listener = PostgresConfigListener(
             uow_factory=uow_factory,
             configuration=configuration,
+            database=database,
         )
         self.outbox_dispatcher = OutboxDispatcher(
             uow_factory=uow_factory,
@@ -238,8 +238,7 @@ class EventContainer:
         )
         self.outbox_listener = PostgresOutboxListener(
             dispatcher=self.outbox_dispatcher,
-            dsn=f"postgresql://{app_settings.db_user}:{app_settings.db_password}"
-            f"@{app_settings.db_host}:{app_settings.db_port}/{app_settings.db_name}",
+            database=database,
         )
 
     async def dispose(self) -> None:
@@ -364,6 +363,7 @@ class InfrastructureContainer:
     rate_limit: DynamicRateLimiter | None = field(default=None, repr=False)
     _initialized: bool = field(default=False, repr=False)
     corpus_control: PostgresCorpusControl | None = field(default=None, repr=False)
+    budget_runtime: BudgetRuntime = field(default_factory=BudgetRuntime, repr=False)
     budget_admin: BudgetAdminService | None = field(default=None, repr=False)
     configuration: SettingsProviderConfiguration | None = field(default=None, repr=False)
     _config_handlers: list = field(default_factory=list, repr=False)
@@ -384,13 +384,16 @@ class InfrastructureContainer:
             uow_factory=self.db.uow,
             domain_registry=self.domain_registry,
             domain_settings=self.domain_settings,
+            budget_runtime=self.budget_runtime,
         )
         self.services.init()
         self.init_rate_limit()
         session_factory = partial(database_manager.get_session, master=True)
         budget_ledger = PostgresRedisBudget(session_factory, redis_client.async_redis)
         billing_catalog = OpenRouterBillingCatalog()
-        budget_runtime.configure(budget_ledger, session_factory, billing_catalog)
+        self.budget_runtime.configure(
+            budget_ledger, session_factory, billing_catalog, database_manager=database_manager
+        )
         self.budget_admin = BudgetAdminService(budget_ledger, billing_catalog)
         self.configuration = SettingsProviderConfiguration(
             domain_settings=self.domain_settings,
@@ -399,6 +402,7 @@ class InfrastructureContainer:
             ml_clients=self.ml.clients,
         )
         self.events.init(
+            database=database_manager,
             uow_factory=self.db.uow,
             vector_store_repo=self.ml.vector_index_writer,
             configuration=self.configuration,
@@ -420,10 +424,10 @@ class InfrastructureContainer:
         await seed_domain_config_defaults(self.db.uow, self.domain_registry)
         if (
             self.budget_admin is not None
-            and budget_runtime.service is not None
-            and budget_runtime.service.ledger is self.budget_admin.repository
+            and self.budget_runtime.service is not None
+            and self.budget_runtime.service.ledger is self.budget_admin.repository
         ):
-            budget_runtime.bootstrapped = True
+            self.budget_runtime.bootstrapped = True
 
         await self.events.config_listener.synchronize(require_complete=True)
         if self.corpus_control is None:
@@ -517,13 +521,13 @@ class InfrastructureContainer:
         try:
             if (
                 self.budget_admin is not None
-                and budget_runtime.service is not None
-                and budget_runtime.service.ledger is self.budget_admin.repository
+                and self.budget_runtime.service is not None
+                and self.budget_runtime.service.ledger is self.budget_admin.repository
             ):
-                budget_runtime.bootstrapped = False
+                self.budget_runtime.bootstrapped = False
             if self.corpus_control is not None:
                 await self.corpus_control.close()
-            await close_judge_clients()
+            await close_judge_clients(runtime=self.budget_runtime)
         finally:
             try:
                 if self.rate_limit is not None:

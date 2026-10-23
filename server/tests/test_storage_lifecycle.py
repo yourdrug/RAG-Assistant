@@ -117,12 +117,12 @@ async def test_legacy_config_event_preserves_storage_and_bm25_reader(monkeypatch
     infra = InfrastructureContainer(configuration=configuration)
     infra.ml.file_storage = storage
     infra.ml.ml_clients = clients
-    listener = PostgresConfigListener(factory, configuration)
+    listener = PostgresConfigListener(factory, configuration, database=MagicMock())
     infra.events.config_listener = listener
     infra.subscribe_config_events()
     try:
         bus.publish(event)
-        await asyncio.gather(*listener._background_tasks)
+        await asyncio.gather(*listener.transport.background_tasks)
         assert configuration.status().ready
         assert getattr(settings, key) == "old"
     finally:

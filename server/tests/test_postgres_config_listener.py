@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
+from test_postgres_listener import connection, database_manager
 
 from domain.runtime.config import ConfigParameterChanged
 from infrastructure.events.postgres_config_broadcaster import PostgresConfigBroadcaster
@@ -15,7 +16,7 @@ from infrastructure.events.postgres_config_listener import PostgresConfigListene
 
 @pytest.fixture
 def listener():
-    return PostgresConfigListener(MagicMock(), configuration=MagicMock())
+    return PostgresConfigListener(MagicMock(), configuration=MagicMock(), database=MagicMock())
 
 
 @pytest.mark.asyncio
@@ -23,8 +24,8 @@ def listener():
 async def test_notify_reloads_snapshot_regardless_of_payload(listener, monkeypatch, payload):
     synchronize = AsyncMock()
     monkeypatch.setattr(listener, "synchronize", synchronize)
-    listener.on_notify(None, None, "config_changed", payload)
-    await asyncio.gather(*listener._background_tasks)
+    listener.on_notify(payload)
+    await asyncio.gather(*listener.transport.background_tasks)
     synchronize.assert_awaited_once_with()
     listener.configuration.failed.assert_not_called()
 
@@ -39,21 +40,23 @@ async def test_resync_marks_configuration_unready_on_failure(listener, monkeypat
 
 @pytest.mark.asyncio
 async def test_connect_reloads_snapshot_after_listening(listener, monkeypatch):
-    connection = AsyncMock()
-    monkeypatch.setattr(
-        "infrastructure.events.postgres_config_listener.asyncpg.connect",
-        AsyncMock(return_value=connection),
-    )
-    synchronize = AsyncMock()
+    driver = connection()
+    listener.transport.database = database_manager(driver)
+    synchronized = asyncio.Event()
 
     async def synchronized_after_listen():
-        connection.add_listener.assert_awaited_once_with("config_changed", listener.on_notify)
-        await synchronize()
+        statement = driver.execute.call_args.args[0]
+        assert statement.as_string() == 'LISTEN "config_changed"'
+        synchronized.set()
 
     monkeypatch.setattr(listener, "synchronize", synchronized_after_listen)
-    await listener.connect_and_listen()
-    synchronize.assert_awaited_once_with()
-    assert listener._conn is connection
+    await listener.start()
+    try:
+        await asyncio.wait_for(synchronized.wait(), 1)
+        assert listener.transport.connection is driver
+        assert listener.is_connected
+    finally:
+        await listener.stop()
 
 
 @pytest.mark.asyncio
@@ -69,15 +72,16 @@ async def test_stop_cancels_pending_sync_and_closes_connection(listener, monkeyp
             cancelled.set()
 
     monkeypatch.setattr(listener, "synchronize", synchronize)
-    listener._conn = MagicMock(is_closed=MagicMock(return_value=False), close=AsyncMock())
-    connection = listener._conn
-    listener.on_notify(None, None, "config_changed", "")
+    driver = connection()
+    listener.transport.database = database_manager(driver)
+    await listener.start()
+    listener.on_notify("")
     await started.wait()
     await listener.stop()
     assert cancelled.is_set()
-    assert not listener._background_tasks
+    assert not listener.transport.background_tasks
     assert not listener.is_connected
-    connection.close.assert_awaited_once_with()
+    driver.close.assert_awaited_once_with()
     listener.configuration.failed.assert_not_called()
 
 

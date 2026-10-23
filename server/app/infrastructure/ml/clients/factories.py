@@ -5,6 +5,8 @@ is handled by ``MLClientRegistry`` (infrastructure.ml.client_registry).
 """
 
 from __future__ import annotations
+from typing import TYPE_CHECKING
+
 
 import logging
 from enum import StrEnum
@@ -29,6 +31,9 @@ from infrastructure.ml.clients.deepinfra_clients import DeepInfraEmbeddingsClien
 from infrastructure.ml.clients.tei_clients import TEIEmbeddingsClient, TEIRerankerClient
 from infrastructure.ml.config.embedding_identity import configured_embedding_identity
 
+if TYPE_CHECKING:
+    from infrastructure.budget.runtime import BudgetRuntime
+
 log = logging.getLogger("default")
 
 
@@ -37,7 +42,7 @@ log = logging.getLogger("default")
 # ---------------------------------------------------------------------------
 
 
-def create_embeddings(model: Settings | None = None):
+def create_embeddings(model: Settings | None = None, *, runtime: BudgetRuntime | None = None):
     model = (model or settings).model_copy()
     pool_limits = httpx.Limits(
         max_connections=model.embedding_http_max_connections,
@@ -51,6 +56,7 @@ def create_embeddings(model: Settings | None = None):
             base_url=f"{model.deepinfra_base_url}/openai",
             model=model.deepinfra_embed_model,
             pool_limits=pool_limits,
+            runtime=runtime,
         )
 
         client.embedding_identity = configured_embedding_identity(model)
@@ -68,7 +74,7 @@ def create_embeddings(model: Settings | None = None):
 # ---------------------------------------------------------------------------
 
 
-def create_reranker(model: Settings | None = None):
+def create_reranker(model: Settings | None = None, *, runtime: BudgetRuntime | None = None):
     model = (model or settings).model_copy()
     pool_limits = httpx.Limits(
         max_connections=model.rerank_http_max_connections,
@@ -82,6 +88,7 @@ def create_reranker(model: Settings | None = None):
             base_url=model.deepinfra_base_url,
             model=model.deepinfra_rerank_model,
             pool_limits=pool_limits,
+            runtime=runtime,
         )
 
     log.info("Creating TEI reranker client (%s) ...", model.tei_rerank_url)
@@ -115,6 +122,7 @@ def build_chat_model(
     num_predict: int | None = None,
     model_name: str | None = None,
     base_url: str | None = None,
+    runtime: BudgetRuntime | None = None,
 ) -> ChatOllama | ChatOpenAI:
     """Build a chat client from one settings snapshot and its call role."""
     model = (model or settings).model_copy()
@@ -138,8 +146,10 @@ def build_chat_model(
             "temperature": temperature if temperature is not None else role_temperature,
             "max_tokens": num_predict if num_predict is not None else output_limits[role],
             "max_retries": 0,
-            "http_client": httpx.Client(follow_redirects=False, transport=PaidSyncTransport()),
-            "http_async_client": httpx.AsyncClient(follow_redirects=False, transport=PaidAsyncTransport()),
+            "http_client": httpx.Client(follow_redirects=False, transport=PaidSyncTransport(runtime=runtime)),
+            "http_async_client": httpx.AsyncClient(
+                follow_redirects=False, transport=PaidAsyncTransport(runtime=runtime)
+            ),
         }
 
         if role != ChatModelRole.BENCHMARK:
@@ -179,12 +189,15 @@ def create_llm(
     num_ctx: int | None = None,
     num_predict: int | None = None,
     model: Settings | None = None,
+    *,
+    runtime: BudgetRuntime | None = None,
 ):
     """Create LLM based on the configured provider."""
     return build_chat_model(
         (model or settings).llm_provider,
         ChatModelRole.DEFAULT,
         model=model,
+        runtime=runtime,
         temperature=temperature,
         top_p=top_p,
         num_ctx=num_ctx,
@@ -193,13 +206,18 @@ def create_llm(
 
 
 def create_openrouter_llm(
-    temperature: float | None = None, max_tokens: int | None = None, model: Settings | None = None
+    temperature: float | None = None,
+    max_tokens: int | None = None,
+    model: Settings | None = None,
+    *,
+    runtime: BudgetRuntime | None = None,
 ) -> ChatOpenAI:
     """Create an OpenRouter chat client through the shared provider factory."""
     return build_chat_model(
         LLMProvider.OPENROUTER,
         ChatModelRole.DEFAULT,
         model=model,
+        runtime=runtime,
         temperature=temperature,
         num_predict=max_tokens,
     )
@@ -214,6 +232,8 @@ def create_llm_for_breadth(
     num_predict_narrow: int | None = None,
     num_predict_broad: int | None = None,
     model: Settings | None = None,
+    *,
+    runtime: BudgetRuntime | None = None,
 ):
     """Create LLM with parameters matching breadth mode."""
     is_broad = breadth == Breadth.BROAD
@@ -221,6 +241,7 @@ def create_llm_for_breadth(
         (model or settings).llm_provider,
         ChatModelRole.BROAD if is_broad else ChatModelRole.NARROW,
         model=model,
+        runtime=runtime,
         temperature=temperature,
         top_p=top_p,
         num_ctx=(num_ctx_broad if is_broad else num_ctx_narrow) or None,
@@ -228,9 +249,11 @@ def create_llm_for_breadth(
     )
 
 
-def create_fast_llm_for_auxiliary(model: Settings | None = None):
+def create_fast_llm_for_auxiliary(model: Settings | None = None, *, runtime: BudgetRuntime | None = None):
     """Create the lightweight client for condense, relevance and decomposition."""
-    return build_chat_model((model or settings).llm_provider, ChatModelRole.AUXILIARY, model=model)
+    return build_chat_model(
+        (model or settings).llm_provider, ChatModelRole.AUXILIARY, model=model, runtime=runtime
+    )
 
 
 # ---------------------------------------------------------------------------

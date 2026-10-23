@@ -112,7 +112,9 @@ class TestApplicationContainer:
             factory = container.infrastructure.db.uow_factory
             factory.create.return_value.__aenter__ = AsyncMock(return_value=uow)
             factory.create.return_value.__aexit__ = AsyncMock(return_value=False)
-            await PostgresConfigListener(factory, configuration=configuration).resync(trigger="reconnect")
+            await PostgresConfigListener(factory, configuration=configuration, database=MagicMock()).resync(
+                trigger="reconnect"
+            )
 
         assert settings.pii_redaction_enabled is True
         assert chat_redactor.redact(text) == "Контакт: ***"

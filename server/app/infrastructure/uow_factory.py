@@ -83,27 +83,13 @@ class UnitOfWorkFactory:
 
     @asynccontextmanager
     async def ingestion_lock(self) -> AsyncGenerator[None, None]:
-        # Pin a physical connection: a session lock must never leak into the pool.
-        async with self._database.get_session(master=True) as session:
-            engine = session.bind
-
-            if engine is None:
-                msg = "Ingestion requires a bound database engine"
-                raise RuntimeError(msg)
-
-            async with engine.connect() as connection:
-                try:
-                    await connection.execute(text("SELECT pg_advisory_lock(724193820146)"))
-                    await connection.commit()
-                    yield
-                finally:
-                    try:
-                        await connection.rollback()
-                        await connection.execute(text("SELECT pg_advisory_unlock(724193820146)"))
-                        await connection.commit()
-                    except BaseException:
-                        await connection.invalidate()
-                        raise
+        # NullPool closes the physical session even if acquiring or releasing the lock fails.
+        async with self._database.async_master_connection() as connection:
+            await connection.execute(text("SELECT pg_advisory_lock(724193820146)"))
+            try:
+                yield
+            finally:
+                await connection.execute(text("SELECT pg_advisory_unlock(724193820146)"))
 
     @asynccontextmanager
     async def create(self, *, master: bool = False) -> AsyncGenerator[UnitOfWork, None]:

@@ -1,6 +1,8 @@
 """Judge one generated answer, reusing successful checkpoint scores."""
 
 from __future__ import annotations
+from typing import TYPE_CHECKING
+
 import asyncio
 from infrastructure.benchmark.evaluation.answer_generators import BenchmarkAnswer
 from infrastructure.benchmark.judging import judge
@@ -11,6 +13,9 @@ from config import settings
 from infrastructure.benchmark.judging import context_judge
 from infrastructure.benchmark.checkpoint import restore_grouped_scores
 
+if TYPE_CHECKING:
+    from infrastructure.budget.runtime import BudgetRuntime
+
 
 async def judge_generated(
     question: dict,
@@ -20,6 +25,7 @@ async def judge_generated(
     save_stage,
     *,
     judge_model: str,
+    runtime: BudgetRuntime | None = None,
 ) -> tuple[dict, dict, dict]:
 
     if settings.benchmark_judge_grouped_enabled:
@@ -30,6 +36,7 @@ async def judge_generated(
             generated.context,
             evidence_context=generated.evidence.context if generated.evidence else None,
             model=judge_model,
+            runtime=runtime,
             saved=saved_scores,
             callback=lambda value: save_stage("grouped_metrics", value),
         )
@@ -65,6 +72,7 @@ async def judge_generated(
             context=generated.context,
             expected_answer=question.get("expected_answer"),
             judge_model=judge_model,
+            runtime=runtime,
             saved_metrics=stages.get("generator_metrics"),
             metric_callback=lambda value: save_stage("generator_metrics", value),
         )
@@ -80,6 +88,7 @@ async def judge_generated(
                 question.get("expected_answer") or "",
                 context_override=generated.context,
                 judge_model=judge_model,
+                runtime=runtime,
                 saved_metrics=stages.get("context_metrics"),
                 metric_callback=lambda value: save_sync("context_metrics", value),
             )
@@ -94,6 +103,7 @@ async def judge_generated(
             generated.evidence.context if generated.evidence else None,
             annotations,
             judge_model,
+            runtime=runtime,
             saved_metrics=stages.get("evidence_judge"),
             metric_callback=lambda value: save_sync("evidence_judge", value),
         )

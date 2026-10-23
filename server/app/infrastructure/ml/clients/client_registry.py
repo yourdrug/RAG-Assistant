@@ -10,6 +10,8 @@ The registry calls factory functions on first access and caches the result.
 """
 
 from __future__ import annotations
+from typing import TYPE_CHECKING
+
 
 import asyncio
 import logging
@@ -28,9 +30,12 @@ from domain.runtime.enums import LLMProvider
 
 from infrastructure.bm25.bm25_index import BM25Index
 from infrastructure.bm25.persistence import BM25SnapshotNotReady
-from infrastructure.storage.file_storage import finish_owned_task, run_storage_io
+from infrastructure.utils.async_tasks import finish_owned_task, run_sync_io
 from infrastructure.ml.clients import factories
 from infrastructure.ml.clients.instructor_client import create_async_instructor_client
+
+if TYPE_CHECKING:
+    from infrastructure.budget.runtime import BudgetRuntime
 
 log = logging.getLogger("default")
 
@@ -77,7 +82,13 @@ class MLClientRegistry(MLClientPort):
         invalidate_bm25 → reload on next access
     """
 
-    def __init__(self, bm25_loader: Callable[[], Awaitable[BM25Index | None]] | None = None) -> None:
+    def __init__(
+        self,
+        bm25_loader: Callable[[], Awaitable[BM25Index | None]] | None = None,
+        *,
+        budget_runtime: BudgetRuntime | None = None,
+    ) -> None:
+        self.budget_runtime = budget_runtime
         self.corpus_readiness: Callable[[], Awaitable[bool]] | None = None
         self._init_lock = threading.Lock()
         self._embeddings: Any = None
@@ -132,7 +143,7 @@ class MLClientRegistry(MLClientPort):
         if self._embeddings is None:
             with self._init_lock:
                 if self._embeddings is None:
-                    self._embeddings = factories.create_embeddings()
+                    self._embeddings = factories.create_embeddings(runtime=self.budget_runtime)
 
         return self._embeddings
 
@@ -140,7 +151,7 @@ class MLClientRegistry(MLClientPort):
         if self._llm is None:
             with self._init_lock:
                 if self._llm is None:
-                    self._llm = ManagedLLM(factories.create_llm())
+                    self._llm = ManagedLLM(factories.create_llm(runtime=self.budget_runtime))
 
         return self._llm
 
@@ -148,7 +159,9 @@ class MLClientRegistry(MLClientPort):
         if breadth not in self._llm_breadth_cache:
             with self._init_lock:
                 if breadth not in self._llm_breadth_cache:
-                    self._llm_breadth_cache[breadth] = ManagedLLM(factories.create_llm_for_breadth(breadth))
+                    self._llm_breadth_cache[breadth] = ManagedLLM(
+                        factories.create_llm_for_breadth(breadth, runtime=self.budget_runtime)
+                    )
 
         return self._llm_breadth_cache[breadth]
 
@@ -157,7 +170,9 @@ class MLClientRegistry(MLClientPort):
         if self._fast_llm is None:
             with self._init_lock:
                 if self._fast_llm is None:
-                    self._fast_llm = ManagedLLM(factories.create_fast_llm_for_auxiliary())
+                    self._fast_llm = ManagedLLM(
+                        factories.create_fast_llm_for_auxiliary(runtime=self.budget_runtime)
+                    )
 
         return self._fast_llm
 
@@ -165,7 +180,7 @@ class MLClientRegistry(MLClientPort):
         if self._reranker is None:
             with self._init_lock:
                 if self._reranker is None:
-                    self._reranker = factories.create_reranker()
+                    self._reranker = factories.create_reranker(runtime=self.budget_runtime)
 
         return self._reranker
 
@@ -262,7 +277,7 @@ class MLClientRegistry(MLClientPort):
         if self._closed:
             raise RuntimeError("ML registry is closed")
 
-        loaded, index, _ = await run_storage_io(self.bm25_state)
+        loaded, index, _ = await run_sync_io(self.bm25_state)
 
         if loaded:
             return index
@@ -272,14 +287,14 @@ class MLClientRegistry(MLClientPort):
                 if self._closed:
                     raise RuntimeError("ML registry is closed")
 
-                loaded, index, generation = await run_storage_io(self.bm25_state)
+                loaded, index, generation = await run_sync_io(self.bm25_state)
 
                 if loaded:
                     return index
 
                 index = await self._bm25_loader() if self._bm25_loader is not None else None
 
-                if await run_storage_io(self.publish_bm25_snapshot, index, generation):
+                if await run_sync_io(self.publish_bm25_snapshot, index, generation):
                     return index
 
     def bm25_index(self) -> BM25Index | None:
@@ -319,11 +334,13 @@ class MLClientRegistry(MLClientPort):
 
                     if model.llm_provider == LLMProvider.OPENROUTER:
                         self._instructor = create_async_instructor_client(
+                            runtime=self.budget_runtime,
                             base_url=model.openrouter_base_url,
                             api_key=model.openrouter_api_key,
                         )
                     else:
                         self._instructor = create_async_instructor_client(
+                            runtime=self.budget_runtime,
                             base_url=f"{model.ollama_base_url}/v1",
                             api_key="ollama",
                         )
@@ -429,7 +446,7 @@ class MLClientRegistry(MLClientPort):
         """Drain BM25 jobs before closing their owned client pools."""
         async with self._bm25_load_lock:
             # Wait for an admitted load and any in-flight CPU mutation.
-            await run_storage_io(self.bm25_state)
+            await run_sync_io(self.bm25_state)
         clients_to_close = [
             self._embeddings,
             self._reranker,

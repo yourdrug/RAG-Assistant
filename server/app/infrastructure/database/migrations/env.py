@@ -6,16 +6,13 @@ import logging
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import pool
 from sqlalchemy.engine import Connection
-from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from config import settings
 from infrastructure.database.basemodel import _Base as Base
+from infrastructure.database.database import DatabaseManager
 
 
 config = context.config
-section = config.config_ini_section
 target_metadata = Base.metadata
 
 
@@ -31,20 +28,14 @@ def load_model_modules() -> None:
 
 
 def init_alembic_config() -> None:
-    """Inject DB settings from config into alembic.ini placeholders."""
+    """Configure migration logging."""
     if config.config_file_name is not None:
         fileConfig(config.config_file_name)
-
-    config.set_section_option(section, "DB_USER", settings.db_user)
-    config.set_section_option(section, "DB_PASSWORD", settings.db_password)
-    config.set_section_option(section, "DB_HOST", settings.db_host)
-    config.set_section_option(section, "DB_PORT", settings.db_port)
-    config.set_section_option(section, "DB_NAME", settings.db_name)
 
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""
-    url = config.get_main_option("sqlalchemy.url")
+    url = DatabaseManager().master_url
 
     context.configure(
         url=url,
@@ -66,17 +57,13 @@ def do_run_migrations(connection: Connection) -> None:
 
 
 async def run_async_migrations() -> None:
-    """Create an async engine and run migrations."""
-    connectable = async_engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
-
-    async with connectable.connect() as connection:
+    """Run transactional migrations on a manager-owned connection."""
+    database = DatabaseManager()
+    async with database.async_master_connection(
+        connect_args={"options": "-c statement_timeout=0"}
+    ) as connection:
+        await connection.execution_options(isolation_level="READ COMMITTED")
         await connection.run_sync(do_run_migrations)
-
-    await connectable.dispose()
 
 
 def run_migrations_online() -> None:

@@ -613,7 +613,7 @@ async def test_auxiliary_call_waiting_for_semaphore_keeps_its_original_client(mo
     wire_http(monkeypatch, successful_response)
     monkeypatch.setattr(factories, "settings", model)
 
-    def create(model=None):
+    def create(model=None, *, runtime=None):
         async def invoke(*args, **kwargs):
             return AIMessage(content="expanded question")
 

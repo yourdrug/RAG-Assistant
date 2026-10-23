@@ -9,6 +9,8 @@ as the TEI clients, so the rest of the codebase is provider-agnostic.
 """
 
 from __future__ import annotations
+from typing import TYPE_CHECKING
+
 
 import logging
 
@@ -17,6 +19,9 @@ from infrastructure.budget.transport import PaidSyncTransport
 from domain.runtime.cost import BudgetError
 from infrastructure.ml.clients.managed_http import ManagedHTTPPool
 from infrastructure.ml.usage_capture import record_inference_response
+
+if TYPE_CHECKING:
+    from infrastructure.budget.runtime import BudgetRuntime
 
 log = logging.getLogger("default")
 
@@ -29,14 +34,15 @@ class DeepInfraEmbeddingsClient(ManagedHTTPPool):
     embedding_identity: str
 
     def __init__(
-        self, api_key: str, base_url: str, model: str, pool_limits: httpx.Limits | None = None
+        self, api_key: str, base_url: str, model: str, pool_limits: httpx.Limits | None = None,
+        *, runtime: BudgetRuntime | None = None,
     ) -> None:
         self._api_key = api_key
         self.billable_provider = "DeepInfra embedding/rerank"
         self._base_url = base_url.rstrip("/")
         self._model = model
         limits = pool_limits or httpx.Limits(max_connections=20, max_keepalive_connections=10)
-        super().__init__(DEEPINFRA_TIMEOUT, limits)
+        super().__init__(DEEPINFRA_TIMEOUT, limits, runtime=runtime)
 
     def headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._api_key}"}
@@ -68,7 +74,9 @@ class DeepInfraEmbeddingsClient(ManagedHTTPPool):
         return [item["embedding"] for item in sorted(data, key=lambda x: x["index"])]
 
     def embed_query_sync(self, text: str) -> list[float]:
-        with httpx.Client(timeout=DEEPINFRA_TIMEOUT, transport=PaidSyncTransport()) as client:
+        with httpx.Client(
+            timeout=DEEPINFRA_TIMEOUT, transport=PaidSyncTransport(runtime=self.budget_runtime)
+        ) as client:
             r = client.post(
                 f"{self._base_url}/embeddings",
                 headers=self.headers(),
@@ -87,14 +95,15 @@ class DeepInfraRerankerClient(ManagedHTTPPool):
     """
 
     def __init__(
-        self, api_key: str, base_url: str, model: str, pool_limits: httpx.Limits | None = None
+        self, api_key: str, base_url: str, model: str, pool_limits: httpx.Limits | None = None,
+        *, runtime: BudgetRuntime | None = None,
     ) -> None:
         self._api_key = api_key
         self.billable_provider = "DeepInfra embedding/rerank"
         self._base_url = base_url.rstrip("/")
         self._model = model
         limits = pool_limits or httpx.Limits(max_connections=10, max_keepalive_connections=5)
-        super().__init__(DEEPINFRA_TIMEOUT, limits)
+        super().__init__(DEEPINFRA_TIMEOUT, limits, runtime=runtime)
 
     def headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._api_key}"}
@@ -129,7 +138,9 @@ class DeepInfraRerankerClient(ManagedHTTPPool):
         query = pairs[0][0]
         documents = [p[1] for p in pairs]
         payload = {"queries": [query], "documents": documents}
-        with httpx.Client(timeout=DEEPINFRA_TIMEOUT, transport=PaidSyncTransport()) as client:
+        with httpx.Client(
+            timeout=DEEPINFRA_TIMEOUT, transport=PaidSyncTransport(runtime=self.budget_runtime)
+        ) as client:
             r = client.post(
                 f"{self._base_url}/inference/{self._model}",
                 headers=self.headers(),

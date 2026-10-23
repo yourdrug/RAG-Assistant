@@ -15,7 +15,8 @@ from application.ports.file_storage import FileStorage
 
 from infrastructure.bm25.bm25_index import BM25Index
 from domain.knowledge.enums import DocumentVisibility
-from infrastructure.storage.file_storage import S3_MISSING_CODES, run_storage_io
+from infrastructure.storage.file_storage import S3_MISSING_CODES
+from infrastructure.utils.async_tasks import run_sync_io
 
 log = logging.getLogger("default")
 
@@ -50,7 +51,7 @@ async def load_bm25_index_from_s3(storage: FileStorage) -> BM25Index | None:
         temp_path = await storage.download_to_temp(BM25_S3_KEY)
         cancelled = False
         try:
-            index = await run_storage_io(parse_bm25_snapshot, temp_path)
+            index = await run_sync_io(parse_bm25_snapshot, temp_path)
             log.info("BM25 index loaded from S3: %d docs", index.n_docs)
             return index
         except asyncio.CancelledError:
@@ -58,7 +59,7 @@ async def load_bm25_index_from_s3(storage: FileStorage) -> BM25Index | None:
             raise
         finally:
             try:
-                await run_storage_io(temp_path.unlink, missing_ok=True)
+                await run_sync_io(temp_path.unlink, missing_ok=True)
             except OSError:
                 if not cancelled:
                     raise

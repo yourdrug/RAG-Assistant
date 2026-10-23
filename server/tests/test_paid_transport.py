@@ -556,7 +556,7 @@ async def test_real_instructor_retry_accounts_invalid_response(runtime, monkeypa
     monkeypatch.setattr(
         instructor_client,
         'PaidAsyncTransport',
-        lambda: PaidAsyncTransport(
+        lambda **kwargs: PaidAsyncTransport(
             runtime=runtime,
             transport=httpx.MockTransport(provider),
         ),
@@ -564,7 +564,7 @@ async def test_real_instructor_retry_accounts_invalid_response(runtime, monkeypa
     monkeypatch.setattr(
         instructor_client,
         'PaidSyncTransport',
-        lambda: PaidSyncTransport(
+        lambda **kwargs: PaidSyncTransport(
             runtime=runtime,
             transport=httpx.MockTransport(provider),
         ),
@@ -752,13 +752,14 @@ async def test_managed_llm_uses_one_physical_reservation(runtime, monkeypatch):
     monkeypatch.setattr(
         factories,
         'PaidAsyncTransport',
-        lambda: PaidAsyncTransport(
+        lambda **kwargs: PaidAsyncTransport(
             runtime=runtime,
             transport=httpx.MockTransport(provider),
         ),
     )
     llm = ManagedLLM(
         factories.create_openrouter_llm(
+            runtime=runtime,
             max_tokens=10,
             model=factories.settings.model_copy(
                 update={'openrouter_model': 'm', 'openrouter_api_key': 'test'},
@@ -814,7 +815,7 @@ async def test_both_judge_factories_use_physical_accounting(runtime, monkeypatch
     monkeypatch.setattr(
         judge_clients,
         'PaidSyncTransport',
-        lambda: PaidSyncTransport(
+        lambda **kwargs: PaidSyncTransport(
             runtime=runtime,
             transport=httpx.MockTransport(provider),
         ),
@@ -822,7 +823,7 @@ async def test_both_judge_factories_use_physical_accounting(runtime, monkeypatch
     monkeypatch.setattr(
         judge_clients,
         'PaidAsyncTransport',
-        lambda: PaidAsyncTransport(
+        lambda **kwargs: PaidAsyncTransport(
             runtime=runtime,
             transport=httpx.MockTransport(provider),
         ),
@@ -897,7 +898,7 @@ async def test_deepinfra_clients_keep_outputs_and_account_physical_call(runtime,
     monkeypatch.setattr(
         deepinfra_clients,
         'PaidSyncTransport',
-        lambda: PaidSyncTransport(
+        lambda **kwargs: PaidSyncTransport(
             runtime=runtime,
             transport=transport,
         ),
@@ -996,7 +997,7 @@ async def test_instructor_retry_cannot_bypass_worker_replay_block(runtime, monke
     monkeypatch.setattr(
         instructor_client,
         'PaidAsyncTransport',
-        lambda: PaidAsyncTransport(
+        lambda **kwargs: PaidAsyncTransport(
             runtime=runtime,
             transport=httpx.MockTransport(provider),
         ),

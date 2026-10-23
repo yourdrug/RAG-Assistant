@@ -1,6 +1,6 @@
 """Postgres LISTEN/NOTIFY listener for vector_outbox_ready channel.
 
-Uses a dedicated raw asyncpg connection (not the SQLAlchemy pool) — LISTEN
+Uses a dedicated connection from DatabaseManager (outside the session pool) — LISTEN
 holds the connection open permanently, so it cannot be returned to the pool.
 Includes a supervisor task for automatic reconnection on disconnect and a
 resync on (re)connect to close the window of lost NOTIFY messages.
@@ -8,73 +8,39 @@ resync on (re)connect to close the window of lost NOTIFY messages.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
+from typing import TYPE_CHECKING
 
-import asyncpg
+
+from infrastructure.events.postgres_listener import PostgresListener
+
+if TYPE_CHECKING:
+    from infrastructure.database.database import DatabaseManager
 
 log = logging.getLogger("default")
 
 _CHANNEL = "vector_outbox_ready"
-_RECONNECT_DELAY_SEC = 5.0
 
 
 class PostgresOutboxListener:
     """LISTEN/NOTIFY listener that triggers the outbox dispatcher on new entries."""
 
-    def __init__(self, dispatcher, dsn: str) -> None:
+    def __init__(self, dispatcher, database: DatabaseManager) -> None:
         """Initialize the outbox listener.
 
         Args:
             dispatcher: OutboxDispatcher instance to trigger on notifications.
-            dsn: PostgreSQL connection DSN string (e.g. postgresql://user:pass@host/db).
+            database: Manager providing dedicated master connections.
 
         """
         self._dispatcher = dispatcher
-        self._dsn = dsn
-        self._conn: asyncpg.Connection | None = None
-        self._stopped = False
-        self._supervisor_task: asyncio.Task | None = None
-        self._background_tasks: set[asyncio.Task] = set()
+        self.transport = PostgresListener(database, _CHANNEL, self.on_notify, self.on_connect)
 
     async def start(self) -> None:
-        self._stopped = False
-        self._supervisor_task = asyncio.create_task(self._run_forever(), name="pg-outbox-listener")
+        await self.transport.start()
 
-    async def _run_forever(self) -> None:
-        while not self._stopped:
-            try:
-                await self._connect_and_listen()
-                disconnect_event = asyncio.Event()
-
-                if self._conn is not None:
-                    self._conn.add_termination_listener(lambda _c, _de=disconnect_event: _de.set())
-
-                await disconnect_event.wait()
-
-                if not self._stopped:
-                    log.warning(
-                        "Outbox LISTEN connection lost — reconnecting in %.0fs",
-                        _RECONNECT_DELAY_SEC,
-                    )
-            except Exception:
-                log.exception(
-                    "Outbox LISTEN connection failed — retrying in %.0fs",
-                    _RECONNECT_DELAY_SEC,
-                )
-            finally:
-                await self._safe_close()
-
-            if not self._stopped:
-                await asyncio.sleep(_RECONNECT_DELAY_SEC)
-
-    async def _connect_and_listen(self) -> None:
-        self._conn = await asyncpg.connect(dsn=self._dsn)
-        await self._conn.add_listener(_CHANNEL, self._on_notify)
-        log.info("Outbox LISTEN '%s' established", _CHANNEL)
-
-        # Resync on connect — process any entries missed while disconnected
+    async def on_connect(self) -> None:
         await self.resync(trigger="reconnect")
 
     async def resync(self, trigger: str = "manual") -> None:
@@ -87,7 +53,7 @@ class PostgresOutboxListener:
         except Exception:
             log.exception("Outbox resync failed")
 
-    def _on_notify(self, connection: asyncpg.Connection, pid: int, channel: str, payload: str) -> None:
+    def on_notify(self, payload: str) -> None:
         try:
             data = json.loads(payload)
         except json.JSONDecodeError:
@@ -97,39 +63,11 @@ class PostgresOutboxListener:
         log.debug("Outbox NOTIFY received: %s", data)
 
         # Schedule dispatcher run as a background task — non-blocking
-        task = asyncio.create_task(self._dispatcher.run_once())
-        self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
-
-    async def _safe_close(self) -> None:
-        if self._conn is not None and not self._conn.is_closed():
-            try:
-                await self._conn.close()
-            except Exception:
-                log.debug("Failed to close outbox listener connection", exc_info=True)
-
-        self._conn = None
+        self.transport.schedule(self._dispatcher.run_once())
 
     async def stop(self) -> None:
-        self._stopped = True
-
-        if self._supervisor_task is not None:
-            self._supervisor_task.cancel()
-            try:
-                await self._supervisor_task
-            except asyncio.CancelledError:
-                pass
-
-        if self._background_tasks:
-            for task in self._background_tasks:
-                task.cancel()
-
-            await asyncio.gather(*self._background_tasks, return_exceptions=True)
-            self._background_tasks.clear()
-
-        await self._safe_close()
-        log.info("Outbox LISTEN '%s' stopped", _CHANNEL)
+        await self.transport.stop()
 
     @property
     def is_connected(self) -> bool:
-        return self._conn is not None and not self._conn.is_closed()
+        return self.transport.is_connected

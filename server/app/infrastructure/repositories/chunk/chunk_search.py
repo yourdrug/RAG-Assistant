@@ -7,13 +7,13 @@ from datetime import date
 
 from domain.knowledge.chunk import ChunkRecord
 from domain.knowledge.access_control import get_visibility_conditions
-from domain.knowledge.access_control import OwnerMatch
 from domain.identity.roles import UserKind, UserRole
 from domain.knowledge.enums import SearchMode
 from sqlalchemy import and_, func, or_, select, text, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.database.models import ActVersionModel, ChunkModel
+from infrastructure.repositories.sql_acl import render_visibility_conditions
 
 _SEARCH_COLUMNS = (
     ChunkModel.id,
@@ -104,24 +104,14 @@ def build_acl_clauses(
         managed_group_ids=managed_group_ids,
     )
 
-    acl_clauses = []
-
-    for cond in conditions:
-        parts = [ChunkModel.visibility == cond.visibility.value]
-
-        if cond.owner_match == OwnerMatch.SELF.value:
-            parts.append(ChunkModel.owner_id == user_id)
-
-        if cond.owner_match == OwnerMatch.ASSIGNED.value and cond.owner_ids:
-            parts.append(ChunkModel.owner_id.in_(cond.owner_ids))
-
-        if cond.group_match:
-            effective_group_ids = cond.group_ids if cond.group_ids is not None else group_ids
-            parts.append(ChunkModel.group_id.in_(effective_group_ids))
-
-        acl_clauses.append(and_(*parts))
-
-    return acl_clauses
+    return render_visibility_conditions(
+        conditions,
+        visibility_column=ChunkModel.visibility,
+        owner_column=ChunkModel.owner_id,
+        group_column=ChunkModel.group_id,
+        user_id=user_id,
+        group_ids=group_ids,
+    )
 
 
 def build_exact_search_stmt(query: str, acl_clauses: list, document_id: int | None, limit: int | None):

@@ -14,6 +14,7 @@ from domain.ingestion.raw_document import RawDocument
 from domain.identity.roles import UserKind, UserRole
 from domain.knowledge.enums import DocumentVisibility
 from infrastructure.database.models import UserModel
+from infrastructure.database.database import DatabaseManager
 from infrastructure.repositories.chunk.sqlalchemy_chunk_repository import SQLAlchemyChunkRepository
 from infrastructure.repositories.document.sqlalchemy_document_repository import SQLAlchemyDocumentRepository
 from infrastructure.uow_factory import UnitOfWorkFactory
@@ -106,11 +107,9 @@ async def test_reindex_reads_concurrent_assignment_after_acquiring_row_lock(pg_e
 async def test_ingestion_session_lock_serializes_without_open_transaction_and_releases_on_cancel(pg_engine):
     sessions = async_sessionmaker(pg_engine, expire_on_commit=False)
 
-    class SessionDatabase:
-        def get_session(self, master=False):
-            return sessions()
-
-    factory = UnitOfWorkFactory(SessionDatabase())
+    database = DatabaseManager()
+    database.create_master_connection_engines(pg_engine.url.set(drivername="postgresql+psycopg"), {})
+    factory = UnitOfWorkFactory(database)
     first_locked = asyncio.Event()
     second_locked = asyncio.Event()
     release = asyncio.Event()
@@ -145,8 +144,11 @@ async def test_ingestion_session_lock_serializes_without_open_transaction_and_re
         with pytest.raises(asyncio.CancelledError):
             await first
         await asyncio.wait_for(second_locked.wait(), timeout=5)
+        release.set()
+        await second
+        async with factory.ingestion_lock():
+            pass
     finally:
         release.set()
         await asyncio.gather(*(task for task in (first, second) if task is not None), return_exceptions=True)
-    async with factory.ingestion_lock():
-        pass
+        await database.disconnect()

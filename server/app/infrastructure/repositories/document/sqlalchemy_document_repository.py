@@ -11,7 +11,6 @@ from domain.knowledge.document import Document
 from domain.shared.exceptions import EntityNotFoundError, UniqueConstraintError
 from domain.knowledge.access_control import get_visibility_conditions
 from domain.knowledge.enums import DOCUMENT_SLOT_STATUSES, DocumentStatus
-from domain.knowledge.access_control import OwnerMatch
 from domain.identity.roles import UserKind, UserRole
 from domain.knowledge.enums import DocumentVisibility
 from sqlalchemy import and_, distinct, func, or_, select, update
@@ -19,6 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.database.models import DocumentModel, VectorStoreOutboxModel
+from infrastructure.repositories.sql_acl import render_visibility_conditions
 
 
 class SQLAlchemyDocumentRepository:
@@ -265,28 +265,21 @@ class SQLAlchemyDocumentRepository:
         conditions = get_visibility_conditions(
             UserKind(user_kind),
             group_ids,
+            for_list=True,
             user_role=UserRole(user_role) if user_role else None,
             managed_client_ids=managed_client_ids,
             managed_internal_ids=managed_internal_ids,
             managed_group_ids=managed_group_ids,
         )
 
-        or_clauses = []
-
-        for cond in conditions:
-            and_parts = [DocumentModel.visibility == cond.visibility.value]
-
-            if cond.owner_match == OwnerMatch.SELF.value:
-                and_parts.append(DocumentModel.owner_id == user_id)
-
-            if cond.owner_match == OwnerMatch.ASSIGNED.value and cond.owner_ids:
-                and_parts.append(DocumentModel.owner_id.in_(cond.owner_ids))
-
-            if cond.group_match:
-                effective_group_ids = cond.group_ids if cond.group_ids is not None else group_ids
-                and_parts.append(DocumentModel.group_id.in_(effective_group_ids))
-
-            or_clauses.append(and_(*and_parts))
+        or_clauses = render_visibility_conditions(
+            conditions,
+            visibility_column=DocumentModel.visibility,
+            owner_column=DocumentModel.owner_id,
+            group_column=DocumentModel.group_id,
+            user_id=user_id,
+            group_ids=group_ids,
+        )
 
         if not or_clauses:
             return []

@@ -4,7 +4,6 @@ import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from fastapi import Response
-from composition import infrastructure
 from domain.runtime.cost import BudgetError
 from infrastructure.budget.runtime import BudgetRuntime
 from infrastructure.budget.transport import PaidAsyncTransport
@@ -135,15 +134,15 @@ async def test_restart_and_lost_notify_load_latest_writer_snapshot(configuration
 
     factory = FakeUnitOfWorkFactory()
     await factory._uow.config_parameters.save(row("llm_model", "first"))
-    listener = PostgresConfigListener(factory, configuration=configuration)
+    listener = PostgresConfigListener(factory, configuration=configuration, database=MagicMock())
     await listener.resync()
     assert configuration.settings.llm_model == "first"
     await factory._uow.config_parameters.update_value("llm_model", "latest")
     # Delayed/duplicate old NOTIFY must reread the writer, never replay stale values.
     listener.on_notify(
-        None, None, "config_changed", '{"key":"llm_model","new_value":"stale","value_type":"str"}'
+        '{"key":"llm_model","new_value":"stale","value_type":"str"}'
     )
-    await asyncio.gather(*listener._background_tasks)
+    await asyncio.gather(*listener.transport.background_tasks)
     assert configuration.settings.llm_model == "latest"
     configuration.settings.llm_model = "restarted-process-default"
     await listener.resync(trigger="periodic")
@@ -209,7 +208,7 @@ async def test_concurrent_resync_cannot_replay_an_older_snapshot(configuration):
         return result
 
     factory._uow.config_parameters.get_all = get_all
-    listener = PostgresConfigListener(factory, configuration=configuration)
+    listener = PostgresConfigListener(factory, configuration=configuration, database=MagicMock())
     first = asyncio.create_task(listener.synchronize())
     await started.wait()
     await factory._uow.config_parameters.update_value("llm_model", "new")
@@ -488,7 +487,7 @@ async def test_budget_policy_is_durable_before_bootstrap_probes(monkeypatch):
     catalog = SimpleNamespace(contract=AsyncMock(side_effect=BudgetError('Unknown price; paid call blocked')))
     runtime.configure(ledger, factory, catalog)
     infra.budget_admin = SimpleNamespace(repository=ledger)
-    monkeypatch.setattr(infrastructure, 'budget_runtime', runtime)
+    infra.budget_runtime = runtime
     monkeypatch.setattr(settings, 'cost_rate_limit_enabled', False)
 
     post = AsyncMock()

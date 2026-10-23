@@ -17,6 +17,7 @@ from infrastructure.benchmark.judging.judge_rubric import JUDGE_RUBRIC_VERSION
 from application.benchmark import BenchmarkCheckpoints
 
 from config import settings
+from infrastructure.budget.runtime import BudgetRuntime
 from domain.benchmark.question import validate_annotations
 from domain.rag.context import RagContext
 from domain.identity.roles import UserKind, UserRole
@@ -70,6 +71,7 @@ async def run_benchmark_async(
     n_runs: int = 1,
     rag_service=None,
     corpus_resource=None,
+    budget_runtime: BudgetRuntime | None = None,
     fetch_k: int | None = None,
     resume: bool = False,
     checkpoints: BenchmarkCheckpoints | None = None,
@@ -127,7 +129,9 @@ async def run_benchmark_async(
         checkpoint_dir = Path("checkpoints") / (checkpoint_prefix or identity) if resume else None
         store = checkpoints
         checkpoint_dir = await prepare_checkpoint_corpus(store, checkpoint_dir, corpus)
-        evaluator = BenchmarkCaseEvaluator(generator, judge_model, checkpoints=store)
+        evaluator = BenchmarkCaseEvaluator(
+            generator, judge_model, checkpoints=store, budget_runtime=budget_runtime
+        )
         all_results = []
 
         async def process_question(idx: int, question: dict, run_idx: int) -> dict:

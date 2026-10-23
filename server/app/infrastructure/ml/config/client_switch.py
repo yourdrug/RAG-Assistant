@@ -14,7 +14,7 @@ from domain.runtime.enums import LLMProvider
 from infrastructure.ml.clients import factories
 from infrastructure.ml.clients.instructor_client import create_async_instructor_client
 from infrastructure.ml.clients.managed_llm import ManagedInstructor, ManagedLLM
-from infrastructure.storage.file_storage import finish_owned_task
+from infrastructure.utils.async_tasks import finish_owned_task
 
 LLM_CLIENT_KEYS = frozenset(
     {
@@ -92,14 +92,16 @@ def prepare_llm_clients(registry, candidate: Settings, prepared: dict) -> None:
     prepared.update({"_llm": None, "_fast_llm": None, "_instructor": None, "_llm_breadth_cache": {}})
 
     if registry._llm is not None:
-        prepared["_llm"] = ManagedLLM(factories.create_llm(model=candidate))
+        prepared["_llm"] = ManagedLLM(factories.create_llm(model=candidate, runtime=registry.budget_runtime))
 
     if registry._fast_llm is not None:
-        prepared["_fast_llm"] = ManagedLLM(factories.create_fast_llm_for_auxiliary(model=candidate))
+        prepared["_fast_llm"] = ManagedLLM(
+            factories.create_fast_llm_for_auxiliary(model=candidate, runtime=registry.budget_runtime)
+        )
 
     for breadth in registry._llm_breadth_cache:
         prepared["_llm_breadth_cache"][breadth] = ManagedLLM(
-            factories.create_llm_for_breadth(breadth, model=candidate)
+            factories.create_llm_for_breadth(breadth, model=candidate, runtime=registry.budget_runtime)
         )
 
     if registry._instructor is not None:
@@ -108,11 +110,12 @@ def prepare_llm_clients(registry, candidate: Settings, prepared: dict) -> None:
             create_async_instructor_client(
                 candidate.openrouter_base_url if remote else f"{candidate.ollama_base_url.rstrip('/')}/v1",
                 candidate.openrouter_api_key if remote else LLMProvider.OLLAMA.value,
+                runtime=registry.budget_runtime,
             )
         )
 
 
-async def probe_llm_endpoint(candidate: Settings, keys: set[str], prepared: dict) -> None:
+async def probe_llm_endpoint(registry, candidate: Settings, keys: set[str], prepared: dict) -> None:
     remote = candidate.llm_provider == LLMProvider.OPENROUTER
     endpoint = "openrouter_base_url" if remote else "ollama_base_url"
 
@@ -120,7 +123,7 @@ async def probe_llm_endpoint(candidate: Settings, keys: set[str], prepared: dict
         return
 
     if prepared["_llm"] is None:
-        prepared["_llm"] = ManagedLLM(factories.create_llm(model=candidate))
+        prepared["_llm"] = ManagedLLM(factories.create_llm(model=candidate, runtime=registry.budget_runtime))
 
     async with httpx.AsyncClient(timeout=10, follow_redirects=False) as client:
         response = await client.get(
@@ -169,14 +172,14 @@ async def prepare_clients(
     try:
         if keys & LLM_CLIENT_KEYS:
             prepare_llm_clients(registry, candidate, prepared)
-            await probe_llm_endpoint(candidate, keys, prepared)
+            await probe_llm_endpoint(registry, candidate, keys, prepared)
 
         if keys & EMBEDDING_CLIENT_KEYS:
-            prepared["_embeddings"] = factories.create_embeddings(candidate)
+            prepared["_embeddings"] = factories.create_embeddings(candidate, runtime=registry.budget_runtime)
             await probe_embedding_endpoint(registry, current, candidate, keys, prepared, applied)
 
         if keys & RERANK_CLIENT_KEYS:
-            prepared["_reranker"] = factories.create_reranker(candidate)
+            prepared["_reranker"] = factories.create_reranker(candidate, runtime=registry.budget_runtime)
 
             if (
                 "tei_rerank_url" in keys

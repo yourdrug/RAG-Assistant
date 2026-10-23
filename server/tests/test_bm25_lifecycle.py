@@ -10,7 +10,8 @@ import pytest
 from config import settings
 from infrastructure.bm25.bm25_index import BM25Index
 from infrastructure.ml.clients.client_registry import MLClientRegistry
-from infrastructure.storage.file_storage import LazyStorage, run_storage_io
+from infrastructure.storage.file_storage import LazyStorage
+from infrastructure.utils.async_tasks import run_sync_io
 
 
 @pytest.mark.asyncio
@@ -109,7 +110,7 @@ async def test_registry_shutdown_drains_cancelled_snapshot_parse():
         return BM25Index(["snapshot"])
 
     async def load():
-        return await run_storage_io(parse)
+        return await run_sync_io(parse)
 
     registry = MLClientRegistry(bm25_loader=load)
     pending = asyncio.create_task(registry.ensure_bm25_loaded())

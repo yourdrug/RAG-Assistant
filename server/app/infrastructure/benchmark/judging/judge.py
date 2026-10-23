@@ -13,6 +13,7 @@ from pydantic import ValidationError
 from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from config import settings
+from infrastructure.budget.runtime import BudgetRuntime
 from domain.runtime.enums import LLMProvider
 
 from infrastructure.ml.clients.llm_schemas import JudgeScore
@@ -86,6 +87,8 @@ def judge_answer(
     context: str,
     expected_answer: str | None = None,
     judge_llm=None,
+    *,
+    runtime: BudgetRuntime | None = None,
 ) -> dict:
     """Run judge LLM synchronously with structured output (instructor only)."""
     model = get_judge_model()
@@ -103,7 +106,9 @@ def judge_answer(
 
     for key, prompt in prompts.items():
         try:
-            client = get_judge_client(model if settings.llm_provider == LLMProvider.OLLAMA else "")
+            client = get_judge_client(
+                model if settings.llm_provider == LLMProvider.OLLAMA else "", runtime=runtime
+            )
             result = judge_with_structured_output(client, prompt, model)
             scores[key] = max(0.0, min(10.0, result.score))
             scores[f"{key}_reason"] = result.reason
@@ -128,6 +133,7 @@ async def judge_answer_async(
     judge_llm=None,
     *,
     judge_model: str | None = None,
+    runtime: BudgetRuntime | None = None,
     saved_metrics: dict | None = None,
     metric_callback=None,
 ) -> dict:
@@ -144,7 +150,9 @@ async def judge_answer_async(
         )
 
     async def judge_one(prompt: str) -> JudgeScore:
-        client = get_judge_client(model if settings.llm_provider == LLMProvider.OLLAMA else "")
+        client = get_judge_client(
+            model if settings.llm_provider == LLMProvider.OLLAMA else "", runtime=runtime
+        )
         with sync_client_operation(client):
             return await asyncio.wait_for(
                 asyncio.to_thread(judge_with_structured_output, client, prompt, model),

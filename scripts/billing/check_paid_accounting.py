@@ -10,6 +10,7 @@ import asyncio
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
+from functools import partial
 import json
 import logging
 from pathlib import Path
@@ -19,8 +20,6 @@ from uuid import uuid4
 from pydantic import BaseModel
 from redis.asyncio import Redis
 from sqlalchemy import text
-from sqlalchemy.engine import URL
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from application.budget import billing_principal
 from config import settings
@@ -36,7 +35,8 @@ from infrastructure.benchmark.judging.requests import judge_batch
 from infrastructure.budget.job_context import job_operations
 from infrastructure.budget.ledger import PostgresRedisBudget
 from infrastructure.budget.provider_catalog import OpenRouterBillingCatalog
-from infrastructure.budget.runtime import budget_runtime
+from infrastructure.budget.runtime import BudgetRuntime
+from infrastructure.database.database import DatabaseManager
 from infrastructure.ml.clients.deepinfra_clients import DeepInfraEmbeddingsClient, DeepInfraRerankerClient
 from infrastructure.ml.clients.factories import create_openrouter_llm
 from infrastructure.ml.clients.instructor_client import (
@@ -122,48 +122,57 @@ def verify_coverage(rows: Sequence[Mapping[str, Any]], args: argparse.Namespace)
         raise BudgetError(message)
 
 
-async def validate_rates(args: argparse.Namespace) -> None:
+async def validate_rates(args: argparse.Namespace, runtime: BudgetRuntime) -> None:
     for provider, model in (
         ("deepinfra", args.embedding_model),
         ("deepinfra", args.reranker_model),
         ("openrouter", args.llm_model),
         ("openrouter", args.judge_model),
     ):
-        await budget_runtime.rate(provider, model)
+        await runtime.rate(provider, model)
 
 
-def create_dispatch_clients(args: argparse.Namespace) -> tuple[Any, Any, Any, Any, Any, Any]:
+def create_dispatch_clients(
+    args: argparse.Namespace, runtime: BudgetRuntime
+) -> tuple[Any, Any, Any, Any, Any, Any]:
     embedding = DeepInfraEmbeddingsClient(
         settings.deepinfra_api_key,
         settings.deepinfra_base_url.rstrip("/") + "/openai",
         args.embedding_model,
+        runtime=runtime,
     )
     reranker = DeepInfraRerankerClient(
         settings.deepinfra_api_key,
         settings.deepinfra_base_url,
         args.reranker_model,
+        runtime=runtime,
     )
     llm = ManagedLLM(
         create_openrouter_llm(
             max_tokens=128,
+            runtime=runtime,
             model=settings.model_copy(
                 update={"openrouter_model": args.llm_model},
             ),
         )
     )
-    structured = create_async_instructor_client(settings.openrouter_base_url, settings.openrouter_api_key)
-    sync_structured = create_instructor_client(settings.openrouter_base_url, settings.openrouter_api_key)
-    grouped = create_async_judge_client()
+    structured = create_async_instructor_client(
+        settings.openrouter_base_url, settings.openrouter_api_key, runtime=runtime
+    )
+    sync_structured = create_instructor_client(
+        settings.openrouter_base_url, settings.openrouter_api_key, runtime=runtime
+    )
+    grouped = create_async_judge_client(runtime=runtime)
     return embedding, reranker, llm, structured, sync_structured, grouped
 
 
-async def dispatch(args: argparse.Namespace) -> None:
+async def dispatch(args: argparse.Namespace, runtime: BudgetRuntime) -> None:
     settings.llm_provider = LLMProvider.OPENROUTER
     settings.cost_rate_limit_enabled = True
     settings.cost_hourly_limit = args.maximum_usd
     settings.cost_daily_limit = args.maximum_usd
-    await validate_rates(args)
-    embedding, reranker, llm, structured, sync_structured, grouped = create_dispatch_clients(args)
+    await validate_rates(args, runtime)
+    embedding, reranker, llm, structured, sync_structured, grouped = create_dispatch_clients(args, runtime)
     try:
         # A bounded run completes within the rolling hour, so its shared quota is also the total run cap.
         async with asyncio.timeout(600):
@@ -182,7 +191,7 @@ async def dispatch(args: argparse.Namespace) -> None:
             await structured.chat.completions.create(**kwargs)
             await asyncio.to_thread(sync_structured.chat.completions.create, **kwargs)
             await llm.ainvoke("Reply with the single word OK.")
-            judge = await asyncio.to_thread(get_judge_client, args.judge_model)
+            judge = await asyncio.to_thread(get_judge_client, args.judge_model, runtime=runtime)
             await asyncio.to_thread(
                 judge_with_structured_output,
                 judge,
@@ -214,33 +223,26 @@ async def dispatch(args: argparse.Namespace) -> None:
             llm.close(),
             structured.client.close(),
             grouped.close(),
-            close_judge_clients(),
+            close_judge_clients(runtime=runtime),
         )
         await asyncio.to_thread(sync_structured.client.close)
 
 
-async def main(args: argparse.Namespace) -> None:
-    engine = create_async_engine(
-        URL.create(
-            "postgresql+asyncpg",
-            username=settings.db_user,
-            password=settings.db_password,
-            host=settings.db_host,
-            port=int(settings.db_port),
-            database=settings.db_name,
-        )
-    )
+async def main(args: argparse.Namespace) -> None:  # noqa: PLR0915
+    runtime = BudgetRuntime()
+    database = DatabaseManager()
     redis = Redis.from_url(settings.redis_url, decode_responses=True)
-    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    sessions = partial(database.get_session, master=True)
     ledger = PostgresRedisBudget(sessions, redis)
-    budget_runtime.configure(ledger, sessions, OpenRouterBillingCatalog())
     token = billing_principal.set(args.principal)
     scope = job_operations.set((f"live:{args.account}:{uuid4().hex}", {}))
-    since = datetime.fromisoformat(args.since) if args.since else datetime.now(UTC)
-    if since.tzinfo is None:
-        message = "--since must include a UTC offset"
-        raise BudgetError(message)
     try:
+        since = datetime.fromisoformat(args.since) if args.since else datetime.now(UTC)
+        if since.tzinfo is None:
+            message = "--since must include a UTC offset"
+            raise BudgetError(message)
+        await database.connect()
+        runtime.configure(ledger, sessions, OpenRouterBillingCatalog(), database_manager=database)
         if not args.confirmations:
             log.warning(
                 "Paid dispatch account=%s since=%s cap_usd=%s",
@@ -248,7 +250,7 @@ async def main(args: argparse.Namespace) -> None:
                 since.isoformat(),
                 args.maximum_usd,
             )
-            await dispatch(args)
+            await dispatch(args, runtime)
         async with sessions() as session:
             rows = (
                 (
@@ -278,8 +280,10 @@ async def main(args: argparse.Namespace) -> None:
     finally:
         job_operations.reset(scope)
         billing_principal.reset(token)
-        await redis.aclose()
-        await engine.dispose()
+        try:
+            await redis.aclose()
+        finally:
+            await database.disconnect()
 
 
 if __name__ == "__main__":

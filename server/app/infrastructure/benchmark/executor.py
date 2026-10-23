@@ -10,10 +10,14 @@ from infrastructure.benchmark.evaluation.runner import run_benchmark_async
 if TYPE_CHECKING:
     from application.benchmark.dto import BenchmarkRunnerOptions
     from application.ports.ml_clients import MLClientPort
+    from infrastructure.budget.runtime import BudgetRuntime
 
 
 class BenchmarkExecutor:
-    def __init__(self, corpus_resource: MLClientPort | None = None) -> None:
+    def __init__(
+        self, corpus_resource: MLClientPort | None = None, *, budget_runtime: BudgetRuntime | None = None
+    ) -> None:
+        self.budget_runtime = budget_runtime
         self.corpus_resource = corpus_resource
 
     async def run(
@@ -30,6 +34,7 @@ class BenchmarkExecutor:
                 top_k=top_k,
                 judge_model=judge_model,
                 corpus_resource=self.corpus_resource,
+                budget_runtime=self.budget_runtime,
                 **options,
             ),
         )

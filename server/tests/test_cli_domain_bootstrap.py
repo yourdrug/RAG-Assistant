@@ -35,7 +35,9 @@ def build_infrastructure(monkeypatch):
         _env_file=None, tei_embed_url="http://tei-embed:80", tei_rerank_url="http://tei-rerank:80"
     )
     infra.configuration = SettingsProviderConfiguration(model, adapter, registry, bus)
-    infra.events.config_listener = PostgresConfigListener(infra.db.uow, configuration=infra.configuration)
+    infra.events.config_listener = PostgresConfigListener(
+        infra.db.uow, configuration=infra.configuration, database=database
+    )
     infra.ml.ml_clients = SimpleNamespace(
         invalidate_llm=lambda: None,
         invalidate_bm25=lambda: None,

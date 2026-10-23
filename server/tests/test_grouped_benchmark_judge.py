@@ -93,7 +93,7 @@ async def test_three_parallel_calls_with_context_only_twice_and_reference_for_re
         active -= 1
         return response({key: {"score": 0, "reason": "valid zero"} for key in requested_metrics(kwargs)})
 
-    monkeypatch.setattr(grouped_judge, "create_async_judge_client", lambda: JudgeClient(create))
+    monkeypatch.setattr(grouped_judge, "create_async_judge_client", lambda **kwargs: JudgeClient(create))
     result = await BenchmarkCaseEvaluator(generator(), "judge").evaluate(1, case(), 1, SimpleNamespace())
     assert len(calls) == peak == 3
     payloads = [json.loads(call["messages"][0]["content"].split("Данные JSON:\n")[1]) for call in calls]
@@ -124,7 +124,7 @@ async def test_invalid_metric_preserves_siblings_and_retries_only_missing(monkey
     async def save(values):
         snapshots.append(values)
 
-    monkeypatch.setattr(grouped_judge, "create_async_judge_client", lambda: JudgeClient(create))
+    monkeypatch.setattr(grouped_judge, "create_async_judge_client", lambda **kwargs: JudgeClient(create))
     result = await grouped_judge.judge_case_grouped(
         case(), "answer", "context", evidence_context="context", model="judge", callback=save
     )
@@ -155,7 +155,7 @@ async def test_database_resume_keeps_generated_answer_and_successful_scores_afte
             }
         )
 
-    monkeypatch.setattr(grouped_judge, "create_async_judge_client", lambda: JudgeClient(create))
+    monkeypatch.setattr(grouped_judge, "create_async_judge_client", lambda **kwargs: JudgeClient(create))
     first_generator = generator()
     store = DatabaseBenchmarkCheckpoints(factory, 42)
     path = Path("config/case.stages.json")
@@ -200,7 +200,7 @@ async def test_request_concurrency_is_bounded_across_questions(monkeypatch):
         active -= 1
         return response({key: {"score": 9, "reason": "ok"} for key in requested_metrics(kwargs)})
 
-    monkeypatch.setattr(grouped_judge, "create_async_judge_client", lambda: JudgeClient(create))
+    monkeypatch.setattr(grouped_judge, "create_async_judge_client", lambda **kwargs: JudgeClient(create))
     await asyncio.gather(
         *(
             grouped_judge.judge_case_grouped(case(), "a", "c", evidence_context="c", model="j")
@@ -298,7 +298,7 @@ async def test_resume_24_of_30_retries_six_scores_without_regenerating_or_writin
             }
         )
 
-    monkeypatch.setattr(grouped_judge, "create_async_judge_client", lambda: JudgeClient(create))
+    monkeypatch.setattr(grouped_judge, "create_async_judge_client", lambda **kwargs: JudgeClient(create))
     from infrastructure.benchmark.evaluation import answer_generators
 
     monkeypatch.setattr(answer_generators, "RagBenchmarkGenerator", lambda *args: generated)
@@ -586,7 +586,7 @@ async def test_parallel_cases_keep_separate_log_correlation(monkeypatch, caplog)
         await asyncio.sleep(0)
         return response({key: {"score": 8, "reason": "ok"} for key in requested_metrics(kwargs)})
 
-    monkeypatch.setattr(grouped_judge, "create_async_judge_client", lambda: JudgeClient(create))
+    monkeypatch.setattr(grouped_judge, "create_async_judge_client", lambda **kwargs: JudgeClient(create))
     await asyncio.gather(
         *(
             BenchmarkCaseEvaluator(generator(), "judge").evaluate(

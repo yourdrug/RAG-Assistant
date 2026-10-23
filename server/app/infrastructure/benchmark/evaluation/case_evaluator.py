@@ -1,6 +1,8 @@
 """Evaluate one generated benchmark answer independently of scheduling and report storage."""
 
 from __future__ import annotations
+from typing import TYPE_CHECKING
+
 
 from infrastructure.benchmark.checkpoint import refresh_judge_rubric, load_stages, save_stages
 from infrastructure.benchmark.evaluation.case_judging import judge_generated
@@ -26,6 +28,9 @@ from domain.benchmark.evaluation import evaluate_evidence, evaluate_retrieval
 from infrastructure.benchmark.evaluation.answer_generators import BenchmarkAnswerGenerator
 from infrastructure.ml.usage_capture import summarize_usage
 
+if TYPE_CHECKING:
+    from infrastructure.budget.runtime import BudgetRuntime
+
 
 class BenchmarkCaseEvaluator:
     def __init__(
@@ -33,7 +38,9 @@ class BenchmarkCaseEvaluator:
         generator: BenchmarkAnswerGenerator,
         judge_model: str,
         checkpoints: BenchmarkCheckpoints | None = None,
+        *, budget_runtime: BudgetRuntime | None = None,
     ) -> None:
+        self.budget_runtime = budget_runtime
         self._generator = generator
         self._judge_model = judge_model
         self._checkpoints = checkpoints
@@ -117,7 +124,8 @@ class BenchmarkCaseEvaluator:
                 await save_stages(self._checkpoints, checkpoint_path, stages)
 
         generator_metrics, context_metrics, judge_metrics = await judge_generated(
-            question, generated, annotations, stages, save_stage, judge_model=self._judge_model
+            question, generated, annotations, stages, save_stage,
+            judge_model=self._judge_model, runtime=self.budget_runtime
         )
         evidence = generated.evidence
         evidence_metrics, diagnostics = evaluate_evidence(

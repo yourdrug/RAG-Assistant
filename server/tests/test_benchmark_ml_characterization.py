@@ -104,9 +104,15 @@ async def test_queued_judge_preserves_client_until_worker_admission(judge_http, 
 async def test_container_shutdown_waits_for_owned_benchmark_pool_cleanup(judge_http):
     from composition.container import Container
 
-    judge_clients.get_judge_client("test-model")
+    container = Container()
+    judge_clients.get_judge_client("test-model", runtime=container.infrastructure.budget_runtime)
+    other = Container()
+    judge_clients.get_judge_client("test-model", runtime=other.infrastructure.budget_runtime)
+    assert len(judge_http[1]) == 2
+    await other.infrastructure.dispose()
+    assert judge_http[1][1].is_closed
     assert not judge_http[1][0].is_closed
-    await Container().infrastructure.dispose()
+    await container.infrastructure.dispose()
     assert judge_http[1][0].is_closed
 
 

@@ -53,6 +53,7 @@ jobs:
     env:
       DATA_DIR: /tmp/rag_test
       TEST_POSTGRES_URL: postgresql+asyncpg://test:test@localhost:5432/rag_test
+      RUN_INTEGRATION_TESTS: "1"
     steps:
       - uses: actions/checkout@v4
 

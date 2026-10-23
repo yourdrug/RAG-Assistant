@@ -395,7 +395,7 @@ class SettingsProviderConfiguration:
                 self.ml_clients.install_clients(prepared)
 
                 if any(event.key in LLM_CLIENT_KEYS for event in events):
-                    retire_judge_clients()
+                    retire_judge_clients(runtime=self.ml_clients.budget_runtime)
 
             self._status = ConfigurationStatus(version, version, True, None)
             self.require_complete = require_complete
