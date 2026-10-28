@@ -6,7 +6,7 @@ from dataclasses import asdict
 from datetime import date
 from typing import TYPE_CHECKING
 
-from config import settings
+from config import get_request_settings
 from domain.rag.answer_policy import policy_for
 from domain.rag.breadth import Breadth
 from domain.rag.evidence.focus import EVIDENCE_POLICY_VERSION
@@ -41,17 +41,7 @@ class CacheKeyBuilder:
                 ],
                 "rag_settings": asdict(state.request.settings),
                 "corpus_revision": state.cache_revision,
-                "llm_provider": settings.llm_provider,
-                "llm_model": settings.llm_model,
-                "openrouter_model": settings.openrouter_model,
-                "ml_provider": settings.ml_provider,
-                "llm_temperature": settings.llm_temperature,
-                "llm_top_p": settings.llm_top_p,
-                "embedding_revision": settings.embedding_revision,
-                "tei_embed_model": settings.tei_embed_model,
-                "deepinfra_embed_model": settings.deepinfra_embed_model,
-                "deepinfra_rerank_model": settings.deepinfra_rerank_model,
-                "retrieval_score_threshold": settings.rag_retrieval_score_threshold,
+                "generation": dict(state.request.generation_config) or dict(generation_identity()),
                 "evidence_policy": EVIDENCE_POLICY_VERSION,
                 "domain_prompts": {
                     domain_key: [
@@ -69,3 +59,20 @@ class CacheKeyBuilder:
             },
         )
         return q_hash, vis_hash
+
+
+def generation_identity() -> tuple[tuple[str, str | float], ...]:
+    model = get_request_settings()
+    return (
+        ("llm_provider", model.llm_provider),
+        ("llm_model", model.llm_model),
+        ("openrouter_model", model.openrouter_model),
+        ("ml_provider", model.ml_provider),
+        ("llm_temperature", model.llm_temperature),
+        ("llm_top_p", model.llm_top_p),
+        ("embedding_revision", model.embedding_revision),
+        ("tei_embed_model", model.tei_embed_model),
+        ("deepinfra_embed_model", model.deepinfra_embed_model),
+        ("deepinfra_rerank_model", model.deepinfra_rerank_model),
+        ("rag_retrieval_score_threshold", model.rag_retrieval_score_threshold),
+    )

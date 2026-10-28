@@ -12,6 +12,8 @@ import socket
 import uuid
 
 from application.ports.cache_invalidator import CacheInvalidatorPort
+from application.uow.factory import UnitOfWorkFactory
+from typing import Any
 from config import settings
 from domain.knowledge.chunk import Chunk, ChunkRecord
 from domain.knowledge.index_sync import OutboxOperation, VectorOutboxEntry
@@ -29,14 +31,14 @@ _OUTBOX_CONCURRENCY = 5  # max parallel entry processing tasks
 class OutboxDispatcher:
     """Applies pending outbox entries to Qdrant.
 
-    Idempotent by construction: upsert by deterministic point_id (chunk.id),
-    delete operations are no-op on non-existent points.  Therefore at-least-once
-    delivery (retries after mid-flight failure) is safe.
+    Upserts serialize per document across processes and read committed SQL
+    content. Retries converge to current text even when edits overlap uploads.
+    Deletes are idempotent for missing points.
     """
 
     def __init__(
         self,
-        uow_factory,
+        uow_factory: UnitOfWorkFactory,
         vector_store: VectorIndexWriter,
         cache_invalidator: CacheInvalidatorPort | None = None,
     ) -> None:
@@ -89,6 +91,9 @@ class OutboxDispatcher:
             return 0
 
     async def _apply_one(self, entry: VectorOutboxEntry) -> None:
+        if entry.id is None:
+            message = "Only persisted outbox entries can be dispatched"
+            raise ValueError(message)
         try:
             await self._dispatch(entry)
 
@@ -169,7 +174,7 @@ class OutboxDispatcher:
             doc = await uow.documents.get_by_id(document_id)
             return doc is not None
 
-    async def _apply_version_metadata(self, version_id: int, fallback: dict) -> None:
+    async def _apply_version_metadata(self, version_id: int, fallback: dict[str, Any]) -> None:
         """Apply committed state, even when an old outbox entry is retried late."""
         metadata = fallback
         document_ids: list[int] = []
@@ -214,11 +219,11 @@ class OutboxDispatcher:
             message = "Chunk content changed during vector upload; retry required"
             raise RuntimeError(message)
 
-    async def apply_upsert(self, payload: dict, document_id: int = 0) -> None:
+    async def apply_upsert(self, payload: dict[str, Any], document_id: int = 0) -> None:
         async with self._uow_factory.document_index_lock(document_id):
             await self.apply_current_upsert(payload, document_id)
 
-    async def apply_current_upsert(self, payload: dict, document_id: int) -> None:
+    async def apply_current_upsert(self, payload: dict[str, Any], document_id: int) -> None:
         chunk_ids = [p["chunk_id"] for p in payload["points"]]
         current = await self.current_chunks(document_id, chunk_ids)
         obsolete_ids = [chunk_id for chunk_id in chunk_ids if chunk_id not in current]

@@ -6,14 +6,31 @@ The enqueue() method sends pg_notify atomically within the same transaction.
 
 from __future__ import annotations
 
+from sqlalchemy.engine import RowMapping
+
 import json
 from datetime import UTC, datetime, timedelta
 
 from domain.knowledge.index_sync import OutboxOperation, OutboxStatus, VectorOutboxEntry
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import InstrumentedAttribute
+from sqlalchemy.sql.elements import ColumnElement
 
 from infrastructure.database.models import VectorStoreOutboxModel
+
+
+def unfinished_document_work(document_id: int | InstrumentedAttribute[int]) -> ColumnElement[bool]:
+    """Every status other than DONE prevents successful document completion."""
+    return (
+        select(VectorStoreOutboxModel.id)
+        .where(
+            VectorStoreOutboxModel.aggregate_type == "document",
+            VectorStoreOutboxModel.aggregate_id == document_id,
+            VectorStoreOutboxModel.status != OutboxStatus.DONE.value,
+        )
+        .exists()
+    )
 
 
 class SQLAlchemyVectorOutboxRepository:
@@ -181,7 +198,10 @@ class SQLAlchemyVectorOutboxRepository:
                 .filter(VectorStoreOutboxModel.status.in_([OutboxStatus.FAILED, OutboxStatus.DEAD_LETTER]))
                 .label("failed"),
             )
-            .where(VectorStoreOutboxModel.aggregate_id.in_(document_ids))
+            .where(
+                VectorStoreOutboxModel.aggregate_type == "document",
+                VectorStoreOutboxModel.aggregate_id.in_(document_ids),
+            )
             .group_by(VectorStoreOutboxModel.aggregate_id)
         )
 
@@ -208,6 +228,7 @@ class SQLAlchemyVectorOutboxRepository:
                 VectorStoreOutboxModel.max_attempts,
                 VectorStoreOutboxModel.last_error,
             ).where(
+                VectorStoreOutboxModel.aggregate_type == "document",
                 VectorStoreOutboxModel.aggregate_id.in_(document_ids),
                 VectorStoreOutboxModel.status.in_([OutboxStatus.FAILED, OutboxStatus.DEAD_LETTER]),
             )
@@ -236,7 +257,7 @@ class SQLAlchemyVectorOutboxRepository:
         return [self._orm_to_entity(o) for o in result.scalars().all()]
 
     @staticmethod
-    def _row_to_entity(row) -> VectorOutboxEntry:
+    def _row_to_entity(row: RowMapping) -> VectorOutboxEntry:
         return VectorOutboxEntry(
             id=row["id"],
             operation=OutboxOperation(row["operation"]),

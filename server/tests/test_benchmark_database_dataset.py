@@ -178,6 +178,19 @@ async def test_worker_loads_selected_dataset_before_evaluation(monkeypatch):
         assert job_id == 8
         await action()
 
+    from application.benchmark.jobs import BenchmarkJobService
+    from infrastructure.benchmark.corpus import benchmark_scope
+    from functools import partial
+
+    ctx["uow_factory"] = factory
+    ctx["benchmark_job"] = BenchmarkJobService(
+        factory,
+        ctx["container"].infrastructure.ml.benchmark_service,
+        ctx["benchmark_results"],
+        AsyncMock(),
+        partial(benchmark_scope, None),
+    )
+    del ctx["container"]
     monkeypatch.setattr(runtime, "run_tracked_job", tracked)
     await tasks.run_benchmark(
         ctx, dataset="custom", out_dir="results", top_k=7, judge_model="judge", job_id=8

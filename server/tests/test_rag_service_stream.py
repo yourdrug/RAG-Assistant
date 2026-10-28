@@ -114,7 +114,7 @@ _STREAM_PATCHES = {
     "infrastructure.ml.rag.rag_steps.get_corpus_revision": AsyncMock(return_value="0"),
     "infrastructure.ml.rag.rag_retrieval.ensure_embedding_identity": MagicMock(return_value="test:model:v1"),
     "infrastructure.ml.rag.rag_steps.build_qdrant_filter": MagicMock(return_value=MagicMock(should=[])),
-    "infrastructure.ml.rag.rag_steps.with_temporal_filter": MagicMock(return_value=MagicMock(should=[])),
+    "infrastructure.ml.rag.rag_steps.build_search_filter": MagicMock(return_value=MagicMock(should=[])),
     "infrastructure.ml.rag.rag_steps.handle_relevance_gate": AsyncMock(return_value=True),
     "infrastructure.ml.cache.keys.compute_visibility_scope_hash": MagicMock(return_value="vis_hash"),
     "infrastructure.ml.cache.keys.compute_question_hash": MagicMock(return_value="q_hash"),

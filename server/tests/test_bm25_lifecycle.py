@@ -1,5 +1,7 @@
 """Regression tests for async load, invalidation and incremental BM25 updates."""
 
+from __future__ import annotations
+
 import asyncio
 import threading
 from types import SimpleNamespace
@@ -9,7 +11,7 @@ import pytest
 
 from config import settings
 from infrastructure.bm25.bm25_index import BM25Index
-from infrastructure.ml.clients.client_registry import MLClientRegistry
+from infrastructure.bm25.snapshots import LocalBM25Snapshots
 from infrastructure.storage.file_storage import LazyStorage
 from infrastructure.utils.async_tasks import run_sync_io
 
@@ -17,7 +19,7 @@ from infrastructure.utils.async_tasks import run_sync_io
 @pytest.mark.asyncio
 async def test_invalidation_reloads_immediately():
     loader = AsyncMock(side_effect=[BM25Index(["old"]), BM25Index(["fresh"])])
-    registry = MLClientRegistry(bm25_loader=loader)
+    registry = LocalBM25Snapshots(bm25_loader=loader)
     await registry.ensure_bm25_loaded()
     registry.invalidate_bm25()
     assert (await registry.ensure_bm25_loaded()).texts == ["fresh"]
@@ -38,7 +40,7 @@ async def test_invalidation_discards_inflight_snapshot():
             return BM25Index(["stale"])
         return BM25Index(["fresh"])
 
-    registry = MLClientRegistry(bm25_loader=load)
+    registry = LocalBM25Snapshots(bm25_loader=load)
     pending = asyncio.create_task(registry.ensure_bm25_loaded())
     await started.wait()
     registry.invalidate_bm25()
@@ -52,7 +54,7 @@ async def test_invalidation_discards_inflight_snapshot():
 @pytest.mark.asyncio
 async def test_failed_load_can_retry():
     loader = AsyncMock(side_effect=[OSError("storage unavailable"), BM25Index(["recovered"])])
-    registry = MLClientRegistry(bm25_loader=loader)
+    registry = LocalBM25Snapshots(bm25_loader=loader)
     with pytest.raises(OSError, match="storage unavailable"):
         await registry.ensure_bm25_loaded()
     assert (await registry.ensure_bm25_loaded()).texts == ["recovered"]
@@ -82,7 +84,7 @@ async def test_config_rotation_discards_old_backend_snapshot(monkeypatch):
             await release.wait()
         return BM25Index([backend.bucket])
 
-    registry = MLClientRegistry(bm25_loader=load)
+    registry = LocalBM25Snapshots(bm25_loader=load)
     pending = asyncio.create_task(registry.ensure_bm25_loaded())
     await started.wait()
     monkeypatch.setattr(settings, "s3_bucket", "new-bucket")
@@ -112,7 +114,7 @@ async def test_registry_shutdown_drains_cancelled_snapshot_parse():
     async def load():
         return await run_sync_io(parse)
 
-    registry = MLClientRegistry(bm25_loader=load)
+    registry = LocalBM25Snapshots(bm25_loader=load)
     pending = asyncio.create_task(registry.ensure_bm25_loaded())
     closing = None
     try:
@@ -141,13 +143,8 @@ async def test_cancelled_registry_close_finishes_all_resource_cleanup():
         events.append("load")
         return BM25Index([])
 
-    registry = MLClientRegistry(bm25_loader=load)
+    registry = LocalBM25Snapshots(bm25_loader=load)
 
-    async def close_ml():
-        events.append("ml")
-
-    registry._embeddings = SimpleNamespace(close=AsyncMock(side_effect=close_ml))
-    registry.corpus_resources.client = SimpleNamespace(close=lambda: events.append("qdrant"))
     pending = asyncio.create_task(registry.ensure_bm25_loaded())
     await started.wait()
     closing = asyncio.create_task(registry.close())
@@ -163,6 +160,38 @@ async def test_cancelled_registry_close_finishes_all_resource_cleanup():
     await pending
     with pytest.raises(asyncio.CancelledError):
         await asyncio.wait_for(closing, 5)
-    assert events == ["load", "ml", "qdrant"]
+    assert events == ["load"]
     await registry.close()
-    assert events == ["load", "ml", "qdrant"]
+    assert events == ["load"]
+
+
+@pytest.mark.asyncio
+async def test_cancelled_drain_waits_for_mutation_and_prevents_new_loads():
+    started, release = threading.Event(), threading.Event()
+    owner = LocalBM25Snapshots(AsyncMock(return_value=BM25Index(["before"])))
+    await owner.ensure_bm25_loaded()
+
+    def mutate():
+        with owner.bm25_update() as index:
+            started.set()
+            if not release.wait(5):
+                raise TimeoutError("mutation not released")
+            index.add_text("after", "hash")
+
+    mutation = asyncio.create_task(asyncio.to_thread(mutate))
+    draining = None
+    try:
+        assert await asyncio.to_thread(started.wait, 5)
+        draining = asyncio.create_task(owner.drain())
+        await asyncio.sleep(0)
+        draining.cancel()
+        await asyncio.sleep(0)
+        assert not draining.done()
+        with pytest.raises(RuntimeError, match="closed"):
+            await owner.ensure_bm25_loaded()
+    finally:
+        release.set()
+        await asyncio.wait_for(mutation, 5)
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(draining, 5)
+    await owner.close()

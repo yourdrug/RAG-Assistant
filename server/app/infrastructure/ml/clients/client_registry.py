@@ -10,18 +10,21 @@ The registry calls factory functions on first access and caches the result.
 """
 
 from __future__ import annotations
+
+from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING
 
 
 import asyncio
 import logging
 import threading
-from collections.abc import Awaitable, Callable
-from contextlib import AbstractAsyncContextManager, AbstractContextManager
+from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
+from contextvars import ContextVar
 from typing import Any
 
 from application.ports.ml_clients import AsyncSemaphorePort, MLClientPort
-from config import settings
+from config import settings, request_settings
+from infrastructure.ml.clients.client_lease import client_operation
 from infrastructure.corpus.resources import CorpusResources
 from infrastructure.ml.clients.managed_llm import ManagedLLM, ManagedInstructor
 from domain.shared.exceptions import SemaphoreTimeoutError
@@ -32,10 +35,16 @@ from infrastructure.ml.clients import factories
 from infrastructure.ml.clients.instructor_client import create_async_instructor_client
 
 if TYPE_CHECKING:
-    from infrastructure.bm25.bm25_index import BM25Index
+    from infrastructure.corpus.snapshot import CorpusSnapshot, BoundQdrantClient
+    from qdrant_client import QdrantClient
     from infrastructure.budget.runtime import BudgetRuntime
 
 log = logging.getLogger("default")
+
+
+active_request_clients: ContextVar[tuple[object, dict[str, Any]] | None] = ContextVar(
+    "active_request_clients", default=None
+)
 
 
 class TimeoutSemaphore(AsyncSemaphorePort):
@@ -77,19 +86,19 @@ class MLClientRegistry(MLClientPort):
     Dependency graph (invalidation cascades):
         invalidate_embeddings → invalidate vector_store
         invalidate_llm → invalidate all breadth LLMs
-        invalidate_bm25 → reload on next access
     """
 
     def __init__(
         self,
-        bm25_loader: Callable[[], Awaitable[BM25Index | None]] | None = None,
         *,
         budget_runtime: BudgetRuntime | None = None,
         corpus_resources: CorpusResources | None = None,
     ) -> None:
         self.budget_runtime = budget_runtime
-        self.corpus_resources = corpus_resources if corpus_resources is not None else CorpusResources(
-            factories.create_qdrant_client, bm25_loader=bm25_loader
+        self.corpus_resources = (
+            corpus_resources
+            if corpus_resources is not None
+            else CorpusResources(factories.create_qdrant_client)
         )
         self._init_lock = threading.Lock()
         self._embeddings: Any = None
@@ -102,36 +111,72 @@ class MLClientRegistry(MLClientPort):
         self._instructor: Any = None
 
         # Eager init semaphores — lightweight objects, no race conditions
-        self.generation_semaphore = TimeoutSemaphore(
+        self.generation_semaphore: AsyncSemaphorePort = TimeoutSemaphore(
             settings.llm_generation_max_concurrent, timeout=settings.semaphore_acquire_timeout
         )
-        self.auxiliary_semaphore = TimeoutSemaphore(
+        self.auxiliary_semaphore: AsyncSemaphorePort = TimeoutSemaphore(
             settings.llm_auxiliary_max_concurrent, timeout=settings.semaphore_acquire_timeout
         )
-        self.qdrant_search_semaphore = TimeoutSemaphore(
+        self.qdrant_search_semaphore: AsyncSemaphorePort = TimeoutSemaphore(
             settings.qdrant_search_max_concurrent, timeout=settings.semaphore_acquire_timeout
         )
-        self.reranker_semaphore = TimeoutSemaphore(
+        self.reranker_semaphore: AsyncSemaphorePort = TimeoutSemaphore(
             settings.reranker_max_concurrent, timeout=settings.semaphore_acquire_timeout
         )
-        self.bm25_search_semaphore = TimeoutSemaphore(
-            settings.bm25_search_max_concurrent, timeout=settings.semaphore_acquire_timeout
-        )
-        self.embedding_semaphore = TimeoutSemaphore(
+        self.embedding_semaphore: AsyncSemaphorePort = TimeoutSemaphore(
             settings.embedding_max_concurrent, timeout=settings.semaphore_acquire_timeout
         )
-        self.ingestion_semaphore = TimeoutSemaphore(
+        self.ingestion_semaphore: AsyncSemaphorePort = TimeoutSemaphore(
             settings.ingestion_max_concurrent, timeout=settings.semaphore_acquire_timeout
         )
-        self.qdrant_write_semaphore = TimeoutSemaphore(
+        self.qdrant_write_semaphore: AsyncSemaphorePort = TimeoutSemaphore(
             settings.qdrant_write_max_concurrent, timeout=settings.semaphore_acquire_timeout
         )
+
+    def request_client(self, name: str) -> Any:
+        active = active_request_clients.get()
+        return active[1].get(name) if active is not None and active[0] is self else None
+
+    @asynccontextmanager
+    async def request_operation(self) -> AsyncIterator[None]:
+        """Pin settings and lease the client family across all request stages."""
+        active = active_request_clients.get()
+        if active is not None and active[0] is self:
+            yield
+            return
+
+        # No suspension between snapshot and family capture: config publication is
+        # synchronous on this event loop. Factories construct pools without I/O.
+        model = settings.model_copy(deep=True)
+        clients = {
+            "embeddings": self.embeddings(),
+            "reranker": self.reranker(),
+            "llm": self.llm(),
+            "fast_llm": self.fast_llm(),
+            "narrow": self.llm_for_breadth("narrow"),
+            "broad": self.llm_for_breadth("broad"),
+            "instructor": self.instructor_client,
+        }
+        async with AsyncExitStack() as leases:
+            for client in clients.values():
+                await leases.enter_async_context(client_operation(client))
+            config_token = request_settings.set(model)
+            client_token = active_request_clients.set((self, clients))
+            try:
+                yield
+            finally:
+                active_request_clients.reset(client_token)
+                request_settings.reset(config_token)
 
     # ------------------------------------------------------------------
     # Accessors (lazy init via factories, thread-safe)
     # ------------------------------------------------------------------
 
     def embeddings(self) -> Any:
+        pinned = self.request_client("embeddings")
+        if pinned is not None:
+            return pinned
+
         if self._embeddings is None:
             with self._init_lock:
                 if self._embeddings is None:
@@ -140,6 +185,10 @@ class MLClientRegistry(MLClientPort):
         return self._embeddings
 
     def llm(self) -> Any:
+        pinned = self.request_client("llm")
+        if pinned is not None:
+            return pinned
+
         if self._llm is None:
             with self._init_lock:
                 if self._llm is None:
@@ -148,6 +197,10 @@ class MLClientRegistry(MLClientPort):
         return self._llm
 
     def llm_for_breadth(self, breadth: str) -> Any:
+        pinned = self.request_client(breadth)
+        if pinned is not None:
+            return pinned
+
         if breadth not in self._llm_breadth_cache:
             with self._init_lock:
                 if breadth not in self._llm_breadth_cache:
@@ -158,6 +211,10 @@ class MLClientRegistry(MLClientPort):
         return self._llm_breadth_cache[breadth]
 
     def fast_llm(self) -> Any:
+        pinned = self.request_client("fast_llm")
+        if pinned is not None:
+            return pinned
+
         """Fast, lightweight LLM for auxiliary pipeline calls (condense, relevance)."""
         if self._fast_llm is None:
             with self._init_lock:
@@ -169,6 +226,10 @@ class MLClientRegistry(MLClientPort):
         return self._fast_llm
 
     def reranker(self) -> Any:
+        pinned = self.request_client("reranker")
+        if pinned is not None:
+            return pinned
+
         if self._reranker is None:
             with self._init_lock:
                 if self._reranker is None:
@@ -177,11 +238,11 @@ class MLClientRegistry(MLClientPort):
         return self._reranker
 
     @property
-    def corpus_snapshot(self):
+    def corpus_snapshot(self) -> CorpusSnapshot | None:
         return self.corpus_resources.corpus_snapshot
 
-    def install_corpus(self, client, index):
-        return self.corpus_resources.install_corpus(client, index)
+    def install_corpus(self, client: QdrantClient | BoundQdrantClient) -> None:
+        return self.corpus_resources.install_corpus(client)
 
     def corpus_operation(self) -> AbstractAsyncContextManager[None]:
         return self.corpus_resources.corpus_operation()
@@ -189,24 +250,13 @@ class MLClientRegistry(MLClientPort):
     def qdrant_client(self) -> Any:
         return self.corpus_resources.qdrant_client()
 
-    def bm25_state(self) -> tuple[bool, BM25Index | None, int]:
-        return self.corpus_resources.bm25_state()
-
-    def publish_bm25_snapshot(self, index: BM25Index | None, generation: int) -> bool:
-        return self.corpus_resources.publish_bm25_snapshot(index, generation)
-
-    async def ensure_bm25_loaded(self) -> BM25Index | None:
-        return await self.corpus_resources.ensure_bm25_loaded()
-
-    def bm25_index(self) -> BM25Index | None:
-        return self.corpus_resources.bm25_index()
-
-    def bm25_update(self) -> AbstractContextManager[BM25Index]:
-        return self.corpus_resources.bm25_update()
-
     @property
-    def instructor_client(self):
+    def instructor_client(self) -> Any:
         """Cached async instructor client for structured LLM output (sufficiency, relevance)."""
+        pinned = self.request_client("instructor")
+        if pinned is not None:
+            return pinned
+
         if self._instructor is None:
             with self._init_lock:
                 if self._instructor is None:
@@ -233,7 +283,7 @@ class MLClientRegistry(MLClientPort):
     # Invalidation (with dependency cascades)
     # ------------------------------------------------------------------
 
-    def retire_client(self, client) -> None:
+    def retire_client(self, client: Any) -> None:
         self._retired_clients.append(client)
 
         if hasattr(client, "retire"):
@@ -243,7 +293,7 @@ class MLClientRegistry(MLClientPort):
             if task is not None:
                 task.add_done_callback(lambda completed: self.release_retired_client(client, completed))
 
-    def release_retired_client(self, client, task) -> None:
+    def release_retired_client(self, client: Any, task: asyncio.Task[None]) -> None:
         if task.cancelled() or task.exception() is not None:
             log.error("Retired ML pool cleanup failed; retained for shutdown retry")
             return
@@ -251,7 +301,7 @@ class MLClientRegistry(MLClientPort):
         if client in self._retired_clients:
             self._retired_clients.remove(client)
 
-    def install_clients(self, prepared: dict) -> None:
+    def install_clients(self, prepared: dict[str, Any]) -> None:
         retired: list[Any] = []
         with self._init_lock:
             for attr, value in prepared.items():
@@ -297,9 +347,6 @@ class MLClientRegistry(MLClientPort):
                 self._reranker = None
         log.info("MLClientRegistry: reranker client cache invalidated")
 
-    def invalidate_bm25(self) -> None:
-        self.corpus_resources.invalidate_bm25()
-
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
@@ -316,7 +363,7 @@ class MLClientRegistry(MLClientPort):
             raise
 
     async def close_clients(self) -> None:
-        """Drain BM25 jobs before closing their owned client pools."""
+        """Close the owned inference and corpus pools."""
         await self.corpus_resources.drain()
         clients_to_close = [
             self._embeddings,

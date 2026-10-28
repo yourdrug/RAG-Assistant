@@ -606,18 +606,29 @@ async def test_replace_versioned_keeps_old_document(tmp_path):
 @pytest.mark.asyncio
 async def test_document_deleted_before_persist_aborts(tmp_path):
     """current_doc is None -> early abort: no chunks, no outbox, status failed."""
-    h = build_harness(tmp_path, repo=VanishingDocumentRepository(vanish_id=1, vanish_after=0))
+    h = build_harness(tmp_path, repo=VanishingDocumentRepository(vanish_id=1, vanish_after=1))
     doc = await seed_document(h.repo)
 
     await run(h, doc)
 
     # abort is silent: no FAILED write, the row stays in "processing"
     # (reconciled later by mark_stuck_processing_failed)
-    assert h.repo.get_calls == 1
+    assert h.repo.get_calls == 2
     assert [c["status"] for c in h.repo.status_calls] == ["processing"]
     assert h.repo.domain_calls == []
     assert outbox_ops(h.uow) == []
     assert h.metrics.has("inc_documents", "failed")
+
+
+@pytest.mark.asyncio
+async def test_document_deleted_before_processing_skips_storage(tmp_path):
+    h = build_harness(tmp_path, repo=VanishingDocumentRepository(vanish_id=1, vanish_after=0))
+    doc = await seed_document(h.repo)
+    await run(h, doc)
+    assert h.repo.status_calls == []
+    assert h.storage.downloads == []
+    assert h.storage.deleted == []
+    assert outbox_ops(h.uow) == []
 
 
 @pytest.mark.asyncio

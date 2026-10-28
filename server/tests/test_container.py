@@ -334,7 +334,7 @@ class TestSubscribeConfigEvents:
             )
             for h in handlers:
                 h(bm25_event)
-            mock_ml.invalidate_bm25.assert_called()
+            mock_ml.invalidate_bm25.assert_not_called()
 
 
 @pytest.mark.parametrize("change", ["language", "unrelated", "invalid"])

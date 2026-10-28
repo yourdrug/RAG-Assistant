@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Unpack, cast
+from typing import TYPE_CHECKING, Any, Unpack
 
 from infrastructure.benchmark.evaluation.runner import run_benchmark_async
 
@@ -27,14 +27,11 @@ class BenchmarkExecutor:
         judge_model: str,
         **options: Unpack[BenchmarkRunnerOptions],
     ) -> list[dict[str, Any]]:
-        return cast(
-            "list[dict[str, Any]]",
-            await run_benchmark_async(
-                questions=questions,
-                top_k=top_k,
-                judge_model=judge_model,
-                corpus_resource=self.corpus_resource,
-                budget_runtime=self.budget_runtime,
-                **options,
-            ),
+        return await run_benchmark_async(
+            questions=questions,
+            top_k=top_k,
+            judge_model=judge_model,
+            corpus_resource=self.corpus_resource,
+            budget_runtime=self.budget_runtime,
+            **options,
         )

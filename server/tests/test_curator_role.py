@@ -565,7 +565,7 @@ class TestRagServiceCuratorScope:
         with patch("infrastructure.ml.rag.rag_steps.build_qdrant_filter") as mock_filter:
             mock_filter.return_value = type("F", (), {"should": []})()
             with patch("infrastructure.ml.rag.rag_steps.build_rag_settings"):
-                with patch("infrastructure.ml.rag.rag_steps.with_temporal_filter"):
+                with patch("infrastructure.ml.rag.rag_steps.build_search_filter"):
                     from composition.service_providers import create_rag_service
 
                     from application.rag.dto import PreparedQuery

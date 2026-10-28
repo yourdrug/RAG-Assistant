@@ -1,11 +1,21 @@
 """Adapt evidence quotes into LangChain user messages."""
 
+from __future__ import annotations
+
+
 from langchain_core.messages import HumanMessage
 
 from domain.rag.evidence.focus import MAX_FOCUS_CHARS, evidence_reading_map, reading_anchors
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from langchain_core.prompts import ChatPromptTemplate
+    from langchain_core.messages import BaseMessage
 
 
-def format_generation_messages(prompt, *, context, history, question):
+def format_generation_messages(
+    prompt: ChatPromptTemplate, *, context: str, history: list[BaseMessage], question: str
+) -> list[BaseMessage]:
     """Accountable prompt assembly: full context remains byte-for-byte unchanged.
 
     Quotes and explicit-link projections stay at user privilege. Both candidate-budget

@@ -369,7 +369,7 @@ class InfrastructureContainer:
     budget_runtime: BudgetRuntime = field(default_factory=BudgetRuntime, repr=False)
     budget_admin: BudgetAdminService | None = field(default=None, repr=False)
     configuration: SettingsProviderConfiguration | None = field(default=None, repr=False)
-    _config_handlers: list = field(default_factory=list, repr=False)
+    _config_handlers: list[Any] = field(default_factory=list, repr=False)
 
     def init(self, database_manager: DatabaseManager) -> None:
         """Create all infrastructure-layer objects.
@@ -467,8 +467,6 @@ class InfrastructureContainer:
             return
         ml = self.ml.clients
         if self.configuration.switching_clients:
-            if event.key == "hybrid_enabled":
-                ml.invalidate_bm25()
             return
         if event.key in {
             "llm_provider",
@@ -482,8 +480,6 @@ class InfrastructureContainer:
             "openrouter_model",
         }:
             ml.invalidate_llm()
-        if event.key == "hybrid_enabled":
-            ml.invalidate_bm25()
         if event.key in {"ml_provider", "deepinfra_embed_model"}:
             ml.invalidate_embeddings()
         if event.key in {"ml_provider", "deepinfra_rerank_model"}:

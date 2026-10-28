@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+from typing import Any, TYPE_CHECKING
+
 import logging
 import uuid
 from contextlib import asynccontextmanager
 
 from arq import Retry
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 log = logging.getLogger("default")
 _LEASE_SECONDS = 31 * 60  # Exceeds the document task's 30 minute hard timeout.
@@ -14,7 +19,9 @@ _RELEASE = "if redis.call('GET',KEYS[1]) == ARGV[1] then return redis.call('DEL'
 
 
 @asynccontextmanager
-async def document_admission(ctx, kwargs, *, enabled=True):
+async def document_admission(
+    ctx: dict[str, Any], kwargs: dict[str, Any], *, enabled: bool = True
+) -> AsyncIterator[dict[str, Any]]:
     if not enabled:
         yield ctx
         return
@@ -32,12 +39,12 @@ async def document_admission(ctx, kwargs, *, enabled=True):
     acquired = await redis.set(key, token, nx=True, ex=_LEASE_SECONDS)
 
     if not acquired:
-        container = ctx.get("container")
+        factory = ctx.get("uow_factory")
 
-        if container is not None and await redis.set(
+        if factory is not None and await redis.set(
             f"rag:worker:wait-heartbeat:{kwargs['job_id']}", "1", nx=True, ex=60
         ):
-            async with container.infrastructure.db.uow_factory.create(master=True) as uow:
+            async with factory.create(master=True) as uow:
                 await uow.background_jobs.touch_heartbeat(kwargs["job_id"])
 
         await redis.incr(waits_key)

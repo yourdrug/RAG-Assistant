@@ -1,16 +1,25 @@
 """RAG relevance gate — Self-RAG relevance checking and citation filtering."""
 
+from __future__ import annotations
+
+
+from typing import Any, TYPE_CHECKING
+
 import asyncio
 import re
 
-import config
-from config import settings
+from config import get_request_settings
 from domain.rag.prompts import SUFFICIENCY_ASSESSMENT_SYSTEM
 from domain.runtime.enums import LLMProvider
+from infrastructure.ml.clients.llm_schemas import create_structured_response
+
 from infrastructure.ml.clients.client_lease import client_operation
 from infrastructure.ml.clients.llm_schemas import RelevanceCheck, SufficiencyAssessment
 from infrastructure.ml.rag.rag_formatting import format_docs
 from infrastructure.resilience.circuit_breaker import get_breaker
+
+if TYPE_CHECKING:
+    from application.ports.ml_clients import MLClientPort
 
 RELEVANCE_SYSTEM = (
     "Оцени, достаточно ли предоставленного контекста для ответа на вопрос пользователя.\n"
@@ -20,7 +29,7 @@ RELEVANCE_SYSTEM = (
 )
 
 
-async def check_relevance(ml_clients, question: str, docs: list) -> tuple[bool, str]:
+async def check_relevance(ml_clients: MLClientPort, question: str, docs: list[Any]) -> tuple[bool, str]:
     """Semantic check: check if the retrieved context is sufficient to answer the question.
 
     Uses instructor's ``max_retries=1`` (combined with auxiliary semaphore timeout
@@ -34,37 +43,38 @@ async def check_relevance(ml_clients, question: str, docs: list) -> tuple[bool, 
 
     client = ml_clients.instructor_client
     model = (
-        config.settings.llm_model
-        if config.settings.llm_provider == LLMProvider.OLLAMA
-        else config.settings.openrouter_model
+        get_request_settings().llm_model
+        if get_request_settings().llm_provider == LLMProvider.OLLAMA
+        else get_request_settings().openrouter_model
     )
 
     async with client_operation(client):
         try:
             result = await asyncio.wait_for(
-                client.chat.completions.create(
+                create_structured_response(
+                    client,
                     model=model,
                     messages=[
                         {"role": "system", "content": RELEVANCE_SYSTEM},
                         {"role": "user", "content": prompt_text},
                     ],
-                    max_tokens=config.settings.llm_num_predict_narrow,
+                    max_tokens=get_request_settings().llm_num_predict_narrow,
                     response_model=RelevanceCheck,
                     max_retries=1,
                 ),
-                timeout=config.settings.llm_auxiliary_timeout,
+                timeout=get_request_settings().llm_auxiliary_timeout,
             )
         except TimeoutError as exc:
             raise TimeoutError(
                 f"RAG relevance gate LLM request timed out "
-                f"(provider={config.settings.llm_provider}, model={model}, "
-                f"LLM_AUXILIARY_TIMEOUT={config.settings.llm_auxiliary_timeout}s)"
+                f"(provider={get_request_settings().llm_provider}, model={model}, "
+                f"LLM_AUXILIARY_TIMEOUT={get_request_settings().llm_auxiliary_timeout}s)"
             ) from exc
 
     return result.is_relevant, result.reason
 
 
-def filter_cited_sources(answer: str, sources: list[dict]) -> list[dict]:
+def filter_cited_sources(answer: str, sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Фильтрует источники, оставляя только те, на которые LLM действительно ссылалась."""
     cited = {int(m) for m in re.findall(r"\[(\d+)\]", answer)}
 
@@ -74,7 +84,7 @@ def filter_cited_sources(answer: str, sources: list[dict]) -> list[dict]:
     return [src for i, src in enumerate(sources, 1) if src.get("citation_id", i) in cited]
 
 
-def filter_cited_documents(answer: str, docs: list) -> list:
+def filter_cited_documents(answer: str, docs: list[Any]) -> list[Any]:
     """Select prompt chunks by their original [N] labels before source aggregation."""
     cited = {int(m) for m in re.findall(r"\[(\d+)\]", answer)}
 
@@ -89,7 +99,11 @@ def filter_cited_documents(answer: str, docs: list) -> list:
 
 
 async def assess_sufficiency(
-    question: str, docs: list, ml_clients, llm_client=None, model: str = ""
+    question: str,
+    docs: list[Any],
+    ml_clients: MLClientPort,
+    llm_client: object | None = None,
+    model: str = "",
 ) -> SufficiencyAssessment:
     """Self-RAG: assess whether retrieved context is sufficient to answer.
 
@@ -106,10 +120,10 @@ async def assess_sufficiency(
     if llm_client is None:
         llm_client = ml_clients.instructor_client
 
-        if settings.llm_provider == LLMProvider.OLLAMA:
-            model = settings.llm_model
+        if get_request_settings().llm_provider == LLMProvider.OLLAMA:
+            model = get_request_settings().llm_model
         else:
-            model = settings.openrouter_model
+            model = get_request_settings().openrouter_model
 
     context = format_docs(docs, max_context_tokens=2000)
     user_msg = f"Вопрос: {question}\n\nКонтекст:\n{context}"
@@ -120,17 +134,18 @@ async def assess_sufficiency(
     async with client_operation(llm_client), ml_clients.auxiliary_semaphore:
         try:
             result = await asyncio.wait_for(
-                llm_client.chat.completions.create(
+                create_structured_response(
+                    llm_client,
                     model=model,
                     messages=[
                         {"role": "system", "content": SUFFICIENCY_ASSESSMENT_SYSTEM},
                         {"role": "user", "content": user_msg},
                     ],
-                    max_tokens=settings.llm_num_predict_narrow,
+                    max_tokens=get_request_settings().llm_num_predict_narrow,
                     response_model=SufficiencyAssessment,
                     max_retries=1,
                 ),
-                timeout=settings.llm_auxiliary_timeout,
+                timeout=get_request_settings().llm_auxiliary_timeout,
             )
         except Exception:
             await breaker.report_failure()

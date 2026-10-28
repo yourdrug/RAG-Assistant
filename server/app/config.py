@@ -5,20 +5,25 @@ env and supported dynamic values are applied from the database at bootstrap.
 Target ownership is declared in domain.runtime.setting_keys.
 """
 
+from __future__ import annotations
+
 import sys
 from domain.runtime.enums import MLProvider
 from contextvars import ContextVar
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 from pydantic import Field, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict, PydanticBaseSettingsSource
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from domain.runtime.dynamic_params import MAX_UPLOAD_FILE_MB, DYNAMIC_PARAMS
 from domain.runtime.enums import AppStage
 from domain.runtime.enums import LLMProvider
+
+if TYPE_CHECKING:
+    from pydantic_settings import PydanticBaseSettingsSource
 
 _settings_overrides: ContextVar[dict[str, object] | None] = ContextVar("settings_overrides", default=None)
 
@@ -32,7 +37,16 @@ def get_setting(key: str) -> Any:
     overrides = _settings_overrides.get()
     if overrides is not None and key in overrides:
         return overrides[key]
-    return getattr(settings, key)
+    return getattr(get_request_settings(), key)
+
+
+request_settings: ContextVar[Settings | None] = ContextVar("request_settings", default=None)
+
+
+def get_request_settings() -> Settings:
+    """Use the admitted request generation until the operation releases it."""
+    snapshot = request_settings.get()
+    return snapshot if snapshot is not None else settings
 
 
 def read_version() -> str:
@@ -96,7 +110,6 @@ class Settings(BaseSettings):
     embedding_max_concurrent: int = 16
     ingestion_max_concurrent: int = 8
     reranker_max_concurrent: int = 8
-    bm25_search_max_concurrent: int = 8
     semaphore_acquire_timeout: int = 30  # seconds, max wait for semaphore acquire before 429/503
     benchmark_max_concurrent: int = Field(default=10, ge=1)
     benchmark_judge_max_concurrent: int = Field(default=3, ge=1)
@@ -143,7 +156,7 @@ class Settings(BaseSettings):
     ocr_vl_timeout: float = Field(default=180, gt=0)
     ocr_enabled: bool = True
     ocr_lang_paddle: str = "ru"
-    ocr_lang_surya: list = ["ru", "en"]
+    ocr_lang_surya: list[Any] = ["ru", "en"]
     ocr_dpi: int = 300
     ocr_min_chars: int = 40
 
@@ -322,7 +335,7 @@ class Settings(BaseSettings):
         return init_settings, env_settings, dotenv_settings, file_secret_settings
 
     @model_validator(mode="after")
-    def post_init(self) -> "Settings":
+    def post_init(self) -> Settings:
         pool_errors = self.check_http_pools()
         if pool_errors:
             raise ValueError("; ".join(pool_errors))

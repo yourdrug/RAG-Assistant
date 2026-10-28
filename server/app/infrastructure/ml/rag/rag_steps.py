@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Callable
+from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import replace
 import logging
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 import uuid
 
+from application.chat.ports import PIIRedactorPort
+from application.ports.ml_clients import MLClientPort
 from application.rag.dto import (
     CompletedAnswer,
     ContextBudget,
@@ -18,10 +20,11 @@ from application.rag.dto import (
     RagRequest,
     RetrievalResult,
     SanitizedAnswer,
+    SourceMetadata,
     Sufficiency,
     TerminalResponse,
 )
-from config import settings
+from config import get_request_settings
 from domain.identity.roles import UserKind, UserRole
 from domain.knowledge.access_control import get_visibility_conditions
 from domain.rag.breadth import BREADTH_ALIASES, Breadth
@@ -34,6 +37,7 @@ from domain.rag.context import RagContext
 from domain.rag.evidence.grounded_response import (
     scoped_evidence_response,
 )
+from domain.rag.ports import ChunkRetrievalRepository
 from domain.rag.prompt_blocks import NOT_FOUND_ANSWER
 from domain.rag.retrieval import (
     ContextBudgetExceededError,
@@ -41,22 +45,21 @@ from domain.rag.retrieval import (
 )
 from domain.rag.stream_events import SourcesEvent, TextChunk, UsageReport
 from domain.runtime.enums import LLMProvider
-from infrastructure.corpus.snapshot import CorpusSnapshot
 from infrastructure.metrics.metrics import (
     RAG_BREADTH_TOTAL,
     RAG_CACHE_MISSES_TOTAL,
     RAG_RELEVANCE_GATE_TOTAL,
     RAG_SELF_RAG_RETRIES,
     RAG_STAGE_DURATION,
-    extract_usage_from_langchain,
     record_llm_usage,
     record_rag_answer,
 )
 from infrastructure.ml.cache.answers import (
     get_corpus_revision,
 )
-from infrastructure.ml.cache.keys import CacheKeyBuilder
+from infrastructure.ml.cache.keys import CacheKeyBuilder, generation_identity
 from infrastructure.ml.cache.pipeline import check_cache, handle_cache_hit, store_answer_cache
+from infrastructure.ml.clients.client_registry import MLClientRegistry
 from infrastructure.ml.guardrails.input_scanner import InputScanner
 from infrastructure.ml.guardrails.output_scanner import OutputScanner
 from infrastructure.ml.rag.benchmark_evidence import capture_prompt
@@ -86,12 +89,16 @@ from infrastructure.ml.rag.rag_relevance import assess_sufficiency, filter_cited
 from infrastructure.ml.rag.rag_sources import extract_sources
 from infrastructure.ml.rag.retrieval_pipeline import RetrievalPipeline
 from infrastructure.ml.rag.retrieval_work import RetrievalWork
-from infrastructure.repositories.vector.acl import build_qdrant_filter, with_temporal_filter
+from infrastructure.ml.usage_capture import extract_usage_from_langchain
+from infrastructure.repositories.vector.acl import build_qdrant_filter, build_search_filter
 from infrastructure.resilience.circuit_breaker import get_breaker
 from shared import request_id_ctx
 
 
 if TYPE_CHECKING:
+    from langchain_core.messages import BaseMessage
+    from langchain_core.runnables import Runnable
+
     from application.documents import DocumentAccessPort
 
 
@@ -102,13 +109,13 @@ log = logging.getLogger("default")
 class RagOperations:
     def __init__(
         self,
-        ml_clients,
-        chunk_search=None,
-        domain_keys=None,
-        pii_redactor=None,
+        ml_clients: MLClientPort,
+        chunk_search: ChunkRetrievalRepository | None = None,
+        domain_keys: tuple[str, ...] | None = None,
+        pii_redactor: PIIRedactorPort | None = None,
         *,
         document_access: DocumentAccessPort,
-    ):
+    ) -> None:
         self.ml = ml_clients
         self.chunk_search = chunk_search
         self.domain_keys = domain_keys
@@ -117,14 +124,15 @@ class RagOperations:
 
     @asynccontextmanager
     async def corpus(self) -> AsyncIterator[None]:
-        if isinstance(getattr(self.ml, "corpus_snapshot", None), CorpusSnapshot):
-            async with self.ml.corpus_operation():
-                yield
-        else:
+        async with AsyncExitStack() as stack:
+            if isinstance(self.ml, MLClientRegistry):
+                await stack.enter_async_context(self.ml.corpus_operation())
+            if isinstance(self.ml, MLClientRegistry):
+                await stack.enter_async_context(self.ml.request_operation())
             yield
 
     @staticmethod
-    def prepare_history_dicts(history: list) -> list[dict]:
+    def prepare_history_dicts(history: list[Any]) -> list[dict[str, Any]]:
         history_dicts = []
 
         for msg in history:
@@ -146,7 +154,7 @@ class RagOperations:
 
         return history_dicts
 
-    def request(self, question: str, history: list, ctx: RagContext) -> RagRequest:
+    def request(self, question: str, history: list[Any], ctx: RagContext) -> RagRequest:
         req_id = request_id_ctx.get("")
         if not req_id:
             req_id = uuid.uuid4().hex[:12]
@@ -158,7 +166,10 @@ class RagOperations:
             build_rag_settings(),
             time.monotonic(),
             req_id,
-            settings.llm_model,
+            get_request_settings().openrouter_model
+            if get_request_settings().llm_provider == LLMProvider.OPENROUTER
+            else get_request_settings().llm_model,
+            generation_config=generation_identity(),
         )
 
     async def condense(self, request: RagRequest) -> PreparedQuery:
@@ -166,7 +177,10 @@ class RagOperations:
         query = request.question
         if request.settings.features.condense_enabled:
             query = await condense_question(
-                self.ml.fast_llm(), query, lc_messages(request.history), ml_clients=self.ml
+                cast("Runnable[Any, BaseMessage]", self.ml.fast_llm()),
+                query,
+                lc_messages(request.history),
+                ml_clients=self.ml,
             )
         RAG_STAGE_DURATION.labels("condense").observe(time.monotonic() - t0)
         return PreparedQuery(request, query)
@@ -245,7 +259,7 @@ class RagOperations:
             ctx=ctx,
             user=user,
             access_filter=access_filter,
-            retrieval_filter=with_temporal_filter(access_filter, ctx.as_of_date),
+            retrieval_filter=build_search_filter(user, ctx.user_group_ids, ctx.as_of_date, **managed),
             req_id=request.request_id,
             visibility_conditions=get_visibility_conditions(
                 UserKind(ctx.user_kind),
@@ -353,7 +367,9 @@ class RagOperations:
             )
         )
 
-    def build(self, result: RetrievalResult, token_counter=None) -> PreparedContext:
+    def build(
+        self, result: RetrievalResult, token_counter: Callable[[list[BaseMessage]], int] | None = None
+    ) -> PreparedContext:
         state = self.retrieval_work(result.prepared, result)
         domain_keys = self.domain_keys
         ctx = state.ctx
@@ -407,9 +423,9 @@ class RagOperations:
         input_budget = num_ctx - num_predict
 
         while True:
-            exclusions: list[dict] = []
+            exclusions: list[dict[str, Any]] = []
 
-            def count_context(context, current_history=history):
+            def count_context(context: str, current_history: list[BaseMessage] = history) -> int:
                 return count_tokens(
                     format_generation_messages(
                         prompt, context=context, history=current_history, question=state.question
@@ -489,6 +505,9 @@ class RagOperations:
                     async for chunk in self.ml.llm_for_breadth(effective_breadth).astream(messages):
                         last_chunk = chunk
                         text = chunk.content
+                        if not isinstance(text, str):
+                            message = "Generation model returned non-text content"
+                            raise TypeError(message)  # noqa: TRY301 — breaker reports every generation failure.
 
                         if text:
                             answer_parts.append(text)
@@ -521,11 +540,7 @@ class RagOperations:
         usage_report = None
         if last_chunk is not None:
             input_tokens, output_tokens = extract_usage_from_langchain(last_chunk)
-            model_name = (
-                settings.llm_model
-                if settings.llm_provider == LLMProvider.OLLAMA
-                else settings.openrouter_model
-            )
+            model_name = request.model
             record_llm_usage(
                 model=model_name, operation="generate", input_tokens=input_tokens, output_tokens=output_tokens
             )
@@ -547,7 +562,7 @@ class RagOperations:
         avg_sim = sum(s for _, s in docs) / len(docs) if docs else 0.0
 
         if is_not_found_answer(full_answer):
-            sources: list[dict] = []
+            sources: list[SourceMetadata] = []
         else:
             source_docs = lc_documents(context.documents) or docs
 
@@ -556,10 +571,10 @@ class RagOperations:
 
             # Selected prompt documents must remain resolvable, even when cited
             # after score filtering would otherwise hide them.
-            sources = extract_sources(source_docs)
+            sources = cast("list[SourceMetadata]", extract_sources(source_docs))
 
         record_rag_answer(
-            breadth=result.breadth.value if result.breadth is not None else "",
+            breadth=result.breadth.value,
             answer=full_answer,
             retrieved_count=len(docs),
             avg_similarity=avg_sim,
@@ -578,6 +593,6 @@ class RagOperations:
                 query.q_hash,
                 query.vis_hash,
                 completed.answer.text,
-                list(completed.sources),
+                [dict(source) for source in completed.sources],
                 expected_revision=query.cache_revision,
             )

@@ -1,5 +1,7 @@
 """Shared worker policy preserves billing and processing retry boundaries."""
 
+from __future__ import annotations
+
 import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -26,7 +28,7 @@ class JobFactory:
             touch_heartbeat=AsyncMock(),
         )
 
-    def create(self, *, master: bool = False) -> "JobFactory":
+    def create(self, *, master: bool = False) -> JobFactory:
         assert master
         return self
 
@@ -51,7 +53,7 @@ async def test_admission_waits_preserve_failure_retries_and_billing_scope() -> N
     redis = fakeredis.aioredis.FakeRedis()
     ctx = {
         "redis": redis,
-        "container": SimpleNamespace(infrastructure=SimpleNamespace(db=SimpleNamespace(uow_factory=factory))),
+        "uow_factory": factory,
     }
     arguments = {"job_id": 5, "principal_id": 9, "cost_principal": "user:9", "cost_operation_id": "fixed"}
     try:
@@ -93,7 +95,7 @@ async def test_cancellation_releases_admission_and_billing_context() -> None:
     redis = fakeredis.aioredis.FakeRedis()
     ctx = {
         "redis": redis,
-        "container": SimpleNamespace(infrastructure=SimpleNamespace(db=SimpleNamespace(uow_factory=factory))),
+        "uow_factory": factory,
     }
     try:
         with pytest.raises(asyncio.CancelledError):

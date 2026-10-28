@@ -35,7 +35,7 @@ async def test_resolve_hashes_batch_empty_returns_empty():
 
 
 @pytest.mark.asyncio
-@patch("infrastructure.ml.rag.rag_retrieval.settings")
+@patch("config.settings")
 async def test_resolve_hashes_batch_calls_scroll(mock_settings):
     from infrastructure.ml.rag.rag_retrieval import resolve_hashes_batch
 
@@ -64,7 +64,7 @@ async def test_resolve_hashes_batch_calls_scroll(mock_settings):
 
 
 @pytest.mark.asyncio
-@patch("infrastructure.ml.rag.rag_retrieval.settings")
+@patch("config.settings")
 async def test_resolve_hashes_batch_with_access_filter(mock_settings):
     from infrastructure.ml.rag.rag_retrieval import resolve_hashes_batch
 
@@ -97,7 +97,7 @@ async def test_resolve_hashes_batch_with_access_filter(mock_settings):
 
 
 @pytest.mark.asyncio
-@patch("infrastructure.ml.rag.rag_retrieval.settings")
+@patch("config.settings")
 async def test_qdrant_dense_search_returns_hash_score_doc_tuples(mock_settings):
     from infrastructure.ml.rag.rag_retrieval import qdrant_dense_search
 
@@ -134,7 +134,7 @@ async def test_qdrant_dense_search_returns_hash_score_doc_tuples(mock_settings):
 
 
 @pytest.mark.asyncio
-@patch("infrastructure.ml.rag.rag_retrieval.settings")
+@patch("config.settings")
 async def test_qdrant_dense_search_generates_hash_when_missing(mock_settings):
     from infrastructure.ml.rag.rag_retrieval import qdrant_dense_search
 
@@ -174,7 +174,7 @@ async def test_qdrant_dense_search_generates_hash_when_missing(mock_settings):
 
 @pytest.mark.asyncio
 @patch("infrastructure.ml.rag.rag_retrieval.RAG_STAGE_DURATION")
-@patch("infrastructure.ml.rag.rag_retrieval.settings")
+@patch("config.settings")
 async def test_hybrid_search_fallback_to_dense_when_bm25_disabled(mock_settings, mock_metrics):
     from domain.rag.settings import (
         FeatureToggles,
@@ -242,7 +242,7 @@ async def test_hybrid_search_fallback_to_dense_when_bm25_disabled(mock_settings,
 
 @pytest.mark.asyncio
 @patch("infrastructure.ml.rag.rag_retrieval.RAG_STAGE_DURATION")
-@patch("infrastructure.ml.rag.rag_retrieval.settings")
+@patch("config.settings")
 async def test_run_hybrid_search_acl_defaults_are_mandatory(mock_settings, mock_metrics):
     from domain.rag.settings import (
         FeatureToggles,
@@ -296,7 +296,7 @@ async def test_run_hybrid_search_acl_defaults_are_mandatory(mock_settings, mock_
 
 @pytest.mark.asyncio
 @patch("infrastructure.ml.rag.rag_retrieval.RAG_STAGE_DURATION")
-@patch("infrastructure.ml.rag.rag_retrieval.settings")
+@patch("config.settings")
 async def test_run_hybrid_search_empty_conditions_fail_closed(mock_settings, mock_metrics):
     from domain.rag.settings import (
         FeatureToggles,
@@ -359,7 +359,7 @@ async def test_run_hybrid_search_empty_conditions_fail_closed(mock_settings, moc
 @pytest.mark.asyncio
 @patch("application.search.hybrid.rrf_merge")
 @patch("infrastructure.ml.rag.rag_retrieval.RAG_STAGE_DURATION")
-@patch("infrastructure.ml.rag.rag_retrieval.settings")
+@patch("config.settings")
 async def test_hybrid_search_uses_rrf_with_qdrant_sparse(mock_settings, mock_metrics, mock_rrf):
     from domain.rag.settings import (
         FeatureToggles,

@@ -47,7 +47,6 @@ STATIC_SETTING_KEYS: frozenset[str] = frozenset(
         "embedding_max_concurrent",
         "ingestion_max_concurrent",
         "reranker_max_concurrent",
-        "bm25_search_max_concurrent",
         "semaphore_acquire_timeout",
         "benchmark_max_concurrent",
         "benchmark_judge_max_concurrent",

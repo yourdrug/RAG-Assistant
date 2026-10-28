@@ -5,7 +5,7 @@ Consolidates all settings adapter classes into a single module.
 
 from __future__ import annotations
 
-from config import get_setting, settings
+from config import get_request_settings, get_setting, settings
 
 
 class LivePreviewSettings:
@@ -23,99 +23,99 @@ class LiveRagSettings:
 
     @property
     def retriever_fetch_k(self) -> int:
-        return settings.retriever_fetch_k
+        return get_request_settings().retriever_fetch_k
 
     @property
     def retriever_top_k(self) -> int:
-        return settings.retriever_top_k
+        return get_request_settings().retriever_top_k
 
     @property
     def retriever_fetch_k_broad(self) -> int:
-        return settings.retriever_fetch_k_broad
+        return get_request_settings().retriever_fetch_k_broad
 
     @property
     def retriever_top_k_broad(self) -> int:
-        return settings.retriever_top_k_broad
+        return get_request_settings().retriever_top_k_broad
 
     @property
     def hybrid_enabled(self) -> bool:
-        return settings.hybrid_enabled
+        return get_request_settings().hybrid_enabled
 
     @property
     def bm25_fetch_k(self) -> int:
-        return settings.bm25_fetch_k
+        return get_request_settings().bm25_fetch_k
 
     @property
     def rrf_k(self) -> int:
-        return settings.rrf_k
+        return get_request_settings().rrf_k
 
     @property
     def dense_weight(self) -> float:
-        return settings.dense_weight
+        return get_request_settings().dense_weight
 
     @property
     def sparse_weight(self) -> float:
-        return settings.sparse_weight
+        return get_request_settings().sparse_weight
 
     @property
     def rerank_min_score(self) -> float | None:
-        return settings.rerank_min_score
+        return get_request_settings().rerank_min_score
 
     @property
     def rerank_score_gap_ratio(self) -> float | None:
-        return settings.rerank_score_gap_ratio
+        return get_request_settings().rerank_score_gap_ratio
 
     @property
     def citation_filter_enabled(self) -> bool:
-        return settings.citation_filter_enabled
+        return get_request_settings().citation_filter_enabled
 
     @property
     def relevance_gate_enabled(self) -> bool:
-        return settings.relevance_gate_enabled
+        return get_request_settings().relevance_gate_enabled
 
     @property
     def condense_enabled(self) -> bool:
-        return settings.condense_enabled
+        return get_request_settings().condense_enabled
 
     @property
     def decomposition_enabled(self) -> bool:
-        return settings.decomposition_enabled
+        return get_request_settings().decomposition_enabled
 
     @property
     def rolling_summary_enabled(self) -> bool:
-        return settings.rolling_summary_enabled
+        return get_request_settings().rolling_summary_enabled
 
     @property
     def cache_enabled(self) -> bool:
-        return get_setting("cache_enabled")
+        return bool(get_setting("cache_enabled"))
 
     @property
     def source_min_score(self) -> float:
-        return settings.source_min_score
+        return get_request_settings().source_min_score
 
     @property
     def exact_ref_sparse_boost(self) -> float:
-        return settings.exact_ref_sparse_boost
+        return get_request_settings().exact_ref_sparse_boost
 
     @property
     def llm_num_ctx_narrow(self) -> int:
-        return settings.llm_num_ctx_narrow
+        return get_request_settings().llm_num_ctx_narrow
 
     @property
     def llm_num_ctx_broad(self) -> int:
-        return settings.llm_num_ctx_broad
+        return get_request_settings().llm_num_ctx_broad
 
     @property
     def llm_num_predict_narrow(self) -> int:
-        return settings.llm_num_predict_narrow
+        return get_request_settings().llm_num_predict_narrow
 
     @property
     def llm_num_predict_broad(self) -> int:
-        return settings.llm_num_predict_broad
+        return get_request_settings().llm_num_predict_broad
 
     @property
     def pii_redaction_enabled(self) -> bool:
-        return settings.pii_redaction_enabled
+        return get_request_settings().pii_redaction_enabled
 
 
 class LiveChunkSettings:

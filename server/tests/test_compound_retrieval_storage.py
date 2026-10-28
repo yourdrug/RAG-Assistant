@@ -21,7 +21,7 @@ def experiment():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("fail_search", [False, True])
-async def test_live_experiment_loads_sparse_and_closes_owned_storage(
+async def test_live_experiment_uses_runtime_sparse_search_without_local_storage(
     experiment, monkeypatch, tmp_path, fail_search
 ):
     path = tmp_path / "snapshot.json"
@@ -37,7 +37,8 @@ async def test_live_experiment_loads_sparse_and_closes_owned_storage(
     snapshots = []
 
     async def search(query, fetch_k, access_filter, rag, registry, **kwargs):
-        snapshots.append(await registry.ensure_bm25_loaded())
+        snapshots.append(registry)
+        assert not hasattr(registry, "ensure_bm25_loaded")
         if fail_search:
             raise RuntimeError("controlled retrieval failure")
         return []
@@ -50,8 +51,8 @@ async def test_live_experiment_loads_sparse_and_closes_owned_storage(
             await experiment.compare(cases, 1)
     else:
         await experiment.compare(cases, 1)
-    assert snapshots and all(index is not None and index.hashes == ["sparse-hash"] for index in snapshots)
+    assert snapshots
     assert all(index is snapshots[0] for index in snapshots)
-    storage.download_to_temp.assert_awaited_once()
-    storage.aclose.assert_awaited_once()
-    assert not path.exists()
+    storage.download_to_temp.assert_not_awaited()
+    storage.aclose.assert_not_awaited()
+    assert path.exists()

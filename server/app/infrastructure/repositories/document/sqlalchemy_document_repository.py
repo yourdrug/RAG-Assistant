@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from infrastructure.repositories.config.sqlalchemy_vector_outbox_repository import unfinished_document_work
+
 from datetime import UTC, datetime, timedelta
 
 from config import settings
-from domain.knowledge.index_sync import OutboxStatus
 from domain.knowledge.enums import SourceType
 from domain.knowledge.document import Document
 from domain.shared.exceptions import EntityNotFoundError, UniqueConstraintError
@@ -17,7 +18,7 @@ from sqlalchemy import and_, distinct, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from infrastructure.database.models import DocumentModel, VectorStoreOutboxModel
+from infrastructure.database.models import DocumentModel
 from infrastructure.repositories.sql_acl import render_visibility_conditions
 
 
@@ -376,14 +377,16 @@ class SQLAlchemyDocumentRepository:
     async def mark_done_if_indexing(self, document_id: int) -> bool:
         """Mark document as DONE if it is currently INDEXING. Returns True if updated."""
         result = await self._db.execute(
-            select(DocumentModel).where(
+            select(DocumentModel)
+            .where(
                 DocumentModel.id == document_id,
                 DocumentModel.status == DocumentStatus.INDEXING.value,
             )
+            .with_for_update()
         )
         orm = result.scalar_one_or_none()
 
-        if orm:
+        if orm is not None and not await self._db.scalar(select(unfinished_document_work(document_id))):
             orm.status = DocumentStatus.DONE.value
             orm.indexed_at = datetime.now(tz=UTC)
             orm.version = orm.version + 1
@@ -426,15 +429,7 @@ class SQLAlchemyDocumentRepository:
         if not ids:
             return []
 
-        unfinished = (
-            select(VectorStoreOutboxModel.id)
-            .where(
-                VectorStoreOutboxModel.aggregate_type == "document",
-                VectorStoreOutboxModel.aggregate_id == DocumentModel.id,
-                VectorStoreOutboxModel.status != OutboxStatus.DONE.value,
-            )
-            .exists()
-        )
+        unfinished = unfinished_document_work(DocumentModel.id)
         result = await self._db.scalars(
             update(DocumentModel)
             .where(DocumentModel.id.in_(ids), ~unfinished)

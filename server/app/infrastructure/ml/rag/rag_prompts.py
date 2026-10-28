@@ -1,11 +1,17 @@
 """RAG prompts — query condensation, decomposition, summary, and prompt building."""
 
+from __future__ import annotations
+
+
+from typing import Any
+from typing import TYPE_CHECKING
+
 import asyncio
 import logging
 import re
 
 import httpx
-from config import settings
+from config import get_request_settings
 from domain.chat.message import MessageRole
 from domain.rag.answer_policy import policy_for
 from domain.rag.evidence.reading import evidence_reading_reminder
@@ -20,9 +26,18 @@ from tenacity import (
     wait_exponential_jitter,
 )
 
+from infrastructure.ml.clients.llm_schemas import create_structured_response
+
 from infrastructure.ml.clients.client_lease import client_operation
 from infrastructure.ml.clients.llm_schemas import DecompositionCheck
 from infrastructure.ml.rag.prompt_budget import estimate_message_tokens
+
+if TYPE_CHECKING:
+    from infrastructure.ml.clients.llm_schemas import StructuredClient
+    from langchain_core.runnables import Runnable
+    from langchain_core.messages import BaseMessage
+    from domain.rag.context import RagContext
+    from application.ports.ml_clients import MLClientPort
 
 _RETRYABLE_ERRORS = (TimeoutError, ConnectionError, httpx.TransportError, OSError)
 
@@ -54,7 +69,12 @@ CONDENSE_PROMPT = ChatPromptTemplate.from_messages(
     retry=retry_if_exception_type(_RETRYABLE_ERRORS),
     reraise=True,
 )
-async def condense_question(llm, question: str, history_messages: list, ml_clients=None) -> str:
+async def condense_question(
+    llm: Runnable[Any, BaseMessage],
+    question: str,
+    history_messages: list[BaseMessage],
+    ml_clients: MLClientPort | None = None,
+) -> str:
     """Rewrite a follow-up question into a self-contained query using history context.
 
     If *ml_clients* is provided the auxiliary semaphore is acquired per-attempt
@@ -66,19 +86,22 @@ async def condense_question(llm, question: str, history_messages: list, ml_clien
 
     chain = CONDENSE_PROMPT | llm
 
-    async def _call():
+    async def call_model() -> BaseMessage:
         return await asyncio.wait_for(
             chain.ainvoke({"history": history_messages, "question": question}),
-            timeout=settings.llm_auxiliary_timeout,
+            timeout=get_request_settings().llm_auxiliary_timeout,
         )
 
     async with client_operation(llm):
         if ml_clients is not None:
             async with ml_clients.auxiliary_semaphore:
-                result = await _call()
+                result = await call_model()
         else:
-            result = await _call()
+            result = await call_model()
 
+    if not isinstance(result.content, str):
+        message = "Condensation model returned non-text content"
+        raise TypeError(message)
     condensed = result.content.strip()
 
     if not condensed or len(condensed) < 3:
@@ -124,8 +147,8 @@ DECOMPOSE_SYSTEM = (
 async def decompose_question(
     question: str,
     *,
-    instructor_client=None,
-    ml_clients=None,
+    instructor_client: StructuredClient | None = None,
+    ml_clients: MLClientPort | None = None,
 ) -> list[str]:
     """Split a compound question into independent sub-queries.
 
@@ -138,29 +161,34 @@ async def decompose_question(
         log.warning("decompose_question called without instructor_client, returning original")
         return [question]
 
-    model = settings.llm_model if settings.llm_provider == LLMProvider.OLLAMA else settings.openrouter_model
+    model = (
+        get_request_settings().llm_model
+        if get_request_settings().llm_provider == LLMProvider.OLLAMA
+        else get_request_settings().openrouter_model
+    )
 
-    async def _call() -> DecompositionCheck:
+    async def call_model() -> DecompositionCheck:
         return await asyncio.wait_for(
-            instructor_client.chat.completions.create(
+            create_structured_response(
+                instructor_client,
                 model=model,
                 messages=[
                     {"role": "system", "content": DECOMPOSE_SYSTEM},
                     {"role": "user", "content": question},
                 ],
-                max_tokens=settings.llm_num_predict_narrow,
+                max_tokens=get_request_settings().llm_num_predict_narrow,
                 response_model=DecompositionCheck,
                 max_retries=2,
             ),
-            timeout=settings.llm_auxiliary_timeout,
+            timeout=get_request_settings().llm_auxiliary_timeout,
         )
 
     async with client_operation(instructor_client):
         if ml_clients is not None:
             async with ml_clients.auxiliary_semaphore:
-                result = await _call()
+                result = await call_model()
         else:
-            result = await _call()
+            result = await call_model()
 
     if not result.needs_decomposition or not result.sub_queries:
         log.info("Decomposition not needed; question_chars=%d", len(question))
@@ -194,7 +222,9 @@ SUMMARY_PROMPT = ChatPromptTemplate.from_messages(
 )
 
 
-async def update_rolling_summary(llm, existing_summary: str | None, new_turns: list[dict]) -> str:
+async def update_rolling_summary(
+    llm: Runnable[Any, BaseMessage], existing_summary: str | None, new_turns: list[dict[str, Any]]
+) -> str:
     """Produce an updated rolling summary from existing summary + new dialog turns."""
     turns_text = "\n".join(
         f"{'Пользователь' if t['role'] == MessageRole.USER else 'Ассистент'}: {t['content']}"
@@ -203,7 +233,7 @@ async def update_rolling_summary(llm, existing_summary: str | None, new_turns: l
     chain = SUMMARY_PROMPT | llm
     summary = existing_summary or ""
     remaining = turns_text
-    input_budget = settings.llm_num_ctx_narrow - settings.llm_num_predict_narrow
+    input_budget = get_request_settings().llm_num_ctx_narrow - get_request_settings().llm_num_predict_narrow
 
     def prompt_for(text: str) -> str:
         if summary:
@@ -236,7 +266,7 @@ async def update_rolling_summary(llm, existing_summary: str | None, new_turns: l
 
         result = await asyncio.wait_for(
             chain.ainvoke({"prompt": prompt_for(remaining[:accepted])}),
-            timeout=settings.llm_auxiliary_timeout,
+            timeout=get_request_settings().llm_auxiliary_timeout,
         )
 
         if not isinstance(result.content, str) or not result.content.strip():
@@ -267,7 +297,7 @@ def build_prompt(
         enumerate_cases=enumerate_cases,
         question=question,
     )
-    messages: list = [
+    messages: list[Any] = [
         ("system", system_text),
     ]
 
@@ -297,7 +327,7 @@ def build_prompt(
 
 def domain_prompt_addendum(
     query_domain: str,
-    ctx,
+    ctx: RagContext,
     domain_keys: tuple[str, ...] | None,
 ) -> str | None:
     """Answer rules for a registered domain."""

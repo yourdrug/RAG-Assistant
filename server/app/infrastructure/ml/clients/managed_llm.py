@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import asyncio
 import inspect
 import logging
@@ -59,10 +61,10 @@ async def close_llm_pools(client) -> None:
 class ManagedLLM(Runnable):
     """Runnable adapter with leases for generation, auxiliary and summary calls."""
 
-    def __init__(self, client):
+    def __init__(self, client: Any) -> None:  # noqa: ANN401 — owns LangChain and Instructor clients.
         self.client = client
 
-        if hasattr(client, 'root_async_client') and hasattr(client, 'async_client'):
+        if hasattr(client, "root_async_client") and hasattr(client, "async_client"):
             if not isinstance(client.async_client, UsageCapturingCompletions):
                 client.async_client = UsageCapturingCompletions(client.async_client)
 
@@ -99,7 +101,7 @@ class ManagedLLM(Runnable):
         async with self.lease():
             response = await self.client.ainvoke(input, config=config, **kwargs)
             record_model_response(
-                response, model=getattr(self.client, 'model_name', '') or getattr(self.client, 'model', '')
+                response, model=getattr(self.client, "model_name", "") or getattr(self.client, "model", "")
             )
             return response
 
@@ -114,7 +116,7 @@ class ManagedLLM(Runnable):
             try:
                 async for item in self.client.astream(input, config=config, **kwargs):
                     if active_llm_usage.get() is not None:
-                        metadata.update(getattr(item, 'response_metadata', {}) or {})
+                        metadata.update(getattr(item, "response_metadata", {}) or {})
                         accumulated = item if accumulated is None else accumulated + item
 
                     yield item
@@ -123,8 +125,8 @@ class ManagedLLM(Runnable):
                     # LangChain concatenates repeated string metadata when merging chunks.
                     accumulated.response_metadata = metadata
                     record_model_response(
-                        SimpleNamespace(**raw_response) if raw_response.get('usage') else accumulated,
-                        model=getattr(self.client, 'model_name', '') or getattr(self.client, 'model', ''),
+                        SimpleNamespace(**raw_response) if raw_response.get("usage") else accumulated,
+                        model=getattr(self.client, "model_name", "") or getattr(self.client, "model", ""),
                     )
 
                 active_stream_response.reset(capture_token)

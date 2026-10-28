@@ -1,5 +1,7 @@
 """Worker startup and durable sweep progress/failure regression coverage."""
 
+from __future__ import annotations
+
 import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -126,7 +128,7 @@ async def test_sweep_saves_answer_coverage_in_history_summary():
 
 def sweep_context(factory, attempt=1, *, engine=None):
     return {
-        "container": SimpleNamespace(infrastructure=SimpleNamespace(db=SimpleNamespace(uow_factory=factory))),
+        "uow_factory": factory,
         "job_try": attempt,
         "sweep_engine": engine,
         "sweep_jobs": SweepJobService(factory, sweep.publish_sweep_event, AsyncMock()),
@@ -246,7 +248,11 @@ async def test_partial_judge_coverage_is_failed_and_resumable_without_traceback(
 def test_worker_dependencies_are_assembled_in_composition(monkeypatch):
     factory = object()
     storage = object()
-    infra = SimpleNamespace(db=SimpleNamespace(uow=factory), ml=SimpleNamespace(file_storage=storage))
+    infra = SimpleNamespace(
+        db=SimpleNamespace(uow=factory),
+        ml=SimpleNamespace(file_storage=storage, benchmark_service=object(), ml_clients=None),
+        services=SimpleNamespace(cache_invalidator=object(), action_logger=object()),
+    )
     processor, ingestion, engine = object(), object(), object()
     for name, service in (
         ("create_document_processor", processor),
@@ -255,7 +261,9 @@ def test_worker_dependencies_are_assembled_in_composition(monkeypatch):
     ):
         monkeypatch.setattr(worker_composition, name, Mock(return_value=service))
 
-    dependencies = worker_composition.worker_dependencies(infra)
+    dependencies = worker_composition.worker_dependencies(
+        infra, SimpleNamespace(document_command_service=object())
+    )
 
     assert dependencies["document_processor"] is processor
     assert dependencies["ingestion_service"] is ingestion

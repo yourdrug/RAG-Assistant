@@ -7,6 +7,9 @@ into Qdrant Filter objects. All business logic lives in domain/knowledge/access_
 
 from __future__ import annotations
 
+from typing import Any
+from domain.identity.user_context import UserContext
+
 from datetime import date
 
 from domain.knowledge.access_control import get_visibility_conditions
@@ -24,7 +27,7 @@ from qdrant_client.models import (
 
 
 def build_qdrant_filter(
-    user,
+    user: UserContext | dict[str, Any],
     group_ids: list[int],
     managed_client_ids: list[int] | None = None,
     managed_internal_ids: list[int] | None = None,
@@ -42,9 +45,9 @@ def build_qdrant_filter(
         managed_group_ids: curator's assigned group IDs
 
     """
-    user_id = user.user_id if hasattr(user, "user_id") else user["id"]
-    user_kind = user.user_kind if hasattr(user, "user_kind") else user["kind"]
-    user_role_raw = user.user_role if hasattr(user, "user_role") else user.get("role")
+    user_id = user.user_id if isinstance(user, UserContext) else user["id"]
+    user_kind = user.user_kind if isinstance(user, UserContext) else user["kind"]
+    user_role_raw = user.user_role if isinstance(user, UserContext) else user.get("role")
     user_role = UserRole(user_role_raw) if user_role_raw else None
     conditions = get_visibility_conditions(
         UserKind(user_kind),
@@ -78,7 +81,7 @@ def build_qdrant_filter(
     return Filter(should=should)
 
 
-def with_domain_filter(access_filter: Filter, doc_domain: str) -> Filter:
+def with_domain_filter(access_filter: Filter | None, doc_domain: str) -> Filter:
     """Add a doc_domain condition to an existing ACL filter.
 
     Returns a new Filter that requires both the original ACL conditions AND
@@ -95,7 +98,7 @@ def with_domain_filter(access_filter: Filter, doc_domain: str) -> Filter:
     return Filter(must=[domain_condition])
 
 
-def with_temporal_filter(access_filter: Filter, as_of_date: date | None) -> Filter:
+def with_temporal_filter(access_filter: Filter | None, as_of_date: date | None) -> Filter:
     """Add temporal filtering for versioned documents.
 
     Current queries use today's date; historical queries use the requested date.
@@ -145,3 +148,13 @@ def with_temporal_filter(access_filter: Filter, as_of_date: date | None) -> Filt
         return Filter(must=[access_filter, temporal_condition])
 
     return Filter(must=[temporal_condition])
+
+
+def build_search_filter(
+    user: UserContext | dict[str, Any],
+    group_ids: list[int],
+    as_of_date: date | None = None,
+    **managed: list[int] | None,
+) -> Filter:
+    """Canonical Qdrant search scope: visibility and effective edition date."""
+    return with_temporal_filter(build_qdrant_filter(user, group_ids, **managed), as_of_date)

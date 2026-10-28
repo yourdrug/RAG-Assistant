@@ -1,5 +1,7 @@
 """Async snapshot orchestration keeps generation, mutation and cancellation safe."""
 
+from __future__ import annotations
+
 import asyncio
 import json
 import threading
@@ -11,7 +13,7 @@ from botocore.exceptions import ClientError
 
 from infrastructure.bm25 import persistence
 from infrastructure.bm25.bm25_index import BM25Index
-from infrastructure.ml.clients.client_registry import MLClientRegistry
+from infrastructure.bm25.snapshots import LocalBM25Snapshots
 
 
 @pytest.mark.asyncio
@@ -34,7 +36,7 @@ async def test_ten_callers_download_and_parse_one_snapshot_off_loop(tmp_path, mo
 
     monkeypatch.setattr(BM25Index, "from_dict", parse)
     storage = AsyncMock(download_to_temp=AsyncMock(side_effect=download))
-    registry = MLClientRegistry(bm25_loader=lambda: persistence.load_bm25_index_from_s3(storage))
+    registry = LocalBM25Snapshots(bm25_loader=lambda: persistence.load_bm25_index_from_s3(storage))
     snapshots = await asyncio.gather(*(registry.ensure_bm25_loaded() for _ in range(10)))
     assert all(index is snapshots[0] for index in snapshots)
     assert snapshots[0].hashes == ["hash"]
@@ -47,7 +49,7 @@ async def test_ten_callers_download_and_parse_one_snapshot_off_loop(tmp_path, mo
 @pytest.mark.asyncio
 async def test_cached_access_and_update_never_load_storage():
     loader = AsyncMock(return_value=BM25Index(["snapshot"]))
-    registry = MLClientRegistry(bm25_loader=loader)
+    registry = LocalBM25Snapshots(bm25_loader=loader)
     with pytest.raises(RuntimeError, match="not ready"):
         registry.bm25_index()
     with pytest.raises(RuntimeError, match="not ready"):
@@ -76,7 +78,7 @@ async def test_invalidation_during_async_download_discards_stale_snapshot():
             return BM25Index(["stale"])
         return BM25Index(["fresh"])
 
-    registry = MLClientRegistry(bm25_loader=load)
+    registry = LocalBM25Snapshots(bm25_loader=load)
     pending = asyncio.create_task(registry.ensure_bm25_loaded())
     await started.wait()
     registry.invalidate_bm25()
@@ -100,7 +102,7 @@ async def test_cancelled_first_loader_does_not_poison_waiting_caller():
             await asyncio.Event().wait()
         return BM25Index(["recovered"])
 
-    registry = MLClientRegistry(bm25_loader=load)
+    registry = LocalBM25Snapshots(bm25_loader=load)
     first = asyncio.create_task(registry.ensure_bm25_loaded())
     await started.wait()
     second = asyncio.create_task(registry.ensure_bm25_loaded())
@@ -150,7 +152,7 @@ async def test_cancelled_parse_failure_preserves_cancellation(tmp_path, monkeypa
 
     monkeypatch.setattr(persistence, "parse_bm25_snapshot", parse)
     storage = AsyncMock(download_to_temp=AsyncMock(return_value=path))
-    registry = MLClientRegistry(bm25_loader=lambda: persistence.load_bm25_index_from_s3(storage))
+    registry = LocalBM25Snapshots(bm25_loader=lambda: persistence.load_bm25_index_from_s3(storage))
     operation = registry.ensure_bm25_loaded()
     pending = asyncio.create_task(operation)
     try:
@@ -193,7 +195,7 @@ async def test_parse_cancellation_survives_cleanup_failure(tmp_path, monkeypatch
     monkeypatch.setattr(persistence, "parse_bm25_snapshot", parse)
     monkeypatch.setattr(Path, "unlink", unlink)
     storage = AsyncMock(download_to_temp=AsyncMock(return_value=path))
-    registry = MLClientRegistry(bm25_loader=lambda: persistence.load_bm25_index_from_s3(storage))
+    registry = LocalBM25Snapshots(bm25_loader=lambda: persistence.load_bm25_index_from_s3(storage))
     operation = persistence.load_bm25_index_from_s3(storage)
     pending = asyncio.create_task(operation)
     try:
@@ -238,7 +240,7 @@ async def test_cleanup_failure_without_cancellation_remains_load_error(tmp_path,
         b'{"texts":["text"],"doc_visibility":[{}]}',
         b'{"texts":["text"],"doc_owner_id":[]}',
         b'{"texts":["text"],"k1":"bad"}',
-        b'bad json',
+        b"bad json",
     ],
 )
 async def test_invalid_persisted_snapshot_is_retryable_load_failure(tmp_path, raw):
@@ -256,7 +258,7 @@ async def test_temp_directory_failure_does_not_become_cached_missing(tmp_path):
     path.write_text('{"texts":["existing snapshot"],"hashes":["existing-hash"]}')
     failure = FileNotFoundError("temporary directory disappeared after GET")
     storage = AsyncMock(download_to_temp=AsyncMock(side_effect=[failure, path]))
-    registry = MLClientRegistry(bm25_loader=lambda: persistence.load_bm25_index_from_s3(storage))
+    registry = LocalBM25Snapshots(bm25_loader=lambda: persistence.load_bm25_index_from_s3(storage))
     try:
         with pytest.raises(persistence.BM25LoadError) as caught:
             await registry.ensure_bm25_loaded()

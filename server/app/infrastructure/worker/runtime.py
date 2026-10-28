@@ -120,7 +120,7 @@ def job(
             cost_operation_id: str | None = None,
             **kwargs: Any,  # noqa: ANN401 — forwards heterogeneous task arguments
         ) -> None:
-            factory = ctx["container"].infrastructure.db.uow_factory
+            factory = ctx["uow_factory"]
             with job_billing_scope(function.__name__, ctx, kwargs, cost_principal, cost_operation_id):
                 async with document_admission(ctx, kwargs, enabled=per_principal) as run_ctx:
 

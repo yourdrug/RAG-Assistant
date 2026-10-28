@@ -10,6 +10,8 @@ O(1) lookup instead of O(N) SCAN. Entries without an index expire by TTL.
 
 from __future__ import annotations
 
+from typing import Any
+
 import base64
 import gzip
 import json
@@ -19,7 +21,7 @@ from collections.abc import Awaitable
 from typing import cast
 
 from domain.shared.hashing import content_hash
-from config import settings
+from config import get_request_settings
 from infrastructure.corpus.snapshot import active_corpus
 from infrastructure.redis.redis_client import redis_client
 from domain.identity.user_context import CuratorScope
@@ -75,7 +77,7 @@ def compute_visibility_scope_hash(
     return content_hash(f"{user_kind}:{user_role}:{user_id}:{sorted(group_ids)}:{scope_repr}")
 
 
-def compute_question_hash(question_text: str, context: dict | None = None) -> str:
+def compute_question_hash(question_text: str, context: dict[str, Any] | None = None) -> str:
     """Hash question and answer-affecting request context for exact-match lookup."""
     normalized = question_text.strip().lower()
 
@@ -97,7 +99,7 @@ def _cache_key(question_hash: str, visibility_scope_hash: str) -> str:
     namespace = (
         pinned[1].snapshot.namespace
         if pinned is not None
-        else content_hash(f"{settings.qdrant_url}:{settings.collection_name}")
+        else content_hash(f"{get_request_settings().qdrant_url}:{get_request_settings().collection_name}")
     )
     return f"{CACHE_PREFIX}{namespace}:{question_hash}:{visibility_scope_hash}"
 
@@ -107,16 +109,16 @@ def _doc_index_key(doc_id: int) -> str:
     return f"{DOC_INDEX_PREFIX}{doc_id}"
 
 
-def _encode_entry(entry: dict) -> str:
+def _encode_entry(entry: dict[str, Any]) -> str:
     # RedisClient uses decode_responses=True for the shared connection.
     return base64.b64encode(gzip.compress(json.dumps(entry).encode())).decode("ascii")
 
 
-def _decode_entry(raw) -> dict:
+def _decode_entry(raw: str | bytes) -> dict[str, Any]:
     if isinstance(raw, bytes) and raw.startswith(b"\x1f\x8b"):
-        return json.loads(gzip.decompress(raw))
+        return cast("dict[str, Any]", json.loads(gzip.decompress(raw)))
 
-    return json.loads(gzip.decompress(base64.b64decode(raw, validate=True)))
+    return cast("dict[str, Any]", json.loads(gzip.decompress(base64.b64decode(raw, validate=True))))
 
 
 async def find_cached_answer(
@@ -124,7 +126,7 @@ async def find_cached_answer(
     visibility_scope_hash: str,
     cache_enabled: bool = True,
     expected_revision: str | None = None,
-) -> dict | None:
+) -> dict[str, Any] | None:
     """Look up a cached answer by question hash + visibility scope.
 
     Returns the cache entry dict or None on miss.
@@ -159,7 +161,7 @@ async def store_cached_answer(
     question_text: str,
     question_hash: str,
     answer: str,
-    sources: list[dict],
+    sources: list[dict[str, Any]],
     visibility_scope_hash: str,
     document_ids: list[int] | None = None,
     cache_enabled: bool = True,

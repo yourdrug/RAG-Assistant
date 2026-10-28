@@ -1,5 +1,9 @@
 """Shared retry decorator for transient I/O failures (Qdrant, HTTP, etc.)."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import httpx
 from qdrant_client.http.exceptions import ResponseHandlingException
 from tenacity import (
@@ -9,7 +13,10 @@ from tenacity import (
     wait_exponential_jitter,
 )
 
-retry_on_transient = retry(
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+transient_retry = retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential_jitter(initial=1, max=10),
     retry=retry_if_exception_type(
@@ -22,3 +29,7 @@ retry_on_transient = retry(
     ),
     reraise=True,
 )
+
+
+def retry_on_transient[**P, R](function: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[R]]:
+    return transient_retry(function)

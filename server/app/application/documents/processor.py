@@ -87,6 +87,15 @@ class DocumentProcessor:
         if ctx.raw_chunks:
             self._metrics.inc_chunks(len(ctx.raw_chunks))
 
+    async def start_processing(self, document_id: int) -> bool:
+        async with self._uow_factory.create(master=True) as uow:
+            if await uow.documents.get_by_id(document_id) is None:
+                log.info("Document %d already deleted; skipping processing", document_id)
+                return False
+
+            await uow.documents.update_status(document_id, status=DocumentStatus.PROCESSING.value)
+        return True
+
     async def process(self, command: ProcessDocumentCommand) -> None:
         document_id = command.document_id
         ctx = ProcessingContext(
@@ -96,8 +105,8 @@ class DocumentProcessor:
         )
         t_start = time.monotonic()
         try:
-            async with self._uow_factory.create(master=True) as uow:
-                await uow.documents.update_status(document_id, status=DocumentStatus.PROCESSING.value)
+            if not await self.start_processing(document_id):
+                return
 
             ctx.temp_path = await self._file_storage.download_to_temp(command.storage_key)
             content = await self._content.parse(ctx.temp_path, command.original_filename, document_id)

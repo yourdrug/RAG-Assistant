@@ -8,10 +8,11 @@ periodically by the Scheduler (``infrastructure.scheduler``).
 
 from __future__ import annotations
 
+from qdrant_client import QdrantClient
+
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 import httpx
 from application.ports.ml_clients import MLClientPort
@@ -25,8 +26,6 @@ from infrastructure.database.database import database
 from infrastructure.ml.clients import factories
 from infrastructure.ml.usage_capture import extract_usage_from_langchain  # noqa: F401
 
-if TYPE_CHECKING:
-    from infrastructure.bm25.bm25_index import BM25Index
 
 log = logging.getLogger("default")
 
@@ -349,26 +348,14 @@ async def _collect_db_pool_metrics() -> None:
 
 
 async def _collect_qdrant_metrics(ml_clients: MLClientPort | None) -> None:
-    client = ml_clients.qdrant_client() if ml_clients is not None else factories.create_qdrant_client()
+    client = (
+        cast(QdrantClient, ml_clients.qdrant_client())
+        if ml_clients is not None
+        else factories.create_qdrant_client()
+    )
     # Sync qdrant-client call — must not run on the event loop.
     info = await asyncio.to_thread(client.get_collection, settings.collection_name)
     QDRANT_POINTS.set(info.points_count or 0)
-
-
-async def collect_bm25_metrics(
-    ml_clients: MLClientPort | None,
-    *,
-    bm25_loader: Callable[[], Awaitable[BM25Index | None]] | None = None,
-) -> None:
-    if ml_clients is not None:
-        bm25 = await ml_clients.ensure_bm25_loaded()
-    elif bm25_loader is not None:
-        bm25 = await bm25_loader()
-    else:
-        raise ValueError("BM25 metrics require an explicit registry or loader")
-
-    if bm25 is not None:
-        BM25_INDEX_SIZE.set(len(bm25.hashes))
 
 
 async def _collect_ollama_metrics() -> None:

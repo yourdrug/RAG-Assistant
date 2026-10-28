@@ -33,7 +33,7 @@ class Container:
 
         container = Container()
         container.init(database_manager)
-        app.state.container = container   # for request-scoped access
+        app.state.container = container  # for request-scoped access
         # ... serve requests ...
         await container.dispose()
     """
@@ -87,7 +87,7 @@ class Container:
 
     def worker_dependencies(self) -> dict[str, Any]:
         """Assemble worker services after configuration bootstrap."""
-        return worker_dependencies(self.infrastructure)
+        return worker_dependencies(self.infrastructure, self.application)
 
     async def dispose(self) -> None:
         """Tear down all resources in reverse order.

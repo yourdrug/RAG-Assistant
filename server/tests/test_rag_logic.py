@@ -616,7 +616,7 @@ class TestAssessSufficiency:
         doc.page_content = "some legal context"
         doc.metadata = {"source": "test.pdf", "document_id": 1}
 
-        with patch("infrastructure.ml.rag.rag_relevance.settings") as mock_settings:
+        with patch("config.settings") as mock_settings:
             from domain.runtime.enums import LLMProvider
 
             mock_settings.llm_provider = LLMProvider.OLLAMA
@@ -651,7 +651,7 @@ class TestAssessSufficiency:
         doc.page_content = "some legal context"
         doc.metadata = {"source": "test.pdf", "document_id": 1}
 
-        with patch("infrastructure.ml.rag.rag_relevance.settings") as mock_settings:
+        with patch("config.settings") as mock_settings:
             from domain.runtime.enums import LLMProvider
 
             mock_settings.llm_provider = LLMProvider.OPENROUTER
@@ -1127,7 +1127,7 @@ class TestCircuitBreakerIntegration:
         mock_ml.instructor_client = mock_client
 
         with patch("infrastructure.ml.rag.rag_relevance.get_breaker", return_value=mock_breaker):
-            with patch("infrastructure.ml.rag.rag_relevance.settings") as mock_settings:
+            with patch("config.settings") as mock_settings:
                 mock_settings.llm_provider = MagicMock(value="ollama")
                 mock_settings.llm_model = "test"
                 mock_settings.llm_auxiliary_timeout = 30
@@ -1157,7 +1157,7 @@ class TestCircuitBreakerIntegration:
         mock_ml.instructor_client = mock_client
 
         with patch("infrastructure.ml.rag.rag_relevance.get_breaker", return_value=mock_breaker):
-            with patch("infrastructure.ml.rag.rag_relevance.settings") as mock_settings:
+            with patch("config.settings") as mock_settings:
                 mock_settings.llm_provider = MagicMock(value="ollama")
                 mock_settings.llm_model = "test"
                 mock_settings.llm_auxiliary_timeout = 30

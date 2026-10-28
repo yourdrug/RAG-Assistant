@@ -1,12 +1,17 @@
 """Worker producers and evaluation tasks share their process-owned resources."""
 
+from __future__ import annotations
+
 import asyncio
+from functools import partial
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
-from application.benchmark import BenchmarkService
+from application.benchmark import BenchmarkService, jobs as benchmark_jobs
+from application.benchmark.jobs import BenchmarkJobService
+from infrastructure.benchmark.corpus import benchmark_scope
 from infrastructure.benchmark.evaluation import runner
 from infrastructure.worker import queue, runtime, tasks
 
@@ -83,7 +88,7 @@ async def test_worker_benchmark_runs_container_rag_pipeline(monkeypatch):
         application=SimpleNamespace(rag_service=rag),
     )
     questions = [{"id": 42, "question": "Which provision applies?"}]
-    monkeypatch.setattr(tasks, "load_benchmark_questions", AsyncMock(return_value=questions))
+    monkeypatch.setattr(benchmark_jobs, "load_benchmark_questions", AsyncMock(return_value=questions))
     used = []
 
     async def evaluate(**kwargs):
@@ -100,7 +105,16 @@ async def test_worker_benchmark_runs_container_rag_pipeline(monkeypatch):
         benchmark_service=BenchmarkService(rag_service=rag, runner=SimpleNamespace(run=evaluate)),
     )
     await tasks.run_benchmark(
-        {"container": container, "benchmark_results": results},
+        {
+            "uow_factory": factory,
+            "benchmark_job": BenchmarkJobService(
+                factory,
+                container.infrastructure.ml.benchmark_service,
+                results,
+                object(),
+                partial(benchmark_scope, None),
+            ),
+        },
         dataset="custom",
         out_dir="unused",
         top_k=4,

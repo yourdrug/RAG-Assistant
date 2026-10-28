@@ -6,6 +6,8 @@ LLM judge and relevance gate calls instead of fragile regex parsing.
 
 from __future__ import annotations
 
+from typing import Protocol, cast
+
 from pydantic import BaseModel, Field
 
 
@@ -46,4 +48,45 @@ class SufficiencyAssessment(BaseModel):
     suggested_refinement: str = Field(
         default="",
         description="If insufficient, a refined query for broader retrieval",
+    )
+
+
+class StructuredCompletions(Protocol):
+    async def create[T: BaseModel](
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, str]],
+        max_tokens: int,
+        response_model: type[T],
+        max_retries: int,
+    ) -> T: ...
+
+
+class StructuredChat(Protocol):
+    @property
+    def completions(self) -> StructuredCompletions: ...
+
+
+class StructuredClient(Protocol):
+    @property
+    def chat(self) -> StructuredChat: ...
+
+
+async def create_structured_response[T: BaseModel](
+    client: object,
+    *,
+    model: str,
+    messages: list[dict[str, str]],
+    max_tokens: int,
+    response_model: type[T],
+    max_retries: int,
+) -> T:
+    """Narrow the opaque provider handle at its structured-response boundary."""
+    return await cast("StructuredClient", client).chat.completions.create(
+        model=model,
+        messages=messages,
+        max_tokens=max_tokens,
+        response_model=response_model,
+        max_retries=max_retries,
     )

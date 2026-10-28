@@ -4,22 +4,33 @@ These are module-level functions (no class dependency) extracted from
 rag_service.py to reduce its size and isolate the retrieval I/O layer.
 """
 
+from __future__ import annotations
+
+from typing import cast
+
+from typing import TYPE_CHECKING
+
 import asyncio
 from infrastructure.corpus.snapshot import pin_corpus_call
 import logging
 import time
 
-from application.ports.ml_clients import MLClientPort
 from application.search import HybridRetriever
-from config import settings
-from domain.rag.settings import RagSettings
+from config import get_request_settings
 from domain.shared.hashing import content_hash
 from infrastructure.metrics.metrics import RAG_STAGE_DURATION
 from infrastructure.resilience.retry import retry_on_transient
 from infrastructure.repositories.vector.embedding_identity import ensure_embedding_identity
 from langchain.schema import Document as LCDocument
-from qdrant_client.models import FieldCondition, Filter, MatchValue, ScoredPoint
+from qdrant_client.models import FieldCondition, Filter, MatchValue
 from infrastructure.repositories.vector.sparse_vectors import sparse_query
+
+if TYPE_CHECKING:
+    from application.ports.ml_clients import MLClientPort
+    from qdrant_client.models import ScoredPoint
+    from domain.rag.settings import RagSettings
+    from qdrant_client import QdrantClient
+    from domain.knowledge.access_control import VisibilityCondition
 
 log = logging.getLogger("default")
 
@@ -30,7 +41,7 @@ _retriever = HybridRetriever()
 @retry_on_transient
 async def resolve_hashes_batch(
     hashes: list[str],
-    access_filter,
+    access_filter: Filter | None,
     ml_clients: MLClientPort,
 ) -> dict[str, LCDocument]:
     """Batch-resolve multiple content_hashes from Qdrant in a single scroll call.
@@ -47,7 +58,7 @@ async def resolve_hashes_batch(
             "Build one via build_qdrant_filter() before calling."
         )
 
-    client = ml_clients.qdrant_client()
+    client = cast("QdrantClient", ml_clients.qdrant_client())
 
     should_conditions: list[FieldCondition] = [
         FieldCondition(
@@ -62,14 +73,14 @@ async def resolve_hashes_batch(
     async with ml_clients.qdrant_search_semaphore:
         results = await asyncio.to_thread(
             client.scroll,
-            collection_name=settings.collection_name,
+            collection_name=get_request_settings().collection_name,
             scroll_filter=scroll_filter,
             limit=len(hashes),
             with_payload=True,
-            timeout=settings.qdrant_timeout,
+            timeout=get_request_settings().qdrant_timeout,
         )
 
-    points = results[0] if isinstance(results, tuple) else results
+    points = results[0]
     resolved = {}
 
     for point in points:
@@ -89,7 +100,7 @@ async def resolve_hashes_batch(
 async def qdrant_dense_search(
     query: str,
     k: int,
-    access_filter,
+    access_filter: Filter | None,
     ml_clients: MLClientPort,
     score_threshold: float | None = None,
 ) -> list[tuple[str, float, LCDocument]]:
@@ -100,7 +111,7 @@ async def qdrant_dense_search(
     if access_filter is None:
         raise RuntimeError("qdrant_dense_search() requires access_filter for ACL enforcement.")
 
-    client = ml_clients.qdrant_client()
+    client = cast("QdrantClient", ml_clients.qdrant_client())
     embeddings = ml_clients.embeddings()
     await asyncio.to_thread(
         ensure_embedding_identity, client, getattr(embeddings, "embedding_identity", None)
@@ -110,22 +121,22 @@ async def qdrant_dense_search(
         # Admission can wait through a pool switch; identity is unchanged by endpoint/pool updates.
         query_vector = await ml_clients.embeddings().embed_query(query)
 
-    raw_threshold = (
+    raw_threshold: object = (
         score_threshold
         if score_threshold is not None
-        else getattr(settings, "rag_retrieval_score_threshold", 0.0)
+        else get_request_settings().rag_retrieval_score_threshold
     )
     threshold = raw_threshold if isinstance(raw_threshold, (int, float)) else 0.0
 
     async with ml_clients.qdrant_search_semaphore:
         results = await asyncio.to_thread(
             client.search,
-            collection_name=settings.collection_name,
+            collection_name=get_request_settings().collection_name,
             query_vector=query_vector,
             limit=k,
             query_filter=access_filter,
             score_threshold=threshold if threshold > 0 else None,
-            timeout=settings.qdrant_timeout,
+            timeout=get_request_settings().qdrant_timeout,
         )
 
     docs = []
@@ -141,7 +152,9 @@ async def qdrant_dense_search(
     return docs
 
 
-def search_sparse_points(client, query: str, k: int, access_filter) -> list[ScoredPoint]:
+def search_sparse_points(
+    client: QdrantClient, query: str, k: int, access_filter: Filter | None
+) -> list[ScoredPoint]:
     """Return sparse hits with payload; apply the complete ACL/temporal scope before top-k."""
     if access_filter is None:
         raise RuntimeError("Sparse search requires an ACL filter")
@@ -152,23 +165,23 @@ def search_sparse_points(client, query: str, k: int, access_filter) -> list[Scor
         return []
 
     return client.search(
-        collection_name=settings.collection_name,
+        collection_name=get_request_settings().collection_name,
         query_vector=vector,
         query_filter=access_filter,
         limit=k,
         with_payload=True,
-        timeout=settings.qdrant_timeout,
+        timeout=get_request_settings().qdrant_timeout,
     )
 
 
 @pin_corpus_call
 @retry_on_transient
 async def qdrant_sparse_search(
-    query: str, k: int, access_filter, ml_clients: MLClientPort
+    query: str, k: int, access_filter: Filter | None, ml_clients: MLClientPort
 ) -> list[tuple[str, float, LCDocument]]:
     async with ml_clients.qdrant_search_semaphore:
         points = await asyncio.to_thread(
-            search_sparse_points, ml_clients.qdrant_client(), query, k, access_filter
+            search_sparse_points, cast("QdrantClient", ml_clients.qdrant_client()), query, k, access_filter
         )
     return [
         (
@@ -187,15 +200,15 @@ async def qdrant_sparse_search(
 async def run_hybrid_search(
     query: str,
     fetch_k: int,
-    access_filter,
+    access_filter: Filter | None,
     rag: RagSettings,
     ml_clients: MLClientPort,
     dense_weight: float | None = None,
     sparse_weight: float | None = None,
     *,
-    visibility_conditions: list,
-    user_id: int,
-    user_group_ids: list[int],
+    visibility_conditions: list[VisibilityCondition] | None,
+    user_id: int | None,
+    user_group_ids: list[int] | None,
 ) -> list[LCDocument]:
     """Run Qdrant dense+sparse retrieval with identical filters and weighted RRF."""
     if access_filter is None:

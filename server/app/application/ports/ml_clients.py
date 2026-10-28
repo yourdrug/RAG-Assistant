@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
-    from contextlib import AbstractContextManager
     from types import TracebackType
 
 
@@ -61,7 +60,7 @@ class MLClientPort(Protocol):
 
     This is deliberately a port rather than an alias for
     ``MLClientRegistry``. The registry is an infrastructure lifecycle
-    component; this contract describes only what RAG, summaries, BM25, and
+    component; this contract describes only what RAG, summaries and
     vector storage need from it.
     """
 
@@ -69,7 +68,6 @@ class MLClientPort(Protocol):
     auxiliary_semaphore: AsyncSemaphorePort
     qdrant_search_semaphore: AsyncSemaphorePort
     reranker_semaphore: AsyncSemaphorePort
-    bm25_search_semaphore: AsyncSemaphorePort
     embedding_semaphore: AsyncSemaphorePort
     ingestion_semaphore: AsyncSemaphorePort
     qdrant_write_semaphore: AsyncSemaphorePort
@@ -86,14 +84,6 @@ class MLClientPort(Protocol):
 
     # Vendor handles are opaque here; infrastructure owns their provider-specific APIs.
     def qdrant_client(self) -> object: ...
-
-    def bm25_index(self) -> object:
-        """Return only an already prepared snapshot; never load storage synchronously."""
-        ...
-
-    def bm25_update(self) -> AbstractContextManager[object]: ...
-
-    async def ensure_bm25_loaded(self) -> object: ...
 
     @property
     def instructor_client(self) -> object: ...

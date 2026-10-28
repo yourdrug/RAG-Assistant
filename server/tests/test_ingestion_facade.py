@@ -220,7 +220,7 @@ async def test_worker_uses_injected_service_and_forwards_scope(
         await action()
 
     monkeypatch.setattr(runtime, "run_tracked_job", tracked)
-    ctx = {"container": SimpleNamespace(infrastructure=infra), "job_try": 2, "ingestion_service": service}
+    ctx = {"uow_factory": infra.db.uow_factory, "job_try": 2, "ingestion_service": service}
 
     if single:
         await worker_tasks.run_single_ingest(

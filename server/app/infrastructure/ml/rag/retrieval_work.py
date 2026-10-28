@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from domain.knowledge.access_control import VisibilityCondition
+
 from dataclasses import dataclass, field
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from langchain_core.documents import Document
@@ -28,7 +30,7 @@ class RetrievalWork:
     access_filter: object
     retrieval_filter: object
     req_id: str = ""
-    visibility_conditions: list[dict[str, Any]] = field(default_factory=list)
+    visibility_conditions: list[VisibilityCondition] = field(default_factory=list)
 
     # ── History ─────────────────────────────────────────────────────────
     history_messages: list[BaseMessage] = field(default_factory=list)

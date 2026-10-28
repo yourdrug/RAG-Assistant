@@ -1,21 +1,19 @@
-"""BM25 index invalidation channel (C-5) — worker → API propagation via Redis pub/sub.
+"""Optional invalidation channel for standalone local BM25 snapshot tools.
 
-The BM25 index is per-process: the API loads it from S3 once and mutates it
-only for in-process events, while the worker rebuilds/persists it. Without an
-invalidation channel, documents ingested by the worker stay invisible to the
-API's sparse (hybrid) search until the API restarts.
-
-Contract: whenever a process persists a new BM25 index to S3, it publishes
-``bm25:invalidate``; every other process that holds an in-memory copy
-subscribes and reloads it lazily on next access via the ML client registry.
+Production Qdrant sparse search does not subscribe to this channel.
 """
 
 from __future__ import annotations
+
 
 import asyncio
 import logging
 
 from infrastructure.redis.redis_client import redis_client
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from infrastructure.bm25.snapshots import LocalBM25Snapshots
 
 log = logging.getLogger("default")
 
@@ -40,7 +38,7 @@ async def publish_bm25_invalidation(*, raise_on_error: bool = False) -> None:
             raise
 
 
-async def listen_for_bm25_invalidation(ml_clients) -> None:
+async def listen_for_bm25_invalidation(snapshots: LocalBM25Snapshots) -> None:
     """Subscribe loop: reload the in-memory BM25 index after external rebuilds.
 
     Runs as a background task in the API process. Cancelled on shutdown.
@@ -56,14 +54,14 @@ async def listen_for_bm25_invalidation(ml_clients) -> None:
             if message is None or message.get("type") != "message":
                 continue
 
-            if ml_clients is not None:
-                ml_clients.invalidate_bm25()
+            if snapshots is not None:
+                snapshots.invalidate_bm25()
                 log.info("BM25 index invalidated — will reload from S3 on next access")
     except asyncio.CancelledError:
         raise
     finally:
         try:
             await pubsub.unsubscribe(_CHANNEL)
-            await pubsub.aclose()
+            await pubsub.close()
         except Exception:
             log.warning("Failed to close BM25 pubsub cleanly", exc_info=True)

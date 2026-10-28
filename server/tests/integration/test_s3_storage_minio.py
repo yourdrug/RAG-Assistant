@@ -1,5 +1,7 @@
 """Opt-in MinIO compatibility smoke; only this run's unique keys are removed."""
 
+from __future__ import annotations
+
 import asyncio
 import hashlib
 import json
@@ -20,7 +22,7 @@ from config import settings
 from domain.benchmark.run import BenchmarkRun
 from domain.knowledge.enums import DocumentVisibility
 from infrastructure.bm25 import bm25_invalidation, persistence
-from infrastructure.ml.clients.client_registry import MLClientRegistry
+from infrastructure.bm25.snapshots import LocalBM25Snapshots
 from infrastructure.redis.redis_client import redis_client
 from infrastructure.storage.file_storage import S3Storage, LazyStorage
 from infrastructure.repositories.benchmark.sqlalchemy_benchmark_run_repository import (
@@ -152,7 +154,7 @@ async def test_bm25_cold_warm_load_and_snapshot_refresh(minio_storage, monkeypat
         return await original_download(snapshot_key)
 
     monkeypatch.setattr(storage, "download_to_temp", download)
-    registry = MLClientRegistry(bm25_loader=partial(persistence.load_bm25_index_from_s3, storage))
+    registry = LocalBM25Snapshots(bm25_loader=partial(persistence.load_bm25_index_from_s3, storage))
     data = {
         "texts": ["original snapshot"],
         "hashes": ["original-hash"],
@@ -191,7 +193,7 @@ async def test_bm25_redis_invalidation_reloads_real_snapshot(minio_storage, monk
     channel = prefix + "invalidate"
     monkeypatch.setattr(persistence, "BM25_S3_KEY", key)
     monkeypatch.setattr(bm25_invalidation, "_CHANNEL", channel)
-    registry = MLClientRegistry(bm25_loader=partial(persistence.load_bm25_index_from_s3, storage))
+    registry = LocalBM25Snapshots(bm25_loader=partial(persistence.load_bm25_index_from_s3, storage))
     listener = None
     try:
         await redis_client.init()

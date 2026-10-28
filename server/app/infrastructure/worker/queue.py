@@ -21,21 +21,22 @@ from typing import Any
 from uuid import uuid4
 
 from arq import create_pool
-from arq.connections import RedisSettings
+from arq.connections import RedisSettings, ArqRedis
 from arq.jobs import Job
 from config import settings
 from domain.knowledge.enums import DocumentVisibility
 from application.budget import billing_principal
+from application.ports.job_enqueuer import DuplicateJobError
 
 logger = logging.getLogger("default")
 
 QUEUE_NAME = "background_tasks"
 
-_pool = None
+_pool: ArqRedis | None = None
 pool_lock = asyncio.Lock()
 
 
-async def get_pool():
+async def get_pool() -> ArqRedis:
     """Lazily create and reuse one arq pool per process."""
     global _pool
 
@@ -74,7 +75,7 @@ async def enqueue_arq(
     if billing_principal.get() is not None:
         kwargs["cost_principal"] = billing_principal.get()
 
-    kwargs.setdefault('cost_operation_id', str(uuid4()))
+    kwargs.setdefault("cost_operation_id", str(uuid4()))
     pool = await get_pool()
     job = await pool.enqueue_job(func_name, _queue_name=queue_name, _job_id=arq_job_id, **kwargs)
 
@@ -137,10 +138,12 @@ async def enqueue_ingest(
     client_id: int | None = None,
 ) -> None:
     """Enqueue full ingestion via Arq (deduplicated per parameters)."""
-    await enqueue_arq(
+    job = await enqueue_arq(
         QUEUE_NAME,
         "run_full_ingest",
-        arq_job_id=deterministic_id("ingest_full", resolved_dir, reset, domain),
+        arq_job_id=deterministic_id(
+            "ingest_full", resolved_dir, reset, domain, visibility, group_id, client_id
+        ),
         resolved_dir=resolved_dir,
         reset=reset,
         domain=domain,
@@ -149,6 +152,8 @@ async def enqueue_ingest(
         group_id=group_id,
         client_id=client_id,
     )
+    if job is None:
+        raise DuplicateJobError("An equivalent ingestion is already queued or running")
 
 
 async def enqueue_ingest_file(
@@ -162,10 +167,10 @@ async def enqueue_ingest_file(
     force: bool = False,
 ) -> None:
     """Enqueue single-file ingestion via Arq (deduplicated per parameters)."""
-    await enqueue_arq(
+    job = await enqueue_arq(
         QUEUE_NAME,
         "run_single_ingest",
-        arq_job_id=deterministic_id("ingest_file", resolved, domain),
+        arq_job_id=deterministic_id("ingest_file", resolved, domain, visibility, group_id, client_id, force),
         resolved=resolved,
         domain=domain,
         job_id=job_id,
@@ -174,6 +179,8 @@ async def enqueue_ingest_file(
         client_id=client_id,
         force=force,
     )
+    if job is None:
+        raise DuplicateJobError("An equivalent ingestion is already queued or running")
 
 
 async def enqueue_benchmark(

@@ -1,5 +1,11 @@
 """Regressions for zero tariffs and corpus switches during evaluations."""
 
+from __future__ import annotations
+from functools import partial
+from application.benchmark import jobs as benchmark_jobs
+from application.benchmark.jobs import BenchmarkJobService
+from infrastructure.benchmark.corpus import benchmark_scope
+
 from infrastructure.benchmark.sweep import candidates as sweep_candidates
 
 
@@ -36,33 +42,33 @@ from presentation.api.routes.admin_config import CostRateRequest, CostRateRespon
 
 
 @pytest.mark.parametrize(
-    'provider,inputs,outputs',
+    "provider,inputs,outputs",
     [
-        ('deepinfra', '0', '0'),
-        ('deepinfra', '0', '1'),
-        ('openrouter', '0', '1'),
-        ('openrouter', '1', '0'),
+        ("deepinfra", "0", "0"),
+        ("deepinfra", "0", "1"),
+        ("openrouter", "0", "1"),
+        ("openrouter", "1", "0"),
     ],
 )
 @pytest.mark.asyncio
 async def test_zero_paid_tariff_cannot_be_published(provider, inputs, outputs):
-    rate = CostRate(provider, 'm', 1, 'tokens', Decimal(inputs), Decimal(outputs), 32768)
+    rate = CostRate(provider, "m", 1, "tokens", Decimal(inputs), Decimal(outputs), 32768)
     repository = AsyncMock()
     service = BudgetAdminService(repository, AsyncMock())
-    with pytest.raises(BudgetError, match='positive'):
+    with pytest.raises(BudgetError, match="positive"):
         await service.add_rate(rate)
     repository.add_rate.assert_not_awaited()
 
 
 def test_api_rejects_zero_input_but_lists_legacy_tariff():
     data = {
-        'provider': 'deepinfra',
-        'model': 'm',
-        'version': 1,
-        'unit': 'tokens',
-        'input_usd_per_million': '0',
-        'output_usd_per_million': '0',
-        'context_tokens': 32768,
+        "provider": "deepinfra",
+        "model": "m",
+        "version": 1,
+        "unit": "tokens",
+        "input_usd_per_million": "0",
+        "output_usd_per_million": "0",
+        "context_tokens": 32768,
     }
     with pytest.raises(ValidationError):
         CostRateRequest(**data)
@@ -77,12 +83,12 @@ async def test_stored_zero_tariff_never_dispatches():
     runtime.policy_snapshot = AsyncMock(return_value=BudgetPolicy(True))
     runtime.rate = AsyncMock(
         return_value=CostRate(
-            'deepinfra',
-            'Qwen/Qwen3-Reranker-0.6B',
+            "deepinfra",
+            "Qwen/Qwen3-Reranker-0.6B",
             1,
-            'tokens',
-            Decimal('0'),
-            Decimal('0'),
+            "tokens",
+            Decimal("0"),
+            Decimal("0"),
             32768,
             input_only=True,
         )
@@ -94,30 +100,30 @@ async def test_stored_zero_tariff_never_dispatches():
             transport=httpx.MockTransport(send),
         )
     ) as client:
-        with pytest.raises(BudgetError, match='positive'):
+        with pytest.raises(BudgetError, match="positive"):
             await client.post(
-                'https://api.deepinfra.com/v1/inference/Qwen/Qwen3-Reranker-0.6B',
-                json={'queries': ['q'], 'documents': ['d']},
+                "https://api.deepinfra.com/v1/inference/Qwen/Qwen3-Reranker-0.6B",
+                json={"queries": ["q"], "documents": ["d"]},
             )
     send.assert_not_called()
     runtime.service.ledger.reserve.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('model', ['Qwen/Qwen3-Reranker-0.6B', 'Qwen/Qwen3-Reranker-4B'])
+@pytest.mark.parametrize("model", ["Qwen/Qwen3-Reranker-0.6B", "Qwen/Qwen3-Reranker-4B"])
 async def test_reranker_contract_reserves_each_pair(model):
-    contract = await OpenRouterBillingCatalog().contract('deepinfra', model)
-    rate = CostRate('deepinfra', model, 1, 'tokens', Decimal('0.01'), Decimal('0'), 32768, input_only=True)
-    assert prepare_inference_body({'queries': ['q'], 'documents': ['d1', 'd2']}, contract, rate) == 655360
+    contract = await OpenRouterBillingCatalog().contract("deepinfra", model)
+    rate = CostRate("deepinfra", model, 1, "tokens", Decimal("0.01"), Decimal("0"), 32768, input_only=True)
+    assert prepare_inference_body({"queries": ["q"], "documents": ["d1", "d2"]}, contract, rate) == 655360
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    'model,price,ready',
+    "model,price,ready",
     [
-        ('Qwen/Qwen3-Reranker-0.6B', '0.01', True),
-        ('Qwen/Qwen3-Reranker-0.6B', '0', False),
-        ('BAAI/bge-reranker-v2-m3', '0.01', False),
+        ("Qwen/Qwen3-Reranker-0.6B", "0.01", True),
+        ("Qwen/Qwen3-Reranker-0.6B", "0", False),
+        ("BAAI/bge-reranker-v2-m3", "0.01", False),
     ],
 )
 async def test_active_model_status_reports_unsupported_or_invalid_tariffs(model, price, ready):
@@ -125,53 +131,53 @@ async def test_active_model_status_reports_unsupported_or_invalid_tariffs(model,
     repository.rates.return_value = [
         vars(
             CostRate(
-                'deepinfra',
+                "deepinfra",
                 model,
                 1,
-                'tokens',
+                "tokens",
                 Decimal(price),
-                Decimal('0'),
+                Decimal("0"),
                 32768,
                 input_only=True,
             )
         )
     ]
     repository.rate_violated.return_value = False
-    status = await BudgetAdminService(repository, OpenRouterBillingCatalog()).model_status('deepinfra', model)
-    assert status['ready'] is ready
+    status = await BudgetAdminService(repository, OpenRouterBillingCatalog()).model_status("deepinfra", model)
+    assert status["ready"] is ready
     if not ready:
-        assert status['reason']
+        assert status["reason"]
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    'versions,violated,ready', [([1], False, True), ([1], True, False), ([1, 2], True, True)]
+    "versions,violated,ready", [([1], False, True), ([1], True, False), ([1, 2], True, True)]
 )
 async def test_active_model_status_checks_violation_of_latest_tariff(versions, violated, ready):
-    model = 'Qwen/Qwen3-Reranker-0.6B'
+    model = "Qwen/Qwen3-Reranker-0.6B"
     repository = AsyncMock()
     repository.rates.return_value = [
         vars(
             CostRate(
-                'deepinfra', model, version, 'tokens', Decimal('0.01'), Decimal('0'), 32768, input_only=True
+                "deepinfra", model, version, "tokens", Decimal("0.01"), Decimal("0"), 32768, input_only=True
             )
         )
         for version in versions
     ]
     repository.rate_violated.side_effect = lambda provider, name, version: violated and version == 1
-    status = await BudgetAdminService(repository, OpenRouterBillingCatalog()).model_status('deepinfra', model)
-    assert status['ready'] is ready
-    repository.rate_violated.assert_awaited_once_with('deepinfra', model, max(versions))
+    status = await BudgetAdminService(repository, OpenRouterBillingCatalog()).model_status("deepinfra", model)
+    assert status["ready"] is ready
+    repository.rate_violated.assert_awaited_once_with("deepinfra", model, max(versions))
     if not ready:
-        assert 'exceeded its reservation bound' in status['reason']
+        assert "exceeded its reservation bound" in status["reason"]
 
 
 def corpus_pair():
     registry = MLClientRegistry()
-    snapshot = CorpusSnapshot('http://qdrant:6333', 'docs', 'v1', 'identity', 'generation1')
+    snapshot = CorpusSnapshot("http://qdrant:6333", "docs", "v1", "identity", "generation1")
     old = BoundQdrantClient(Mock(), snapshot)
-    new = BoundQdrantClient(Mock(), replace(snapshot, physical_collection='v2', generation='generation2'))
-    registry.install_corpus(old, None)
+    new = BoundQdrantClient(Mock(), replace(snapshot, physical_collection="v2", generation="generation2"))
+    registry.install_corpus(old)
     return registry, old, new
 
 
@@ -183,29 +189,29 @@ async def test_benchmark_pins_all_parallel_and_queued_questions(monkeypatch, tmp
 
     async def evaluate(self, idx, question, run_idx, ctx, **kwargs):
         if idx == 1:
-            registry.install_corpus(new, None)
+            registry.install_corpus(new)
             switched.set()
         await switched.wait()
         await asyncio.sleep(0)
         observed.append(registry.qdrant_client())
-        assert corpus_metadata(registry.corpus_snapshot)['corpus_generation'] == 'generation1'
+        assert corpus_metadata(registry.corpus_snapshot)["corpus_generation"] == "generation1"
         old.client.close.assert_not_called()
         return {
-            'id': idx,
-            'question': question['question'],
-            'generator_metrics': {},
-            'retriever_metrics': {},
-            'latency_sec': 1,
+            "id": idx,
+            "question": question["question"],
+            "generator_metrics": {},
+            "retriever_metrics": {},
+            "latency_sec": 1,
         }
 
-    monkeypatch.setattr(runner.BenchmarkCaseEvaluator, 'evaluate', evaluate)
-    monkeypatch.setattr(runner.progress, 'log_question_result', lambda *args: None)
-    monkeypatch.setattr(runner.progress, 'log_summary', lambda *args: None)
+    monkeypatch.setattr(runner.BenchmarkCaseEvaluator, "evaluate", evaluate)
+    monkeypatch.setattr(runner.progress, "log_question_result", lambda *args: None)
+    monkeypatch.setattr(runner.progress, "log_summary", lambda *args: None)
     try:
         await runner.run_benchmark_async(
-            [{'question': 'q', 'annotations': {'expected_refusal': True}}] * 3,
+            [{"question": "q", "annotations": {"expected_refusal": True}}] * 3,
             1,
-            'judge',
+            "judge",
             max_concurrent=2,
             rag_service=SimpleNamespace(),
             corpus_resource=registry,
@@ -227,17 +233,23 @@ async def test_candidate_cache_keeps_client_across_switch(monkeypatch):
     registry._embeddings.embed_query_sync.return_value = [1.0]
 
     def search(*args, **kwargs):
-        registry.install_corpus(new, None)
+        registry.install_corpus(new)
         return []
+
     old.client.search.side_effect = search
     try:
         await sweep_candidates.cache_candidates(
-            [{'question': 'alpha'}, {'question': 'beta'}], 1, ml_clients=registry,
-            access_filter=Filter(), visibility_conditions=[object()], user_id=0, user_group_ids=[],
+            [{"question": "alpha"}, {"question": "beta"}],
+            1,
+            ml_clients=registry,
+            access_filter=Filter(),
+            visibility_conditions=[object()],
+            user_id=0,
+            user_group_ids=[],
         )
         assert old.client.search.call_count == 4
         new.client.search.assert_not_called()
-        assert all(call.kwargs['collection_name'] == 'v1' for call in old.client.search.call_args_list)
+        assert all(call.kwargs["collection_name"] == "v1" for call in old.client.search.call_args_list)
     finally:
         await old.aclose()
         await registry.close()
@@ -247,28 +259,30 @@ async def test_candidate_cache_keeps_client_across_switch(monkeypatch):
 async def test_sweep_pins_preparation_and_rejects_resume_on_changed_corpus(tmp_path, monkeypatch):
     registry, old, new = corpus_pair()
     factory = FakeUnitOfWorkFactory()
+
     def checkpoints(sweep_id):
         return DatabaseBenchmarkCheckpoints(factory, sweep_id)
+
     engine = build_sweep_engine(None, ml_clients=registry, checkpoint_factory=checkpoints)
-    engine.load_questions = AsyncMock(return_value=[{'question': 'q', 'source_hint': 'law.pdf'}])
+    engine.load_questions = AsyncMock(return_value=[{"question": "q", "source_hint": "law.pdf"}])
 
     async def phase_a(*args):
-        registry.install_corpus(new, None)
-        return [{'config': {'top_k': 1}, 'composite_score': 1}]
+        registry.install_corpus(new)
+        return [{"config": {"top_k": 1}, "composite_score": 1}]
 
     async def phase_b(*args, **kwargs):
         assert registry.qdrant_client() is old
-        assert kwargs['run'].corpus == corpus_metadata(old.snapshot)
+        assert kwargs["run"].corpus == corpus_metadata(old.snapshot)
         old.client.close.assert_not_called()
         return []
 
     engine.evaluate_phase_a = phase_a
     engine.run_phase_b = phase_b
-    sweep = BenchmarkSweep(id=123, search_space={'top_k': {'values': [1]}}, objective_weights={'hit_rate': 1})
+    sweep = BenchmarkSweep(id=123, search_space={"top_k": {"values": [1]}}, objective_weights={"hit_rate": 1})
     try:
-        await engine.run_sweep(sweep, 'judge')
-        with pytest.raises(ValueError, match='corpus changed'):
-            await engine.run_sweep(sweep, 'judge')
+        await engine.run_sweep(sweep, "judge")
+        with pytest.raises(ValueError, match="corpus changed"):
+            await engine.run_sweep(sweep, "judge")
     finally:
         await old.aclose()
         await registry.close()
@@ -285,10 +299,12 @@ async def test_worker_report_uses_pinned_corpus_after_switch(monkeypatch):
         ),
         application=SimpleNamespace(rag_service=SimpleNamespace()),
     )
-    monkeypatch.setattr(tasks, 'load_benchmark_questions', AsyncMock(return_value=[{'question': 'q'}]))
+    monkeypatch.setattr(
+        benchmark_jobs, "load_benchmark_questions", AsyncMock(return_value=[{"question": "q"}])
+    )
 
     async def evaluate(**kwargs):
-        registry.install_corpus(new, None)
+        registry.install_corpus(new)
         return {"results": [{}], "total_time_sec": 1}
 
     async def tracked(factory, job_id, action, **kwargs):
@@ -297,16 +313,28 @@ async def test_worker_report_uses_pinned_corpus_after_switch(monkeypatch):
     container.infrastructure.ml = SimpleNamespace(
         ml_clients=registry, benchmark_service=SimpleNamespace(run=evaluate)
     )
-    monkeypatch.setattr(runtime, 'run_tracked_job', tracked)
+    monkeypatch.setattr(runtime, "run_tracked_job", tracked)
     try:
         await tasks.run_benchmark(
-            {'container': container, 'benchmark_results': service},
-            dataset='main', top_k=1, judge_model='judge', job_id=1
+            {
+                "uow_factory": object(),
+                "benchmark_job": BenchmarkJobService(
+                    object(),
+                    container.infrastructure.ml.benchmark_service,
+                    service,
+                    object(),
+                    partial(benchmark_scope, registry),
+                ),
+            },
+            dataset="main",
+            top_k=1,
+            judge_model="judge",
+            job_id=1,
         )
         report = service.record_result.call_args.args[0]
-        assert report.config_json['collection_name'] == 'v1'
-        assert report.config_json['corpus_generation'] == 'generation1'
-        assert report.config_json['embedding_identity'] == 'identity'
+        assert report.config_json["collection_name"] == "v1"
+        assert report.config_json["corpus_generation"] == "generation1"
+        assert report.config_json["embedding_identity"] == "identity"
     finally:
         await old.aclose()
         await registry.close()

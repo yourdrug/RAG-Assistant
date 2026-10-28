@@ -2,35 +2,20 @@
 
 from __future__ import annotations
 
-import asyncio
+from application.uow.factory import UnitOfWorkFactory
+from domain.runtime.jobs import BackgroundJob
+
 import logging
-import time
 from typing import Any
 
 from config import settings
-from infrastructure.bm25.bm25_invalidation import publish_bm25_invalidation
-from infrastructure.bm25.bm25_index import BM25Index
-from infrastructure.bm25.persistence import save_bm25_index_to_s3
-from infrastructure.metrics.metrics import BM25_REBUILD_MEMORY
-from domain.knowledge.repositories.chunk import ChunkCorpusRepository
 
 logger = logging.getLogger("default")
 
 
-def add_bm25_batch(index, rows) -> int:
-    """Tokenize one bounded chunk batch into the private rebuild index."""
-    text_bytes = 0
-
-    for content, visibility, owner_id, group_id in rows:
-        index.add_text(content, visibility=visibility, owner_id=owner_id, group_id=group_id)
-        text_bytes += len(content.encode("utf-8"))
-
-    return text_bytes
-
-
 async def cron_job_cleanup(ctx: dict[str, Any]) -> None:
     """Delete old background job records (runs every hour)."""
-    uow_factory = ctx["container"].infrastructure.db.uow_factory
+    uow_factory = ctx["uow_factory"]
     async with uow_factory.create(master=True) as uow:
         deleted = await uow.background_jobs.delete_old(days=settings.job_cleanup_days)
 
@@ -40,7 +25,7 @@ async def cron_job_cleanup(ctx: dict[str, Any]) -> None:
 
 async def cron_recover_orphaned_jobs(ctx: dict[str, Any]) -> None:
     """Fail jobs whose heartbeat expired and pending jobs never picked up (every 15 min)."""
-    uow_factory = ctx["container"].infrastructure.db.uow_factory
+    uow_factory = ctx["uow_factory"]
     async with uow_factory.create(master=True) as uow:
         orphaned_ids = await uow.background_jobs.recover_orphaned(
             timeout_minutes=settings.stuck_job_timeout_minutes
@@ -56,10 +41,10 @@ async def cron_recover_orphaned_jobs(ctx: dict[str, Any]) -> None:
     for job in stale_pending:
         logger.warning("Cron: failed stale pending job %d (%s)", job.id, job.job_type)
 
-    await _fail_documents_of_dead_jobs(uow_factory, stale_pending)
+    await fail_documents_of_dead_jobs(uow_factory, stale_pending)
 
 
-async def _fail_documents_of_dead_jobs(uow_factory, dead_jobs) -> None:
+async def fail_documents_of_dead_jobs(uow_factory: UnitOfWorkFactory, dead_jobs: list[BackgroundJob]) -> None:
     """Mark documents failed whose processing job died before pickup."""
     doc_ids = [
         job.related_id for job in dead_jobs if job.job_type == "document_processing" and job.related_id
@@ -83,56 +68,9 @@ async def _fail_documents_of_dead_jobs(uow_factory, dead_jobs) -> None:
 
 async def cron_recover_stuck_processing(ctx: dict[str, Any]) -> None:
     """Fail documents stuck in 'processing' with no active background job (every 15 min)."""
-    uow_factory = ctx["container"].infrastructure.db.uow_factory
+    uow_factory = ctx["uow_factory"]
     async with uow_factory.create(master=True) as uow:
         stuck_ids = await uow.documents.mark_stuck_processing_failed()
 
     for doc_id in stuck_ids:
         logger.warning("Cron: marked stuck PROCESSING document %d as failed", doc_id)
-
-
-async def cron_bm25_rebuild(ctx: dict[str, Any]) -> None:
-    """Rebuild BM25 index from scratch (runs daily at 3:00 AM UTC).
-
-    Streams chunk rows and tokenizes bounded batches off the event loop.
-    Includes ACL metadata (visibility, owner_id, group_id) for pre-filtering.
-    """
-    if not settings.hybrid_enabled:
-        logger.debug("Cron: BM25 rebuild skipped — hybrid search disabled")
-        return
-
-    uow_factory = ctx["container"].infrastructure.db.uow_factory
-    t0 = time.monotonic()
-
-    bm25_index = BM25Index([])
-    pending_rows = []
-    total_text_bytes = 0
-    async with uow_factory.create(master=True) as uow:
-        corpus: ChunkCorpusRepository = uow.chunks
-
-        async for row in corpus.iter_all_contents_with_acl(batch_size=1000):
-            pending_rows.append(row)
-
-            if len(pending_rows) >= 250:
-                total_text_bytes += await asyncio.to_thread(add_bm25_batch, bm25_index, pending_rows)
-                pending_rows.clear()
-
-        if pending_rows:
-            total_text_bytes += await asyncio.to_thread(add_bm25_batch, bm25_index, pending_rows)
-
-    if bm25_index.n_docs == 0:
-        logger.info("Cron: BM25 rebuild — no chunks found, skipping")
-        return
-
-    BM25_REBUILD_MEMORY.set(total_text_bytes)
-
-    storage = ctx["container"].infrastructure.ml.file_storage
-    await save_bm25_index_to_s3(bm25_index, storage)
-    await publish_bm25_invalidation()
-
-    elapsed = time.monotonic() - t0
-    logger.info(
-        "Cron: BM25 rebuild completed — %d chunks indexed in %.1fs (batched loading, ACL metadata)",
-        bm25_index.n_docs,
-        elapsed,
-    )

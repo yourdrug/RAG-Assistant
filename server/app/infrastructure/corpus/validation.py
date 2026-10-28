@@ -6,7 +6,6 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import Modifier, SparseVector
 
 from domain.shared.exceptions import ValidationError
-from infrastructure.bm25.bm25_index import BM25Index
 from infrastructure.bm25.tokenizer import tokenize
 from infrastructure.corpus.snapshot import CorpusSnapshot
 from infrastructure.repositories.vector.sparse_vectors import SPARSE_VECTOR_NAME
@@ -19,16 +18,6 @@ def corpus_digest(rows) -> str:
     return hashlib.sha256(
         repr(sorted((row["id"], *(row[key] for key in ACL_FIELDS), row["content"]) for row in rows)).encode()
     ).hexdigest()
-
-
-def build_corpus_bm25(rows):
-    return BM25Index(
-        [row["content"] for row in rows],
-        hashes=[row["content_hash"] for row in rows],
-        doc_visibility=[row["visibility"] for row in rows],
-        doc_owner_id=[row["owner_id"] for row in rows],
-        doc_group_id=[row["group_id"] for row in rows],
-    )
 
 
 def validate_corpus(client, endpoint, name, identity, dimension, rows) -> CorpusSnapshot:

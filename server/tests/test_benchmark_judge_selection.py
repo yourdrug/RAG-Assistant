@@ -115,11 +115,10 @@ async def test_worker_uses_saved_judge_instead_of_main_model(monkeypatch, select
         await action()
 
     monkeypatch.setattr(runtime, "run_tracked_job", run_action)
-    container = SimpleNamespace(infrastructure=SimpleNamespace(db=SimpleNamespace(uow_factory=factory)))
 
     await worker.run_sweep_task(
         {
-            "container": container,
+            "uow_factory": factory,
             "sweep_engine": engine,
             "sweep_jobs": SweepJobService(factory, worker.publish_sweep_event, AsyncMock()),
         },

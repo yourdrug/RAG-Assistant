@@ -30,6 +30,7 @@ class RagRequest:
     started: float
     request_id: str
     model: str
+    generation_config: tuple[tuple[str, str | float], ...] = ()
 
 
 @dataclass(frozen=True)

@@ -10,6 +10,7 @@ from application.ingestion import IngestionPort
 from application.ports.rate_limit import RateLimitPolicyName
 from application.ingestion import IngestionService
 from application.jobs.service import JobService
+from application.ports.job_enqueuer import DuplicateJobError
 from domain.knowledge.enums import DocumentVisibility
 from domain.knowledge.enums import DocDomainSelection, DomainDetectionMode
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
@@ -99,15 +100,22 @@ async def ingest_documents(
         details={"docs_dir": resolved, "reset": reset, "domain": domain, "visibility": visibility.value},
     )
 
-    await job_enqueuer.enqueue_ingest(
-        resolved_dir=resolved,
-        reset=reset,
-        domain=domain.value,
-        job_id=job_id,
-        visibility=visibility.value,
-        group_id=group_id,
-        client_id=client_id,
-    )
+    try:
+        await job_enqueuer.enqueue_ingest(
+            resolved_dir=resolved,
+            reset=reset,
+            domain=domain.value,
+            job_id=job_id,
+            visibility=visibility.value,
+            group_id=group_id,
+            client_id=client_id,
+        )
+    except DuplicateJobError as exc:
+        await job_service.mark_failed(job_id, str(exc))
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception:
+        await job_service.mark_failed(job_id, "Ingestion enqueue failed")
+        raise
     mode = "RESET selected prefix (preserve existing assignments)" if reset else "APPEND (new files only)"
     response = IngestStatusResponse(status="started", mode=mode, docs_dir=resolved)
     await complete_idempotency(idempotency_store, reservation, response.model_dump(mode="json"))
@@ -165,15 +173,22 @@ async def ingest_single_file(
         details={"file": resolved, "force": force, "domain": domain, "visibility": visibility.value},
     )
 
-    await job_enqueuer.enqueue_ingest_file(
-        resolved=resolved,
-        domain=domain.value,
-        job_id=job_id,
-        visibility=visibility.value,
-        group_id=group_id,
-        client_id=client_id,
-        force=force,
-    )
+    try:
+        await job_enqueuer.enqueue_ingest_file(
+            resolved=resolved,
+            domain=domain.value,
+            job_id=job_id,
+            visibility=visibility.value,
+            group_id=group_id,
+            client_id=client_id,
+            force=force,
+        )
+    except DuplicateJobError as exc:
+        await job_service.mark_failed(job_id, str(exc))
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception:
+        await job_service.mark_failed(job_id, "Ingestion enqueue failed")
+        raise
     response = IngestStatusResponse(status="started", file=resolved, force=force)
     await complete_idempotency(idempotency_store, reservation, response.model_dump(mode="json"))
     return response

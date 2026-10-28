@@ -1,11 +1,14 @@
 """Queued deletion authorizes before enqueue and rechecks permissions in the worker."""
 
+from __future__ import annotations
+
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
 
 from application.documents import DocumentDeletionJobs
+from application.documents.delete_job import DocumentDeletionJob
 from domain.identity.roles import UserKind, UserRole
 from domain.identity.user import User
 from domain.knowledge.document import Document
@@ -100,13 +103,8 @@ async def test_worker_rechecks_current_user_and_retry_invalidates_deleted_docume
     cache = SimpleNamespace(invalidate_by_document_ids=AsyncMock())
     ctx = {
         "job_try": 3,
-        "container": SimpleNamespace(
-            infrastructure=SimpleNamespace(
-                db=SimpleNamespace(uow_factory=factory),
-                services=SimpleNamespace(cache_invalidator=cache, action_logger=Mock()),
-            ),
-            application=SimpleNamespace(document_command_service=command),
-        ),
+        "uow_factory": factory,
+        "document_deletion_job": DocumentDeletionJob(factory, command, cache, Mock()),
     }
     await delete_document(ctx, document_id=doc.id, user_id=1, job_id=42)
     if exists and (not active or role == UserRole.USER):

@@ -36,6 +36,10 @@ class JobService:
 
             return created.id
 
+    async def mark_failed(self, job_id: int, error: str) -> None:
+        async with self._uow_factory.create(master=True) as uow:
+            await uow.background_jobs.mark_failed(job_id, error)
+
     async def get(self, job_id: int) -> BackgroundJob:
         async with self._uow_factory.create() as uow:
             job = await uow.background_jobs.get_by_id(job_id)

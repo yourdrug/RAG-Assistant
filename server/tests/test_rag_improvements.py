@@ -201,7 +201,8 @@ async def test_summary_bootstrap_includes_the_history_before_it_leaves_the_windo
 @pytest.mark.asyncio
 async def test_long_summary_input_preserves_tails_and_batches_within_the_window(monkeypatch):
     from langchain_core.runnables import RunnableLambda
-    from infrastructure.ml.rag.rag_prompts import settings, update_rolling_summary
+    from config import settings
+    from infrastructure.ml.rag.rag_prompts import update_rolling_summary
 
     monkeypatch.setattr(settings, "llm_num_ctx_narrow", 1024)
     monkeypatch.setattr(settings, "llm_num_predict_narrow", 400)
@@ -256,7 +257,7 @@ async def test_late_generation_cannot_repopulate_cache_after_document_mutation(c
 
 @pytest.mark.asyncio
 async def test_new_documents_and_config_changes_make_old_answers_miss(cache_redis, monkeypatch):
-    from infrastructure.ml.rag.rag_steps import settings
+    from config import settings
 
     rag = _make_rag()
     rag = replace(rag, features=replace(rag.features, cache_enabled=True))

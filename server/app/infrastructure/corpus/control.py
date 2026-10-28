@@ -57,7 +57,6 @@ class PostgresCorpusControl:
         self.role = "cli"
         self.task: asyncio.Task[None] | None = None
         self.prepared: BoundQdrantClient | None = None
-        self.prepared_index = None
         self.error: str | None = None
         self.sync_lock = asyncio.Lock()
         self.last_sync: float | None = None
@@ -125,16 +124,15 @@ class PostgresCorpusControl:
         try:
             completed = await self.repository.has_completed_chunks()
             await asyncio.to_thread(probe_active_corpus, raw, active, completed=completed)
-            index = None
         except BaseException:
             await asyncio.to_thread(raw.close)
             raise
-        self.install(BoundQdrantClient(raw, active, self.write_guard), index)
+        self.install(BoundQdrantClient(raw, active, self.write_guard))
         await self.tick()
         self.task = asyncio.create_task(self.monitor(), name=f"corpus-control-{role}")
 
-    def install(self, client: BoundQdrantClient, index: None) -> None:
-        self.resources.install_corpus(client, index)
+    def install(self, client: BoundQdrantClient) -> None:
+        self.resources.install_corpus(client)
         corpus_snapshot.installed_corpus = client.snapshot
         # This synchronous publication is the sole owner of corpus settings.
         settings.qdrant_url = client.snapshot.endpoint
@@ -145,9 +143,7 @@ class PostgresCorpusControl:
             self.process_id, self.role, self.resources.corpus_snapshot, prepared, error
         )
 
-    async def prepare(
-        self, candidate: CorpusSnapshot, expected_digest: str
-    ) -> tuple[BoundQdrantClient, None]:
+    async def prepare(self, candidate: CorpusSnapshot, expected_digest: str) -> BoundQdrantClient:
         rows = await self.chunks()
 
         if corpus_digest(rows) != expected_digest:
@@ -168,8 +164,7 @@ class PostgresCorpusControl:
             if verified.physical_collection != candidate.physical_collection:
                 raise ValidationError("Qdrant alias changed during preparation")
 
-            index = None
-            return BoundQdrantClient(raw, candidate, self.write_guard), index
+            return BoundQdrantClient(raw, candidate, self.write_guard)
         except BaseException:
             await asyncio.to_thread(raw.close)
             raise
@@ -183,7 +178,11 @@ class PostgresCorpusControl:
 
             active = CorpusSnapshot(**state["active"])
 
-            if self.resources.corpus_snapshot.generation != active.generation or self.error:
+            if (
+                self.resources.corpus_snapshot is None
+                or self.resources.corpus_snapshot.generation != active.generation
+                or self.error
+            ):
                 # A replica may miss the entire switch, including its committing phase.
                 await self.apply_candidate({**state, "phase": CorpusPhase.COMMITTING}, active)
 
@@ -201,7 +200,7 @@ class PostgresCorpusControl:
 
                 if self.prepared is not None:
                     await asyncio.to_thread(self.prepared.close)
-                    self.prepared = self.prepared_index = None
+                    self.prepared = None
 
             await self.heartbeat(prepared_id, self.error)
             await self.recover(state)
@@ -212,29 +211,27 @@ class PostgresCorpusControl:
         try:
             current = self.resources.corpus_snapshot
 
-            if current.generation != candidate.generation:
+            if current is None or current.generation != candidate.generation:
                 if self.prepared is None or self.prepared.snapshot != candidate:
                     if self.prepared is not None:
                         await asyncio.to_thread(self.prepared.close)
 
-                    self.prepared = self.prepared_index = None
+                    self.prepared = None
 
                     if state["phase"] == CorpusPhase.COMMITTING:
                         # The durable active journal is the admission proof; the old
                         # preparation digest can be stale after subsequent ingestion.
-                        index = None
                         self.prepared = BoundQdrantClient(
                             raw_corpus_client(candidate.endpoint), candidate, self.write_guard
                         )
-                        self.prepared_index = index
                     else:
-                        self.prepared, self.prepared_index = await self.prepare(candidate, state["digest"])
+                        self.prepared = await self.prepare(candidate, state["digest"])
 
                 prepared_id = candidate.generation
 
                 if state["phase"] == CorpusPhase.COMMITTING:
-                    self.install(self.prepared, self.prepared_index)
-                    self.prepared = self.prepared_index = None
+                    self.install(self.prepared)
+                    self.prepared = None
 
                     if self.listener is not None:
                         await self.listener.synchronize()
@@ -350,6 +347,8 @@ class PostgresCorpusControl:
                 await asyncio.to_thread(raw.close)
             await guards.enter_async_context(corpus_switch_guard(self.database))
             latest_state = await self.read_state()
+            if latest_state is None:
+                raise ValidationError("Corpus journal is not initialized")
             validate_switch_version(latest_state, state, expected_generation)
             digest = corpus_digest(rows)
             await self.repository.begin_prepare(snapshot, digest, self.process_id)
@@ -362,7 +361,7 @@ class PostgresCorpusControl:
                 await self.tick()
                 state = await self.read_state()
 
-                if state["phase"] == CorpusPhase.ACTIVE:
+                if state is not None and state["phase"] == CorpusPhase.ACTIVE:
                     return await self.status()
 
                 await asyncio.sleep(0.5)

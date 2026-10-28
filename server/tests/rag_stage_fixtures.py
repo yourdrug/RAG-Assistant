@@ -1,8 +1,9 @@
 """Translate existing document fixtures into typed stage inputs."""
 
-from collections.abc import AsyncIterator
+from __future__ import annotations
+
 from types import SimpleNamespace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
 
 from application.rag.dto import (
@@ -14,9 +15,15 @@ from application.rag.dto import (
     TerminalResponse,
 )
 from domain.rag.breadth import Breadth
-from domain.rag.stream_events import StreamEvent, TextChunk
+from domain.rag.stream_events import TextChunk
 from infrastructure.ml.rag.langchain_mapping import lc_documents, lc_messages, message_values, scored_values
 from infrastructure.ml.rag.rag_steps import RagOperations
+
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+    from domain.rag.stream_events import StreamEvent
 
 
 def stage_fixture(**values: Any) -> SimpleNamespace:
@@ -91,7 +98,7 @@ def retrieval_result(state: SimpleNamespace) -> RetrievalResult:
 def build_context(
     state: SimpleNamespace, domain_keys: tuple[str, ...] | None, token_counter: Any = None
 ) -> tuple[list[Any], list[Any]]:
-    result = RagOperations(None, domain_keys=domain_keys, document_access=MagicMock()).build(
+    result = RagOperations(MagicMock(), domain_keys=domain_keys, document_access=MagicMock()).build(
         retrieval_result(state), token_counter
     )
     state.context = result
@@ -105,9 +112,9 @@ def build_context(
 async def check_cache(
     state: SimpleNamespace, domain_keys: tuple[str, ...] | None = None, document_access: Any = None
 ) -> tuple[SimpleNamespace, Any]:
-    outcome = await RagOperations(None, domain_keys=domain_keys, document_access=document_access).lookup(
-        prepared_query(state)
-    )
+    outcome = await RagOperations(
+        MagicMock(), domain_keys=domain_keys, document_access=document_access
+    ).lookup(prepared_query(state))
 
     if isinstance(outcome, TerminalResponse):
         state.terminal = True
@@ -122,7 +129,9 @@ async def check_cache(
 
 
 async def reject_ood(state: SimpleNamespace) -> tuple[SimpleNamespace, TerminalResponse | None]:
-    outcome = await RagOperations(None, document_access=MagicMock()).reject_ood(retrieval_result(state))
+    outcome = await RagOperations(MagicMock(), document_access=MagicMock()).reject_ood(
+        retrieval_result(state)
+    )
     return state, outcome
 
 

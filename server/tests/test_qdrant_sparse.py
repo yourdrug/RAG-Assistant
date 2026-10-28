@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 from langchain.schema import Document
 import pytest
 from qdrant_client import QdrantClient, models
+from qdrant_client.models import Filter
 from tenacity import wait_none
 
 from config import settings
@@ -18,6 +20,7 @@ from domain.knowledge.access_control import get_visibility_conditions
 from infrastructure.bm25.stemmer import stem_token
 from infrastructure.bm25.tokenizer import tokenize, tokenize_raw
 from infrastructure.ml.rag import rag_retrieval
+from infrastructure.ml.rag.rag_config import build_rag_settings
 from infrastructure.repositories.vector.acl import build_qdrant_filter, with_temporal_filter
 from infrastructure.repositories.vector.qdrant_vector_store_repository import QdrantVectorStoreRepository
 from infrastructure.repositories.vector.sparse_vectors import (
@@ -247,17 +250,10 @@ async def test_hybrid_limits_and_errors(monkeypatch: pytest.MonkeyPatch) -> None
     sparse = AsyncMock(return_value=[])
     monkeypatch.setattr(rag_retrieval, "qdrant_dense_search", dense)
     monkeypatch.setattr(rag_retrieval, "qdrant_sparse_search", sparse)
-    rag = SimpleNamespace(
-        hybrid_search=SimpleNamespace(
-            enabled=True,
-            bm25_fetch_k=7,
-            rrf_k=60,
-            dense_weight=1.0,
-            sparse_weight=1.0,
-        )
-    )
-    scope, clients = object(), MagicMock()
-    kwargs = {"visibility_conditions": [object()], "user_id": 5, "user_group_ids": []}
+    rag = build_rag_settings()
+    rag = replace(rag, hybrid_search=replace(rag.hybrid_search, enabled=True, bm25_fetch_k=7))
+    scope, clients = Filter(), MagicMock()
+    kwargs: dict[str, Any] = {"visibility_conditions": [object()], "user_id": 5, "user_group_ids": []}
     docs = await rag_retrieval.run_hybrid_search("query", 2, scope, rag, clients, **kwargs)
     assert len(docs) == 2
     dense.assert_awaited_once_with("query", 2, scope, clients)

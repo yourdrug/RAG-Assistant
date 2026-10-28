@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from application.ports.ml_clients import MLClientPort
+
+from typing import Any
+
 from application.benchmark import load_benchmark_questions
 from application.benchmark.sweep_dto import DenseCache, SparseCache, CandidateCache
 from infrastructure.ml.rag.langchain_mapping import chunk_value
@@ -15,21 +19,21 @@ from infrastructure.benchmark.sweep.reranking import cache_reranker_scores
 from infrastructure.benchmark.sweep.candidates import cache_candidates
 from application.benchmark.sweep_ports import ShouldCancel
 from infrastructure.ml.clients import factories
-from infrastructure.repositories.vector.acl import build_qdrant_filter
+from infrastructure.repositories.vector.acl import build_search_filter
 
 
 class SweepDataSource:
-    def __init__(self, uow_factory: UnitOfWorkFactory, ml_clients) -> None:
+    def __init__(self, uow_factory: UnitOfWorkFactory, ml_clients: MLClientPort | None) -> None:
         self._uow_factory = uow_factory
         self._ml_clients = ml_clients
 
-    async def load_questions(self, dataset: str) -> list[dict]:
+    async def load_questions(self, dataset: str) -> list[dict[str, Any]]:
         return await load_benchmark_questions(self._uow_factory, dataset)
 
     async def cache_candidates(
-        self, questions: list[dict], max_fetch_k: int
+        self, questions: list[dict[str, Any]], max_fetch_k: int
     ) -> tuple[DenseCache, SparseCache, CandidateCache]:
-        access_filter = build_qdrant_filter(
+        access_filter = build_search_filter(
             user={"id": 0, "kind": UserKind.INTERNAL, "role": UserRole.ADMIN}, group_ids=[]
         )
         dense, sparse, candidates = await cache_candidates(
@@ -55,12 +59,12 @@ class SweepDataSource:
 
     async def cache_reranker_scores(
         self,
-        questions: list[dict],
-        dense: dict,
-        sparse: dict,
-        candidates: dict,
+        questions: list[dict[str, Any]],
+        dense: dict[str, Any],
+        sparse: dict[str, Any],
+        candidates: dict[str, Any],
         should_cancel: ShouldCancel | None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         if not candidates:
             return {}
 

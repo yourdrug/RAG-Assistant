@@ -7,6 +7,10 @@ from typing import Protocol, TypedDict, Unpack
 from domain.knowledge.enums import DocumentVisibility
 
 
+class DuplicateJobError(RuntimeError):
+    """An equivalent operation is already queued or running."""
+
+
 class DocumentProcessingOptions(TypedDict, total=False):
     doc_domain: str | None
     principal_id: int | None

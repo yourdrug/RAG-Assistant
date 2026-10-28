@@ -9,28 +9,26 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from dataclasses import replace
-from functools import partial
 import json
 import logging
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
-
-from langchain_core.documents import Document
 
 from domain.identity.roles import UserKind, UserRole
 from domain.knowledge.access_control import get_visibility_conditions
 from domain.rag.context import RagContext
 from domain.shared.hashing import content_hash
-from infrastructure.bm25.persistence import load_configured_bm25_snapshot
 from infrastructure.ml.clients.client_registry import MLClientRegistry
 from infrastructure.ml.rag.rag_config import build_rag_settings
 from infrastructure.ml.rag.rag_formatting import format_docs_with_selection
 from infrastructure.ml.rag.rag_reranking import rerank_documents
 from infrastructure.ml.rag.rag_retrieval import run_hybrid_search
-from infrastructure.repositories.vector.acl import build_qdrant_filter, with_temporal_filter
-from infrastructure.storage.file_storage import LazyStorage
-
+from infrastructure.repositories.vector.acl import (
+    build_qdrant_filter,
+    with_temporal_filter,
+)
+from langchain_core.documents import Document
 
 logger = logging.getLogger("default")
 FINAL_TOP_K = 8
@@ -63,12 +61,15 @@ def record(doc: Document, score: float | None = None) -> dict[str, Any]:
 
 
 async def compare(cases: list[dict[str, Any]], user_id: int) -> dict[str, Any]:
-    storage = LazyStorage()
-    registry = MLClientRegistry(bm25_loader=partial(load_configured_bm25_snapshot, storage))
+    registry = MLClientRegistry()
     settings = build_rag_settings()
-    settings = replace(settings, retriever=replace(settings.retriever, fetch_k=30, top_k=8))
+    settings = replace(
+        settings, retriever=replace(settings.retriever, fetch_k=30, top_k=8)
+    )
     user = RagContext(user_id, UserKind.INTERNAL, UserRole.ADMIN).to_user_context()
-    conditions = get_visibility_conditions(UserKind.INTERNAL, [], for_list=False, user_role=UserRole.ADMIN)
+    conditions = get_visibility_conditions(
+        UserKind.INTERNAL, [], for_list=False, user_role=UserRole.ADMIN
+    )
     access_filter = with_temporal_filter(build_qdrant_filter(user, []), None)
     report = {
         "experiment": "manual_act_queries",
@@ -84,7 +85,10 @@ async def compare(cases: list[dict[str, Any]], user_id: int) -> dict[str, Any]:
     try:
         for case in cases:
             output = {"id": case["id"], "question": case["question"], "arms": {}}
-            for arm, queries in {"original": [case["question"]], "per_act": QUERIES[case["id"]]}.items():
+            for arm, queries in {
+                "original": [case["question"]],
+                "per_act": QUERIES[case["id"]],
+            }.items():
                 by_hash = {}
                 per_query = []
                 for query in queries:
@@ -100,7 +104,9 @@ async def compare(cases: list[dict[str, Any]], user_id: int) -> dict[str, Any]:
                         user_id=user_id,
                         user_group_ids=[],
                     )
-                    per_query.append({"query": query, "candidates": [record(d) for d in candidates]})
+                    per_query.append(
+                        {"query": query, "candidates": [record(d) for d in candidates]}
+                    )
                     for doc in candidates:
                         by_hash[content_hash(doc.page_content)] = doc
                 ranked = await rerank_documents(
@@ -111,7 +117,9 @@ async def compare(cases: list[dict[str, Any]], user_id: int) -> dict[str, Any]:
                     min_score=settings.rerank.min_score,
                     score_gap_ratio=settings.rerank.score_gap_ratio,
                 )
-                context, selected = format_docs_with_selection(ranked, max_context_tokens=6000)
+                context, selected = format_docs_with_selection(
+                    ranked, max_context_tokens=6000
+                )
                 output["arms"][arm] = {
                     "queries": per_query,
                     "merged_count": len(by_hash),
@@ -119,13 +127,12 @@ async def compare(cases: list[dict[str, Any]], user_id: int) -> dict[str, Any]:
                     "context": context,
                     "selected": [record(d, float(s)) for d, s in selected],
                 }
-                logger.info("Retrieved %s %s candidates=%s", case["id"], arm, len(by_hash))
+                logger.info(
+                    "Retrieved %s %s candidates=%s", case["id"], arm, len(by_hash)
+                )
             report["cases"].append(output)
     finally:
-        try:
-            await registry.close()
-        finally:
-            await storage.aclose()
+        await registry.close()
     return report
 
 
@@ -140,12 +147,18 @@ async def balance_saved_results(report: dict[str, Any]) -> dict[str, Any]:
             rankings = []
             for part in parts:
                 docs = [
-                    Document(page_content=d["content"], metadata=d["metadata"]) for d in part["candidates"]
+                    Document(page_content=d["content"], metadata=d["metadata"])
+                    for d in part["candidates"]
                 ]
                 ranked = await rerank_documents(
                     part["query"], docs, top_n=quota, reranker=registry.reranker()
                 )
-                rankings.append({"query": part["query"], "ranked": [record(d, float(s)) for d, s in ranked]})
+                rankings.append(
+                    {
+                        "query": part["query"],
+                        "ranked": [record(d, float(s)) for d, s in ranked],
+                    }
+                )
                 for doc, score in ranked:
                     merged.setdefault(content_hash(doc.page_content), (doc, score))
             # Fill unused/deduplicated slots from the original global ranking.
@@ -154,7 +167,9 @@ async def balance_saved_results(report: dict[str, Any]) -> dict[str, Any]:
                     break
                 doc = Document(page_content=item["content"], metadata=item["metadata"])
                 merged.setdefault(content_hash(doc.page_content), (doc, item["score"]))
-            context, selected = format_docs_with_selection(list(merged.values()), max_context_tokens=6000)
+            context, selected = format_docs_with_selection(
+                list(merged.values()), max_context_tokens=6000
+            )
             case["arms"]["per_act_balanced"] = {
                 "quota_per_part": quota,
                 "part_rankings": rankings,

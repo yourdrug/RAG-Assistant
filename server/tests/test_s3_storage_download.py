@@ -9,7 +9,7 @@ import pytest
 from test_s3_storage_async import client_harness
 from infrastructure.storage import file_storage
 from infrastructure.bm25 import persistence
-from infrastructure.ml.clients.client_registry import MLClientRegistry
+from infrastructure.bm25.snapshots import LocalBM25Snapshots
 
 
 class Body:
@@ -225,7 +225,7 @@ async def test_download_cancellation_survives_cleanup_failure(
 
     monkeypatch.setattr(file_storage.tempfile, "NamedTemporaryFile", create)
     monkeypatch.setattr(Path, "unlink", unlink)
-    registry = MLClientRegistry(bm25_loader=lambda: persistence.load_bm25_index_from_s3(storage))
+    registry = LocalBM25Snapshots(bm25_loader=lambda: persistence.load_bm25_index_from_s3(storage))
     operation = {
         "storage": lambda: storage.download_to_temp("report.pdf"),
         "loader": registry.ensure_bm25_loaded,
